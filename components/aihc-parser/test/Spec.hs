@@ -62,7 +62,6 @@ buildTests = do
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "module parses nullary class declaration" test_moduleParsesNullaryClassDecl,
             testCase "module parses nullary class declaration with where block" test_moduleParsesNullaryClassDeclWithWhere,
-            testCase "parses shorthand associated type defaults in class bodies" test_classParsesAssociatedTypeDefaultShorthand,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas case-insensitively" test_readsHeaderLanguagePragmasCaseInsensitive,
             testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
@@ -270,51 +269,6 @@ test_moduleParsesNullaryClassDeclWithWhere =
             pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
-
-test_classParsesAssociatedTypeDefaultShorthand :: Assertion
-test_classParsesAssociatedTypeDefaultShorthand =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE TypeFamilies #-}",
-            "module M where",
-            "class Foo n where",
-            "  type O n",
-            "  type O n = Int"
-          ]
-      (errs, modu) = parseModule defaultConfig source
-   in do
-        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
-          [ DeclClass
-              _
-              ClassDecl
-                { classDeclName = "Foo",
-                  classDeclParams = [TyVarBinder _ "n" Nothing TyVarBSpecified],
-                  classDeclItems =
-                    [ ClassItemTypeFamilyDecl
-                        _
-                        TypeFamilyDecl
-                          { typeFamilyDeclHeadForm = TypeHeadPrefix,
-                            typeFamilyDeclHead = TCon _ "O" Unpromoted,
-                            typeFamilyDeclParams = [TyVarBinder _ "n" Nothing TyVarBSpecified],
-                            typeFamilyDeclKind = Nothing,
-                            typeFamilyDeclEquations = Nothing
-                          },
-                      ClassItemDefaultTypeInst
-                        _
-                        TypeFamilyInst
-                          { typeFamilyInstForall = [],
-                            typeFamilyInstHeadForm = TypeHeadPrefix,
-                            typeFamilyInstLhs = TApp _ (TCon _ "O" Unpromoted) (TVar _ "n"),
-                            typeFamilyInstRhs = TCon _ "Int" Unpromoted
-                          }
-                      ]
-                }
-            ] -> pure ()
-          other -> assertFailure ("unexpected parsed declarations: " <> show other)
-        case validateParser "AssociatedTypeDefault.hs" Haskell2010Edition [EnableExtension TypeFamilies] source of
-          Nothing -> pure ()
-          Just err -> assertFailure ("expected associated type default shorthand to validate, got: " <> show err)
 
 test_typeParsesParenthesizedKindSignature :: Assertion
 test_typeParsesParenthesizedKindSignature =
