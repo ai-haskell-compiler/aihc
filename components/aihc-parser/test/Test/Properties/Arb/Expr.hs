@@ -56,7 +56,7 @@ genExprSizedWith allowTHQuotes n
       [ -- Leaf expressions
         genExprLeaf,
         -- Recursive expressions (reduce size for subexpressions)
-        uncurry EApp <$> ((,) <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half),
+        EApp <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EInfix <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
         ENegate <$> genExprSizedWith allowTHQuotes (n - 1),
         ESectionL <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
