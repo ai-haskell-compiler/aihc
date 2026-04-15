@@ -21,7 +21,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -723,10 +723,42 @@ genDeclDataFamilyInstGadt = do
 genFamilyLhsType :: Gen Type
 genFamilyLhsType = do
   familyName <- genConIdent
-  argName <- genConIdent
   let familyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
-      argCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId argName)) Unpromoted
-  pure $ TApp span0 familyCon argCon
+  TApp span0 familyCon . canonicalAppArg <$> genFamilyLhsArg
+
+genFamilyLhsArg :: Gen Type
+genFamilyLhsArg =
+  frequency
+    [ ( 3,
+        ( \name ->
+            TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
+        )
+          <$> genConIdent
+      ),
+      (1, pure (TTuple span0 Boxed Promoted [])),
+      (1, TTuple span0 Boxed Promoted <$> genFamilyPromotedTupleElems),
+      (1, TList span0 Promoted <$> genFamilyPromotedListElems)
+    ]
+
+genFamilyPromotedTupleElems :: Gen [Type]
+genFamilyPromotedTupleElems = do
+  n <- chooseInt (2, 3)
+  vectorOf n genFamilyPromotedElem
+
+genFamilyPromotedListElems :: Gen [Type]
+genFamilyPromotedListElems = do
+  n <- chooseInt (1, 3)
+  vectorOf n genFamilyPromotedElem
+
+genFamilyPromotedElem :: Gen Type
+genFamilyPromotedElem =
+  oneof
+    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
+      ( \name ->
+          TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
+      )
+        <$> genConIdent
+    ]
 
 genDeclPragma :: Gen Decl
 genDeclPragma = do
