@@ -372,7 +372,7 @@ test_moduleParsesNullaryClassDecl =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [DeclClass ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = []}] ->
             pure ()
           other ->
@@ -384,7 +384,7 @@ test_moduleParsesNullaryClassDeclWithWhere =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [DeclClass ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = [ClassItemTypeSig_ ["method"] ty]}]
             | TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations ty ->
                 pure ()
@@ -436,13 +436,13 @@ test_instanceParsesParenthesizedEmptyListType =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [ DeclClass ClassDecl {classDeclName = "C", classDeclParams = [_]},
             DeclInstance inst
             ]
               | instanceDeclClassName inst == "C",
                 [ity] <- instanceDeclTypes inst,
-                TParen (TCon "[]" Unpromoted) <- stripTypeSourceSpanAnnotations ity ->
+                TCon "[]" Unpromoted <- stripTypeSourceSpanAnnotations ity ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -452,7 +452,7 @@ test_gadtConstructorParsesKindAnnotatedArgument =
       (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs, KindSignatures, StarIsType]} src
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (GadtCon [] [] ["C"] (GadtPrefixBody [BangType {bangType = kb}] rb))]}]
             | TKindSig (TVar "x") TStar <- stripTypeSourceSpanAnnotations kb,
               TCon "T" Unpromoted <- stripTypeSourceSpanAnnotations rb ->
@@ -475,7 +475,7 @@ test_constructorFieldsPreserveSourceUnpackedness =
       (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs]} source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [ DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (PrefixCon [] [] "Prefix" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt1}])]},
             DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (InfixCon [] [] BangType {bangSourceUnpackedness = SourceNoUnpack, bangStrict = True, bangType = bt2} ":*:" BangType {bangSourceUnpackedness = NoSourceUnpackedness, bangStrict = False, bangType = bt3})]},
             DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (RecordCon [] [] "Record" [FieldDecl {fieldType = BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt4}}])]},
@@ -518,7 +518,7 @@ test_knownPragmaStillParsesAfterIgnoredUnknownPragma =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (PrefixCon [] [] "T" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt}])]}]
             | TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt ->
                 pure ()
@@ -600,7 +600,7 @@ test_infixClassHeadParses =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [ DeclFixity {},
             DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
             ] -> pure ()
@@ -675,7 +675,7 @@ test_infixTypeFamilyHeadRoundtrip =
       (errs, modu) = parseModule defaultConfig source
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
+        case map normalizeDecl (moduleDecls modu) of
           [ DeclTypeFamilyDecl
               TypeFamilyDecl
                 { typeFamilyDeclHeadForm = TypeHeadInfix,

@@ -476,8 +476,7 @@ contextItemParserWith typeParser typeAtomParser =
       do
         name <- implicitParamNameParser
         expectedTok TkReservedDoubleColon
-        ty <- typeParser
-        pure $ TImplicitParam name ty
+        TImplicitParam name <$> typeParser
         <|> do
           expectedTok TkKeywordUnderscore
           pure TWildcard
@@ -499,8 +498,7 @@ contextItemParserWith typeParser typeAtomParser =
       guard =<< hasKindSignatureAtTopLevel
       ty <- constraintTypeAppParser
       expectedTok TkReservedDoubleColon
-      kind <- kindTypeParser
-      pure $ TKindSig ty kind
+      TKindSig ty <$> kindTypeParser
 
     -- \| Lookahead: check if there's a `::` at the top bracket depth.
     -- This avoids ambiguity with the bare constraint parser.

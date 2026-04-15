@@ -166,7 +166,7 @@ prettyImportLevel level =
 -- EVar and EParen get a @$@ prefix; other expressions are bare.
 prettyDeclSpliceExpr :: Expr -> Doc ann
 prettyDeclSpliceExpr body =
-  case body of
+  case peelExprAnn body of
     EVar {} -> "$" <> prettyExpr body
     EParen {} -> "$" <> prettyExpr body
     _ -> prettyExpr body
