@@ -390,6 +390,7 @@ withSpanAnn f parser = do
       parserSpan = mergeSourceSpans startSpan endSpan
   pure $ f parserSpan out
 
+-- FIXME: Remove.
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
   ts <- fmap MP.stateInput MP.getParserState
@@ -468,27 +469,24 @@ plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
-  MP.try parenthesizedContextItemParser <|> MP.try kindSigContextItemParser <|> bareContextItemParser
+  withSpanAnn (TAnn . mkAnnotation) $
+    MP.try parenthesizedContextItemParser <|> MP.try kindSigContextItemParser <|> bareContextItemParser
   where
-    bareContextItemParser = withSpan $ do
-      tok <- lookAhead anySingle
-      case lexTokenKind tok of
-        TkImplicitParam {} -> do
-          name <- implicitParamNameParser
-          expectedTok TkReservedDoubleColon
-          ty <- typeParser
-          pure $ \span' -> typeAnnSpan span' (TImplicitParam name ty)
-        TkKeywordUnderscore -> do
-          _ <- anySingle
-          pure (`typeAnnSpan` TWildcard)
-        _ -> do
-          headTy <- constraintTypeParser
-          pure $ \span' -> typeAnnSpan span' headTy
-    parenthesizedContextItemParser = withSpan $ do
+    bareContextItemParser =
+      do
+        name <- implicitParamNameParser
+        expectedTok TkReservedDoubleColon
+        ty <- typeParser
+        pure $ TImplicitParam name ty
+        <|> do
+          expectedTok TkKeywordUnderscore
+          pure TWildcard
+        <|> constraintTypeParser
+    parenthesizedContextItemParser = do
       expectedTok TkSpecialLParen
       item <- contextItemParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
-      pure (\sp -> typeAnnSpan sp (TParen item))
+      pure (TParen item)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.
@@ -497,12 +495,12 @@ contextItemParserWith typeParser typeAtomParser =
     -- to avoid a parsing cycle: typeParser -> contextTypeParser -> constraintsParserWith
     -- -> constraintParserWith -> kindSigConstraintParser -> typeParser.
     kindSigContextItemParser :: TokParser Type
-    kindSigContextItemParser = withSpan $ do
+    kindSigContextItemParser = do
       guard =<< hasKindSignatureAtTopLevel
       ty <- constraintTypeAppParser
       expectedTok TkReservedDoubleColon
       kind <- kindTypeParser
-      pure $ \span' -> typeAnnSpan span' (TKindSig ty kind)
+      pure $ TKindSig ty kind
 
     -- \| Lookahead: check if there's a `::` at the top bracket depth.
     -- This avoids ambiguity with the bare constraint parser.
