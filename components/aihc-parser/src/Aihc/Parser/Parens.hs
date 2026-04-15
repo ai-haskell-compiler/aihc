@@ -30,6 +30,7 @@ module Aihc.Parser.Parens
 where
 
 import Aihc.Parser.Syntax
+import Control.Monad (guard)
 import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ wrapPat False p = p
 -- | Wrap a type in 'TParen' if the predicate holds, unless already wrapped.
 wrapTy :: Bool -> Type -> Type
 wrapTy True t@(TParen {}) = t
-wrapTy True t = TParen noSourceSpan t
+wrapTy True t = TParen t
 wrapTy False t = t
 
 -- ---------------------------------------------------------------------------
@@ -216,6 +217,29 @@ exprCtxPrec ctx expr =
 -- Type contexts
 -- ---------------------------------------------------------------------------
 
+-- | @TApp@ view after peeling 'TAnn' / 'TParen' to the application head.
+typeTAppView :: Type -> Maybe (Type, Type)
+typeTAppView t =
+  case peelTypeHead t of
+    TApp a b -> Just (a, b)
+    _ -> Nothing
+
+typeTConView :: Type -> Maybe (Name, TypePromotion)
+typeTConView t =
+  case peelTypeHead t of
+    TCon n p -> Just (n, p)
+    _ -> Nothing
+
+-- | @ty@ has shape @lhs \`op\` rhs@ with a symbolic type operator (modulo span
+-- and 'TParen' wrappers).
+matchSymbolicInfixTypeApp :: Type -> Maybe (Type, Type, Type, Type)
+matchSymbolicInfixTypeApp ty = do
+  (l, r) <- typeTAppView ty
+  (opAst, lhsAst) <- typeTAppView l
+  (opName, _) <- typeTConView opAst
+  guard (isSymbolicName opName && renderName opName /= "->")
+  pure (ty, opAst, lhsAst, r)
+
 data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppArg
@@ -227,12 +251,16 @@ needsTypeParens ctx ty =
   case ctx of
     CtxTypeFunArg ->
       case ty of
+        TAnn _ sub -> needsTypeParens ctx sub
+        -- Source or 'TParen' already groups this type to the left of @->@.
+        TParen {} -> False
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
         _ -> False
     CtxTypeAppArg ->
       case ty of
+        TAnn _ sub -> needsTypeParens ctx sub
         TQuasiQuote {} -> False
         TApp {} -> True
         TForall {} -> True
@@ -241,6 +269,7 @@ needsTypeParens ctx ty =
         _ -> False
     CtxTypeAtom ->
       case ty of
+        TAnn _ sub -> needsTypeParens ctx sub
         TVar {} -> False
         TCon {} -> False
         TImplicitParam {} -> False
@@ -256,6 +285,7 @@ needsTypeParens ctx ty =
         _ -> True
     CtxKindSig ->
       case ty of
+        TAnn _ sub -> needsTypeParens ctx sub
         TKindSig {} -> False
         _ -> True
 
@@ -371,9 +401,10 @@ addGuardedRhsParens arrow grhs =
 addGuardQualifierParens :: GuardArrow -> GuardQualifier -> GuardQualifier
 addGuardQualifierParens arrow qual =
   case qual of
-    GuardExpr sp expr -> GuardExpr sp (addGuardExprParens arrow expr)
-    GuardPat sp pat expr -> GuardPat sp (addPatternParens pat) (addGuardExprParens arrow expr)
-    GuardLet sp decls -> GuardLet sp (map addDeclParens decls)
+    GuardAnn ann inner -> GuardAnn ann (addGuardQualifierParens arrow inner)
+    GuardExpr expr -> GuardExpr (addGuardExprParens arrow expr)
+    GuardPat pat expr -> GuardPat (addPatternParens pat) (addGuardExprParens arrow expr)
+    GuardLet decls -> GuardLet (map addDeclParens decls)
 
 addGuardExprParens :: GuardArrow -> Expr -> Expr
 addGuardExprParens arrow expr =
@@ -420,14 +451,15 @@ addDerivingClauseParens dc =
 addDataConDeclParens :: DataConDecl -> DataConDecl
 addDataConDeclParens con =
   case con of
-    PrefixCon sp forallVars constraints name fields ->
-      PrefixCon sp forallVars (addContextConstraints constraints) name (map addBangTypeParens fields)
-    InfixCon sp forallVars constraints lhs op rhs ->
-      InfixCon sp forallVars (addContextConstraints constraints) (addBangTypeAtomParens lhs) op (addBangTypeAtomParens rhs)
-    RecordCon sp forallVars constraints name fields ->
-      RecordCon sp forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
-    GadtCon sp forallBinders constraints names body ->
-      GadtCon sp forallBinders (addContextConstraints constraints) names (addGadtBodyParens body)
+    DataConAnn ann inner -> DataConAnn ann (addDataConDeclParens inner)
+    PrefixCon forallVars constraints name fields ->
+      PrefixCon forallVars (addContextConstraints constraints) name (map addBangTypeParens fields)
+    InfixCon forallVars constraints lhs op rhs ->
+      InfixCon forallVars (addContextConstraints constraints) (addBangTypeAtomParens lhs) op (addBangTypeAtomParens rhs)
+    RecordCon forallVars constraints name fields ->
+      RecordCon forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
+    GadtCon forallBinders constraints names body ->
+      GadtCon forallBinders (addContextConstraints constraints) names (addGadtBodyParens body)
 
 addBangTypeParens :: BangType -> BangType
 addBangTypeParens bt =
@@ -497,11 +529,12 @@ addInstanceDeclParens decl =
 addInstanceItemParens :: InstanceDeclItem -> InstanceDeclItem
 addInstanceItemParens item =
   case item of
-    InstanceItemBind sp vdecl -> InstanceItemBind sp (addValueDeclParens vdecl)
-    InstanceItemTypeSig sp names ty -> InstanceItemTypeSig sp names (addTypeParens ty)
+    InstanceItemAnn ann inner -> InstanceItemAnn ann (addInstanceItemParens inner)
+    InstanceItemBind vdecl -> InstanceItemBind (addValueDeclParens vdecl)
+    InstanceItemTypeSig names ty -> InstanceItemTypeSig names (addTypeParens ty)
     InstanceItemFixity {} -> item
-    InstanceItemTypeFamilyInst sp tfi -> InstanceItemTypeFamilyInst sp (addTypeFamilyInstParens tfi)
-    InstanceItemDataFamilyInst sp dfi -> InstanceItemDataFamilyInst sp (addDataFamilyInstParens dfi)
+    InstanceItemTypeFamilyInst tfi -> InstanceItemTypeFamilyInst (addTypeFamilyInstParens tfi)
+    InstanceItemDataFamilyInst dfi -> InstanceItemDataFamilyInst (addDataFamilyInstParens dfi)
     InstanceItemPragma {} -> item
 
 addStandaloneDerivingParens :: StandaloneDerivingDecl -> StandaloneDerivingDecl
@@ -749,26 +782,29 @@ addCaseAltRhsParens rhs =
 addDoStmtParens :: DoStmt Expr -> DoStmt Expr
 addDoStmtParens stmt =
   case stmt of
-    DoBind sp pat e -> DoBind sp (addPatternParens pat) (addExprParens e)
-    DoLetDecls sp decls -> DoLetDecls sp (map addDeclParens decls)
-    DoExpr sp e -> DoExpr sp (addExprParens e)
-    DoRecStmt sp stmts -> DoRecStmt sp (map addDoStmtParens stmts)
+    DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
+    DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
+    DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
+    DoExpr e -> DoExpr (addExprParens e)
+    DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
   case stmt of
-    CompGen sp pat e -> CompGen sp (addPatternParens pat) (addExprParens e)
-    CompGuard sp e -> CompGuard sp (addExprParens e)
-    CompLet sp bindings -> CompLet sp [(n, addExprParens e) | (n, e) <- bindings]
-    CompLetDecls sp decls -> CompLetDecls sp (map addDeclParens decls)
+    CompAnn ann inner -> CompAnn ann (addCompStmtParens inner)
+    CompGen pat e -> CompGen (addPatternParens pat) (addExprParens e)
+    CompGuard e -> CompGuard (addExprParens e)
+    CompLet bindings -> CompLet [(n, addExprParens e) | (n, e) <- bindings]
+    CompLetDecls decls -> CompLetDecls (map addDeclParens decls)
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
   case seqInfo of
-    ArithSeqFrom sp fromE -> ArithSeqFrom sp (addExprGuardedParens fromE)
-    ArithSeqFromThen sp fromE thenE -> ArithSeqFromThen sp (addExprGuardedParens fromE) (addExprGuardedParens thenE)
-    ArithSeqFromTo sp fromE toE -> ArithSeqFromTo sp (addExprGuardedParens fromE) (addExprParens toE)
-    ArithSeqFromThenTo sp fromE thenE toE -> ArithSeqFromThenTo sp (addExprGuardedParens fromE) (addExprGuardedParens thenE) (addExprParens toE)
+    ArithSeqAnn ann inner -> ArithSeqAnn ann (addArithSeqParens inner)
+    ArithSeqFrom fromE -> ArithSeqFrom (addExprGuardedParens fromE)
+    ArithSeqFromThen fromE thenE -> ArithSeqFromThen (addExprGuardedParens fromE) (addExprGuardedParens thenE)
+    ArithSeqFromTo fromE toE -> ArithSeqFromTo (addExprGuardedParens fromE) (addExprParens toE)
+    ArithSeqFromThenTo fromE thenE toE -> ArithSeqFromThenTo (addExprGuardedParens fromE) (addExprGuardedParens thenE) (addExprParens toE)
 
 addExprGuardedParens :: Expr -> Expr
 addExprGuardedParens = addExprParensIn CtxGuarded
@@ -789,51 +825,65 @@ addTypeParensShared :: TypeCtx -> Int -> Type -> Type
 addTypeParensShared ctx prec ty =
   let atom = addTypeParensShared CtxTypeAtom
    in case ty of
-        TAnn sp sub -> TAnn sp (addTypeParensShared ctx prec sub)
+        TAnn ann sub -> TAnn ann (addTypeParensShared ctx prec sub)
         TVar {} -> ty
-        TCon sp name promoted
-          | isSymbolicName name, promoted /= Promoted -> TCon sp name promoted
-          | otherwise -> TCon sp name promoted
-        TImplicitParam sp name inner -> TImplicitParam sp name (addTypeParens inner)
+        TCon name promoted
+          | isSymbolicName name, promoted /= Promoted -> TCon name promoted
+          | otherwise -> TCon name promoted
+        TImplicitParam name inner -> TImplicitParam name (addTypeParens inner)
         TTypeLit {} -> ty
         TStar {} -> ty
         TQuasiQuote {} -> ty
-        TForall sp binders inner ->
-          wrapTy (prec > 0) (TForall sp (map addTyVarBinderParens binders) (atom 0 inner))
-        TApp _ (TApp _ op@(TCon _ opName _) lhs) rhs
-          | isSymbolicName opName,
-            renderName opName /= "->" ->
+        TForall binders inner ->
+          wrapTy (prec > 0) (typeAnnSpan (getSourceSpan ty) (TForall (map addTyVarBinderParens binders) (atom 0 inner)))
+        -- Before infix detection: 'matchSymbolicInfixTypeApp' peels through 'TParen'
+        -- via 'peelTypeHead'; handle explicit 'TParen' first so grouping is preserved
+        -- (constraints, @(a :+: b) -> c@, nested @(c => t)@).
+        TParen inner -> TParen (addTypeParensInner inner)
+        tyInfix
+          | Just (_whole, op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
-              TApp (appSpan ty) (TApp (innerAppSpan ty) op (atom 0 lhs)) (atom 0 rhs)
-        TApp sp f x ->
-          wrapTy (prec > 2) (TApp sp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
-        TFun sp a b ->
-          wrapTy (prec > 0) (TFun sp (addTypeIn CtxTypeFunArg a) (atom 0 b))
-        TTuple sp tupleFlavor promoted elems ->
-          TTuple sp tupleFlavor promoted (map (atom 0) elems)
-        TUnboxedSum sp elems -> TUnboxedSum sp (map (atom 0) elems)
-        TList sp promoted elems -> TList sp promoted (map (atom 0) elems)
-        -- Inside an explicit TParen, TKindSig does not need an additional
-        -- TParen wrapper since the enclosing delimiter already provides it.
-        TParen sp inner -> TParen sp (addTypeParensInner inner)
+              let innerSp = mergeSourceSpans (getSourceSpan op) (getSourceSpan lhs)
+               in typeAnnSpan
+                    (getSourceSpan tyInfix)
+                    (TApp (typeAnnSpan innerSp (TApp op (atom 0 lhs))) (atom 0 rhs))
+        TApp f x ->
+          let f' = addTypeIn CtxTypeFunArg f
+              x' = addTypeIn CtxTypeAppArg x
+           in wrapTy
+                (prec > 2)
+                ( typeAnnSpan
+                    (mergeSourceSpans (getSourceSpan f) (getSourceSpan x))
+                    (TApp f' x')
+                )
+        TFun a b ->
+          wrapTy
+            (prec > 0)
+            ( typeAnnSpan
+                (mergeSourceSpans (getSourceSpan a) (getSourceSpan b))
+                (TFun (addTypeIn CtxTypeFunArg a) (atom 0 b))
+            )
+        TTuple tupleFlavor promoted elems ->
+          TTuple tupleFlavor promoted (map (atom 0) elems)
+        TUnboxedSum elems -> TUnboxedSum (map (atom 0) elems)
+        TList promoted elems -> TList promoted (map (atom 0) elems)
         -- TKindSig always needs parens in most contexts. The parser absorbs
         -- (ty :: kind) as TKindSig directly, so the TParen is not preserved
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
         -- to produce the required parentheses.
-        TKindSig sp ty' kind ->
-          wrapTy True (TKindSig sp (atom 0 ty') (atom 0 kind))
-        TContext sp constraints inner ->
-          wrapTy (prec > 0) (TContext sp (addContextConstraints constraints) (atom 0 inner))
-        TSplice sp body -> TSplice sp (addSpliceBodyParens body)
+        TKindSig ty' kind ->
+          wrapTy
+            True
+            ( typeAnnSpan
+                (mergeSourceSpans (getSourceSpan ty') (getSourceSpan kind))
+                (TKindSig (atom 0 ty') (atom 0 kind))
+            )
+        TContext constraints inner ->
+          wrapTy
+            (prec > 0)
+            (typeAnnSpan (getSourceSpan ty) (TContext (addContextConstraints constraints) (atom 0 inner)))
+        TSplice body -> typeAnnSpan (getSourceSpan ty) (TSplice (addSpliceBodyParens body))
         TWildcard {} -> ty
-  where
-    appSpan :: Type -> SourceSpan
-    appSpan (TApp sp _ _) = sp
-    appSpan _ = noSourceSpan
-
-    innerAppSpan :: Type -> SourceSpan
-    innerAppSpan (TApp _ inner _) = appSpan inner
-    innerAppSpan _ = noSourceSpan
 
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =
@@ -845,8 +895,12 @@ addTyVarBinderParens tvb =
 addTypeParensInner :: Type -> Type
 addTypeParensInner ty =
   case ty of
-    TKindSig sp ty' kind ->
-      TKindSig sp (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+    TKindSig ty' kind ->
+      TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+    TAnn ann sub ->
+      -- An outer 'TParen' already supplies grouping; do not run 'TKindSig' through
+      -- 'wrapTy' in 'addTypeParensShared' (which would nest a second 'TParen').
+      TAnn ann (addTypeParensInner sub)
     _ -> addTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process constraint types in a TContext.
@@ -869,10 +923,12 @@ addContextConstraintSingle = addTypeParens
 addContextConstraintMulti :: Type -> Type
 addContextConstraintMulti ty =
   case ty of
-    TKindSig sp ty' kind ->
+    TAnn ann sub ->
+      TAnn ann (addContextConstraintMulti sub)
+    TKindSig ty' kind ->
       -- In multi-constraint context, TKindSig doesn't need wrapping
-      TKindSig sp (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
-    TParen _ inner@(TKindSig {}) ->
+      TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+    TParen inner@(TKindSig {}) ->
       -- Strip TParen around TKindSig in multi-constraint context
       addContextConstraintMulti inner
     _ -> addTypeParens ty
@@ -996,32 +1052,34 @@ addPatternAtomStrictParens pat =
 addCmdParens :: Cmd -> Cmd
 addCmdParens cmd =
   case cmd of
-    CmdArrApp sp lhs appTy rhs ->
-      CmdArrApp sp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
-    CmdInfix sp l op r ->
-      CmdInfix sp (addCmdParens l) op (addCmdParens r)
-    CmdDo sp stmts ->
-      CmdDo sp (map addCmdDoStmtParens stmts)
-    CmdIf sp cond yes no ->
-      CmdIf sp (addExprParens cond) (addCmdParens yes) (addCmdParens no)
-    CmdCase sp scrut alts ->
-      CmdCase sp (addExprParens scrut) (map addCmdCaseAltParens alts)
-    CmdLet sp decls body ->
-      CmdLet sp (map addDeclParens decls) (addCmdParens body)
-    CmdLam sp pats body ->
-      CmdLam sp (map addPatternAtomParens pats) (addCmdParens body)
-    CmdApp sp c e ->
-      CmdApp sp (addCmdParens c) (addExprParensPrec 3 e)
-    CmdPar sp c ->
-      CmdPar sp (addCmdParens c)
+    CmdAnn ann inner -> CmdAnn ann (addCmdParens inner)
+    CmdArrApp lhs appTy rhs ->
+      CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
+    CmdInfix l op r ->
+      CmdInfix (addCmdParens l) op (addCmdParens r)
+    CmdDo stmts ->
+      CmdDo (map addCmdDoStmtParens stmts)
+    CmdIf cond yes no ->
+      CmdIf (addExprParens cond) (addCmdParens yes) (addCmdParens no)
+    CmdCase scrut alts ->
+      CmdCase (addExprParens scrut) (map addCmdCaseAltParens alts)
+    CmdLet decls body ->
+      CmdLet (map addDeclParens decls) (addCmdParens body)
+    CmdLam pats body ->
+      CmdLam (map addPatternAtomParens pats) (addCmdParens body)
+    CmdApp c e ->
+      CmdApp (addCmdParens c) (addExprParensPrec 3 e)
+    CmdPar c ->
+      CmdPar (addCmdParens c)
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
   case stmt of
-    DoBind sp pat cmd' -> DoBind sp (addPatternParens pat) (addCmdParens cmd')
-    DoLetDecls sp decls -> DoLetDecls sp (map addDeclParens decls)
-    DoExpr sp cmd' -> DoExpr sp (addCmdParens cmd')
-    DoRecStmt sp stmts -> DoRecStmt sp (map addCmdDoStmtParens stmts)
+    DoAnn ann inner -> DoAnn ann (addCmdDoStmtParens inner)
+    DoBind pat cmd' -> DoBind (addPatternParens pat) (addCmdParens cmd')
+    DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
+    DoExpr cmd' -> DoExpr (addCmdParens cmd')
+    DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
 
 addCmdCaseAltParens :: CmdCaseAlt -> CmdCaseAlt
 addCmdCaseAltParens alt =

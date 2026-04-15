@@ -45,7 +45,7 @@ cmdParser = do
       case mArrowTail of
         Just (appType, rhs) ->
           let span' = mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs)
-           in cmdInfixChain (CmdArrApp span' expr appType rhs)
+           in cmdInfixChain (cmdAnnSpan span' (CmdArrApp expr appType rhs))
         Nothing ->
           fail "expected arrow command (-< or -<<)"
 
@@ -78,14 +78,15 @@ cmdInfixChain lhs = do
       )
   pure (foldl buildCmdInfix lhs rest)
   where
-    buildCmdInfix l (op, r) = CmdInfix (mergeSourceSpans (getSourceSpan l) (getSourceSpan r)) l op r
+    buildCmdInfix l (op, r) =
+      cmdAnnSpan (mergeSourceSpans (getSourceSpan l) (getSourceSpan r)) (CmdInfix l op r)
 
 -- | Parse a command do-block: @do { cstmt ; ... }@
 cmdDoParser :: TokParser Cmd
 cmdDoParser = withSpan $ do
   expectedTok TkKeywordDo
   stmts <- bracedSemiSep1 cmdStmtParser
-  pure (`CmdDo` stmts)
+  pure (\span' -> cmdAnnSpan span' (CmdDo stmts))
 
 -- | Parse a command if-then-else: @if exp then cmd else cmd@
 cmdIfParser :: TokParser Cmd
@@ -98,7 +99,7 @@ cmdIfParser = withSpan $ do
   skipSemicolons
   expectedTok TkKeywordElse
   no <- region "while parsing else branch" cmdParser
-  pure (\span' -> CmdIf span' cond yes no)
+  pure (\span' -> cmdAnnSpan span' (CmdIf cond yes no))
 
 -- | Parse a command case: @case exp of { calts }@
 cmdCaseParser :: TokParser Cmd
@@ -107,7 +108,7 @@ cmdCaseParser = withSpan $ do
   scrut <- region "while parsing case scrutinee" exprParser
   expectedTok TkKeywordOf
   alts <- bracedSemiSep1 cmdCaseAltParser
-  pure (\span' -> CmdCase span' scrut alts)
+  pure (\span' -> cmdAnnSpan span' (CmdCase scrut alts))
 
 cmdCaseAltParser :: TokParser CmdCaseAlt
 cmdCaseAltParser = withSpan $ do
@@ -122,7 +123,7 @@ cmdLetParser = withSpan $ do
   decls <- parseLetDeclsParser
   expectedTok TkKeywordIn
   body <- cmdParser
-  pure (\span' -> CmdLet span' decls body)
+  pure (\span' -> cmdAnnSpan span' (CmdLet decls body))
 
 -- | Parse a command lambda: @\\pats -> cmd@
 cmdLamParser :: TokParser Cmd
@@ -131,13 +132,13 @@ cmdLamParser = withSpan $ do
   pats <- MP.some simplePatternParser
   expectedTok TkReservedRightArrow
   body <- cmdParser
-  pure (\span' -> CmdLam span' pats body)
+  pure (\span' -> cmdAnnSpan span' (CmdLam pats body))
 
 -- | Parse a parenthesised command: @( cmd )@
 cmdParenParser :: TokParser Cmd
 cmdParenParser = withSpan $ do
   cmd <- parens cmdParser
-  pure (`CmdPar` cmd)
+  pure (\span' -> cmdAnnSpan span' (CmdPar cmd))
 
 -- | Parse a do-statement in command context (arrow do).
 cmdStmtParser :: TokParser (DoStmt Cmd)
@@ -176,14 +177,17 @@ cmdBindOrBodyStmtParser = withSpan $ do
     Just () -> do
       pat <- liftCheck (checkPattern expr)
       rhs <- region "while parsing '<-' binding" cmdParser
-      pure (\span' -> DoBind span' pat rhs)
+      pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
     Nothing -> do
       -- No bind arrow: this is a body statement.  Check for arrow tail.
       mArrTail <- MP.optional cmdArrTailParser
       case mArrTail of
         Just (appType, rhs) ->
-          let cmd = CmdArrApp (mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs)) expr appType rhs
-           in pure (`DoExpr` cmd)
+          let cmd =
+                cmdAnnSpan
+                  (mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs))
+                  (CmdArrApp expr appType rhs)
+           in pure (\span' -> doStmtAnnSpan span' (DoExpr cmd))
         Nothing ->
           fail "expected arrow command (-< or -<<) in do statement"
 
@@ -194,23 +198,23 @@ cmdBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   cmd <- region "while parsing '<-' binding" cmdParser
-  pure (\span' -> DoBind span' pat cmd)
+  pure (\span' -> doStmtAnnSpan span' (DoBind pat cmd))
 
 -- | Parse a body-only command statement (fallback from cmdStmtParser).
 cmdBodyStmtParser :: TokParser (DoStmt Cmd)
 cmdBodyStmtParser = withSpan $ do
   cmd <- cmdParser
-  pure (`DoExpr` cmd)
+  pure (\span' -> doStmtAnnSpan span' (DoExpr cmd))
 
 -- | Parse a command let-statement: @let decls@
 cmdLetStmtParser :: TokParser (DoStmt Cmd)
 cmdLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
-  pure (`DoLetDecls` decls)
+  pure (\span' -> doStmtAnnSpan span' (DoLetDecls decls))
 
 -- | Parse a command rec-statement: @rec { cstmts }@
 cmdRecStmtParser :: TokParser (DoStmt Cmd)
 cmdRecStmtParser = withSpan $ do
   expectedTok TkKeywordRec
   stmts <- bracedSemiSep1 cmdStmtParser
-  pure (`DoRecStmt` stmts)
+  pure (\span' -> doStmtAnnSpan span' (DoRecStmt stmts))

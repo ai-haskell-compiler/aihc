@@ -27,7 +27,6 @@ import Test.Properties.Arb.Identifiers
     showHex,
     shrinkFloat,
     shrinkIdent,
-    span0,
   )
 import Test.QuickCheck
 
@@ -47,43 +46,42 @@ genPatternWith allowAll depth =
   where
     allowRecursive = depth > 0
     nextDepth = depth - 1
-    pat0 = patternAnnSpan span0
     leafGenerators =
-      [ pat0 . PVar <$> genPatternUnqualVarName,
-        pure (pat0 PWildcard),
-        pat0 . PLit <$> genLiteral,
-        (\q b -> pat0 (PQuasiQuote q b)) <$> genQuoterName <*> genQuasiBody,
-        pat0 . PNegLit <$> genNumericLiteral,
-        pat0 . PSplice <$> genPatSpliceBody,
-        pat0 . PTuple Boxed <$> elements [[], [pat0 (PVar (mkUnqualifiedName NameVarId "x")), pat0 PWildcard]],
-        pat0 . PTuple Unboxed <$> elements [[], [pat0 (PVar (mkUnqualifiedName NameVarId "x"))], [pat0 (PVar (mkUnqualifiedName NameVarId "x")), pat0 PWildcard]],
-        pure (pat0 (PList [])),
-        (\name -> pat0 (PCon name [])) <$> genPatternConAstName,
+      [ PVar <$> genPatternUnqualVarName,
+        pure PWildcard,
+        PLit <$> genLiteral,
+        PQuasiQuote <$> genQuoterName <*> genQuasiBody,
+        PNegLit <$> genNumericLiteral,
+        PSplice <$> genPatSpliceBody,
+        PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
+        PTuple Unboxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x")], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
+        pure (PList []),
+        (`PCon` []) <$> genPatternConAstName,
         genUnboxedSumPatternWith allowAll 0
       ]
     recursiveGenerators =
-      [ pat0 . PTuple Boxed <$> genTupleElemsWith allowAll nextDepth
+      [ PTuple Boxed <$> genTupleElemsWith allowAll nextDepth
       | allowRecursive
       ]
-        <> [pat0 . PTuple Unboxed <$> genUnboxedTupleElemsWith allowAll nextDepth | allowRecursive]
-        <> [pat0 . PList <$> genListElemsWith allowAll nextDepth | allowRecursive]
+        <> [PTuple Unboxed <$> genUnboxedTupleElemsWith allowAll nextDepth | allowRecursive]
+        <> [PList <$> genListElemsWith allowAll nextDepth | allowRecursive]
         <> [genPatternConWith allowAll depth | allowRecursive]
         <> [genPatternInfixWith allowAll depth | allowRecursive]
-        <> [pat0 . PParen <$> genPatternWith allowAll nextDepth | allowRecursive]
-        <> [(\name fields -> pat0 (PRecord name fields False)) <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth | allowRecursive]
+        <> [PParen <$> genPatternWith allowAll nextDepth | allowRecursive]
+        <> [(\name fields -> PRecord name fields False) <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth | allowRecursive]
         <> [genPatternTypeSigWith allowAll depth | allowRecursive]
         <> [genUnboxedSumPatternWith allowAll nextDepth | allowRecursive]
-        <> [(\e p -> pat0 (PView e p)) <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [(\name p -> pat0 (PAs name p)) <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
-        <> [pat0 . PStrict . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [pat0 . PIrrefutable . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PView <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PAs <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
+        <> [PStrict . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PIrrefutable . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
 
 genPatternConWith :: Bool -> Int -> Gen Pattern
 genPatternConWith allowView depth = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
   args <- vectorOf argCount (canonicalPatternAtom <$> genPatternWith allowView (depth - 1))
-  pure (patternAnnSpan span0 (PCon con args))
+  pure (PCon con args)
 
 genPatternTypeSigWith :: Bool -> Int -> Gen Pattern
 genPatternTypeSigWith allowAll depth = do
@@ -92,17 +90,18 @@ genPatternTypeSigWith allowAll depth = do
   -- prints as (-66 :: T) which the parser interprets as negation applied to
   -- (66 :: T) rather than a type signature on -66.
   inner <- wrapNegLit <$> genPatternWith allowAll (depth - 1)
-  patternAnnSpan span0 . PParen . patternAnnSpan span0 . PTypeSig inner <$> genPatternType
+  PParen . PTypeSig inner <$> genPatternType
   where
-    wrapNegLit p@(PNegLit {}) = patternAnnSpan span0 (PParen p)
+    -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
+    wrapNegLit p@(PNegLit {}) = PParen p
     wrapNegLit p = p
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type
 genPatternType =
   oneof
-    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
-      (\name -> TCon span0 name Unpromoted) <$> genPatternConAstName
+    [ TVar . mkUnqualifiedName NameVarId <$> genIdent,
+      (`TCon` Unpromoted) <$> genPatternConAstName
     ]
 
 genPatternInfixWith :: Bool -> Int -> Gen Pattern
@@ -114,7 +113,7 @@ genPatternInfixWith allowAll depth = do
   lhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
   op <- genConOperatorName
   rhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
-  pure (patternAnnSpan span0 (PInfix lhs op rhs))
+  pure (PInfix lhs op rhs)
 
 genTupleElemsWith :: Bool -> Int -> Gen [Pattern]
 genTupleElemsWith allowView depth = do
@@ -137,7 +136,7 @@ genUnboxedSumPatternWith allowView depth = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
   inner <- genPatternWith allowView depth
-  pure (patternAnnSpan span0 (PUnboxedSum altIdx arity inner))
+  pure (PUnboxedSum altIdx arity inner)
 
 genListElemsWith :: Bool -> Int -> Gen [Pattern]
 genListElemsWith allowView depth = do
@@ -173,8 +172,8 @@ genNumericLiteral =
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
   oneof
-    [ exprAnnSpan span0 . EVar <$> genPatternVarName,
-      exprAnnSpan span0 . EParen . exprAnnSpan span0 . EVar <$> genPatternVarName
+    [ EVar <$> genPatternVarName,
+      EParen . EVar <$> genPatternVarName
     ]
 
 genConOperatorName :: Gen Name
@@ -189,11 +188,12 @@ genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
 genPatternConAstName :: Gen Name
 genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
 
+-- FIXME: This should be removed.
 canonicalPatternAtom :: Pattern -> Pattern
 canonicalPatternAtom pat =
   if isPatternAtom pat
     then pat
-    else patternAnnSpan span0 (PParen pat)
+    else PParen pat
 
 isPatternAtom :: Pattern -> Bool
 isPatternAtom pat =
@@ -214,70 +214,70 @@ isPatternAtom pat =
     _ -> False
 
 mkIntLiteral :: Integer -> Literal
-mkIntLiteral value = literalAnnSpan span0 (LitInt value (T.pack (show value)))
+mkIntLiteral value = LitInt value (T.pack (show value))
 
 mkHexLiteral :: Integer -> Literal
-mkHexLiteral value = literalAnnSpan span0 (LitIntBase value ("0x" <> T.pack (showHex value)))
+mkHexLiteral value = LitIntBase value ("0x" <> T.pack (showHex value))
 
 mkFloatLiteral :: Double -> Literal
-mkFloatLiteral value = literalAnnSpan span0 (LitFloat value (T.pack (show value)))
+mkFloatLiteral value = LitFloat value (T.pack (show value))
 
 mkCharLiteral :: Char -> Literal
-mkCharLiteral value = literalAnnSpan span0 (LitChar value (T.pack (show value)))
+mkCharLiteral value = LitChar value (T.pack (show value))
 
 mkStringLiteral :: Text -> Literal
-mkStringLiteral value = literalAnnSpan span0 (LitString value (T.pack (show (T.unpack value))))
+mkStringLiteral value = LitString value (T.pack (show (T.unpack value)))
 
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar name ->
-      [patternAnnSpan span0 (PVar (name {unqualifiedNameText = shrunk})) | shrunk <- shrinkIdent (unqualifiedNameText name)]
+      [PVar (name {unqualifiedNameText = shrunk}) | shrunk <- shrinkIdent (unqualifiedNameText name)]
     PWildcard -> []
     PLit lit ->
-      [patternAnnSpan span0 (PLit shrunk) | shrunk <- shrinkLiteral lit]
+      [PLit shrunk | shrunk <- shrinkLiteral lit]
     PQuasiQuote quoter body ->
-      [patternAnnSpan span0 (PQuasiQuote q body) | q <- shrinkQuoterName quoter]
-        <> [patternAnnSpan span0 (PQuasiQuote quoter b) | b <- map T.pack (shrink (T.unpack body))]
+      [PQuasiQuote q body | q <- shrinkQuoterName quoter]
+        <> [PQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
     PTuple tupleFlavor elems ->
       shrinkPatternTupleElems tupleFlavor elems
     PList elems ->
-      [patternAnnSpan span0 (PList elems') | elems' <- shrinkList shrinkPattern elems]
+      [PList elems' | elems' <- shrinkList shrinkPattern elems]
     PCon con args ->
-      [patternAnnSpan span0 (PCon con []) | not (null args)]
-        <> [patternAnnSpan span0 (PCon con args') | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
+      [PCon con [] | not (null args)]
+        <> [PCon con args' | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
     PInfix lhs op rhs ->
       [canonicalPatternAtom lhs, canonicalPatternAtom rhs]
-        <> [patternAnnSpan span0 (PInfix (canonicalPatternAtom lhs') op (canonicalPatternAtom rhs)) | lhs' <- shrinkPattern lhs]
-        <> [patternAnnSpan span0 (PInfix (canonicalPatternAtom lhs) op (canonicalPatternAtom rhs')) | rhs' <- shrinkPattern rhs]
+        <> [PInfix (canonicalPatternAtom lhs') op (canonicalPatternAtom rhs) | lhs' <- shrinkPattern lhs]
+        <> [PInfix (canonicalPatternAtom lhs) op (canonicalPatternAtom rhs') | rhs' <- shrinkPattern rhs]
     PView expr inner ->
       [inner]
-        <> [patternAnnSpan span0 (PView expr' inner) | expr' <- shrinkExpr expr]
-        <> [patternAnnSpan span0 (PView expr inner') | inner' <- shrinkPattern inner]
+        <> [PView expr' inner | expr' <- shrinkExpr expr]
+        <> [PView expr inner' | inner' <- shrinkPattern inner]
     PAs name inner ->
       [canonicalPatternAtom inner]
-        <> [patternAnnSpan span0 (PAs name' (canonicalPatternAtom inner)) | name' <- shrinkIdent name]
-        <> [patternAnnSpan span0 (PAs name (canonicalPatternAtom inner')) | inner' <- shrinkPattern inner]
+        <> [PAs name' (canonicalPatternAtom inner) | name' <- shrinkIdent name]
+        <> [PAs name (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
     PStrict inner ->
       [canonicalPatternAtom inner]
-        <> [patternAnnSpan span0 (PStrict (canonicalPatternAtom inner')) | inner' <- shrinkPattern inner]
+        <> [PStrict (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
     PIrrefutable inner ->
       [canonicalPatternAtom inner]
-        <> [patternAnnSpan span0 (PIrrefutable (canonicalPatternAtom inner')) | inner' <- shrinkPattern inner]
+        <> [PIrrefutable (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
     PNegLit lit ->
-      [patternAnnSpan span0 (PLit lit)]
-        <> [patternAnnSpan span0 (PNegLit shrunk) | shrunk <- shrinkNumericLiteral lit]
+      [PLit lit]
+        <> [PNegLit shrunk | shrunk <- shrinkNumericLiteral lit]
     PParen inner ->
-      [inner] <> [patternAnnSpan span0 (PParen inner') | inner' <- shrinkPattern inner]
+      [inner] <> [PParen inner' | inner' <- shrinkPattern inner]
     PUnboxedSum altIdx arity inner ->
-      [patternAnnSpan span0 (PUnboxedSum altIdx arity inner') | inner' <- shrinkPattern inner]
+      [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
     PRecord con fields _ ->
-      [patternAnnSpan span0 (PRecord con [] False) | not (null fields)]
-        <> [patternAnnSpan span0 (PRecord con fields' False) | fields' <- shrinkList shrinkField fields]
+      [PRecord con [] False | not (null fields)]
+        <> [PRecord con fields' False | fields' <- shrinkList shrinkField fields]
     PTypeSig inner ty ->
       [inner]
-        <> [patternAnnSpan span0 (PTypeSig inner' ty) | inner' <- shrinkPattern inner]
+        <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
     PSplice {} ->
       []
 
@@ -286,9 +286,9 @@ shrinkPatternTupleElems tupleFlavor elems =
   [ candidate
   | shrunk <- shrinkList shrinkPattern elems,
     candidate <- case shrunk of
-      [] -> [patternAnnSpan span0 (PTuple tupleFlavor [])]
-      [_] -> [patternAnnSpan span0 (PTuple tupleFlavor shrunk) | tupleFlavor == Unboxed]
-      _ -> [patternAnnSpan span0 (PTuple tupleFlavor shrunk)]
+      [] -> [PTuple tupleFlavor []]
+      [_] -> [PTuple tupleFlavor shrunk | tupleFlavor == Unboxed]
+      _ -> [PTuple tupleFlavor shrunk]
   ]
 
 shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
@@ -299,15 +299,15 @@ shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =
   case peelLiteralAnn lit of
     LitInt value _ -> [mkIntLiteral shrunk | shrunk <- shrinkIntegral value]
-    LitIntHash value _ -> [literalAnnSpan span0 (LitIntHash shrunk (T.pack (show shrunk) <> "#")) | shrunk <- shrinkIntegral value]
+    LitIntHash value _ -> [LitIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     LitIntBase value _ -> [mkHexLiteral shrunk | shrunk <- shrinkIntegral value, shrunk >= 0]
-    LitIntBaseHash value _ -> [literalAnnSpan span0 (LitIntBaseHash shrunk ("0x" <> T.pack (showHex shrunk) <> "#")) | shrunk <- shrinkIntegral value, shrunk >= 0]
+    LitIntBaseHash value _ -> [LitIntBaseHash shrunk ("0x" <> T.pack (showHex shrunk) <> "#") | shrunk <- shrinkIntegral value, shrunk >= 0]
     LitFloat value _ -> [mkFloatLiteral shrunk | shrunk <- shrinkFloat value, shrunk >= 0]
-    LitFloatHash value _ -> [literalAnnSpan span0 (LitFloatHash shrunk (T.pack (show shrunk) <> "#")) | shrunk <- shrinkFloat value, shrunk >= 0]
+    LitFloatHash value _ -> [LitFloatHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value, shrunk >= 0]
     LitChar c _ -> [mkCharLiteral shrunk | shrunk <- shrink c]
-    LitCharHash c _ -> [literalAnnSpan span0 (LitCharHash shrunk (T.pack (show shrunk) <> "#")) | shrunk <- shrink c]
+    LitCharHash c _ -> [LitCharHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrink c]
     LitString txt _ -> [mkStringLiteral (T.pack shrunk) | shrunk <- shrink (T.unpack txt)]
-    LitStringHash txt _ -> [literalAnnSpan span0 (LitStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#")) | shrunk <- shrink (T.unpack txt)]
+    LitStringHash txt _ -> [LitStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack txt)]
     LitAnn {} -> error "unreachable"
 
 shrinkNumericLiteral :: Literal -> [Literal]

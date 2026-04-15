@@ -459,15 +459,15 @@ instanceTypeFamilyInstParser = withSpan $ do
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
-    InstanceItemTypeFamilyInst
-      span'
-      TypeFamilyInst
-        { typeFamilyInstSpan = span',
-          typeFamilyInstForall = forallBinders,
-          typeFamilyInstHeadForm = headForm,
-          typeFamilyInstLhs = lhs,
-          typeFamilyInstRhs = rhs
-        }
+    instanceItemAnnSpan span' $
+      InstanceItemTypeFamilyInst
+        TypeFamilyInst
+          { typeFamilyInstSpan = span',
+            typeFamilyInstForall = forallBinders,
+            typeFamilyInstHeadForm = headForm,
+            typeFamilyInstLhs = lhs,
+            typeFamilyInstRhs = rhs
+          }
 
 -- | Parse @data HeadType = Cons | ...@ (or GADT style) inside an instance body.
 instanceDataFamilyInstParser :: TokParser InstanceDeclItem
@@ -476,16 +476,16 @@ instanceDataFamilyInstParser = withSpan $ do
   head' <- typeAppParser
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
-    InstanceItemDataFamilyInst
-      span'
-      DataFamilyInst
-        { dataFamilyInstSpan = span',
-          dataFamilyInstIsNewtype = False,
-          dataFamilyInstForall = [],
-          dataFamilyInstHead = head',
-          dataFamilyInstConstructors = constructors,
-          dataFamilyInstDeriving = derivingClauses
-        }
+    instanceItemAnnSpan span' $
+      InstanceItemDataFamilyInst
+        DataFamilyInst
+          { dataFamilyInstSpan = span',
+            dataFamilyInstIsNewtype = False,
+            dataFamilyInstForall = [],
+            dataFamilyInstHead = head',
+            dataFamilyInstConstructors = constructors,
+            dataFamilyInstDeriving = derivingClauses
+          }
   where
     traditionalStyleDataDecl = do
       constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
@@ -505,16 +505,16 @@ instanceNewtypeFamilyInstParser = withSpan $ do
   constructor <- newtypeConDeclParser
   derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
-    InstanceItemDataFamilyInst
-      span'
-      DataFamilyInst
-        { dataFamilyInstSpan = span',
-          dataFamilyInstIsNewtype = True,
-          dataFamilyInstForall = [],
-          dataFamilyInstHead = head',
-          dataFamilyInstConstructors = [constructor],
-          dataFamilyInstDeriving = derivingClauses
-        }
+    instanceItemAnnSpan span' $
+      InstanceItemDataFamilyInst
+        DataFamilyInst
+          { dataFamilyInstSpan = span',
+            dataFamilyInstIsNewtype = True,
+            dataFamilyInstForall = [],
+            dataFamilyInstHead = head',
+            dataFamilyInstConstructors = [constructor],
+            dataFamilyInstDeriving = derivingClauses
+          }
 
 -- ---------------------------------------------------------------------------
 
@@ -774,25 +774,25 @@ ordinaryInstanceDeclItemParser =
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpan $ do
   pragma <- anyPragmaParser "pragma declaration"
-  pure (`InstanceItemPragma` pragma)
+  pure (\span' -> instanceItemAnnSpan span' (InstanceItemPragma pragma))
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
-  pure (\span' -> InstanceItemTypeSig span' names ty)
+  pure (\span' -> instanceItemAnnSpan span' (InstanceItemTypeSig names ty))
 
 instanceFixityItemParser :: TokParser InstanceDeclItem
 instanceFixityItemParser = withSpan $ do
   (assoc, prec, mNamespace, ops) <- fixityDeclPartsParser
-  pure (\span' -> InstanceItemFixity span' assoc mNamespace prec ops)
+  pure (\span' -> instanceItemAnnSpan span' (InstanceItemFixity assoc mNamespace prec ops))
 
 instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
-  pure (\span' -> InstanceItemBind span' (functionBindValue headForm name pats rhs))
+  pure (\span' -> instanceItemAnnSpan span' (InstanceItemBind (functionBindValue headForm name pats rhs)))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -926,7 +926,7 @@ typeDataConDeclParser = withSpan $ do
   -- Use typeAtomParser to parse individual type atoms as separate fields,
   -- rather than typeAppParser which would treat them as type application.
   args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False False <$> typeAtomParser
-  pure $ \span' -> PrefixCon span' [] context conName args
+  pure $ \span' -> DataConAnn (mkAnnotation span') (PrefixCon [] context conName args)
 
 -- | Parse GADT-style constructors for type data (after `where`)
 -- No labelled fields, no strictness annotations
@@ -952,7 +952,7 @@ gadtTypeDataConDeclParser = withSpan $ do
   context <- contextPrefixDispatchList
   -- Parse the body (prefix only for type data - no record style)
   body <- gadtTypeDataBodyParser
-  pure $ \span' -> GadtCon span' forallBinders context names body
+  pure $ \span' -> DataConAnn (mkAnnotation span') (GadtCon forallBinders context names body)
 
 -- | Parse the body of a GADT constructor for type data
 -- Only prefix style allowed (no records), no strictness annotations
@@ -1041,7 +1041,7 @@ gadtConDeclParser = withSpan $ do
   context <- contextPrefixDispatchList
   -- Parse the body (record or prefix style)
   body <- gadtBodyParser
-  pure $ \span' -> GadtCon span' forallBinders context names body
+  pure $ \span' -> DataConAnn (mkAnnotation span') (GadtCon forallBinders context names body)
 
 -- | Parse constructor name for GADT - can be regular or operator in parens
 gadtConNameParser :: TokParser UnqualifiedName
@@ -1155,7 +1155,7 @@ typeFamilyHeadParser =
         name <-
           constructorNameParser
             <|> (qualifyName Nothing <$> parens operatorUnqualifiedNameParser)
-        pure (\span' -> TCon span' name Unpromoted)
+        pure (\span' -> typeAnnSpan span' (TCon name Unpromoted))
       params <- MP.many typeParamParser
       pure (TypeHeadPrefix, headType, params)
 
@@ -1163,11 +1163,21 @@ typeFamilyHeadParser =
       lhs <- typeParamParser
       op <- typeFamilyOperatorParser
       rhs <- typeParamParser
-      let lhsType = TVar (tyVarBinderSpan lhs) (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
-          rhsType = TVar (tyVarBinderSpan rhs) (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
+      let lhsType =
+            typeAnnSpan (tyVarBinderSpan lhs) (TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs)))
+          rhsType =
+            typeAnnSpan (tyVarBinderSpan rhs) (TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs)))
       headType <- withSpan $ do
         pure $ \span' ->
-          TApp span' (TApp span' (TCon span' op Unpromoted) lhsType) rhsType
+          typeAnnSpan
+            span'
+            ( TApp
+                ( typeAnnSpan
+                    span'
+                    (TApp (typeAnnSpan span' (TCon op Unpromoted)) lhsType)
+                )
+                rhsType
+            )
       pure (TypeHeadInfix, headType, [lhs, rhs])
 
 -- | Parse an operator for type family declarations.
@@ -1203,11 +1213,11 @@ typeFamilyLhsParser = do
 
     buildInfixType left ((op, promoted), right) =
       let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
-          opType = TCon span' op promoted
-       in TApp span' (TApp span' opType left) right
+          opType = typeAnnSpan span' (TCon op promoted)
+       in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType left)) right)
 
     buildTypeApp left right =
-      TApp (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) left right
+      typeAnnSpan (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) (TApp left right)
 
 classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
 classHeadParser =
@@ -1292,14 +1302,14 @@ dataConRecordOrPrefixParser forallVars context = do
   name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
   mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
   case mRecordFields of
-    Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
+    Just fields -> pure (\span' -> DataConAnn (mkAnnotation span') (RecordCon forallVars context name fields))
     Nothing -> do
       args <- MP.many constructorArgParser
       -- Ensure we're not leaving a constructor operator unconsumed.
       -- If there's a constructor operator next, this is actually an infix form
       -- and we should backtrack to let dataConInfixParser handle it.
       MP.notFollowedBy constructorOperatorParser
-      pure (\span' -> PrefixCon span' forallVars context name args)
+      pure (\span' -> DataConAnn (mkAnnotation span') (PrefixCon forallVars context name args))
   where
     -- Layout may inject a virtual ';' before a newline-started record field block.
     -- Accept it as part of the constructor declaration.
@@ -1312,7 +1322,7 @@ dataConInfixParser forallVars context = do
   lhs <- infixConstructorArgParser
   op <- constructorOperatorUnqualifiedNameParser <|> backtickConstructorUnqualifiedParser
   rhs <- infixConstructorArgParser
-  pure (\span' -> InfixCon span' forallVars context lhs op rhs)
+  pure (\span' -> DataConAnn (mkAnnotation span') (InfixCon forallVars context lhs op rhs))
   where
     backtickConstructorUnqualifiedParser = do
       expectedTok TkSpecialBacktick

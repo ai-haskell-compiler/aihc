@@ -48,11 +48,13 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     ValueDecl (..),
     fromAnnotation,
+    guardAnnSpan,
     mkAnnotation,
     mkQualifiedName,
     mkUnqualifiedName,
     moduleName,
     peelDeclAnn,
+    peelGuardQualifierAnn,
     peelPatternAnn,
     renderUnqualifiedName,
   )
@@ -237,21 +239,22 @@ resolveGuardQualifiers scope nextLocal ambient qualifiers =
 
 resolveGuardQualifier :: Scope -> Int -> SourceSpan -> GuardQualifier -> (Int, Scope, GuardQualifier)
 resolveGuardQualifier scope nextLocal ambient qualifier =
-  case qualifier of
-    GuardExpr span' expr ->
-      let here = effectiveResolutionSpan ambient span'
-          (nextLocal', expr') = resolveExprAt scope nextLocal here expr
-       in (nextLocal', scope, GuardExpr span' expr')
-    GuardPat span' pat expr ->
-      let here = effectiveResolutionSpan ambient span'
-          (nextLocal', expr') = resolveExprAt scope nextLocal here expr
-          (nextLocal'', patScope, pat') = bindPattern scope here nextLocal' pat
-       in (nextLocal'', unionScope patScope scope, GuardPat span' pat' expr')
-    GuardLet span' decls ->
-      let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-          scoped = unionScope localScope scope
-          (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
-       in (nextLocal'', scoped, GuardLet span' decls')
+  let here = effectiveResolutionSpan ambient (getSourceSpan qualifier)
+      wrap = guardAnnSpan (getSourceSpan qualifier)
+   in case peelGuardQualifierAnn qualifier of
+        GuardExpr expr ->
+          let (nextLocal', expr') = resolveExprAt scope nextLocal here expr
+           in (nextLocal', scope, wrap (GuardExpr expr'))
+        GuardPat pat expr ->
+          let (nextLocal', expr') = resolveExprAt scope nextLocal here expr
+              (nextLocal'', patScope, pat') = bindPattern scope here nextLocal' pat
+           in (nextLocal'', unionScope patScope scope, wrap (GuardPat pat' expr'))
+        GuardLet decls ->
+          let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
+              scoped = unionScope localScope scope
+              (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
+           in (nextLocal'', scoped, wrap (GuardLet decls'))
+        GuardAnn _ _ -> (nextLocal, scope, qualifier)
 
 resolveExprAt :: Scope -> Int -> SourceSpan -> Expr -> (Int, Expr)
 resolveExprAt scope nextLocal lastSeen expr =
@@ -443,14 +446,15 @@ resolveDataDecl scope dataDecl =
 resolveDataConDecl :: Scope -> DataConDecl -> DataConDecl
 resolveDataConDecl scope dataConDecl =
   case dataConDecl of
-    PrefixCon span' forallVars context name bangTypes ->
-      PrefixCon span' forallVars (map (resolveType scope) context) name (map resolveBangType bangTypes)
-    InfixCon span' forallVars context lhs name rhs ->
-      InfixCon span' forallVars (map (resolveType scope) context) (resolveBangType lhs) name (resolveBangType rhs)
-    RecordCon span' forallVars context name fields ->
-      RecordCon span' forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
-    GadtCon span' forallVars context names body ->
-      GadtCon span' forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
+    DataConAnn ann inner -> DataConAnn ann (resolveDataConDecl scope inner)
+    PrefixCon forallVars context name bangTypes ->
+      PrefixCon forallVars (map (resolveType scope) context) name (map resolveBangType bangTypes)
+    InfixCon forallVars context lhs name rhs ->
+      InfixCon forallVars (map (resolveType scope) context) (resolveBangType lhs) name (resolveBangType rhs)
+    RecordCon forallVars context name fields ->
+      RecordCon forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
+    GadtCon forallVars context names body ->
+      GadtCon forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
   where
     resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
     resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
@@ -473,50 +477,50 @@ resolveTypeAt :: Scope -> SourceSpan -> Type -> Type
 resolveTypeAt scope lastSeen ty =
   case ty of
     TAnn ann inner -> resolveTypeAt scope (pushSpanFromAnn lastSeen ann) inner
-    TVar span' name ->
-      let sp = effectiveResolutionSpan lastSeen span'
-          resolvedTyVar = TVar span' name
+    TVar name ->
+      let sp = lastSeen
+          resolvedTyVar = TVar name
        in maybe resolvedTyVar (`annotateType` resolvedTyVar) (resolveScopedTypeVarAnnotation scope sp name)
-    TCon span' name promoted ->
-      let sp = effectiveResolutionSpan lastSeen span'
+    TCon name promoted ->
+      let sp = lastSeen
        in annotateType
             (ResolutionAnnotation sp (nameText name) ResolutionNamespaceType (resolveTypeName scope name))
-            (TCon span' name promoted)
-    TImplicitParam span' name inner ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TImplicitParam span' name (resolveTypeAt scope here inner)
-    TForall span' binders inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+            (TCon name promoted)
+    TImplicitParam name inner ->
+      let here = lastSeen
+       in TImplicitParam name (resolveTypeAt scope here inner)
+    TForall binders inner ->
+      let here = lastSeen
           (binderScope, binders') = bindTyVarBinders scope binders
           scoped = unionScope binderScope scope
-       in TForall span' binders' (resolveTypeAt scoped here inner)
-    TApp span' left right ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TApp span' (resolveTypeAt scope here left) (resolveTypeAt scope here right)
-    TFun span' left right ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TFun span' (resolveTypeAt scope here left) (resolveTypeAt scope here right)
-    TTuple span' flavor promoted items ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TTuple span' flavor promoted (map (resolveTypeAt scope here) items)
-    TUnboxedSum span' items ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TUnboxedSum span' (map (resolveTypeAt scope here) items)
-    TList span' promoted items ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TList span' promoted (map (resolveTypeAt scope here) items)
-    TParen span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TParen span' (resolveTypeAt scope here inner)
-    TKindSig span' inner kind ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TKindSig span' (resolveTypeAt scope here inner) (resolveTypeAt scope here kind)
-    TContext span' constraints inner ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TContext span' (map (resolveTypeAt scope here) constraints) (resolveTypeAt scope here inner)
-    TSplice span' expr ->
-      let here = effectiveResolutionSpan lastSeen span'
-       in TSplice span' (snd (resolveExprAt scope 0 here expr))
+       in TForall binders' (resolveTypeAt scoped here inner)
+    TApp left right ->
+      let here = lastSeen
+       in TApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+    TFun left right ->
+      let here = lastSeen
+       in TFun (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+    TTuple flavor promoted items ->
+      let here = lastSeen
+       in TTuple flavor promoted (map (resolveTypeAt scope here) items)
+    TUnboxedSum items ->
+      let here = lastSeen
+       in TUnboxedSum (map (resolveTypeAt scope here) items)
+    TList promoted items ->
+      let here = lastSeen
+       in TList promoted (map (resolveTypeAt scope here) items)
+    TParen inner ->
+      let here = lastSeen
+       in TParen (resolveTypeAt scope here inner)
+    TKindSig inner kind ->
+      let here = lastSeen
+       in TKindSig (resolveTypeAt scope here inner) (resolveTypeAt scope here kind)
+    TContext constraints inner ->
+      let here = lastSeen
+       in TContext (map (resolveTypeAt scope here) constraints) (resolveTypeAt scope here inner)
+    TSplice expr ->
+      let here = lastSeen
+       in TSplice (snd (resolveExprAt scope 0 here expr))
     _ -> ty
 
 resolveScopedTypeVarAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> Maybe ResolutionAnnotation
@@ -528,17 +532,20 @@ resolveScopedTypeVarAnnotation scope span' name =
         _ -> Just (ResolutionAnnotation span' rendered ResolutionNamespaceType resolved)
 
 resolveTypeSignature :: Scope -> Int -> Type -> (Int, Scope, Type)
-resolveTypeSignature scope nextLocal ty =
+resolveTypeSignature scope nextLocal = resolveTypeSignatureAt scope nextLocal NoSourceSpan
+
+-- | Like 'resolveTypeSignature' but threads an ambient span from peeled 'TAnn' wrappers.
+resolveTypeSignatureAt :: Scope -> Int -> SourceSpan -> Type -> (Int, Scope, Type)
+resolveTypeSignatureAt scope nextLocal ambient ty =
   case ty of
     -- Type signatures may carry span-only 'TAnn' wrappers (see 'typeAnnSpan'); peel
     -- them so we still allocate scoped type variables and advance 'nextLocal'.
-    TAnn _ann sub -> resolveTypeSignature scope nextLocal sub
-    TForall span' binders inner ->
+    TAnn ann sub -> resolveTypeSignatureAt scope nextLocal (pushSpanFromAnn ambient ann) sub
+    TForall binders inner ->
       let (nextLocal', binderScope, binders') = bindTyVarBindersWithIds scope nextLocal binders
           scoped = unionScope binderScope scope
-          here = effectiveResolutionSpan NoSourceSpan span'
-       in (nextLocal', binderScope, TForall span' binders' (resolveTypeAt scoped here inner))
-    _ -> (nextLocal, emptyScope, resolveType scope ty)
+       in (nextLocal', binderScope, TForall binders' (resolveTypeAt scoped ambient inner))
+    _ -> (nextLocal, emptyScope, resolveTypeAt scope ambient ty)
 
 bindTyVarBinders :: Scope -> [TyVarBinder] -> (Scope, [TyVarBinder])
 bindTyVarBinders scope binders =
@@ -653,17 +660,21 @@ resolveTopLevelTerm scope name = lookupTerm (renderUnqualifiedName name) scope
 
 dataConAnnotation :: Scope -> DataConDecl -> ResolutionAnnotation
 dataConAnnotation scope dataConDecl =
-  case dataConDecl of
-    PrefixCon span' _ _ name _ ->
-      topLevelNameAnnotation scope span' name
-    RecordCon span' _ _ name _ ->
-      topLevelNameAnnotation scope span' name
-    InfixCon span' _ _ _ name _ ->
-      topLevelNameAnnotation scope span' name
-    GadtCon span' _ _ names _ ->
-      case names of
-        name : _ -> topLevelNameAnnotation scope span' name
-        [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
+  let span' = getSourceSpan dataConDecl
+      go d =
+        case d of
+          DataConAnn _ inner -> go inner
+          PrefixCon _ _ name _ ->
+            topLevelNameAnnotation scope span' name
+          RecordCon _ _ name _ ->
+            topLevelNameAnnotation scope span' name
+          InfixCon _ _ _ name _ ->
+            topLevelNameAnnotation scope span' name
+          GadtCon _ _ names _ ->
+            case names of
+              name : _ -> topLevelNameAnnotation scope span' name
+              [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
+   in go dataConDecl
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
 topLevelNameAnnotation scope span' name =
@@ -717,11 +728,14 @@ dataDeclConstructorNames = concatMap dataConDeclNames
 
 dataConDeclNames :: DataConDecl -> [UnqualifiedName]
 dataConDeclNames dataConDecl =
-  case dataConDecl of
-    PrefixCon _ _ _ name _ -> [name]
-    InfixCon _ _ _ _ name _ -> [name]
-    RecordCon _ _ _ name _ -> [name]
-    GadtCon _ _ _ names _ -> names
+  let go d =
+        case d of
+          DataConAnn _ inner -> go inner
+          PrefixCon _ _ name _ -> [name]
+          InfixCon _ _ _ name _ -> [name]
+          RecordCon _ _ name _ -> [name]
+          GadtCon _ _ names _ -> names
+   in go dataConDecl
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =

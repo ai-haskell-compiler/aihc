@@ -130,7 +130,8 @@ registerDataDecl dd = do
 -- Returns the binding result for the constructor.
 registerDataCon :: TcType -> DataConDecl -> TcM TcBindingResult
 registerDataCon resTy con = case con of
-  PrefixCon _sp _docs _ctx conName args ->
+  DataConAnn _ inner -> registerDataCon resTy inner
+  PrefixCon _docs _ctx conName args ->
     let name = unqualifiedNameText conName
         -- For each argument type, create a function type.
         -- For MVP, we ignore the actual types and treat nullary
@@ -142,12 +143,12 @@ registerDataCon resTy con = case con of
      in do
           extendTermEnvPermanent name (TcIdBinder name scheme)
           pure (TcBindingResult name resTy)
-  InfixCon _sp _docs _ctx _lhs conName _rhs ->
+  InfixCon _docs _ctx _lhs conName _rhs ->
     let name = unqualifiedNameText conName
      in do
           extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
           pure (TcBindingResult name resTy)
-  RecordCon _sp _docs _ctx conName _fields ->
+  RecordCon _docs _ctx conName _fields ->
     let name = unqualifiedNameText conName
      in do
           extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))

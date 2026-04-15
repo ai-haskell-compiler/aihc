@@ -6,6 +6,7 @@ module Test.Properties.ExprHelpers
   ( normalizeExpr,
     normalizeDecl,
     span0,
+    stripTypeSourceSpanAnnotations,
   )
 where
 
@@ -66,7 +67,7 @@ normalizeExpr expr =
     ETHTypeNameQuote name -> exprAnnSpan span0 (ETHTypeNameQuote name)
     ETHSplice body -> exprAnnSpan span0 (ETHSplice (normalizeExpr body))
     ETHTypedSplice body -> exprAnnSpan span0 (ETHTypedSplice (normalizeExpr body))
-    EProc pat body -> exprAnnSpan span0 (EProc (normalizePattern pat) body)
+    EProc pat body -> exprAnnSpan span0 (EProc (normalizePattern pat) (normalizeCmd body))
     EAnn ann sub
       | Just _ <- fromAnnotation @SourceSpan ann -> normalizeExpr sub
       | otherwise -> EAnn ann (normalizeExpr sub)
@@ -95,33 +96,36 @@ normalizeGuardedRhs grhs =
 
 normalizeGuardQualifier :: GuardQualifier -> GuardQualifier
 normalizeGuardQualifier qual =
-  case qual of
-    GuardExpr _ e -> GuardExpr span0 (normalizeExpr e)
-    GuardPat _ pat e -> GuardPat span0 (normalizePattern pat) (normalizeExpr e)
-    GuardLet _ decls -> GuardLet span0 (map normalizeDecl decls)
+  guardAnnSpan span0 (normalizeGuardQualifierInner qual)
+
+normalizeGuardQualifierInner :: GuardQualifier -> GuardQualifier
+normalizeGuardQualifierInner (GuardAnn _ inner) = normalizeGuardQualifierInner inner
+normalizeGuardQualifierInner (GuardExpr e) = GuardExpr (normalizeExpr e)
+normalizeGuardQualifierInner (GuardPat pat e) = GuardPat (normalizePattern pat) (normalizeExpr e)
+normalizeGuardQualifierInner (GuardLet decls) = GuardLet (map normalizeDecl decls)
 
 normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
     PAnn _ sub -> normalizePattern sub
-    PVar name -> patternAnnSpan span0 (PVar name)
-    PWildcard -> patternAnnSpan span0 PWildcard
-    PLit lit -> patternAnnSpan span0 (PLit (normalizeLiteral lit))
-    PQuasiQuote quoter body -> patternAnnSpan span0 (PQuasiQuote quoter body)
-    PTuple tupleFlavor elems -> patternAnnSpan span0 (PTuple tupleFlavor (map normalizePattern elems))
-    PList elems -> patternAnnSpan span0 (PList (map normalizePattern elems))
-    PCon con args -> patternAnnSpan span0 (PCon con (map normalizePattern args))
-    PInfix lhs op rhs -> patternAnnSpan span0 (PInfix (normalizePattern lhs) op (normalizePattern rhs))
-    PView e inner -> patternAnnSpan span0 (PView (normalizeExpr e) (normalizePattern inner))
-    PAs name inner -> patternAnnSpan span0 (PAs name (normalizeUnaryPatInner inner))
-    PStrict inner -> patternAnnSpan span0 (PStrict (normalizeUnaryPatInner inner))
-    PIrrefutable inner -> patternAnnSpan span0 (PIrrefutable (normalizeUnaryPatInner inner))
-    PNegLit lit -> patternAnnSpan span0 (PNegLit (normalizeLiteral lit))
-    PParen inner -> patternAnnSpan span0 (PParen (normalizePattern inner))
-    PUnboxedSum altIdx arity inner -> patternAnnSpan span0 (PUnboxedSum altIdx arity (normalizePattern inner))
-    PRecord con fields rwc -> patternAnnSpan span0 (PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc)
-    PTypeSig inner ty -> patternAnnSpan span0 (PTypeSig (normalizePattern inner) (normalizeType ty))
-    PSplice body -> patternAnnSpan span0 (PSplice (normalizeExpr body))
+    PVar name -> PVar name
+    PWildcard -> PWildcard
+    PLit lit -> PLit (normalizeLiteral lit)
+    PQuasiQuote quoter body -> PQuasiQuote quoter body
+    PTuple tupleFlavor elems -> PTuple tupleFlavor (map normalizePattern elems)
+    PList elems -> PList (map normalizePattern elems)
+    PCon con args -> PCon con (map normalizePattern args)
+    PInfix lhs op rhs -> PInfix (normalizePattern lhs) op (normalizePattern rhs)
+    PView e inner -> PView (normalizeExpr e) (normalizePattern inner)
+    PAs name inner -> PAs name (normalizeUnaryPatInner inner)
+    PStrict inner -> PStrict (normalizeUnaryPatInner inner)
+    PIrrefutable inner -> PIrrefutable (normalizeUnaryPatInner inner)
+    PNegLit lit -> PNegLit (normalizeLiteral lit)
+    PParen inner -> PParen (normalizePattern inner)
+    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
+    PRecord con fields rwc -> PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc
+    PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeType ty)
+    PSplice body -> PSplice (normalizeExpr body)
 
 -- | Normalize a pattern in lambda argument position.
 -- The pretty-printer uses prettyLambdaPatternAtom for lambda patterns, which
@@ -142,16 +146,16 @@ normalizeUnaryPatInner = stripWrappedParenIf isUnaryWrappedPattern
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case peelLiteralAnn lit of
-    LitInt value repr -> literalAnnSpan span0 (LitInt value repr)
-    LitIntHash value repr -> literalAnnSpan span0 (LitIntHash value repr)
-    LitIntBase value repr -> literalAnnSpan span0 (LitIntBase value repr)
-    LitIntBaseHash value repr -> literalAnnSpan span0 (LitIntBaseHash value repr)
-    LitFloat value repr -> literalAnnSpan span0 (LitFloat value repr)
-    LitFloatHash value repr -> literalAnnSpan span0 (LitFloatHash value repr)
-    LitChar value repr -> literalAnnSpan span0 (LitChar value repr)
-    LitCharHash value repr -> literalAnnSpan span0 (LitCharHash value repr)
-    LitString value repr -> literalAnnSpan span0 (LitString value repr)
-    LitStringHash value repr -> literalAnnSpan span0 (LitStringHash value repr)
+    LitInt value repr -> LitInt value repr
+    LitIntHash value repr -> LitIntHash value repr
+    LitIntBase value repr -> LitIntBase value repr
+    LitIntBaseHash value repr -> LitIntBaseHash value repr
+    LitFloat value repr -> LitFloat value repr
+    LitFloatHash value repr -> LitFloatHash value repr
+    LitChar value repr -> LitChar value repr
+    LitCharHash value repr -> LitCharHash value repr
+    LitString value repr -> LitString value repr
+    LitStringHash value repr -> LitStringHash value repr
     LitAnn {} -> error "unreachable"
 
 normalizeDecl :: Decl -> Decl
@@ -186,7 +190,7 @@ normalizeValueDecl vdecl =
   case vdecl of
     PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
     FunctionBind _ name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
-      PatternBind span0 (patternAnnSpan span0 (PVar name)) (normalizeRhs rhs)
+      PatternBind span0 (PVar name) (normalizeRhs rhs)
     FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match
@@ -245,49 +249,119 @@ isFunctionHeadWrappedPattern = \case
 
 normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
-  case stmt of
-    DoBind _ pat e -> DoBind span0 (normalizePattern pat) (normalizeExpr e)
-    DoLetDecls _ decls -> DoLetDecls span0 (map normalizeDecl decls)
-    DoExpr _ e -> DoExpr span0 (normalizeExpr e)
-    DoRecStmt _ stmts -> DoRecStmt span0 (map normalizeDoStmt stmts)
+  doStmtAnnSpan span0 (normalizeDoStmtInner stmt)
+
+normalizeDoStmtInner :: DoStmt Expr -> DoStmt Expr
+normalizeDoStmtInner (DoAnn _ inner) = normalizeDoStmtInner inner
+normalizeDoStmtInner (DoBind pat e) = DoBind (normalizePattern pat) (normalizeExpr e)
+normalizeDoStmtInner (DoLetDecls decls) = DoLetDecls (map normalizeDecl decls)
+normalizeDoStmtInner (DoExpr e) = DoExpr (normalizeExpr e)
+normalizeDoStmtInner (DoRecStmt stmts) = DoRecStmt (map normalizeDoStmt stmts)
+
+normalizeCmd :: Cmd -> Cmd
+normalizeCmd cmd =
+  cmdAnnSpan span0 (normalizeCmdInner cmd)
+
+normalizeCmdInner :: Cmd -> Cmd
+normalizeCmdInner (CmdAnn _ inner) = normalizeCmdInner inner
+normalizeCmdInner (CmdArrApp lhs appTy rhs) = CmdArrApp (normalizeExpr lhs) appTy (normalizeExpr rhs)
+normalizeCmdInner (CmdInfix l op r) = CmdInfix (normalizeCmd l) op (normalizeCmd r)
+normalizeCmdInner (CmdDo stmts) = CmdDo (map normalizeDoCmdStmt stmts)
+normalizeCmdInner (CmdIf cond yes no) = CmdIf (normalizeExpr cond) (normalizeCmd yes) (normalizeCmd no)
+normalizeCmdInner (CmdCase scrut alts) = CmdCase (normalizeExpr scrut) (map normalizeCmdCaseAlt alts)
+normalizeCmdInner (CmdLet decls body) = CmdLet (map normalizeDecl decls) (normalizeCmd body)
+normalizeCmdInner (CmdLam pats body) = CmdLam (map normalizePattern pats) (normalizeCmd body)
+normalizeCmdInner (CmdApp c e) = CmdApp (normalizeCmd c) (normalizeExpr e)
+normalizeCmdInner (CmdPar c) = CmdPar (normalizeCmd c)
+
+normalizeDoCmdStmt :: DoStmt Cmd -> DoStmt Cmd
+normalizeDoCmdStmt stmt =
+  doStmtAnnSpan span0 (normalizeDoCmdStmtInner stmt)
+
+normalizeDoCmdStmtInner :: DoStmt Cmd -> DoStmt Cmd
+normalizeDoCmdStmtInner (DoAnn _ inner) = normalizeDoCmdStmtInner inner
+normalizeDoCmdStmtInner (DoBind pat c) = DoBind (normalizePattern pat) (normalizeCmd c)
+normalizeDoCmdStmtInner (DoLetDecls decls) = DoLetDecls (map normalizeDecl decls)
+normalizeDoCmdStmtInner (DoExpr c) = DoExpr (normalizeCmd c)
+normalizeDoCmdStmtInner (DoRecStmt stmts) = DoRecStmt (map normalizeDoCmdStmt stmts)
+
+normalizeCmdCaseAlt :: CmdCaseAlt -> CmdCaseAlt
+normalizeCmdCaseAlt alt =
+  alt
+    { cmdCaseAltSpan = span0,
+      cmdCaseAltPat = normalizePattern (cmdCaseAltPat alt),
+      cmdCaseAltBody = normalizeCmd (cmdCaseAltBody alt)
+    }
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =
-  case stmt of
-    CompGen _ pat e -> CompGen span0 (normalizePattern pat) (normalizeExpr e)
-    CompGuard _ e -> CompGuard span0 (normalizeExpr e)
-    CompLet _ bindings -> CompLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
-    CompLetDecls _ decls -> CompLetDecls span0 (map normalizeDecl decls)
+  compAnnSpan span0 (normalizeCompStmtInner stmt)
+
+normalizeCompStmtInner :: CompStmt -> CompStmt
+normalizeCompStmtInner (CompAnn _ inner) = normalizeCompStmtInner inner
+normalizeCompStmtInner (CompGen pat e) = CompGen (normalizePattern pat) (normalizeExpr e)
+normalizeCompStmtInner (CompGuard e) = CompGuard (normalizeExpr e)
+normalizeCompStmtInner (CompLet bindings) = CompLet [(name, normalizeExpr e) | (name, e) <- bindings]
+normalizeCompStmtInner (CompLetDecls decls) = CompLetDecls (map normalizeDecl decls)
 
 normalizeArithSeq :: ArithSeq -> ArithSeq
 normalizeArithSeq seq' =
-  case seq' of
-    ArithSeqFrom _ from -> ArithSeqFrom span0 (normalizeExpr from)
-    ArithSeqFromThen _ from thenE -> ArithSeqFromThen span0 (normalizeExpr from) (normalizeExpr thenE)
-    ArithSeqFromTo _ from to -> ArithSeqFromTo span0 (normalizeExpr from) (normalizeExpr to)
-    ArithSeqFromThenTo _ from thenE to -> ArithSeqFromThenTo span0 (normalizeExpr from) (normalizeExpr thenE) (normalizeExpr to)
+  arithSeqAnnSpan span0 (normalizeArithSeqInner seq')
+
+normalizeArithSeqInner :: ArithSeq -> ArithSeq
+normalizeArithSeqInner (ArithSeqAnn _ inner) = normalizeArithSeqInner inner
+normalizeArithSeqInner (ArithSeqFrom from) = ArithSeqFrom (normalizeExpr from)
+normalizeArithSeqInner (ArithSeqFromThen from thenE) = ArithSeqFromThen (normalizeExpr from) (normalizeExpr thenE)
+normalizeArithSeqInner (ArithSeqFromTo from to) = ArithSeqFromTo (normalizeExpr from) (normalizeExpr to)
+normalizeArithSeqInner (ArithSeqFromThenTo from thenE to) = ArithSeqFromThenTo (normalizeExpr from) (normalizeExpr thenE) (normalizeExpr to)
+
+-- | Recursively remove span-only 'TAnn' wrappers (see 'typeAnnSpan') so tests
+-- can pattern-match on structural 'Type' shape.
+stripTypeSourceSpanAnnotations :: Type -> Type
+stripTypeSourceSpanAnnotations ty =
+  case ty of
+    TAnn ann sub
+      | Just _ <- fromAnnotation @SourceSpan ann -> stripTypeSourceSpanAnnotations sub
+      | otherwise -> TAnn ann (stripTypeSourceSpanAnnotations sub)
+    TVar x -> TVar x
+    TCon n p -> TCon n p
+    TImplicitParam nm t -> TImplicitParam nm (stripTypeSourceSpanAnnotations t)
+    TTypeLit l -> TTypeLit l
+    TStar -> TStar
+    TQuasiQuote q b -> TQuasiQuote q b
+    TForall bs t -> TForall bs (stripTypeSourceSpanAnnotations t)
+    TApp a b -> TApp (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
+    TFun a b -> TFun (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
+    TTuple fl pr es -> TTuple fl pr (map stripTypeSourceSpanAnnotations es)
+    TUnboxedSum es -> TUnboxedSum (map stripTypeSourceSpanAnnotations es)
+    TList pr es -> TList pr (map stripTypeSourceSpanAnnotations es)
+    TParen t -> TParen (stripTypeSourceSpanAnnotations t)
+    TKindSig a b -> TKindSig (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
+    TContext cs t -> TContext (map stripTypeSourceSpanAnnotations cs) (stripTypeSourceSpanAnnotations t)
+    TSplice e -> TSplice e
+    TWildcard -> TWildcard
 
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
-    TVar _ name -> TVar span0 name
-    TCon _ name promoted -> TCon span0 name promoted
-    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeType inner)
-    TTypeLit _ lit -> TTypeLit span0 lit
-    TStar _ -> TStar span0
-    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinder binders) (normalizeType inner)
-    TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
-    TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
-    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
+    TVar name -> TVar name
+    TCon name promoted -> TCon name promoted
+    TImplicitParam name inner -> TImplicitParam name (normalizeType inner)
+    TTypeLit lit -> TTypeLit lit
+    TStar -> TStar
+    TQuasiQuote quoter body -> TQuasiQuote quoter body
+    TForall binders inner -> TForall (map normalizeTyVarBinder binders) (normalizeType inner)
+    TApp fn arg -> TApp (normalizeType fn) (normalizeType arg)
+    TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
+    TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
+    TList promoted elems -> TList promoted (map normalizeType elems)
     -- Remove redundant parentheses from types
-    TParen _ inner -> normalizeType inner
-    TKindSig _ inner kind -> TKindSig span0 (normalizeType inner) (normalizeType kind)
-    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
-    TSplice _ body -> TSplice span0 (normalizeExpr body)
-    TWildcard _ -> TWildcard span0
+    TParen inner -> normalizeType inner
+    TKindSig inner kind -> TKindSig (normalizeType inner) (normalizeType kind)
+    TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
+    TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)
+    TSplice body -> TSplice (normalizeExpr body)
+    TWildcard -> TWildcard
     TAnn ann sub
       | Just _ <- fromAnnotation @SourceSpan ann -> normalizeType sub
       | otherwise -> TAnn ann (normalizeType sub)
@@ -364,15 +438,19 @@ normalizeNewtypeDecl decl =
 
 normalizeDataConDecl :: DataConDecl -> DataConDecl
 normalizeDataConDecl con =
-  case con of
-    PrefixCon _ forallVars constraints name fields ->
-      PrefixCon span0 forallVars (map normalizeType constraints) name (map normalizeBangType fields)
-    InfixCon _ forallVars constraints lhs op rhs ->
-      InfixCon span0 forallVars (map normalizeType constraints) (normalizeBangType lhs) op (normalizeBangType rhs)
-    RecordCon _ forallVars constraints name fields ->
-      RecordCon span0 forallVars (map normalizeType constraints) name (map normalizeFieldDecl fields)
-    GadtCon _ forallBinders constraints names body ->
-      GadtCon span0 (map normalizeTyVarBinder forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
+  dataConAnnSpan span0 (normalizeDataConInner con)
+
+-- | Normalize constructor shape; peels nested 'DataConAnn'.
+normalizeDataConInner :: DataConDecl -> DataConDecl
+normalizeDataConInner (DataConAnn _ inner) = normalizeDataConInner inner
+normalizeDataConInner (PrefixCon forallVars constraints name fields) =
+  PrefixCon forallVars (map normalizeType constraints) name (map normalizeBangType fields)
+normalizeDataConInner (InfixCon forallVars constraints lhs op rhs) =
+  InfixCon forallVars (map normalizeType constraints) (normalizeBangType lhs) op (normalizeBangType rhs)
+normalizeDataConInner (RecordCon forallVars constraints name fields) =
+  RecordCon forallVars (map normalizeType constraints) name (map normalizeFieldDecl fields)
+normalizeDataConInner (GadtCon forallBinders constraints names body) =
+  GadtCon (map normalizeTyVarBinder forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
 
 normalizeBangType :: BangType -> BangType
 normalizeBangType bt =
@@ -426,14 +504,14 @@ normalizeClassDeclItem :: ClassDeclItem -> ClassDeclItem
 normalizeClassDeclItem item =
   case item of
     ClassItemAnn _ sub -> normalizeClassDeclItem sub
-    ClassItemTypeSig names ty -> classItemAnnSpan span0 (ClassItemTypeSig names (normalizeType ty))
-    ClassItemDefaultSig name ty -> classItemAnnSpan span0 (ClassItemDefaultSig name (normalizeType ty))
-    ClassItemFixity assoc mNs prec ops -> classItemAnnSpan span0 (ClassItemFixity assoc mNs prec ops)
-    ClassItemDefault vdecl -> classItemAnnSpan span0 (ClassItemDefault (normalizeValueDecl vdecl))
-    ClassItemTypeFamilyDecl tf -> classItemAnnSpan span0 (ClassItemTypeFamilyDecl (normalizeTypeFamilyDecl tf))
-    ClassItemDataFamilyDecl df -> classItemAnnSpan span0 (ClassItemDataFamilyDecl (normalizeDataFamilyDecl df))
-    ClassItemDefaultTypeInst tfi -> classItemAnnSpan span0 (ClassItemDefaultTypeInst (normalizeTypeFamilyInst tfi))
-    ClassItemPragma pragma -> classItemAnnSpan span0 (ClassItemPragma pragma)
+    ClassItemTypeSig names ty -> ClassItemTypeSig names (normalizeType ty)
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (normalizeType ty)
+    ClassItemFixity assoc mNs prec ops -> ClassItemFixity assoc mNs prec ops
+    ClassItemDefault vdecl -> ClassItemDefault (normalizeValueDecl vdecl)
+    ClassItemTypeFamilyDecl tf -> ClassItemTypeFamilyDecl (normalizeTypeFamilyDecl tf)
+    ClassItemDataFamilyDecl df -> ClassItemDataFamilyDecl (normalizeDataFamilyDecl df)
+    ClassItemDefaultTypeInst tfi -> ClassItemDefaultTypeInst (normalizeTypeFamilyInst tfi)
+    ClassItemPragma pragma -> ClassItemPragma pragma
 
 normalizeInstanceDecl :: InstanceDecl -> InstanceDecl
 normalizeInstanceDecl decl =
@@ -451,13 +529,16 @@ normalizeInstanceDecl decl =
 
 normalizeInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
 normalizeInstanceDeclItem item =
-  case item of
-    InstanceItemBind _ vdecl -> InstanceItemBind span0 (normalizeValueDecl vdecl)
-    InstanceItemTypeSig _ names ty -> InstanceItemTypeSig span0 names (normalizeType ty)
-    InstanceItemFixity _ assoc mNs prec ops -> InstanceItemFixity span0 assoc mNs prec ops
-    InstanceItemTypeFamilyInst _ tfi -> InstanceItemTypeFamilyInst span0 (normalizeTypeFamilyInst tfi)
-    InstanceItemDataFamilyInst _ dfi -> InstanceItemDataFamilyInst span0 (normalizeDataFamilyInst dfi)
-    InstanceItemPragma _ pragma -> InstanceItemPragma span0 pragma
+  instanceItemAnnSpan span0 (normalizeInstanceDeclItemInner item)
+
+normalizeInstanceDeclItemInner :: InstanceDeclItem -> InstanceDeclItem
+normalizeInstanceDeclItemInner (InstanceItemAnn _ inner) = normalizeInstanceDeclItemInner inner
+normalizeInstanceDeclItemInner (InstanceItemBind vdecl) = InstanceItemBind (normalizeValueDecl vdecl)
+normalizeInstanceDeclItemInner (InstanceItemTypeSig names ty) = InstanceItemTypeSig names (normalizeType ty)
+normalizeInstanceDeclItemInner (InstanceItemFixity assoc mNs prec ops) = InstanceItemFixity assoc mNs prec ops
+normalizeInstanceDeclItemInner (InstanceItemTypeFamilyInst tfi) = InstanceItemTypeFamilyInst (normalizeTypeFamilyInst tfi)
+normalizeInstanceDeclItemInner (InstanceItemDataFamilyInst dfi) = InstanceItemDataFamilyInst (normalizeDataFamilyInst dfi)
+normalizeInstanceDeclItemInner (InstanceItemPragma pragma) = InstanceItemPragma pragma
 
 normalizeStandaloneDerivingDecl :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 normalizeStandaloneDerivingDecl decl =

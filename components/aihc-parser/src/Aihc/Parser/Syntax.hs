@@ -92,7 +92,6 @@ module Aihc.Parser.Syntax
     TypeFamilyInst (..),
     DataFamilyInst (..),
     ValueDecl (..),
-    declValueBinderNames,
     allKnownExtensions,
     applyExtensionSetting,
     applyImpliedExtensions,
@@ -116,20 +115,35 @@ module Aihc.Parser.Syntax
     renderUnqualifiedName,
     sourceSpanEnd,
     unqualifiedNameFromText,
-    valueDeclBinderName,
     moduleName,
     moduleWarningText,
     moduleExports,
     mkAnnotation,
     fromAnnotation,
+    arithSeqAnnSpan,
     classItemAnnSpan,
+    cmdAnnSpan,
+    compAnnSpan,
+    dataConAnnSpan,
     declAnnSpan,
+    doStmtAnnSpan,
+    instanceItemAnnSpan,
     exprAnnSpan,
+    guardAnnSpan,
     patternAnnSpan,
+    peelArithSeqAnn,
     peelClassDeclItemAnn,
+    peelCmdAnn,
+    peelCompStmtAnn,
+    peelDataConAnn,
     peelDeclAnn,
+    peelDoStmtAnn,
     peelExprAnn,
+    peelGuardQualifierAnn,
+    peelInstanceDeclItemAnn,
     peelPatternAnn,
+    peelTypeAnn,
+    peelTypeHead,
     literalAnnSpan,
     peelLiteralAnn,
     typeAnnSpan,
@@ -666,13 +680,13 @@ data UnqualifiedName = UnqualifiedName
 
 -- | The syntactic category of a name.
 data NameType
-  = -- | Variable identifier (e.g., @x@, @map@, @Data.List.map@)
+  = -- | Variable identifier (e.g., @x@, @map@, @id@)
     NameVarId
-  | -- | Constructor identifier (e.g., @Just@, @Data.Maybe.Maybe@)
+  | -- | Constructor identifier (e.g., @Just@, @Maybe@)
     NameConId
-  | -- | Variable operator (e.g., @+@, @Data.Bits..&.@)
+  | -- | Variable operator (e.g., @+@, @.&.@)
     NameVarSym
-  | -- | Constructor operator (e.g., @:@, @Data.List.:++@)
+  | -- | Constructor operator (e.g., @:@, @:++@)
     NameConSym
   deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
 
@@ -1059,17 +1073,27 @@ instance HasSourceSpan GuardedRhs where
   getSourceSpan = guardedRhsSpan
 
 data GuardQualifier
-  = GuardExpr SourceSpan Expr
-  | GuardPat SourceSpan Pattern Expr
-  | GuardLet SourceSpan [Decl]
+  = -- | Metadata for the whole guard qualifier (typically a 'SourceSpan' via 'mkAnnotation').
+    GuardAnn Annotation GuardQualifier
+  | GuardExpr Expr
+  | GuardPat Pattern Expr
+  | GuardLet [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelGuardQualifierAnn :: GuardQualifier -> GuardQualifier
+peelGuardQualifierAnn (GuardAnn _ inner) = peelGuardQualifierAnn inner
+peelGuardQualifierAnn q = q
+
+guardAnnSpan :: SourceSpan -> GuardQualifier -> GuardQualifier
+guardAnnSpan sp = GuardAnn (mkAnnotation sp)
 
 instance HasSourceSpan GuardQualifier where
   getSourceSpan qualifier =
     case qualifier of
-      GuardExpr span' _ -> span'
-      GuardPat span' _ _ -> span'
-      GuardLet span' _ -> span'
+      GuardAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data Literal
   = LitAnn Annotation Literal
@@ -1172,25 +1196,25 @@ patternAnnSpan sp = PAnn (mkAnnotation sp)
 
 data Type
   = TAnn Annotation Type
-  | TVar SourceSpan UnqualifiedName
-  | TCon SourceSpan Name TypePromotion
-  | TImplicitParam SourceSpan Text Type
-  | TTypeLit SourceSpan TypeLiteral
-  | TStar SourceSpan
-  | TQuasiQuote SourceSpan Text Text
-  | TForall SourceSpan [TyVarBinder] Type
-  | TApp SourceSpan Type Type
-  | TFun SourceSpan Type Type
-  | TTuple SourceSpan TupleFlavor TypePromotion [Type]
-  | TUnboxedSum SourceSpan [Type]
-  | TList SourceSpan TypePromotion [Type]
-  | TParen SourceSpan Type
-  | TKindSig SourceSpan Type Type
-  | TContext SourceSpan [Type] Type
-  | TSplice SourceSpan Expr
+  | TVar UnqualifiedName
+  | TCon Name TypePromotion
+  | TImplicitParam Text Type
+  | TTypeLit TypeLiteral
+  | TStar
+  | TQuasiQuote Text Text
+  | TForall [TyVarBinder] Type
+  | TApp Type Type
+  | TFun Type Type
+  | TTuple TupleFlavor TypePromotion [Type]
+  | TUnboxedSum [Type]
+  | TList TypePromotion [Type]
+  | TParen Type
+  | TKindSig Type Type
+  | TContext [Type] Type
+  | TSplice Expr
   | -- \$typ or $(typ) (TH type splice)
     -- \_ (wildcard type, used in type family instance patterns)
-    TWildcard SourceSpan
+    TWildcard
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where
@@ -1199,26 +1223,23 @@ instance HasSourceSpan Type where
       TAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      TVar span' _ -> span'
-      TCon span' _ _ -> span'
-      TImplicitParam span' _ _ -> span'
-      TTypeLit span' _ -> span'
-      TStar span' -> span'
-      TQuasiQuote span' _ _ -> span'
-      TForall span' _ _ -> span'
-      TApp span' _ _ -> span'
-      TFun span' _ _ -> span'
-      TTuple span' _ _ _ -> span'
-      TUnboxedSum span' _ -> span'
-      TList span' _ _ -> span'
-      TParen span' _ -> span'
-      TKindSig span' _ _ -> span'
-      TContext span' _ _ -> span'
-      TSplice span' _ -> span'
-      TWildcard span' -> span'
+      _ -> NoSourceSpan
 
 typeAnnSpan :: SourceSpan -> Type -> Type
 typeAnnSpan sp = TAnn (mkAnnotation sp)
+
+-- | Peel nested 'TAnn' wrappers (e.g. span-only dynamic annotations).
+peelTypeAnn :: Type -> Type
+peelTypeAnn (TAnn _ inner) = peelTypeAnn inner
+peelTypeAnn t = t
+
+-- | Peel 'TAnn' then 'TParen' (used when matching on type shape under annotations
+-- and explicit parentheses).
+peelTypeHead :: Type -> Type
+peelTypeHead ty =
+  case peelTypeAnn ty of
+    TParen inner -> peelTypeHead inner
+    t -> t
 
 data TypeLiteral
   = TypeLitInteger Integer Text
@@ -1391,13 +1412,23 @@ instance HasSourceSpan NewtypeDecl where
   getSourceSpan = newtypeDeclSpan
 
 data DataConDecl
-  = PrefixCon SourceSpan [Text] [Type] UnqualifiedName [BangType]
-  | InfixCon SourceSpan [Text] [Type] BangType UnqualifiedName BangType
-  | RecordCon SourceSpan [Text] [Type] UnqualifiedName [FieldDecl]
+  = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkAnnotation').
+    DataConAnn Annotation DataConDecl
+  | PrefixCon [Text] [Type] UnqualifiedName [BangType]
+  | InfixCon [Text] [Type] BangType UnqualifiedName BangType
+  | RecordCon [Text] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon SourceSpan [TyVarBinder] [Type] [UnqualifiedName] GadtBody
+    GadtCon [TyVarBinder] [Type] [UnqualifiedName] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Strip nested 'DataConAnn' wrappers.
+peelDataConAnn :: DataConDecl -> DataConDecl
+peelDataConAnn (DataConAnn _ inner) = peelDataConAnn inner
+peelDataConAnn d = d
+
+dataConAnnSpan :: SourceSpan -> DataConDecl -> DataConDecl
+dataConAnnSpan sp = DataConAnn (mkAnnotation sp)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
 data GadtBody
@@ -1417,10 +1448,10 @@ gadtBodyResultType body =
 instance HasSourceSpan DataConDecl where
   getSourceSpan dataConDecl =
     case dataConDecl of
-      PrefixCon span' _ _ _ _ -> span'
-      InfixCon span' _ _ _ _ _ -> span'
-      RecordCon span' _ _ _ _ -> span'
-      GadtCon span' _ _ _ _ -> span'
+      DataConAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data BangType = BangType
   { bangSpan :: SourceSpan,
@@ -1524,14 +1555,7 @@ instance HasSourceSpan ClassDeclItem where
       ClassItemAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      ClassItemTypeSig {} -> NoSourceSpan
-      ClassItemDefaultSig {} -> NoSourceSpan
-      ClassItemFixity {} -> NoSourceSpan
-      ClassItemDefault {} -> NoSourceSpan
-      ClassItemTypeFamilyDecl {} -> NoSourceSpan
-      ClassItemDataFamilyDecl {} -> NoSourceSpan
-      ClassItemDefaultTypeInst {} -> NoSourceSpan
-      ClassItemPragma {} -> NoSourceSpan
+      _ -> NoSourceSpan
 
 peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
 peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
@@ -1564,24 +1588,31 @@ data InstanceOverlapPragma
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 data InstanceDeclItem
-  = InstanceItemBind SourceSpan ValueDecl
-  | InstanceItemTypeSig SourceSpan [BinderName] Type
-  | InstanceItemFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
-  | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
+  = -- | Metadata for the whole instance item (typically a 'SourceSpan' via 'mkAnnotation').
+    InstanceItemAnn Annotation InstanceDeclItem
+  | InstanceItemBind ValueDecl
+  | InstanceItemTypeSig [BinderName] Type
+  | InstanceItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | InstanceItemTypeFamilyInst TypeFamilyInst
+  | InstanceItemDataFamilyInst DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
-    InstanceItemPragma SourceSpan Pragma
+    InstanceItemPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
+peelInstanceDeclItemAnn (InstanceItemAnn _ inner) = peelInstanceDeclItemAnn inner
+peelInstanceDeclItemAnn item = item
+
+instanceItemAnnSpan :: SourceSpan -> InstanceDeclItem -> InstanceDeclItem
+instanceItemAnnSpan sp = InstanceItemAnn (mkAnnotation sp)
 
 instance HasSourceSpan InstanceDeclItem where
   getSourceSpan instanceDeclItem =
     case instanceDeclItem of
-      InstanceItemBind span' _ -> span'
-      InstanceItemTypeSig span' _ _ -> span'
-      InstanceItemFixity span' _ _ _ _ -> span'
-      InstanceItemTypeFamilyInst span' _ -> span'
-      InstanceItemDataFamilyInst span' _ -> span'
-      InstanceItemPragma span' _ -> span'
+      InstanceItemAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data FixityAssoc
   = Infix
@@ -1715,52 +1746,7 @@ instance HasSourceSpan Expr where
       EAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      EVar {} -> NoSourceSpan
-      EInt {} -> NoSourceSpan
-      EIntHash {} -> NoSourceSpan
-      EIntBase {} -> NoSourceSpan
-      EIntBaseHash {} -> NoSourceSpan
-      EFloat {} -> NoSourceSpan
-      EFloatHash {} -> NoSourceSpan
-      EChar {} -> NoSourceSpan
-      ECharHash {} -> NoSourceSpan
-      EString {} -> NoSourceSpan
-      EStringHash {} -> NoSourceSpan
-      EOverloadedLabel {} -> NoSourceSpan
-      EQuasiQuote {} -> NoSourceSpan
-      EIf {} -> NoSourceSpan
-      EMultiWayIf {} -> NoSourceSpan
-      ELambdaPats {} -> NoSourceSpan
-      ELambdaCase {} -> NoSourceSpan
-      EInfix {} -> NoSourceSpan
-      ENegate {} -> NoSourceSpan
-      ESectionL {} -> NoSourceSpan
-      ESectionR {} -> NoSourceSpan
-      ELetDecls {} -> NoSourceSpan
-      ECase {} -> NoSourceSpan
-      EDo {} -> NoSourceSpan
-      EListComp {} -> NoSourceSpan
-      EListCompParallel {} -> NoSourceSpan
-      EArithSeq {} -> NoSourceSpan
-      ERecordCon {} -> NoSourceSpan
-      ERecordUpd {} -> NoSourceSpan
-      ETypeSig {} -> NoSourceSpan
-      EParen {} -> NoSourceSpan
-      EList {} -> NoSourceSpan
-      ETuple {} -> NoSourceSpan
-      EUnboxedSum {} -> NoSourceSpan
-      ETypeApp {} -> NoSourceSpan
-      EApp {} -> NoSourceSpan
-      ETHExpQuote {} -> NoSourceSpan
-      ETHTypedQuote {} -> NoSourceSpan
-      ETHDeclQuote {} -> NoSourceSpan
-      ETHTypeQuote {} -> NoSourceSpan
-      ETHPatQuote {} -> NoSourceSpan
-      ETHNameQuote {} -> NoSourceSpan
-      ETHTypeNameQuote {} -> NoSourceSpan
-      ETHSplice {} -> NoSourceSpan
-      ETHTypedSplice {} -> NoSourceSpan
-      EProc {} -> NoSourceSpan
+      _ -> NoSourceSpan
 
 exprAnnSpan :: SourceSpan -> Expr -> Expr
 exprAnnSpan sp = EAnn (mkAnnotation sp)
@@ -1781,43 +1767,61 @@ instance HasSourceSpan CaseAlt where
   getSourceSpan = caseAltSpan
 
 data DoStmt body
-  = DoBind SourceSpan Pattern body
-  | DoLetDecls SourceSpan [Decl]
-  | DoExpr SourceSpan body
-  | DoRecStmt SourceSpan [DoStmt body] -- rec { stmts }
+  = -- | Metadata for the whole do-statement (typically a 'SourceSpan' via 'mkAnnotation').
+    DoAnn Annotation (DoStmt body)
+  | DoBind Pattern body
+  | DoLetDecls [Decl]
+  | DoExpr body
+  | DoRecStmt [DoStmt body] -- rec { stmts }
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelDoStmtAnn :: DoStmt body -> DoStmt body
+peelDoStmtAnn (DoAnn _ inner) = peelDoStmtAnn inner
+peelDoStmtAnn s = s
+
+doStmtAnnSpan :: SourceSpan -> DoStmt body -> DoStmt body
+doStmtAnnSpan sp = DoAnn (mkAnnotation sp)
 
 instance HasSourceSpan (DoStmt body) where
   getSourceSpan doStmt =
     case doStmt of
-      DoBind span' _ _ -> span'
-      DoLetDecls span' _ -> span'
-      DoExpr span' _ -> span'
-      DoRecStmt span' _ -> span'
+      DoAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 -- | Arrow command type (used inside 'proc' expressions).
 -- Commands mirror expressions but live in a separate namespace so the
 -- pretty-printer knows not to parenthesise @do { … }@ as an infix LHS.
 data Cmd
-  = -- | @exp -\< exp@ or @exp -\<\< exp@
-    CmdArrApp SourceSpan Expr ArrAppType Expr
+  = -- | Metadata for the whole command (typically a 'SourceSpan' via 'mkAnnotation').
+    CmdAnn Annotation Cmd
+  | -- | @exp -\< exp@ or @exp -\<\< exp@
+    CmdArrApp Expr ArrAppType Expr
   | -- | Command-level infix: @cmd1 op cmd2@
-    CmdInfix SourceSpan Cmd Text Cmd
+    CmdInfix Cmd Text Cmd
   | -- | @do { cstmts }@
-    CmdDo SourceSpan [DoStmt Cmd]
+    CmdDo [DoStmt Cmd]
   | -- | @if exp then cmd else cmd@
-    CmdIf SourceSpan Expr Cmd Cmd
+    CmdIf Expr Cmd Cmd
   | -- | @case exp of { calts }@
-    CmdCase SourceSpan Expr [CmdCaseAlt]
+    CmdCase Expr [CmdCaseAlt]
   | -- | @let decls in cmd@
-    CmdLet SourceSpan [Decl] Cmd
+    CmdLet [Decl] Cmd
   | -- | @\\pats -> cmd@
-    CmdLam SourceSpan [Pattern] Cmd
+    CmdLam [Pattern] Cmd
   | -- | Command application: @cmd exp@
-    CmdApp SourceSpan Cmd Expr
+    CmdApp Cmd Expr
   | -- | Parenthesised command: @(cmd)@
-    CmdPar SourceSpan Cmd
+    CmdPar Cmd
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelCmdAnn :: Cmd -> Cmd
+peelCmdAnn (CmdAnn _ inner) = peelCmdAnn inner
+peelCmdAnn c = c
+
+cmdAnnSpan :: SourceSpan -> Cmd -> Cmd
+cmdAnnSpan sp = CmdAnn (mkAnnotation sp)
 
 -- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
 data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
@@ -1826,15 +1830,10 @@ data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
 instance HasSourceSpan Cmd where
   getSourceSpan cmd =
     case cmd of
-      CmdArrApp span' _ _ _ -> span'
-      CmdInfix span' _ _ _ -> span'
-      CmdDo span' _ -> span'
-      CmdIf span' _ _ _ -> span'
-      CmdCase span' _ _ -> span'
-      CmdLet span' _ _ -> span'
-      CmdLam span' _ _ -> span'
-      CmdApp span' _ _ -> span'
-      CmdPar span' _ -> span'
+      CmdAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 -- | Case alternative with a command body (used in arrow @case@ commands).
 data CmdCaseAlt = CmdCaseAlt
@@ -1848,49 +1847,49 @@ instance HasSourceSpan CmdCaseAlt where
   getSourceSpan = cmdCaseAltSpan
 
 data CompStmt
-  = CompGen SourceSpan Pattern Expr
-  | CompGuard SourceSpan Expr
-  | CompLet SourceSpan [(Text, Expr)]
-  | CompLetDecls SourceSpan [Decl]
+  = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkAnnotation').
+    CompAnn Annotation CompStmt
+  | CompGen Pattern Expr
+  | CompGuard Expr
+  | CompLet [(Text, Expr)]
+  | CompLetDecls [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelCompStmtAnn :: CompStmt -> CompStmt
+peelCompStmtAnn (CompAnn _ inner) = peelCompStmtAnn inner
+peelCompStmtAnn s = s
+
+compAnnSpan :: SourceSpan -> CompStmt -> CompStmt
+compAnnSpan sp = CompAnn (mkAnnotation sp)
 
 instance HasSourceSpan CompStmt where
   getSourceSpan compStmt =
     case compStmt of
-      CompGen span' _ _ -> span'
-      CompGuard span' _ -> span'
-      CompLet span' _ -> span'
-      CompLetDecls span' _ -> span'
+      CompAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data ArithSeq
-  = ArithSeqFrom SourceSpan Expr
-  | ArithSeqFromThen SourceSpan Expr Expr
-  | ArithSeqFromTo SourceSpan Expr Expr
-  | ArithSeqFromThenTo SourceSpan Expr Expr Expr
+  = -- | Metadata for the whole arithmetic sequence (typically a 'SourceSpan' via 'mkAnnotation').
+    ArithSeqAnn Annotation ArithSeq
+  | ArithSeqFrom Expr
+  | ArithSeqFromThen Expr Expr
+  | ArithSeqFromTo Expr Expr
+  | ArithSeqFromThenTo Expr Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
+
+peelArithSeqAnn :: ArithSeq -> ArithSeq
+peelArithSeqAnn (ArithSeqAnn _ inner) = peelArithSeqAnn inner
+peelArithSeqAnn s = s
+
+arithSeqAnnSpan :: SourceSpan -> ArithSeq -> ArithSeq
+arithSeqAnnSpan sp = ArithSeqAnn (mkAnnotation sp)
 
 instance HasSourceSpan ArithSeq where
   getSourceSpan arithSeq =
     case arithSeq of
-      ArithSeqFrom span' _ -> span'
-      ArithSeqFromThen span' _ _ -> span'
-      ArithSeqFromTo span' _ _ -> span'
-      ArithSeqFromThenTo span' _ _ _ -> span'
-
-valueDeclBinderName :: ValueDecl -> Maybe UnqualifiedName
-valueDeclBinderName vdecl =
-  case vdecl of
-    FunctionBind _ name _ -> Just name
-    PatternBind _ pat _ ->
-      case pat of
-        PVar name -> Just name
-        _ -> Nothing
-
-declValueBinderNames :: Decl -> [UnqualifiedName]
-declValueBinderNames decl =
-  case decl of
-    DeclValue vdecl ->
-      case valueDeclBinderName vdecl of
-        Just name -> [name]
-        Nothing -> []
-    _ -> []
+      ArithSeqAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan

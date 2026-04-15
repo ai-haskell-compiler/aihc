@@ -240,7 +240,7 @@ doBindOrExprStmtParser = withSpan $ do
       pat <- patternParser
       expectedTok TkReservedLeftArrow
       rhs <- region "while parsing '<-' binding" exprParser
-      pure (\span' -> DoBind span' pat rhs)
+      pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
     Just expr -> do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
@@ -248,23 +248,23 @@ doBindOrExprStmtParser = withSpan $ do
           pat <- patternParser
           expectedTok TkReservedLeftArrow
           rhs <- region "while parsing '<-' binding" exprParser
-          pure (\span' -> DoBind span' pat rhs)
+          pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
         _ -> do
           mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
           case mArrow of
             Just () -> do
               pat <- liftCheck (checkPattern expr)
               rhs <- region "while parsing '<-' binding" exprParser
-              pure (\span' -> DoBind span' pat rhs)
+              pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
             Nothing ->
-              pure (`DoExpr` expr)
+              pure (\span' -> doStmtAnnSpan span' (DoExpr expr))
 
 doPatBindStmtParser :: TokParser (DoStmt Expr)
 doPatBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' binding" exprParser
-  pure (\span' -> DoBind span' pat expr)
+  pure (\span' -> doStmtAnnSpan span' (DoBind pat expr))
 
 parseLetDeclsParser :: TokParser [Decl]
 parseLetDeclsParser = do
@@ -290,14 +290,14 @@ plainDeclsMaybeEmpty = concat <$> plainSemiSep localDeclsParser
 doLetStmtParser :: TokParser (DoStmt Expr)
 doLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
-  pure (`DoLetDecls` decls)
+  pure (\span' -> doStmtAnnSpan span' (DoLetDecls decls))
 
 -- | Parse a @rec@ statement inside a do-block.
 doRecStmtParser :: TokParser (DoStmt Expr)
 doRecStmtParser = withSpan $ do
   expectedTok TkKeywordRec
   stmts <- bracedSemiSep1 doStmtParser
-  pure (`DoRecStmt` stmts)
+  pure (\span' -> doStmtAnnSpan span' (DoRecStmt stmts))
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
@@ -609,21 +609,21 @@ guardBindOrExprParser = withSpan $ do
     Just () -> do
       pat <- liftCheck (checkPattern expr)
       rhs <- exprParser
-      pure (\span' -> GuardPat span' pat rhs)
+      pure (\span' -> guardAnnSpan span' (GuardPat pat rhs))
     Nothing ->
-      pure (`GuardExpr` expr)
+      pure (\span' -> guardAnnSpan span' (GuardExpr expr))
 
 guardPatBindParser :: TokParser GuardQualifier
 guardPatBindParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- exprParser
-  pure (\span' -> GuardPat span' pat expr)
+  pure (\span' -> guardAnnSpan span' (GuardPat pat expr))
 
 guardLetParser :: TokParser GuardQualifier
 guardLetParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
-  pure (`GuardLet` decls)
+  pure (\span' -> guardAnnSpan span' (GuardLet decls))
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
@@ -846,9 +846,10 @@ parseListTail first = listCompTailParser <|> arithFromToTailParser <|> commaTail
       expectedTok TkSpecialRBracket
       pure $ \span' ->
         exprAnnSpan span' . EArithSeq $
-          case mTo of
-            Nothing -> ArithSeqFrom span' first
-            Just toExpr -> ArithSeqFromTo span' first toExpr
+          arithSeqAnnSpan span' $
+            case mTo of
+              Nothing -> ArithSeqFrom first
+              Just toExpr -> ArithSeqFromTo first toExpr
 
     commaTailParser = do
       expectedTok TkSpecialComma
@@ -861,9 +862,10 @@ parseListTail first = listCompTailParser <|> arithFromToTailParser <|> commaTail
       expectedTok TkSpecialRBracket
       pure $ \span' ->
         exprAnnSpan span' . EArithSeq $
-          case mTo of
-            Nothing -> ArithSeqFromThen span' first second
-            Just toExpr -> ArithSeqFromThenTo span' first second toExpr
+          arithSeqAnnSpan span' $
+            case mTo of
+              Nothing -> ArithSeqFromThen first second
+              Just toExpr -> ArithSeqFromThenTo first second toExpr
 
     listTailParser second = do
       rest <- MP.many (expectedTok TkSpecialComma *> exprParser)
@@ -893,21 +895,21 @@ compGenOrGuardParser = withSpan $ do
     Just () -> do
       pat <- liftCheck (checkPattern expr)
       rhs <- region "while parsing '<-' generator" exprParser
-      pure (\span' -> CompGen span' pat rhs)
+      pure (\span' -> compAnnSpan span' (CompGen pat rhs))
     Nothing ->
-      pure (`CompGuard` expr)
+      pure (\span' -> compAnnSpan span' (CompGuard expr))
 
 compPatGenParser :: TokParser CompStmt
 compPatGenParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' generator" exprParser
-  pure (\span' -> CompGen span' pat expr)
+  pure (\span' -> compAnnSpan span' (CompGen pat expr))
 
 compLetStmtParser :: TokParser CompStmt
 compLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
-  pure (`CompLetDecls` decls)
+  pure (\span' -> compAnnSpan span' (CompLetDecls decls))
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withExprSpanAnn $ do

@@ -293,9 +293,10 @@ docGuardedRhs grhs =
 docGuardQualifier :: GuardQualifier -> Doc ann
 docGuardQualifier gq =
   case gq of
-    GuardExpr _ expr -> "GuardExpr" <+> parens (docExpr expr)
-    GuardPat _ pat expr -> "GuardPat" <+> parens (docPattern pat) <+> parens (docExpr expr)
-    GuardLet _ decls -> "GuardLet" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    GuardAnn _ inner -> docGuardQualifier inner
+    GuardExpr expr -> "GuardExpr" <+> parens (docExpr expr)
+    GuardPat pat expr -> "GuardPat" <+> parens (docPattern pat) <+> parens (docExpr expr)
+    GuardLet decls -> "GuardLet" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
 docTypeSynDecl :: TypeSynDecl -> Doc ann
 docTypeSynDecl syn =
@@ -349,13 +350,14 @@ docNewtypeDecl nd =
 docDataConDecl :: DataConDecl -> Doc ann
 docDataConDecl dcd =
   case dcd of
-    PrefixCon _ forallVars constraints name fields' ->
+    DataConAnn _ inner -> docDataConDecl inner
+    PrefixCon forallVars constraints name fields' ->
       "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docBangType fields')))
-    InfixCon _ forallVars constraints lhs op rhs ->
+    InfixCon forallVars constraints lhs op rhs ->
       "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docUnqualifiedName op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints)))
-    RecordCon _ forallVars constraints name fields' ->
+    RecordCon forallVars constraints name fields' ->
       "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
-    GadtCon _ forallBinders constraints names body ->
+    GadtCon forallBinders constraints names body ->
       "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docTyVarBinder forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
 
 -- | Document a GADT body
@@ -454,12 +456,13 @@ docInstanceDecl inst =
 docInstanceDeclItem :: InstanceDeclItem -> Doc ann
 docInstanceDeclItem item =
   case item of
-    InstanceItemBind _ vdecl -> "InstanceItemBind" <+> parens (docValueDecl vdecl)
-    InstanceItemTypeSig _ names ty -> "InstanceItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
-    InstanceItemFixity _ assoc mNamespace mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
-    InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
-    InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
-    InstanceItemPragma _ pragma -> "InstanceItemPragma" <+> docPragma pragma
+    InstanceItemAnn _ inner -> docInstanceDeclItem inner
+    InstanceItemBind vdecl -> "InstanceItemBind" <+> parens (docValueDecl vdecl)
+    InstanceItemTypeSig names ty -> "InstanceItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
+    InstanceItemFixity assoc mNamespace mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
+    InstanceItemTypeFamilyInst tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
+    InstanceItemDataFamilyInst dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
+    InstanceItemPragma pragma -> "InstanceItemPragma" <+> docPragma pragma
 
 docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
 docStandaloneDerivingDecl sd =
@@ -554,19 +557,19 @@ docFixityAssoc fa =
 docType :: Type -> Doc ann
 docType ty =
   case ty of
-    TVar _ name -> "TVar" <+> docUnqualifiedName name
-    TCon _ name promoted ->
+    TVar name -> "TVar" <+> docUnqualifiedName name
+    TCon name promoted ->
       if promoted == Promoted
         then "TConPromoted" <+> docName name
         else "TCon" <+> docName name
-    TImplicitParam _ name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
-    TTypeLit _ lit -> "TTypeLit" <+> docTypeLiteral lit
-    TStar _ -> "TStar"
-    TQuasiQuote _ quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
-    TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docTyVarBinder binders))) <+> parens (docType inner)
-    TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
-    TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
-    TTuple _ tupleFlavor promoted elems ->
+    TImplicitParam name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
+    TTypeLit lit -> "TTypeLit" <+> docTypeLiteral lit
+    TStar -> "TStar"
+    TQuasiQuote quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
+    TForall binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docTyVarBinder binders))) <+> parens (docType inner)
+    TApp f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
+    TFun a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
+    TTuple tupleFlavor promoted elems ->
       ( case (tupleFlavor, promoted) of
           (Boxed, Promoted) -> "TTuplePromoted"
           (Boxed, Unpromoted) -> "TTuple"
@@ -574,17 +577,17 @@ docType ty =
           (Unboxed, Unpromoted) -> "TTupleUnboxed"
       )
         <+> brackets (hsep (punctuate comma (map docType elems)))
-    TUnboxedSum _ elems ->
+    TUnboxedSum elems ->
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
-    TList _ promoted elems ->
+    TList promoted elems ->
       (if promoted == Promoted then "TListPromoted" else "TList")
         <+> brackets (hsep (punctuate comma (map docType elems)))
-    TParen _ inner -> "TParen" <+> parens (docType inner)
-    TKindSig _ ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
-    TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docType constraints))) <+> parens (docType inner)
-    TSplice _ body -> "TSplice" <+> parens (docExpr body)
-    TWildcard _ -> "TWildcard"
+    TParen inner -> "TParen" <+> parens (docType inner)
+    TKindSig ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
+    TContext constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docType constraints))) <+> parens (docType inner)
+    TSplice body -> "TSplice" <+> parens (docExpr body)
+    TWildcard -> "TWildcard"
     TAnn _ sub -> docType sub
 
 docTypeLiteral :: TypeLiteral -> Doc ann
@@ -720,40 +723,44 @@ docCaseAlt (CaseAlt _ pat rhs) =
 docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =
   case stmt of
-    DoBind _ pat expr -> "DoBind" <+> parens (docPattern pat) <+> parens (docExpr expr)
-    DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
-    DoExpr _ expr -> "DoExpr" <+> parens (docExpr expr)
-    DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    DoAnn _ inner -> docDoStmt inner
+    DoBind pat expr -> "DoBind" <+> parens (docPattern pat) <+> parens (docExpr expr)
+    DoLetDecls decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    DoExpr expr -> "DoExpr" <+> parens (docExpr expr)
+    DoRecStmt stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
 
 docCompStmt :: CompStmt -> Doc ann
 docCompStmt stmt =
   case stmt of
-    CompGen _ pat expr -> "CompGen" <+> parens (docPattern pat) <+> parens (docExpr expr)
-    CompGuard _ expr -> "CompGuard" <+> parens (docExpr expr)
-    CompLet _ bindings -> "CompLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
-    CompLetDecls _ decls -> "CompLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    CompAnn _ inner -> docCompStmt inner
+    CompGen pat expr -> "CompGen" <+> parens (docPattern pat) <+> parens (docExpr expr)
+    CompGuard expr -> "CompGuard" <+> parens (docExpr expr)
+    CompLet bindings -> "CompLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
+    CompLetDecls decls -> "CompLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
 docCmd :: Cmd -> Doc ann
 docCmd cmd =
   case cmd of
-    CmdArrApp _ lhs HsFirstOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsFirstOrderApp" <+> parens (docExpr rhs)
-    CmdArrApp _ lhs HsHigherOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsHigherOrderApp" <+> parens (docExpr rhs)
-    CmdInfix _ l op r -> "CmdInfix" <+> parens (docCmd l) <+> docText op <+> parens (docCmd r)
-    CmdDo _ stmts -> "CmdDo" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
-    CmdIf _ cond yes no -> "CmdIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
-    CmdCase _ scrut alts -> "CmdCase" <+> parens (docExpr scrut) <+> brackets (hsep (punctuate comma (map docCmdCaseAlt alts)))
-    CmdLet _ decls body -> "CmdLet" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docCmd body)
-    CmdLam _ pats body -> "CmdLam" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docCmd body)
-    CmdApp _ c e -> "CmdApp" <+> parens (docCmd c) <+> parens (docExpr e)
-    CmdPar _ c -> "CmdPar" <+> parens (docCmd c)
+    CmdAnn _ inner -> docCmd inner
+    CmdArrApp lhs HsFirstOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsFirstOrderApp" <+> parens (docExpr rhs)
+    CmdArrApp lhs HsHigherOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsHigherOrderApp" <+> parens (docExpr rhs)
+    CmdInfix l op r -> "CmdInfix" <+> parens (docCmd l) <+> docText op <+> parens (docCmd r)
+    CmdDo stmts -> "CmdDo" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+    CmdIf cond yes no -> "CmdIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
+    CmdCase scrut alts -> "CmdCase" <+> parens (docExpr scrut) <+> brackets (hsep (punctuate comma (map docCmdCaseAlt alts)))
+    CmdLet decls body -> "CmdLet" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docCmd body)
+    CmdLam pats body -> "CmdLam" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docCmd body)
+    CmdApp c e -> "CmdApp" <+> parens (docCmd c) <+> parens (docExpr e)
+    CmdPar c -> "CmdPar" <+> parens (docCmd c)
 
 docCmdStmt :: DoStmt Cmd -> Doc ann
 docCmdStmt stmt =
   case stmt of
-    DoBind _ pat cmd' -> "DoBind" <+> parens (docPattern pat) <+> parens (docCmd cmd')
-    DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
-    DoExpr _ cmd' -> "DoExpr" <+> parens (docCmd cmd')
-    DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+    DoAnn _ inner -> docCmdStmt inner
+    DoBind pat cmd' -> "DoBind" <+> parens (docPattern pat) <+> parens (docCmd cmd')
+    DoLetDecls decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    DoExpr cmd' -> "DoExpr" <+> parens (docCmd cmd')
+    DoRecStmt stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
 
 docCmdCaseAlt :: CmdCaseAlt -> Doc ann
 docCmdCaseAlt alt =
@@ -762,10 +769,11 @@ docCmdCaseAlt alt =
 docArithSeq :: ArithSeq -> Doc ann
 docArithSeq seqInfo =
   case seqInfo of
-    ArithSeqFrom _ from -> "ArithSeqFrom" <+> parens (docExpr from)
-    ArithSeqFromThen _ from thn -> "ArithSeqFromThen" <+> parens (docExpr from) <+> parens (docExpr thn)
-    ArithSeqFromTo _ from to -> "ArithSeqFromTo" <+> parens (docExpr from) <+> parens (docExpr to)
-    ArithSeqFromThenTo _ from thn to -> "ArithSeqFromThenTo" <+> parens (docExpr from) <+> parens (docExpr thn) <+> parens (docExpr to)
+    ArithSeqAnn _ inner -> docArithSeq inner
+    ArithSeqFrom from -> "ArithSeqFrom" <+> parens (docExpr from)
+    ArithSeqFromThen from thn -> "ArithSeqFromThen" <+> parens (docExpr from) <+> parens (docExpr thn)
+    ArithSeqFromTo from to -> "ArithSeqFromTo" <+> parens (docExpr from) <+> parens (docExpr to)
+    ArithSeqFromThenTo from thn to -> "ArithSeqFromThenTo" <+> parens (docExpr from) <+> parens (docExpr thn) <+> parens (docExpr to)
 
 -- Token pretty printing
 
