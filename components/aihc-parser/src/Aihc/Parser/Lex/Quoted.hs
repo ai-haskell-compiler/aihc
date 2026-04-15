@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Lex.Quoted
@@ -76,13 +77,9 @@ consumedEscapeTail :: Text -> Maybe Int
 consumedEscapeTail rest =
   if T.null rest
     then Nothing
-    else
-      let c = T.head rest
-       in if isSpace c
-            then case T.findIndex (not . isSpace) rest of
-              Just i | T.index rest i == '\\' -> Just (i + 1)
-              _ -> Just 1
-            else Just 1
+    else do
+      (_, rest') <- parseEscape rest
+      pure (T.length rest - T.length rest')
 
 -- | Decode the body of a Haskell string literal (content between the quotes,
 -- without the surrounding @\"@ characters) natively on 'Text', avoiding the
@@ -105,64 +102,66 @@ decodeStringBody inp
               Just (mc, rest') ->
                 go (maybe acc' (\c -> acc' <> TLB.singleton c) mc) rest'
             _ -> Just acc' -- unreachable: T.break stops at '\\'
-    parseEscape :: Text -> Maybe (Maybe Char, Text)
-    parseEscape t = case T.uncons t of
-      Nothing -> Nothing
-      Just (c, rest) -> case c of
-        'a' -> Just (Just '\a', rest)
-        'b' -> Just (Just '\b', rest)
-        'f' -> Just (Just '\f', rest)
-        'n' -> Just (Just '\n', rest)
-        'r' -> Just (Just '\r', rest)
-        't' -> Just (Just '\t', rest)
-        'v' -> Just (Just '\v', rest)
-        '\\' -> Just (Just '\\', rest)
-        '"' -> Just (Just '"', rest)
-        '\'' -> Just (Just '\'', rest)
-        '&' -> Just (Nothing, rest) -- empty escape
-        '^' -> case T.uncons rest of -- control character \^X
-          Just (cc, rest')
-            | cc >= '@' && cc <= '_' ->
-                Just (Just (chr (ord cc - 64)), rest')
-          _ -> Nothing
-        'x' ->
-          -- hex escape \xNN  (use Integer to prevent Int overflow on long inputs)
-          let (digits, rest') = T.span isHexDigit rest
-           in if T.null digits
-                then Nothing
-                else
-                  let n = T.foldl' (\a d -> a * 16 + toInteger (digitToInt d)) (0 :: Integer) digits
-                   in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest')
-        'o' ->
-          -- octal escape \oNN  (use Integer to prevent Int overflow on long inputs)
-          let (digits, rest') = T.span isOctDigit rest
-           in if T.null digits
-                then Nothing
-                else
-                  let n = T.foldl' (\a d -> a * 8 + toInteger (digitToInt d)) (0 :: Integer) digits
-                   in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest')
-        _
-          | isDigit c -> -- decimal escape \NNN  (use Integer to prevent Int overflow on long inputs)
-              let (moreDigits, rest') = T.span isDigit rest
-                  n = T.foldl' (\a d -> a * 10 + toInteger (digitToInt d)) (toInteger (digitToInt c)) moreDigits
-               in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest')
-          | isSpace c -> -- gap escape \ whitespace \
-              let rest' = T.dropWhile isSpace rest
-               in case T.uncons rest' of
-                    Just ('\\', rest'') -> Just (Nothing, rest'')
-                    _ -> Nothing
-          | otherwise -> parseNamedEscape t
-
-    parseNamedEscape :: Text -> Maybe (Maybe Char, Text)
-    parseNamedEscape t = foldr tryMatch Nothing namedEscapeTable
-      where
-        tryMatch (name, ch) fallback =
-          case T.stripPrefix name t of
-            Just rest -> Just (Just ch, rest)
-            Nothing -> fallback
 
 isOctDigit :: Char -> Bool
 isOctDigit c = c >= '0' && c <= '7'
+
+parseEscape :: Text -> Maybe (Maybe Char, Text)
+parseEscape t = case T.uncons t of
+  Nothing -> Nothing
+  Just (c, rest) -> case c of
+    'a' -> Just (Just '\a', rest)
+    'b' -> Just (Just '\b', rest)
+    'f' -> Just (Just '\f', rest)
+    'n' -> Just (Just '\n', rest)
+    'r' -> Just (Just '\r', rest)
+    't' -> Just (Just '\t', rest)
+    'v' -> Just (Just '\v', rest)
+    '\\' -> Just (Just '\\', rest)
+    '"' -> Just (Just '"', rest)
+    '\'' -> Just (Just '\'', rest)
+    '&' -> Just (Nothing, rest) -- empty escape
+    '^' -> case T.uncons rest of -- control character \^X
+      Just (cc, rest')
+        | cc >= '@' && cc <= '_' ->
+            Just (Just (chr (ord cc - 64)), rest')
+      _ -> Nothing
+    'x' ->
+      -- hex escape \xNN  (use Integer to prevent Int overflow on long inputs)
+      let (digits, rest') = T.span isHexDigit rest
+       in if T.null digits
+            then Nothing
+            else decodeNumericEscape 16 digits rest'
+    'o' ->
+      -- octal escape \oNN  (use Integer to prevent Int overflow on long inputs)
+      let (digits, rest') = T.span isOctDigit rest
+       in if T.null digits
+            then Nothing
+            else decodeNumericEscape 8 digits rest'
+    _
+      | isDigit c -> -- decimal escape \NNN  (use Integer to prevent Int overflow on long inputs)
+          let (moreDigits, rest') = T.span isDigit rest
+              digits = T.cons c moreDigits
+           in decodeNumericEscape 10 digits rest'
+      | isSpace c -> -- gap escape \ whitespace \
+          let rest' = T.dropWhile isSpace rest
+           in case T.uncons rest' of
+                Just ('\\', rest'') -> Just (Nothing, rest'')
+                _ -> Nothing
+      | otherwise -> parseNamedEscape t
+  where
+    decodeNumericEscape :: Integer -> Text -> Text -> Maybe (Maybe Char, Text)
+    decodeNumericEscape !base digits rest' =
+      let n = T.foldl' (\a d -> a * base + toInteger (digitToInt d)) (0 :: Integer) digits
+       in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest')
+
+parseNamedEscape :: Text -> Maybe (Maybe Char, Text)
+parseNamedEscape t = foldr tryMatch Nothing namedEscapeTable
+  where
+    tryMatch (name, ch) fallback =
+      case T.stripPrefix name t of
+        Just rest -> Just (Just ch, rest)
+        Nothing -> fallback
 
 -- Named ASCII escape sequences per the Haskell 2010 report.
 -- SOH must appear before SO so the longest prefix wins.

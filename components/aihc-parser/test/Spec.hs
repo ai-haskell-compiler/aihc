@@ -7,8 +7,10 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
+import Data.Char (ord)
 import Data.List (isInfixOf)
 import Data.Text qualified as T
+import Numeric (showHex, showOct)
 import ParserValidation (validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -96,6 +98,9 @@ buildTests = do
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
+            testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
+            testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
+            testCase "parses character literals after escaped backslash cons patterns" test_escapedBackslashConsPatternCharLiteralParses,
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -119,6 +124,7 @@ buildTests = do
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
+            QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
           ],
@@ -955,6 +961,38 @@ test_generatedExpressionsCanIncludeMdo =
     isMdo (EDo _ _ True) = True
     isMdo _ = False
 
+test_alternateCharLiteralSpellingsLexLikeGhc :: Assertion
+test_alternateCharLiteralSpellingsLexLikeGhc =
+  mapM_ assertCharLiteralLexesLikeGhc finiteAlternateCharLiteralSpellings
+
+test_controlBackslashCharLiteralLexes :: Assertion
+test_controlBackslashCharLiteralLexes =
+  assertCharLiteralLexesLikeGhc "'\\^\\'"
+
+test_escapedBackslashConsPatternCharLiteralParses :: Assertion
+test_escapedBackslashConsPatternCharLiteralParses =
+  let source =
+        T.unlines
+          [ "module X where",
+            "",
+            "go xs = case xs of",
+            "  '^' : '\\\\' : xs -> '\\^\\' : go xs",
+            "  ys -> ys"
+          ]
+      (errs, _) = parseModule defaultConfig source
+   in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+
+prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
+prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
+  QC.withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+    QC.counterexample ("literal: " <> T.unpack raw) $
+      case ghcReadCharLiteral raw of
+        Nothing -> QC.counterexample "generator produced an invalid literal" False
+        Just expected ->
+          case lexTokens raw of
+            [LexToken {lexTokenKind = TkChar actual}, LexToken {lexTokenKind = TkEOF}] -> actual QC.=== expected
+            other -> QC.counterexample ("unexpected tokens: " <> show other) False
+
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =
   QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
@@ -967,6 +1005,111 @@ prop_generatedOperatorsCanProduceUnicodeAsterism =
     QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
       QC.counterexample "expected generator to include ⁂ in sampled operators" $
         "⁂" `elem` ops
+
+assertCharLiteralLexesLikeGhc :: T.Text -> Assertion
+assertCharLiteralLexesLikeGhc raw =
+  case ghcReadCharLiteral raw of
+    Nothing -> assertFailure ("expected GHC to accept valid char literal: " <> show raw)
+    Just expected ->
+      case lexTokens raw of
+        [LexToken {lexTokenKind = TkChar actual}, LexToken {lexTokenKind = TkEOF}] ->
+          assertEqual ("character mismatch for literal " <> T.unpack raw) expected actual
+        other ->
+          assertFailure ("expected char token for literal " <> T.unpack raw <> ", got: " <> show other)
+
+ghcReadCharLiteral :: T.Text -> Maybe Char
+ghcReadCharLiteral raw =
+  case reads (T.unpack raw) of
+    [(c, "")] -> Just c
+    _ -> Nothing
+
+genValidCharLiteral :: QC.Gen T.Text
+genValidCharLiteral =
+  QC.oneof
+    [ T.pack . show <$> (QC.arbitrary :: QC.Gen Char),
+      QC.elements finiteAlternateCharLiteralSpellings,
+      genNumericCharLiteral,
+      genHexCharLiteral,
+      genOctalCharLiteral
+    ]
+
+genNumericCharLiteral :: QC.Gen T.Text
+genNumericCharLiteral = do
+  c <- QC.arbitrary :: QC.Gen Char
+  leadingZeros <- QC.chooseInt (0, 4)
+  pure (mkCharLiteral ("\\" <> T.replicate leadingZeros "0" <> T.pack (show (ord c))))
+
+genHexCharLiteral :: QC.Gen T.Text
+genHexCharLiteral = do
+  c <- QC.arbitrary :: QC.Gen Char
+  leadingZeros <- QC.chooseInt (0, 4)
+  uppercase <- QC.arbitrary
+  let digits = showHex (ord c) ""
+      rendered = if uppercase then map toUpperAscii digits else digits
+  pure (mkCharLiteral ("\\x" <> T.replicate leadingZeros "0" <> T.pack rendered))
+
+genOctalCharLiteral :: QC.Gen T.Text
+genOctalCharLiteral = do
+  c <- QC.arbitrary :: QC.Gen Char
+  leadingZeros <- QC.chooseInt (0, 4)
+  pure (mkCharLiteral ("\\o" <> T.replicate leadingZeros "0" <> T.pack (showOct (ord c) "")))
+
+mkCharLiteral :: T.Text -> T.Text
+mkCharLiteral body = "'" <> body <> "'"
+
+finiteAlternateCharLiteralSpellings :: [T.Text]
+finiteAlternateCharLiteralSpellings = map mkCharLiteral (simpleEscapeBodies <> controlEscapeBodies <> namedEscapeBodies)
+
+simpleEscapeBodies :: [T.Text]
+simpleEscapeBodies = ["\\a", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\\\", "\\\"", "\\'"]
+
+controlEscapeBodies :: [T.Text]
+controlEscapeBodies = [T.pack ['\\', '^', c] | c <- ['@' .. '_']]
+
+namedEscapeBodies :: [T.Text]
+namedEscapeBodies =
+  map
+    ("\\" <>)
+    [ "NUL",
+      "SOH",
+      "STX",
+      "ETX",
+      "EOT",
+      "ENQ",
+      "ACK",
+      "BEL",
+      "BS",
+      "HT",
+      "LF",
+      "VT",
+      "FF",
+      "CR",
+      "SO",
+      "SI",
+      "DLE",
+      "DC1",
+      "DC2",
+      "DC3",
+      "DC4",
+      "NAK",
+      "SYN",
+      "ETB",
+      "CAN",
+      "EM",
+      "SUB",
+      "ESC",
+      "FS",
+      "GS",
+      "RS",
+      "US",
+      "SP",
+      "DEL"
+    ]
+
+toUpperAscii :: Char -> Char
+toUpperAscii c
+  | 'a' <= c && c <= 'f' = toEnum (fromEnum c - 32)
+  | otherwise = c
 
 -- Helper: parse a do-expression and extract the do-statements.
 parseDoStmts :: T.Text -> Either String [DoStmt Expr]
