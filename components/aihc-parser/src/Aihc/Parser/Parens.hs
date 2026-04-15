@@ -812,7 +812,6 @@ addCompStmtParens stmt =
     CompAnn ann inner -> CompAnn ann (addCompStmtParens inner)
     CompGen pat e -> CompGen (addPatternParens pat) (addExprParens e)
     CompGuard e -> CompGuard (addExprParens e)
-    CompLet bindings -> CompLet [(n, addExprParens e) | (n, e) <- bindings]
     CompLetDecls decls -> CompLetDecls (map addDeclParens decls)
 
 addArithSeqParens :: ArithSeq -> ArithSeq

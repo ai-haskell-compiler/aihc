@@ -738,7 +738,6 @@ docCompStmt stmt =
     CompAnn _ inner -> docCompStmt inner
     CompGen pat expr -> "CompGen" <+> parens (docPattern pat) <+> parens (docExpr expr)
     CompGuard expr -> "CompGuard" <+> parens (docExpr expr)
-    CompLet bindings -> "CompLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
     CompLetDecls decls -> "CompLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
 docCmd :: Cmd -> Doc ann

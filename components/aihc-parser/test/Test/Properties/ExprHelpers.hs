@@ -301,7 +301,6 @@ normalizeCompStmtInner :: CompStmt -> CompStmt
 normalizeCompStmtInner (CompAnn _ inner) = normalizeCompStmtInner inner
 normalizeCompStmtInner (CompGen pat e) = CompGen (normalizePattern pat) (normalizeExpr e)
 normalizeCompStmtInner (CompGuard e) = CompGuard (normalizeExpr e)
-normalizeCompStmtInner (CompLet bindings) = CompLet [(name, normalizeExpr e) | (name, e) <- bindings]
 normalizeCompStmtInner (CompLetDecls decls) = CompLetDecls (map normalizeDecl decls)
 
 normalizeArithSeq :: ArithSeq -> ArithSeq

@@ -861,12 +861,8 @@ shrinkCompStmt stmt =
   case peelCompStmtAnn stmt of
     CompGen pat expr -> [CompGen pat expr' | expr' <- shrinkExpr expr]
     CompGuard expr -> [CompGuard expr' | expr' <- shrinkExpr expr]
-    CompLet bindings -> [CompLet bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
     CompLetDecls decls -> [CompLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
     CompAnn _ _ -> []
-
-shrinkBinding :: (Text, Expr) -> [(Text, Expr)]
-shrinkBinding (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
 
 shrinkTupleMaybeElems :: (a -> [a]) -> [a] -> [[a]]
 shrinkTupleMaybeElems shrinkElem elems =

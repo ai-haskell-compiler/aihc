@@ -1,11 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 --
 -- Module      : Aihc.Parser.Internal.CheckPattern
 -- Description : Reclassify Expr trees as Pattern trees
--- License     : MIT
+-- License     : Unlicense
 --
 -- Convert an expression AST into a pattern AST. This implements the
 -- \"parse as expression, then reclassify\" strategy described in
@@ -21,7 +20,7 @@ module Aihc.Parser.Internal.CheckPattern
   )
 where
 
-import Aihc.Parser.Internal.Common (isConLikeName, isConLikeNameType)
+import Aihc.Parser.Internal.Common (isConLikeName)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -31,10 +30,7 @@ import Data.Text (Text)
 -- interpreted as a valid pattern.
 checkPattern :: Expr -> Either Text Pattern
 checkPattern expr = case expr of
-  EAnn ann sub ->
-    case fromAnnotation @SourceSpan ann of
-      Just sp -> fmap (patternAnnSpan sp) (checkPattern sub)
-      Nothing -> checkPattern sub
+  EAnn ann sub -> fmap (PAnn ann) (checkPattern sub)
   -- Variables and constructors
   EVar name
     | nameText name == "_" -> Right PWildcard
@@ -72,14 +68,13 @@ checkPattern expr = case expr of
     pat <- checkPattern e
     Right (PTypeSig pat ty)
   -- Negation (must be a literal)
-  ENegate inner -> checkNegLitPattern (getSourceSpan expr) inner
+  ENegate inner -> checkNegLitPattern inner
   -- Application: accumulate arguments into PCon
   EApp f x -> do
     fPat <- checkPattern f
     xPat <- checkPattern x
     case peelPatternAnn fPat of
       PCon name args -> Right (PCon name (args ++ [xPat]))
-      PVar name | isConLikeNameType (unqualifiedNameType name) -> Right (PCon (qualifyName Nothing name) [xPat])
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
   ERecordCon name fields wc -> do
@@ -136,14 +131,15 @@ checkTupleElement Nothing = Left "unexpected tuple section in pattern"
 checkTupleElement (Just e) = checkPattern e
 
 -- | Check that a negated expression is a literal (for PNegLit patterns).
-checkNegLitPattern :: SourceSpan -> Expr -> Either Text Pattern
-checkNegLitPattern sp inner = case inner of
-  EInt n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitInt n repr))))
-  EIntHash n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntHash n repr))))
-  EIntBase n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntBase n repr))))
-  EIntBaseHash n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntBaseHash n repr))))
-  EFloat x repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitFloat x repr))))
-  EFloatHash x repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitFloatHash x repr))))
+checkNegLitPattern :: Expr -> Either Text Pattern
+checkNegLitPattern inner = case inner of
+  EInt n repr -> Right (PNegLit (LitInt n repr))
+  EIntHash n repr -> Right (PNegLit (LitIntHash n repr))
+  EIntBase n repr -> Right (PNegLit (LitIntBase n repr))
+  EIntBaseHash n repr -> Right (PNegLit (LitIntBaseHash n repr))
+  EFloat x repr -> Right (PNegLit (LitFloat x repr))
+  EFloatHash x repr -> Right (PNegLit (LitFloatHash x repr))
+  EAnn ann sub -> fmap (PAnn ann) (checkNegLitPattern sub)
   _ -> Left "negation in pattern requires a numeric literal"
 
 -- | Check whether an operator is a constructor operator (starts with ':').

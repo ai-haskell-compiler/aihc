@@ -1246,7 +1246,6 @@ prettyCompStmt stmt =
     CompAnn _ inner -> prettyCompStmt inner
     CompGen pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     CompGuard expr -> prettyExpr expr
-    CompLet bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
     CompLetDecls decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
 
 prettyInlineDecls :: [Decl] -> Doc ann

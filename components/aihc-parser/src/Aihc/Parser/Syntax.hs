@@ -1854,7 +1854,6 @@ data CompStmt
     CompAnn Annotation CompStmt
   | CompGen Pattern Expr
   | CompGuard Expr
-  | CompLet [(Text, Expr)]
   | CompLetDecls [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
 
