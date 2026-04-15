@@ -373,22 +373,60 @@ genGuardQualifierWith allowTHQuotes n =
     half = n `div` 2
 
 -- | Generate value declarations for let/where.
--- Zero-argument bindings are generated as PatternBind so they keep the same
--- AST shape after pretty-print/parser roundtrip.
+-- Produces a mix of simple pattern bindings (@x = expr@) and function bindings
+-- (@f pat ... = expr@ or @f pat ... | guard = expr@), mirroring the parser
+-- which creates each equation as a separate 'FunctionBind' with a single
+-- 'Match'.
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
-  names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
-  exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
-  pure
-    [ DeclValue
-        ( PatternBind
-            span0
-            (PVar name)
-            (UnguardedRhs span0 expr Nothing)
-        )
-    | (name, expr) <- zip names exprs
+  vectorOf count (genValueDeclWith allowTHQuotes (n `div` max 1 count))
+
+-- | Generate a single value declaration: either a simple pattern binding or a
+-- function binding with argument patterns and optional guards.
+genValueDeclWith :: Bool -> Int -> Gen Decl
+genValueDeclWith allowTHQuotes n =
+  oneof
+    [ genPatternBindDecl allowTHQuotes n,
+      genFunctionBindDecl allowTHQuotes n
     ]
+
+-- | Generate a pattern binding: @pat = expr@ or @pat | guard = expr@.
+-- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
+-- can be guarded, matching what GHC accepts.
+genPatternBindDecl :: Bool -> Int -> Gen Decl
+genPatternBindDecl allowTHQuotes n = do
+  pat <- genPattern half
+  rhs <- genRhsWith allowTHQuotes half
+  pure $
+    DeclValue
+      (PatternBind span0 pat rhs)
+  where
+    half = n `div` 2
+
+-- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
+-- Produces a single 'Match', consistent with the parser which creates one
+-- 'FunctionBind' per equation.
+genFunctionBindDecl :: Bool -> Int -> Gen Decl
+genFunctionBindDecl allowTHQuotes n = do
+  name <- mkUnqualifiedName NameVarId <$> genIdent
+  patCount <- chooseInt (1, 3)
+  let perItem = n `div` max 1 (patCount + 1)
+  pats <- vectorOf patCount (genPattern perItem)
+  rhs <- genRhsWith allowTHQuotes perItem
+  pure $
+    DeclValue
+      ( FunctionBind
+          span0
+          name
+          [ Match
+              { matchSpan = span0,
+                matchHeadForm = MatchHeadPrefix,
+                matchPats = pats,
+                matchRhs = rhs
+              }
+          ]
+      )
 
 genBindingExprWith :: Bool -> Int -> Gen Expr
 genBindingExprWith = genExprSizedWith
@@ -752,6 +790,15 @@ shrinkLetDecl decl =
   case decl of
     DeclValue (PatternBind _ pat (UnguardedRhs _ expr _)) ->
       [DeclValue (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
+    DeclValue (PatternBind _ pat (GuardedRhss _ rhss _)) ->
+      -- Shrink to unguarded using the first guard's body
+      [ DeclValue (PatternBind span0 pat (UnguardedRhs span0 (guardedRhsBody firstRhs) Nothing))
+      | firstRhs : _ <- [rhss]
+      ]
+        <> [ DeclValue (PatternBind span0 pat (GuardedRhss span0 rhss' Nothing))
+           | rhss' <- shrinkList shrinkGuardedRhs rhss,
+             not (null rhss')
+           ]
     DeclValue (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
       [ DeclValue
           ( FunctionBind
@@ -761,6 +808,25 @@ shrinkLetDecl decl =
           )
       | expr' <- shrinkExpr expr
       ]
+    DeclValue (FunctionBind _ name [match@Match {matchRhs = GuardedRhss _ rhss _}]) ->
+      -- Shrink to unguarded using the first guard's body
+      [ DeclValue
+          ( FunctionBind
+              span0
+              name
+              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 (guardedRhsBody firstRhs) Nothing}]
+          )
+      | firstRhs : _ <- [rhss]
+      ]
+        <> [ DeclValue
+               ( FunctionBind
+                   span0
+                   name
+                   [match {matchSpan = span0, matchRhs = GuardedRhss span0 rhss' Nothing}]
+               )
+           | rhss' <- shrinkList shrinkGuardedRhs rhss,
+             not (null rhss')
+           ]
     _ -> []
 
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]

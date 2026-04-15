@@ -1504,6 +1504,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
+    standaloneDerivingHeadForm :: TypeHeadForm,
     standaloneDerivingClassName :: UnqualifiedName,
     standaloneDerivingTypes :: [Type]
   }
@@ -1571,6 +1572,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
+    instanceDeclHeadForm :: TypeHeadForm,
     instanceDeclClassName :: Text,
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
@@ -1657,6 +1659,7 @@ data CallConv
 data ForeignSafety
   = Safe
   | Unsafe
+  | Interruptible
   deriving (Data, Eq, Show, Generic, NFData)
 
 newtype Annotation = Annotation Dynamic

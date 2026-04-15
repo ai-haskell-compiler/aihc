@@ -48,6 +48,13 @@ import Prettyprinter
     (<+>),
   )
 
+-- | Wrap a document in braces with interior spaces: @{ content }@.
+-- Unlike 'braces' which produces @{content}@, this version avoids the
+-- @{-@ block-comment ambiguity that occurs when the content starts with a
+-- minus sign (e.g. a negated literal pattern in a let binding).
+spacedBraces :: Doc ann -> Doc ann
+spacedBraces d = "{" <+> d <+> "}"
+
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
   pretty = prettyModuleDoc . addModuleParens
@@ -372,8 +379,8 @@ prettyRhs rhs =
 
 prettyWhereClause :: Maybe [Decl] -> Doc ann
 prettyWhereClause Nothing = mempty
-prettyWhereClause (Just []) = " where" <+> braces mempty
-prettyWhereClause (Just decls) = " where" <+> braces (prettyInlineDecls decls)
+prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
+prettyWhereClause (Just decls) = " where" <+> spacedBraces (prettyInlineDecls decls)
 
 -- | Recognize @lhs \`op\` rhs@ / @lhs op rhs@ after peeling span-only 'TAnn'
 -- on each 'TApp' spine step. Do not peel 'TParen' here: explicit parentheses
@@ -848,12 +855,21 @@ prettyStandaloneDeriving decl =
 instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
   maybeParenthesize (instanceDeclParenthesizedHead decl) $
-    hsep ([pretty (instanceDeclClassName decl)] <> map prettyType (instanceDeclTypes decl))
+    prettyInstanceLikeHead (instanceDeclHeadForm decl) (instanceDeclClassName decl) (instanceDeclTypes decl)
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
   maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    hsep ([pretty (standaloneDerivingClassName decl)] <> map prettyType (standaloneDerivingTypes decl))
+    prettyInstanceLikeHead
+      (standaloneDerivingHeadForm decl)
+      (renderUnqualifiedName (standaloneDerivingClassName decl))
+      (standaloneDerivingTypes decl)
+
+prettyInstanceLikeHead :: TypeHeadForm -> Text -> [Type] -> Doc ann
+prettyInstanceLikeHead headForm className tys =
+  case (headForm, tys) of
+    (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyInfixOp className <+> prettyType rhs
+    _ -> hsep (pretty className : map prettyType tys)
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
@@ -945,6 +961,7 @@ prettySafety safety =
   case safety of
     Safe -> "safe"
     Unsafe -> "unsafe"
+    Interruptible -> "interruptible"
 
 prettyForeignEntity :: ForeignEntitySpec -> Maybe (Doc ann)
 prettyForeignEntity spec =
@@ -1069,7 +1086,7 @@ prettyExpr expr =
     ESectionR op rhs -> parens (prettyNameInfixOp op <+> prettyExpr rhs)
     ELetDecls decls body ->
       "let"
-        <+> braces (prettyInlineDecls decls)
+        <+> spacedBraces (prettyInlineDecls decls)
         <+> "in"
         <+> prettyExpr body
     ECase scrutinee alts ->
@@ -1173,14 +1190,14 @@ prettyGuardQualifier qualifier =
     GuardAnn _ inner -> prettyGuardQualifier inner
     GuardExpr expr -> prettyExpr expr
     GuardPat pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
-    GuardLet decls -> "let" <+> braces (prettyInlineDecls decls)
+    GuardLet decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
 
 prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
   case stmt of
     DoAnn _ inner -> prettyDoStmt inner
     DoBind pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
-    DoLetDecls decls -> "let" <+> braces (prettyInlineDecls decls)
+    DoLetDecls decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
     DoExpr expr -> prettyExpr expr
     DoRecStmt stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
 
@@ -1202,7 +1219,7 @@ prettyCmd cmd =
     CmdCase scrut alts ->
       "case" <+> prettyExpr scrut <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdCaseAlt alts)) <+> "}"
     CmdLet decls body ->
-      "let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
+      "let" <+> spacedBraces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
     CmdLam pats body ->
       "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyCmd body
     CmdApp c e ->
@@ -1215,7 +1232,7 @@ prettyCmdStmt stmt =
   case stmt of
     DoAnn _ inner -> prettyCmdStmt inner
     DoBind pat cmd' -> prettyPattern pat <+> "<-" <+> prettyCmd cmd'
-    DoLetDecls decls -> "let" <+> braces (prettyInlineDecls decls)
+    DoLetDecls decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
     DoExpr cmd' -> prettyCmd cmd'
     DoRecStmt stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
 
@@ -1230,7 +1247,7 @@ prettyCompStmt stmt =
     CompGen pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     CompGuard expr -> prettyExpr expr
     CompLet bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
-    CompLetDecls decls -> "let" <+> braces (prettyInlineDecls decls)
+    CompLetDecls decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
 
 prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =
@@ -1400,8 +1417,15 @@ prettyInstTypeFamilyInst tfi =
 prettyNamedTypeHead :: TypeHeadForm -> Text -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
-    (TypeHeadInfix, [lhs, rhs]) -> [pretty (tyVarBinderName lhs), pretty name, pretty (tyVarBinderName rhs)]
+    (TypeHeadInfix, [lhs, rhs]) ->
+      [ prettyTyVarBinder lhs,
+        prettyTypeHeadInfixName name,
+        prettyTyVarBinder rhs
+      ]
     _ -> [prettyConstructorName name] <> map prettyTyVarBinder params
+
+prettyTypeHeadInfixName :: Text -> Doc ann
+prettyTypeHeadInfixName = prettyInfixOp
 
 prettyTypeFamilyInfix :: Type -> Doc ann
 prettyTypeFamilyInfix ty =

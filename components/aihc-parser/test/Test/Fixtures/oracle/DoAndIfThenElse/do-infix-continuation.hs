@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail do-statement infix continuation (parse-error rule) -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 module DoInfixContinuation where
 

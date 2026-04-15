@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Total Extensions: 80
-- Supported: 69
-- In Progress: 11
+- Total Extensions: 83
+- Supported: 66
+- In Progress: 17
 
 ## Extension Status
 
@@ -12,46 +12,47 @@
 |----------------------------|:------:|---------------|
 | AllowAmbiguousTypes        |   🟢    | 1/1           |
 | Arrows                     |   🟢    | 17/17         |
-| BangPatterns               |   🟢    | 8/8           |
+| BangPatterns               |   🟢    | 11/11         |
 | BinaryLiterals             |   🟢    | 3/3           |
 | BlockArguments             |   🟢    | 6/6           |
-| CApiFFI                    |   🟢    | 1/1           |
+| CApiFFI                    |   🔴    | 1/2           |
 | ConstrainedClassMethods    |   🟢    | 1/1           |
-| ConstraintKinds            |   🟢    | 2/2           |
+| ConstraintKinds            |   🟢    | 4/4           |
 | CPP                        |   🟢    | 7/7           |
-| DataKinds                  |   🟡    | 28/31         |
+| DataKinds                  |   🟡    | 30/33         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
-| DerivingVia                |   🟢    | 4/4           |
+| DerivingVia                |   🟢    | 5/5           |
 | DoAndIfThenElse            |   🟡    | 11/12         |
 | EmptyCase                  |   🟢    | 4/4           |
 | EmptyDataDecls             |   🟢    | 7/7           |
 | EmptyDataDeriving          |   🟢    | 3/3           |
 | ExistentialQuantification  |   🟢    | 7/7           |
-| ExplicitForAll             |   🟡    | 16/17         |
+| ExplicitForAll             |   🟡    | 19/20         |
 | ExplicitLevelImports       |   🟢    | 4/4           |
 | ExplicitNamespaces         |   🟢    | 23/23         |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
-| FlexibleInstances          |   🟢    | 14/14         |
+| FlexibleInstances          |   🟡    | 14/15         |
 | ForeignFunctionInterface   |   🟢    | 40/40         |
 | FunctionalDependencies     |   🟢    | 7/7           |
 | GADTs                      |   🟢    | 10/10         |
 | GADTSyntax                 |   🟢    | 10/10         |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
-| GHC2021                    |   🔴    | 19/24         |
-| Haskell2010                |   🔴    | 6/7           |
+| GHC2021                    |   🔴    | 20/25         |
+| Haskell2010                |   🟢    | 13/13         |
 | HexFloatLiterals           |   🟢    | 3/3           |
-| ImplicitParams             |   🟢    | 7/7           |
+| ImplicitParams             |   🟢    | 10/10         |
 | ImportQualifiedPost        |   🟢    | 4/4           |
 | IncoherentInstances        |   🟢    | 1/1           |
 | InstanceSigs               |   🟢    | 5/5           |
-| KindSignatures             |   🟢    | 14/14         |
-| LambdaCase                 |   🟢    | 7/7           |
+| InterruptibleFFI           |   🔴    | 0/1           |
+| KindSignatures             |   🟡    | 16/17         |
+| LambdaCase                 |   🔴    | 8/10          |
 | MagicHash                  |   🟢    | 6/6           |
 | MultilineStrings           |   🟢    | 6/6           |
-| MultiParamTypeClasses      |   🟢    | 19/19         |
+| MultiParamTypeClasses      |   🟡    | 19/20         |
 | MultiWayIf                 |   🟢    | 5/5           |
 | NamedFieldPuns             |   🟢    | 6/6           |
 | NamedWildCards             |   🟢    | 5/5           |
@@ -63,14 +64,14 @@
 | PackageImports             |   🟢    | 6/6           |
 | ParallelListComp           |   🟢    | 2/2           |
 | PartialTypeSignatures      |   🟢    | 11/11         |
-| PatternGuards              |   🟢    | 5/5           |
-| PatternSynonyms            |   🟢    | 24/24         |
-| PolyKinds                  |   🟢    | 6/6           |
+| PatternGuards              |   🟢    | 7/7           |
+| PatternSynonyms            |   🟢    | 25/25         |
+| PolyKinds                  |   🔴    | 6/8           |
 | QualifiedDo                |   🟢    | 1/1           |
 | QuasiQuotes                |   🟢    | 6/6           |
-| RankNTypes                 |   🔴    | 2/3           |
+| RankNTypes                 |   🟢    | 3/3           |
 | RecordWildCards            |   🟢    | 8/8           |
-| RecursiveDo                |   🟢    | 2/2           |
+| RecursiveDo                |   🟢    | 3/3           |
 | RequiredTypeArguments      |   🔴    | 0/2           |
 | RoleAnnotations            |   🟢    | 7/7           |
 | Safe                       |   🟢    | 2/2           |
@@ -78,16 +79,18 @@
 | StandaloneDeriving         |   🟢    | 16/16         |
 | StandaloneKindSignatures   |   🟢    | 10/10         |
 | StarIsType                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🟡    | 29/31         |
-| TemplateHaskellQuotes      |   🔴    | 8/9           |
+| StrictData                 |   🟢    | 1/1           |
+| TemplateHaskell            |   🔴    | 33/37         |
+| TemplateHaskellQuotes      |   🟡    | 10/11         |
 | TupleSections              |   🟢    | 4/4           |
+| TypeAbstractions           |   🔴    | 0/1           |
 | TypeApplications           |   🟢    | 8/8           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🟡    | 28/29         |
-| TypeOperators              |   🟡    | 30/32         |
+| TypeFamilies               |   🔴    | 30/34         |
+| TypeOperators              |   🔴    | 33/37         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
 | UnboxedSums                |   🟢    | 5/5           |
-| UnboxedTuples              |   🟢    | 9/9           |
-| UnicodeSyntax              |   🟢    | 15/15         |
-| ViewPatterns               |   🟢    | 11/11         |
+| UnboxedTuples              |   🟢    | 10/10         |
+| UnicodeSyntax              |   🟢    | 16/16         |
+| ViewPatterns               |   🟢    | 17/17         |
 

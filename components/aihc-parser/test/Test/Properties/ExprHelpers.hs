@@ -522,6 +522,7 @@ normalizeInstanceDecl decl =
       instanceDeclForall = map normalizeTyVarBinder (instanceDeclForall decl),
       instanceDeclContext = map normalizeType (instanceDeclContext decl),
       instanceDeclParenthesizedHead = instanceDeclParenthesizedHead decl,
+      instanceDeclHeadForm = instanceDeclHeadForm decl,
       instanceDeclClassName = instanceDeclClassName decl,
       instanceDeclTypes = map normalizeType (instanceDeclTypes decl),
       instanceDeclItems = map normalizeInstanceDeclItem (instanceDeclItems decl)
@@ -551,6 +552,7 @@ normalizeStandaloneDerivingDecl decl =
       standaloneDerivingForall = map normalizeTyVarBinder (standaloneDerivingForall decl),
       standaloneDerivingContext = map normalizeType (standaloneDerivingContext decl),
       standaloneDerivingParenthesizedHead = standaloneDerivingParenthesizedHead decl,
+      standaloneDerivingHeadForm = standaloneDerivingHeadForm decl,
       standaloneDerivingClassName = standaloneDerivingClassName decl,
       standaloneDerivingTypes = map normalizeType (standaloneDerivingTypes decl)
     }

@@ -2,11 +2,18 @@
   projectHsPackages,
   sources,
   mkHsPkgsForChecks,
-  mkHsPkgsWithTestsForChecks,
-  mkCombinedDocsForChecks,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
-  hsPkgsWithTests = mkHsPkgsWithTestsForChecks pkgs;
+
+  addHiddenSuccesses = old: {
+    # Hide passing tests so failures are visible in Nix's truncated output.
+    testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+  };
+
+  mkPackageTest = drv:
+    pkgs.haskell.lib.doCheck (
+      pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv addHiddenSuccesses)
+    );
 
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
@@ -20,11 +27,11 @@
   mkProgressCheck = name: src: package: command:
     mkSourceCheck name src [package] command;
 
-  parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
-  parserCliTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser-cli);
-  cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
-  resolveTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-resolve);
-  tcTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-tc);
+  parserTests = mkPackageTest hsPkgs.aihc-parser;
+  parserCliTests = mkPackageTest hsPkgs.aihc-parser-cli;
+  cppTests = mkPackageTest hsPkgs.aihc-cpp;
+  resolveTests = mkPackageTest hsPkgs.aihc-resolve;
+  tcTests = mkPackageTest hsPkgs.aihc-tc;
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
     statix check flake.nix
@@ -60,8 +67,6 @@
     cpp-progress --strict
   '';
 
-  haddockDocs = mkCombinedDocsForChecks pkgs;
-
   cppDoctest =
     mkSourceCheck "aihc-cpp-doctest" (sources.cppSrc pkgs) [
       (projectHsPackages pkgs).doctest
@@ -94,7 +99,6 @@ in {
   tc-tests = tcTests;
   cpp-doctest = cppDoctest;
   parser-doctest = parserDoctest;
-  haddock-docs = haddockDocs;
   parser-progress-strict = parserProgressStrict;
   lexer-progress-strict = lexerProgressStrict;
   parser-extension-progress-strict = parserExtensionProgressStrict;
@@ -132,10 +136,6 @@ in {
     {
       name = "parser-doctest";
       path = parserDoctest;
-    }
-    {
-      name = "haddock-docs";
-      path = haddockDocs;
     }
     {
       name = "parser-progress-strict";

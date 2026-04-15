@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="infix backtick continuation after do block statement not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 module RollbarInfixDo where

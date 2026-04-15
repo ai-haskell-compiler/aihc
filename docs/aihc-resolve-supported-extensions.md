@@ -2,13 +2,15 @@
 
 ## Summary
 
-- Total Extensions: 1
-- Supported: 1
+- Total Extensions: 3
+- Supported: 3
 - In Progress: 0
 
 ## Extension Status
 
-| Extension           | Status | Tests Passing |
-|---------------------|:------:|---------------|
-| ScopedTypeVariables |   🟢    | 1/1           |
+| Extension                | Status | Tests Passing |
+|--------------------------|:------:|---------------|
+| RecordWildCards          |   🔴    | 0/1           |
+| ScopedTypeVariables      |   🟢    | 1/1           |
+| StandaloneKindSignatures |   🟢    | 1/1           |
 

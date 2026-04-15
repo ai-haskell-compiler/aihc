@@ -75,15 +75,19 @@ exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
+  rest <- MP.many ((,) <$> infixOperatorParserExcept forbiddenInfix <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
+  let withInfix = foldl buildInfix base rest
   pure $ case afterArrow of
-    Just (op, rhs) -> exprAnnSpan (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) (EInfix base op rhs)
-    Nothing -> base
+    Just (op, rhs) ->
+      exprAnnSpan
+        (mergeSourceSpans (getSourceSpan withInfix) (getSourceSpan rhs))
+        (EInfix withInfix op rhs)
+    Nothing -> withInfix
 
 exprCoreParserWithTypeSigParserExcept :: TokParser Type -> [Text] -> TokParser Expr
 exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix = do
@@ -202,7 +206,6 @@ exprCoreParserNoArrowTail = do
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
@@ -994,11 +997,9 @@ localFunctionDeclParser = withDeclSpanAnn $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withDeclSpanAnn $ do
   pat <- patternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  whereDecls <- MP.optional whereClauseParser
+  rhs <- equationRhsParser
   pure $ \_ ->
-    DeclValue (PatternBind NoSourceSpan pat (UnguardedRhs NoSourceSpan rhsExpr whereDecls))
+    DeclValue (PatternBind NoSourceSpan pat rhs)
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withDeclSpanAnn $ do

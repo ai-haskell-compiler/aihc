@@ -1,0 +1,7 @@
+extensions: [KindSignatures]
+input: |
+  {-# LANGUAGE KindSignatures #-}
+  class (xs :: [k]) `Infix` (ys :: [k])
+ast: |
+  Module {languagePragmas = [EnableExtension KindSignatures], decls = [DeclClass (ClassDecl {headForm = TypeHeadInfix, name = "Infix", params = [TyVarBinder {name = "xs", kind = TList [TVar "k"]}, TyVarBinder {name = "ys", kind = TList [TVar "k"]}]})]}
+status: pass

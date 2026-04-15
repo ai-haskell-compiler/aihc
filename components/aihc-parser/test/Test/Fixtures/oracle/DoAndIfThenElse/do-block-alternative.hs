@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail do-block infix continuation with <|> operator -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 module AttoparsecExpr where
 
