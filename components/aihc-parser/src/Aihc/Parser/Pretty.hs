@@ -29,7 +29,7 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1288,13 +1288,34 @@ isOperatorName name =
 thNameQuoteTextNeedsParens :: Text -> Bool
 thNameQuoteTextNeedsParens name
   | isOperatorToken name = True
-  | not (T.any (== '.') name) = False
   | otherwise =
-      case T.split (== '.') name of
-        [] -> False
-        parts ->
-          let suffix = last parts
-           in not (T.null suffix) && isOperatorToken suffix
+      case splitQualifiedNameQuoteText name of
+        Just (_, quotedName) -> isOperatorToken quotedName
+        Nothing -> False
+
+splitQualifiedNameQuoteText :: Text -> Maybe (Text, Text)
+splitQualifiedNameQuoteText fullName =
+  case T.uncons fullName of
+    Just (c, _) | isAsciiUpper c -> go fullName
+    _ -> Nothing
+  where
+    go txt =
+      let (segment, rest) = T.breakOn "." txt
+       in case T.stripPrefix "." rest of
+            Just next
+              | isModuleSegment segment,
+                not (T.null next) ->
+                  case go next of
+                    Just (qualifier, quotedName) -> Just (segment <> "." <> qualifier, quotedName)
+                    Nothing -> Just (segment, next)
+            _ -> Nothing
+
+    isModuleSegment segment =
+      case T.uncons segment of
+        Just (c, rest) -> isAsciiUpper c && T.all isIdentChar rest
+        Nothing -> False
+
+    isIdentChar c = isAsciiUpper c || isAsciiLower c || c == '_' || c == '\'' || c == '#' || isDigit c
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
