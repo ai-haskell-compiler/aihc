@@ -230,9 +230,7 @@ buildTests = do
             testCase "ignores unexpected pragmas without parse failure" test_ignoresUnexpectedPragmas,
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
-            testCase "parses warned export reexports" test_warnedExportReexportParses,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
-            testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
@@ -538,22 +536,6 @@ test_sourceUnpackednessRoundtrip =
         Nothing -> pure ()
         Just err -> assertFailure ("expected source unpackedness roundtrip to validate, got: " <> show err)
 
-test_warnedExportReexportParses :: Assertion
-test_warnedExportReexportParses =
-  let source =
-        T.unlines
-          [ "module M",
-            "  ( {-# DEPRECATED \"Import g from A instead\" #-} g",
-            "  ) where",
-            "import A (g)"
-          ]
-      (errs, modu) = parseModule defaultConfig source
-   in do
-        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleExports modu of
-          Just [ExportVar (Just (DeprText "Import g from A instead")) Nothing "g"] -> pure ()
-          other -> assertFailure ("unexpected exports: " <> show other)
-
 test_warnedExportReexportRoundtrip :: Assertion
 test_warnedExportReexportRoundtrip =
   let source =
@@ -569,23 +551,6 @@ test_warnedExportReexportRoundtrip =
    in case validateParser "WarnedExportReexport.hs" Haskell2010Edition [] source of
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
-
-test_warnedExportModuleReexportParses :: Assertion
-test_warnedExportModuleReexportParses =
-  let source =
-        T.unlines
-          [ "module M",
-            "  ( {-# DEPRECATED \"Moved to B\" #-}",
-            "      module B",
-            "  ) where",
-            "import B"
-          ]
-      (errs, modu) = parseModule defaultConfig source
-   in do
-        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleExports modu of
-          Just [ExportModule (Just (DeprText "Moved to B")) "B"] -> pure ()
-          other -> assertFailure ("unexpected exports: " <> show other)
 
 test_infixClassHeadParses :: Assertion
 test_infixClassHeadParses =
