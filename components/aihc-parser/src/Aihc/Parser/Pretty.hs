@@ -1359,9 +1359,9 @@ prettyNamedTypeHead :: TypeHeadForm -> Text -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
     (TypeHeadInfix, [lhs, rhs]) ->
-      [ pretty (tyVarBinderName lhs),
+      [ prettyTyVarBinder lhs,
         prettyTypeHeadInfixName name,
-        pretty (tyVarBinderName rhs)
+        prettyTyVarBinder rhs
       ]
     _ -> [prettyConstructorName name] <> map prettyTyVarBinder params
 
