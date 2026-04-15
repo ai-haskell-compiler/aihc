@@ -523,7 +523,10 @@ genNewtypeRecordCon = do
   pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False False ty)]
 
 genDeclClass :: Gen Decl
-genDeclClass = do
+genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
+
+genDeclClassPrefix :: Gen Decl
+genDeclClassPrefix = do
   name <- genConIdent
   params <- genSimpleTyVarBinders
   ctx <- genOptionalSimpleContext
@@ -535,6 +538,26 @@ genDeclClass = do
           classDeclHeadForm = TypeHeadPrefix,
           classDeclName = name,
           classDeclParams = params,
+          classDeclFundeps = [],
+          classDeclItems = []
+        }
+
+genDeclClassInfix :: Gen Decl
+genDeclClassInfix = do
+  name <- genConIdent
+  lhsName <- genIdent
+  rhsName <- genIdent
+  ctx <- genOptionalSimpleContext
+  let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
+      rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
+  pure $
+    DeclClass span0 $
+      ClassDecl
+        { classDeclSpan = span0,
+          classDeclContext = ctx,
+          classDeclHeadForm = TypeHeadInfix,
+          classDeclName = name,
+          classDeclParams = [lhs, rhs],
           classDeclFundeps = [],
           classDeclItems = []
         }

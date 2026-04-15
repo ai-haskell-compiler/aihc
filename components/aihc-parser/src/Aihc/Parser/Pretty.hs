@@ -1349,8 +1349,15 @@ prettyInstTypeFamilyInst tfi =
 prettyNamedTypeHead :: TypeHeadForm -> Text -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
-    (TypeHeadInfix, [lhs, rhs]) -> [pretty (tyVarBinderName lhs), pretty name, pretty (tyVarBinderName rhs)]
+    (TypeHeadInfix, [lhs, rhs]) ->
+      [ pretty (tyVarBinderName lhs),
+        prettyTypeHeadInfixName name,
+        pretty (tyVarBinderName rhs)
+      ]
     _ -> [prettyConstructorName name] <> map prettyTyVarBinder params
+
+prettyTypeHeadInfixName :: Text -> Doc ann
+prettyTypeHeadInfixName = prettyInfixOp
 
 prettyTypeFamilyInfix :: Type -> Doc ann
 prettyTypeFamilyInfix ty =
