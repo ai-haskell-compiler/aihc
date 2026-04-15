@@ -1140,7 +1140,7 @@ declContextParser = contextParserWith typeParser typeAtomParser
 
 typeDeclHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 typeDeclHeadParser =
-  MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
@@ -1152,6 +1152,15 @@ typeDeclHeadParser =
       op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
       rhs <- typeParamParser
       pure (TypeHeadInfix, op, [lhs, rhs])
+
+    parenthesizedInfixDeclHeadParser = do
+      expectedTok TkSpecialLParen
+      lhs <- typeParamParser
+      op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
+      rhs <- typeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many typeParamParser
+      pure (TypeHeadInfix, op, [lhs, rhs] <> tailParams)
 
 typeSynonymOperatorParser :: TokParser Text
 typeSynonymOperatorParser =

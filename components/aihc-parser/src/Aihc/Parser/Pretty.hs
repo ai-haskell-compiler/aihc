@@ -633,8 +633,11 @@ prettyDeclHead headForm constraints name params =
     )
   where
     prettyDeclHeadNameAndParams nm prms = case (headForm, prms) of
-      (TypeHeadInfix, [lhs, rhs]) ->
-        [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
+      (TypeHeadInfix, lhs : rhs : tailPrms) ->
+        let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp (renderUnqualifiedName nm) <+> pretty (tyVarBinderName rhs)
+         in case tailPrms of
+              [] -> [infixHead]
+              _ -> parens infixHead : map prettyTyVarBinder tailPrms
       _ ->
         [prettyConstructorUName nm] <> map prettyTyVarBinder prms
 
