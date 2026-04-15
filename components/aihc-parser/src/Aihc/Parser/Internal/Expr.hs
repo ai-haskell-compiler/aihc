@@ -69,10 +69,12 @@ exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
+  rest <- MP.many ((,) <$> infixOperatorParserExcept forbiddenInfix <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
+  let withInfix = foldl buildInfix base rest
   pure $ case afterArrow of
-    Just (op, rhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
-    Nothing -> base
+    Just (op, rhs) -> EInfix (mergeSourceSpans (getSourceSpan withInfix) (getSourceSpan rhs)) withInfix op rhs
+    Nothing -> withInfix
 
 exprCoreParserWithTypeSigParserExcept :: TokParser Type -> [Text] -> TokParser Expr
 exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix = do
