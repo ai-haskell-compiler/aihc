@@ -1080,13 +1080,13 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
   expectedTok TkTHQuoteTick
-  name <- identifierTextParser <|> parenOperatorTextParser
+  name <- identifierTextParser <|> parenOperatorTextParser <|> bracketConstructorTextParser
   pure (`ETHNameQuote` name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpan $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (`ETHTypeNameQuote` name)
 
 parenOperatorTextParser :: TokParser Text
@@ -1113,6 +1113,20 @@ parenOperatorNameParser = do
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure op
+
+-- | Parse the empty-list constructor name @[]@ in a TH name quote context,
+-- i.e. the @[]@ in @'[]@ or the type-level @''[]@.
+bracketConstructorTextParser :: TokParser Text
+bracketConstructorTextParser = do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure "[]"
+
+bracketConstructorNameParser :: TokParser Name
+bracketConstructorNameParser = do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =
