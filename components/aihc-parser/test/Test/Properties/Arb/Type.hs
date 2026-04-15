@@ -329,10 +329,7 @@ canonicalContextItem ty =
     _ -> canonicalTypeSplice ty
 
 canonicalTypeSplice :: Type -> Type
-canonicalTypeSplice ty =
-  case ty of
-    TSplice (EVar name) -> TSplice (EParen (EVar name))
-    _ -> ty
+canonicalTypeSplice ty = ty
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
