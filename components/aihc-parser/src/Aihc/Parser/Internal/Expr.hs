@@ -226,14 +226,14 @@ startsWithPatternBind =
     expectedTok TkReservedLeftArrow
 
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
-doBindOrExprStmtParser = withSpan $ do
+doBindOrExprStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   mExpr <- MP.optional . MP.try $ exprParser
   case mExpr of
     Nothing -> do
       pat <- patternParser
       expectedTok TkReservedLeftArrow
       rhs <- region "while parsing '<-' binding" exprParser
-      pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
+      pure (DoBind pat rhs)
     Just expr -> do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
@@ -241,23 +241,23 @@ doBindOrExprStmtParser = withSpan $ do
           pat <- patternParser
           expectedTok TkReservedLeftArrow
           rhs <- region "while parsing '<-' binding" exprParser
-          pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
+          pure (DoBind pat rhs)
         _ -> do
           mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
           case mArrow of
             Just () -> do
               pat <- liftCheck (checkPattern expr)
               rhs <- region "while parsing '<-' binding" exprParser
-              pure (\span' -> doStmtAnnSpan span' (DoBind pat rhs))
+              pure (DoBind pat rhs)
             Nothing ->
-              pure (\span' -> doStmtAnnSpan span' (DoExpr expr))
+              pure (DoExpr expr)
 
 doPatBindStmtParser :: TokParser (DoStmt Expr)
-doPatBindStmtParser = withSpan $ do
+doPatBindStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' binding" exprParser
-  pure (\span' -> doStmtAnnSpan span' (DoBind pat expr))
+  pure (DoBind pat expr)
 
 parseLetDeclsParser :: TokParser [Decl]
 parseLetDeclsParser = do
@@ -877,28 +877,27 @@ compStmtParser = do
         else compGenOrGuardParser
 
 compGenOrGuardParser :: TokParser CompStmt
-compGenOrGuardParser = withSpan $ do
+compGenOrGuardParser = withSpanAnn (CompAnn . mkAnnotation) $ do
   expr <- exprParser
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
     Just () -> do
       pat <- liftCheck (checkPattern expr)
       rhs <- region "while parsing '<-' generator" exprParser
-      pure (\span' -> compAnnSpan span' (CompGen pat rhs))
+      pure (CompGen pat rhs)
     Nothing ->
-      pure (\span' -> compAnnSpan span' (CompGuard expr))
+      pure (CompGuard expr)
 
 compPatGenParser :: TokParser CompStmt
-compPatGenParser = withSpan $ do
+compPatGenParser = withSpanAnn (CompAnn . mkAnnotation) $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' generator" exprParser
-  pure (\span' -> compAnnSpan span' (CompGen pat expr))
+  pure (CompGen pat expr)
 
 compLetStmtParser :: TokParser CompStmt
-compLetStmtParser = withSpan $ do
-  decls <- parseLetDeclsStmtParser
-  pure (\span' -> compAnnSpan span' (CompLetDecls decls))
+compLetStmtParser = withSpanAnn (CompAnn . mkAnnotation) $ do
+  CompLetDecls <$> parseLetDeclsStmtParser
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
