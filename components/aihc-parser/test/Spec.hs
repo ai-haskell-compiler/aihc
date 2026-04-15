@@ -25,14 +25,16 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
+import Test.Properties.Arb.Decl (genDeclDataFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
+import Test.QuickCheck (Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -44,6 +46,9 @@ import Text.Megaparsec.Error qualified as MPE
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
+
+sampleGen :: Int -> Gen a -> [a]
+sampleGen count gen = QGen.unGen (QC.vectorOf count gen) (QRandom.mkQCGen 20260415) 5
 
 expr0 :: Expr -> Expr
 expr0 = EAnn (mkAnnotation span0)
@@ -315,7 +320,8 @@ buildTests = do
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
             testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
-            testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens
+            testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens,
+            testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
           ],
         testGroup
           "functionHeadParserWith dispatch"
@@ -340,8 +346,10 @@ buildTests = do
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
-            [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+            [ testCase "qualified Unicode TH name quote round-trips" test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote,
+              QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
+              QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
@@ -1612,6 +1620,37 @@ test_prettyGuardPatTypeSigParens = do
   assertBool
     ("expected parenthesized type sig in guard pattern, got:\n" <> T.unpack source)
     ("if { | () <- (262 :: T) -> () }" == source)
+
+test_dataFamilyInstanceKindSignatureRoundTrip :: Assertion
+test_dataFamilyInstanceKindSignatureRoundTrip = do
+  let source = T.unlines ["data instance Fam () :: Type -> Type where", "  F :: Fam () Int"]
+      expectedKind = TFun (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Type")) Unpromoted) (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Type")) Unpromoted)
+  case parseDecl defaultConfig source of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclDataFamilyInst DataFamilyInst {dataFamilyInstHead, dataFamilyInstKind = Just kind, dataFamilyInstConstructors = [ctor]}
+          | stripTypeAnnotations dataFamilyInstHead == TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Fam")) Unpromoted) (TTuple Boxed Unpromoted []),
+            stripTypeAnnotations kind == expectedKind ->
+              case peelDataConAnn ctor of
+                GadtCon _ _ [conName] (GadtPrefixBody [] resultTy)
+                  | conName == mkUnqualifiedName NameConId "F",
+                    stripTypeAnnotations resultTy == TApp (TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Fam")) Unpromoted) (TTuple Boxed Unpromoted [])) (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted) ->
+                      pure ()
+                other ->
+                  assertFailure ("expected GADT constructor for data family instance kind signature, got: " <> show other)
+        other ->
+          assertFailure ("expected parsed data family instance kind signature AST, got: " <> show other)
+    ParseErr err ->
+      assertFailure ("expected data family instance kind signature to parse, got:\n" <> MPE.errorBundlePretty err)
+
+prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
+prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
+  let samples = sampleGen 6000 genDeclDataFamilyInst
+      matching =
+        [ decl
+        | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
+        ]
+   in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
 
 test_guardPatBind :: Assertion
 test_guardPatBind =

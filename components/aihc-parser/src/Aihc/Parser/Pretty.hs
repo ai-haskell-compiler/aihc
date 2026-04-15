@@ -29,7 +29,7 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -633,8 +633,11 @@ prettyDeclHead headForm constraints name params =
     )
   where
     prettyDeclHeadNameAndParams nm prms = case (headForm, prms) of
-      (TypeHeadInfix, [lhs, rhs]) ->
-        [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
+      (TypeHeadInfix, lhs : rhs : tailPrms) ->
+        let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp (renderUnqualifiedName nm) <+> pretty (tyVarBinderName rhs)
+         in case tailPrms of
+              [] -> [infixHead]
+              _ -> parens infixHead : map prettyTyVarBinder tailPrms
       _ ->
         [prettyConstructorUName nm] <> map prettyTyVarBinder prms
 
@@ -1285,13 +1288,34 @@ isOperatorName name =
 thNameQuoteTextNeedsParens :: Text -> Bool
 thNameQuoteTextNeedsParens name
   | isOperatorToken name = True
-  | not (T.any (== '.') name) = False
   | otherwise =
-      case T.split (== '.') name of
-        [] -> False
-        parts ->
-          let suffix = last parts
-           in not (T.null suffix) && isOperatorToken suffix
+      case splitQualifiedNameQuoteText name of
+        Just (_, quotedName) -> isOperatorToken quotedName
+        Nothing -> False
+
+splitQualifiedNameQuoteText :: Text -> Maybe (Text, Text)
+splitQualifiedNameQuoteText fullName =
+  case T.uncons fullName of
+    Just (c, _) | isAsciiUpper c -> go fullName
+    _ -> Nothing
+  where
+    go txt =
+      let (segment, rest) = T.breakOn "." txt
+       in case T.stripPrefix "." rest of
+            Just next
+              | isModuleSegment segment,
+                not (T.null next) ->
+                  case go next of
+                    Just (qualifier, quotedName) -> Just (segment <> "." <> qualifier, quotedName)
+                    Nothing -> Just (segment, next)
+            _ -> Nothing
+
+    isModuleSegment segment =
+      case T.uncons segment of
+        Just (c, rest) -> isAsciiUpper c && T.all isIdentChar rest
+        Nothing -> False
+
+    isIdentChar c = isAsciiUpper c || isAsciiLower c || c == '_' || c == '\'' || c == '#' || isDigit c
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
@@ -1363,12 +1387,15 @@ prettyTopDataFamilyInst dfi =
     [keyword, "instance"]
       <> forallPart (dataFamilyInstForall dfi)
       <> [prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
@@ -1459,10 +1486,13 @@ prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyInstDataFamilyInst dfi =
   hsep $
     [keyword, prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]

@@ -978,5 +978,6 @@ docDataFamilyInst dfi =
       boolField "isNewtype" (dataFamilyInstIsNewtype dfi)
         <> listField "forall" docTyVarBinder (dataFamilyInstForall dfi)
         <> [field "head" (docType (dataFamilyInstHead dfi))]
+        <> optionalField "kind" docType (dataFamilyInstKind dfi)
         <> listField "constructors" docDataConDecl (dataFamilyInstConstructors dfi)
         <> listField "deriving" docDerivingClause (dataFamilyInstDeriving dfi)

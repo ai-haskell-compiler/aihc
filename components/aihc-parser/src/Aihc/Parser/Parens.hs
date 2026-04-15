@@ -590,6 +590,7 @@ addDataFamilyInstParens :: DataFamilyInst -> DataFamilyInst
 addDataFamilyInstParens dfi =
   dfi
     { dataFamilyInstHead = addTypeParens (dataFamilyInstHead dfi),
+      dataFamilyInstKind = fmap addTypeParens (dataFamilyInstKind dfi),
       dataFamilyInstConstructors = map addDataConDeclParens (dataFamilyInstConstructors dfi),
       dataFamilyInstDeriving = map addDerivingClauseParens (dataFamilyInstDeriving dfi)
     }

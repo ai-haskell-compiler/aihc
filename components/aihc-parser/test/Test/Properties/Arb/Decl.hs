@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Decl
   ( genDecl,
+    genDeclDataFamilyInst,
     genFunctionDecl,
     shrinkDecl,
   )
@@ -21,7 +22,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -122,6 +123,8 @@ genFunctionDecl (name, expr) = do
       do
         lhsPat <- genInfixLhsPattern
         rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        extraCount <- chooseInt (0, 2)
+        extraPats <- vectorOf extraCount (canonicalPatternAtom <$> sized (genPattern . min 3))
         pure $
           DeclValue
             ( FunctionBind
@@ -130,7 +133,7 @@ genFunctionDecl (name, expr) = do
                 [ Match
                     { matchSpan = span0,
                       matchHeadForm = MatchHeadInfix,
-                      matchPats = [lhsPat, rhsPat],
+                      matchPats = [lhsPat, rhsPat] <> extraPats,
                       matchRhs = UnguardedRhs span0 expr Nothing
                     }
                 ]
@@ -204,7 +207,8 @@ genDeclData :: Gen Decl
 genDeclData =
   oneof
     [ DeclData <$> genSimpleDataDecl,
-      genDeclDataGadt
+      genDeclDataGadt,
+      genDeclDataInfix
     ]
 
 genDeclDataGadt :: Gen Decl
@@ -223,6 +227,34 @@ genDeclDataGadt = do
           dataDeclKind = Nothing,
           dataDeclConstructors = ctors,
           dataDeclDeriving = []
+        }
+
+-- | Generate an infix data declaration with 2-4 type parameters,
+-- covering both symbolic operators (e.g. @data (f :+: g) x = ...@)
+-- and backtick-wrapped identifiers (e.g. @data (f \`Dot\` g) x = ...@).
+genDeclDataInfix :: Gen Decl
+genDeclDataInfix = do
+  name <- oneof [mkUnqualifiedName NameConSym <$> genConSym, mkUnqualifiedName NameConId <$> genConIdent]
+  lhsName <- genIdent
+  rhsName <- genIdent
+  extraCount <- chooseInt (0, 2)
+  extraNames <- vectorOf extraCount genIdent
+  let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
+      rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
+      extraParams = [TyVarBinder span0 n Nothing TyVarBSpecified | n <- extraNames]
+  ctors <- genSimpleDataCons
+  deriving' <- genDerivingClauses
+  pure $
+    DeclData $
+      DataDecl
+        { dataDeclSpan = span0,
+          dataDeclHeadForm = TypeHeadInfix,
+          dataDeclContext = [],
+          dataDeclName = name,
+          dataDeclParams = [lhs, rhs] <> extraParams,
+          dataDeclKind = Nothing,
+          dataDeclConstructors = ctors,
+          dataDeclDeriving = deriving'
         }
 
 genDeclTypeData :: Gen Decl
@@ -856,6 +888,7 @@ genDeclDataFamilyInst =
 genDeclDataFamilyInstPrefix :: Gen Decl
 genDeclDataFamilyInstPrefix = do
   head' <- genFamilyLhsType
+  kind <- genOptionalDataFamilyInstKind
   ctors <- genSimpleDataCons
   pure $
     DeclDataFamilyInst $
@@ -864,6 +897,7 @@ genDeclDataFamilyInstPrefix = do
           dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
+          dataFamilyInstKind = kind,
           dataFamilyInstConstructors = ctors,
           dataFamilyInstDeriving = []
         }
@@ -871,6 +905,7 @@ genDeclDataFamilyInstPrefix = do
 genDeclDataFamilyInstGadt :: Gen Decl
 genDeclDataFamilyInstGadt = do
   head' <- genFamilyLhsType
+  kind <- genOptionalDataFamilyInstKind
   ctors <- genGadtDataCons
   pure $
     DeclDataFamilyInst $
@@ -879,9 +914,21 @@ genDeclDataFamilyInstGadt = do
           dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
+          dataFamilyInstKind = kind,
           dataFamilyInstConstructors = ctors,
           dataFamilyInstDeriving = []
         }
+
+genOptionalDataFamilyInstKind :: Gen (Maybe Type)
+genOptionalDataFamilyInstKind =
+  frequency
+    [ (3, pure Nothing),
+      (1, Just <$> genDataFamilyInstKind)
+    ]
+
+genDataFamilyInstKind :: Gen Type
+genDataFamilyInstKind =
+  canonicalKindSigKind . canonicalTopLevelType <$> sized (genType . min 6)
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
