@@ -607,6 +607,7 @@ normalizeDataFamilyInst dfi =
       dataFamilyInstIsNewtype = dataFamilyInstIsNewtype dfi,
       dataFamilyInstForall = map normalizeTyVarBinder (dataFamilyInstForall dfi),
       dataFamilyInstHead = normalizeType (dataFamilyInstHead dfi),
+      dataFamilyInstKind = fmap normalizeType (dataFamilyInstKind dfi),
       dataFamilyInstConstructors = map normalizeDataConDecl (dataFamilyInstConstructors dfi),
       dataFamilyInstDeriving = map normalizeDerivingClause (dataFamilyInstDeriving dfi)
     }
