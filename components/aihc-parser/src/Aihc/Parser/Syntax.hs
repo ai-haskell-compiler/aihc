@@ -862,15 +862,10 @@ data ExportSpec
 instance HasSourceSpan ExportSpec where
   getSourceSpan spec =
     case spec of
-      ExportModule {} -> NoSourceSpan
-      ExportVar {} -> NoSourceSpan
-      ExportAbs {} -> NoSourceSpan
-      ExportAll {} -> NoSourceSpan
-      ExportWith {} -> NoSourceSpan
-      ExportWithAll {} -> NoSourceSpan
       ExportAnn ann sub
         | Just srcSpan <- fromAnnotation ann -> srcSpan
         | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
@@ -916,14 +911,10 @@ data ImportItem
 instance HasSourceSpan ImportItem where
   getSourceSpan item =
     case item of
-      ImportItemVar {} -> NoSourceSpan
-      ImportItemAbs {} -> NoSourceSpan
-      ImportItemAll {} -> NoSourceSpan
-      ImportItemWith {} -> NoSourceSpan
-      ImportItemAllWith {} -> NoSourceSpan
       ImportAnn ann sub
         | Just srcSpan <- fromAnnotation ann -> srcSpan
         | otherwise -> getSourceSpan sub
+      _ -> NoSourceSpan
 
 data Decl
   = DeclAnn Annotation Decl
@@ -959,28 +950,7 @@ instance HasSourceSpan Decl where
       DeclAnn ann sub
         | Just srcSpan <- fromAnnotation ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      DeclValue vd -> getSourceSpan vd
-      DeclTypeSig {} -> NoSourceSpan
-      DeclPatSyn {} -> NoSourceSpan
-      DeclPatSynSig {} -> NoSourceSpan
-      DeclStandaloneKindSig {} -> NoSourceSpan
-      DeclFixity {} -> NoSourceSpan
-      DeclRoleAnnotation {} -> NoSourceSpan
-      DeclTypeSyn {} -> NoSourceSpan
-      DeclTypeData {} -> NoSourceSpan
-      DeclData {} -> NoSourceSpan
-      DeclNewtype {} -> NoSourceSpan
-      DeclClass {} -> NoSourceSpan
-      DeclInstance {} -> NoSourceSpan
-      DeclStandaloneDeriving {} -> NoSourceSpan
-      DeclDefault {} -> NoSourceSpan
-      DeclForeign {} -> NoSourceSpan
-      DeclSplice {} -> NoSourceSpan
-      DeclTypeFamilyDecl {} -> NoSourceSpan
-      DeclDataFamilyDecl {} -> NoSourceSpan
-      DeclTypeFamilyInst {} -> NoSourceSpan
-      DeclDataFamilyInst {} -> NoSourceSpan
-      DeclPragma {} -> NoSourceSpan
+      _ -> NoSourceSpan
 
 -- | Peel nested 'DeclAnn' wrappers.
 peelDeclAnn :: Decl -> Decl
@@ -1115,16 +1085,7 @@ instance HasSourceSpan Literal where
       LitAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      LitInt {} -> NoSourceSpan
-      LitIntHash {} -> NoSourceSpan
-      LitIntBase {} -> NoSourceSpan
-      LitIntBaseHash {} -> NoSourceSpan
-      LitFloat {} -> NoSourceSpan
-      LitFloatHash {} -> NoSourceSpan
-      LitChar {} -> NoSourceSpan
-      LitCharHash {} -> NoSourceSpan
-      LitString {} -> NoSourceSpan
-      LitStringHash {} -> NoSourceSpan
+      _ -> NoSourceSpan
 
 literalAnnSpan :: SourceSpan -> Literal -> Literal
 literalAnnSpan sp = LitAnn (mkAnnotation sp)
@@ -1167,24 +1128,7 @@ instance HasSourceSpan Pattern where
       PAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      PVar {} -> NoSourceSpan
-      PWildcard {} -> NoSourceSpan
-      PLit {} -> NoSourceSpan
-      PQuasiQuote {} -> NoSourceSpan
-      PTuple {} -> NoSourceSpan
-      PUnboxedSum {} -> NoSourceSpan
-      PList {} -> NoSourceSpan
-      PCon {} -> NoSourceSpan
-      PInfix {} -> NoSourceSpan
-      PView {} -> NoSourceSpan
-      PAs {} -> NoSourceSpan
-      PStrict {} -> NoSourceSpan
-      PIrrefutable {} -> NoSourceSpan
-      PNegLit {} -> NoSourceSpan
-      PParen {} -> NoSourceSpan
-      PRecord {} -> NoSourceSpan
-      PTypeSig {} -> NoSourceSpan
-      PSplice {} -> NoSourceSpan
+      _ -> NoSourceSpan
 
 -- | Peel nested 'PAnn' wrappers.
 peelPatternAnn :: Pattern -> Pattern
