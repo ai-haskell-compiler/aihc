@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="typelevel-tools-yj uses promoted list syntax in infix typeclass instance heads, which the parser rejects" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}

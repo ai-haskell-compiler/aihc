@@ -21,7 +21,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -523,7 +523,10 @@ genNewtypeRecordCon = do
   pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False False ty)]
 
 genDeclClass :: Gen Decl
-genDeclClass = do
+genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
+
+genDeclClassPrefix :: Gen Decl
+genDeclClassPrefix = do
   name <- genConIdent
   params <- genSimpleTyVarBinders
   ctx <- genOptionalSimpleContext
@@ -600,11 +603,36 @@ genAssociatedTypeDefaultInst tf classParams =
             typeFamilyInstRhs = rhs
           }
 
+genDeclClassInfix :: Gen Decl
+genDeclClassInfix = do
+  name <- genConIdent
+  lhsName <- genIdent
+  rhsName <- genIdent
+  ctx <- genOptionalSimpleContext
+  let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
+      rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
+      params = [lhs, rhs]
+  items <- genClassDeclItems params
+  pure $
+    DeclClass span0 $
+      ClassDecl
+        { classDeclSpan = span0,
+          classDeclContext = ctx,
+          classDeclHeadForm = TypeHeadInfix,
+          classDeclName = name,
+          classDeclParams = params,
+          classDeclFundeps = [],
+          classDeclItems = items
+        }
+
 genDeclInstance :: Gen Decl
-genDeclInstance = do
+genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix]
+
+genDeclInstancePrefix :: Gen Decl
+genDeclInstancePrefix = do
   className <- genConIdent
   n <- chooseInt (0, 2)
-  types <- vectorOf n genSimpleType
+  types <- vectorOf n genInstanceHeadType
   ctx <- genSimpleContext
   pure $
     DeclInstance span0 $
@@ -615,16 +643,41 @@ genDeclInstance = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
+          instanceDeclHeadForm = TypeHeadPrefix,
           instanceDeclClassName = className,
           instanceDeclTypes = types,
           instanceDeclItems = []
         }
 
+genDeclInstanceInfix :: Gen Decl
+genDeclInstanceInfix = do
+  className <- genConIdent
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  ctx <- genSimpleContext
+  pure $
+    DeclInstance span0 $
+      InstanceDecl
+        { instanceDeclSpan = span0,
+          instanceDeclOverlapPragma = Nothing,
+          instanceDeclWarning = Nothing,
+          instanceDeclForall = [],
+          instanceDeclContext = ctx,
+          instanceDeclParenthesizedHead = False,
+          instanceDeclHeadForm = TypeHeadInfix,
+          instanceDeclClassName = className,
+          instanceDeclTypes = [lhs, rhs],
+          instanceDeclItems = []
+        }
+
 genDeclStandaloneDeriving :: Gen Decl
-genDeclStandaloneDeriving = do
+genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStandaloneDerivingInfix]
+
+genDeclStandaloneDerivingPrefix :: Gen Decl
+genDeclStandaloneDerivingPrefix = do
   className <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
-  types <- vectorOf n genSimpleType
+  types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
   ctx <- genSimpleContext
   pure $
@@ -638,9 +691,61 @@ genDeclStandaloneDeriving = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
+          standaloneDerivingHeadForm = TypeHeadPrefix,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = types
         }
+
+genDeclStandaloneDerivingInfix :: Gen Decl
+genDeclStandaloneDerivingInfix = do
+  className <- mkUnqualifiedName NameConId <$> genConIdent
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  ctx <- genSimpleContext
+  pure $
+    DeclStandaloneDeriving span0 $
+      StandaloneDerivingDecl
+        { standaloneDerivingSpan = span0,
+          standaloneDerivingStrategy = strategy,
+          standaloneDerivingViaType = Nothing,
+          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingWarning = Nothing,
+          standaloneDerivingForall = [],
+          standaloneDerivingContext = ctx,
+          standaloneDerivingParenthesizedHead = False,
+          standaloneDerivingHeadForm = TypeHeadInfix,
+          standaloneDerivingClassName = className,
+          standaloneDerivingTypes = [lhs, rhs]
+        }
+
+genInstanceHeadType :: Gen Type
+genInstanceHeadType = suchThat (sized (genType . min 4)) isValidInstanceHeadType
+
+isValidInstanceHeadType :: Type -> Bool
+isValidInstanceHeadType ty =
+  case ty of
+    TStar {} -> False
+    TForall {} -> False
+    TContext {} -> False
+    TImplicitParam {} -> False
+    TAnn _ inner -> isValidInstanceHeadType inner
+    _ -> True
+
+isInfixInstanceHeadType :: Type -> Bool
+isInfixInstanceHeadType ty =
+  case ty of
+    TVar {} -> True
+    TCon {} -> True
+    TTypeLit {} -> True
+    TStar {} -> True
+    TTuple {} -> True
+    TList {} -> True
+    TParen _ inner -> isInfixInstanceHeadType inner
+    _ -> False
+
+genInfixInstanceHeadType :: Gen Type
+genInfixInstanceHeadType = suchThat genInstanceHeadType isInfixInstanceHeadType
 
 genDeclDefault :: Gen Decl
 genDeclDefault = do
@@ -780,14 +885,21 @@ genDeclDataFamilyInstGadt = do
           dataFamilyInstDeriving = []
         }
 
--- | Generate a type family LHS: a type constructor applied to a type constructor argument.
+-- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
 genFamilyLhsType = do
   familyName <- genConIdent
-  argName <- genConIdent
   let familyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
-      argCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId argName)) Unpromoted
-  pure $ TApp span0 familyCon argCon
+  TApp span0 familyCon . canonicalAppArg <$> genFamilyLhsArg
+
+genFamilyLhsArg :: Gen Type
+genFamilyLhsArg = suchThat (sized (genType . min 4)) (not . isStarType)
+
+isStarType :: Type -> Bool
+isStarType ty =
+  case ty of
+    TStar {} -> True
+    _ -> False
 
 genDeclPragma :: Gen Decl
 genDeclPragma = do

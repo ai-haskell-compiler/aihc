@@ -711,7 +711,7 @@ instanceDeclParser = withSpan $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
+  (parenthesizedHead, headForm, className, instanceTypes) <- instanceHeadParser
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
     DeclInstance
@@ -723,6 +723,7 @@ instanceDeclParser = withSpan $ do
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclParenthesizedHead = parenthesizedHead,
+          instanceDeclHeadForm = headForm,
           instanceDeclClassName = className,
           instanceDeclTypes = instanceTypes,
           instanceDeclItems = items
@@ -738,7 +739,7 @@ standaloneDerivingDeclParser = withSpan $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
+  (parenthesizedHead, headForm, className, instanceTypes) <- instanceHeadParser
   pure $ \span' ->
     DeclStandaloneDeriving
       span'
@@ -751,22 +752,38 @@ standaloneDerivingDeclParser = withSpan $ do
           standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingParenthesizedHead = parenthesizedHead,
+          standaloneDerivingHeadForm = headForm,
           standaloneDerivingClassName = unqualifiedNameFromText className,
           standaloneDerivingTypes = instanceTypes
         }
 
-instanceHeadParser :: TokParser (Bool, Text, [Type])
+instanceHeadParser :: TokParser (Bool, TypeHeadForm, Text, [Type])
 instanceHeadParser =
-  MP.try (parens bareInstanceHeadParser >>= \(className, instanceTypes) -> pure (True, className, instanceTypes))
+  MP.try
+    ( do
+        parsed <- parens bareInstanceHeadParser
+        _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
+        let (headForm, className, instanceTypes) = parsed
+        pure (True, headForm, className, instanceTypes)
+    )
     <|> ( do
-            (className, instanceTypes) <- bareInstanceHeadParser
-            pure (False, className, instanceTypes)
+            (headForm, className, instanceTypes) <- bareInstanceHeadParser
+            pure (False, headForm, className, instanceTypes)
         )
   where
-    bareInstanceHeadParser = do
-      className <- constructorIdentifierParser
+    bareInstanceHeadParser = MP.try infixInstanceHeadParser <|> prefixInstanceHeadParser
+
+    prefixInstanceHeadParser = do
+      className <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
       instanceTypes <- MP.many typeAtomParser
-      pure (className, instanceTypes)
+      pure (TypeHeadPrefix, className, instanceTypes)
+
+    infixInstanceHeadParser = do
+      lhs <- typeAtomParser
+      _ <- lookAhead typeInfixOperatorParser
+      op <- typeFamilyOperatorParser
+      rhs <- typeAtomParser
+      pure (TypeHeadInfix, renderName op, [lhs, rhs])
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser

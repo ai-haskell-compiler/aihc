@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  module M where
+  class xs `Infix` ys
+  instance as `Infix` bs
+ast: |
+  Module {name = "M", decls = [DeclClass (ClassDecl {headForm = TypeHeadInfix, name = "Infix", params = [TyVarBinder {name = "xs"}, TyVarBinder {name = "ys"}]}), DeclInstance (InstanceDecl {headForm = TypeHeadInfix, className = "Infix", types = [TVar "as", TVar "bs"]})]}
+status: pass
