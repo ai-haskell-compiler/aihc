@@ -719,7 +719,7 @@ genDeclDataFamilyInstGadt = do
           dataFamilyInstDeriving = []
         }
 
--- | Generate a type family LHS: a type constructor applied to a type constructor argument.
+-- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
 genFamilyLhsType = do
   familyName <- genConIdent
@@ -727,38 +727,13 @@ genFamilyLhsType = do
   TApp span0 familyCon . canonicalAppArg <$> genFamilyLhsArg
 
 genFamilyLhsArg :: Gen Type
-genFamilyLhsArg =
-  frequency
-    [ ( 3,
-        ( \name ->
-            TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
-        )
-          <$> genConIdent
-      ),
-      (1, pure (TTuple span0 Boxed Promoted [])),
-      (1, TTuple span0 Boxed Promoted <$> genFamilyPromotedTupleElems),
-      (1, TList span0 Promoted <$> genFamilyPromotedListElems)
-    ]
+genFamilyLhsArg = suchThat (sized (genType . min 4)) (not . isStarType)
 
-genFamilyPromotedTupleElems :: Gen [Type]
-genFamilyPromotedTupleElems = do
-  n <- chooseInt (2, 3)
-  vectorOf n genFamilyPromotedElem
-
-genFamilyPromotedListElems :: Gen [Type]
-genFamilyPromotedListElems = do
-  n <- chooseInt (1, 3)
-  vectorOf n genFamilyPromotedElem
-
-genFamilyPromotedElem :: Gen Type
-genFamilyPromotedElem =
-  oneof
-    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
-      ( \name ->
-          TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
-      )
-        <$> genConIdent
-    ]
+isStarType :: Type -> Bool
+isStarType ty =
+  case ty of
+    TStar {} -> True
+    _ -> False
 
 genDeclPragma :: Gen Decl
 genDeclPragma = do
