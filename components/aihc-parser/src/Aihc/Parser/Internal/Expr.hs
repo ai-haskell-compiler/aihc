@@ -1080,13 +1080,13 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
   expectedTok TkTHQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (`ETHNameQuote` name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpan $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (`ETHTypeNameQuote` name)
 
 parenOperatorNameParser :: TokParser Name
@@ -1103,6 +1103,12 @@ parenOperatorNameParser = do
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure op
+
+bracketConstructorNameParser :: TokParser Name
+bracketConstructorNameParser = do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =
