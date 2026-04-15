@@ -385,8 +385,8 @@ classTypeFamilyDeclParser = withSpan $ do
   (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   pure $ \span' ->
-    classItemAnnSpan
-      span'
+    ClassItemAnn
+      (mkAnnotation span')
       ( ClassItemTypeFamilyDecl
           TypeFamilyDecl
             { typeFamilyDeclSpan = span',
@@ -790,27 +790,25 @@ ordinaryInstanceDeclItemParser =
         )
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
-instancePragmaItemParser = withSpan $ do
+instancePragmaItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   pragma <- anyPragmaParser "pragma declaration"
-  pure (\span' -> instanceItemAnnSpan span' (InstanceItemPragma pragma))
+  pure (InstanceItemPragma pragma)
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
-instanceTypeSigItemParser = withSpan $ do
+instanceTypeSigItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
-  ty <- typeParser
-  pure (\span' -> instanceItemAnnSpan span' (InstanceItemTypeSig names ty))
+  InstanceItemTypeSig names <$> typeParser
 
 instanceFixityItemParser :: TokParser InstanceDeclItem
-instanceFixityItemParser = withSpan $ do
+instanceFixityItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   (assoc, prec, mNamespace, ops) <- fixityDeclPartsParser
-  pure (\span' -> instanceItemAnnSpan span' (InstanceItemFixity assoc mNamespace prec ops))
+  pure (InstanceItemFixity assoc mNamespace prec ops)
 
 instanceValueItemParser :: TokParser InstanceDeclItem
-instanceValueItemParser = withSpan $ do
+instanceValueItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
-  rhs <- equationRhsParser
-  pure (\span' -> instanceItemAnnSpan span' (InstanceItemBind (functionBindValue headForm name pats rhs)))
+  InstanceItemBind . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

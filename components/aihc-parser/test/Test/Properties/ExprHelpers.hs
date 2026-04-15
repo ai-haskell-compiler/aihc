@@ -22,52 +22,52 @@ span0 = noSourceSpan
 normalizeExpr :: Expr -> Expr
 normalizeExpr expr =
   case expr of
-    EVar name -> exprAnnSpan span0 (EVar name)
-    EInt value _ -> exprAnnSpan span0 (EInt value (T.pack (show value)))
-    EIntHash value repr -> exprAnnSpan span0 (EIntHash value repr)
-    EIntBase value repr -> exprAnnSpan span0 (EIntBase value repr)
-    EIntBaseHash value repr -> exprAnnSpan span0 (EIntBaseHash value repr)
-    EFloat value repr -> exprAnnSpan span0 (EFloat value repr)
-    EFloatHash value repr -> exprAnnSpan span0 (EFloatHash value repr)
-    EChar value repr -> exprAnnSpan span0 (EChar value repr)
-    ECharHash value repr -> exprAnnSpan span0 (ECharHash value repr)
-    EString value repr -> exprAnnSpan span0 (EString value repr)
-    EStringHash value repr -> exprAnnSpan span0 (EStringHash value repr)
-    EOverloadedLabel value repr -> exprAnnSpan span0 (EOverloadedLabel value repr)
-    EQuasiQuote quoter body -> exprAnnSpan span0 (EQuasiQuote quoter body)
-    EApp fn arg -> exprAnnSpan span0 (EApp (normalizeExpr fn) (normalizeExpr arg))
-    EInfix lhs op rhs -> exprAnnSpan span0 (EInfix (normalizeExpr lhs) op (normalizeExpr rhs))
-    ENegate inner -> exprAnnSpan span0 (ENegate (normalizeExpr inner))
-    ESectionL inner op -> exprAnnSpan span0 (ESectionL (normalizeExpr inner) op)
-    ESectionR op inner -> exprAnnSpan span0 (ESectionR op (normalizeExpr inner))
-    EIf cond thenE elseE -> exprAnnSpan span0 (EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE))
-    EMultiWayIf rhss -> exprAnnSpan span0 (EMultiWayIf (map normalizeGuardedRhs rhss))
-    ECase scrutinee alts -> exprAnnSpan span0 (ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts))
-    ELambdaPats pats body -> exprAnnSpan span0 (ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body))
-    ELambdaCase alts -> exprAnnSpan span0 (ELambdaCase (map normalizeCaseAlt alts))
-    ELetDecls decls body -> exprAnnSpan span0 (ELetDecls (map normalizeDecl decls) (normalizeExpr body))
-    EDo stmts isMdo -> exprAnnSpan span0 (EDo (map normalizeDoStmt stmts) isMdo)
-    EListComp body stmts -> exprAnnSpan span0 (EListComp (normalizeExpr body) (map normalizeCompStmt stmts))
-    EListCompParallel body stmtss -> exprAnnSpan span0 (EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss))
-    EList elems -> exprAnnSpan span0 (EList (map normalizeExpr elems))
-    ETuple tupleFlavor elems -> exprAnnSpan span0 (ETuple tupleFlavor (map (fmap normalizeExpr) elems))
-    EArithSeq seq' -> exprAnnSpan span0 (EArithSeq (normalizeArithSeq seq'))
-    ERecordCon con fields rwc -> exprAnnSpan span0 (ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc)
-    ERecordUpd target fields -> exprAnnSpan span0 (ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields])
-    ETypeSig inner ty -> exprAnnSpan span0 (ETypeSig (normalizeExpr inner) (normalizeType ty))
-    ETypeApp inner ty -> exprAnnSpan span0 (ETypeApp (normalizeExpr inner) (normalizeType ty))
-    EUnboxedSum altIdx arity inner -> exprAnnSpan span0 (EUnboxedSum altIdx arity (normalizeExpr inner))
+    EVar name -> EAnn (mkAnnotation span0) (EVar name)
+    EInt value _ -> EAnn (mkAnnotation span0) (EInt value (T.pack (show value)))
+    EIntHash value repr -> EAnn (mkAnnotation span0) (EIntHash value repr)
+    EIntBase value repr -> EAnn (mkAnnotation span0) (EIntBase value repr)
+    EIntBaseHash value repr -> EAnn (mkAnnotation span0) (EIntBaseHash value repr)
+    EFloat value repr -> EAnn (mkAnnotation span0) (EFloat value repr)
+    EFloatHash value repr -> EAnn (mkAnnotation span0) (EFloatHash value repr)
+    EChar value repr -> EAnn (mkAnnotation span0) (EChar value repr)
+    ECharHash value repr -> EAnn (mkAnnotation span0) (ECharHash value repr)
+    EString value repr -> EAnn (mkAnnotation span0) (EString value repr)
+    EStringHash value repr -> EAnn (mkAnnotation span0) (EStringHash value repr)
+    EOverloadedLabel value repr -> EAnn (mkAnnotation span0) (EOverloadedLabel value repr)
+    EQuasiQuote quoter body -> EAnn (mkAnnotation span0) (EQuasiQuote quoter body)
+    EApp fn arg -> EAnn (mkAnnotation span0) (EApp (normalizeExpr fn) (normalizeExpr arg))
+    EInfix lhs op rhs -> EAnn (mkAnnotation span0) (EInfix (normalizeExpr lhs) op (normalizeExpr rhs))
+    ENegate inner -> EAnn (mkAnnotation span0) (ENegate (normalizeExpr inner))
+    ESectionL inner op -> EAnn (mkAnnotation span0) (ESectionL (normalizeExpr inner) op)
+    ESectionR op inner -> EAnn (mkAnnotation span0) (ESectionR op (normalizeExpr inner))
+    EIf cond thenE elseE -> EAnn (mkAnnotation span0) (EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE))
+    EMultiWayIf rhss -> EAnn (mkAnnotation span0) (EMultiWayIf (map normalizeGuardedRhs rhss))
+    ECase scrutinee alts -> EAnn (mkAnnotation span0) (ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts))
+    ELambdaPats pats body -> EAnn (mkAnnotation span0) (ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body))
+    ELambdaCase alts -> EAnn (mkAnnotation span0) (ELambdaCase (map normalizeCaseAlt alts))
+    ELetDecls decls body -> EAnn (mkAnnotation span0) (ELetDecls (map normalizeDecl decls) (normalizeExpr body))
+    EDo stmts isMdo -> EAnn (mkAnnotation span0) (EDo (map normalizeDoStmt stmts) isMdo)
+    EListComp body stmts -> EAnn (mkAnnotation span0) (EListComp (normalizeExpr body) (map normalizeCompStmt stmts))
+    EListCompParallel body stmtss -> EAnn (mkAnnotation span0) (EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss))
+    EList elems -> EAnn (mkAnnotation span0) (EList (map normalizeExpr elems))
+    ETuple tupleFlavor elems -> EAnn (mkAnnotation span0) (ETuple tupleFlavor (map (fmap normalizeExpr) elems))
+    EArithSeq seq' -> EAnn (mkAnnotation span0) (EArithSeq (normalizeArithSeq seq'))
+    ERecordCon con fields rwc -> EAnn (mkAnnotation span0) (ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc)
+    ERecordUpd target fields -> EAnn (mkAnnotation span0) (ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields])
+    ETypeSig inner ty -> EAnn (mkAnnotation span0) (ETypeSig (normalizeExpr inner) (normalizeType ty))
+    ETypeApp inner ty -> EAnn (mkAnnotation span0) (ETypeApp (normalizeExpr inner) (normalizeType ty))
+    EUnboxedSum altIdx arity inner -> EAnn (mkAnnotation span0) (EUnboxedSum altIdx arity (normalizeExpr inner))
     EParen inner -> normalizeExpr inner
-    ETHExpQuote body -> exprAnnSpan span0 (ETHExpQuote (normalizeExpr body))
-    ETHTypedQuote body -> exprAnnSpan span0 (ETHTypedQuote (normalizeExpr body))
-    ETHDeclQuote decls -> exprAnnSpan span0 (ETHDeclQuote (map normalizeDecl decls))
-    ETHTypeQuote ty -> exprAnnSpan span0 (ETHTypeQuote (normalizeType ty))
-    ETHPatQuote pat -> exprAnnSpan span0 (ETHPatQuote (normalizePattern pat))
-    ETHNameQuote name -> exprAnnSpan span0 (ETHNameQuote name)
-    ETHTypeNameQuote name -> exprAnnSpan span0 (ETHTypeNameQuote name)
-    ETHSplice body -> exprAnnSpan span0 (ETHSplice (normalizeExpr body))
-    ETHTypedSplice body -> exprAnnSpan span0 (ETHTypedSplice (normalizeExpr body))
-    EProc pat body -> exprAnnSpan span0 (EProc (normalizePattern pat) (normalizeCmd body))
+    ETHExpQuote body -> EAnn (mkAnnotation span0) (ETHExpQuote (normalizeExpr body))
+    ETHTypedQuote body -> EAnn (mkAnnotation span0) (ETHTypedQuote (normalizeExpr body))
+    ETHDeclQuote decls -> EAnn (mkAnnotation span0) (ETHDeclQuote (map normalizeDecl decls))
+    ETHTypeQuote ty -> EAnn (mkAnnotation span0) (ETHTypeQuote (normalizeType ty))
+    ETHPatQuote pat -> EAnn (mkAnnotation span0) (ETHPatQuote (normalizePattern pat))
+    ETHNameQuote name -> EAnn (mkAnnotation span0) (ETHNameQuote name)
+    ETHTypeNameQuote name -> EAnn (mkAnnotation span0) (ETHTypeNameQuote name)
+    ETHSplice body -> EAnn (mkAnnotation span0) (ETHSplice (normalizeExpr body))
+    ETHTypedSplice body -> EAnn (mkAnnotation span0) (ETHTypedSplice (normalizeExpr body))
+    EProc pat body -> EAnn (mkAnnotation span0) (EProc (normalizePattern pat) (normalizeCmd body))
     EAnn ann sub
       | Just _ <- fromAnnotation @SourceSpan ann -> normalizeExpr sub
       | otherwise -> EAnn ann (normalizeExpr sub)
@@ -96,7 +96,7 @@ normalizeGuardedRhs grhs =
 
 normalizeGuardQualifier :: GuardQualifier -> GuardQualifier
 normalizeGuardQualifier qual =
-  guardAnnSpan span0 (normalizeGuardQualifierInner qual)
+  GuardAnn (mkAnnotation span0) (normalizeGuardQualifierInner qual)
 
 normalizeGuardQualifierInner :: GuardQualifier -> GuardQualifier
 normalizeGuardQualifierInner (GuardAnn _ inner) = normalizeGuardQualifierInner inner
@@ -249,7 +249,7 @@ isFunctionHeadWrappedPattern = \case
 
 normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
-  doStmtAnnSpan span0 (normalizeDoStmtInner stmt)
+  DoAnn (mkAnnotation span0) (normalizeDoStmtInner stmt)
 
 normalizeDoStmtInner :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmtInner (DoAnn _ inner) = normalizeDoStmtInner inner
@@ -260,7 +260,7 @@ normalizeDoStmtInner (DoRecStmt stmts) = DoRecStmt (map normalizeDoStmt stmts)
 
 normalizeCmd :: Cmd -> Cmd
 normalizeCmd cmd =
-  cmdAnnSpan span0 (normalizeCmdInner cmd)
+  CmdAnn (mkAnnotation span0) (normalizeCmdInner cmd)
 
 normalizeCmdInner :: Cmd -> Cmd
 normalizeCmdInner (CmdAnn _ inner) = normalizeCmdInner inner
@@ -276,7 +276,7 @@ normalizeCmdInner (CmdPar c) = CmdPar (normalizeCmd c)
 
 normalizeDoCmdStmt :: DoStmt Cmd -> DoStmt Cmd
 normalizeDoCmdStmt stmt =
-  doStmtAnnSpan span0 (normalizeDoCmdStmtInner stmt)
+  DoAnn (mkAnnotation span0) (normalizeDoCmdStmtInner stmt)
 
 normalizeDoCmdStmtInner :: DoStmt Cmd -> DoStmt Cmd
 normalizeDoCmdStmtInner (DoAnn _ inner) = normalizeDoCmdStmtInner inner
@@ -295,7 +295,7 @@ normalizeCmdCaseAlt alt =
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =
-  compAnnSpan span0 (normalizeCompStmtInner stmt)
+  CompAnn (mkAnnotation span0) (normalizeCompStmtInner stmt)
 
 normalizeCompStmtInner :: CompStmt -> CompStmt
 normalizeCompStmtInner (CompAnn _ inner) = normalizeCompStmtInner inner
@@ -305,7 +305,7 @@ normalizeCompStmtInner (CompLetDecls decls) = CompLetDecls (map normalizeDecl de
 
 normalizeArithSeq :: ArithSeq -> ArithSeq
 normalizeArithSeq seq' =
-  arithSeqAnnSpan span0 (normalizeArithSeqInner seq')
+  ArithSeqAnn (mkAnnotation span0) (normalizeArithSeqInner seq')
 
 normalizeArithSeqInner :: ArithSeq -> ArithSeq
 normalizeArithSeqInner (ArithSeqAnn _ inner) = normalizeArithSeqInner inner
@@ -437,7 +437,7 @@ normalizeNewtypeDecl decl =
 
 normalizeDataConDecl :: DataConDecl -> DataConDecl
 normalizeDataConDecl con =
-  dataConAnnSpan span0 (normalizeDataConInner con)
+  DataConAnn (mkAnnotation span0) (normalizeDataConInner con)
 
 -- | Normalize constructor shape; peels nested 'DataConAnn'.
 normalizeDataConInner :: DataConDecl -> DataConDecl
@@ -529,7 +529,7 @@ normalizeInstanceDecl decl =
 
 normalizeInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
 normalizeInstanceDeclItem item =
-  instanceItemAnnSpan span0 (normalizeInstanceDeclItemInner item)
+  InstanceItemAnn (mkAnnotation span0) (normalizeInstanceDeclItemInner item)
 
 normalizeInstanceDeclItemInner :: InstanceDeclItem -> InstanceDeclItem
 normalizeInstanceDeclItemInner (InstanceItemAnn _ inner) = normalizeInstanceDeclItemInner inner

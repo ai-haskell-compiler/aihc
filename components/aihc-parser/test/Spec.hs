@@ -45,10 +45,10 @@ tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
 
 expr0 :: Expr -> Expr
-expr0 = exprAnnSpan span0
+expr0 = EAnn (mkAnnotation span0)
 
 pat0 :: Pattern -> Pattern
-pat0 = patternAnnSpan span0
+pat0 = PAnn (mkAnnotation span0)
 
 pattern PVar_ :: UnqualifiedName -> Pattern
 pattern PVar_ name <- (peelPatternAnn -> PVar name)
@@ -1415,8 +1415,8 @@ test_prettyGuardLambdaRoundTrip = do
                         [ GuardedRhs
                             { guardedRhsSpan = span0,
                               guardedRhsGuards =
-                                [ guardAnnSpan
-                                    span0
+                                [ GuardAnn
+                                    (mkAnnotation span0)
                                     ( GuardExpr
                                         (expr0 (ELambdaPats [pat0 (PVar "z")] (expr0 (EVar "z"))))
                                     )
@@ -1453,8 +1453,8 @@ test_prettyGuardLetFormatting = do
                         [ GuardedRhs
                             { guardedRhsSpan = span0,
                               guardedRhsGuards =
-                                [ guardAnnSpan
-                                    span0
+                                [ GuardAnn
+                                    (mkAnnotation span0)
                                     ( GuardExpr
                                         ( expr0
                                             ( ELetDecls
@@ -1603,7 +1603,7 @@ test_prettyGuardPatTypeSigParens = do
       grhs =
         GuardedRhs
           { guardedRhsSpan = span0,
-            guardedRhsGuards = [guardAnnSpan span0 (GuardPat (pat0 (PTuple Boxed [])) guardExpr)],
+            guardedRhsGuards = [GuardAnn (mkAnnotation span0) (GuardPat (pat0 (PTuple Boxed [])) guardExpr)],
             guardedRhsBody = expr0 (ETuple Boxed [])
           }
       expr = expr0 (EMultiWayIf [grhs])

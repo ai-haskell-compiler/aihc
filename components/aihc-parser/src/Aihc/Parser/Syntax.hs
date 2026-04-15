@@ -120,17 +120,6 @@ module Aihc.Parser.Syntax
     moduleExports,
     mkAnnotation,
     fromAnnotation,
-    arithSeqAnnSpan,
-    classItemAnnSpan,
-    cmdAnnSpan,
-    compAnnSpan,
-    dataConAnnSpan,
-    declAnnSpan,
-    doStmtAnnSpan,
-    instanceItemAnnSpan,
-    exprAnnSpan,
-    guardAnnSpan,
-    patternAnnSpan,
     peelArithSeqAnn,
     peelClassDeclItemAnn,
     peelCmdAnn,
@@ -957,10 +946,6 @@ peelDeclAnn :: Decl -> Decl
 peelDeclAnn (DeclAnn _ inner) = peelDeclAnn inner
 peelDeclAnn d = d
 
--- | Attach a source span as a dynamic annotation (see 'fromAnnotation' / 'HasSourceSpan').
-declAnnSpan :: SourceSpan -> Decl -> Decl
-declAnnSpan sp = DeclAnn (mkAnnotation sp)
-
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
   | PatternBind SourceSpan Pattern Rhs
@@ -1054,9 +1039,6 @@ peelGuardQualifierAnn :: GuardQualifier -> GuardQualifier
 peelGuardQualifierAnn (GuardAnn _ inner) = peelGuardQualifierAnn inner
 peelGuardQualifierAnn q = q
 
-guardAnnSpan :: SourceSpan -> GuardQualifier -> GuardQualifier
-guardAnnSpan sp = GuardAnn (mkAnnotation sp)
-
 instance HasSourceSpan GuardQualifier where
   getSourceSpan qualifier =
     case qualifier of
@@ -1134,9 +1116,6 @@ instance HasSourceSpan Pattern where
 peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn (PAnn _ inner) = peelPatternAnn inner
 peelPatternAnn p = p
-
-patternAnnSpan :: SourceSpan -> Pattern -> Pattern
-patternAnnSpan sp = PAnn (mkAnnotation sp)
 
 data Type
   = TAnn Annotation Type
@@ -1370,9 +1349,6 @@ peelDataConAnn :: DataConDecl -> DataConDecl
 peelDataConAnn (DataConAnn _ inner) = peelDataConAnn inner
 peelDataConAnn d = d
 
-dataConAnnSpan :: SourceSpan -> DataConDecl -> DataConDecl
-dataConAnnSpan sp = DataConAnn (mkAnnotation sp)
-
 -- | Body of a GADT constructor after the @::@ and optional forall/context
 data GadtBody
   = -- | Prefix body: @a -> b -> T a@
@@ -1505,9 +1481,6 @@ peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
 peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
 
-classItemAnnSpan :: SourceSpan -> ClassDeclItem -> ClassDeclItem
-classItemAnnSpan sp = ClassItemAnn (mkAnnotation sp)
-
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
     instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
@@ -1547,9 +1520,6 @@ data InstanceDeclItem
 peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
 peelInstanceDeclItemAnn (InstanceItemAnn _ inner) = peelInstanceDeclItemAnn inner
 peelInstanceDeclItemAnn item = item
-
-instanceItemAnnSpan :: SourceSpan -> InstanceDeclItem -> InstanceDeclItem
-instanceItemAnnSpan sp = InstanceItemAnn (mkAnnotation sp)
 
 instance HasSourceSpan InstanceDeclItem where
   getSourceSpan instanceDeclItem =
@@ -1694,9 +1664,6 @@ instance HasSourceSpan Expr where
         | otherwise -> getSourceSpan sub
       _ -> NoSourceSpan
 
-exprAnnSpan :: SourceSpan -> Expr -> Expr
-exprAnnSpan sp = EAnn (mkAnnotation sp)
-
 -- | Peel nested 'EAnn' layers (e.g. span-only dynamic annotations).
 peelExprAnn :: Expr -> Expr
 peelExprAnn (EAnn _ x) = peelExprAnn x
@@ -1724,9 +1691,6 @@ data DoStmt body
 peelDoStmtAnn :: DoStmt body -> DoStmt body
 peelDoStmtAnn (DoAnn _ inner) = peelDoStmtAnn inner
 peelDoStmtAnn s = s
-
-doStmtAnnSpan :: SourceSpan -> DoStmt body -> DoStmt body
-doStmtAnnSpan sp = DoAnn (mkAnnotation sp)
 
 instance HasSourceSpan (DoStmt body) where
   getSourceSpan doStmt =
@@ -1766,9 +1730,6 @@ peelCmdAnn :: Cmd -> Cmd
 peelCmdAnn (CmdAnn _ inner) = peelCmdAnn inner
 peelCmdAnn c = c
 
-cmdAnnSpan :: SourceSpan -> Cmd -> Cmd
-cmdAnnSpan sp = CmdAnn (mkAnnotation sp)
-
 -- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
 data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1804,9 +1765,6 @@ peelCompStmtAnn :: CompStmt -> CompStmt
 peelCompStmtAnn (CompAnn _ inner) = peelCompStmtAnn inner
 peelCompStmtAnn s = s
 
-compAnnSpan :: SourceSpan -> CompStmt -> CompStmt
-compAnnSpan sp = CompAnn (mkAnnotation sp)
-
 instance HasSourceSpan CompStmt where
   getSourceSpan compStmt =
     case compStmt of
@@ -1827,9 +1785,6 @@ data ArithSeq
 peelArithSeqAnn :: ArithSeq -> ArithSeq
 peelArithSeqAnn (ArithSeqAnn _ inner) = peelArithSeqAnn inner
 peelArithSeqAnn s = s
-
-arithSeqAnnSpan :: SourceSpan -> ArithSeq -> ArithSeq
-arithSeqAnnSpan sp = ArithSeqAnn (mkAnnotation sp)
 
 instance HasSourceSpan ArithSeq where
   getSourceSpan arithSeq =

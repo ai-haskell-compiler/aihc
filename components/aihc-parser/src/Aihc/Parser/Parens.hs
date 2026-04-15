@@ -112,7 +112,7 @@ isGreedyExpr = \case
 -- can parse the resulting @expr { ... } op rhs@ without parentheses.
 -- Self-delimiting expressions do not need parentheses on the left-hand side of
 -- an infix operator, because the closing @}@ unambiguously ends the expression.
--- Peel span-only 'EAnn' so @do@ / @case@ / @\\case@ under 'exprAnnSpan' still count.
+-- Peel outer 'EAnn' annotations so @do@ / @case@ / @\\case@ nested under span metadata still count.
 isBracedExpr :: Expr -> Bool
 isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub

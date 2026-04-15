@@ -47,7 +47,6 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     ValueDecl (..),
     fromAnnotation,
-    guardAnnSpan,
     mkAnnotation,
     mkQualifiedName,
     mkUnqualifiedName,
@@ -267,7 +266,7 @@ resolveGuardQualifier :: Scope -> Int -> SourceSpan -> GuardQualifier -> (Int, S
 resolveGuardQualifier scope nextLocal ambient qualifier =
   let qualifierSpan = peelGuardQualifierSpan NoSourceSpan qualifier
       here = effectiveResolutionSpan ambient qualifierSpan
-      wrap = guardAnnSpan qualifierSpan
+      wrap = GuardAnn (mkAnnotation qualifierSpan)
    in case peelGuardQualifierAnn qualifier of
         GuardExpr expr ->
           let (nextLocal', expr') = resolveExprAt scope nextLocal here expr

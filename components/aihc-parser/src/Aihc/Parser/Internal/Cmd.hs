@@ -45,7 +45,7 @@ cmdParser = do
       case mArrowTail of
         Just (appType, rhs) ->
           let span' = mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs)
-           in cmdInfixChain (cmdAnnSpan span' (CmdArrApp expr appType rhs))
+           in cmdInfixChain (CmdAnn (mkAnnotation span') (CmdArrApp expr appType rhs))
         Nothing ->
           fail "expected arrow command (-< or -<<)"
 
@@ -79,7 +79,7 @@ cmdInfixChain lhs = do
   pure (foldl buildCmdInfix lhs rest)
   where
     buildCmdInfix l (op, r) =
-      cmdAnnSpan (mergeSourceSpans (getSourceSpan l) (getSourceSpan r)) (CmdInfix l op r)
+      CmdAnn (mkAnnotation (mergeSourceSpans (getSourceSpan l) (getSourceSpan r))) (CmdInfix l op r)
 
 -- | Parse a command do-block: @do { cstmt ; ... }@
 cmdDoParser :: TokParser Cmd
