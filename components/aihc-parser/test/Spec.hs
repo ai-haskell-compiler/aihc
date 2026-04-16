@@ -241,6 +241,8 @@ buildTests = do
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
+            testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
+            testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -1896,6 +1898,18 @@ test_localDeclPatUnboxedSum =
   case parseTopDeclWithExts [UnboxedSums] "(#  |  |  | a #) = ()" of
     Right (DeclValue (PatternBind _ (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
     other -> assertFailure ("expected unboxed sum pattern bind, got: " <> show other)
+
+test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr :: Assertion
+test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr =
+  case parseExpr defaultConfig {parserExtensions = [TemplateHaskellQuotes]} "$$(x)" of
+    ParseOk _ -> pure ()
+    other -> assertFailure ("expected top-level typed splice to parse under TemplateHaskellQuotes, got: " <> show other)
+
+test_templateHaskellQuotesLexesTypedSplice :: Assertion
+test_templateHaskellQuotesLexesTypedSplice =
+  case map lexTokenKind (lexTokensWithExtensions [TemplateHaskellQuotes] "$$(x)") of
+    [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
+    other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl

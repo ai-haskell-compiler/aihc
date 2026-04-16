@@ -197,12 +197,14 @@ buildTypeApp lhs rhs =
 
 typeAtomParser :: TokParser Type
 typeAtomParser = do
+  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   ipEnabled <- isExtensionEnabled ImplicitParams
+  let thAny = thEnabled || thFullEnabled
   MP.try promotedTypeParser
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser
-    <|> (if thFullEnabled then thSpliceTypeParser else MP.empty)
+    <|> (if thAny then thSpliceTypeParser else MP.empty)
     <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser

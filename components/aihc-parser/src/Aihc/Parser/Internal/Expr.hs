@@ -151,7 +151,7 @@ multiWayIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 multiWayIfAlternative :: TokParser GuardedRhs
 multiWayIfAlternative = withSpan $ do
   expectedTok TkReservedPipe
-  guards <- layoutSepBy1 guardQualifierParser (expectedTok TkSpecialComma)
+  guards <- layoutSepBy1 (guardQualifierParser RhsArrowCase) (expectedTok TkSpecialComma)
   expectedTok TkReservedRightArrow
   body <- exprParser
   pure $ \span' ->
@@ -464,7 +464,8 @@ atomExprParser = do
         <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
-        <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
+        <|> (if thAny then thTypedSpliceParser else MP.empty)
+        <|> (if thAny then thUntypedSpliceParser else MP.empty)
         <|> quasiQuoteExprParser
         <|> parenExprParser
         <|> listExprParser
@@ -570,7 +571,7 @@ guardedRhssParser arrowKind = withSpan $ do
 guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
 guardedRhsParser arrowKind = withSpan $ do
   expectedTok TkReservedPipe
-  guards <- layoutSepBy1 guardQualifierParser (expectedTok TkSpecialComma)
+  guards <- layoutSepBy1 (guardQualifierParser arrowKind) (expectedTok TkSpecialComma)
   rhsArrowTok arrowKind
   body <- exprParserExcept ["|", rhsArrowText arrowKind]
   pure $ \span' ->
@@ -580,20 +581,29 @@ guardedRhsParser arrowKind = withSpan $ do
         guardedRhsBody = body
       }
 
-guardQualifierParser :: TokParser GuardQualifier
-guardQualifierParser = do
+-- | Parse a guard qualifier. The 'RhsArrowKind' determines the type parser
+-- used for type signatures in guard expressions: in equation context (@=@),
+-- the full 'typeParser' is used (allowing @->@ in types); in case/multi-way-if
+-- context (@->@), 'typeInfixParser' is used to avoid consuming the alternative
+-- arrow as a function type arrow.
+guardQualifierParser :: RhsArrowKind -> TokParser GuardQualifier
+guardQualifierParser arrowKind = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser
+    TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser arrowKind
     _ -> do
       isPatternBind <- startsWithPatternBind
       if isPatternBind
         then guardPatBindParser
-        else guardBindOrExprParser
+        else guardBindOrExprParser arrowKind
 
-guardBindOrExprParser :: TokParser GuardQualifier
-guardBindOrExprParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
-  expr <- exprParserWithTypeSigParser typeInfixParser
+-- | Parse a guard expression or pattern bind. The 'RhsArrowKind' selects the
+-- type parser for @::@ annotations: 'RhsArrowEquation' uses 'typeParser'
+-- (which includes @->@), while 'RhsArrowCase' uses 'typeInfixParser' (which
+-- does not), matching GHC's behaviour.
+guardBindOrExprParser :: RhsArrowKind -> TokParser GuardQualifier
+guardBindOrExprParser arrowKind = withSpanAnn (GuardAnn . mkAnnotation) $ do
+  expr <- exprParserWithTypeSigParser (guardTypeSigParser arrowKind)
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
     Just () -> do
@@ -611,6 +621,15 @@ guardPatBindParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
 guardLetParser :: TokParser GuardQualifier
 guardLetParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
   GuardLet <$> parseLetDeclsStmtParser
+
+-- | Select the type parser for guard expression type signatures based on the
+-- RHS arrow kind.  In equation context the full @typeParser@ is used so that
+-- @->@ is accepted inside types (e.g. @x | y :: Int -> Int = z@).  In case
+-- and multi-way-if contexts the arrow would be ambiguous with the alternative
+-- arrow, so @typeInfixParser@ is used instead, matching GHC behaviour.
+guardTypeSigParser :: RhsArrowKind -> TokParser Type
+guardTypeSigParser RhsArrowEquation = typeParser
+guardTypeSigParser RhsArrowCase = typeInfixParser
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
@@ -1046,9 +1065,6 @@ thPatQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   pat <- patternParser
   expectedTok TkTHExpQuoteClose
   pure (ETHPatQuote pat)
-
-thSpliceExprParser :: TokParser Expr
-thSpliceExprParser = thTypedSpliceParser <|> thUntypedSpliceParser
 
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
