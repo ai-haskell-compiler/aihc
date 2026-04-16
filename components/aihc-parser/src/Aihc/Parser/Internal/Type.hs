@@ -366,7 +366,7 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
       case mKind of
         Just kind -> do
           expectedTok closeTok
-          pure (TKindSig first kind)
+          pure (TParen (TKindSig first kind))
         Nothing -> do
           mComma <- MP.optional (expectedTok TkSpecialComma)
           case mComma of

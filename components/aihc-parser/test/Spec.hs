@@ -7,6 +7,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Char (ord)
@@ -403,7 +404,7 @@ test_typeParsesParenthesizedKindSignature :: Assertion
 test_typeParsesParenthesizedKindSignature =
   case parseType defaultConfig {parserExtensions = [KindSignatures, StarIsType]} "(x :: *)" of
     ParseOk ty
-      | TKindSig (TVar "x") TStar <- stripTypeAnnotations ty ->
+      | TParen (TKindSig (TVar "x") TStar) <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected parenthesized kind signature type, got: " <> show other)
 
@@ -411,7 +412,7 @@ test_typeParsesKindSignatureApplicationHead :: Assertion
 test_typeParsesKindSignatureApplicationHead =
   case parseType defaultConfig {parserExtensions = [KindSignatures]} "(f :: Type -> Type) a" of
     ParseOk ty
-      | TApp (TKindSig (TVar "f") (TFun (TCon "Type" Unpromoted) (TCon "Type" Unpromoted))) (TVar "a") <-
+      | TApp (TParen (TKindSig (TVar "f") (TFun (TCon "Type" Unpromoted) (TCon "Type" Unpromoted)))) (TVar "a") <-
           stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected kind-signature application head, got: " <> show other)
@@ -450,7 +451,7 @@ test_instanceParsesParenthesizedEmptyListType =
             ]
               | instanceDeclClassName inst == "C",
                 [ity] <- instanceDeclTypes inst,
-                TCon "[]" Unpromoted <- stripTypeAnnotations ity ->
+                TParen (TCon "[]" Unpromoted) <- stripTypeAnnotations ity ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -462,7 +463,7 @@ test_gadtConstructorParsesKindAnnotatedArgument =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (GadtCon [] [] ["C"] (GadtPrefixBody [BangType {bangType = kb}] rb))]}]
-            | TKindSig (TVar "x") TStar <- stripTypeAnnotations kb,
+            | TParen (TKindSig (TVar "x") TStar) <- stripTypeAnnotations kb,
               TCon "T" Unpromoted <- stripTypeAnnotations rb ->
                 pure ()
           other ->
@@ -611,7 +612,7 @@ test_ifElseWhereBranchRoundtrip =
    in do
         assertBool ("expected no parse errors, got: " <> show errs <> "\nsource:\n" <> T.unpack source) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [actualDecl] -> assertEqual "roundtripped declaration" (normalizeDecl expectedDecl) actualDecl
+          [actualDecl] -> assertEqual "roundtripped declaration" (normalizeDecl (addDeclParens expectedDecl)) actualDecl
           other -> assertFailure ("unexpected parsed declarations: " <> show other <> "\nsource:\n" <> T.unpack source)
 
 test_standaloneMdoExprParses :: Assertion

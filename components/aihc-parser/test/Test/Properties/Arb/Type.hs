@@ -4,15 +4,6 @@
 module Test.Properties.Arb.Type
   ( genType,
     shrinkType,
-    canonicalTopLevelType,
-    canonicalContextType,
-    canonicalFunLeft,
-    canonicalAppHead,
-    canonicalAppArg,
-    canonicalKindSigSubject,
-    canonicalKindSigKind,
-    canonicalImplicitParamType,
-    canonicalForallInner,
   )
 where
 
@@ -85,24 +76,13 @@ genType depth
         ]
 
 genTypeApp :: Int -> Gen Type
-genTypeApp depth = do
-  fn <- genType (depth - 1)
-  arg <- genType (depth - 1)
-  pure (TApp (canonicalAppHead fn) (canonicalAppArg arg))
+genTypeApp depth = TApp <$> genType (depth - 1) <*> genType (depth - 1)
 
 genTypeFun :: Int -> Gen Type
-genTypeFun depth = do
-  lhs <- genType (depth - 1)
-  rhs <- genType (depth - 1)
-  pure (TFun (canonicalFunLeft lhs) rhs)
+genTypeFun depth = TFun <$> genType (depth - 1) <*> genType (depth - 1)
 
 genForallInner :: Int -> Gen Type
-genForallInner depth = do
-  inner <- genType depth
-  pure $
-    case inner of
-      TForall {} -> TParen inner
-      _ -> inner
+genForallInner = genType
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr
@@ -112,15 +92,12 @@ genTypeSpliceBody =
       EParen . EVar <$> genTypeVarExprName
     ]
 
--- | Generate a type with a context (constraints => type).
--- Always wrapped in parens because constraints => type is a top-level
--- form that needs parens in sub-type positions.
 genTypeContext :: Int -> Gen Type
 genTypeContext depth = do
   n <- chooseInt (1, 3)
   constraints <- vectorOf n (genConstraintType (depth - 1))
   inner <- genType (depth - 1)
-  pure $ TParen (canonicalContextType (map canonicalContextItem constraints) inner)
+  pure $ TContext constraints inner
 
 -- | Generate a constraint type (used in contexts).
 -- Typically a type constructor applied to some arguments.
@@ -137,8 +114,8 @@ genConstraintType depth = do
 genTypeImplicitParam :: Int -> Gen Type
 genTypeImplicitParam depth = do
   name <- ("?" <>) <$> genIdent
-  inner <- canonicalImplicitParamType <$> genType (depth - 1)
-  pure $ TParen (TImplicitParam name inner)
+  inner <- genType (depth - 1)
+  pure $ TImplicitParam name inner
 
 genTypeTupleElems :: Int -> Gen [Type]
 genTypeTupleElems depth = do
@@ -224,9 +201,7 @@ genSimpleTypeAtom depth =
     ]
 
 genKindSigSubject :: Int -> Gen Type
-genKindSigSubject depth = do
-  subject <- genSimpleTypeAtom depth
-  pure (canonicalKindSigSubject subject)
+genKindSigSubject = genSimpleTypeAtom
 
 genKindSigKind :: Int -> Gen Type
 genKindSigKind depth =
@@ -302,103 +277,6 @@ genSymbolText = do
   chars <- vectorOf len genCharValue
   pure (T.pack chars)
 
-canonicalTopLevelType :: Type -> Type
-canonicalTopLevelType ty =
-  case ty of
-    TContext constraints inner -> canonicalContextType constraints inner
-    _ -> canonicalTypeSplice ty
-
-canonicalContextType :: [Type] -> Type -> Type
-canonicalContextType constraints = TContext (canonicalContextItems constraints)
-
-canonicalContextItems :: [Type] -> [Type]
-canonicalContextItems constraints =
-  case map canonicalContextItem constraints of
-    [TTuple Boxed Unpromoted []] -> []
-    [TParen (TTuple Boxed Unpromoted [])] -> []
-    items -> items
-
-canonicalContextItem :: Type -> Type
-canonicalContextItem ty =
-  case ty of
-    TParen inner@(TParen (TKindSig {})) -> TParen (canonicalContextItem inner)
-    TParen inner -> TParen (canonicalContextItem inner)
-    TKindSig inner kind -> TParen (TKindSig (canonicalKindSigSubject inner) (canonicalKindSigKind kind))
-    TTuple Boxed Unpromoted [] -> TParen (TTuple Boxed Unpromoted [])
-    TContext constraints inner -> canonicalContextType constraints inner
-    _ -> canonicalTypeSplice ty
-
-canonicalTypeSplice :: Type -> Type
-canonicalTypeSplice ty =
-  case ty of
-    TSplice (EVar name) -> TSplice (EParen (EVar name))
-    _ -> ty
-
-canonicalForallInner :: Type -> Type
-canonicalForallInner ty =
-  case ty of
-    TForall {} -> TParen ty
-    _ -> ty
-
-canonicalFunLeft :: Type -> Type
-canonicalFunLeft ty =
-  case ty of
-    TForall {} -> TParen ty
-    TFun {} -> TParen ty
-    TContext {} -> TParen ty
-    TImplicitParam {} -> TParen ty
-    _ -> ty
-
-canonicalAppHead :: Type -> Type
-canonicalAppHead ty =
-  case ty of
-    TForall {} -> TParen ty
-    TFun {} -> TParen ty
-    TContext {} -> TParen ty
-    TImplicitParam {} -> TParen ty
-    _ -> ty
-
-canonicalAppArg :: Type -> Type
-canonicalAppArg ty =
-  case ty of
-    TApp {} -> TParen ty
-    TForall {} -> TParen ty
-    TFun {} -> TParen ty
-    TContext {} -> TParen ty
-    TImplicitParam {} -> TParen ty
-    _ -> ty
-
-canonicalKindSigSubject :: Type -> Type
-canonicalKindSigSubject ty =
-  case ty of
-    TTuple {} -> ty
-    TUnboxedSum {} -> ty
-    TList {} -> ty
-    TParen {} -> ty
-    _ -> TParen ty
-
-canonicalKindSigKind :: Type -> Type
-canonicalKindSigKind = id
-
-canonicalImplicitParamType :: Type -> Type
-canonicalImplicitParamType ty =
-  case ty of
-    TForall {} -> TParen ty
-    TContext {} -> TParen ty
-    _ -> ty
-
--- | Types that require parentheses when appearing inside compound types
--- (tuples, lists, application arguments, etc.). These are "top-level" type
--- forms whose syntax is ambiguous without parens.
-needsParensInSubPosition :: Type -> Bool
-needsParensInSubPosition ty =
-  case ty of
-    TImplicitParam {} -> True
-    TContext {} -> True
-    TForall {} -> True
-    TFun {} -> True
-    _ -> False
-
 shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
@@ -407,14 +285,12 @@ shrinkType ty =
     TCon name promoted ->
       [ TCon (name {nameText = shrunk}) promoted
       | shrunk <- shrinkConIdent (nameText name),
-        -- For promoted constructors, avoid names that cause ambiguity
-        -- with character literals (e.g., 'A'x lexed as char 'A' + var x)
         promoted == Unpromoted || (T.length shrunk >= 2 && not (T.any (== '\'') shrunk))
       ]
     TImplicitParam name inner ->
       [inner]
-        <> [TImplicitParam name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
-        <> [TImplicitParam name (canonicalImplicitParamType inner') | inner' <- shrinkType inner]
+        <> [TImplicitParam name' inner | name' <- shrinkImplicitParamName name]
+        <> [TImplicitParam name inner' | inner' <- shrinkType inner]
     TTypeLit {} ->
       []
     TStar ->
@@ -423,35 +299,34 @@ shrinkType ty =
       [TQuasiQuote q body | q <- shrinkIdent quoter]
         <> [TQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
     TForall binders inner ->
-      [canonicalForallInner inner]
-        <> [TForall binders' (canonicalForallInner inner) | binders' <- shrinkTypeBinders binders]
-        <> [TForall binders (canonicalForallInner inner') | inner' <- shrinkType inner]
+      [inner]
+        <> [TForall binders' inner | binders' <- shrinkTypeBinders binders]
+        <> [TForall binders inner' | inner' <- shrinkType inner]
     TApp fn arg ->
-      [canonicalAppHead fn, canonicalAppArg arg]
-        <> [TApp (canonicalAppHead fn') (canonicalAppArg arg) | fn' <- shrinkType fn]
-        <> [TApp (canonicalAppHead fn) (canonicalAppArg arg') | arg' <- shrinkType arg]
+      [fn, arg]
+        <> [TApp fn' arg | fn' <- shrinkType fn]
+        <> [TApp fn arg' | arg' <- shrinkType arg]
     TFun lhs rhs ->
-      [canonicalFunLeft lhs, rhs]
-        <> [TFun (canonicalFunLeft lhs') rhs | lhs' <- shrinkType lhs]
-        <> [TFun (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
+      [lhs, rhs]
+        <> [TFun lhs' rhs | lhs' <- shrinkType lhs]
+        <> [TFun lhs rhs' | rhs' <- shrinkType rhs]
     TTuple tupleFlavor _ elems ->
       shrinkTypeTupleElems tupleFlavor elems
     TList _ elems ->
       [TList Unpromoted elems' | elems' <- shrinkList shrinkType elems, not (null elems')]
     TParen inner ->
-      -- Don't unwrap parens around types that require them in sub-type positions
-      [inner | not (needsParensInSubPosition inner)]
+      [inner]
         <> [TParen inner' | inner' <- shrinkType inner]
     TKindSig ty' kind ->
-      [canonicalKindSigSubject ty', canonicalKindSigKind kind]
-        <> [TKindSig (canonicalKindSigSubject ty'') (canonicalKindSigKind kind) | ty'' <- shrinkType ty']
-        <> [TKindSig (canonicalKindSigSubject ty') (canonicalKindSigKind kind') | kind' <- shrinkType kind]
+      [ty', kind]
+        <> [TKindSig ty'' kind | ty'' <- shrinkType ty']
+        <> [TKindSig ty' kind' | kind' <- shrinkType kind]
     TUnboxedSum elems ->
       [TUnboxedSum elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
     TContext constraints inner ->
       [inner]
-        <> [canonicalContextType constraints' inner | constraints' <- shrinkContextItems constraints]
-        <> [canonicalContextType constraints inner' | inner' <- shrinkType inner]
+        <> [TContext constraints' inner | constraints' <- shrinkList shrinkType constraints, not (null constraints')]
+        <> [TContext constraints inner' | inner' <- shrinkType inner]
     TSplice {} ->
       []
     TWildcard ->
@@ -478,24 +353,6 @@ shrinkTypeTupleElems tupleFlavor elems =
       [_] -> []
       _ -> [TTuple tupleFlavor Unpromoted shrunk]
   ]
-
-shrinkContextItems :: [Type] -> [[Type]]
-shrinkContextItems = shrinkList shrinkContextItem
-
-shrinkContextItem :: Type -> [Type]
-shrinkContextItem ty =
-  case ty of
-    TImplicitParam name inner ->
-      [inner]
-        <> [TImplicitParam name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
-        <> [TImplicitParam name (canonicalImplicitParamType inner') | inner' <- shrinkType inner]
-    TParen inner ->
-      inner : [TParen inner' | inner' <- shrinkContextItem inner]
-    TKindSig subj kind ->
-      [canonicalKindSigSubject subj, canonicalKindSigKind kind]
-        <> [canonicalContextItem (TKindSig subj' (canonicalKindSigKind kind)) | subj' <- shrinkType subj]
-        <> [TKindSig (canonicalKindSigSubject subj) (canonicalKindSigKind kind') | kind' <- shrinkType kind]
-    _ -> shrinkType ty
 
 shrinkImplicitParamName :: Text -> [Text]
 shrinkImplicitParamName name =

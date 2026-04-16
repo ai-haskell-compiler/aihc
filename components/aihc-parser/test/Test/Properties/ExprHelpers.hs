@@ -56,7 +56,7 @@ normalizeExpr expr =
     ETypeSig inner ty -> ETypeSig (normalizeExpr inner) (normalizeType ty)
     ETypeApp inner ty -> ETypeApp (normalizeExpr inner) (normalizeType ty)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (normalizeExpr inner)
-    EParen inner -> normalizeExpr inner
+    EParen inner -> EParen (normalizeExpr inner)
     ETHExpQuote body -> ETHExpQuote (normalizeExpr body)
     ETHTypedQuote body -> ETHTypedQuote (normalizeExpr body)
     ETHDeclQuote decls -> ETHDeclQuote (map normalizeDecl decls)
@@ -348,8 +348,7 @@ normalizeType ty =
     TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
     TList promoted elems -> TList promoted (map normalizeType elems)
-    -- Remove redundant parentheses from types
-    TParen inner -> normalizeType inner
+    TParen inner -> TParen (normalizeType inner)
     TKindSig inner kind -> TKindSig (normalizeType inner) (normalizeType kind)
     TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
     TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)
