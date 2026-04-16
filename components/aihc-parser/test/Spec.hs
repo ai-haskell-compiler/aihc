@@ -240,7 +240,7 @@ buildTests = do
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
-            testCase "TemplateHaskellQuotes rejects top-level typed splices" test_templateHaskellQuotesRejectsTopLevelTypedSpliceExpr,
+            testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
@@ -1898,11 +1898,11 @@ test_localDeclPatUnboxedSum =
     Right (DeclValue (PatternBind _ (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
     other -> assertFailure ("expected unboxed sum pattern bind, got: " <> show other)
 
-test_templateHaskellQuotesRejectsTopLevelTypedSpliceExpr :: Assertion
-test_templateHaskellQuotesRejectsTopLevelTypedSpliceExpr =
+test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr :: Assertion
+test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr =
   case parseExpr defaultConfig {parserExtensions = [TemplateHaskellQuotes]} "$$(x)" of
-    ParseErr _ -> pure ()
-    other -> assertFailure ("expected top-level typed splice to be rejected under TemplateHaskellQuotes, got: " <> show other)
+    ParseOk _ -> pure ()
+    other -> assertFailure ("expected top-level typed splice to parse under TemplateHaskellQuotes, got: " <> show other)
 
 test_templateHaskellQuotesLexesTypedSplice :: Assertion
 test_templateHaskellQuotesLexesTypedSplice =

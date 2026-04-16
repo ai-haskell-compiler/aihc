@@ -448,9 +448,7 @@ atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
-  thQuoteContext <- inTHQuoteContext
   let thAny = thEnabled || thFullEnabled
-      thSplicesEnabled = thFullEnabled || (thEnabled && thQuoteContext)
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
@@ -466,7 +464,8 @@ atomExprParser = do
         <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
-        <|> (if thSplicesEnabled then thSpliceExprParser else MP.empty)
+        <|> (if thAny then thTypedSpliceParser else MP.empty)
+        <|> (if thFullEnabled then thUntypedSpliceParser else MP.empty)
         <|> quasiQuoteExprParser
         <|> parenExprParser
         <|> listExprParser
@@ -1017,40 +1016,37 @@ thQuoteExprParser =
 thExpQuoteParser :: TokParser Expr
 thExpQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHExpQuoteOpen
-  body <- withTHQuoteContext exprParser
+  body <- exprParser
   expectedTok TkTHExpQuoteClose
   pure (ETHExpQuote body)
 
 thTypedQuoteParser :: TokParser Expr
 thTypedQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypedQuoteOpen
-  body <- withTHQuoteContext exprParser
+  body <- exprParser
   expectedTok TkTHTypedQuoteClose
   pure (ETHTypedQuote body)
 
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- withTHQuoteContext (bracedSemiSep declParser <|> plainSemiSep declParser)
+  decls <- bracedSemiSep declParser <|> plainSemiSep declParser
   expectedTok TkTHExpQuoteClose
   pure (ETHDeclQuote decls)
 
 thTypeQuoteParser :: TokParser Expr
 thTypeQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteOpen
-  ty <- withTHQuoteContext typeParser
+  ty <- typeParser
   expectedTok TkTHExpQuoteClose
   pure (ETHTypeQuote ty)
 
 thPatQuoteParser :: TokParser Expr
 thPatQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHPatQuoteOpen
-  pat <- withTHQuoteContext patternParser
+  pat <- patternParser
   expectedTok TkTHExpQuoteClose
   pure (ETHPatQuote pat)
-
-thSpliceExprParser :: TokParser Expr
-thSpliceExprParser = thTypedSpliceParser <|> thUntypedSpliceParser
 
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
