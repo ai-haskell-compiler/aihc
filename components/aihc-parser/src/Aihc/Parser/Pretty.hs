@@ -1416,7 +1416,14 @@ prettyTypeFamilyHead :: TypeHeadForm -> Type -> [TyVarBinder] -> [Doc ann]
 prettyTypeFamilyHead headForm headType params =
   case headForm of
     TypeHeadPrefix -> [prettyType headType] <> map prettyTyVarBinder params
-    TypeHeadInfix -> [prettyTypeFamilyInfix headType]
+    TypeHeadInfix ->
+      case (params, typeFamilyInfixAppView headType) of
+        ([lhs, rhs], Just (op, promoted, _, _)) ->
+          [ prettyTyVarBinder lhs,
+            (if promoted == Promoted then "'" else mempty) <> prettyNameInfixOp op,
+            prettyTyVarBinder rhs
+          ]
+        _ -> [prettyTypeFamilyInfix headType]
 
 prettyTypeFamilyLhs :: TypeHeadForm -> Type -> [Doc ann]
 prettyTypeFamilyLhs headForm lhs =
