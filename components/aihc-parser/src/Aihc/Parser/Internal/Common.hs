@@ -808,7 +808,7 @@ startsWithAsPattern =
 startsWithTypeBinder :: TokParser Bool
 startsWithTypeBinder =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    expectedTok TkReservedAt
+    MP.choice [expectedTok TkReservedAt, expectedTok TkTypeApp]
     _ <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
     pure ()
 
