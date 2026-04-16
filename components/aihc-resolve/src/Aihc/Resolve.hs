@@ -649,7 +649,7 @@ topLevelDeclAnnotations decl scope =
     (declSpan, DeclTypeData dataDecl) -> dataDeclAnnotations declSpan "type data " dataDecl
     (declSpan, DeclData dataDecl) -> dataDeclAnnotations declSpan "data " dataDecl
     (declSpan, DeclNewtype newtypeDecl) ->
-      let span' = effectiveResolutionSpan declSpan (newtypeDeclSpan newtypeDecl)
+      let span' = declSpan
           typeAnnotation =
             ResolutionAnnotation
               (declKeywordNameSpan "newtype " span' (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
@@ -662,7 +662,7 @@ topLevelDeclAnnotations decl scope =
     _ -> []
   where
     dataDeclAnnotations declSpan keyword dataDecl =
-      let span' = effectiveResolutionSpan declSpan (dataDeclSpan dataDecl)
+      let span' = declSpan
           typeAnnotation =
             ResolutionAnnotation
               (declKeywordNameSpan keyword span' (renderUnqualifiedName (dataDeclName dataDecl)))
@@ -674,7 +674,7 @@ topLevelDeclAnnotations decl scope =
 classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
 classAnnotation scope declSpan classDecl =
   let className = mkUnqualifiedName NameConId (classDeclName classDecl)
-      span' = effectiveResolutionSpan declSpan (classDeclSpan classDecl)
+      span' = declSpan
    in ResolutionAnnotation
         (declKeywordNameSpan "class " span' (classDeclName classDecl))
         (classDeclName classDecl)

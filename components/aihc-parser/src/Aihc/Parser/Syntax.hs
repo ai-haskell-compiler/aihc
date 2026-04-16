@@ -995,16 +995,12 @@ data PatSynArgs
 
 -- | Pattern synonym declaration.
 data PatSynDecl = PatSynDecl
-  { patSynDeclSpan :: SourceSpan,
-    patSynDeclName :: UnqualifiedName,
+  { patSynDeclName :: UnqualifiedName,
     patSynDeclArgs :: PatSynArgs,
     patSynDeclPat :: Pattern,
     patSynDeclDir :: PatSynDir
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan PatSynDecl where
-  getSourceSpan = patSynDeclSpan
 
 data Rhs
   = UnguardedRhs SourceSpan Expr (Maybe [Decl])
@@ -1206,32 +1202,23 @@ data Role
   deriving (Data, Eq, Show, Generic, NFData)
 
 data RoleAnnotation = RoleAnnotation
-  { roleAnnotationSpan :: SourceSpan,
-    roleAnnotationName :: Text,
+  { roleAnnotationName :: Text,
     roleAnnotationRoles :: [Role]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan RoleAnnotation where
-  getSourceSpan = roleAnnotationSpan
-
 data TypeSynDecl = TypeSynDecl
-  { typeSynSpan :: SourceSpan,
-    typeSynHeadForm :: TypeHeadForm,
+  { typeSynHeadForm :: TypeHeadForm,
     typeSynName :: Text,
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan TypeSynDecl where
-  getSourceSpan = typeSynSpan
-
 -- | Open or closed type synonym family declaration.
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
 data TypeFamilyDecl = TypeFamilyDecl
-  { typeFamilyDeclSpan :: SourceSpan,
-    typeFamilyDeclHeadForm :: TypeHeadForm,
+  { typeFamilyDeclHeadForm :: TypeHeadForm,
     -- | Family head type. For simple families like @type family F a@, this is @TCon "F"@.
     -- For infix families like @type family l `And` r@, this is the full infix type.
     typeFamilyDeclHead :: Type,
@@ -1242,9 +1229,6 @@ data TypeFamilyDecl = TypeFamilyDecl
     typeFamilyDeclEquations :: Maybe [TypeFamilyEq]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan TypeFamilyDecl where
-  getSourceSpan = typeFamilyDeclSpan
 
 -- | One equation in a closed type family: @[forall binders.] LhsType = RhsType@
 data TypeFamilyEq = TypeFamilyEq
@@ -1261,16 +1245,12 @@ instance HasSourceSpan TypeFamilyEq where
 
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
-  { dataFamilyDeclSpan :: SourceSpan,
-    dataFamilyDeclName :: UnqualifiedName,
+  { dataFamilyDeclName :: UnqualifiedName,
     dataFamilyDeclParams :: [TyVarBinder],
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan DataFamilyDecl where
-  getSourceSpan = dataFamilyDeclSpan
 
 -- | Type family instance: @type [instance] [forall binders.] LhsType = RhsType@
 data TypeFamilyInst = TypeFamilyInst
@@ -1304,8 +1284,7 @@ instance HasSourceSpan DataFamilyInst where
   getSourceSpan = dataFamilyInstSpan
 
 data DataDecl = DataDecl
-  { dataDeclSpan :: SourceSpan,
-    dataDeclHeadForm :: TypeHeadForm,
+  { dataDeclHeadForm :: TypeHeadForm,
     dataDeclContext :: [Type],
     dataDeclName :: UnqualifiedName,
     dataDeclParams :: [TyVarBinder],
@@ -1316,12 +1295,8 @@ data DataDecl = DataDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan DataDecl where
-  getSourceSpan = dataDeclSpan
-
 data NewtypeDecl = NewtypeDecl
-  { newtypeDeclSpan :: SourceSpan,
-    newtypeDeclHeadForm :: TypeHeadForm,
+  { newtypeDeclHeadForm :: TypeHeadForm,
     newtypeDeclContext :: [Type],
     newtypeDeclName :: UnqualifiedName,
     newtypeDeclParams :: [TyVarBinder],
@@ -1331,9 +1306,6 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclDeriving :: [DerivingClause]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan NewtypeDecl where
-  getSourceSpan = newtypeDeclSpan
 
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkAnnotation').
@@ -1417,8 +1389,7 @@ data DerivingStrategy
   deriving (Data, Eq, Show, Generic, NFData)
 
 data StandaloneDerivingDecl = StandaloneDerivingDecl
-  { standaloneDerivingSpan :: SourceSpan,
-    standaloneDerivingStrategy :: Maybe DerivingStrategy,
+  { standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingViaType :: Maybe Type,
     standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
     standaloneDerivingWarning :: Maybe WarningText,
@@ -1431,12 +1402,8 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan StandaloneDerivingDecl where
-  getSourceSpan = standaloneDerivingSpan
-
 data ClassDecl = ClassDecl
-  { classDeclSpan :: SourceSpan,
-    classDeclContext :: Maybe [Type],
+  { classDeclContext :: Maybe [Type],
     classDeclHeadForm :: TypeHeadForm,
     classDeclName :: Text,
     classDeclParams :: [TyVarBinder],
@@ -1444,9 +1411,6 @@ data ClassDecl = ClassDecl
     classDeclItems :: [ClassDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan ClassDecl where
-  getSourceSpan = classDeclSpan
 
 data FunctionalDependency = FunctionalDependency
   { functionalDependencySpan :: SourceSpan,
@@ -1484,8 +1448,7 @@ peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
 
 data InstanceDecl = InstanceDecl
-  { instanceDeclSpan :: SourceSpan,
-    instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
+  { instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
     instanceDeclWarning :: Maybe WarningText,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
@@ -1496,9 +1459,6 @@ data InstanceDecl = InstanceDecl
     instanceDeclItems :: [InstanceDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan InstanceDecl where
-  getSourceSpan = instanceDeclSpan
 
 data InstanceOverlapPragma
   = Overlapping
@@ -1538,8 +1498,7 @@ data FixityAssoc
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignDecl = ForeignDecl
-  { foreignDeclSpan :: SourceSpan,
-    foreignDirection :: ForeignDirection,
+  { foreignDirection :: ForeignDirection,
     foreignCallConv :: CallConv,
     foreignSafety :: Maybe ForeignSafety,
     foreignEntity :: ForeignEntitySpec,
@@ -1547,9 +1506,6 @@ data ForeignDecl = ForeignDecl
     foreignType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan ForeignDecl where
-  getSourceSpan = foreignDeclSpan
 
 data ForeignEntitySpec
   = ForeignEntityDynamic

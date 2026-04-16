@@ -165,7 +165,7 @@ normalizeDecl decl =
     DeclPatSynSig names ty -> DeclPatSynSig names (normalizeType ty)
     DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (normalizeType kind)
     DeclFixity assoc mNs prec ops -> DeclFixity assoc mNs prec ops
-    DeclRoleAnnotation ann -> DeclRoleAnnotation (normalizeRoleAnnotation ann)
+    DeclRoleAnnotation ann -> DeclRoleAnnotation ann
     DeclTypeSyn synDecl -> DeclTypeSyn (normalizeTypeSynDecl synDecl)
     DeclTypeData dataDecl -> DeclTypeData (normalizeDataDecl dataDecl)
     DeclData dataDecl -> DeclData (normalizeDataDecl dataDecl)
@@ -373,8 +373,7 @@ normalizeWarningText wt =
 normalizePatSynDecl :: PatSynDecl -> PatSynDecl
 normalizePatSynDecl ps =
   PatSynDecl
-    { patSynDeclSpan = span0,
-      patSynDeclName = patSynDeclName ps,
+    { patSynDeclName = patSynDeclName ps,
       patSynDeclArgs = patSynDeclArgs ps,
       patSynDeclPat = normalizePattern (patSynDeclPat ps),
       patSynDeclDir = normalizePatSynDir (patSynDeclDir ps)
@@ -387,14 +386,10 @@ normalizePatSynDir dir =
     PatSynBidirectional -> PatSynBidirectional
     PatSynExplicitBidirectional matches -> PatSynExplicitBidirectional (map normalizeMatch matches)
 
-normalizeRoleAnnotation :: RoleAnnotation -> RoleAnnotation
-normalizeRoleAnnotation ann = ann {roleAnnotationSpan = span0}
-
 normalizeTypeSynDecl :: TypeSynDecl -> TypeSynDecl
 normalizeTypeSynDecl decl =
   TypeSynDecl
-    { typeSynSpan = span0,
-      typeSynHeadForm = typeSynHeadForm decl,
+    { typeSynHeadForm = typeSynHeadForm decl,
       typeSynName = typeSynName decl,
       typeSynParams = map normalizeTyVarBinder (typeSynParams decl),
       typeSynBody = normalizeType (typeSynBody decl)
@@ -403,8 +398,7 @@ normalizeTypeSynDecl decl =
 normalizeDataDecl :: DataDecl -> DataDecl
 normalizeDataDecl decl =
   DataDecl
-    { dataDeclSpan = span0,
-      dataDeclHeadForm = dataDeclHeadForm decl,
+    { dataDeclHeadForm = dataDeclHeadForm decl,
       dataDeclContext = map normalizeType (dataDeclContext decl),
       dataDeclName = dataDeclName decl,
       dataDeclParams = map normalizeTyVarBinder (dataDeclParams decl),
@@ -416,8 +410,7 @@ normalizeDataDecl decl =
 normalizeNewtypeDecl :: NewtypeDecl -> NewtypeDecl
 normalizeNewtypeDecl decl =
   NewtypeDecl
-    { newtypeDeclSpan = span0,
-      newtypeDeclHeadForm = newtypeDeclHeadForm decl,
+    { newtypeDeclHeadForm = newtypeDeclHeadForm decl,
       newtypeDeclContext = map normalizeType (newtypeDeclContext decl),
       newtypeDeclName = newtypeDeclName decl,
       newtypeDeclParams = map normalizeTyVarBinder (newtypeDeclParams decl),
@@ -478,8 +471,7 @@ normalizeDerivingClause dc =
 normalizeClassDecl :: ClassDecl -> ClassDecl
 normalizeClassDecl decl =
   ClassDecl
-    { classDeclSpan = span0,
-      classDeclContext = fmap (map normalizeType) (classDeclContext decl),
+    { classDeclContext = fmap (map normalizeType) (classDeclContext decl),
       classDeclHeadForm = classDeclHeadForm decl,
       classDeclName = classDeclName decl,
       classDeclParams = map normalizeTyVarBinder (classDeclParams decl),
@@ -506,8 +498,7 @@ normalizeClassDeclItem item =
 normalizeInstanceDecl :: InstanceDecl -> InstanceDecl
 normalizeInstanceDecl decl =
   InstanceDecl
-    { instanceDeclSpan = span0,
-      instanceDeclOverlapPragma = instanceDeclOverlapPragma decl,
+    { instanceDeclOverlapPragma = instanceDeclOverlapPragma decl,
       instanceDeclWarning = fmap normalizeWarningText (instanceDeclWarning decl),
       instanceDeclForall = map normalizeTyVarBinder (instanceDeclForall decl),
       instanceDeclContext = map normalizeType (instanceDeclContext decl),
@@ -534,8 +525,7 @@ normalizeInstanceDeclItemInner (InstanceItemPragma pragma) = InstanceItemPragma 
 normalizeStandaloneDerivingDecl :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 normalizeStandaloneDerivingDecl decl =
   StandaloneDerivingDecl
-    { standaloneDerivingSpan = span0,
-      standaloneDerivingStrategy = standaloneDerivingStrategy decl,
+    { standaloneDerivingStrategy = standaloneDerivingStrategy decl,
       standaloneDerivingViaType = fmap normalizeType (standaloneDerivingViaType decl),
       standaloneDerivingOverlapPragma = standaloneDerivingOverlapPragma decl,
       standaloneDerivingWarning = fmap normalizeWarningText (standaloneDerivingWarning decl),
@@ -550,8 +540,7 @@ normalizeStandaloneDerivingDecl decl =
 normalizeForeignDecl :: ForeignDecl -> ForeignDecl
 normalizeForeignDecl decl =
   ForeignDecl
-    { foreignDeclSpan = span0,
-      foreignDirection = foreignDirection decl,
+    { foreignDirection = foreignDirection decl,
       foreignCallConv = foreignCallConv decl,
       foreignSafety = foreignSafety decl,
       foreignEntity = foreignEntity decl,
@@ -562,8 +551,7 @@ normalizeForeignDecl decl =
 normalizeTypeFamilyDecl :: TypeFamilyDecl -> TypeFamilyDecl
 normalizeTypeFamilyDecl tf =
   TypeFamilyDecl
-    { typeFamilyDeclSpan = span0,
-      typeFamilyDeclHeadForm = typeFamilyDeclHeadForm tf,
+    { typeFamilyDeclHeadForm = typeFamilyDeclHeadForm tf,
       typeFamilyDeclHead = normalizeType (typeFamilyDeclHead tf),
       typeFamilyDeclParams = map normalizeTyVarBinder (typeFamilyDeclParams tf),
       typeFamilyDeclKind = fmap normalizeType (typeFamilyDeclKind tf),
@@ -583,8 +571,7 @@ normalizeTypeFamilyEq eq =
 normalizeDataFamilyDecl :: DataFamilyDecl -> DataFamilyDecl
 normalizeDataFamilyDecl df =
   DataFamilyDecl
-    { dataFamilyDeclSpan = span0,
-      dataFamilyDeclName = dataFamilyDeclName df,
+    { dataFamilyDeclName = dataFamilyDeclName df,
       dataFamilyDeclParams = map normalizeTyVarBinder (dataFamilyDeclParams df),
       dataFamilyDeclKind = fmap normalizeType (dataFamilyDeclKind df)
     }
