@@ -1231,7 +1231,7 @@ typeFamilyOperatorParser =
 
 typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
 typeFamilyLhsParser = do
-  lhs <- typeAtomParser
+  lhs <- typeAppParser
   hasInfixTail <- MP.optional (lookAhead typeInfixOperatorParser)
   case hasInfixTail of
     Just _ -> do
@@ -1244,8 +1244,8 @@ typeFamilyLhsParser = do
     typeHeadInfixTailParser :: TokParser [((Name, TypePromotion), Type)]
     typeHeadInfixTailParser = MP.many $ MP.try $ do
       op <- typeInfixOperatorParser
-      atom <- typeAtomParser
-      pure (op, atom)
+      rhs <- typeAppParser
+      pure (op, rhs)
 
     buildInfixType left ((op, promoted), right) =
       let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
