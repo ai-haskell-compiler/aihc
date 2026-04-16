@@ -4,6 +4,7 @@
 module Test.Properties.Arb.Decl
   ( genDecl,
     genDeclDataFamilyInst,
+    genDeclTypeFamilyInst,
     genFunctionDecl,
     shrinkDecl,
   )
@@ -865,9 +866,16 @@ genDeclDataFamilyDecl = do
         }
 
 genDeclTypeFamilyInst :: Gen Decl
-genDeclTypeFamilyInst = do
+genDeclTypeFamilyInst =
+  oneof
+    [ genDeclTypeFamilyInstPrefix,
+      genDeclTypeFamilyInstInfix
+    ]
+
+genDeclTypeFamilyInstPrefix :: Gen Decl
+genDeclTypeFamilyInstPrefix = do
   lhs <- genFamilyLhsType
-  rhs <- genSimpleType
+  rhs <- genFamilyRhsType
   pure $
     DeclTypeFamilyInst $
       TypeFamilyInst
@@ -875,6 +883,22 @@ genDeclTypeFamilyInst = do
           typeFamilyInstForall = [],
           typeFamilyInstHeadForm = TypeHeadPrefix,
           typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
+genDeclTypeFamilyInstInfix :: Gen Decl
+genDeclTypeFamilyInstInfix = do
+  op <- genTypeFamilyInstOperator
+  lhsArg <- genFamilyInfixOperand
+  rhsArg <- genFamilyInfixOperand
+  rhs <- genFamilyRhsType
+  pure $
+    DeclTypeFamilyInst $
+      TypeFamilyInst
+        { typeFamilyInstSpan = span0,
+          typeFamilyInstForall = [],
+          typeFamilyInstHeadForm = TypeHeadInfix,
+          typeFamilyInstLhs = TApp (TApp (TCon op Unpromoted) lhsArg) rhsArg,
           typeFamilyInstRhs = rhs
         }
 
@@ -936,6 +960,46 @@ genFamilyLhsType = do
   familyName <- genConIdent
   let familyCon = TCon (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
   TApp familyCon <$> genFamilyLhsArg
+
+genTypeFamilyInstOperator :: Gen Name
+genTypeFamilyInstOperator =
+  oneof
+    [ qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genFamilyInstVarOperator,
+      qualifyName Nothing . mkUnqualifiedName NameConSym <$> genFamilyInstConOperator,
+      qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
+    ]
+
+genFamilyInstVarOperator :: Gen Text
+genFamilyInstVarOperator =
+  suchThat genOperator (`notElem` ["*", ".", "!", "'"])
+
+genFamilyInstConOperator :: Gen Text
+genFamilyInstConOperator =
+  suchThat genConSym (`notElem` ["!"])
+
+genFamilyInfixOperand :: Gen Type
+genFamilyInfixOperand =
+  frequency
+    [ (1, genFamilyTypeAtom),
+      (3, genFamilyTypeApp)
+    ]
+
+genFamilyRhsType :: Gen Type
+genFamilyRhsType =
+  frequency
+    [ (2, genSimpleType),
+      (3, genFamilyTypeApp)
+    ]
+
+genFamilyTypeApp :: Gen Type
+genFamilyTypeApp = do
+  f <- genFamilyTypeAtom
+  argCount <- chooseInt (1, 2)
+  args <- vectorOf argCount genFamilyTypeAtom
+  pure (foldl TApp f args)
+
+genFamilyTypeAtom :: Gen Type
+genFamilyTypeAtom = genSimpleTypeWithoutFun
 
 genFamilyLhsArg :: Gen Type
 genFamilyLhsArg = suchThat (sized (genType . min 4)) (not . isStarType)
@@ -1286,8 +1350,19 @@ shrinkDataFamilyDecl df =
 
 shrinkTypeFamilyInst :: TypeFamilyInst -> [TypeFamilyInst]
 shrinkTypeFamilyInst tfi =
-  [tfi {typeFamilyInstLhs = lhs'} | lhs' <- shrinkType (typeFamilyInstLhs tfi)]
+  [tfi {typeFamilyInstLhs = lhs'} | lhs' <- shrinkTypeFamilyInstLhs (typeFamilyInstHeadForm tfi) (typeFamilyInstLhs tfi)]
     <> [tfi {typeFamilyInstRhs = rhs'} | rhs' <- shrinkType (typeFamilyInstRhs tfi)]
+
+shrinkTypeFamilyInstLhs :: TypeHeadForm -> Type -> [Type]
+shrinkTypeFamilyInstLhs headForm lhs =
+  case headForm of
+    TypeHeadPrefix -> shrinkType lhs
+    TypeHeadInfix ->
+      case lhs of
+        TApp (TApp op lhsArg) rhsArg ->
+          [TApp (TApp op lhsArg') rhsArg | lhsArg' <- shrinkType lhsArg]
+            <> [TApp (TApp op lhsArg) rhsArg' | rhsArg' <- shrinkType rhsArg]
+        _ -> []
 
 shrinkDataFamilyInst :: DataFamilyInst -> [DataFamilyInst]
 shrinkDataFamilyInst dfi =

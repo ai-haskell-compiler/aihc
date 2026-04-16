@@ -26,7 +26,7 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
-import Test.Properties.Arb.Decl (genDeclDataFamilyInst)
+import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
@@ -324,6 +324,7 @@ buildTests = do
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
+            testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
             testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
             testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens,
             testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
@@ -355,6 +356,7 @@ buildTests = do
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
+              QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
@@ -1677,6 +1679,35 @@ test_dataFamilyInstanceKindSignatureRoundTrip = do
     ParseErr err ->
       assertFailure ("expected data family instance kind signature to parse, got:\n" <> MPE.errorBundlePretty err)
 
+test_typeFamilyInstanceInfixAppliedOperandsRoundTrip :: Assertion
+test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
+  let lhs =
+        TApp
+          ( TApp
+              (TCon (qualifyName Nothing (mkUnqualifiedName NameVarSym "$")) Unpromoted)
+              (TApp (TVar "a") (TVar "b"))
+          )
+          (TVar "c")
+      rhs = TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "F")) Unpromoted) (TVar "d")
+      decl =
+        DeclTypeFamilyInst
+          TypeFamilyInst
+            { typeFamilyInstSpan = span0,
+              typeFamilyInstForall = [],
+              typeFamilyInstHeadForm = TypeHeadInfix,
+              typeFamilyInstLhs = lhs,
+              typeFamilyInstRhs = rhs
+            }
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool
+    ("expected bare type applications in infix type family instance, got:\n" <> T.unpack source)
+    (source == "type instance a b $ c = F d")
+  case parseDecl defaultConfig source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= normalizeDecl decl
+    ParseErr err ->
+      assertFailure ("expected infix type family instance with bare applications to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
   let samples = sampleGen 6000 genDeclDataFamilyInst
@@ -1685,6 +1716,36 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
+prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
+  let samples = sampleGen 6000 genDeclTypeFamilyInst
+      lhsMatches =
+        [ decl
+        | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstHeadForm = TypeHeadInfix, typeFamilyInstLhs}) <- samples,
+          case stripTypeAnnotations typeFamilyInstLhs of
+            TApp (TApp _ lhsOperand) rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
+            _ -> False
+        ]
+      rhsMatches =
+        [ decl
+        | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstRhs}) <- samples,
+          isBareTypeApp (stripTypeAnnotations typeFamilyInstRhs)
+        ]
+   in counterexample
+        ( "expected generated type family instances with bare applications in infix operands and rhs; sampled "
+            <> show (length samples)
+            <> ", lhs matches="
+            <> show (length lhsMatches)
+            <> ", rhs matches="
+            <> show (length rhsMatches)
+        )
+        (not (null lhsMatches) && not (null rhsMatches))
+  where
+    isBareTypeApp ty =
+      case ty of
+        TApp {} -> True
+        _ -> False
 
 test_guardPatBind :: Assertion
 test_guardPatBind =

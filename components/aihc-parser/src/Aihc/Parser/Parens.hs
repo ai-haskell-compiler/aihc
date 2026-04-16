@@ -255,6 +255,7 @@ matchSymbolicInfixTypeApp ty = do
 data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppArg
+  | CtxTypeFamilyOperand
   | CtxTypeAtom
   | CtxKindSig
 
@@ -281,6 +282,14 @@ needsTypeParens ctx ty =
         -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
         -- the surrounding -> U into the implicit param type.
         TImplicitParam {} -> True
+        _ -> False
+    CtxTypeFamilyOperand ->
+      case ty of
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TImplicitParam {} -> True
+        TKindSig {} -> True
         _ -> False
     CtxTypeAtom ->
       case ty of
@@ -580,8 +589,8 @@ addTypeFamilyDeclParens tf =
 addTypeFamilyEqParens :: TypeFamilyEq -> TypeFamilyEq
 addTypeFamilyEqParens eq =
   eq
-    { typeFamilyEqLhs = addTypeParens (typeFamilyEqLhs eq),
-      typeFamilyEqRhs = addTypeParens (typeFamilyEqRhs eq)
+    { typeFamilyEqLhs = addTypeFamilyLhsParens (typeFamilyEqHeadForm eq) (typeFamilyEqLhs eq),
+      typeFamilyEqRhs = addTypeFamilyRhsParens (typeFamilyEqRhs eq)
     }
 
 addDataFamilyDeclParens :: DataFamilyDecl -> DataFamilyDecl
@@ -593,9 +602,27 @@ addDataFamilyDeclParens df =
 addTypeFamilyInstParens :: TypeFamilyInst -> TypeFamilyInst
 addTypeFamilyInstParens tfi =
   tfi
-    { typeFamilyInstLhs = addTypeParens (typeFamilyInstLhs tfi),
-      typeFamilyInstRhs = addTypeParens (typeFamilyInstRhs tfi)
+    { typeFamilyInstLhs = addTypeFamilyLhsParens (typeFamilyInstHeadForm tfi) (typeFamilyInstLhs tfi),
+      typeFamilyInstRhs = addTypeFamilyRhsParens (typeFamilyInstRhs tfi)
     }
+
+addTypeFamilyLhsParens :: TypeHeadForm -> Type -> Type
+addTypeFamilyLhsParens headForm ty =
+  case headForm of
+    TypeHeadPrefix -> addTypeParens ty
+    TypeHeadInfix ->
+      case peelTypeAnn ty of
+        TApp l r ->
+          case peelTypeAnn l of
+            TApp op lhs ->
+              TApp
+                (TApp (addTypeParens op) (addTypeIn CtxTypeFamilyOperand lhs))
+                (addTypeIn CtxTypeFamilyOperand r)
+            _ -> addTypeParens ty
+        _ -> addTypeParens ty
+
+addTypeFamilyRhsParens :: Type -> Type
+addTypeFamilyRhsParens = addTypeParensShared CtxTypeFamilyOperand 0
 
 addDataFamilyInstParens :: DataFamilyInst -> DataFamilyInst
 addDataFamilyInstParens dfi =
