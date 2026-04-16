@@ -11,6 +11,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (isAlpha)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr)
@@ -18,11 +19,12 @@ import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
     genIdent,
+    shrinkConIdent,
     shrinkIdent,
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType, shrinkType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -1036,36 +1038,286 @@ genSimpleConstraint =
     <$> genSimpleConType
     <*> (TVar . mkUnqualifiedName NameVarId <$> genIdent)
 
+-- ---------------------------------------------------------------------------
+-- Shrinking declarations
+-- ---------------------------------------------------------------------------
+
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
   case decl of
-    DeclValue (PatternBind _ pat (UnguardedRhs _ expr _)) ->
-      [DeclValue (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
-        <> [DeclValue (PatternBind span0 pat' (UnguardedRhs span0 expr Nothing)) | pat' <- shrinkPatternBindPat pat]
-    DeclValue (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
-      [ DeclValue
-          ( FunctionBind
-              span0
-              name
-              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr' Nothing}]
-          )
-      | expr' <- shrinkExpr expr
-      ]
-        <> [ DeclValue
-               ( FunctionBind
-                   span0
-                   name
-                   [match {matchSpan = span0, matchPats = pats'}]
-               )
-           | pats' <- shrinkFunctionHeadPats (matchHeadForm match) (matchPats match)
-           ]
-        <> [DeclValue (FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr Nothing}]) | name' <- shrinkUnqualifiedVarName name]
+    DeclAnn _ inner -> inner : shrinkDecl inner
+    DeclValue vd -> map DeclValue (shrinkValueDecl vd)
     DeclTypeSig names ty ->
       [DeclTypeSig names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
+        <> [DeclTypeSig names ty' | ty' <- shrinkType ty]
+    DeclPatSyn ps ->
+      [DeclPatSyn ps' | ps' <- shrinkPatSynDecl ps]
+    DeclPatSynSig names ty ->
+      [DeclPatSynSig names' ty | names' <- shrinkList shrinkConName names, not (null names')]
+        <> [DeclPatSynSig names ty' | ty' <- shrinkType ty]
+    DeclStandaloneKindSig name ty ->
+      [DeclStandaloneKindSig name' ty | name' <- shrinkConName name]
+        <> [DeclStandaloneKindSig name ty' | ty' <- shrinkType ty]
+    DeclFixity assoc ns prec ops ->
+      [DeclFixity assoc ns prec ops' | ops' <- shrinkList (const []) ops, not (null ops')]
+    DeclRoleAnnotation ra ->
+      [DeclRoleAnnotation ra' | ra' <- shrinkRoleAnnotation ra]
+    DeclTypeSyn ts ->
+      [DeclTypeSyn ts' | ts' <- shrinkTypeSynDecl ts]
+    DeclData dd ->
+      [DeclData dd' | dd' <- shrinkDataDecl dd]
+    DeclTypeData dd ->
+      [DeclTypeData dd' | dd' <- shrinkDataDecl dd]
+    DeclNewtype nd ->
+      [DeclNewtype nd' | nd' <- shrinkNewtypeDecl nd]
+    DeclClass cd ->
+      [DeclClass cd' | cd' <- shrinkClassDecl cd]
+    DeclInstance inst ->
+      [DeclInstance inst' | inst' <- shrinkInstanceDecl inst]
+    DeclStandaloneDeriving sd ->
+      [DeclStandaloneDeriving sd' | sd' <- shrinkStandaloneDerivingDecl sd]
+    DeclDefault types ->
+      [DeclDefault types' | types' <- shrinkList shrinkType types]
+    DeclSplice expr ->
+      [DeclSplice expr' | expr' <- shrinkExpr expr]
+    DeclForeign fd ->
+      [DeclForeign fd' | fd' <- shrinkForeignDecl fd]
+    DeclTypeFamilyDecl tf ->
+      [DeclTypeFamilyDecl tf' | tf' <- shrinkTypeFamilyDecl tf]
+    DeclDataFamilyDecl df ->
+      [DeclDataFamilyDecl df' | df' <- shrinkDataFamilyDecl df]
+    DeclTypeFamilyInst tfi ->
+      [DeclTypeFamilyInst tfi' | tfi' <- shrinkTypeFamilyInst tfi]
+    DeclDataFamilyInst dfi ->
+      [DeclDataFamilyInst dfi' | dfi' <- shrinkDataFamilyInst dfi]
+    DeclPragma _ -> []
+
+-- ---------------------------------------------------------------------------
+-- Value declarations (function binds and pattern binds)
+-- ---------------------------------------------------------------------------
+
+shrinkValueDecl :: ValueDecl -> [ValueDecl]
+shrinkValueDecl vd =
+  case vd of
+    PatternBind _ pat rhs ->
+      [PatternBind span0 pat rhs' | rhs' <- shrinkRhs rhs]
+        <> [PatternBind span0 pat' rhs | pat' <- shrinkPattern pat]
+    FunctionBind _ name matches ->
+      -- Shrink multiple matches to a single match
+      [FunctionBind span0 name [m {matchSpan = span0}] | length matches > 1, m <- matches]
+        -- Shrink the list of matches
+        <> [FunctionBind span0 name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
+        -- Shrink the function name
+        <> [FunctionBind span0 name' matches | name' <- shrinkBinderName name]
+
+-- | Shrink an individual match clause.
+shrinkMatch :: Match -> [Match]
+shrinkMatch match =
+  -- Shrink the RHS
+  [match {matchSpan = span0, matchRhs = rhs'} | rhs' <- shrinkRhs (matchRhs match)]
+    -- Shrink the patterns
+    <> [match {matchSpan = span0, matchPats = pats'} | pats' <- shrinkFunctionHeadPats (matchHeadForm match) (matchPats match)]
+
+-- ---------------------------------------------------------------------------
+-- Right-hand sides
+-- ---------------------------------------------------------------------------
+
+-- | Shrink an RHS: try removing the where clause, simplifying guards to
+-- unguarded, and recursively shrinking sub-expressions.
+shrinkRhs :: Rhs -> [Rhs]
+shrinkRhs rhs =
+  case rhs of
+    UnguardedRhs _ expr mWhere ->
+      -- Drop the where clause first (big win)
+      [UnguardedRhs span0 expr Nothing | isJust mWhere]
+        -- Shrink the expression
+        <> [UnguardedRhs span0 expr' mWhere | expr' <- shrinkExpr expr]
+        -- Shrink the where clause
+        <> [UnguardedRhs span0 expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
+    GuardedRhss _ grhss mWhere ->
+      -- Collapse to unguarded using the first guard's body
+      [UnguardedRhs span0 (guardedRhsBody firstGrhs) Nothing | firstGrhs : _ <- [grhss]]
+        -- Drop the where clause
+        <> [GuardedRhss span0 grhss Nothing | isJust mWhere]
+        -- Shrink the guard list (keep at least one)
+        <> [GuardedRhss span0 grhss' mWhere | grhss' <- shrinkList shrinkGuardedRhs grhss, not (null grhss')]
+        -- Shrink the where clause
+        <> [GuardedRhss span0 grhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
+
+-- | Shrink a where-clause declaration list (keep at least one decl).
+shrinkWhereDecls :: [Decl] -> [[Decl]]
+shrinkWhereDecls ds =
+  [ds' | ds' <- shrinkList shrinkDecl ds, not (null ds')]
+
+-- | Shrink a guarded RHS: shrink the body and the guards.
+shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
+shrinkGuardedRhs grhs =
+  [grhs {guardedRhsBody = body'} | body' <- shrinkExpr (guardedRhsBody grhs)]
+    <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList (const []) (guardedRhsGuards grhs), not (null gs')]
+
+-- ---------------------------------------------------------------------------
+-- Pattern synonyms
+-- ---------------------------------------------------------------------------
+
+shrinkPatSynDecl :: PatSynDecl -> [PatSynDecl]
+shrinkPatSynDecl ps =
+  [ps {patSynDeclPat = pat'} | pat' <- shrinkPattern (patSynDeclPat ps)]
+    <> [ps {patSynDeclName = name'} | name' <- shrinkConName (patSynDeclName ps)]
+
+-- ---------------------------------------------------------------------------
+-- Type synonyms
+-- ---------------------------------------------------------------------------
+
+shrinkTypeSynDecl :: TypeSynDecl -> [TypeSynDecl]
+shrinkTypeSynDecl ts =
+  [ts {typeSynBody = ty'} | ty' <- shrinkType (typeSynBody ts)]
+    <> [ts {typeSynParams = ps'} | ps' <- shrinkTyVarBinders (typeSynParams ts)]
+
+-- ---------------------------------------------------------------------------
+-- Data declarations
+-- ---------------------------------------------------------------------------
+
+shrinkDataDecl :: DataDecl -> [DataDecl]
+shrinkDataDecl dd =
+  -- Shrink constructors
+  [dd {dataDeclConstructors = cs'} | cs' <- shrinkList shrinkDataConDecl (dataDeclConstructors dd)]
+    -- Shrink deriving clauses
+    <> [dd {dataDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (dataDeclDeriving dd)]
+    -- Shrink type parameters
+    <> [dd {dataDeclParams = ps'} | ps' <- shrinkTyVarBinders (dataDeclParams dd)]
+    -- Shrink context
+    <> [dd {dataDeclContext = ctx'} | ctx' <- shrinkList shrinkType (dataDeclContext dd)]
+
+shrinkNewtypeDecl :: NewtypeDecl -> [NewtypeDecl]
+shrinkNewtypeDecl nd =
+  -- Shrink deriving
+  [nd {newtypeDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (newtypeDeclDeriving nd)]
+    -- Shrink type parameters
+    <> [nd {newtypeDeclParams = ps'} | ps' <- shrinkTyVarBinders (newtypeDeclParams nd)]
+    -- Shrink context
+    <> [nd {newtypeDeclContext = ctx'} | ctx' <- shrinkList shrinkType (newtypeDeclContext nd)]
+
+shrinkDataConDecl :: DataConDecl -> [DataConDecl]
+shrinkDataConDecl con =
+  case con of
+    DataConAnn _ inner -> inner : shrinkDataConDecl inner
+    PrefixCon forall' ctx name fields ->
+      [PrefixCon forall' ctx name fields' | fields' <- shrinkList shrinkBangType fields]
+        <> [PrefixCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
+    InfixCon forall' ctx lhs name rhs ->
+      [InfixCon forall' ctx lhs' name rhs | lhs' <- shrinkBangType lhs]
+        <> [InfixCon forall' ctx lhs name rhs' | rhs' <- shrinkBangType rhs]
+        <> [InfixCon forall' ctx' lhs name rhs | ctx' <- shrinkList shrinkType ctx]
+    RecordCon forall' ctx name fields ->
+      [RecordCon forall' ctx name fields' | fields' <- shrinkList shrinkFieldDecl fields]
+        <> [RecordCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
+    GadtCon forall' ctx names body ->
+      [GadtCon forall' ctx names' body | names' <- shrinkList (const []) names, not (null names')]
+        <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
+        <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
+        <> [GadtCon forall'' ctx names body | forall'' <- shrinkTyVarBinders forall']
+
+shrinkGadtBody :: GadtBody -> [GadtBody]
+shrinkGadtBody body =
+  case body of
+    GadtPrefixBody args result ->
+      [GadtPrefixBody args' result | args' <- shrinkList shrinkBangType args]
+        <> [GadtPrefixBody args result' | result' <- shrinkType result]
+    GadtRecordBody fields result ->
+      [GadtRecordBody fields' result | fields' <- shrinkList shrinkFieldDecl fields, not (null fields')]
+        <> [GadtRecordBody fields result' | result' <- shrinkType result]
+
+shrinkBangType :: BangType -> [BangType]
+shrinkBangType bt =
+  [bt {bangType = ty'} | ty' <- shrinkType (bangType bt)]
+
+shrinkFieldDecl :: FieldDecl -> [FieldDecl]
+shrinkFieldDecl fd =
+  [fd {fieldNames = ns'} | ns' <- shrinkList (const []) (fieldNames fd), not (null ns')]
+    <> [fd {fieldType = bt'} | bt' <- shrinkBangType (fieldType fd)]
+
+shrinkDerivingClause :: DerivingClause -> [DerivingClause]
+shrinkDerivingClause dc =
+  [dc {derivingClasses = cs'} | cs' <- shrinkList shrinkType (derivingClasses dc)]
+
+-- ---------------------------------------------------------------------------
+-- Class and instance declarations
+-- ---------------------------------------------------------------------------
+
+shrinkClassDecl :: ClassDecl -> [ClassDecl]
+shrinkClassDecl cd =
+  [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
+    <> [cd {classDeclParams = ps'} | ps' <- shrinkTyVarBinders (classDeclParams cd)]
+    <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
+
+shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
+shrinkInstanceDecl inst =
+  [inst {instanceDeclItems = is'} | is' <- shrinkList (const []) (instanceDeclItems inst)]
+    <> [inst {instanceDeclTypes = ts'} | ts' <- shrinkList shrinkType (instanceDeclTypes inst)]
+    <> [inst {instanceDeclContext = ctx'} | ctx' <- shrinkList shrinkType (instanceDeclContext inst)]
+
+-- ---------------------------------------------------------------------------
+-- Standalone deriving
+-- ---------------------------------------------------------------------------
+
+shrinkStandaloneDerivingDecl :: StandaloneDerivingDecl -> [StandaloneDerivingDecl]
+shrinkStandaloneDerivingDecl sd =
+  [sd {standaloneDerivingTypes = ts'} | ts' <- shrinkList shrinkType (standaloneDerivingTypes sd)]
+    <> [sd {standaloneDerivingContext = ctx'} | ctx' <- shrinkList shrinkType (standaloneDerivingContext sd)]
+
+-- ---------------------------------------------------------------------------
+-- Foreign declarations
+-- ---------------------------------------------------------------------------
+
+shrinkForeignDecl :: ForeignDecl -> [ForeignDecl]
+shrinkForeignDecl fd =
+  [fd {foreignType = ty'} | ty' <- shrinkType (foreignType fd)]
+    <> [fd {foreignName = n'} | n' <- shrinkIdent (foreignName fd)]
+
+-- ---------------------------------------------------------------------------
+-- Type/data families
+-- ---------------------------------------------------------------------------
+
+shrinkTypeFamilyDecl :: TypeFamilyDecl -> [TypeFamilyDecl]
+shrinkTypeFamilyDecl tf =
+  [tf {typeFamilyDeclParams = ps'} | ps' <- shrinkTyVarBinders (typeFamilyDeclParams tf)]
+
+shrinkDataFamilyDecl :: DataFamilyDecl -> [DataFamilyDecl]
+shrinkDataFamilyDecl df =
+  [df {dataFamilyDeclParams = ps'} | ps' <- shrinkTyVarBinders (dataFamilyDeclParams df)]
+
+shrinkTypeFamilyInst :: TypeFamilyInst -> [TypeFamilyInst]
+shrinkTypeFamilyInst tfi =
+  [tfi {typeFamilyInstLhs = lhs'} | lhs' <- shrinkType (typeFamilyInstLhs tfi)]
+    <> [tfi {typeFamilyInstRhs = rhs'} | rhs' <- shrinkType (typeFamilyInstRhs tfi)]
+
+shrinkDataFamilyInst :: DataFamilyInst -> [DataFamilyInst]
+shrinkDataFamilyInst dfi =
+  [dfi {dataFamilyInstConstructors = cs'} | cs' <- shrinkList shrinkDataConDecl (dataFamilyInstConstructors dfi)]
+    <> [dfi {dataFamilyInstHead = h'} | h' <- shrinkType (dataFamilyInstHead dfi)]
+    <> [dfi {dataFamilyInstDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (dataFamilyInstDeriving dfi)]
+
+-- ---------------------------------------------------------------------------
+-- Role annotations
+-- ---------------------------------------------------------------------------
+
+shrinkRoleAnnotation :: RoleAnnotation -> [RoleAnnotation]
+shrinkRoleAnnotation ra =
+  [ra {roleAnnotationRoles = rs'} | rs' <- shrinkList (const []) (roleAnnotationRoles ra)]
+    <> [ra {roleAnnotationName = n'} | n' <- shrinkConIdent (roleAnnotationName ra)]
+
+-- ---------------------------------------------------------------------------
+-- Name shrinking helpers
+-- ---------------------------------------------------------------------------
+
+shrinkConName :: UnqualifiedName -> [UnqualifiedName]
+shrinkConName name =
+  case unqualifiedNameType name of
+    NameConId -> [mkUnqualifiedName NameConId n' | n' <- shrinkConIdent (renderUnqualifiedName name)]
     _ -> []
 
-shrinkPatternBindPat :: Pattern -> [Pattern]
-shrinkPatternBindPat = shrinkPattern
+shrinkBinderName :: BinderName -> [BinderName]
+shrinkBinderName = shrinkUnqualifiedVarName
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
 shrinkUnqualifiedVarName name =
@@ -1087,8 +1339,15 @@ shrinkSymbolicName txt =
   where
     noShrink _ = []
 
-shrinkBinderName :: BinderName -> [BinderName]
-shrinkBinderName = shrinkUnqualifiedVarName
+-- ---------------------------------------------------------------------------
+-- Shared helpers
+-- ---------------------------------------------------------------------------
+
+shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
+shrinkTyVarBinders = shrinkList shrinkTyVarBinder
+  where
+    shrinkTyVarBinder tvb =
+      [tvb {tyVarBinderName = n'} | n' <- shrinkIdent (tyVarBinderName tvb)]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =
