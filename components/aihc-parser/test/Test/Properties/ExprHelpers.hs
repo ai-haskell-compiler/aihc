@@ -56,16 +56,7 @@ normalizeExpr expr =
     ETypeSig inner ty -> ETypeSig (normalizeExpr inner) (normalizeType ty)
     ETypeApp inner ty -> ETypeApp (normalizeExpr inner) (normalizeType ty)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (normalizeExpr inner)
-    EParen inner ->
-      -- Sections (ESectionL/ESectionR) always print with their own parens, so
-      -- EParen around them is transparent. The parser always wraps sections in
-      -- EParen, but addExprParens leaves sections bare. Strip EParen around
-      -- sections to unify both representations.
-      let ni = normalizeExpr inner
-       in case ni of
-            ESectionL {} -> ni
-            ESectionR {} -> ni
-            _ -> EParen ni
+    EParen inner -> EParen (normalizeExpr inner)
     ETHExpQuote body -> ETHExpQuote (normalizeExpr body)
     ETHTypedQuote body -> ETHTypedQuote (normalizeExpr body)
     ETHDeclQuote decls -> ETHDeclQuote (map normalizeDecl decls)
@@ -357,13 +348,7 @@ normalizeType ty =
     TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
     TList promoted elems -> TList promoted (map normalizeType elems)
-    -- Preserve TParen except when wrapping TKindSig: the parser absorbs
-    -- (ty :: kind) into TKindSig directly without a TParen wrapper.
-    TParen inner ->
-      let ni = normalizeType inner
-       in case peelTypeAnn ni of
-            TKindSig {} -> ni
-            _ -> TParen ni
+    TParen inner -> TParen (normalizeType inner)
     TKindSig inner kind -> TKindSig (normalizeType inner) (normalizeType kind)
     TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
     TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)

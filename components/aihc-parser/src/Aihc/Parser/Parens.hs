@@ -674,15 +674,15 @@ addExprParensPrec prec expr =
     ENegate inner ->
       wrapExpr (prec > 2) (ENegate (addNegateParens inner))
     ESectionL lhs op ->
-      -- Sections are always in parens (printed with parens in Pretty.hs)
-      -- The LHS needs special handling for greedy/typesig expressions
+      -- Sections always require surrounding parens in source syntax.
+      -- Wrap in EParen so the AST matches what the parser produces.
       let lhs' =
             if isGreedyExpr lhs || isTypeSig lhs
               then wrapExpr True (addExprParens lhs)
               else addExprParensPrec 1 lhs
-       in ESectionL lhs' op
+       in EParen (ESectionL lhs' op)
     ESectionR op rhs ->
-      ESectionR op (addExprParens rhs)
+      EParen (ESectionR op (addExprParens rhs))
     ELetDecls decls body ->
       wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
@@ -701,11 +701,11 @@ addExprParensPrec prec expr =
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->
-      case inner of
-        -- Sections are already "in parens" via their EParen wrapper,
-        -- don't add double parens
-        ESectionL {} -> EParen (addExprParens inner)
-        ESectionR {} -> EParen (addExprParens inner)
+      -- If inner is a section, addExprParens(inner) already produces EParen(section).
+      -- Delegating avoids double-wrapping and maintains idempotency.
+      case peelExprAnn inner of
+        ESectionL {} -> addExprParens inner
+        ESectionR {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
@@ -741,22 +741,12 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- EParen around a section: the pretty-printer's EParen transparency
-    -- means this would print as just the section's parens. We need an
-    -- extra EParen so the splice delimiter parens are not swallowed.
-    EParen inner
-      | ESectionL {} <- peelExprAnn inner -> EParen (EParen (addExprParens inner))
-      | ESectionR {} <- peelExprAnn inner -> EParen (EParen (addExprParens inner))
-    EParen inner -> EParen (addExprParens inner)
+    -- Bare variable: $name is valid splice syntax without parens.
     EVar {} -> body
-    -- Sections print their own parens via prettyExpr, and EParen is
-    -- transparent around them in the pretty-printer (to avoid double parens
-    -- in normal code like `x = (+1)`). For splices, we need the EParen to
-    -- actually produce parens, so we double-wrap.
-    _
-      | ESectionL {} <- peelExprAnn body -> EParen (EParen (addExprParens body))
-      | ESectionR {} <- peelExprAnn body -> EParen (EParen (addExprParens body))
-    -- Any other body needs to be wrapped in EParen so it prints as $(expr).
+    -- For everything else (including sections, which addExprParens now wraps
+    -- in EParen): wrap in one outer EParen so the body prints as $(expr).
+    -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
+    EParen inner -> EParen (addExprParens inner)
     _ -> EParen (addExprParens body)
 
 addNegateParens :: Expr -> Expr

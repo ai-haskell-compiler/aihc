@@ -94,15 +94,12 @@ genTypeFun :: Int -> Gen Type
 genTypeFun depth = do
   lhs <- genType (depth - 1)
   rhs <- genType (depth - 1)
-  pure (TFun (canonicalFunLeft lhs) rhs)
+  pure (TFun (canonicalFunLeft lhs) (canonicalAtomType rhs))
 
 genForallInner :: Int -> Gen Type
 genForallInner depth = do
   inner <- genType depth
-  pure $
-    case inner of
-      TForall {} -> TParen inner
-      _ -> inner
+  pure (canonicalForallInner inner)
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr
@@ -120,7 +117,7 @@ genTypeContext depth = do
   n <- chooseInt (1, 3)
   constraints <- vectorOf n (genConstraintType (depth - 1))
   inner <- genType (depth - 1)
-  pure $ TParen (canonicalContextType (map canonicalContextItem constraints) inner)
+  pure $ TParen (canonicalContextType (map canonicalContextItem constraints) (canonicalAtomType inner))
 
 -- | Generate a constraint type (used in contexts).
 -- Typically a type constructor applied to some arguments.
@@ -147,17 +144,17 @@ genTypeTupleElems depth = do
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n (genType depth)
+      fmap canonicalAtomType <$> vectorOf n (genType depth)
 
 genTypeListElems :: Int -> Gen [Type]
 genTypeListElems depth = do
   n <- chooseInt (1, 4)
-  vectorOf n (genType depth)
+  fmap canonicalAtomType <$> vectorOf n (genType depth)
 
 genUnboxedSumElems :: Int -> Gen [Type]
 genUnboxedSumElems depth = do
   n <- chooseInt (2, 4)
-  vectorOf n (genType depth)
+  fmap canonicalAtomType <$> vectorOf n (genType depth)
 
 -- | Generate elements for a promoted tuple or list. Uses simple types only
 -- to avoid nesting ambiguities with kind signatures and unboxed tuples
@@ -306,7 +303,10 @@ canonicalTopLevelType :: Type -> Type
 canonicalTopLevelType ty =
   case ty of
     TContext constraints inner -> canonicalContextType constraints inner
-    _ -> canonicalTypeSplice ty
+    -- TKindSig always gets wrapped in TParen by addTypeParens, and the
+    -- parser now preserves that TParen.
+    TKindSig inner kind -> TParen (TKindSig inner kind)
+    _ -> ty
 
 canonicalContextType :: [Type] -> Type -> Type
 canonicalContextType constraints = TContext (canonicalContextItems constraints)
@@ -326,15 +326,13 @@ canonicalContextItem ty =
     TKindSig inner kind -> TParen (TKindSig (canonicalKindSigSubject inner) (canonicalKindSigKind kind))
     TTuple Boxed Unpromoted [] -> TParen (TTuple Boxed Unpromoted [])
     TContext constraints inner -> canonicalContextType constraints inner
-    _ -> canonicalTypeSplice ty
-
-canonicalTypeSplice :: Type -> Type
-canonicalTypeSplice ty = ty
+    _ -> ty
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
   case ty of
     TForall {} -> TParen ty
+    TKindSig {} -> TParen ty
     _ -> ty
 
 canonicalFunLeft :: Type -> Type
@@ -344,6 +342,7 @@ canonicalFunLeft ty =
     TFun {} -> TParen ty
     TContext {} -> TParen ty
     TImplicitParam {} -> TParen ty
+    TKindSig {} -> TParen ty
     _ -> ty
 
 canonicalAppHead :: Type -> Type
@@ -353,6 +352,7 @@ canonicalAppHead ty =
     TFun {} -> TParen ty
     TContext {} -> TParen ty
     TImplicitParam {} -> TParen ty
+    TKindSig {} -> TParen ty
     _ -> ty
 
 canonicalAppArg :: Type -> Type
@@ -363,6 +363,7 @@ canonicalAppArg ty =
     TFun {} -> TParen ty
     TContext {} -> TParen ty
     TImplicitParam {} -> TParen ty
+    TKindSig {} -> TParen ty
     _ -> ty
 
 canonicalKindSigSubject :: Type -> Type
@@ -375,13 +376,23 @@ canonicalKindSigSubject ty =
     _ -> TParen ty
 
 canonicalKindSigKind :: Type -> Type
-canonicalKindSigKind = id
+canonicalKindSigKind = canonicalAtomType
+
+-- | Canonicalize a type that appears in "atom" position
+-- (list/tuple/unboxed-sum elements, TFun RHS, TContext body, TKindSig subject/kind).
+-- addTypeParens unconditionally wraps TKindSig in TParen in these positions.
+canonicalAtomType :: Type -> Type
+canonicalAtomType ty =
+  case ty of
+    TKindSig {} -> TParen ty
+    _ -> ty
 
 canonicalImplicitParamType :: Type -> Type
 canonicalImplicitParamType ty =
   case ty of
     TForall {} -> TParen ty
     TContext {} -> TParen ty
+    TKindSig {} -> TParen ty
     _ -> ty
 
 -- | Types that require parentheses when appearing inside compound types

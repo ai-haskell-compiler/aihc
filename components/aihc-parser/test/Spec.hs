@@ -402,7 +402,7 @@ test_typeParsesParenthesizedKindSignature :: Assertion
 test_typeParsesParenthesizedKindSignature =
   case parseType defaultConfig {parserExtensions = [KindSignatures, StarIsType]} "(x :: *)" of
     ParseOk ty
-      | TKindSig (TVar "x") TStar <- stripTypeAnnotations ty ->
+      | TParen (TKindSig (TVar "x") TStar) <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected parenthesized kind signature type, got: " <> show other)
 
@@ -410,7 +410,7 @@ test_typeParsesKindSignatureApplicationHead :: Assertion
 test_typeParsesKindSignatureApplicationHead =
   case parseType defaultConfig {parserExtensions = [KindSignatures]} "(f :: Type -> Type) a" of
     ParseOk ty
-      | TApp (TKindSig (TVar "f") (TFun (TCon "Type" Unpromoted) (TCon "Type" Unpromoted))) (TVar "a") <-
+      | TApp (TParen (TKindSig (TVar "f") (TFun (TCon "Type" Unpromoted) (TCon "Type" Unpromoted)))) (TVar "a") <-
           stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected kind-signature application head, got: " <> show other)
@@ -461,7 +461,7 @@ test_gadtConstructorParsesKindAnnotatedArgument =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (GadtCon [] [] ["C"] (GadtPrefixBody [BangType {bangType = kb}] rb))]}]
-            | TKindSig (TVar "x") TStar <- stripTypeAnnotations kb,
+            | TParen (TKindSig (TVar "x") TStar) <- stripTypeAnnotations kb,
               TCon "T" Unpromoted <- stripTypeAnnotations rb ->
                 pure ()
           other ->

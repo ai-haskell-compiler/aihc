@@ -42,9 +42,6 @@ prop_typePrettyRoundTrip ty =
                      in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 -- | Normalize a type by stripping source spans.
--- TParen nodes are preserved as-is, except TParen around TKindSig is
--- stripped because the parser absorbs @(ty :: kind)@ as @TKindSig ty kind@
--- without a TParen wrapper.
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
@@ -60,15 +57,7 @@ normalizeType ty =
     TFun a b -> TFun (normalizeType a) (normalizeType b)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
     TList promoted elems -> TList promoted (map normalizeType elems)
-    -- Strip TParen around TKindSig: the parser absorbs (ty :: kind) parens
-    -- into the TKindSig node itself. Normalize the inner first to collapse
-    -- any chain of TParens, then strip if TKindSig is underneath (possibly
-    -- behind span-only 'TAnn' from 'typeAnnSpan span0').
-    TParen inner ->
-      let ni = normalizeType inner
-       in case peelTypeAnn ni of
-            result@(TKindSig {}) -> result
-            _ -> TParen ni
+    TParen inner -> TParen (normalizeType inner)
     TKindSig ty' kind -> TKindSig (normalizeType ty') (normalizeType kind)
     TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
     TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)
