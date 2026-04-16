@@ -10,6 +10,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFr
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Char (ord)
+import Data.Data (Data, cast, gmapQl)
 import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -26,6 +27,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
+import Test.Properties.Arb.Type (genType)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
@@ -33,7 +35,7 @@ import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (Gen, Property, counterexample)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -229,6 +231,7 @@ buildTests = do
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses empty list type constructor" test_typeParsesEmptyListConstructor,
             testCase "parses promoted empty list type constructor" test_typeParsesPromotedEmptyListConstructor,
+            testCase "parses promoted constructor function types" test_typeParsesPromotedConstructorFunction,
             testCase "parses parenthesized empty list in instance heads" test_instanceParsesParenthesizedEmptyListType,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
             testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
@@ -317,6 +320,7 @@ buildTests = do
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
             testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
+            testCase "promoted constructor type signatures round-trip" test_prettyPromotedConstructorTypeSigRoundTrip,
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
@@ -353,6 +357,8 @@ buildTests = do
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
+              QC.testProperty "generated types can include promoted constructor function types" prop_generatedTypesCanIncludePromotedFunctionTypes,
+              QC.testProperty "generated declarations can include promoted constructor function types" prop_generatedDeclsCanIncludePromotedFunctionTypes,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
         oracle,
@@ -431,6 +437,14 @@ test_typeParsesPromotedEmptyListConstructor =
       | TCon "[]" Promoted <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected promoted empty list type constructor, got: " <> show other)
+
+test_typeParsesPromotedConstructorFunction :: Assertion
+test_typeParsesPromotedConstructorFunction =
+  case parseType defaultConfig {parserExtensions = [DataKinds]} "'True -> Type" of
+    ParseOk ty
+      | TFun (TCon "True" Promoted) (TCon "Type" Unpromoted) <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected promoted constructor function type, got: " <> show other)
 
 test_instanceParsesParenthesizedEmptyListType :: Assertion
 test_instanceParsesParenthesizedEmptyListType =
@@ -1525,6 +1539,19 @@ test_prettyUnicodeOperatorTypeSigRoundTrip = do
     ParseErr err ->
       assertFailure ("expected unicode operator type signature to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
+test_prettyPromotedConstructorTypeSigRoundTrip :: Assertion
+test_prettyPromotedConstructorTypeSigRoundTrip = do
+  let promotedTrue = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "True")) Promoted
+      typeTy = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Type")) Unpromoted
+      decl = DeclTypeSig [mkUnqualifiedName NameVarId "f"] (TFun promotedTrue typeTy)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  source @?= "f :: 'True -> Type"
+  case parseDecl defaultConfig {parserExtensions = [DataKinds]} source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= normalizeDecl decl
+    ParseErr err ->
+      assertFailure ("expected promoted constructor type signature to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 test_prettyPrefixFunctionHeadRecordPattern :: Assertion
 test_prettyPrefixFunctionHeadRecordPattern = do
   let decl =
@@ -1652,6 +1679,37 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedTypesCanIncludePromotedFunctionTypes :: Property
+prop_generatedTypesCanIncludePromotedFunctionTypes =
+  let samples = sampleGen 4000 (genType 6)
+      matching = filter isPromotedFunctionType samples
+   in counterexample ("expected at least one generated type with a promoted function argument; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedDeclsCanIncludePromotedFunctionTypes :: Property
+prop_generatedDeclsCanIncludePromotedFunctionTypes =
+  let samples = sampleGen 4000 (arbitrary :: Gen Decl)
+      matching = filter (containsTypeMatching isPromotedFunctionType) samples
+   in counterexample ("expected at least one generated declaration with a promoted function argument; sampled " <> show (length samples)) (not (null matching))
+
+containsTypeMatching :: (Data a) => (Type -> Bool) -> a -> Bool
+containsTypeMatching predicate value =
+  maybe False predicate (cast value) || gmapQl (||) False (containsTypeMatching predicate) value
+
+isPromotedFunctionType :: Type -> Bool
+isPromotedFunctionType ty =
+  case stripTypeAnnotations ty of
+    TFun lhs _ -> isPromotedTypeAtom lhs
+    _ -> False
+
+isPromotedTypeAtom :: Type -> Bool
+isPromotedTypeAtom ty =
+  case stripTypeAnnotations ty of
+    TCon _ Promoted -> True
+    TTuple _ Promoted _ -> True
+    TList Promoted _ -> True
+    TParen inner -> isPromotedTypeAtom inner
+    _ -> False
 
 test_guardPatBind :: Assertion
 test_guardPatBind =

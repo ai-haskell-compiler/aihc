@@ -24,7 +24,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType, shrinkType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genPromotedFunctionType, genType, shrinkType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -160,7 +160,14 @@ genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
   names <- vectorOf nameCount genVarBinderName
-  DeclTypeSig names <$> genSimpleType
+  DeclTypeSig names <$> genDeclSignatureType
+
+genDeclSignatureType :: Gen Type
+genDeclSignatureType =
+  frequency
+    [ (4, genSimpleType),
+      (1, genPromotedFunctionType 2)
+    ]
 
 genVarBinderName :: Gen UnqualifiedName
 genVarBinderName =
@@ -587,7 +594,7 @@ genClassDeclItems params =
 genClassTypeSigItem :: Gen ClassDeclItem
 genClassTypeSigItem = do
   name <- genVarBinderName
-  ClassItemTypeSig [name] <$> genSimpleType
+  ClassItemTypeSig [name] <$> genDeclSignatureType
 
 genClassAssociatedTypeDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
 genClassAssociatedTypeDeclItem params = do
@@ -964,7 +971,7 @@ genDeclPatSyn = do
 genDeclPatSynSig :: Gen Decl
 genDeclPatSynSig = do
   name <- mkUnqualifiedName NameConId <$> genConIdent
-  DeclPatSynSig [name] <$> genSimpleType
+  DeclPatSynSig [name] <$> genDeclSignatureType
 
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do

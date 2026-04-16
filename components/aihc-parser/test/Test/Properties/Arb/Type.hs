@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Type
   ( genType,
+    genPromotedFunctionType,
     shrinkType,
     canonicalTopLevelType,
     canonicalContextType,
@@ -70,6 +71,7 @@ genType depth
           (2, TQuasiQuote <$> genQuoterName <*> genQuasiBody),
           (2, TForall <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
+          (2, genPromotedFunctionType depth),
           (4, genTypeFun depth),
           (3, TTuple Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
           (1, TTuple Boxed Promoted <$> genPromotedTupleElems),
@@ -95,6 +97,32 @@ genTypeFun depth = do
   lhs <- genType (depth - 1)
   rhs <- genType (depth - 1)
   pure (TFun (canonicalFunLeft lhs) rhs)
+
+genPromotedFunctionType :: Int -> Gen Type
+genPromotedFunctionType depth = do
+  lhs <- genPromotedFunctionArg
+  rhs <- genPromotedFunctionResult (depth - 1)
+  pure (TFun lhs rhs)
+
+genPromotedFunctionArg :: Gen Type
+genPromotedFunctionArg =
+  oneof
+    [ (`TCon` Promoted) <$> genPromotableTypeConName,
+      TTuple Boxed Promoted <$> genPromotedTupleElems,
+      TList Promoted <$> genPromotedListElems
+    ]
+
+genPromotedFunctionResult :: Int -> Gen Type
+genPromotedFunctionResult depth =
+  frequency
+    [ (3, pure promotedFunctionResultType),
+      (2, genSimpleTypeAtom (max 0 depth)),
+      (1, genType (max 0 depth))
+    ]
+
+promotedFunctionResultType :: Type
+promotedFunctionResultType =
+  TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Type")) Unpromoted
 
 genForallInner :: Int -> Gen Type
 genForallInner depth = do
