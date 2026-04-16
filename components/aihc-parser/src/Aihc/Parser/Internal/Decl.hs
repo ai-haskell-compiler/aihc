@@ -158,8 +158,7 @@ typeDeclarationParser = do
       pure $
         DeclTypeSyn
           TypeSynDecl
-            { typeSynSpan = NoSourceSpan,
-              typeSynHeadForm = headForm,
+            { typeSynHeadForm = headForm,
               typeSynName = renderUnqualifiedName typeName,
               typeSynParams = typeParams,
               typeSynBody = body
@@ -176,8 +175,7 @@ roleAnnotationDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclRoleAnnotation
       RoleAnnotation
-        { roleAnnotationSpan = NoSourceSpan,
-          roleAnnotationName = typeName,
+        { roleAnnotationName = typeName,
           roleAnnotationRoles = roles
         }
 
@@ -252,8 +250,7 @@ typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeFamilyDecl
       TypeFamilyDecl
-        { typeFamilyDeclSpan = NoSourceSpan,
-          typeFamilyDeclHeadForm = headForm,
+        { typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -297,8 +294,7 @@ dataFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclDataFamilyDecl
       DataFamilyDecl
-        { dataFamilyDeclSpan = NoSourceSpan,
-          dataFamilyDeclName = name,
+        { dataFamilyDeclName = name,
           dataFamilyDeclParams = params,
           dataFamilyDeclKind = kind
         }
@@ -386,23 +382,19 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- Callers must ensure the next token after @type@ is not @instance@
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
-classTypeFamilyDeclParser = withSpan $ do
+classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
-  pure $ \span' ->
-    ClassItemAnn
-      (mkAnnotation span')
-      ( ClassItemTypeFamilyDecl
-          TypeFamilyDecl
-            { typeFamilyDeclSpan = span',
-              typeFamilyDeclHeadForm = headForm,
-              typeFamilyDeclHead = headType,
-              typeFamilyDeclParams = params,
-              typeFamilyDeclKind = kind,
-              typeFamilyDeclEquations = Nothing
-            }
-      )
+  pure $
+    ClassItemTypeFamilyDecl
+      TypeFamilyDecl
+        { typeFamilyDeclHeadForm = headForm,
+          typeFamilyDeclHead = headType,
+          typeFamilyDeclParams = params,
+          typeFamilyDeclKind = kind,
+          typeFamilyDeclEquations = Nothing
+        }
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -414,8 +406,7 @@ classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   pure
     ( ClassItemDataFamilyDecl
         DataFamilyDecl
-          { dataFamilyDeclSpan = NoSourceSpan,
-            dataFamilyDeclName = name,
+          { dataFamilyDeclName = name,
             dataFamilyDeclParams = params,
             dataFamilyDeclKind = kind
           }
@@ -604,8 +595,7 @@ classDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclClass
       ClassDecl
-        { classDeclSpan = NoSourceSpan,
-          classDeclContext = context,
+        { classDeclContext = context,
           classDeclHeadForm = headForm,
           classDeclName = className,
           classDeclParams = classParams,
@@ -705,8 +695,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclInstance
       InstanceDecl
-        { instanceDeclSpan = NoSourceSpan,
-          instanceDeclOverlapPragma = overlapPragma,
+        { instanceDeclOverlapPragma = overlapPragma,
           instanceDeclWarning = warningText,
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
@@ -731,8 +720,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
-        { standaloneDerivingSpan = NoSourceSpan,
-          standaloneDerivingStrategy = strategy,
+        { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = viaTy,
           standaloneDerivingOverlapPragma = overlapPragma,
           standaloneDerivingWarning = warningText,
@@ -836,8 +824,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclForeign
       ForeignDecl
-        { foreignDeclSpan = NoSourceSpan,
-          foreignDirection = direction,
+        { foreignDirection = direction,
           foreignCallConv = callConv,
           foreignSafety = safety,
           foreignEntity = fromMaybe ForeignEntityOmitted entity,
@@ -887,8 +874,7 @@ dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclData
       DataDecl
-        { dataDeclSpan = NoSourceSpan,
-          dataDeclHeadForm = headForm,
+        { dataDeclHeadForm = headForm,
           dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -927,8 +913,7 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeData
       DataDecl
-        { dataDeclSpan = NoSourceSpan,
-          dataDeclHeadForm = headForm,
+        { dataDeclHeadForm = headForm,
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -1006,7 +991,7 @@ dataConDeclParser = withSpan $ do
   MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 newtypeDeclParser :: TokParser Decl
-newtypeDeclParser = withSpan $ do
+newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
   (headForm, typeName, typeParams) <- typeDeclHeadParser
@@ -1014,11 +999,10 @@ newtypeDeclParser = withSpan $ do
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
-  pure $ \span' ->
+  pure $
     DeclNewtype
       NewtypeDecl
-        { newtypeDeclSpan = span',
-          newtypeDeclHeadForm = headForm,
+        { newtypeDeclHeadForm = headForm,
           newtypeDeclContext = fromMaybe [] context,
           newtypeDeclName = typeName,
           newtypeDeclParams = typeParams,
@@ -1505,15 +1489,14 @@ patSynNameParser =
 -- | Parse a pattern synonym declaration.
 -- Handles prefix, infix, and record forms with all three directionalities.
 patternSynonymDeclParser :: TokParser Decl
-patternSynonymDeclParser = withSpan $ do
+patternSynonymDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordPattern
   (name, args) <- patSynLhsParser
   (dir, pat) <- patSynDirAndPatParser name
-  pure $ \span' ->
+  pure $
     DeclPatSyn
       PatSynDecl
-        { patSynDeclSpan = span',
-          patSynDeclName = name,
+        { patSynDeclName = name,
           patSynDeclArgs = args,
           patSynDeclPat = pat,
           patSynDeclDir = dir

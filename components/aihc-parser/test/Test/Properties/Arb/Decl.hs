@@ -186,13 +186,13 @@ genDeclRoleAnnotation = do
   name <- genConIdent
   n <- chooseInt (0, 3)
   roles <- vectorOf n (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
-  pure $ DeclRoleAnnotation (RoleAnnotation span0 name roles)
+  pure $ DeclRoleAnnotation (RoleAnnotation name roles)
 
 genDeclTypeSyn :: Gen Decl
 genDeclTypeSyn = do
   name <- genConIdent
   params <- genSimpleTyVarBinders
-  DeclTypeSyn . TypeSynDecl span0 TypeHeadPrefix name params <$> genSimpleType
+  DeclTypeSyn . TypeSynDecl TypeHeadPrefix name params <$> genSimpleType
 
 -- | Generate an infix type synonym, covering both symbolic operators
 -- (e.g. @type a :+: b = (a, b)@) and backtick-wrapped identifiers
@@ -204,7 +204,7 @@ genDeclTypeSynInfix = do
   rhsName <- genIdent
   let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
       rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
-  DeclTypeSyn . TypeSynDecl span0 TypeHeadInfix name [lhs, rhs] <$> genSimpleType
+  DeclTypeSyn . TypeSynDecl TypeHeadInfix name [lhs, rhs] <$> genSimpleType
 
 genDeclData :: Gen Decl
 genDeclData =
@@ -222,8 +222,7 @@ genDeclDataGadt = do
   pure $
     DeclData $
       DataDecl
-        { dataDeclSpan = span0,
-          dataDeclHeadForm = TypeHeadPrefix,
+        { dataDeclHeadForm = TypeHeadPrefix,
           dataDeclContext = [],
           dataDeclName = name,
           dataDeclParams = params,
@@ -250,8 +249,7 @@ genDeclDataInfix = do
   pure $
     DeclData $
       DataDecl
-        { dataDeclSpan = span0,
-          dataDeclHeadForm = TypeHeadInfix,
+        { dataDeclHeadForm = TypeHeadInfix,
           dataDeclContext = [],
           dataDeclName = name,
           dataDeclParams = [lhs, rhs] <> extraParams,
@@ -271,8 +269,7 @@ genDeclTypeDataPrefix = do
   pure $
     DeclTypeData $
       DataDecl
-        { dataDeclSpan = span0,
-          dataDeclHeadForm = TypeHeadPrefix,
+        { dataDeclHeadForm = TypeHeadPrefix,
           dataDeclContext = [],
           dataDeclName = name,
           dataDeclParams = params,
@@ -315,8 +312,7 @@ genSimpleDataDecl = do
   deriving' <- genDerivingClauses
   pure $
     DataDecl
-      { dataDeclSpan = span0,
-        dataDeclHeadForm = TypeHeadPrefix,
+      { dataDeclHeadForm = TypeHeadPrefix,
         dataDeclContext = [],
         dataDeclName = name,
         dataDeclParams = params,
@@ -523,8 +519,7 @@ genDeclNewtype = do
   pure $
     DeclNewtype $
       NewtypeDecl
-        { newtypeDeclSpan = span0,
-          newtypeDeclHeadForm = TypeHeadPrefix,
+        { newtypeDeclHeadForm = TypeHeadPrefix,
           newtypeDeclContext = [],
           newtypeDeclName = name,
           newtypeDeclParams = params,
@@ -565,8 +560,7 @@ genDeclClassPrefix = do
   pure $
     DeclClass $
       ClassDecl
-        { classDeclSpan = span0,
-          classDeclContext = ctx,
+        { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadPrefix,
           classDeclName = name,
           classDeclParams = params,
@@ -607,8 +601,7 @@ genAssociatedTypeFamilyDecl classParams = do
   let headType = TCon (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
   pure $
     TypeFamilyDecl
-      { typeFamilyDeclSpan = span0,
-        typeFamilyDeclHeadForm = TypeHeadPrefix,
+      { typeFamilyDeclHeadForm = TypeHeadPrefix,
         typeFamilyDeclHead = headType,
         typeFamilyDeclParams = params,
         typeFamilyDeclKind = Nothing,
@@ -647,8 +640,7 @@ genDeclClassInfix = do
   pure $
     DeclClass $
       ClassDecl
-        { classDeclSpan = span0,
-          classDeclContext = ctx,
+        { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadInfix,
           classDeclName = name,
           classDeclParams = params,
@@ -668,8 +660,7 @@ genDeclInstancePrefix = do
   pure $
     DeclInstance $
       InstanceDecl
-        { instanceDeclSpan = span0,
-          instanceDeclOverlapPragma = Nothing,
+        { instanceDeclOverlapPragma = Nothing,
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
@@ -689,8 +680,7 @@ genDeclInstanceInfix = do
   pure $
     DeclInstance $
       InstanceDecl
-        { instanceDeclSpan = span0,
-          instanceDeclOverlapPragma = Nothing,
+        { instanceDeclOverlapPragma = Nothing,
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
@@ -714,8 +704,7 @@ genDeclStandaloneDerivingPrefix = do
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
-        { standaloneDerivingSpan = span0,
-          standaloneDerivingStrategy = strategy,
+        { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
           standaloneDerivingOverlapPragma = Nothing,
           standaloneDerivingWarning = Nothing,
@@ -737,8 +726,7 @@ genDeclStandaloneDerivingInfix = do
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
-        { standaloneDerivingSpan = span0,
-          standaloneDerivingStrategy = strategy,
+        { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
           standaloneDerivingOverlapPragma = Nothing,
           standaloneDerivingWarning = Nothing,
@@ -802,8 +790,7 @@ genDeclForeign = do
   pure $
     DeclForeign $
       ForeignDecl
-        { foreignDeclSpan = span0,
-          foreignDirection = direction,
+        { foreignDirection = direction,
           foreignCallConv = callConv,
           foreignSafety = safety,
           foreignEntity = ForeignEntityOmitted,
@@ -819,8 +806,7 @@ genDeclTypeFamilyDecl = do
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
-        { typeFamilyDeclSpan = span0,
-          typeFamilyDeclHeadForm = TypeHeadPrefix,
+        { typeFamilyDeclHeadForm = TypeHeadPrefix,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = Nothing,
@@ -844,8 +830,7 @@ genDeclTypeFamilyDeclInfix = do
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
-        { typeFamilyDeclSpan = span0,
-          typeFamilyDeclHeadForm = TypeHeadInfix,
+        { typeFamilyDeclHeadForm = TypeHeadInfix,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = [lhs, rhs],
           typeFamilyDeclKind = Nothing,
@@ -859,8 +844,7 @@ genDeclDataFamilyDecl = do
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
-        { dataFamilyDeclSpan = span0,
-          dataFamilyDeclName = name,
+        { dataFamilyDeclName = name,
           dataFamilyDeclParams = params,
           dataFamilyDeclKind = Nothing
         }
@@ -1021,7 +1005,7 @@ genDeclPatSyn = do
   let args = PatSynPrefixArgs [argName]
       pat = PCon conName [PVar (mkUnqualifiedName NameVarId argName)]
   dir <- elements [PatSynBidirectional, PatSynUnidirectional]
-  pure $ DeclPatSyn (PatSynDecl span0 synName args pat dir)
+  pure $ DeclPatSyn (PatSynDecl synName args pat dir)
 
 genDeclPatSynSig :: Gen Decl
 genDeclPatSynSig = do
