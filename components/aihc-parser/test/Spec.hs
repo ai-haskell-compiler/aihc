@@ -9,6 +9,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
 import Data.List (isInfixOf)
@@ -243,6 +244,7 @@ buildTests = do
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
+            testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
@@ -1940,6 +1942,13 @@ test_templateHaskellQuotesLexesTypedSplice =
   case map lexTokenKind (lexTokensWithExtensions [TemplateHaskellQuotes] "$$(x)") of
     [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
     other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
+
+test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
+test_templateHaskellTypeQuoteParsesInfixSplices =
+  assertEqual
+    "expected type quote with infix TH splices shorthand"
+    "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl
