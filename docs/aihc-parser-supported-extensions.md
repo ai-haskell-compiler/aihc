@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 83
-- Supported: 66
-- In Progress: 17
+- Supported: 79
+- In Progress: 4
 
 ## Extension Status
 
@@ -15,16 +15,16 @@
 | BangPatterns               |   🟢    | 11/11         |
 | BinaryLiterals             |   🟢    | 3/3           |
 | BlockArguments             |   🟢    | 6/6           |
-| CApiFFI                    |   🔴    | 1/2           |
+| CApiFFI                    |   🟢    | 2/2           |
 | ConstrainedClassMethods    |   🟢    | 1/1           |
 | ConstraintKinds            |   🟢    | 4/4           |
 | CPP                        |   🟢    | 7/7           |
-| DataKinds                  |   🟡    | 30/33         |
+| DataKinds                  |   🟢    | 35/35         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
 | DerivingVia                |   🟢    | 5/5           |
-| DoAndIfThenElse            |   🟡    | 11/12         |
+| DoAndIfThenElse            |   🟢    | 12/12         |
 | EmptyCase                  |   🟢    | 4/4           |
 | EmptyDataDecls             |   🟢    | 7/7           |
 | EmptyDataDeriving          |   🟢    | 3/3           |
@@ -34,25 +34,25 @@
 | ExplicitNamespaces         |   🟢    | 23/23         |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
-| FlexibleInstances          |   🟡    | 14/15         |
+| FlexibleInstances          |   🟢    | 16/16         |
 | ForeignFunctionInterface   |   🟢    | 40/40         |
 | FunctionalDependencies     |   🟢    | 7/7           |
 | GADTs                      |   🟢    | 10/10         |
 | GADTSyntax                 |   🟢    | 10/10         |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
-| GHC2021                    |   🔴    | 20/25         |
+| GHC2021                    |   🟢    | 25/25         |
 | Haskell2010                |   🟢    | 13/13         |
 | HexFloatLiterals           |   🟢    | 3/3           |
 | ImplicitParams             |   🟢    | 10/10         |
 | ImportQualifiedPost        |   🟢    | 4/4           |
 | IncoherentInstances        |   🟢    | 1/1           |
 | InstanceSigs               |   🟢    | 5/5           |
-| InterruptibleFFI           |   🔴    | 0/1           |
-| KindSignatures             |   🟡    | 16/17         |
-| LambdaCase                 |   🔴    | 8/10          |
+| InterruptibleFFI           |   🟢    | 1/1           |
+| KindSignatures             |   🟡    | 17/18         |
+| LambdaCase                 |   🟢    | 10/10         |
 | MagicHash                  |   🟢    | 6/6           |
 | MultilineStrings           |   🟢    | 6/6           |
-| MultiParamTypeClasses      |   🟡    | 19/20         |
+| MultiParamTypeClasses      |   🟢    | 20/20         |
 | MultiWayIf                 |   🟢    | 5/5           |
 | NamedFieldPuns             |   🟢    | 6/6           |
 | NamedWildCards             |   🟢    | 5/5           |
@@ -66,7 +66,7 @@
 | PartialTypeSignatures      |   🟢    | 11/11         |
 | PatternGuards              |   🟢    | 7/7           |
 | PatternSynonyms            |   🟢    | 25/25         |
-| PolyKinds                  |   🔴    | 6/8           |
+| PolyKinds                  |   🟢    | 8/8           |
 | QualifiedDo                |   🟢    | 1/1           |
 | QuasiQuotes                |   🟢    | 6/6           |
 | RankNTypes                 |   🟢    | 3/3           |
@@ -80,14 +80,14 @@
 | StandaloneKindSignatures   |   🟢    | 10/10         |
 | StarIsType                 |   🟢    | 1/1           |
 | StrictData                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🔴    | 33/37         |
-| TemplateHaskellQuotes      |   🟡    | 10/11         |
+| TemplateHaskell            |   🟢    | 39/39         |
+| TemplateHaskellQuotes      |   🟢    | 13/13         |
 | TupleSections              |   🟢    | 4/4           |
 | TypeAbstractions           |   🔴    | 0/1           |
 | TypeApplications           |   🟢    | 8/8           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🔴    | 30/34         |
-| TypeOperators              |   🔴    | 33/37         |
+| TypeFamilies               |   🟢    | 36/36         |
+| TypeOperators              |   🟢    | 38/38         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
 | UnboxedSums                |   🟢    | 5/5           |
 | UnboxedTuples              |   🟢    | 10/10         |
