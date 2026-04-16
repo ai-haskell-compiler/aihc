@@ -5,6 +5,7 @@ module Test.Oracle.Suite
   )
 where
 
+import Aihc.Parser.Syntax (Extension (RequiredTypeArguments), ExtensionSetting (EnableExtension))
 import Control.Monad (when)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -32,8 +33,15 @@ mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
   source <- TIO.readFile (caseSourcePath meta)
   pure $ case caseExpected meta of
-    ExpectXFail -> testCaseInfo (caseId meta) (assertCase meta source >> pure "Known failure - to be fixed")
+    ExpectXFail -> testCaseInfo (caseId meta) (xfailDetails (evaluateCaseText meta source) <* assertCase meta source)
     _ -> testCase (caseId meta) (assertCase meta source)
+
+xfailDetails :: (CaseMeta, Outcome, String) -> IO String
+xfailDetails (_, outcome, details) = do
+  case outcome of
+    OutcomeXFail -> pure ()
+    _ -> assertFailure ("expected xfail outcome, got: " <> show outcome)
+  pure details
 
 mkSummaryTest :: [CaseMeta] -> IO TestTree
 mkSummaryTest cases = do
@@ -122,6 +130,23 @@ frameworkTests =
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
+        testCase "oracle xfail retains details" $
+          let meta =
+                CaseMeta
+                  { caseId = "framework-xfail-details",
+                    caseCategory = "framework",
+                    casePath = "framework-xfail-details.hs",
+                    caseExpected = ExpectXFail,
+                    caseReason = "regression coverage",
+                    caseExtensions = [EnableExtension RequiredTypeArguments]
+                  }
+           in do
+                let (_, outcome, details) = evaluateCaseText meta "module Basic where\n\nx = f (type Int) 5\n"
+                case outcome of
+                  OutcomeXFail
+                    | null details -> assertFailure "expected xfail details to be non-empty"
+                    | otherwise -> pure ()
+                  _ -> assertFailure ("expected OutcomeXFail, got " <> show outcome),
         testCase "oracle rejects top-level block-argument lambda" $
           let meta =
                 CaseMeta

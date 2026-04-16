@@ -18,9 +18,11 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import System.FilePath (takeDirectory, (</>))
+import System.IO (IOMode (ReadMode), hClose, hFlush, openTempFile, stderr, withFile)
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
@@ -199,12 +201,54 @@ runOracle sourcePath = do
                   warnings = False
                 }
           }
-  oracleOut <-
-    (E.try (runCpphs cpphsOptions sourcePath (T.unpack source)) :: IO (Either E.SomeException String))
+  (oracleOut, capturedStderr) <-
+    captureStderrText
+      ( ( E.try $ do
+            out <- runCpphs cpphsOptions sourcePath (T.unpack source)
+            _ <- E.evaluate (length out)
+            pure out
+        ) ::
+          IO (Either E.SomeException String)
+      )
   pure $
     case oracleOut of
       Right out -> Right (T.pack out)
-      Left err -> Left ("cpphs failed: " <> show err)
+      Left err ->
+        Left
+          ( "cpphs failed: "
+              <> show err
+              <> stderrSuffix capturedStderr
+          )
+
+captureStderrText :: IO a -> IO (a, Text)
+captureStderrText action = do
+  tempDir <- getTemporaryDirectory
+  (tempPath, tempHandle) <- openTempFile tempDir "cpphs-stderr.txt"
+  originalStderr <- hDuplicate stderr
+  let restoreStderr = hFlush stderr >> hDuplicateTo originalStderr stderr
+      cleanup = do
+        hClose tempHandle
+        hClose originalStderr
+        removeFile tempPath
+  E.bracketOnError
+    (pure ())
+    (const (restoreStderr >> cleanup))
+    $ \() -> do
+      hFlush stderr
+      hDuplicateTo tempHandle stderr
+      result <- action `E.finally` restoreStderr
+      hClose tempHandle
+      captured <- withFile tempPath ReadMode TIO.hGetContents
+      hClose originalStderr
+      removeFile tempPath
+      pure (result, captured)
+
+stderrSuffix :: Text -> String
+stderrSuffix captured
+  | T.null stripped = ""
+  | otherwise = " stderr=" <> T.unpack stripped
+  where
+    stripped = T.strip captured
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

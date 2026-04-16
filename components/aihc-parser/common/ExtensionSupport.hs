@@ -59,7 +59,7 @@ classifyOutcome :: Expected -> Maybe Text -> Maybe String -> (Outcome, String)
 classifyOutcome _expected (Just oracleErr) _roundtripOk = (OutcomeFail, T.unpack oracleErr)
 classifyOutcome ExpectPass Nothing (Just err) = (OutcomeFail, err)
 classifyOutcome ExpectPass Nothing Nothing = (OutcomePass, "")
-classifyOutcome ExpectXFail Nothing Just {} = (OutcomeXFail, "")
+classifyOutcome ExpectXFail Nothing (Just err) = (OutcomeXFail, err)
 classifyOutcome ExpectXFail Nothing Nothing = (OutcomeXPass, "test case passed unexpectedly. Maybe update testcase from xfail to pass.")
 
 finalizeOutcome :: CaseMeta -> Maybe Text -> Maybe String -> (CaseMeta, Outcome, String)

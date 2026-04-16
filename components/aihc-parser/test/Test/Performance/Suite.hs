@@ -58,8 +58,30 @@ parserPerformanceTests = do
 
 mkPerfCaseTest :: PerfCase -> TestTree
 mkPerfCaseTest perfCase = case perfCaseStatus perfCase of
-  StatusXFail -> testCaseInfo (perfCaseId perfCase) (assertPerfCase perfCase >> pure "Known failure - to be fixed")
+  StatusXFail -> testCaseInfo (perfCaseId perfCase) (xfailDetails perfCase <* assertPerfCase perfCase)
   _ -> testCase (perfCaseId perfCase) (assertPerfCase perfCase)
+
+xfailDetails :: PerfCase -> IO String
+xfailDetails perfCase = do
+  outcome <-
+    timeout timeoutMicros $
+      evaluate $
+        force $
+          parseModule
+            defaultConfig
+              { parserSourceName = perfCaseSourceName perfCase,
+                parserExtensions = perfCaseExtensions perfCase
+              }
+            (perfCaseInput perfCase)
+  case outcome of
+    Nothing -> pure ("known bug still present: module parse exceeded " <> show timeoutMicros <> "us")
+    Just (errs, _)
+      | null errs -> assertFailure "expected xfail performance case to still fail"
+      | otherwise ->
+          pure
+            ( "known bug still present: "
+                <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
+            )
 
 assertPerfCase :: PerfCase -> Assertion
 assertPerfCase perfCase = do
@@ -197,7 +219,8 @@ generatedPerfCases =
     mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
     mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100))),
-    mkGeneratedPerfCase "nested-application" (mkExprModule (nestedAppExpr generatedCaseSize))
+    mkGeneratedPerfCase "nested-application" (mkExprModule (nestedAppExpr generatedCaseSize)),
+    mkGeneratedPerfCaseWithStatus "xfail-invalid-module" "module Generated where\nvalue = { x = 1, }\n" StatusXFail "regression coverage"
   ]
 
 mkGeneratedPerfCase :: String -> Text -> PerfCase

@@ -232,7 +232,10 @@ classifyFailure meta errDetails =
         "expected parse success, got parse error: " <> errDetails
       )
     StatusFail -> (OutcomePass, "")
-    StatusXFail -> (OutcomeXFail, "")
+    StatusXFail ->
+      ( OutcomeXFail,
+        "known bug still present: " <> errDetails
+      )
 
 progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =

@@ -40,18 +40,25 @@ parserGoldenTests = do
 
 mkExprCaseTest :: PG.ParserCase -> IO TestTree
 mkExprCaseTest meta = pure $ case PG.caseStatus meta of
-  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertExprCase meta >> pure "Known failure - to be fixed")
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (xfailDetails (PG.evaluateExprCase meta) <* assertExprCase meta)
   _ -> testCase (PG.caseId meta) (assertExprCase meta)
 
 mkModuleCaseTest :: PG.ParserCase -> IO TestTree
 mkModuleCaseTest meta = pure $ case PG.caseStatus meta of
-  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertModuleCase meta >> pure "Known failure - to be fixed")
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (xfailDetails (PG.evaluateModuleCase meta) <* assertModuleCase meta)
   _ -> testCase (PG.caseId meta) (assertModuleCase meta)
 
 mkPatternCaseTest :: PG.ParserCase -> IO TestTree
 mkPatternCaseTest meta = pure $ case PG.caseStatus meta of
-  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertPatternCase meta >> pure "Known failure - to be fixed")
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (xfailDetails (PG.evaluatePatternCase meta) <* assertPatternCase meta)
   _ -> testCase (PG.caseId meta) (assertPatternCase meta)
+
+xfailDetails :: (PG.Outcome, String) -> IO String
+xfailDetails (outcome, details) = do
+  case outcome of
+    PG.OutcomeXFail -> pure ()
+    _ -> assertFailure ("expected xfail outcome, got: " <> show outcome)
+  pure details
 
 mkSummaryTest :: String -> (PG.ParserCase -> (PG.Outcome, String)) -> [PG.ParserCase] -> IO TestTree
 mkSummaryTest label evaluateCase cases = do
@@ -161,6 +168,15 @@ fixtureValidationTests =
             if PG.caseStatus parsed == PG.StatusXFail && null (PG.caseAst parsed)
               then pure ()
               else assertFailure "expected xfail status with empty ast",
+      testCase "xfail parse failures retain details" $
+        case PG.parseParserCaseText PG.CaseExpr "xfail-details.yaml" validXFailWithParseFailure of
+          Left err -> assertFailure ("expected parse success, got: " <> err)
+          Right parsed ->
+            case PG.evaluateExprCase parsed of
+              (PG.OutcomeXFail, details)
+                | null details -> assertFailure "expected xfail details to be non-empty"
+                | otherwise -> pure ()
+              other -> assertFailure ("expected xfail outcome with details, got: " <> show other),
       testCase "only YAML fixtures are loaded" $ do
         exprCases <- PG.loadExprCases
         moduleCases <- PG.loadModuleCases
@@ -187,6 +203,15 @@ validXFailNoAst =
   T.unlines
     [ "extensions: []",
       "input: bad",
+      "status: xfail",
+      "reason: known bug"
+    ]
+
+validXFailWithParseFailure :: T.Text
+validXFailWithParseFailure =
+  T.unlines
+    [ "extensions: []",
+      "input: \"(\"",
       "status: xfail",
       "reason: known bug"
     ]
