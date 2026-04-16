@@ -7,12 +7,12 @@ module Test.Properties.TypeRoundTrip
 where
 
 import Aihc.Parser
+import Aihc.Parser.Parens (addTypeParens)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Arb.Type (canonicalTopLevelType)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr, span0)
 import Test.QuickCheck
@@ -27,7 +27,7 @@ typeConfig =
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
-      expected = normalizeType (canonicalTopLevelType ty)
+      expected = normalizeType (addTypeParens ty)
       hasKindedInferredBinder = containsKindedInferredBinder ty
    in checkCoverage $
         withMaxShrinks 100 $

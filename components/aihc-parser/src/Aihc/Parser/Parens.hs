@@ -267,6 +267,9 @@ needsTypeParens ctx ty =
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
+        -- TImplicitParam parses greedily: ?x :: T -> U absorbs -> U into the
+        -- implicit param type, so TFun (TImplicitParam ..) .. needs parens.
+        TImplicitParam {} -> True
         _ -> False
     CtxTypeAppArg ->
       case ty of
@@ -275,6 +278,9 @@ needsTypeParens ctx ty =
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
+        -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
+        -- the surrounding -> U into the implicit param type.
+        TImplicitParam {} -> True
         _ -> False
     CtxTypeAtom ->
       case ty of
@@ -501,8 +507,13 @@ addGadtBodyParens :: GadtBody -> GadtBody
 addGadtBodyParens body =
   case body of
     GadtPrefixBody args resultTy ->
-      GadtPrefixBody (map addBangTypeParens args) (addTypeParens resultTy)
+      -- The GADT prefix body parser splits on -> arrows (using typeInfixParser
+      -- per component). A result type that is itself a TFun, TForall, TContext,
+      -- TImplicitParam, or TKindSig would be misinterpreted as additional
+      -- constructor arguments, so we use addTypeIn CtxTypeFunArg to wrap it.
+      GadtPrefixBody (map addBangTypeParens args) (addTypeIn CtxTypeFunArg resultTy)
     GadtRecordBody fields resultTy ->
+      -- Record GADT result type uses typeParser so any type is fine here.
       GadtRecordBody (map addRecordFieldDeclParens fields) (addTypeParens resultTy)
 
 addClassDeclParens :: ClassDecl -> ClassDecl
@@ -823,12 +834,14 @@ addTypeParensShared ctx prec ty =
         TCon name promoted
           | isSymbolicName name, promoted /= Promoted -> TCon name promoted
           | otherwise -> TCon name promoted
-        TImplicitParam name inner -> TImplicitParam name (addTypeParens inner)
+        TImplicitParam name inner -> TImplicitParam name (addImplicitParamBodyParens inner)
         TTypeLit {} -> ty
         TStar {} -> ty
         TQuasiQuote {} -> ty
         TForall binders inner ->
-          wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (atom 0 inner))
+          -- forallTypeParser uses contextOrFunTypeParser (not typeParser) for its
+          -- body, so a bare nested TForall would fail to parse. Wrap it in TParen.
+          wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (addForallBodyParens inner))
         tyInfix
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
@@ -858,6 +871,24 @@ addTypeParensShared ctx prec ty =
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =
   tvb {tyVarBinderKind = fmap addTypeParens (tyVarBinderKind tvb)}
+
+-- | Process the body of a TForall. The forall body is parsed by
+-- 'contextOrFunTypeParser' (not 'typeParser'), so a bare nested TForall
+-- would fail to parse and must be wrapped in TParen.
+addForallBodyParens :: Type -> Type
+addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
+addForallBodyParens ty@(TForall {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
+addForallBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
+
+-- | Process the body of a TImplicitParam. Although 'typeImplicitParamParser'
+-- uses 'typeParser' (which handles TContext), the 'startsWithContextType'
+-- lookahead will mistake @?x :: C a => T@ for an outer context, consuming
+-- the entire implicit param as a constraint item and then failing to find @=>@.
+-- Wrap a bare TContext in TParen to prevent this misinterpretation.
+addImplicitParamBodyParens :: Type -> Type
+addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens sub)
+addImplicitParamBodyParens ty@(TContext {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
+addImplicitParamBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter

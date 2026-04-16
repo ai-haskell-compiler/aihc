@@ -22,7 +22,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (genType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -393,7 +393,7 @@ genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
   args <- vectorOf n genGadtBangType
-  result <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
+  result <- sized (genType . min 6)
   pure $ GadtPrefixBody args result
 
 -- | Generate a BangType for GADT prefix body arg position.
@@ -404,7 +404,7 @@ genGadtPrefixBody = do
 -- as single operator tokens.
 genGadtBangType :: Gen BangType
 genGadtBangType = do
-  ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
+  ty <- sized (genType . min 6)
   -- Only generate lazy/strict annotations on types that start with alphabetic characters
   let canAnnotate = typeStartsWithAlpha ty
   annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
@@ -468,7 +468,7 @@ genGadtRecordBody :: Gen GadtBody
 genGadtRecordBody = do
   n <- chooseInt (1, 3)
   fields <- vectorOf n genGadtFieldDecl
-  result <- canonicalTopLevelType <$> sized (genType . min 6)
+  result <- sized (genType . min 6)
   pure $ GadtRecordBody fields result
 
 -- | Generate a field declaration for GADT record body position.
@@ -476,7 +476,7 @@ genGadtRecordBody = do
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldName <- mkUnqualifiedName NameVarId <$> genIdent
-  ty <- canonicalTopLevelType <$> sized (genType . min 6)
+  ty <- sized (genType . min 6)
   pure $ FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False False ty)
 
 genSimpleBangType :: Gen BangType
@@ -928,14 +928,14 @@ genOptionalDataFamilyInstKind =
 
 genDataFamilyInstKind :: Gen Type
 genDataFamilyInstKind =
-  canonicalKindSigKind . canonicalTopLevelType <$> sized (genType . min 6)
+  sized (genType . min 6)
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
 genFamilyLhsType = do
   familyName <- genConIdent
   let familyCon = TCon (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
-  TApp familyCon . canonicalAppArg <$> genFamilyLhsArg
+  TApp familyCon <$> genFamilyLhsArg
 
 genFamilyLhsArg :: Gen Type
 genFamilyLhsArg = suchThat (sized (genType . min 4)) (not . isStarType)
@@ -968,7 +968,7 @@ genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do
   name <- mkUnqualifiedName NameConId <$> genConIdent
   kind <- sized (genType . min 6)
-  pure $ DeclStandaloneKindSig name (canonicalTopLevelType kind)
+  pure $ DeclStandaloneKindSig name kind
 
 -- | Generate simple type variable binders (0-2 params).
 genSimpleTyVarBinders :: Gen [TyVarBinder]
