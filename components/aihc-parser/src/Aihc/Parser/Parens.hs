@@ -885,9 +885,15 @@ addForallBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
 -- lookahead will mistake @?x :: C a => T@ for an outer context, consuming
 -- the entire implicit param as a constraint item and then failing to find @=>@.
 -- Wrap a bare TContext in TParen to prevent this misinterpretation.
+--
+-- Similarly, a bare TForall whose body contains a TContext produces a @=>@ that
+-- is visible to 'startsWithContextType' (the forall binders are balanced braces,
+-- but the body's @=>@ appears at top bracket depth after them). Wrapping TForall
+-- in TParen hides the inner @=>@ behind a bracket pair.
 addImplicitParamBodyParens :: Type -> Type
 addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens sub)
 addImplicitParamBodyParens ty@(TContext {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
+addImplicitParamBodyParens ty@(TForall {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
 addImplicitParamBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).

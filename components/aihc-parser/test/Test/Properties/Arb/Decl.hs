@@ -24,7 +24,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType, shrinkType)
+import Test.Properties.Arb.Type (genType, shrinkType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -399,8 +399,6 @@ genGadtPrefixBody = do
   pure $ GadtPrefixBody args result
 
 -- | Generate a BangType for GADT prefix body arg position.
--- Uses the full type generator with canonicalFunLeft applied, since the parser
--- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
 -- Does not generate lazy/strict annotations on types that start with symbolic
 -- characters (TStar, TTHSplice, TTuple, etc.) since the lexer treats ~! or !*
 -- as single operator tokens.
