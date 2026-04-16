@@ -113,7 +113,7 @@ cmdCaseAltParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedRightArrow
   body <- cmdParser
-  pure (\span' -> CmdCaseAlt span' pat body)
+  pure (\span' -> CmdCaseAlt [mkAnnotation span'] pat body)
 
 -- | Parse a command let: @let decls in cmd@
 cmdLetParser :: TokParser Cmd

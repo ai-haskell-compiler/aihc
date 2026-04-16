@@ -374,7 +374,7 @@ test_moduleParsesDecls =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EIf_ (EVar_ "y") (EVar_ "z") (EVar_ "w")) _))
+          [ DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EIf_ (EVar_ "y") (EVar_ "z") (EVar_ "w")) _))
             ] ->
               pure ()
           other ->
@@ -594,20 +594,19 @@ test_ifElseWhereBranchRoundtrip =
       expectedDecl =
         DeclValue
           ( FunctionBind
-              span0
               "x"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [],
-                    matchRhs = UnguardedRhs span0 (expr0 (EIf (expr0 (EVar "b")) (expr0 (ETuple Boxed [])) elseBranch)) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EIf (expr0 (EVar "b")) (expr0 (ETuple Boxed [])) elseBranch)) Nothing
                   }
               ]
           )
       source =
         renderStrict . layoutPretty defaultLayoutOptions . pretty $
           Module
-            { moduleSpan = span0,
+            { moduleAnns = [],
               moduleHead = Nothing,
               moduleLanguagePragmas = [],
               moduleImports = [],
@@ -640,7 +639,7 @@ test_mdoViewPatternParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
+          [DeclValue (FunctionBind "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
@@ -1019,8 +1018,8 @@ test_overloadedLabelExprParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EOverloadedLabel_ "typeUrl" "#typeUrl") _)),
-            DeclValue (PatternBind _ (PVar_ "y") (UnguardedRhs _ (EOverloadedLabel_ "The quick brown fox" "#\"The quick brown fox\"") _))
+          [ DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EOverloadedLabel_ "typeUrl" "#typeUrl") _)),
+            DeclValue (PatternBind (PVar_ "y") (UnguardedRhs _ (EOverloadedLabel_ "The quick brown fox" "#\"The quick brown fox\"") _))
             ] -> pure ()
           other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
@@ -1280,7 +1279,7 @@ parseDoStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1293,7 +1292,7 @@ parseDoStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1408,7 +1407,7 @@ parseGuards src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
+          [DeclValue (FunctionBind _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1419,7 +1418,7 @@ parseGuardsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
+          [DeclValue (FunctionBind _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1437,13 +1436,12 @@ test_prettyGuardLambdaRoundTrip = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PVar "x")],
-                    matchRhs = UnguardedRhs span0 caseExpr Nothing
+                    matchRhs = UnguardedRhs [] caseExpr Nothing
                   }
               ]
           )
@@ -1452,13 +1450,13 @@ test_prettyGuardLambdaRoundTrip = do
           ( ECase
               (expr0 (EVar "x"))
               [ CaseAlt
-                  { caseAltSpan = span0,
+                  { caseAltAnns = [],
                     caseAltPattern = pat0 (PVar "y"),
                     caseAltRhs =
                       GuardedRhss
-                        span0
+                        []
                         [ GuardedRhs
-                            { guardedRhsSpan = span0,
+                            { guardedRhsAnns = [],
                               guardedRhsGuards =
                                 [ GuardAnn
                                     (mkAnnotation span0)
@@ -1486,17 +1484,16 @@ test_prettyGuardLetFormatting = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PVar "n")],
                     matchRhs =
                       GuardedRhss
-                        span0
+                        []
                         [ GuardedRhs
-                            { guardedRhsSpan = span0,
+                            { guardedRhsAnns = [],
                               guardedRhsGuards =
                                 [ GuardAnn
                                     (mkAnnotation span0)
@@ -1504,7 +1501,7 @@ test_prettyGuardLetFormatting = do
                                         ( expr0
                                             ( ELetDecls
                                                 [ DeclValue
-                                                    (FunctionBind span0 "x" [Match {matchSpan = span0, matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs span0 (expr0 (EInt 1 "1")) Nothing}])
+                                                    (FunctionBind "x" [Match {matchAnns = [], matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing}])
                                                 ]
                                                 (expr0 (EInfix (expr0 (EVar "x")) (qualifyName Nothing ">") (expr0 (EInt 0 "0"))))
                                             )
@@ -1526,13 +1523,12 @@ test_prettyFunctionHeadListViewPattern = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "fn"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PList [pat0 (PView (expr0 (EVar "id")) (pat0 (PVar "x")))])],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1565,13 +1561,12 @@ test_prettyPrefixFunctionHeadRecordPattern = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "Point")) [] True)],
-                    matchRhs = UnguardedRhs span0 (expr0 (EInt 0 "0")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
                   }
               ]
           )
@@ -1584,13 +1579,12 @@ test_prettyInfixFunctionHeadConstructorPatterns = do
       decl =
         DeclValue
           ( FunctionBind
-              span0
               "=="
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadInfix,
                     matchPats = [box "x", box "y"],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1602,13 +1596,12 @@ test_prettyInfixFunctionHeadIrrefutablePatterns = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "combine"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadInfix,
                     matchPats = [pat0 (PIrrefutable (pat0 (PVar "x"))), pat0 (PVar "y")],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1627,7 +1620,7 @@ test_prettyViewLetTypeSigParens = do
       viewExpr =
         expr0
           ( ELetDecls
-              [DeclValue (PatternBind span0 (pat0 (PVar (mkUnqualifiedName NameVarId "x"))) (UnguardedRhs span0 unboxedUnit Nothing))]
+              [DeclValue (PatternBind (pat0 (PVar (mkUnqualifiedName NameVarId "x"))) (UnguardedRhs [] unboxedUnit Nothing))]
               (expr0 (ETypeSig unboxedUnit tyCon))
           )
       pat = pat0 (PView viewExpr (pat0 (PList [])))
@@ -1647,7 +1640,7 @@ test_prettyGuardPatTypeSigParens = do
       guardExpr = expr0 (ETypeSig (expr0 (EInt 262 "262")) tyCon)
       grhs =
         GuardedRhs
-          { guardedRhsSpan = span0,
+          { guardedRhsAnns = [],
             guardedRhsGuards = [GuardAnn (mkAnnotation span0) (GuardPat (pat0 (PTuple Boxed [])) guardExpr)],
             guardedRhsBody = expr0 (ETuple Boxed [])
           }
@@ -1692,8 +1685,7 @@ test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
       decl =
         DeclTypeFamilyInst
           TypeFamilyInst
-            { typeFamilyInstSpan = span0,
-              typeFamilyInstForall = [],
+            { typeFamilyInstForall = [],
               typeFamilyInstHeadForm = TypeHeadInfix,
               typeFamilyInstLhs = lhs,
               typeFamilyInstRhs = rhs
@@ -1822,7 +1814,7 @@ parseCompStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1834,7 +1826,7 @@ parseCompStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1914,7 +1906,7 @@ parseLetDecls src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (ELetDecls_ decls _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (ELetDecls_ decls _) _))] ->
             Right decls
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1947,49 +1939,49 @@ test_localDeclTypeSigUnicodeOp =
 test_localDeclFunPrefix :: Assertion
 test_localDeclFunPrefix =
   case parseLetDecls "let { f x = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
     other -> assertFailure ("expected prefix function bind, got: " <> show other)
 
 test_localDeclFunNoArgs :: Assertion
 test_localDeclFunNoArgs =
   case parseLetDecls "let { f = 5 } in f" of
-    Right [DeclValue (PatternBind _ (PVar_ "f") _)] -> pure ()
+    Right [DeclValue (PatternBind (PVar_ "f") _)] -> pure ()
     other -> assertFailure ("expected no-args function bind, got: " <> show other)
 
 test_localDeclPatTuple :: Assertion
 test_localDeclPatTuple =
   case parseLetDecls "let { (x, y) = (1, 2) } in x" of
-    Right [DeclValue (PatternBind _ (PTuple_ Boxed [PVar_ "x", PVar_ "y"]) _)] -> pure ()
+    Right [DeclValue (PatternBind (PTuple_ Boxed [PVar_ "x", PVar_ "y"]) _)] -> pure ()
     other -> assertFailure ("expected tuple pattern bind, got: " <> show other)
 
 test_localDeclPatCon :: Assertion
 test_localDeclPatCon =
   case parseLetDecls "let { Just x = Nothing } in x" of
-    Right [DeclValue (PatternBind _ (PCon_ "Just" [PVar_ "x"]) _)] -> pure ()
+    Right [DeclValue (PatternBind (PCon_ "Just" [PVar_ "x"]) _)] -> pure ()
     other -> assertFailure ("expected constructor pattern bind, got: " <> show other)
 
 test_localDeclPatWild :: Assertion
 test_localDeclPatWild =
   case parseLetDecls "let { _ = 5 } in 0" of
-    Right [DeclValue (PatternBind _ PWildcard_ _)] -> pure ()
+    Right [DeclValue (PatternBind PWildcard_ _)] -> pure ()
     other -> assertFailure ("expected wildcard pattern bind, got: " <> show other)
 
 test_localDeclFunGuarded :: Assertion
 test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
 
 test_localDeclPatRecordCon :: Assertion
 test_localDeclPatRecordCon =
   case parseTopDecl "BYys {} = ()" of
-    Right (DeclValue (PatternBind _ (PRecord_ "BYys" [] False) _)) -> pure ()
+    Right (DeclValue (PatternBind (PRecord_ "BYys" [] False) _)) -> pure ()
     other -> assertFailure ("expected record constructor pattern bind, got: " <> show other)
 
 test_localDeclPatUnboxedSum :: Assertion
 test_localDeclPatUnboxedSum =
   case parseTopDeclWithExts [UnboxedSums] "(#  |  |  | a #) = ()" of
-    Right (DeclValue (PatternBind _ (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
+    Right (DeclValue (PatternBind (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
     other -> assertFailure ("expected unboxed sum pattern bind, got: " <> show other)
 
 test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr :: Assertion
@@ -2033,101 +2025,101 @@ parseTopDeclWithExts exts src =
 test_funHeadPrefix :: Assertion
 test_funHeadPrefix =
   case parseTopDecl "f x y = x + y" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix function bind, got: " <> show other)
 
 test_funHeadPrefixNoArgs :: Assertion
 test_funHeadPrefixNoArgs =
   case parseTopDecl "f = 5" of
-    Right (DeclValue (PatternBind _ (PVar_ "f") _)) -> pure ()
+    Right (DeclValue (PatternBind (PVar_ "f") _)) -> pure ()
     other -> assertFailure ("expected prefix function bind with no args, got: " <> show other)
 
 test_funHeadPrefixOp :: Assertion
 test_funHeadPrefixOp =
   case parseTopDecl "(+) x y = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix operator function bind, got: " <> show other)
 
 test_funHeadPrefixConstructorArg :: Assertion
 test_funHeadPrefixConstructorArg =
   case parseTopDecl "f (Just x) y = y" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PCon_ "Just" [PVar_ "x"], PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PCon_ "Just" [PVar_ "x"], PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixListViewPattern :: Assertion
 test_funHeadPrefixListViewPattern =
   case parseTopDeclWithExts [ViewPatterns] "fn [id -> x] = x" of
-    Right (DeclValue (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList_ [PView_ (EVar_ "id") (PVar_ "x")]]}])) -> pure ()
+    Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList_ [PView_ (EVar_ "id") (PVar_ "x")]]}])) -> pure ()
     other -> assertFailure ("expected list view-pattern argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
   case parseTopDeclWithExts [UnboxedTuples] "f (# x #) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTuple_ Unboxed [PVar_ "x"]]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTuple_ Unboxed [PVar_ "x"]]}])) -> pure ()
     other -> assertFailure ("expected singleton unboxed tuple argument in prefix function head, got: " <> show other)
 
 test_funHeadInfix :: Assertion
 test_funHeadInfix =
   case parseTopDecl "x + y = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected infix function bind, got: " <> show other)
 
 test_funHeadInfixBacktick :: Assertion
 test_funHeadInfixBacktick =
   case parseTopDecl "x `add` y = x" of
-    Right (DeclValue (FunctionBind _ "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected backtick infix function bind, got: " <> show other)
 
 test_funHeadInfixRecordRhs :: Assertion
 test_funHeadInfixRecordRhs =
   case parseTopDecl "x `f` (R {}) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PRecord_ "R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PRecord_ "R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with record rhs pattern, got: " <> show other)
 
 test_funHeadInfixTupleLhsQualifiedRecordRhs :: Assertion
 test_funHeadInfixTupleLhsQualifiedRecordRhs =
   case parseTopDecl "((x, _), K []) `f` (M.N.R {}) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "M.N.R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "M.N.R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with tuple lhs and qualified record rhs pattern, got: " <> show other)
 
 test_funHeadInfixComplexTupleLhsQualifiedRecordRhs :: Assertion
 test_funHeadInfixComplexTupleLhsQualifiedRecordRhs =
   case parseTopDeclWithExts [UnboxedTuples, UnboxedSums, QuasiQuotes] "((#  |  | -0xbe |  #), ([g|f|]), (# x, _ #), M.C [] []) `f` (N.R {}) = ()" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "N.R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "N.R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with complex tuple lhs and qualified record rhs pattern, got: " <> show other)
 
 test_funHeadInfixThSpliceLhs :: Assertion
 test_funHeadInfixThSpliceLhs =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
-    Right (DeclValue (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
+    Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
     other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =
   case parseTopDecl "(x + y) = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected parenthesized infix function bind, got: " <> show other)
 
 test_funHeadParenInfixTail :: Assertion
 test_funHeadParenInfixTail =
   case parseTopDecl "(x + y) z = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y", PVar_ "z"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y", PVar_ "z"]}])) -> pure ()
     other -> assertFailure ("expected parenthesized infix with tail, got: " <> show other)
 
 test_funHeadLocalPrefix :: Assertion
 test_funHeadLocalPrefix =
   case parseLetDecls "let { f x = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
     other -> assertFailure ("expected local prefix function bind, got: " <> show other)
 
 test_funHeadLocalInfix :: Assertion
 test_funHeadLocalInfix =
   case parseLetDecls "let { x + y = x } in 1 + 2" of
-    Right [DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
     other -> assertFailure ("expected local infix function bind, got: " <> show other)
 
 test_funHeadLocalPrefixOp :: Assertion
 test_funHeadLocalPrefixOp =
   case parseLetDecls "let { (+) x y = x } in 1 + 2" of
-    Right [DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
     other -> assertFailure ("expected local prefix operator function bind, got: " <> show other)

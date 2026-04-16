@@ -14,7 +14,7 @@ import Aihc.Parser.Internal.Common (TokParser, braces, expectedTok, skipSemicolo
 import Aihc.Parser.Internal.Decl (declParser)
 import Aihc.Parser.Internal.Import (importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
-import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
+import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..), mkAnnotation)
 import Control.Monad (void)
 import Text.Megaparsec qualified as MP
 
@@ -30,7 +30,7 @@ moduleParser = withSpan $ do
   (imports, decls) <- moduleBodyParser
   pure $ \span' ->
     Module
-      { moduleSpan = span',
+      { moduleAnns = [mkAnnotation span'],
         moduleHead = mHeader,
         moduleLanguagePragmas = concat languagePragmas,
         moduleImports = imports,

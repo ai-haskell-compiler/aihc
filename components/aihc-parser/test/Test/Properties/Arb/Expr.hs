@@ -348,7 +348,7 @@ genCaseAltWith allowTHQuotes n = do
   rhs <- genRhsWith allowTHQuotes half
   pure $
     CaseAlt
-      { caseAltSpan = span0,
+      { caseAltAnns = [],
         caseAltPattern = pat,
         caseAltRhs = rhs
       }
@@ -358,8 +358,8 @@ genCaseAltWith allowTHQuotes n = do
 genRhsWith :: Bool -> Int -> Gen Rhs
 genRhsWith allowTHQuotes n =
   oneof
-    [ (\e -> UnguardedRhs span0 e Nothing) <$> genBindingExprWith allowTHQuotes n,
-      (\gs -> GuardedRhss span0 gs Nothing) <$> genGuardedRhsListWith allowTHQuotes n
+    [ (\e -> UnguardedRhs [] e Nothing) <$> genBindingExprWith allowTHQuotes n,
+      (\gs -> GuardedRhss [] gs Nothing) <$> genGuardedRhsListWith allowTHQuotes n
     ]
 
 genGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
@@ -374,7 +374,7 @@ genGuardedRhsWith allowTHQuotes n = do
   body <- genBindingExprWith allowTHQuotes half
   pure $
     GuardedRhs
-      { guardedRhsSpan = span0,
+      { guardedRhsAnns = [],
         guardedRhsGuards = guards,
         guardedRhsBody = body
       }
@@ -425,7 +425,7 @@ genPatternBindDecl allowTHQuotes n = do
   rhs <- genRhsWith allowTHQuotes half
   pure $
     DeclValue
-      (PatternBind span0 pat rhs)
+      (PatternBind pat rhs)
   where
     half = n `div` 2
 
@@ -442,10 +442,9 @@ genFunctionBindDecl allowTHQuotes n = do
   pure $
     DeclValue
       ( FunctionBind
-          span0
           name
           [ Match
-              { matchSpan = span0,
+              { matchAnns = [],
                 matchHeadForm = MatchHeadPrefix,
                 matchPats = pats,
                 matchRhs = rhs
@@ -800,11 +799,11 @@ shrinkCaseAlt :: CaseAlt -> [CaseAlt]
 shrinkCaseAlt alt =
   case caseAltRhs alt of
     UnguardedRhs _ expr _ ->
-      [alt {caseAltRhs = UnguardedRhs span0 expr' Nothing} | expr' <- shrinkExpr expr]
+      [alt {caseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
     GuardedRhss _ rhss _ ->
       -- Shrink to unguarded using the first guard's body
-      [alt {caseAltRhs = UnguardedRhs span0 (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
-        <> [alt {caseAltRhs = GuardedRhss span0 rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+      [alt {caseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
+        <> [alt {caseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
 shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
 shrinkGuardedRhs grhs =
@@ -830,14 +829,14 @@ shrinkLetDecl :: Decl -> [Decl]
 shrinkLetDecl decl =
   case decl of
     DeclAnn _ inner -> inner : shrinkLetDecl inner
-    DeclValue (PatternBind _ pat rhs) ->
-      [DeclValue (PatternBind span0 pat rhs') | rhs' <- shrinkLetRhs rhs]
-        <> [DeclValue (PatternBind span0 pat' rhs) | pat' <- shrinkPattern pat]
-    DeclValue (FunctionBind _ name matches) ->
+    DeclValue (PatternBind pat rhs) ->
+      [DeclValue (PatternBind pat rhs') | rhs' <- shrinkLetRhs rhs]
+        <> [DeclValue (PatternBind pat' rhs) | pat' <- shrinkPattern pat]
+    DeclValue (FunctionBind name matches) ->
       -- Shrink multiple matches to a single match
-      [DeclValue (FunctionBind span0 name [m {matchSpan = span0}]) | length matches > 1, m <- matches]
+      [DeclValue (FunctionBind name [m {matchAnns = []}]) | length matches > 1, m <- matches]
         -- Shrink individual matches
-        <> [DeclValue (FunctionBind span0 name ms') | ms' <- shrinkList shrinkLetMatch matches, not (null ms')]
+        <> [DeclValue (FunctionBind name ms') | ms' <- shrinkList shrinkLetMatch matches, not (null ms')]
     DeclTypeSig names ty ->
       [DeclTypeSig names ty' | ty' <- shrinkType ty]
     _ -> []
@@ -845,22 +844,22 @@ shrinkLetDecl decl =
 -- | Shrink a match clause within let/where/TH contexts.
 shrinkLetMatch :: Match -> [Match]
 shrinkLetMatch match =
-  [match {matchSpan = span0, matchRhs = rhs'} | rhs' <- shrinkLetRhs (matchRhs match)]
+  [match {matchAnns = [], matchRhs = rhs'} | rhs' <- shrinkLetRhs (matchRhs match)]
 
 -- | Shrink an RHS within let/where/TH contexts.
 shrinkLetRhs :: Rhs -> [Rhs]
 shrinkLetRhs rhs =
   case rhs of
     UnguardedRhs _ expr mWhere ->
-      [UnguardedRhs span0 expr Nothing | isJust mWhere]
-        <> [UnguardedRhs span0 expr' mWhere | expr' <- shrinkExpr expr]
-        <> [UnguardedRhs span0 expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
+      [UnguardedRhs [] expr Nothing | isJust mWhere]
+        <> [UnguardedRhs [] expr' mWhere | expr' <- shrinkExpr expr]
+        <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
     GuardedRhss _ rhss mWhere ->
       -- Collapse to unguarded using the first guard's body
-      [UnguardedRhs span0 (guardedRhsBody firstRhs) Nothing | firstRhs : _ <- [rhss]]
-        <> [GuardedRhss span0 rhss Nothing | isJust mWhere]
-        <> [GuardedRhss span0 rhss' mWhere | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
-        <> [GuardedRhss span0 rhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
+      [UnguardedRhs [] (guardedRhsBody firstRhs) Nothing | firstRhs : _ <- [rhss]]
+        <> [GuardedRhss [] rhss Nothing | isJust mWhere]
+        <> [GuardedRhss [] rhss' mWhere | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+        <> [GuardedRhss [] rhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
 
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for declarations.
 --
@@ -10,7 +11,8 @@ module Aihc.Tc.Generate.Decl
 where
 
 import Aihc.Parser.Syntax
-  ( DataConDecl (..),
+  ( Annotation,
+    DataConDecl (..),
     DataDecl (..),
     Decl (..),
     HasSourceSpan (getSourceSpan),
@@ -23,6 +25,8 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    fromAnnotation,
+    mergeSourceSpans,
     peelDeclAnn,
   )
 import Aihc.Tc.Constraint
@@ -33,7 +37,15 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
+
+-- | Merge concrete source spans embedded in a list of annotations.
+sourceSpanFromAnns :: [Annotation] -> SourceSpan
+sourceSpanFromAnns anns =
+  case mapMaybe (fromAnnotation @SourceSpan) anns of
+    [] -> NoSourceSpan
+    s : ss -> foldl mergeSourceSpans s ss
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult
@@ -77,8 +89,8 @@ groupValueDecls (d : ds) = case extractFunctionBind d of
 extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind fsp name matches) ->
-      let sp = case fsp of NoSourceSpan -> getSourceSpan decl; _ -> fsp
+    DeclValue (FunctionBind name matches) ->
+      let sp = getSourceSpan decl
        in Just (sp, name, matches)
     _ -> Nothing
 
@@ -165,7 +177,7 @@ tcDecl _ = pure []
 
 -- | Type-check a value declaration.
 tcValueDecl :: ValueDecl -> TcM [TcBindingResult]
-tcValueDecl (FunctionBind _fsp binder matches) = do
+tcValueDecl (FunctionBind binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   (ty, cts) <- tcMatches matches
@@ -177,7 +189,7 @@ tcValueDecl (FunctionBind _fsp binder matches) = do
   -- Register the binding so later bindings can reference it.
   extendTermEnvPermanent name (TcIdBinder name scheme)
   pure [TcBindingResult displayName zonkedTy]
-tcValueDecl (PatternBind _psp _pat rhs) = do
+tcValueDecl (PatternBind _pat rhs) = do
   ty <- tcRhs rhs
   zonkedTy <- zonkType ty
   pure [TcBindingResult "<pattern>" zonkedTy]
@@ -228,7 +240,7 @@ tcMatchEquation argTys resTy match = do
   (rhsTy, rhsCts) <- withPatBindings bindings (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
-  let sp = matchSpan match
+  let sp = sourceSpanFromAnns (matchAnns match)
   let resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (patCts ++ rhsCts ++ [resCt])
 
@@ -237,7 +249,7 @@ unifyMatchRhs :: TcType -> Match -> TcM [Ct]
 unifyMatchRhs expectedTy match = do
   (rhsTy, rhsCts) <- inferRhsExpr (matchRhs match)
   ev <- freshEvVar
-  let sp = matchSpan match
+  let sp = sourceSpanFromAnns (matchAnns match)
   let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin sp) sp
   pure (rhsCts ++ [eqCt])
 

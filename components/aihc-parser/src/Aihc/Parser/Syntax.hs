@@ -791,7 +791,7 @@ instance HasSourceSpan WarningText where
         | otherwise -> getSourceSpan sub
 
 data Module = Module
-  { moduleSpan :: SourceSpan,
+  { moduleAnns :: [Annotation],
     moduleHead :: Maybe ModuleHead,
     moduleLanguagePragmas :: [ExtensionSetting],
     moduleImports :: [ImportDecl],
@@ -799,19 +799,13 @@ data Module = Module
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan Module where
-  getSourceSpan = moduleSpan
-
 data ModuleHead = ModuleHead
-  { moduleHeadSpan :: SourceSpan,
+  { moduleHeadAnns :: [Annotation],
     moduleHeadName :: Text,
     moduleHeadWarningText :: Maybe WarningText,
     moduleHeadExports :: Maybe [ExportSpec]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan ModuleHead where
-  getSourceSpan = moduleHeadSpan
 
 moduleName :: Module -> Maybe Text
 moduleName modu = moduleHeadName <$> moduleHead modu
@@ -857,7 +851,7 @@ instance HasSourceSpan ExportSpec where
       _ -> NoSourceSpan
 
 data ImportDecl = ImportDecl
-  { importDeclSpan :: SourceSpan,
+  { importDeclAnns :: [Annotation],
     importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
     importDeclSource :: Bool,
@@ -870,23 +864,17 @@ data ImportDecl = ImportDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan ImportDecl where
-  getSourceSpan = importDeclSpan
-
 data ImportLevel
   = ImportLevelQuote
   | ImportLevelSplice
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ImportSpec = ImportSpec
-  { importSpecSpan :: SourceSpan,
+  { importSpecAnns :: [Annotation],
     importSpecHiding :: Bool,
     importSpecItems :: [ImportItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan ImportSpec where
-  getSourceSpan = importSpecSpan
 
 data ImportItem
   = ImportItemVar (Maybe IEEntityNamespace) UnqualifiedName
@@ -947,26 +935,17 @@ peelDeclAnn (DeclAnn _ inner) = peelDeclAnn inner
 peelDeclAnn d = d
 
 data ValueDecl
-  = FunctionBind SourceSpan BinderName [Match]
-  | PatternBind SourceSpan Pattern Rhs
+  = FunctionBind BinderName [Match]
+  | PatternBind Pattern Rhs
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan ValueDecl where
-  getSourceSpan valueDecl =
-    case valueDecl of
-      FunctionBind span' _ _ -> span'
-      PatternBind span' _ _ -> span'
-
 data Match = Match
-  { matchSpan :: SourceSpan,
+  { matchAnns :: [Annotation],
     matchHeadForm :: MatchHeadForm,
     matchPats :: [Pattern],
     matchRhs :: Rhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan Match where
-  getSourceSpan = matchSpan
 
 data MatchHeadForm
   = MatchHeadPrefix
@@ -1003,25 +982,16 @@ data PatSynDecl = PatSynDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Rhs
-  = UnguardedRhs SourceSpan Expr (Maybe [Decl])
-  | GuardedRhss SourceSpan [GuardedRhs] (Maybe [Decl])
+  = UnguardedRhs [Annotation] Expr (Maybe [Decl])
+  | GuardedRhss [Annotation] [GuardedRhs] (Maybe [Decl])
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan Rhs where
-  getSourceSpan rhs =
-    case rhs of
-      UnguardedRhs span' _ _ -> span'
-      GuardedRhss span' _ _ -> span'
-
 data GuardedRhs = GuardedRhs
-  { guardedRhsSpan :: SourceSpan,
+  { guardedRhsAnns :: [Annotation],
     guardedRhsGuards :: [GuardQualifier],
     guardedRhsBody :: Expr
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan GuardedRhs where
-  getSourceSpan = guardedRhsSpan
 
 data GuardQualifier
   = -- | Metadata for the whole guard qualifier (typically a 'SourceSpan' via 'mkAnnotation').
@@ -1176,7 +1146,7 @@ data TyVarBSpecificity
   deriving (Data, Eq, Show, Generic, NFData)
 
 data TyVarBinder = TyVarBinder
-  { tyVarBinderSpan :: SourceSpan,
+  { tyVarBinderAnns :: [Annotation],
     tyVarBinderName :: Text,
     -- | Optional kind annotation. Examples: @(a :: Type)@ and @{a :: Type}@.
     tyVarBinderKind :: Maybe Type,
@@ -1185,9 +1155,6 @@ data TyVarBinder = TyVarBinder
     tyVarBinderSpecificity :: TyVarBSpecificity
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan TyVarBinder where
-  getSourceSpan = tyVarBinderSpan
 
 data TypeHeadForm
   = TypeHeadPrefix
@@ -1232,16 +1199,13 @@ data TypeFamilyDecl = TypeFamilyDecl
 
 -- | One equation in a closed type family: @[forall binders.] LhsType = RhsType@
 data TypeFamilyEq = TypeFamilyEq
-  { typeFamilyEqSpan :: SourceSpan,
+  { typeFamilyEqAnns :: [Annotation],
     typeFamilyEqForall :: [TyVarBinder],
     typeFamilyEqHeadForm :: TypeHeadForm,
     typeFamilyEqLhs :: Type,
     typeFamilyEqRhs :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan TypeFamilyEq where
-  getSourceSpan = typeFamilyEqSpan
 
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
@@ -1254,21 +1218,16 @@ data DataFamilyDecl = DataFamilyDecl
 
 -- | Type family instance: @type [instance] [forall binders.] LhsType = RhsType@
 data TypeFamilyInst = TypeFamilyInst
-  { typeFamilyInstSpan :: SourceSpan,
-    typeFamilyInstForall :: [TyVarBinder],
+  { typeFamilyInstForall :: [TyVarBinder],
     typeFamilyInstHeadForm :: TypeHeadForm,
     typeFamilyInstLhs :: Type,
     typeFamilyInstRhs :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan TypeFamilyInst where
-  getSourceSpan = typeFamilyInstSpan
-
 -- | Data or newtype family instance (standalone or in an instance body).
 data DataFamilyInst = DataFamilyInst
-  { dataFamilyInstSpan :: SourceSpan,
-    -- | @True@ when declared with @newtype instance@
+  { -- | @True@ when declared with @newtype instance@
     dataFamilyInstIsNewtype :: Bool,
     dataFamilyInstForall :: [TyVarBinder],
     -- | The LHS type-application pattern (e.g. @GMap (Either a b) v@)
@@ -1279,9 +1238,6 @@ data DataFamilyInst = DataFamilyInst
     dataFamilyInstDeriving :: [DerivingClause]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan DataFamilyInst where
-  getSourceSpan = dataFamilyInstSpan
 
 data DataDecl = DataDecl
   { dataDeclHeadForm :: TypeHeadForm,
@@ -1347,16 +1303,13 @@ instance HasSourceSpan DataConDecl where
       _ -> NoSourceSpan
 
 data BangType = BangType
-  { bangSpan :: SourceSpan,
+  { bangAnns :: [Annotation],
     bangSourceUnpackedness :: SourceUnpackedness,
     bangStrict :: Bool,
     bangLazy :: Bool,
     bangType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan BangType where
-  getSourceSpan = bangSpan
 
 data SourceUnpackedness
   = NoSourceUnpackedness
@@ -1365,14 +1318,11 @@ data SourceUnpackedness
   deriving (Data, Eq, Show, Generic, NFData)
 
 data FieldDecl = FieldDecl
-  { fieldSpan :: SourceSpan,
+  { fieldAnns :: [Annotation],
     fieldNames :: [UnqualifiedName],
     fieldType :: BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan FieldDecl where
-  getSourceSpan = fieldSpan
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
@@ -1413,14 +1363,11 @@ data ClassDecl = ClassDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
 data FunctionalDependency = FunctionalDependency
-  { functionalDependencySpan :: SourceSpan,
+  { functionalDependencyAnns :: [Annotation],
     functionalDependencyDeterminers :: [Text],
     functionalDependencyDetermined :: [Text]
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan FunctionalDependency where
-  getSourceSpan = functionalDependencySpan
 
 data ClassDeclItem
   = ClassItemAnn Annotation ClassDeclItem
@@ -1628,14 +1575,11 @@ peelExprAnn (EAnn _ x) = peelExprAnn x
 peelExprAnn x = x
 
 data CaseAlt = CaseAlt
-  { caseAltSpan :: SourceSpan,
+  { caseAltAnns :: [Annotation],
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan CaseAlt where
-  getSourceSpan = caseAltSpan
 
 data DoStmt body
   = -- | Metadata for the whole do-statement (typically a 'SourceSpan' via 'mkAnnotation').
@@ -1702,14 +1646,11 @@ instance HasSourceSpan Cmd where
 
 -- | Case alternative with a command body (used in arrow @case@ commands).
 data CmdCaseAlt = CmdCaseAlt
-  { cmdCaseAltSpan :: SourceSpan,
+  { cmdCaseAltAnns :: [Annotation],
     cmdCaseAltPat :: Pattern,
     cmdCaseAltBody :: Cmd
   }
   deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan CmdCaseAlt where
-  getSourceSpan = cmdCaseAltSpan
 
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkAnnotation').

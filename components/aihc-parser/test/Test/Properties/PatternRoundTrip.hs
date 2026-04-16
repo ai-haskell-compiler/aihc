@@ -14,7 +14,7 @@ import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Pattern ()
 import Test.Properties.Coverage (assertCtorCoverage)
-import Test.Properties.ExprHelpers (normalizeExpr, span0)
+import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
 
@@ -126,6 +126,6 @@ normalizeAsInner pat =
 normalizeTyVarBinderSpan :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinderSpan tvb =
   tvb
-    { tyVarBinderSpan = span0,
+    { tyVarBinderAnns = [],
       tyVarBinderKind = fmap normalizeTypeSpan (tyVarBinderKind tvb)
     }

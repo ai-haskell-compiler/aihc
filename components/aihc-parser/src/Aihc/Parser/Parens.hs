@@ -378,8 +378,8 @@ addDeclSpliceParens body =
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
-    PatternBind sp pat rhs -> PatternBind sp (addPatternParens pat) (addRhsParens rhs)
-    FunctionBind sp name matches -> FunctionBind sp name (map (addMatchParens name) matches)
+    PatternBind pat rhs -> PatternBind (addPatternParens pat) (addRhsParens rhs)
+    FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =

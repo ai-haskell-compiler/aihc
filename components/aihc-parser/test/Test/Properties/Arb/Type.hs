@@ -21,7 +21,6 @@ import Test.Properties.Arb.Identifiers
     genQuoterName,
     shrinkConIdent,
     shrinkIdent,
-    span0,
   )
 import Test.QuickCheck
 
@@ -220,17 +219,17 @@ genTyVarBinder = do
   name <- genTypeVarName
   oneof
     [ -- Plain specified binder: a
-      pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified),
+      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified),
       -- Plain inferred binder: {a}
-      pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBInferred),
+      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred),
       -- Kinded inferred binder: {a :: Kind}
       do
         kind <- genSimpleTypeAtom 0
-        pure (TyVarBinder span0 (renderUnqualifiedName name) (Just kind) TyVarBInferred),
+        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred),
       -- Kinded specified binder: (a :: Kind)
       do
         kind <- genSimpleTypeAtom 0
-        pure (TyVarBinder span0 (renderUnqualifiedName name) (Just kind) TyVarBSpecified)
+        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified)
     ]
 
 genTypeVarName :: Gen UnqualifiedName

@@ -12,7 +12,7 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Module ()
-import Test.Properties.ExprHelpers (normalizeDecl, span0)
+import Test.Properties.ExprHelpers (normalizeDecl)
 import Test.QuickCheck
 
 prop_modulePrettyRoundTrip :: Module -> Property
@@ -38,7 +38,7 @@ moduleConfig =
 normalizeModule :: Module -> Module
 normalizeModule modu =
   Module
-    { moduleSpan = span0,
+    { moduleAnns = [],
       moduleHead = fmap normalizeModuleHead (moduleHead modu),
       moduleLanguagePragmas = [],
       moduleImports = map normalizeImportDecl (moduleImports modu),
@@ -48,7 +48,7 @@ normalizeModule modu =
 normalizeModuleHead :: ModuleHead -> ModuleHead
 normalizeModuleHead head' =
   ModuleHead
-    { moduleHeadSpan = span0,
+    { moduleHeadAnns = [],
       moduleHeadName = moduleHeadName head',
       moduleHeadWarningText = fmap normalizeWarningText (moduleHeadWarningText head'),
       moduleHeadExports = fmap (map normalizeExportSpec) (moduleHeadExports head')
@@ -78,7 +78,7 @@ normalizeWarningText warningText =
 normalizeImportDecl :: ImportDecl -> ImportDecl
 normalizeImportDecl decl =
   ImportDecl
-    { importDeclSpan = span0,
+    { importDeclAnns = [],
       importDeclLevel = importDeclLevel decl,
       importDeclPackage = importDeclPackage decl,
       importDeclSource = importDeclSource decl,
@@ -93,7 +93,7 @@ normalizeImportDecl decl =
 normalizeImportSpec :: ImportSpec -> ImportSpec
 normalizeImportSpec spec =
   ImportSpec
-    { importSpecSpan = span0,
+    { importSpecAnns = [],
       importSpecHiding = importSpecHiding spec,
       importSpecItems = map normalizeImportItem (importSpecItems spec)
     }

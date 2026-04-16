@@ -640,10 +640,9 @@ functionBinderNameParser =
 functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue headForm name pats rhs =
   FunctionBind
-    NoSourceSpan
     name
     [ Match
-        { matchSpan = NoSourceSpan,
+        { matchAnns = [],
           matchHeadForm = headForm,
           matchPats = pats,
           matchRhs = rhs

@@ -63,7 +63,7 @@ forallBinderParser =
         ident <- lowerIdentifierParser
         mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
         expectedTok TkSpecialRBrace
-        pure (\span' -> TyVarBinder span' ident mKind TyVarBInferred)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident mKind TyVarBInferred)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -71,11 +71,11 @@ forallBinderParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified)
           )
       <|> ( do
               ident <- lowerIdentifierParser
-              pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified)
           )
 
 contextTypeParser :: TokParser Type

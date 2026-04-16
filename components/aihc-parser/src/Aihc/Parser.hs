@@ -166,7 +166,7 @@ parseModule cfg input =
         Left bundle ->
           ( parseErrorsToSpannedText (NE.toList (MPE.bundleErrors bundle)),
             Module
-              { moduleSpan = NoSourceSpan,
+              { moduleAnns = [],
                 moduleHead = Nothing,
                 moduleLanguagePragmas = [],
                 moduleImports = [],

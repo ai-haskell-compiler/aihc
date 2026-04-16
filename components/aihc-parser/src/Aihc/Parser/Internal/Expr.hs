@@ -156,7 +156,7 @@ multiWayIfAlternative = withSpan $ do
   body <- exprParser
   pure $ \span' ->
     GuardedRhs
-      { guardedRhsSpan = span',
+      { guardedRhsAnns = [mkAnnotation span'],
         guardedRhsGuards = guards,
         guardedRhsBody = body
       }
@@ -556,7 +556,7 @@ unguardedRhsParser arrowKind = withSpan $ do
   rhsArrowTok arrowKind
   body <- region (rhsContextText arrowKind) exprParser
   whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> UnguardedRhs span' body whereDecls)
+  pure (\span' -> UnguardedRhs [mkAnnotation span'] body whereDecls)
 
 rhsContextText :: RhsArrowKind -> Text
 rhsContextText RhsArrowCase = "while parsing case alternative right-hand side"
@@ -566,7 +566,7 @@ guardedRhssParser :: RhsArrowKind -> TokParser Rhs
 guardedRhssParser arrowKind = withSpan $ do
   grhss <- MP.some (guardedRhsParser arrowKind)
   whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> GuardedRhss span' grhss whereDecls)
+  pure (\span' -> GuardedRhss [mkAnnotation span'] grhss whereDecls)
 
 guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
 guardedRhsParser arrowKind = withSpan $ do
@@ -576,7 +576,7 @@ guardedRhsParser arrowKind = withSpan $ do
   body <- exprParserExcept ["|", rhsArrowText arrowKind]
   pure $ \span' ->
     GuardedRhs
-      { guardedRhsSpan = span',
+      { guardedRhsAnns = [mkAnnotation span'],
         guardedRhsGuards = guards,
         guardedRhsBody = body
       }
@@ -637,7 +637,7 @@ caseAltParser = withSpan $ do
   rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
-      { caseAltSpan = span',
+      { caseAltAnns = [mkAnnotation span'],
         caseAltPattern = pat,
         caseAltRhs = rhs
       }
@@ -973,9 +973,10 @@ localTypeSigDeclsParser = do
           rhsExpr <- exprParser
           whereDecls <- MP.optional whereClauseParser
           let bindSpan = mergeSourceSpans NoSourceSpan (getSourceSpan rhsExpr)
+              bindAnns = [mkAnnotation bindSpan]
               pat = PAnn (mkAnnotation bindSpan) (PTypeSig (PAnn (mkAnnotation bindSpan) (PVar name)) ty)
-              rhs = UnguardedRhs bindSpan rhsExpr whereDecls
-          pure [DeclValue (PatternBind bindSpan pat rhs)]
+              rhs = UnguardedRhs bindAnns rhsExpr whereDecls
+          pure [DeclValue (PatternBind pat rhs)]
         _ ->
           fail "local typed bindings with '=' require exactly one binder"
 
@@ -993,7 +994,7 @@ localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pat <- patternParser
-  DeclValue . PatternBind NoSourceSpan pat <$> equationRhsParser
+  DeclValue . PatternBind pat <$> equationRhsParser
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
@@ -1004,9 +1005,8 @@ implicitParamDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclValue
       ( PatternBind
-          NoSourceSpan
           (PAnn (mkAnnotation NoSourceSpan) (PVar (mkUnqualifiedName NameVarId name)))
-          (UnguardedRhs NoSourceSpan rhsExpr whereDecls)
+          (UnguardedRhs [] rhsExpr whereDecls)
       )
 
 varExprParser :: TokParser Expr
