@@ -566,7 +566,7 @@ lexBangOrTildeOperator st =
 
 lexPrefixDollar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPrefixDollar env st
-  | not (hasExt TemplateHaskell env) = Nothing
+  | not (hasExt TemplateHaskellQuotes env || hasExt TemplateHaskell env) = Nothing
   | otherwise =
       case lexerInput st of
         '$' :< ('$' :< rest)

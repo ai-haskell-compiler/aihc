@@ -464,7 +464,8 @@ atomExprParser = do
         <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
-        <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
+        <|> (if thAny then thTypedSpliceParser else MP.empty)
+        <|> (if thAny then thUntypedSpliceParser else MP.empty)
         <|> quasiQuoteExprParser
         <|> parenExprParser
         <|> listExprParser
@@ -1046,9 +1047,6 @@ thPatQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   pat <- patternParser
   expectedTok TkTHExpQuoteClose
   pure (ETHPatQuote pat)
-
-thSpliceExprParser :: TokParser Expr
-thSpliceExprParser = thTypedSpliceParser <|> thUntypedSpliceParser
 
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
