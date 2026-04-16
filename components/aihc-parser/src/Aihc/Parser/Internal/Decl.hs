@@ -40,19 +40,21 @@ declParser = do
 ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
+  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
+  let thAny = thEnabled || thFullEnabled
   let tokKind = lexTokenKind tok
       nextTokKind = lexTokenKind nextTok
       valueOrSpliceParser =
-        if thFullEnabled
+        if thAny
           then MP.try valueDeclParser <|> implicitSpliceDeclParser
           else valueDeclParser
       patternOrValueOrSpliceParser =
-        if thFullEnabled
+        if thAny
           then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
           else MP.try patternBindDeclParser <|> valueDeclParser
       nonBareVarPatternOrValueOrSpliceParser =
-        if thFullEnabled
+        if thAny
           then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
           else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
       typeSigOrValueOrSpliceParser =
@@ -91,7 +93,7 @@ ordinaryDeclParser = do
         TkReservedEquals -> valueOrSpliceParser
         _ -> nonBareVarPatternOrValueOrSpliceParser
     TkTHSplice ->
-      if thFullEnabled
+      if thAny
         then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> spliceDeclParser
         else spliceDeclParser
     _ -> typeSigOrPatternOrValueOrSpliceParser

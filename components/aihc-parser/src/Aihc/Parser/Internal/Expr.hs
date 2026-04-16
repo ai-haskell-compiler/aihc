@@ -465,7 +465,7 @@ atomExprParser = do
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
         <|> (if thAny then thTypedSpliceParser else MP.empty)
-        <|> (if thFullEnabled then thUntypedSpliceParser else MP.empty)
+        <|> (if thAny then thUntypedSpliceParser else MP.empty)
         <|> quasiQuoteExprParser
         <|> parenExprParser
         <|> listExprParser
