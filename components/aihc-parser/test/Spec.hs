@@ -244,6 +244,7 @@ buildTests = do
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
+            testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
@@ -670,6 +671,35 @@ test_infixTypeFamilyHeadRoundtrip =
         case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
           Nothing -> pure ()
           Just err -> assertFailure ("expected infix type family head roundtrip to validate, got: " <> show err)
+
+test_infixTypeFamilyEquationWithApplicationOperands :: Assertion
+test_infixTypeFamilyEquationWithApplicationOperands =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GHC2021, DataKinds, TypeFamilies, TypeOperators, NoStarIsType #-}",
+            "module M where",
+            "type family (a :: ExactPi') * (b :: ExactPi') :: ExactPi' where",
+            "  'ExactPi z p q * 'ExactPi z' p' q' = 'ExactPi undefined undefined undefined"
+          ]
+      exts = [EnableExtension GHC2021, EnableExtension DataKinds, EnableExtension TypeFamilies, EnableExtension TypeOperators, DisableExtension StarIsType]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = effectiveExtensions Haskell2010Edition exts} source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [ DeclTypeFamilyDecl
+              TypeFamilyDecl
+                { typeFamilyDeclHeadForm = TypeHeadInfix,
+                  typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
+                }
+            ]
+              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+                TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
+                TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
+                  pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+        case validateParser "TypeFamilyInfixStarEquation.hs" Haskell2010Edition exts source of
+          Nothing -> pure ()
+          Just err -> assertFailure ("expected infix type family equation with application operands to validate, got: " <> show err)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
