@@ -106,6 +106,7 @@ data TokStream = TokStream
     tokStreamPendingPragmas :: [Pragma],
     tokStreamPrevToken :: Maybe LexToken,
     tokStreamExtensions :: [Extension],
+    tokStreamTHQuoteDepth :: !Int,
     -- | Whether this stream has already emitted TkEOF.
     -- After EOF is emitted, 'take1_' returns Nothing.
     tokStreamEOFEmitted :: !Bool
@@ -119,6 +120,7 @@ instance Eq TokStream where
       && tokStreamPendingPragmas a == tokStreamPendingPragmas b
       && tokStreamPrevToken a == tokStreamPrevToken b
       && tokStreamExtensions a == tokStreamExtensions b
+      && tokStreamTHQuoteDepth a == tokStreamTHQuoteDepth b
       && tokStreamEOFEmitted a == tokStreamEOFEmitted b
 
 -- Manual Ord instance
@@ -137,6 +139,8 @@ instance Show TokStream where
       <> show (tokStreamPrevToken ts)
       <> ", extensions = "
       <> show (tokStreamExtensions ts)
+      <> ", thQuoteDepth = "
+      <> show (tokStreamTHQuoteDepth ts)
       <> " }"
 
 -- Manual NFData instance — don't force the lazy raw token list.
@@ -145,7 +149,8 @@ instance NFData TokStream where
     rnf (tokStreamPendingPragmas ts) `seq`
       rnf (tokStreamPrevToken ts) `seq`
         rnf (tokStreamExtensions ts) `seq`
-          rnf (tokStreamEOFEmitted ts)
+          rnf (tokStreamTHQuoteDepth ts) `seq`
+            rnf (tokStreamEOFEmitted ts)
 
 -- | An empty TokStream for error reporting purposes.
 emptyTokStream :: FilePath -> TokStream
@@ -156,6 +161,7 @@ emptyTokStream _sourcePath =
       tokStreamPendingPragmas = [],
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = [],
+      tokStreamTHQuoteDepth = 0,
       tokStreamEOFEmitted = True
     }
 
@@ -170,6 +176,7 @@ mkTokStream sourceName exts input =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = exts,
+            tokStreamTHQuoteDepth = 0,
             tokStreamEOFEmitted = False
           }
 
@@ -185,6 +192,7 @@ mkTokStreamModule sourceName baseExts input =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = effectiveExts,
+            tokStreamTHQuoteDepth = 0,
             tokStreamEOFEmitted = False
           }
   where
@@ -206,6 +214,7 @@ mkTokStreamFromTokens toks =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = [],
+            tokStreamTHQuoteDepth = 0,
             tokStreamEOFEmitted = False
           }
 

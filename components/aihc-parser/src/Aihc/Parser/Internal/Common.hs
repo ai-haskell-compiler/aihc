@@ -44,6 +44,8 @@ module Aihc.Parser.Internal.Common
     functionBindValue,
     functionBindDecl,
     isExtensionEnabled,
+    withTHQuoteContext,
+    inTHQuoteContext,
     closeImplicitLayout,
     layoutSepEndBy,
     layoutSepBy1,
@@ -670,6 +672,30 @@ isExtensionEnabled :: Extension -> TokParser Bool
 isExtensionEnabled ext = do
   pst <- MP.getParserState
   pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
+
+withTHQuoteContext :: TokParser a -> TokParser a
+withTHQuoteContext parser = do
+  MP.updateParserState $ \st ->
+    st
+      { MP.stateInput =
+          (MP.stateInput st)
+            { tokStreamTHQuoteDepth = tokStreamTHQuoteDepth (MP.stateInput st) + 1
+            }
+      }
+  outcome <- MP.observing parser
+  MP.updateParserState $ \st ->
+    st
+      { MP.stateInput =
+          (MP.stateInput st)
+            { tokStreamTHQuoteDepth = max 0 (tokStreamTHQuoteDepth (MP.stateInput st) - 1)
+            }
+      }
+  either MP.parseError pure outcome
+
+inTHQuoteContext :: TokParser Bool
+inTHQuoteContext = do
+  pst <- MP.getParserState
+  pure (tokStreamTHQuoteDepth (MP.stateInput pst) > 0)
 
 -- | Signal to the layout engine that a virtual close brace should be inserted.
 -- This implements the parse-error rule: when the parser encounters a token that

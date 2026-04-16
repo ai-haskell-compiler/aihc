@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="typed Template Haskell quote with let-bound typed splice is not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 
 module FileEmbedLzmaTypedQuoteLetSplice where
