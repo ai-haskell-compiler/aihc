@@ -1231,29 +1231,25 @@ typeFamilyOperatorParser =
 
 typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
 typeFamilyLhsParser = do
-  lhs <- typeAtomParser
+  lhs <- typeAppParser
   hasInfixTail <- MP.optional (lookAhead typeInfixOperatorParser)
   case hasInfixTail of
     Just _ -> do
       rest <- typeHeadInfixTailParser
       pure (TypeHeadInfix, foldl buildInfixType lhs rest)
-    Nothing -> do
-      rest <- MP.many typeAtomParser
-      pure (TypeHeadPrefix, foldl buildTypeApp lhs rest)
+    Nothing ->
+      pure (TypeHeadPrefix, lhs)
   where
     typeHeadInfixTailParser :: TokParser [((Name, TypePromotion), Type)]
     typeHeadInfixTailParser = MP.many $ MP.try $ do
       op <- typeInfixOperatorParser
-      atom <- typeAtomParser
-      pure (op, atom)
+      rhs <- typeAppParser
+      pure (op, rhs)
 
     buildInfixType left ((op, promoted), right) =
       let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
           opType = typeAnnSpan span' (TCon op promoted)
        in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType left)) right)
-
-    buildTypeApp left right =
-      typeAnnSpan (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) (TApp left right)
 
 classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
 classHeadParser =
