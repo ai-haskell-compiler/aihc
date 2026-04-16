@@ -21,8 +21,15 @@ lexerTests = do
 
 mkCaseTest :: LG.LexerCase -> IO TestTree
 mkCaseTest meta = pure $ case LG.caseStatus meta of
-  LG.StatusXFail -> testCaseInfo (LG.caseId meta) (assertCase meta >> pure "Known failure - to be fixed")
+  LG.StatusXFail -> testCaseInfo (LG.caseId meta) (xfailDetails (LG.evaluateLexerCase meta) <* assertCase meta)
   _ -> testCase (LG.caseId meta) (assertCase meta)
+
+xfailDetails :: (LG.Outcome, String) -> IO String
+xfailDetails (outcome, details) = do
+  case outcome of
+    LG.OutcomeXFail -> pure ()
+    _ -> assertFailure ("expected xfail outcome, got: " <> show outcome)
+  pure details
 
 mkSummaryTest :: [LG.LexerCase] -> IO TestTree
 mkSummaryTest cases = do
@@ -104,6 +111,15 @@ fixtureValidationTests =
             if LG.caseStatus parsed == LG.StatusXPass
               then pure ()
               else assertFailure "expected xpass status",
+      testCase "xfail lexer mismatches retain details" $
+        case LG.parseLexerCaseText "xfail-details.yaml" validXFailFixture of
+          Left err -> assertFailure ("expected parse success, got: " <> err)
+          Right parsed ->
+            case LG.evaluateLexerCase parsed of
+              (LG.OutcomeXFail, details)
+                | null details -> assertFailure "expected xfail details to be non-empty"
+                | otherwise -> pure ()
+              other -> assertFailure ("expected xfail outcome with details, got: " <> show other),
       testCase "only YAML fixtures are loaded" $ do
         cases <- LG.loadLexerCases
         mapM_
@@ -122,6 +138,17 @@ validXFailMissingReason =
       "tokens:",
       "  - 'TkVarId \"bad\"'",
       "status: xfail"
+    ]
+
+validXFailFixture :: T.Text
+validXFailFixture =
+  T.unlines
+    [ "extensions: []",
+      "input: \"-10\"",
+      "tokens:",
+      "  - 'TkInteger 10'",
+      "status: xfail",
+      "reason: known bug"
     ]
 
 validXPassFixture :: T.Text

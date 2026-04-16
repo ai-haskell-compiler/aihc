@@ -138,7 +138,11 @@ evaluateLexerCase meta =
               )
         StatusXFail
           | tokenMatch -> (OutcomeFail, "expected xfail (known failing bug), but tokens now match")
-          | otherwise -> (OutcomeXFail, "")
+          | otherwise ->
+              ( OutcomeXFail,
+                "known bug still present"
+                  <> detailsSuffix actualKinds expectedKinds
+              )
         StatusXPass
           | tokenMatch -> (OutcomeXPass, "known bug still passes unexpectedly")
           | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but tokens no longer match")
