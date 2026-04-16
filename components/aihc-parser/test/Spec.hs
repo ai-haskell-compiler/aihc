@@ -9,6 +9,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
 import Data.List (isInfixOf)
@@ -1914,15 +1915,10 @@ test_templateHaskellQuotesLexesTypedSplice =
 
 test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
 test_templateHaskellTypeQuoteParsesInfixSplices =
-  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]" of
-    ParseOk expr
-      | ETHTypeQuote ty <- peelExprAnn expr,
-        TApp (TApp (TCon op Unpromoted) (TSplice lhs)) (TSplice rhs) <- stripTypeAnnotations ty,
-        renderName op == ":=",
-        EVar_ "c" <- lhs,
-        EVar_ "v" <- rhs ->
-          pure ()
-    other -> assertFailure ("expected type quote with infix TH splices to parse, got: " <> show other)
+  assertEqual
+    "expected type quote with infix TH splices shorthand"
+    "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl
