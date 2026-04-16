@@ -243,6 +243,7 @@ buildTests = do
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
+            testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -1910,6 +1911,18 @@ test_templateHaskellQuotesLexesTypedSplice =
   case map lexTokenKind (lexTokensWithExtensions [TemplateHaskellQuotes] "$$(x)") of
     [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
     other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
+
+test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
+test_templateHaskellTypeQuoteParsesInfixSplices =
+  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]" of
+    ParseOk expr
+      | ETHTypeQuote ty <- peelExprAnn expr,
+        TApp (TApp (TCon op Unpromoted) (TSplice lhs)) (TSplice rhs) <- stripTypeAnnotations ty,
+        renderName op == ":=",
+        EVar_ "c" <- lhs,
+        EVar_ "v" <- rhs ->
+          pure ()
+    other -> assertFailure ("expected type quote with infix TH splices to parse, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl
