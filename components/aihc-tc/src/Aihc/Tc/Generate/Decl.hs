@@ -248,7 +248,7 @@ unifyMatchRhs expectedTy match = do
 -- extra constraints are needed.
 inferPatCts :: Pattern -> TcType -> TcM [Ct]
 inferPatCts pat scrutTy = case pat of
-  PCon name _subPats -> do
+  PCon name _typeArgs _subPats -> do
     let conName = patNameToText name
     mBinder <- lookupTerm conName
     case mBinder of
@@ -292,7 +292,7 @@ extractPatternBindings (pat, ty) = case pat of
   PAs name inner -> (name, ty) : extractPatternBindings (inner, ty)
   PStrict inner -> extractPatternBindings (inner, ty)
   PIrrefutable inner -> extractPatternBindings (inner, ty)
-  PCon _name subPats ->
+  PCon _name _typeArgs subPats ->
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
   PInfix lhs _name rhs ->
     extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)

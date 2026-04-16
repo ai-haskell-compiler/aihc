@@ -51,6 +51,7 @@ module Aihc.Parser.Internal.Common
     startsWithContextType,
     startsWithTypeSig,
     startsWithAsPattern,
+    startsWithTypeBinder,
     isConLikeName,
     isConLikeNameType,
     qualifiedVarName,
@@ -64,6 +65,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
 import Data.Char (isUpper)
+import Data.Functor (($>))
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -802,6 +804,13 @@ startsWithAsPattern =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
     _ <- identifierTextParser
     expectedTok TkReservedAt
+
+startsWithTypeBinder :: TokParser Bool
+startsWithTypeBinder =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    expectedTok TkReservedAt
+    _ <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+    pure ()
 
 -- | Check whether a name looks like a constructor (starts with uppercase or ':').
 isConLikeName :: Name -> Bool

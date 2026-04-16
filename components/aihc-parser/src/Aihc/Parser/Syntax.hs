@@ -81,9 +81,13 @@ module Aihc.Parser.Syntax
     StandaloneDerivingDecl (..),
     Type (..),
     TupleFlavor (..),
+    TypeSyntaxForm (..),
     TypeLiteral (..),
     TypePromotion (..),
+    ForallVis (..),
+    ForallTelescope (..),
     TyVarBSpecificity (..),
+    TyVarBVisibility (..),
     TyVarBinder (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -136,6 +140,7 @@ module Aihc.Parser.Syntax
     literalAnnSpan,
     peelLiteralAnn,
     typeAnnSpan,
+    tyVarBinderNameText,
   )
 where
 
@@ -1084,13 +1089,15 @@ data TupleFlavor
 data Pattern
   = PAnn Annotation Pattern
   | PVar UnqualifiedName
+  | PTypeBinder TyVarBinder
+  | PTypeSyntax TypeSyntaxForm Type
   | PWildcard
   | PLit Literal
   | PQuasiQuote Text Text
   | PTuple TupleFlavor [Pattern]
   | PUnboxedSum Int Int Pattern
   | PList [Pattern]
-  | PCon Name [Pattern]
+  | PCon Name [Type] [Pattern]
   | PInfix Pattern Name Pattern
   | PView Expr Pattern
   | PAs Text Pattern
@@ -1117,6 +1124,22 @@ peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn (PAnn _ inner) = peelPatternAnn inner
 peelPatternAnn p = p
 
+data TypeSyntaxForm
+  = TypeSyntaxExplicitNamespace
+  | TypeSyntaxInTerm
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ForallVis
+  = ForallInvisible
+  | ForallVisible
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ForallTelescope = ForallTelescope
+  { forallTelescopeVisibility :: ForallVis,
+    forallTelescopeBinders :: [TyVarBinder]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Type
   = TAnn Annotation Type
   | TVar UnqualifiedName
@@ -1125,7 +1148,7 @@ data Type
   | TTypeLit TypeLiteral
   | TStar
   | TQuasiQuote Text Text
-  | TForall [TyVarBinder] Type
+  | TForall ForallTelescope Type
   | TApp Type Type
   | TFun Type Type
   | TTuple TupleFlavor TypePromotion [Type]
@@ -1179,6 +1202,11 @@ data TyVarBSpecificity
   | TyVarBSpecified
   deriving (Data, Eq, Show, Generic, NFData)
 
+data TyVarBVisibility
+  = TyVarBVisible
+  | TyVarBInvisible
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data TyVarBinder = TyVarBinder
   { tyVarBinderSpan :: SourceSpan,
     tyVarBinderName :: Text,
@@ -1186,12 +1214,17 @@ data TyVarBinder = TyVarBinder
     tyVarBinderKind :: Maybe Type,
     -- | Whether the binder was written as specified (@a@, @(a :: k)@)
     -- or inferred (@{a}@, @{a :: k}@).
-    tyVarBinderSpecificity :: TyVarBSpecificity
+    tyVarBinderSpecificity :: TyVarBSpecificity,
+    -- | Whether the binder was written visibly (@a@) or invisibly (@@a@).
+    tyVarBinderVisibility :: TyVarBVisibility
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan TyVarBinder where
   getSourceSpan = tyVarBinderSpan
+
+tyVarBinderNameText :: TyVarBinder -> Text
+tyVarBinderNameText = tyVarBinderName
 
 data TypeHeadForm
   = TypeHeadPrefix
@@ -1343,7 +1376,7 @@ data DataConDecl
   | RecordCon [Text] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon [TyVarBinder] [Type] [UnqualifiedName] GadtBody
+    GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Strip nested 'DataConAnn' wrappers.
@@ -1607,6 +1640,7 @@ instance NFData Annotation where
 data Expr
   = EAnn Annotation Expr
   | EVar Name
+  | ETypeSyntax TypeSyntaxForm Type
   | EInt Integer Text
   | EIntHash Integer Text
   | EIntBase Integer Text

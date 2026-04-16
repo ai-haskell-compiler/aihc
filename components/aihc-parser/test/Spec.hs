@@ -75,7 +75,7 @@ pattern PList_ :: [Pattern] -> Pattern
 pattern PList_ elems <- (peelPatternAnn -> PList elems)
 
 pattern PCon_ :: Name -> [Pattern] -> Pattern
-pattern PCon_ con args <- (peelPatternAnn -> PCon con args)
+pattern PCon_ con args <- (peelPatternAnn -> PCon con [] args)
 
 pattern PInfix_ :: Pattern -> Name -> Pattern -> Pattern
 pattern PInfix_ lhs op rhs <- (peelPatternAnn -> PInfix lhs op rhs)
@@ -244,6 +244,11 @@ buildTests = do
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
+            testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
+            testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
+            testCase "parses lambda type binders" test_lambdaTypeBinderParses,
+            testCase "parses function head type binders" test_functionHeadTypeBinderParses,
+            testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
@@ -578,7 +583,7 @@ test_infixClassHeadParses =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [ DeclFixity {},
-            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
+            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -656,7 +661,7 @@ test_infixTypeFamilyHeadRoundtrip =
               TypeFamilyDecl
                 { typeFamilyDeclHeadForm = TypeHeadInfix,
                   typeFamilyDeclHead = h,
-                  typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified, TyVarBinder _ "r" Nothing TyVarBSpecified],
+                  typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "r" Nothing TyVarBSpecified TyVarBVisible],
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs, typeFamilyEqRhs = rhs}]
                 }
             ]
@@ -676,6 +681,58 @@ test_parserConfigPassesExtensions =
       | EInt_ (-1) _ <- normalizeExpr parsed -> pure ()
     ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
     ParseErr err -> assertFailure ("expected parse success, got parse error: " <> MPE.errorBundlePretty err)
+
+test_explicitTypeSyntaxExprParses :: Assertion
+test_explicitTypeSyntaxExprParses =
+  case parseExpr defaultConfig {parserExtensions = [ExplicitNamespaces, RequiredTypeArguments]} "type Int" of
+    ParseOk parsed
+      | ETypeSyntax TypeSyntaxExplicitNamespace ty <- normalizeExpr parsed,
+        TCon "Int" Unpromoted <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected explicit type syntax expression, got: " <> show other)
+
+test_explicitTypeSyntaxPatternParses :: Assertion
+test_explicitTypeSyntaxPatternParses =
+  case parsePattern defaultConfig {parserExtensions = [ExplicitNamespaces, RequiredTypeArguments]} "type a" of
+    ParseOk parsed
+      | PTypeSyntax TypeSyntaxExplicitNamespace ty <- peelPatternAnn parsed,
+        TVar "a" <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected explicit type syntax pattern, got: " <> show other)
+
+test_lambdaTypeBinderParses :: Assertion
+test_lambdaTypeBinderParses =
+  case parseExpr defaultConfig {parserExtensions = [TypeAbstractions]} "\\ @a x -> x" of
+    ParseOk parsed
+      | ELambdaPats [PTypeBinder binder, PVar_ "x"] (EVar_ "x") <- normalizeExpr parsed,
+        tyVarBinderName binder == "a",
+        tyVarBinderVisibility binder == TyVarBInvisible ->
+          pure ()
+    other -> assertFailure ("expected lambda type binder, got: " <> show other)
+
+test_functionHeadTypeBinderParses :: Assertion
+test_functionHeadTypeBinderParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "f @a x = x" of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTypeBinder binder, PVar_ "x"], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+          | tyVarBinderName binder == "a",
+            tyVarBinderVisibility binder == TyVarBInvisible ->
+              pure ()
+        other -> assertFailure ("expected function head type binder, got normalized decl: " <> show other)
+    other -> assertFailure ("expected function head type binder, got: " <> show other)
+
+test_invisibleTypeDeclBinderParses :: Assertion
+test_invisibleTypeDeclBinderParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "type T @k a = a" of
+    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "T", typeSynParams = [kBinder, aBinder], typeSynBody = body})
+      | tyVarBinderName kBinder == "k",
+        tyVarBinderVisibility kBinder == TyVarBInvisible,
+        tyVarBinderName aBinder == "a",
+        tyVarBinderVisibility aBinder == TyVarBVisible,
+        TVar "a" <- stripTypeAnnotations body ->
+          pure ()
+    other -> assertFailure ("expected invisible type declaration binder, got: " <> show other)
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =
@@ -1546,7 +1603,7 @@ test_prettyPrefixFunctionHeadRecordPattern = do
 
 test_prettyInfixFunctionHeadConstructorPatterns :: Assertion
 test_prettyInfixFunctionHeadConstructorPatterns = do
-  let box name = pat0 (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [pat0 (PVar name)])
+  let box name = pat0 (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [] [pat0 (PVar name)])
       decl =
         DeclValue
           ( FunctionBind

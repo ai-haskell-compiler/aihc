@@ -94,7 +94,10 @@ appPatternParser =
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
-    PCon name args -> PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (PCon name (args <> [rhs]))
+    PCon name typeArgs args ->
+      PAnn
+        (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)))
+        (PCon name typeArgs (args <> [rhs]))
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
@@ -105,11 +108,17 @@ patternAtomParser :: TokParser Pattern
 patternAtomParser = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
+  explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
+  typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
+    TkReservedAt
+      | typeAbstractionsEnabled -> typeBinderPatternParser
     TkPrefixBang -> strictPatternParser
     TkPrefixTilde -> irrefutablePatternParser
+    TkKeywordType
+      | explicitNamespacesEnabled -> explicitTypePatternParser
     TkQuasiQuote {} -> quasiQuotePatternParser
     TkTHSplice | thAny -> thSplicePatternParser
     TkKeywordUnderscore -> wildcardPatternParser
@@ -138,6 +147,16 @@ patternAtomParser = do
       name <- identifierTextParser
       expectedTok TkReservedAt
       PAs name <$> patternAtomParser
+
+typeBinderPatternParser :: TokParser Pattern
+typeBinderPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
+  expectedTok TkReservedAt
+  PTypeBinder <$> visibleTypeBinderCoreParser
+
+explicitTypePatternParser :: TokParser Pattern
+explicitTypePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
+  expectedTok TkKeywordType
+  PTypeSyntax TypeSyntaxExplicitNamespace <$> typeParser
 
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -239,13 +258,33 @@ thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
-  MP.try
-    ( withSpanAnn (PAnn . mkAnnotation) $ do
-        name <- identifierTextParser
-        expectedTok TkReservedAt
-        PAs name <$> patternAtomParser
+  do
+    typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
+    let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
+    MP.try
+      ( withSpanAnn (PAnn . mkAnnotation) $ do
+          name <- identifierTextParser
+          expectedTok TkReservedAt
+          PAs name <$> patternAtomParser
+      )
+      <|> typeBinderParser
+      <|> patternAtomParser
+
+visibleTypeBinderCoreParser :: TokParser TyVarBinder
+visibleTypeBinderCoreParser =
+  withSpan $
+    ( do
+        ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+        pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBInvisible)
     )
-    <|> patternAtomParser
+      <|> ( do
+              expectedTok TkSpecialLParen
+              ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+              expectedTok TkReservedDoubleColon
+              kind <- typeParser
+              expectedTok TkSpecialRParen
+              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified TyVarBInvisible)
+          )
 
 varOrConPatternParser :: TokParser Pattern
 varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -259,7 +298,7 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     _ ->
       pure $
         if isConLikeName name
-          then PCon name []
+          then PCon name [] []
           else PVar (mkUnqualifiedName (nameType name) (nameText name))
 
 recordFieldPatternParser :: TokParser (Name, Pattern)
@@ -396,7 +435,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           tok' <- anySingle
           case lexTokenKind tok' of
             TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
-            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [])
+            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
             _ -> fail "expected operator token"
 
     -- Try to parse as expression, then reclassify via checkPattern.

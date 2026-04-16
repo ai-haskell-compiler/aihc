@@ -632,6 +632,7 @@ addExprParensPrec prec expr =
     EApp {} -> addAppsChainPrec prec expr
     ETypeApp fn ty ->
       wrapExpr (prec > 2) (ETypeApp (addExprParensIn CtxAppFun fn) (addTypeIn CtxTypeAtom ty))
+    ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
     EIntHash {} -> expr
@@ -838,10 +839,15 @@ addTypeParensShared ctx prec ty =
         TTypeLit {} -> ty
         TStar {} -> ty
         TQuasiQuote {} -> ty
-        TForall binders inner ->
+        TForall telescope inner ->
           -- forallTypeParser uses contextOrFunTypeParser (not typeParser) for its
           -- body, so a bare nested TForall would fail to parse. Wrap it in TParen.
-          wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (addForallBodyParens inner))
+          wrapTy
+            (prec > 0)
+            ( TForall
+                (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+                (addForallBodyParens inner)
+            )
         tyInfix
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
@@ -947,13 +953,15 @@ addPatternParens pat =
   case pat of
     PAnn sp sub -> PAnn sp (addPatternParens sub)
     PVar {} -> pat
+    PTypeBinder binder -> PTypeBinder (addTyVarBinderParens binder)
+    PTypeSyntax form ty -> PTypeSyntax form (addTypeParens ty)
     PWildcard {} -> pat
     PLit lit -> PLit lit
     PQuasiQuote {} -> pat
     PTuple tupleFlavor elems -> PTuple tupleFlavor (map addPatternInDelimited elems)
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
     PList elems -> PList (map addPatternInDelimited elems)
-    PCon con args -> PCon con (map addPatternAtomParens args)
+    PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
     PInfix lhs op rhs -> PInfix (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternParens inner))
@@ -994,6 +1002,8 @@ addPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomParens sub)
     PVar {} -> addPatternParens pat
+    PTypeBinder {} -> addPatternParens pat
+    PTypeSyntax {} -> addPatternParens pat
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
     PQuasiQuote {} -> addPatternParens pat
@@ -1007,7 +1017,7 @@ addPatternAtomParens pat =
     PView {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
-    PCon _ [] -> addPatternParens pat
+    PCon _ [] [] -> addPatternParens pat
     PInfix _ op _
       | isConsOperator op ->
           -- Cons operator (:) is right-associative, so nested cons patterns
@@ -1021,7 +1031,7 @@ addLambdaPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addLambdaPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ _ [] -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in function-head argument position.
@@ -1030,7 +1040,8 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ (_ : _) -> wrapPat True (addPatternParens pat)
+    PCon _ typeArgs (_ : _)
+      | null typeArgs -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
@@ -1048,7 +1059,7 @@ addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ _ [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat

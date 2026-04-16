@@ -358,7 +358,7 @@ docDataConDecl dcd =
     RecordCon forallVars constraints name fields' ->
       "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
     GadtCon forallBinders constraints names body ->
-      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docTyVarBinder forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
+      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
 
 -- | Document a GADT body
 docGadtBody :: GadtBody -> Doc ann
@@ -569,7 +569,13 @@ docType ty =
     TTypeLit lit -> "TTypeLit" <+> docTypeLiteral lit
     TStar -> "TStar"
     TQuasiQuote quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
-    TForall binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docTyVarBinder binders))) <+> parens (docType inner)
+    TForall telescope inner ->
+      case forallTelescopeVisibility telescope of
+        ForallInvisible ->
+          "TForall"
+            <+> brackets (hsep (punctuate comma (map docTyVarBinder (forallTelescopeBinders telescope))))
+            <+> parens (docType inner)
+        ForallVisible -> "TForall" <+> parens (docForallTelescope telescope) <+> parens (docType inner)
     TApp f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
     TTuple tupleFlavor promoted elems ->
@@ -607,6 +613,7 @@ docTyVarBinder tvb =
     fields =
       [field "name" (docText (tyVarBinderName tvb))]
         <> optionalField "specificity" docTyVarBSpecificity (specificityField tvb)
+        <> optionalField "visibility" docTyVarBVisibility (visibilityField tvb)
         <> optionalField "kind" docType (tyVarBinderKind tvb)
 
     specificityField binder =
@@ -614,11 +621,41 @@ docTyVarBinder tvb =
         TyVarBSpecified -> Nothing
         specificity -> Just specificity
 
+    visibilityField binder =
+      case tyVarBinderVisibility binder of
+        TyVarBVisible -> Nothing
+        visibility -> Just visibility
+
 docTyVarBSpecificity :: TyVarBSpecificity -> Doc ann
 docTyVarBSpecificity specificity =
   case specificity of
     TyVarBInferred -> "TyVarBInferred"
     TyVarBSpecified -> "TyVarBSpecified"
+
+docTyVarBVisibility :: TyVarBVisibility -> Doc ann
+docTyVarBVisibility visibility =
+  case visibility of
+    TyVarBVisible -> "TyVarBVisible"
+    TyVarBInvisible -> "TyVarBInvisible"
+
+docForallVis :: ForallVis -> Doc ann
+docForallVis visibility =
+  case visibility of
+    ForallInvisible -> "ForallInvisible"
+    ForallVisible -> "ForallVisible"
+
+docForallTelescope :: ForallTelescope -> Doc ann
+docForallTelescope telescope =
+  "ForallTelescope"
+    <+> braces
+      ( hsep
+          ( punctuate
+              comma
+              ( [field "visibility" (docForallVis (forallTelescopeVisibility telescope))]
+                  <> listField "binders" docTyVarBinder (forallTelescopeBinders telescope)
+              )
+          )
+      )
 
 -- Patterns
 
@@ -627,6 +664,8 @@ docPattern pat =
   case pat of
     PAnn _ sub -> docPattern sub
     PVar name -> "PVar" <+> docUnqualifiedName name
+    PTypeBinder binder -> "PTypeBinder" <+> parens (docTyVarBinder binder)
+    PTypeSyntax form ty -> "PTypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
     PWildcard -> "PWildcard"
     PLit lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
@@ -636,7 +675,21 @@ docPattern pat =
     PUnboxedSum altIdx arity inner ->
       "PUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docPattern inner
     PList elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
-    PCon name args -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
+    PCon name typeArgs args ->
+      case typeArgs of
+        [] -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
+        _ ->
+          "PCon"
+            <+> docName name
+            <+> braces
+              ( hsep
+                  ( punctuate
+                      comma
+                      ( listField "typeArgs" docType typeArgs
+                          <> listField "args" docPattern args
+                      )
+                  )
+              )
     PInfix lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
     PView expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
     PAs name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
@@ -669,6 +722,7 @@ docExpr :: Expr -> Doc ann
 docExpr expr =
   case expr of
     EVar name -> "EVar" <+> docName name
+    ETypeSyntax form ty -> "ETypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
     EInt n _ -> "EInt" <+> pretty n
     EIntHash n repr -> "EIntHash" <+> pretty n <+> docText repr
     EIntBase n repr -> "EIntBase" <+> pretty n <+> docText repr
@@ -889,6 +943,12 @@ docTokenKind kind =
     TkTHTypedSplice -> "TkTHTypedSplice"
     TkError msg -> "TkError" <+> docText msg
     TkEOF -> "TkEOF"
+
+docTypeSyntaxForm :: TypeSyntaxForm -> Doc ann
+docTypeSyntaxForm form =
+  case form of
+    TypeSyntaxExplicitNamespace -> "TypeSyntaxExplicitNamespace"
+    TypeSyntaxInTerm -> "TypeSyntaxInTerm"
 
 -- Helpers
 
