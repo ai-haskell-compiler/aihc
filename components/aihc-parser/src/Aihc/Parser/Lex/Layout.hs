@@ -70,6 +70,10 @@ openPendingLayout st tok =
           case lexTokenKind tok of
             TkReservedPipe -> openImplicitLayout LayoutMultiWayIf st tok
             _ -> ([], st {layoutPendingLayout = Nothing}, False)
+        PendingMaybeLambdaCases ->
+          case lexTokenKind tok of
+            TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            _ -> openImplicitLayout LayoutOrdinary st tok
         PendingImplicitLayout kind ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
@@ -206,6 +210,10 @@ stepTokenContext st tok =
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
           st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+      | otherwise -> st
+    TkVarId "cases"
+      | layoutPrevTokenKind st == Just TkReservedBackslash ->
+          st {layoutPendingLayout = Just PendingMaybeLambdaCases}
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
     TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}

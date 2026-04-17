@@ -103,6 +103,7 @@ checkPattern expr = case expr of
   EDo {} -> Left "unexpected do expression in pattern"
   ELambdaPats {} -> Left "unexpected lambda in pattern"
   ELambdaCase {} -> Left "unexpected lambda-case in pattern"
+  ELambdaCases {} -> Left "unexpected lambda-cases in pattern"
   ELetDecls {} -> Left "unexpected let expression in pattern"
   EArithSeq {} -> Left "unexpected arithmetic sequence in pattern"
   EListComp {} -> Left "unexpected list comprehension in pattern"

@@ -44,6 +44,7 @@ normalizeExpr expr =
     ECase scrutinee alts -> ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
     ELambdaPats pats body -> ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body)
     ELambdaCase alts -> ELambdaCase (map normalizeCaseAlt alts)
+    ELambdaCases alts -> ELambdaCases (map normalizeLambdaCaseAlt alts)
     ELetDecls decls body -> ELetDecls (map normalizeDecl decls) (normalizeExpr body)
     EDo stmts isMdo -> EDo (map normalizeDoStmt stmts) isMdo
     EListComp body stmts -> EListComp (normalizeExpr body) (map normalizeCompStmt stmts)
@@ -75,6 +76,14 @@ normalizeCaseAlt alt =
     { caseAltAnns = [],
       caseAltPattern = normalizePattern (caseAltPattern alt),
       caseAltRhs = normalizeRhs (caseAltRhs alt)
+    }
+
+normalizeLambdaCaseAlt :: LambdaCaseAlt -> LambdaCaseAlt
+normalizeLambdaCaseAlt alt =
+  LambdaCaseAlt
+    { lambdaCaseAltAnns = [],
+      lambdaCaseAltPats = map normalizePattern (lambdaCaseAltPats alt),
+      lambdaCaseAltRhs = normalizeRhs (lambdaCaseAltRhs alt)
     }
 
 normalizeRhs :: Rhs -> Rhs

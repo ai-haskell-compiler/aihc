@@ -53,6 +53,7 @@ module Aihc.Parser.Syntax
     InstanceDeclItem (..),
     InstanceOverlapPragma (..),
     LanguageEdition (..),
+    LambdaCaseAlt (..),
     Literal (..),
     Match (..),
     MatchHeadForm (..),
@@ -1557,6 +1558,7 @@ data Expr
   | EMultiWayIf [GuardedRhs]
   | ELambdaPats [Pattern] Expr
   | ELambdaCase [CaseAlt]
+  | ELambdaCases [LambdaCaseAlt]
   | EInfix Expr Name Expr
   | ENegate Expr
   | ESectionL Expr Name
@@ -1609,6 +1611,13 @@ data CaseAlt = CaseAlt
   { caseAltAnns :: [Annotation],
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data LambdaCaseAlt = LambdaCaseAlt
+  { lambdaCaseAltAnns :: [Annotation],
+    lambdaCaseAltPats :: [Pattern],
+    lambdaCaseAltRhs :: Rhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
