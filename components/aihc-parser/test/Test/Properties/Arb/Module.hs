@@ -16,7 +16,7 @@ import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator, span0)
+import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -28,7 +28,7 @@ instance Arbitrary Module where
     decls <- vectorOf n arbitrary
     pure $
       Module
-        { moduleSpan = span0,
+        { moduleAnns = [],
           moduleHead = mHead,
           moduleLanguagePragmas = [],
           moduleImports = imports,
@@ -63,7 +63,7 @@ genModuleHead = do
   warningText <- frequency [(4, pure Nothing), (1, Just <$> arbitrary)]
   pure $
     ModuleHead
-      { moduleHeadSpan = span0,
+      { moduleHeadAnns = [],
         moduleHeadName = name,
         moduleHeadWarningText = warningText,
         moduleHeadExports = exports
@@ -207,7 +207,7 @@ instance Arbitrary IEBundledNamespace where
 
 instance Arbitrary ImportSpec where
   arbitrary =
-    ImportSpec span0
+    ImportSpec []
       <$> arbitrary
       <*> genImportItems
 
@@ -306,7 +306,7 @@ instance Arbitrary ImportDecl where
     spec <- genMaybeImportSpec
     pure $
       ImportDecl
-        { importDeclSpan = span0,
+        { importDeclAnns = [],
           importDeclLevel = Nothing,
           importDeclPackage = Nothing,
           importDeclSource = False,

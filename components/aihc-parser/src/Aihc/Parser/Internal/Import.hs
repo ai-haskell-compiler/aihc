@@ -37,7 +37,7 @@ moduleHeaderParser = withSpan $ do
   expectedTok TkKeywordWhere
   pure $ \span' ->
     ModuleHead
-      { moduleHeadSpan = span',
+      { moduleHeadAnns = [mkAnnotation span'],
         moduleHeadName = name,
         moduleHeadWarningText = mWarning,
         moduleHeadExports = exports
@@ -143,7 +143,7 @@ importDeclParser = withSpan $ do
   let isQualified = preQualified || isJust postQualified
   pure $ \span' ->
     ImportDecl
-      { importDeclSpan = span',
+      { importDeclAnns = [mkAnnotation span'],
         importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
         importDeclSource = importedSource,
@@ -170,7 +170,7 @@ importSpecParser = withSpan $ do
   items <- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma
   pure $ \span' ->
     ImportSpec
-      { importSpecSpan = span',
+      { importSpecAnns = [mkAnnotation span'],
         importSpecHiding = isHiding,
         importSpecItems = items
       }

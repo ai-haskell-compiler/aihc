@@ -284,16 +284,16 @@ prettyRole role =
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
   case valueDecl of
-    PatternBind _ pat rhs -> [prettyPattern pat <+> prettyRhs rhs]
-    FunctionBind _ name matches ->
+    PatternBind pat rhs -> [prettyPattern pat <+> prettyRhs rhs]
+    FunctionBind name matches ->
       concatMap (prettyFunctionMatchLines name) matches
 
 -- | Pretty-print a value declaration on a single line.
 prettyValueDeclSingleLine :: ValueDecl -> Doc ann
 prettyValueDeclSingleLine valueDecl =
   case valueDecl of
-    PatternBind _ pat rhs -> prettyPattern pat <+> prettyRhs rhs
-    FunctionBind _ name matches ->
+    PatternBind pat rhs -> prettyPattern pat <+> prettyRhs rhs
+    FunctionBind name matches ->
       hsep (punctuate semi (map (prettyFunctionMatch name) matches))
 
 -- | Pretty-print a pattern synonym declaration.

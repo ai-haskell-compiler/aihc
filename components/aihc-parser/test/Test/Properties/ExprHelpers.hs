@@ -72,7 +72,7 @@ normalizeExpr expr =
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
   CaseAlt
-    { caseAltSpan = span0,
+    { caseAltAnns = [],
       caseAltPattern = normalizePattern (caseAltPattern alt),
       caseAltRhs = normalizeRhs (caseAltRhs alt)
     }
@@ -80,13 +80,13 @@ normalizeCaseAlt alt =
 normalizeRhs :: Rhs -> Rhs
 normalizeRhs rhs =
   case rhs of
-    UnguardedRhs _ body mDecls -> UnguardedRhs span0 (normalizeExpr body) (fmap (map normalizeDecl) mDecls)
-    GuardedRhss _ guards mDecls -> GuardedRhss span0 (map normalizeGuardedRhs guards) (fmap (map normalizeDecl) mDecls)
+    UnguardedRhs _ body mDecls -> UnguardedRhs [] (normalizeExpr body) (fmap (map normalizeDecl) mDecls)
+    GuardedRhss _ guards mDecls -> GuardedRhss [] (map normalizeGuardedRhs guards) (fmap (map normalizeDecl) mDecls)
 
 normalizeGuardedRhs :: GuardedRhs -> GuardedRhs
 normalizeGuardedRhs grhs =
   GuardedRhs
-    { guardedRhsSpan = span0,
+    { guardedRhsAnns = [],
       guardedRhsGuards = map normalizeGuardQualifier (guardedRhsGuards grhs),
       guardedRhsBody = normalizeExpr (guardedRhsBody grhs)
     }
@@ -185,15 +185,15 @@ normalizeDecl decl =
 normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
   case vdecl of
-    PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
-    FunctionBind _ name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
-      PatternBind span0 (PVar name) (normalizeRhs rhs)
-    FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
+    PatternBind pat rhs -> PatternBind (normalizePattern pat) (normalizeRhs rhs)
+    FunctionBind name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
+      PatternBind (PVar name) (normalizeRhs rhs)
+    FunctionBind name matches -> FunctionBind name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match
 normalizeMatch m =
   Match
-    { matchSpan = span0,
+    { matchAnns = [],
       matchHeadForm = matchHeadForm m,
       matchPats = map normalizeFunctionHeadPat (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
@@ -285,7 +285,7 @@ normalizeDoCmdStmtInner (DoRecStmt stmts) = DoRecStmt (map normalizeDoCmdStmt st
 normalizeCmdCaseAlt :: CmdCaseAlt -> CmdCaseAlt
 normalizeCmdCaseAlt alt =
   alt
-    { cmdCaseAltSpan = span0,
+    { cmdCaseAltAnns = [],
       cmdCaseAltPat = normalizePattern (cmdCaseAltPat alt),
       cmdCaseAltBody = normalizeCmd (cmdCaseAltBody alt)
     }
@@ -359,7 +359,7 @@ normalizeType ty =
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinder tvb =
   tvb
-    { tyVarBinderSpan = span0,
+    { tyVarBinderAnns = [],
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
     }
 
@@ -438,7 +438,7 @@ normalizeDataConInner (GadtCon forallBinders constraints names body) =
 normalizeBangType :: BangType -> BangType
 normalizeBangType bt =
   BangType
-    { bangSpan = span0,
+    { bangAnns = [],
       bangSourceUnpackedness = bangSourceUnpackedness bt,
       bangStrict = bangStrict bt,
       bangLazy = bangLazy bt,
@@ -448,7 +448,7 @@ normalizeBangType bt =
 normalizeFieldDecl :: FieldDecl -> FieldDecl
 normalizeFieldDecl fd =
   FieldDecl
-    { fieldSpan = span0,
+    { fieldAnns = [],
       fieldNames = fieldNames fd,
       fieldType = normalizeBangType (fieldType fd)
     }
@@ -475,12 +475,9 @@ normalizeClassDecl decl =
       classDeclHeadForm = classDeclHeadForm decl,
       classDeclName = classDeclName decl,
       classDeclParams = map normalizeTyVarBinder (classDeclParams decl),
-      classDeclFundeps = map normalizeFunctionalDependency (classDeclFundeps decl),
+      classDeclFundeps = classDeclFundeps decl,
       classDeclItems = map normalizeClassDeclItem (classDeclItems decl)
     }
-
-normalizeFunctionalDependency :: FunctionalDependency -> FunctionalDependency
-normalizeFunctionalDependency dep = dep {functionalDependencySpan = span0}
 
 normalizeClassDeclItem :: ClassDeclItem -> ClassDeclItem
 normalizeClassDeclItem item =
@@ -561,7 +558,7 @@ normalizeTypeFamilyDecl tf =
 normalizeTypeFamilyEq :: TypeFamilyEq -> TypeFamilyEq
 normalizeTypeFamilyEq eq =
   TypeFamilyEq
-    { typeFamilyEqSpan = span0,
+    { typeFamilyEqAnns = typeFamilyEqAnns eq,
       typeFamilyEqForall = map normalizeTyVarBinder (typeFamilyEqForall eq),
       typeFamilyEqHeadForm = typeFamilyEqHeadForm eq,
       typeFamilyEqLhs = normalizeType (typeFamilyEqLhs eq),
@@ -579,8 +576,7 @@ normalizeDataFamilyDecl df =
 normalizeTypeFamilyInst :: TypeFamilyInst -> TypeFamilyInst
 normalizeTypeFamilyInst tfi =
   TypeFamilyInst
-    { typeFamilyInstSpan = span0,
-      typeFamilyInstForall = map normalizeTyVarBinder (typeFamilyInstForall tfi),
+    { typeFamilyInstForall = map normalizeTyVarBinder (typeFamilyInstForall tfi),
       typeFamilyInstHeadForm = typeFamilyInstHeadForm tfi,
       typeFamilyInstLhs = normalizeType (typeFamilyInstLhs tfi),
       typeFamilyInstRhs = normalizeType (typeFamilyInstRhs tfi)
@@ -589,8 +585,7 @@ normalizeTypeFamilyInst tfi =
 normalizeDataFamilyInst :: DataFamilyInst -> DataFamilyInst
 normalizeDataFamilyInst dfi =
   DataFamilyInst
-    { dataFamilyInstSpan = span0,
-      dataFamilyInstIsNewtype = dataFamilyInstIsNewtype dfi,
+    { dataFamilyInstIsNewtype = dataFamilyInstIsNewtype dfi,
       dataFamilyInstForall = map normalizeTyVarBinder (dataFamilyInstForall dfi),
       dataFamilyInstHead = normalizeType (dataFamilyInstHead dfi),
       dataFamilyInstKind = fmap normalizeType (dataFamilyInstKind dfi),

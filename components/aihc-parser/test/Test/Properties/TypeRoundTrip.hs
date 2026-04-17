@@ -14,7 +14,7 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
-import Test.Properties.ExprHelpers (normalizeExpr, span0)
+import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
 
@@ -69,7 +69,7 @@ normalizeType ty =
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinder tvb =
   tvb
-    { tyVarBinderSpan = span0,
+    { tyVarBinderAnns = [],
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
     }
 
