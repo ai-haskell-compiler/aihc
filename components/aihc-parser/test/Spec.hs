@@ -749,7 +749,7 @@ test_functionHeadTypeBinderParses =
   case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "f @a x = x" of
     ParseOk parsed ->
       case normalizeDecl parsed of
-        DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTypeBinder binder, PVar_ "x"], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+        DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTypeBinder binder, PVar_ "x"], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
           | tyVarBinderName binder == "a",
             tyVarBinderVisibility binder == TyVarBInvisible ->
               pure ()
@@ -773,7 +773,7 @@ test_constructorPatternWithTypeArgParses =
   case parseDecl defaultConfig {parserExtensions = [TypeApplications, TypeAbstractions]} "f (Just @Int x) = x" of
     ParseOk parsed ->
       case normalizeDecl parsed of
-        DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [outerPat], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+        DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [outerPat], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
           | PCon con typeArgs args <- peelPatternAnn outerPat,
             nameText con == "Just",
             [typeArg] <- typeArgs,

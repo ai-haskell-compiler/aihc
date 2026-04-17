@@ -96,7 +96,7 @@ buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
     PCon name typeArgs args ->
       PAnn
-        (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)))
+        (mkAnnotation (mergeSourceSpans (getPatternSourceSpan lhs) (getPatternSourceSpan rhs)))
         (PCon name typeArgs (args <> [rhs]))
     _ -> lhs
 
@@ -275,7 +275,7 @@ visibleTypeBinderCoreParser =
   withSpan $
     ( do
         ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
-        pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBInvisible)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBInvisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -283,7 +283,7 @@ visibleTypeBinderCoreParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified TyVarBInvisible)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBInvisible)
           )
 
 varOrConPatternParser :: TokParser Pattern

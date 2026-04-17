@@ -1268,7 +1268,7 @@ invisibleDeclTypeParamParser = withSpan $ do
   expectedTok TkTypeApp
   ( do
       ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
-      pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBInvisible)
+      pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBInvisible)
     )
     <|> do
       expectedTok TkSpecialLParen
@@ -1276,7 +1276,7 @@ invisibleDeclTypeParamParser = withSpan $ do
       expectedTok TkReservedDoubleColon
       kind <- typeParser
       expectedTok TkSpecialRParen
-      pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified TyVarBInvisible)
+      pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBInvisible)
 
 isTypeVarName :: Text -> Bool
 isTypeVarName name =
