@@ -350,7 +350,7 @@ lexImplicitParam env st
   | otherwise =
       case lexerInput st of
         '?' :< rest0@(c :< _)
-          | isAsciiLower c || c == '_' ->
+          | isVarIdentifierStartChar c ->
               let tailChars = T.takeWhile isIdentTail (T.tail rest0)
                   txt = T.take (2 + T.length tailChars) (lexerInput st)
                   st' = advanceChars txt st
@@ -935,8 +935,11 @@ takeQuoter input =
 isIdentStart :: Char -> Bool
 isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_' || isUniSmall c || isUniLarge c
 
+isVarIdentifierStartChar :: Char -> Bool
+isVarIdentifierStartChar c = c == '_' || isAsciiLower c || isUniSmall c
+
 isIdentTail :: Char -> Bool
-isIdentTail c = isIdentStart c || isDigit c || c == '\''
+isIdentTail c = isIdentStart c || isIdentNumber c || c == '\''
 
 isConIdStart :: Char -> Bool
 isConIdStart c = isAsciiUpper c || isUniLarge c
@@ -946,6 +949,12 @@ isUniSmall c = not (isAscii c) && generalCategory c == LowercaseLetter
 
 isUniLarge :: Char -> Bool
 isUniLarge c = not (isAscii c) && generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
+
+isIdentNumber :: Char -> Bool
+isIdentNumber c =
+  isDigit c
+    || generalCategory c == DecimalNumber
+    || generalCategory c == OtherNumber
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c

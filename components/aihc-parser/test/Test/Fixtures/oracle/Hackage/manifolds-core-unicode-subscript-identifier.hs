@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="subscript digit identifiers break value bindings after the lhs" -}
+{- ORACLE_TEST pass -}
 
 module M where
 

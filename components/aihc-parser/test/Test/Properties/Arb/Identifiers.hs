@@ -18,6 +18,9 @@ module Test.Properties.Arb.Identifiers
 
     -- * Constructor operator symbols
     genConSym,
+    isValidGeneratedConSym,
+    genVarSym,
+    isValidGeneratedVarSym,
 
     -- * Module qualifiers
     genOptionalQualifier,
@@ -45,6 +48,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax (Extension, SourceSpan, allKnownExtensions, noSourceSpan)
+import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -53,6 +57,27 @@ import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, shrink, shrinkI
 -- | All extensions enabled for maximum keyword coverage in testing.
 allExtensions :: Set.Set Extension
 allExtensions = Set.fromList allKnownExtensions
+
+allChars :: [Char]
+allChars = [minBound .. maxBound]
+
+varIdentStartChars :: [Char]
+varIdentStartChars = filter isValidGeneratedIdentStartChar allChars
+
+conIdentStartChars :: [Char]
+conIdentStartChars = filter isValidConIdentStartChar allChars
+
+identTailChars :: [Char]
+identTailChars = filter isValidIdentTailChar allChars
+
+symbolChars :: [Char]
+symbolChars = filter isValidSymbolChar allChars
+
+varSymStartChars :: [Char]
+varSymStartChars = filter (/= ':') symbolChars
+
+reservedOperators :: Set.Set Text
+reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>"]
 
 -- | Canonical empty source span for normalization.
 span0 :: SourceSpan
@@ -64,29 +89,24 @@ span0 = noSourceSpan
 
 genIdent :: Gen Text
 genIdent = do
-  first <- elements (['a' .. 'z'] <> ['_'])
+  first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
+  rest <- vectorOf restLen (elements identTailChars)
   let candidate = T.pack (first : rest)
   if isValidGeneratedIdent candidate
     then pure candidate
     else genIdent
 
 shrinkIdent :: Text -> [Text]
-shrinkIdent name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
-    not (T.null candidate),
-    isValidGeneratedIdent candidate
-  ]
+shrinkIdent = shrinkWithPreservedFirstChar isValidGeneratedIdent
 
 isValidGeneratedIdent :: Text -> Bool
 isValidGeneratedIdent ident =
   case T.uncons ident of
     Just (first, rest) ->
       ident /= "_"
-        && (first `elem` (['a' .. 'z'] <> ['_']))
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
+        && isValidGeneratedIdentStartChar first
+        && T.all isValidIdentTailChar rest
         && not (isReservedIdentifier allExtensions ident)
     Nothing -> False
 
@@ -98,24 +118,20 @@ isValidGeneratedIdent ident =
 -- Produces names like @Foo@, @A1@, @T'x@, etc.
 genConIdent :: Gen Text
 genConIdent = do
-  first <- elements ['A' .. 'Z']
+  first <- elements conIdentStartChars
   restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
+  rest <- vectorOf restLen (elements identTailChars)
   pure (T.pack (first : rest))
 
 shrinkConIdent :: Text -> [Text]
-shrinkConIdent name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
-    isValidConIdent candidate
-  ]
+shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent
 
 isValidConIdent :: Text -> Bool
 isValidConIdent ident =
   case T.uncons ident of
     Just (first, rest) ->
-      (first `elem` ['A' .. 'Z'])
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
+      isValidConIdentStartChar first
+        && T.all isValidIdentTailChar rest
     Nothing -> False
 
 -------------------------------------------------------------------------------
@@ -128,10 +144,34 @@ isValidConIdent ident =
 genConSym :: Gen Text
 genConSym = do
   restLen <- chooseInt (1, 3)
-  rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
+  rest <- vectorOf restLen (elements symbolChars)
   let op = T.pack (':' : rest)
-  -- :: is not a valid constructor operator (it's the type signature operator)
-  if op == "::" then genConSym else pure op
+  if isValidGeneratedConSym op then pure op else genConSym
+
+isValidGeneratedConSym :: Text -> Bool
+isValidGeneratedConSym op =
+  case T.uncons op of
+    Just (':', rest) -> not (T.null rest) && T.all isValidSymbolChar rest && op `Set.notMember` reservedOperators
+    _ -> False
+
+genVarSym :: Gen Text
+genVarSym = do
+  first <- elements varSymStartChars
+  restLen <- chooseInt (0, 3)
+  rest <- vectorOf restLen (elements symbolChars)
+  let op = T.pack (first : rest)
+  if isValidGeneratedVarSym op then pure op else genVarSym
+
+isValidGeneratedVarSym :: Text -> Bool
+isValidGeneratedVarSym op =
+  case T.uncons op of
+    Just (first, rest) ->
+      first /= ':'
+        && isValidSymbolChar first
+        && T.all isValidSymbolChar rest
+        && op `Set.notMember` reservedOperators
+        && not (isDashRun op)
+    Nothing -> False
 
 -------------------------------------------------------------------------------
 -- Module qualifiers
@@ -247,3 +287,46 @@ showHex value
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
   [fromInteger shrunk / 10 | shrunk <- shrinkIntegral (round (value * 10 :: Double) :: Integer), shrunk >= 0]
+
+isValidGeneratedIdentStartChar :: Char -> Bool
+isValidGeneratedIdentStartChar c = c == '_' || generalCategory c == LowercaseLetter
+
+isValidConIdentStartChar :: Char -> Bool
+isValidConIdentStartChar c = generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
+
+isValidIdentNumberChar :: Char -> Bool
+isValidIdentNumberChar c =
+  case generalCategory c of
+    DecimalNumber -> True
+    OtherNumber -> True
+    _ -> False
+
+isValidIdentTailChar :: Char -> Bool
+isValidIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidIdentNumberChar c
+
+isValidSymbolChar :: Char -> Bool
+isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c
+
+isValidUnicodeSymbolChar :: Char -> Bool
+isValidUnicodeSymbolChar c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    OtherPunctuation -> c > '\x7f'
+    _ -> False
+
+isDashRun :: Text -> Bool
+isDashRun op = T.length op >= 2 && T.all (== '-') op
+
+shrinkWithPreservedFirstChar :: (Text -> Bool) -> Text -> [Text]
+shrinkWithPreservedFirstChar isValid name =
+  case T.uncons name of
+    Just (first, rest) ->
+      [ candidate
+      | shrunkRest <- shrink (T.unpack rest),
+        let candidate = T.pack (first : shrunkRest),
+        isValid candidate
+      ]
+    Nothing -> []
