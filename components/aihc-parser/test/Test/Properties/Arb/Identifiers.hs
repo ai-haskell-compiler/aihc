@@ -305,7 +305,7 @@ isValidIdentTailChar :: Char -> Bool
 isValidIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidIdentNumberChar c
 
 isValidSymbolChar :: Char -> Bool
-isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c
+isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c && c /= '`'
 
 isValidUnicodeSymbolChar :: Char -> Bool
 isValidUnicodeSymbolChar c =
