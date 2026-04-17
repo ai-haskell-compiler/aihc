@@ -1083,7 +1083,7 @@ thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
   name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHNameQuote (renderName name))
+  pure (ETHNameQuote name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do

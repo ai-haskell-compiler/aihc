@@ -159,7 +159,7 @@ typeDeclarationParser = do
         DeclTypeSyn
           TypeSynDecl
             { typeSynHeadForm = headForm,
-              typeSynName = renderUnqualifiedName typeName,
+              typeSynName = typeName,
               typeSynParams = typeParams,
               typeSynBody = body
             }
@@ -170,7 +170,7 @@ roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   expectedTok TkVarRole
-  typeName <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
+  typeName <- constructorUnqualifiedNameParser <|> parens constructorOperatorUnqualifiedNameParser
   roles <- MP.many roleParser
   pure $
     DeclRoleAnnotation
@@ -708,7 +708,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, headForm, className, instanceTypes) <- instanceHeadParser
+  (parenthesizedHead, headForm, className, instanceTypes) <- standaloneDerivingHeadParser
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
@@ -720,11 +720,39 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingParenthesizedHead = parenthesizedHead,
           standaloneDerivingHeadForm = headForm,
-          standaloneDerivingClassName = unqualifiedNameFromText className,
+          standaloneDerivingClassName = className,
           standaloneDerivingTypes = instanceTypes
         }
 
-instanceHeadParser :: TokParser (Bool, TypeHeadForm, Text, [Type])
+standaloneDerivingHeadParser :: TokParser (Bool, TypeHeadForm, Name, [Type])
+standaloneDerivingHeadParser =
+  MP.try
+    ( do
+        parsed <- parens bareStandaloneDerivingHeadParser
+        _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
+        let (headForm, className, instanceTypes) = parsed
+        pure (True, headForm, className, instanceTypes)
+    )
+    <|> ( do
+            (headForm, className, instanceTypes) <- bareStandaloneDerivingHeadParser
+            pure (False, headForm, className, instanceTypes)
+        )
+  where
+    bareStandaloneDerivingHeadParser = MP.try infixStandaloneDerivingHeadParser <|> prefixStandaloneDerivingHeadParser
+
+    prefixStandaloneDerivingHeadParser = do
+      className <- constructorNameParser <|> parens constructorOperatorParser
+      instanceTypes <- MP.many typeAtomParser
+      pure (TypeHeadPrefix, className, instanceTypes)
+
+    infixStandaloneDerivingHeadParser = do
+      lhs <- typeAtomParser
+      _ <- lookAhead typeInfixOperatorParser
+      op <- typeFamilyOperatorParser
+      rhs <- typeAtomParser
+      pure (TypeHeadInfix, op, [lhs, rhs])
+
+instanceHeadParser :: TokParser (Bool, TypeHeadForm, UnqualifiedName, [Type])
 instanceHeadParser =
   MP.try
     ( do
@@ -741,7 +769,7 @@ instanceHeadParser =
     bareInstanceHeadParser = MP.try infixInstanceHeadParser <|> prefixInstanceHeadParser
 
     prefixInstanceHeadParser = do
-      className <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
+      className <- nameToUnqualified <$> (constructorNameParser <|> parens constructorOperatorParser)
       instanceTypes <- MP.many typeAtomParser
       pure (TypeHeadPrefix, className, instanceTypes)
 
@@ -750,7 +778,7 @@ instanceHeadParser =
       _ <- lookAhead typeInfixOperatorParser
       op <- typeFamilyOperatorParser
       rhs <- typeAtomParser
-      pure (TypeHeadInfix, renderName op, [lhs, rhs])
+      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser
@@ -1226,12 +1254,12 @@ typeFamilyLhsParser = do
       let opType = TCon op promoted
        in TApp (TApp opType left) right
 
-classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
+classHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 classHeadParser =
   MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
-      name <- constructorIdentifierParser
+      name <- constructorUnqualifiedNameParser
       params <- MP.many typeParamParser
       pure (TypeHeadPrefix, name, params)
 
@@ -1239,7 +1267,10 @@ classHeadParser =
       lhs <- typeParamParser
       op <- constructorOperatorParser
       rhs <- typeParamParser
-      pure (TypeHeadInfix, renderName op, [lhs, rhs])
+      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
+
+nameToUnqualified :: Name -> UnqualifiedName
+nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
 
 typeParamParser :: TokParser TyVarBinder
 typeParamParser =

@@ -187,7 +187,7 @@ genDeclRoleAnnotation = do
   pure $
     DeclRoleAnnotation
       RoleAnnotation
-        { roleAnnotationName = name,
+        { roleAnnotationName = mkUnqualifiedName NameConId name,
           roleAnnotationRoles = roles
         }
 
@@ -200,7 +200,7 @@ genDeclTypeSyn = do
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadPrefix,
-          typeSynName = name,
+          typeSynName = mkUnqualifiedName NameConId name,
           typeSynParams = params,
           typeSynBody = body
         }
@@ -220,7 +220,7 @@ genDeclTypeSynInfix = do
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadInfix,
-          typeSynName = name,
+          typeSynName = unqualifiedNameFromText name,
           typeSynParams = [lhs, rhs],
           typeSynBody = body
         }
@@ -581,7 +581,7 @@ genDeclClassPrefix = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadPrefix,
-          classDeclName = name,
+          classDeclName = mkUnqualifiedName NameConId name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -660,7 +660,7 @@ genDeclClassInfix = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadInfix,
-          classDeclName = name,
+          classDeclName = mkUnqualifiedName NameConId name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -684,7 +684,7 @@ genDeclInstancePrefix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadPrefix,
-          instanceDeclClassName = className,
+          instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = types,
           instanceDeclItems = []
         }
@@ -704,7 +704,7 @@ genDeclInstanceInfix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadInfix,
-          instanceDeclClassName = className,
+          instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = [lhs, rhs],
           instanceDeclItems = []
         }
@@ -714,7 +714,7 @@ genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStand
 
 genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
-  className <- mkUnqualifiedName NameConId <$> genConIdent
+  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
@@ -736,7 +736,7 @@ genDeclStandaloneDerivingPrefix = do
 
 genDeclStandaloneDerivingInfix :: Gen Decl
 genDeclStandaloneDerivingInfix = do
-  className <- mkUnqualifiedName NameConId <$> genConIdent
+  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
@@ -1375,7 +1375,7 @@ shrinkDataFamilyInst dfi =
 shrinkRoleAnnotation :: RoleAnnotation -> [RoleAnnotation]
 shrinkRoleAnnotation ra =
   [ra {roleAnnotationRoles = rs'} | rs' <- shrinkList (const []) (roleAnnotationRoles ra)]
-    <> [ra {roleAnnotationName = n'} | n' <- shrinkConIdent (roleAnnotationName ra)]
+    <> [ra {roleAnnotationName = n'} | n' <- shrinkConName (roleAnnotationName ra)]
 
 -- ---------------------------------------------------------------------------
 -- Name shrinking helpers
