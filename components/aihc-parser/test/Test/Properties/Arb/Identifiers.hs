@@ -77,7 +77,7 @@ varSymStartChars :: [Char]
 varSymStartChars = filter (/= ':') symbolChars
 
 reservedOperators :: Set.Set Text
-reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>"]
+reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>", "→", "←", "⇒", "∷"]
 
 -- | Canonical empty source span for normalization.
 span0 :: SourceSpan
