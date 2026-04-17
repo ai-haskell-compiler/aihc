@@ -27,7 +27,6 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     getDeclSourceSpan,
     getPatternSourceSpan,
-    mergeSourceSpans,
     peelDeclAnn,
   )
 import Aihc.Tc.Constraint
@@ -46,7 +45,7 @@ sourceSpanFromAnns :: [Annotation] -> SourceSpan
 sourceSpanFromAnns anns =
   case mapMaybe (fromAnnotation @SourceSpan) anns of
     [] -> NoSourceSpan
-    s : ss -> foldl mergeSourceSpans s ss
+    s : _ -> s
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult

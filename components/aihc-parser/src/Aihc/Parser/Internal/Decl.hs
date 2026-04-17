@@ -1223,9 +1223,8 @@ typeFamilyLhsParser = do
       pure (op, rhs)
 
     buildInfixType left ((op, promoted), right) =
-      let span' = mergeSourceSpans (getTypeSourceSpan left) (getTypeSourceSpan right)
-          opType = typeAnnSpan span' (TCon op promoted)
-       in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType left)) right)
+      let opType = TCon op promoted
+       in TApp (TApp opType left) right
 
 classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
 classHeadParser =
