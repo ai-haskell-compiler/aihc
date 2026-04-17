@@ -47,7 +47,6 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     ValueDecl (..),
     fromAnnotation,
-    mergeSourceSpans,
     mkAnnotation,
     mkQualifiedName,
     mkUnqualifiedName,
@@ -79,7 +78,7 @@ sourceSpanFromAnns :: [Annotation] -> SourceSpan
 sourceSpanFromAnns anns =
   case mapMaybe (fromAnnotation @SourceSpan) anns of
     [] -> NoSourceSpan
-    s : ss -> foldl mergeSourceSpans s ss
+    s : _ -> s
 
 -- | Resolver-owned span tracking for nodes that now store source spans only in
 -- annotations.

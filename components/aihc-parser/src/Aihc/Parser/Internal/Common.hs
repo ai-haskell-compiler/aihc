@@ -534,8 +534,7 @@ contextItemParserWith typeParser typeAtomParser =
       first <- typeAtomParser
       rest <- MP.many typeAtomParser
       pure (foldl buildTypeApp first rest)
-    buildTypeApp lhs rhs =
-      typeAnnSpan (mergeSourceSpans (getTypeSourceSpan lhs) (getTypeSourceSpan rhs)) (TApp lhs rhs)
+    buildTypeApp = TApp
     -- \| Parse a type expression that can appear as a kind annotation.
     -- Handles function types (e.g., Type -> Constraint) and type application,
     -- but NOT context types (C a => ...) to avoid parsing cycles.
@@ -546,16 +545,11 @@ contextItemParserWith typeParser typeAtomParser =
       mRhs <- MP.optional (expectedTok TkReservedRightArrow *> kindTypeParser)
       case mRhs of
         Just rhs ->
-          pure
-            ( typeAnnSpan
-                (mergeSourceSpans (getTypeSourceSpan baseType) (getTypeSourceSpan rhs))
-                (TFun baseType rhs)
-            )
+          pure (TFun baseType rhs)
         Nothing -> pure baseType
     buildInfixType lhs ((op, promoted), rhs) =
-      let span' = mergeSourceSpans (getTypeSourceSpan lhs) (getTypeSourceSpan rhs)
-          opType = typeAnnSpan span' (TCon op promoted)
-       in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType lhs)) rhs)
+      let opType = TCon op promoted
+       in TApp (TApp opType lhs) rhs
     constraintTypeInfixOperatorParser =
       MP.try promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
     unpromotedInfixOperatorParser =
