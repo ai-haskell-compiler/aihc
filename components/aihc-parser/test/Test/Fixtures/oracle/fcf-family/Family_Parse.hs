@@ -1,5 +1,5 @@
 {- ORACLE_TEST
-xfail ai-parse-rejects
+pass
 --
 Minimal snippet inspired by fcf-family Family.hs parse errors
 --}

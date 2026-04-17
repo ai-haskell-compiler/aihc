@@ -1,5 +1,5 @@
 {- ORACLE_TEST
-xfail roundtrip-mismatch
+pass
 --
 Minimal snippet reproducing GHC pretty-printer parentheses difference
 --}
