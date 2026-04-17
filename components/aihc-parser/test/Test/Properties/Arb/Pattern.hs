@@ -68,7 +68,7 @@ genPatternWith allowAll depth =
         <> [genPatternConWith allowAll depth | allowRecursive]
         <> [genPatternInfixWith allowAll depth | allowRecursive]
         <> [PParen <$> genPatternWith allowAll nextDepth | allowRecursive]
-        <> [(\name fields -> PRecord name fields False) <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth | allowRecursive]
+        <> [genRecordPatternWith allowAll nextDepth | allowRecursive]
         <> [genPatternTypeSigWith allowAll depth | allowRecursive]
         <> [genUnboxedSumPatternWith allowAll nextDepth | allowRecursive]
         <> [PView <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
@@ -143,12 +143,27 @@ genListElemsWith allowView depth = do
   n <- chooseInt (0, 4)
   vectorOf n (genPatternWith allowView depth)
 
+genRecordPatternWith :: Bool -> Int -> Gen Pattern
+genRecordPatternWith allowAll depth = do
+  con <- genPatternConAstName
+  fields <- genRecordFieldsWith allowAll depth
+  pure (PRecord con fields False)
+
 genRecordFieldsWith :: Bool -> Int -> Gen [(Name, Pattern)]
 genRecordFieldsWith allowView depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genPatternWith allowView depth)
+  pats <- vectorOf n (genRecordFieldPatternWith allowView depth)
   pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
+
+genRecordFieldPatternWith :: Bool -> Int -> Gen Pattern
+genRecordFieldPatternWith allowAll depth
+  | allowAll && depth > 0 =
+      frequency
+        [ (3, genPatternWith allowAll depth),
+          (1, PView <$> resize 2 genExpr <*> genPatternWith allowAll (depth - 1))
+        ]
+  | otherwise = genPatternWith allowAll depth
 
 genLiteral :: Gen Literal
 genLiteral =

@@ -268,7 +268,7 @@ recordFieldPatternParser = do
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
-      pat <- patternParser
+      pat <- subpatternWithBareViewParser
       pure (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
@@ -299,12 +299,19 @@ listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- List elements can contain bare view patterns such as [id -> x].
     -- Try the expr -> pattern form first, then fall back to normal patterns.
     listPatternElementParser :: TokParser Pattern
-    listPatternElementParser = do
-      mView <- MP.optional . MP.try $ do
-        expr <- exprParser
-        expectedTok TkReservedRightArrow
-        PView expr <$> patternParser
-      maybe patternParser pure mView
+    listPatternElementParser = subpatternWithBareViewParser
+
+-- | Parse a subpattern position that admits a bare view pattern @expr -> pat@.
+-- This is needed in delimited pattern contexts like list elements and record
+-- fields, where there is no surrounding pair of parens to disambiguate the
+-- view-pattern arrow from the enclosing syntax.
+subpatternWithBareViewParser :: TokParser Pattern
+subpatternWithBareViewParser = do
+  mView <- MP.optional . MP.try $ do
+    expr <- exprParser
+    expectedTok TkReservedRightArrow
+    PView expr <$> patternParser
+  maybe patternParser pure mView
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
