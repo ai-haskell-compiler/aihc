@@ -70,14 +70,20 @@ conIdentStartChars = filter isValidConIdentStartChar allChars
 identTailChars :: [Char]
 identTailChars = filter isValidIdentTailChar allChars
 
+-- | Unicode characters that the lexer maps to reserved tokens or normalized
+-- ASCII operator names (see 'unicodeOpTokenKind' in Lex.hs). These must be
+-- excluded from symbol generation to prevent round-trip mismatches.
+unicodeOpChars :: [Char]
+unicodeOpChars = ['∷', '⇒', '→', '←', '∀', '★', '⤙', '⤚', '⤛', '⤜', '⦇', '⦈', '⟦', '⟧', '⊸']
+
 symbolChars :: [Char]
-symbolChars = filter isValidSymbolChar allChars
+symbolChars = filter (\c -> isValidSymbolChar c && c `notElem` unicodeOpChars) allChars
 
 varSymStartChars :: [Char]
 varSymStartChars = filter (/= ':') symbolChars
 
 reservedOperators :: Set.Set Text
-reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>", "→", "←", "⇒", "∷"]
+reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>"]
 
 -- | Canonical empty source span for normalization.
 span0 :: SourceSpan
