@@ -288,8 +288,9 @@ lexIdentifier env st =
                 (True, '.' :< dotRest@(opChar :< _))
                   | isSymbolicOpChar opChar ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
+                          opChars' = unescapeOpText opChars
                           fullOp = consumed <> "." <> opChars
-                          (modName, opName) = splitQualified (consumed <> ".") opChars
+                          (modName, opName) = splitQualified (consumed <> ".") opChars'
                           kind =
                             if opChar == ':'
                               then TkQConSym modName opName
@@ -647,16 +648,22 @@ lexOperator env st =
                in Just (mkToken st st' bananaText TkBananaClose, st')
             _ ->
               let st' = advanceChars opText st
+                  opText' = unescapeOpText opText
                   hasUnicode = hasExt UnicodeSyntax env
                   kind =
-                    case reservedOpTokenKind opText of
+                    case reservedOpTokenKind opText' of
                       Just reserved -> reserved
                       Nothing
-                        | hasArrows, Just arrowKind <- arrowOpTokenKind opText -> arrowKind
-                        | hasUnicode -> unicodeOpTokenKind hasArrows opText c
-                        | c == ':' -> TkConSym opText
-                        | otherwise -> TkVarSym opText
-               in Just (mkToken st st' opText kind, st')
+                        | hasArrows, Just arrowKind <- arrowOpTokenKind opText' -> arrowKind
+                        | hasUnicode -> unicodeOpTokenKind hasArrows opText' c
+                        | c == ':' -> TkConSym opText'
+                        | otherwise -> TkVarSym opText'
+               in Just (mkToken st st' opText' kind, st')
+
+-- | Unescape operator text. The only escape sequence in operators is
+-- '\`' for a literal backtick character.
+unescapeOpText :: Text -> Text
+unescapeOpText = T.replace "\\`" "`"
 
 unicodeOpTokenKind :: Bool -> Text -> Char -> LexTokenKind
 unicodeOpTokenKind hasArrows txt firstChar

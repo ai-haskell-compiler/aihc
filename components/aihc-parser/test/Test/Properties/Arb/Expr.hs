@@ -693,6 +693,7 @@ shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
     EVar name -> [EVar (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
+    ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
     EInt value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EIntHash value _ -> [EIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EIntBase value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]

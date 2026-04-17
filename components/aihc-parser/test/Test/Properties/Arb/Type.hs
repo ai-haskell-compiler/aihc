@@ -58,7 +58,7 @@ genType depth
           (1, pure TStar),
           (1, pure TWildcard),
           (2, TQuasiQuote <$> genQuoterName <*> genQuasiBody),
-          (2, TForall <$> genTypeBinders <*> genForallInner (depth - 1)),
+          (2, TForall <$> genForallTelescope <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
           (4, genTypeFun depth),
           (3, TTuple Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
@@ -214,22 +214,26 @@ genTypeBinders = do
   n <- chooseInt (1, 3)
   vectorOf n genTyVarBinder
 
+genForallTelescope :: Gen ForallTelescope
+genForallTelescope =
+  ForallTelescope <$> elements [ForallInvisible, ForallVisible] <*> genTypeBinders
+
 genTyVarBinder :: Gen TyVarBinder
 genTyVarBinder = do
   name <- genTypeVarName
   oneof
     [ -- Plain specified binder: a
-      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified),
+      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified TyVarBVisible),
       -- Plain inferred binder: {a}
-      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred),
+      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred TyVarBVisible),
       -- Kinded inferred binder: {a :: Kind}
       do
         kind <- genSimpleTypeAtom 0
-        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred),
+        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred TyVarBVisible),
       -- Kinded specified binder: (a :: Kind)
       do
         kind <- genSimpleTypeAtom 0
-        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified)
+        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified TyVarBVisible)
     ]
 
 genTypeVarName :: Gen UnqualifiedName
@@ -297,10 +301,10 @@ shrinkType ty =
     TQuasiQuote quoter body ->
       [TQuasiQuote q body | q <- shrinkIdent quoter]
         <> [TQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
-    TForall binders inner ->
+    TForall telescope inner ->
       [inner]
-        <> [TForall binders' inner | binders' <- shrinkTypeBinders binders]
-        <> [TForall binders inner' | inner' <- shrinkType inner]
+        <> [TForall telescope' inner | telescope' <- shrinkForallTelescope telescope]
+        <> [TForall telescope inner' | inner' <- shrinkType inner]
     TApp fn arg ->
       [fn, arg]
         <> [TApp fn' arg | fn' <- shrinkType fn]
@@ -342,6 +346,15 @@ shrinkTypeBinders binders =
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =
   [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
+
+shrinkForallTelescope :: ForallTelescope -> [ForallTelescope]
+shrinkForallTelescope telescope =
+  [ telescope {forallTelescopeBinders = binders'}
+  | binders' <- shrinkTypeBinders (forallTelescopeBinders telescope)
+  ]
+    <> [ telescope {forallTelescopeVisibility = ForallInvisible}
+       | forallTelescopeVisibility telescope == ForallVisible
+       ]
 
 shrinkTypeTupleElems :: TupleFlavor -> [Type] -> [Type]
 shrinkTypeTupleElems tupleFlavor elems =

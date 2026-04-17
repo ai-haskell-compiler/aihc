@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail required type argument in pattern -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RequiredTypeArguments #-}
 module Pattern where
 
