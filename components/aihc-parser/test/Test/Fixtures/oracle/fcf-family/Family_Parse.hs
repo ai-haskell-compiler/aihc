@@ -1,6 +1,9 @@
+{- ORACLE_TEST
+xfail ai-parse-rejects
+--
+Minimal snippet inspired by fcf-family Family.hs parse errors
+--}
 {-# LANGUAGE GHC2021 #-}
-
--- Minimal snippet inspired by fcf-family Family.hs parse errors
 
 type Name = Symbol
 
