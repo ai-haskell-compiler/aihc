@@ -440,12 +440,13 @@ atomExprParser = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
+  requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
     TkKeywordType
-      | explicitNamespacesEnabled -> explicitTypeExprParser
+      | explicitNamespacesEnabled || requiredTypeArgumentsEnabled -> explicitTypeExprParser
     _ ->
       MP.try prefixNegateAtomExprParser
         <|> MP.try parenOperatorExprParser

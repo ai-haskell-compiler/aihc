@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail required type argument in expression -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RequiredTypeArguments #-}
 module Basic where
 

@@ -109,6 +109,7 @@ patternAtomParser = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
+  requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
   typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
@@ -118,7 +119,7 @@ patternAtomParser = do
     TkPrefixBang -> strictPatternParser
     TkPrefixTilde -> irrefutablePatternParser
     TkKeywordType
-      | explicitNamespacesEnabled -> explicitTypePatternParser
+      | explicitNamespacesEnabled || requiredTypeArgumentsEnabled -> explicitTypePatternParser
     TkQuasiQuote {} -> quasiQuotePatternParser
     TkTHSplice | thAny -> thSplicePatternParser
     TkKeywordUnderscore -> wildcardPatternParser
