@@ -1294,7 +1294,7 @@ declTypeParamParser = MP.try invisibleDeclTypeParamParser <|> explicitForallBind
 
 invisibleDeclTypeParamParser :: TokParser TyVarBinder
 invisibleDeclTypeParamParser = withSpan $ do
-  expectedTok TkReservedAt
+  expectedTok TkTypeApp
   ( do
       ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
       pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBInvisible)

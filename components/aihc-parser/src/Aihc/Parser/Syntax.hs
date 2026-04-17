@@ -140,7 +140,6 @@ module Aihc.Parser.Syntax
     literalAnnSpan,
     peelLiteralAnn,
     typeAnnSpan,
-    tyVarBinderNameText,
   )
 where
 
@@ -580,9 +579,11 @@ impliedExtensions =
     (Strict, [EnableExtension StrictData]),
     (TemplateHaskell, [EnableExtension TemplateHaskellQuotes]),
     (TypeFamilies, [EnableExtension ExplicitNamespaces, EnableExtension KindSignatures, EnableExtension MonoLocalBinds]),
+    (TypeAbstractions, [EnableExtension TypeApplications]),
     (TypeFamilyDependencies, [EnableExtension TypeFamilies]),
     (TypeInType, [EnableExtension PolyKinds, EnableExtension DataKinds, EnableExtension KindSignatures]),
     (TypeOperators, [EnableExtension ExplicitNamespaces]),
+    (RequiredTypeArguments, [EnableExtension TypeApplications]),
     (UnboxedTuples, [EnableExtension UnboxedSums]),
     (UnliftedDatatypes, [EnableExtension DataKinds, EnableExtension StandaloneKindSignatures])
   ]
@@ -1222,9 +1223,6 @@ data TyVarBinder = TyVarBinder
 
 instance HasSourceSpan TyVarBinder where
   getSourceSpan = tyVarBinderSpan
-
-tyVarBinderNameText :: TyVarBinder -> Text
-tyVarBinderNameText = tyVarBinderName
 
 data TypeHeadForm
   = TypeHeadPrefix

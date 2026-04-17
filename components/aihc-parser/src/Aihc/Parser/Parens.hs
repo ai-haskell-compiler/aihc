@@ -1040,8 +1040,8 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ typeArgs (_ : _)
-      | null typeArgs -> wrapPat True (addPatternParens pat)
+    PCon _ typeArgs args
+      | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 

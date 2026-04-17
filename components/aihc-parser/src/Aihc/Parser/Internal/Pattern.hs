@@ -113,7 +113,7 @@ patternAtomParser = do
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkReservedAt
+    TkTypeApp
       | typeAbstractionsEnabled -> typeBinderPatternParser
     TkPrefixBang -> strictPatternParser
     TkPrefixTilde -> irrefutablePatternParser
@@ -150,7 +150,7 @@ patternAtomParser = do
 
 typeBinderPatternParser :: TokParser Pattern
 typeBinderPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  expectedTok TkReservedAt
+  expectedTok TkTypeApp
   PTypeBinder <$> visibleTypeBinderCoreParser
 
 explicitTypePatternParser :: TokParser Pattern

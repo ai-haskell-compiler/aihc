@@ -249,6 +249,7 @@ buildTests = do
             testCase "parses lambda type binders" test_lambdaTypeBinderParses,
             testCase "parses function head type binders" test_functionHeadTypeBinderParses,
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
+            testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
@@ -733,6 +734,21 @@ test_invisibleTypeDeclBinderParses =
         TVar "a" <- stripTypeAnnotations body ->
           pure ()
     other -> assertFailure ("expected invisible type declaration binder, got: " <> show other)
+
+test_constructorPatternWithTypeArgParses :: Assertion
+test_constructorPatternWithTypeArgParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeApplications, TypeAbstractions]} "f (Just @Int x) = x" of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [outerPat], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+          | PCon con typeArgs args <- peelPatternAnn outerPat,
+            nameText con == "Just",
+            [typeArg] <- typeArgs,
+            TCon "Int" Unpromoted <- stripTypeAnnotations typeArg,
+            [PVar_ "x"] <- args ->
+              pure ()
+        other -> assertFailure ("expected constructor pattern with type arg, got: " <> show other)
+    other -> assertFailure ("expected parse success, got: " <> show other)
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =

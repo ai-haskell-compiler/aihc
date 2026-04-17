@@ -353,6 +353,9 @@ shrinkForallTelescope telescope =
   [ telescope {forallTelescopeBinders = binders'}
   | binders' <- shrinkTypeBinders (forallTelescopeBinders telescope)
   ]
+    <> [ telescope {forallTelescopeVisibility = ForallInvisible}
+       | forallTelescopeVisibility telescope == ForallVisible
+       ]
 
 shrinkTypeTupleElems :: TupleFlavor -> [Type] -> [Type]
 shrinkTypeTupleElems tupleFlavor elems =

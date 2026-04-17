@@ -805,10 +805,15 @@ startsWithAsPattern =
     _ <- identifierTextParser
     expectedTok TkReservedAt
 
+-- | Non-consuming lookahead: does the input start with a type binder (@\@@var or @\@@_)?
+-- 'TypeAbstractions' implies 'TypeApplications', so the lexer emits 'TkTypeApp' when @\@@
+-- is preceded by whitespace (e.g. in @f @a@ or @type T @k@) and 'TkReservedAt' when there
+-- is no preceding whitespace (e.g. as-pattern @x@p@). Both tokens are checked here so that
+-- this lookahead remains safe even in contexts where 'TypeApplications' is absent.
 startsWithTypeBinder :: TokParser Bool
 startsWithTypeBinder =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    MP.choice [expectedTok TkReservedAt, expectedTok TkTypeApp]
+    MP.choice [expectedTok TkTypeApp, expectedTok TkReservedAt]
     _ <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
     pure ()
 
