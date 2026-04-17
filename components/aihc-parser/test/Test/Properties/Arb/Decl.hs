@@ -151,7 +151,7 @@ genPatternWithoutLeadingNegArg n =
 startsWithConstructorNegativeLiteral :: Pattern -> Bool
 startsWithConstructorNegativeLiteral pat =
   case pat of
-    PCon _ (PNegLit {} : _) -> True
+    PCon _ _ (PNegLit {} : _) -> True
     PParen inner -> startsWithConstructorNegativeLiteral inner
     _ -> False
 
@@ -213,8 +213,8 @@ genDeclTypeSynInfix = do
   name <- oneof [genConSym, genConIdent]
   lhsName <- genIdent
   rhsName <- genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
   body <- genSimpleType
   pure $
     DeclTypeSyn
@@ -260,9 +260,9 @@ genDeclDataInfix = do
   rhsName <- genIdent
   extraCount <- chooseInt (0, 2)
   extraNames <- vectorOf extraCount genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
-      extraParams = [TyVarBinder [] n Nothing TyVarBSpecified | n <- extraNames]
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
+      extraParams = [TyVarBinder [] n Nothing TyVarBSpecified TyVarBVisible | n <- extraNames]
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
@@ -651,8 +651,8 @@ genDeclClassInfix = do
   lhsName <- genIdent
   rhsName <- genIdent
   ctx <- genOptionalSimpleContext
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       params = [lhs, rhs]
   items <- genClassDeclItems params
   pure $
@@ -840,8 +840,8 @@ genDeclTypeFamilyDeclInfix = do
   name <- nameText
   lhsName <- genIdent
   rhsName <- genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
       headType = TApp (TApp (TCon (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted) lhsType) rhsType
@@ -1017,7 +1017,7 @@ genDeclPatSyn = do
   argName <- genIdent
   conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   let args = PatSynPrefixArgs [argName]
-      pat = PCon conName [PVar (mkUnqualifiedName NameVarId argName)]
+      pat = PCon conName [] [PVar (mkUnqualifiedName NameVarId argName)]
   dir <- elements [PatSynBidirectional, PatSynUnidirectional]
   pure $ DeclPatSyn (PatSynDecl synName args pat dir)
 
@@ -1036,7 +1036,7 @@ genDeclStandaloneKindSig = do
 genSimpleTyVarBinders :: Gen [TyVarBinder]
 genSimpleTyVarBinders = do
   n <- chooseInt (0, 2)
-  vectorOf n (TyVarBinder [] <$> genIdent <*> pure Nothing <*> pure TyVarBSpecified)
+  vectorOf n (TyVarBinder [] <$> genIdent <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible)
 
 -- | Generate a simple type for use in declaration contexts.
 genSimpleType :: Gen Type
@@ -1275,7 +1275,7 @@ shrinkDataConDecl con =
       [GadtCon forall' ctx names' body | names' <- shrinkList (const []) names, not (null names')]
         <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
         <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
-        <> [GadtCon forall'' ctx names body | forall'' <- shrinkTyVarBinders forall']
+        <> [GadtCon forall'' ctx names body | forall'' <- shrinkForallTelescopes forall']
 
 shrinkGadtBody :: GadtBody -> [GadtBody]
 shrinkGadtBody body =
@@ -1419,6 +1419,14 @@ shrinkTyVarBinders = shrinkList shrinkTyVarBinder
   where
     shrinkTyVarBinder tvb =
       [tvb {tyVarBinderName = n'} | n' <- shrinkIdent (tyVarBinderName tvb)]
+
+shrinkForallTelescopes :: [ForallTelescope] -> [[ForallTelescope]]
+shrinkForallTelescopes = shrinkList shrinkForallTelescope
+  where
+    shrinkForallTelescope telescope =
+      [ telescope {forallTelescopeBinders = binders'}
+      | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
+      ]
 
 shrinkTypeHeadParams :: TypeHeadForm -> [TyVarBinder] -> [[TyVarBinder]]
 shrinkTypeHeadParams headForm params =
