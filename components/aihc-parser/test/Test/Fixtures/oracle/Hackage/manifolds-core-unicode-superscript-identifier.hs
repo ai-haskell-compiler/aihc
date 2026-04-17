@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="superscript digit identifiers are rejected in type constructor names" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module M where

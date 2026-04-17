@@ -154,7 +154,7 @@ module Aihc.Parser.Syntax
 where
 
 import Control.DeepSeq (NFData (..))
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.List (sort)
@@ -730,12 +730,12 @@ nameFromText txt =
 
     isModuleSegment segment =
       case T.uncons segment of
-        Just (c, rest) -> isAsciiUpper c && T.all isIdentChar rest
+        Just (c, rest) -> isConIdentifierStartChar c && T.all isIdentChar rest
         Nothing -> False
 
     isIdentifierSegment segment =
       case T.uncons segment of
-        Just (c, rest) -> (isAsciiUpper c || isAsciiLower c || c == '_') && T.all isIdentChar rest
+        Just (c, rest) -> isIdentifierStartChar c && T.all isIdentChar rest
         Nothing -> False
 
 unqualifiedNameFromText :: Text -> UnqualifiedName
@@ -749,16 +749,42 @@ inferNameType localName
         else NameVarSym
   | otherwise =
       case T.uncons localName of
-        Just (c, _) | isAsciiUpper c -> NameConId
-        Just (c, _) | isAsciiLower c || c == '_' -> NameVarId
+        Just (c, _) | isConIdentifierStartChar c -> NameConId
+        Just (c, _) | isIdentifierStartChar c -> NameVarId
         _ -> NameConId
 
 isIdentChar :: Char -> Bool
-isIdentChar c = isAsciiUpper c || isAsciiLower c || isDigit c || c == '_' || c == '\''
+isIdentChar c = isIdentifierStartChar c || isIdentifierNumberChar c || c == '\''
+
+isIdentifierStartChar :: Char -> Bool
+isIdentifierStartChar c = c == '_' || generalCategory c == LowercaseLetter || isConIdentifierStartChar c
+
+isConIdentifierStartChar :: Char -> Bool
+isConIdentifierStartChar c = generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
+
+isIdentifierNumberChar :: Char -> Bool
+isIdentifierNumberChar c =
+  case generalCategory c of
+    DecimalNumber -> True
+    OtherNumber -> True
+    _ -> False
 
 isOperatorLikeText :: Text -> Bool
 isOperatorLikeText op =
-  not (T.null op) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) op
+  not (T.null op) && T.all isOperatorChar op
+
+isOperatorChar :: Char -> Bool
+isOperatorChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeOperatorChar c
+
+isUnicodeOperatorChar :: Char -> Bool
+isUnicodeOperatorChar c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    OtherPunctuation -> c > '\x7f'
+    _ -> False
 
 type BinderName = UnqualifiedName
 
