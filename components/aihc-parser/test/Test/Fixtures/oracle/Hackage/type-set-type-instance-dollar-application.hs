@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="type-set uses the type-level application operator $ in type instance heads, which the parser rejects" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeFamilies #-}

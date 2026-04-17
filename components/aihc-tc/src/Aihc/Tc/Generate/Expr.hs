@@ -22,7 +22,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     UnqualifiedName (..),
-    getSourceSpan,
+    getExprSourceSpan,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -38,7 +38,7 @@ import Data.Text qualified as T
 inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar (getSourceSpan expr) (nameToText name)
+  EVar name -> inferVar (getExprSourceSpan expr) (nameToText name)
   -- Integer literals: monomorphic Int for MVP.
   -- (Full version would use Num constraint.)
   EInt _ _ -> pure (intTyCon, [])
@@ -50,13 +50,13 @@ inferExpr expr = case expr of
   -- String literals.
   EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
-  ELambdaPats pats body -> inferLambda (getSourceSpan expr) pats body
+  ELambdaPats pats body -> inferLambda (getExprSourceSpan expr) pats body
   -- Lambda case: \case { pat -> body; ... }
-  ELambdaCase alts -> inferLambdaCase (getSourceSpan expr) alts
+  ELambdaCase alts -> inferLambdaCase (getExprSourceSpan expr) alts
   -- Application: f x
-  EApp fun arg -> inferApp (getSourceSpan expr) fun arg
+  EApp fun arg -> inferApp (getExprSourceSpan expr) fun arg
   -- If-then-else
-  EIf cond thenE elseE -> inferIf (getSourceSpan expr) cond thenE elseE
+  EIf cond thenE elseE -> inferIf (getExprSourceSpan expr) cond thenE elseE
   -- Let expression
   ELetDecls _decls body -> do
     -- MVP: infer body only (let bindings not yet processed).
@@ -77,12 +77,12 @@ inferExpr expr = case expr of
   -- Annotated expression (from other passes, e.g. resolve).
   EAnn _ann inner -> inferExpr inner
   -- Tuple
-  ETuple _flavor elems -> inferTuple (getSourceSpan expr) elems
+  ETuple _flavor elems -> inferTuple (getExprSourceSpan expr) elems
   -- List
-  EList elems -> inferList (getSourceSpan expr) elems
+  EList elems -> inferList (getExprSourceSpan expr) elems
   -- Unsupported expression forms for MVP.
   other -> do
-    let sp = getSourceSpan other
+    let sp = getExprSourceSpan other
     emitError sp (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
     pure (ty, [])

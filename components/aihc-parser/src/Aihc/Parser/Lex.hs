@@ -449,6 +449,11 @@ allowsMergeOrPrefix prev hadTrivia =
 prevTokenAllowsTightPrefix :: LexTokenKind -> Bool
 prevTokenAllowsTightPrefix kind =
   case kind of
+    TkTHTypeQuoteOpen -> True
+    TkTHExpQuoteOpen -> True
+    TkTHTypedQuoteOpen -> True
+    TkTHDeclQuoteOpen -> True
+    TkTHPatQuoteOpen -> True
     TkSpecialLParen -> True
     TkSpecialLBracket -> True
     TkSpecialLBrace -> True

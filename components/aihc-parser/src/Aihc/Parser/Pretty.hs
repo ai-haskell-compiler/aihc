@@ -284,16 +284,16 @@ prettyRole role =
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
   case valueDecl of
-    PatternBind _ pat rhs -> [prettyPattern pat <+> prettyRhs rhs]
-    FunctionBind _ name matches ->
+    PatternBind pat rhs -> [prettyPattern pat <+> prettyRhs rhs]
+    FunctionBind name matches ->
       concatMap (prettyFunctionMatchLines name) matches
 
 -- | Pretty-print a value declaration on a single line.
 prettyValueDeclSingleLine :: ValueDecl -> Doc ann
 prettyValueDeclSingleLine valueDecl =
   case valueDecl of
-    PatternBind _ pat rhs -> prettyPattern pat <+> prettyRhs rhs
-    FunctionBind _ name matches ->
+    PatternBind pat rhs -> prettyPattern pat <+> prettyRhs rhs
+    FunctionBind name matches ->
       hsep (punctuate semi (map (prettyFunctionMatch name) matches))
 
 -- | Pretty-print a pattern synonym declaration.
@@ -1437,7 +1437,14 @@ prettyTypeFamilyHead :: TypeHeadForm -> Type -> [TyVarBinder] -> [Doc ann]
 prettyTypeFamilyHead headForm headType params =
   case headForm of
     TypeHeadPrefix -> [prettyType headType] <> map prettyTyVarBinder params
-    TypeHeadInfix -> [prettyTypeFamilyInfix headType]
+    TypeHeadInfix ->
+      case (params, typeFamilyInfixAppView headType) of
+        ([lhs, rhs], Just (op, promoted, _, _)) ->
+          [ prettyTyVarBinder lhs,
+            (if promoted == Promoted then "'" else mempty) <> prettyNameInfixOp op,
+            prettyTyVarBinder rhs
+          ]
+        _ -> [prettyTypeFamilyInfix headType]
 
 prettyTypeFamilyLhs :: TypeHeadForm -> Type -> [Doc ann]
 prettyTypeFamilyLhs headForm lhs =

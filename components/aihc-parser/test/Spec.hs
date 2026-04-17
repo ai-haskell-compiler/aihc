@@ -9,6 +9,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
 import Data.List (isInfixOf)
@@ -25,7 +26,7 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
-import Test.Properties.Arb.Decl (genDeclDataFamilyInst)
+import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
@@ -243,6 +244,7 @@ buildTests = do
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
+            testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
             testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
@@ -250,6 +252,7 @@ buildTests = do
             testCase "parses function head type binders" test_functionHeadTypeBinderParses,
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
+            testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
@@ -327,6 +330,7 @@ buildTests = do
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
+            testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
             testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
             testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens,
             testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
@@ -358,6 +362,7 @@ buildTests = do
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
+              QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
@@ -375,7 +380,7 @@ test_moduleParsesDecls =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EIf_ (EVar_ "y") (EVar_ "z") (EVar_ "w")) _))
+          [ DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EIf_ (EVar_ "y") (EVar_ "z") (EVar_ "w")) _))
             ] ->
               pure ()
           other ->
@@ -595,20 +600,19 @@ test_ifElseWhereBranchRoundtrip =
       expectedDecl =
         DeclValue
           ( FunctionBind
-              span0
               "x"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [],
-                    matchRhs = UnguardedRhs span0 (expr0 (EIf (expr0 (EVar "b")) (expr0 (ETuple Boxed [])) elseBranch)) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EIf (expr0 (EVar "b")) (expr0 (ETuple Boxed [])) elseBranch)) Nothing
                   }
               ]
           )
       source =
         renderStrict . layoutPretty defaultLayoutOptions . pretty $
           Module
-            { moduleSpan = span0,
+            { moduleAnns = [],
               moduleHead = Nothing,
               moduleLanguagePragmas = [],
               moduleImports = [],
@@ -641,7 +645,7 @@ test_mdoViewPatternParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
+          [DeclValue (FunctionBind "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
@@ -674,6 +678,35 @@ test_infixTypeFamilyHeadRoundtrip =
         case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
           Nothing -> pure ()
           Just err -> assertFailure ("expected infix type family head roundtrip to validate, got: " <> show err)
+
+test_infixTypeFamilyEquationWithApplicationOperands :: Assertion
+test_infixTypeFamilyEquationWithApplicationOperands =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GHC2021, DataKinds, TypeFamilies, TypeOperators, NoStarIsType #-}",
+            "module M where",
+            "type family (a :: ExactPi') * (b :: ExactPi') :: ExactPi' where",
+            "  'ExactPi z p q * 'ExactPi z' p' q' = 'ExactPi undefined undefined undefined"
+          ]
+      exts = [EnableExtension GHC2021, EnableExtension DataKinds, EnableExtension TypeFamilies, EnableExtension TypeOperators, DisableExtension StarIsType]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = effectiveExtensions Haskell2010Edition exts} source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [ DeclTypeFamilyDecl
+              TypeFamilyDecl
+                { typeFamilyDeclHeadForm = TypeHeadInfix,
+                  typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
+                }
+            ]
+              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+                TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
+                TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
+                  pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+        case validateParser "TypeFamilyInfixStarEquation.hs" Haskell2010Edition exts source of
+          Nothing -> pure ()
+          Just err -> assertFailure ("expected infix type family equation with application operands to validate, got: " <> show err)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
@@ -1058,8 +1091,8 @@ test_overloadedLabelExprParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EOverloadedLabel_ "typeUrl" "#typeUrl") _)),
-            DeclValue (PatternBind _ (PVar_ "y") (UnguardedRhs _ (EOverloadedLabel_ "The quick brown fox" "#\"The quick brown fox\"") _))
+          [ DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EOverloadedLabel_ "typeUrl" "#typeUrl") _)),
+            DeclValue (PatternBind (PVar_ "y") (UnguardedRhs _ (EOverloadedLabel_ "The quick brown fox" "#\"The quick brown fox\"") _))
             ] -> pure ()
           other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
@@ -1319,7 +1352,7 @@ parseDoStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1332,7 +1365,7 @@ parseDoStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EDo_ stmts _) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1447,7 +1480,7 @@ parseGuards src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
+          [DeclValue (FunctionBind _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1458,7 +1491,7 @@ parseGuardsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
+          [DeclValue (FunctionBind _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1476,13 +1509,12 @@ test_prettyGuardLambdaRoundTrip = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PVar "x")],
-                    matchRhs = UnguardedRhs span0 caseExpr Nothing
+                    matchRhs = UnguardedRhs [] caseExpr Nothing
                   }
               ]
           )
@@ -1491,13 +1523,13 @@ test_prettyGuardLambdaRoundTrip = do
           ( ECase
               (expr0 (EVar "x"))
               [ CaseAlt
-                  { caseAltSpan = span0,
+                  { caseAltAnns = [],
                     caseAltPattern = pat0 (PVar "y"),
                     caseAltRhs =
                       GuardedRhss
-                        span0
+                        []
                         [ GuardedRhs
-                            { guardedRhsSpan = span0,
+                            { guardedRhsAnns = [],
                               guardedRhsGuards =
                                 [ GuardAnn
                                     (mkAnnotation span0)
@@ -1525,17 +1557,16 @@ test_prettyGuardLetFormatting = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PVar "n")],
                     matchRhs =
                       GuardedRhss
-                        span0
+                        []
                         [ GuardedRhs
-                            { guardedRhsSpan = span0,
+                            { guardedRhsAnns = [],
                               guardedRhsGuards =
                                 [ GuardAnn
                                     (mkAnnotation span0)
@@ -1543,7 +1574,7 @@ test_prettyGuardLetFormatting = do
                                         ( expr0
                                             ( ELetDecls
                                                 [ DeclValue
-                                                    (FunctionBind span0 "x" [Match {matchSpan = span0, matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs span0 (expr0 (EInt 1 "1")) Nothing}])
+                                                    (FunctionBind "x" [Match {matchAnns = [], matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing}])
                                                 ]
                                                 (expr0 (EInfix (expr0 (EVar "x")) (qualifyName Nothing ">") (expr0 (EInt 0 "0"))))
                                             )
@@ -1565,13 +1596,12 @@ test_prettyFunctionHeadListViewPattern = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "fn"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PList [pat0 (PView (expr0 (EVar "id")) (pat0 (PVar "x")))])],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1604,13 +1634,12 @@ test_prettyPrefixFunctionHeadRecordPattern = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "f"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "Point")) [] True)],
-                    matchRhs = UnguardedRhs span0 (expr0 (EInt 0 "0")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
                   }
               ]
           )
@@ -1623,13 +1652,12 @@ test_prettyInfixFunctionHeadConstructorPatterns = do
       decl =
         DeclValue
           ( FunctionBind
-              span0
               "=="
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadInfix,
                     matchPats = [box "x", box "y"],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1641,13 +1669,12 @@ test_prettyInfixFunctionHeadIrrefutablePatterns = do
   let decl =
         DeclValue
           ( FunctionBind
-              span0
               "combine"
               [ Match
-                  { matchSpan = span0,
+                  { matchAnns = [],
                     matchHeadForm = MatchHeadInfix,
                     matchPats = [pat0 (PIrrefutable (pat0 (PVar "x"))), pat0 (PVar "y")],
-                    matchRhs = UnguardedRhs span0 (expr0 (EVar "x")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
                   }
               ]
           )
@@ -1666,7 +1693,7 @@ test_prettyViewLetTypeSigParens = do
       viewExpr =
         expr0
           ( ELetDecls
-              [DeclValue (PatternBind span0 (pat0 (PVar (mkUnqualifiedName NameVarId "x"))) (UnguardedRhs span0 unboxedUnit Nothing))]
+              [DeclValue (PatternBind (pat0 (PVar (mkUnqualifiedName NameVarId "x"))) (UnguardedRhs [] unboxedUnit Nothing))]
               (expr0 (ETypeSig unboxedUnit tyCon))
           )
       pat = pat0 (PView viewExpr (pat0 (PList [])))
@@ -1686,7 +1713,7 @@ test_prettyGuardPatTypeSigParens = do
       guardExpr = expr0 (ETypeSig (expr0 (EInt 262 "262")) tyCon)
       grhs =
         GuardedRhs
-          { guardedRhsSpan = span0,
+          { guardedRhsAnns = [],
             guardedRhsGuards = [GuardAnn (mkAnnotation span0) (GuardPat (pat0 (PTuple Boxed [])) guardExpr)],
             guardedRhsBody = expr0 (ETuple Boxed [])
           }
@@ -1718,6 +1745,34 @@ test_dataFamilyInstanceKindSignatureRoundTrip = do
     ParseErr err ->
       assertFailure ("expected data family instance kind signature to parse, got:\n" <> MPE.errorBundlePretty err)
 
+test_typeFamilyInstanceInfixAppliedOperandsRoundTrip :: Assertion
+test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
+  let lhs =
+        TApp
+          ( TApp
+              (TCon (qualifyName Nothing (mkUnqualifiedName NameVarSym "$")) Unpromoted)
+              (TApp (TVar "a") (TVar "b"))
+          )
+          (TVar "c")
+      rhs = TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "F")) Unpromoted) (TVar "d")
+      decl =
+        DeclTypeFamilyInst
+          TypeFamilyInst
+            { typeFamilyInstForall = [],
+              typeFamilyInstHeadForm = TypeHeadInfix,
+              typeFamilyInstLhs = lhs,
+              typeFamilyInstRhs = rhs
+            }
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool
+    ("expected bare type applications in infix type family instance, got:\n" <> T.unpack source)
+    (source == "type instance a b $ c = F d")
+  case parseDecl defaultConfig source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= normalizeDecl decl
+    ParseErr err ->
+      assertFailure ("expected infix type family instance with bare applications to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
   let samples = sampleGen 6000 genDeclDataFamilyInst
@@ -1726,6 +1781,36 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
+prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
+  let samples = sampleGen 6000 genDeclTypeFamilyInst
+      lhsMatches =
+        [ decl
+        | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstHeadForm = TypeHeadInfix, typeFamilyInstLhs}) <- samples,
+          case stripTypeAnnotations typeFamilyInstLhs of
+            TApp (TApp _ lhsOperand) rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
+            _ -> False
+        ]
+      rhsMatches =
+        [ decl
+        | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstRhs}) <- samples,
+          isBareTypeApp (stripTypeAnnotations typeFamilyInstRhs)
+        ]
+   in counterexample
+        ( "expected generated type family instances with bare applications in infix operands and rhs; sampled "
+            <> show (length samples)
+            <> ", lhs matches="
+            <> show (length lhsMatches)
+            <> ", rhs matches="
+            <> show (length rhsMatches)
+        )
+        (not (null lhsMatches) && not (null rhsMatches))
+  where
+    isBareTypeApp ty =
+      case ty of
+        TApp {} -> True
+        _ -> False
 
 test_guardPatBind :: Assertion
 test_guardPatBind =
@@ -1802,7 +1887,7 @@ parseCompStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1814,7 +1899,7 @@ parseCompStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (EListComp_ _ stmts) _))] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1894,7 +1979,7 @@ parseLetDecls src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (PatternBind _ (PVar_ "x") (UnguardedRhs _ (ELetDecls_ decls _) _))] ->
+          [DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (ELetDecls_ decls _) _))] ->
             Right decls
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1927,49 +2012,49 @@ test_localDeclTypeSigUnicodeOp =
 test_localDeclFunPrefix :: Assertion
 test_localDeclFunPrefix =
   case parseLetDecls "let { f x = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
     other -> assertFailure ("expected prefix function bind, got: " <> show other)
 
 test_localDeclFunNoArgs :: Assertion
 test_localDeclFunNoArgs =
   case parseLetDecls "let { f = 5 } in f" of
-    Right [DeclValue (PatternBind _ (PVar_ "f") _)] -> pure ()
+    Right [DeclValue (PatternBind (PVar_ "f") _)] -> pure ()
     other -> assertFailure ("expected no-args function bind, got: " <> show other)
 
 test_localDeclPatTuple :: Assertion
 test_localDeclPatTuple =
   case parseLetDecls "let { (x, y) = (1, 2) } in x" of
-    Right [DeclValue (PatternBind _ (PTuple_ Boxed [PVar_ "x", PVar_ "y"]) _)] -> pure ()
+    Right [DeclValue (PatternBind (PTuple_ Boxed [PVar_ "x", PVar_ "y"]) _)] -> pure ()
     other -> assertFailure ("expected tuple pattern bind, got: " <> show other)
 
 test_localDeclPatCon :: Assertion
 test_localDeclPatCon =
   case parseLetDecls "let { Just x = Nothing } in x" of
-    Right [DeclValue (PatternBind _ (PCon_ "Just" [PVar_ "x"]) _)] -> pure ()
+    Right [DeclValue (PatternBind (PCon_ "Just" [PVar_ "x"]) _)] -> pure ()
     other -> assertFailure ("expected constructor pattern bind, got: " <> show other)
 
 test_localDeclPatWild :: Assertion
 test_localDeclPatWild =
   case parseLetDecls "let { _ = 5 } in 0" of
-    Right [DeclValue (PatternBind _ PWildcard_ _)] -> pure ()
+    Right [DeclValue (PatternBind PWildcard_ _)] -> pure ()
     other -> assertFailure ("expected wildcard pattern bind, got: " <> show other)
 
 test_localDeclFunGuarded :: Assertion
 test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
 
 test_localDeclPatRecordCon :: Assertion
 test_localDeclPatRecordCon =
   case parseTopDecl "BYys {} = ()" of
-    Right (DeclValue (PatternBind _ (PRecord_ "BYys" [] False) _)) -> pure ()
+    Right (DeclValue (PatternBind (PRecord_ "BYys" [] False) _)) -> pure ()
     other -> assertFailure ("expected record constructor pattern bind, got: " <> show other)
 
 test_localDeclPatUnboxedSum :: Assertion
 test_localDeclPatUnboxedSum =
   case parseTopDeclWithExts [UnboxedSums] "(#  |  |  | a #) = ()" of
-    Right (DeclValue (PatternBind _ (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
+    Right (DeclValue (PatternBind (PUnboxedSum_ 3 4 (PVar_ "a")) _)) -> pure ()
     other -> assertFailure ("expected unboxed sum pattern bind, got: " <> show other)
 
 test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr :: Assertion
@@ -1983,6 +2068,13 @@ test_templateHaskellQuotesLexesTypedSplice =
   case map lexTokenKind (lexTokensWithExtensions [TemplateHaskellQuotes] "$$(x)") of
     [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
     other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
+
+test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
+test_templateHaskellTypeQuoteParsesInfixSplices =
+  assertEqual
+    "expected type quote with infix TH splices shorthand"
+    "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl
@@ -2006,101 +2098,101 @@ parseTopDeclWithExts exts src =
 test_funHeadPrefix :: Assertion
 test_funHeadPrefix =
   case parseTopDecl "f x y = x + y" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix function bind, got: " <> show other)
 
 test_funHeadPrefixNoArgs :: Assertion
 test_funHeadPrefixNoArgs =
   case parseTopDecl "f = 5" of
-    Right (DeclValue (PatternBind _ (PVar_ "f") _)) -> pure ()
+    Right (DeclValue (PatternBind (PVar_ "f") _)) -> pure ()
     other -> assertFailure ("expected prefix function bind with no args, got: " <> show other)
 
 test_funHeadPrefixOp :: Assertion
 test_funHeadPrefixOp =
   case parseTopDecl "(+) x y = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix operator function bind, got: " <> show other)
 
 test_funHeadPrefixConstructorArg :: Assertion
 test_funHeadPrefixConstructorArg =
   case parseTopDecl "f (Just x) y = y" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PCon_ "Just" [PVar_ "x"], PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PCon_ "Just" [PVar_ "x"], PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixListViewPattern :: Assertion
 test_funHeadPrefixListViewPattern =
   case parseTopDeclWithExts [ViewPatterns] "fn [id -> x] = x" of
-    Right (DeclValue (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList_ [PView_ (EVar_ "id") (PVar_ "x")]]}])) -> pure ()
+    Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList_ [PView_ (EVar_ "id") (PVar_ "x")]]}])) -> pure ()
     other -> assertFailure ("expected list view-pattern argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
   case parseTopDeclWithExts [UnboxedTuples] "f (# x #) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTuple_ Unboxed [PVar_ "x"]]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTuple_ Unboxed [PVar_ "x"]]}])) -> pure ()
     other -> assertFailure ("expected singleton unboxed tuple argument in prefix function head, got: " <> show other)
 
 test_funHeadInfix :: Assertion
 test_funHeadInfix =
   case parseTopDecl "x + y = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected infix function bind, got: " <> show other)
 
 test_funHeadInfixBacktick :: Assertion
 test_funHeadInfixBacktick =
   case parseTopDecl "x `add` y = x" of
-    Right (DeclValue (FunctionBind _ "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected backtick infix function bind, got: " <> show other)
 
 test_funHeadInfixRecordRhs :: Assertion
 test_funHeadInfixRecordRhs =
   case parseTopDecl "x `f` (R {}) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PRecord_ "R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PRecord_ "R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with record rhs pattern, got: " <> show other)
 
 test_funHeadInfixTupleLhsQualifiedRecordRhs :: Assertion
 test_funHeadInfixTupleLhsQualifiedRecordRhs =
   case parseTopDecl "((x, _), K []) `f` (M.N.R {}) = x" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "M.N.R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "M.N.R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with tuple lhs and qualified record rhs pattern, got: " <> show other)
 
 test_funHeadInfixComplexTupleLhsQualifiedRecordRhs :: Assertion
 test_funHeadInfixComplexTupleLhsQualifiedRecordRhs =
   case parseTopDeclWithExts [UnboxedTuples, UnboxedSums, QuasiQuotes] "((#  |  | -0xbe |  #), ([g|f|]), (# x, _ #), M.C [] []) `f` (N.R {}) = ()" of
-    Right (DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "N.R" [] False]}])) -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple_ Boxed _, PRecord_ "N.R" [] False]}])) -> pure ()
     other -> assertFailure ("expected infix function bind with complex tuple lhs and qualified record rhs pattern, got: " <> show other)
 
 test_funHeadInfixThSpliceLhs :: Assertion
 test_funHeadInfixThSpliceLhs =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
-    Right (DeclValue (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
+    Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
     other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =
   case parseTopDecl "(x + y) = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected parenthesized infix function bind, got: " <> show other)
 
 test_funHeadParenInfixTail :: Assertion
 test_funHeadParenInfixTail =
   case parseTopDecl "(x + y) z = x" of
-    Right (DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y", PVar_ "z"]}])) -> pure ()
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y", PVar_ "z"]}])) -> pure ()
     other -> assertFailure ("expected parenthesized infix with tail, got: " <> show other)
 
 test_funHeadLocalPrefix :: Assertion
 test_funHeadLocalPrefix =
   case parseLetDecls "let { f x = x } in f 1" of
-    Right [DeclValue (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x"]}])] -> pure ()
     other -> assertFailure ("expected local prefix function bind, got: " <> show other)
 
 test_funHeadLocalInfix :: Assertion
 test_funHeadLocalInfix =
   case parseLetDecls "let { x + y = x } in 1 + 2" of
-    Right [DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
     other -> assertFailure ("expected local infix function bind, got: " <> show other)
 
 test_funHeadLocalPrefixOp :: Assertion
 test_funHeadLocalPrefixOp =
   case parseLetDecls "let { (+) x y = x } in 1 + 2" of
-    Right [DeclValue (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
+    Right [DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar_ "x", PVar_ "y"]}])] -> pure ()
     other -> assertFailure ("expected local prefix operator function bind, got: " <> show other)

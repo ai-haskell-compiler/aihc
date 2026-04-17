@@ -110,7 +110,7 @@ nonBareVarPatternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) 
   case pat of
     PVar {} -> fail "bare variable bindings are parsed as function declarations"
     _ -> do
-      DeclValue . PatternBind NoSourceSpan pat <$> equationRhsParser
+      DeclValue . PatternBind pat <$> equationRhsParser
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
@@ -159,8 +159,7 @@ typeDeclarationParser = do
       pure $
         DeclTypeSyn
           TypeSynDecl
-            { typeSynSpan = NoSourceSpan,
-              typeSynHeadForm = headForm,
+            { typeSynHeadForm = headForm,
               typeSynName = renderUnqualifiedName typeName,
               typeSynParams = typeParams,
               typeSynBody = body
@@ -177,8 +176,7 @@ roleAnnotationDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclRoleAnnotation
       RoleAnnotation
-        { roleAnnotationSpan = NoSourceSpan,
-          roleAnnotationName = typeName,
+        { roleAnnotationName = typeName,
           roleAnnotationRoles = roles
         }
 
@@ -253,8 +251,7 @@ typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeFamilyDecl
       TypeFamilyDecl
-        { typeFamilyDeclSpan = NoSourceSpan,
-          typeFamilyDeclHeadForm = headForm,
+        { typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -277,7 +274,7 @@ typeFamilyEqParser = withSpan $ do
   rhs <- typeParser
   pure $ \span' ->
     TypeFamilyEq
-      { typeFamilyEqSpan = span',
+      { typeFamilyEqAnns = [mkAnnotation span'],
         typeFamilyEqForall = forallBinders,
         typeFamilyEqHeadForm = headForm,
         typeFamilyEqLhs = lhs,
@@ -298,8 +295,7 @@ dataFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclDataFamilyDecl
       DataFamilyDecl
-        { dataFamilyDeclSpan = NoSourceSpan,
-          dataFamilyDeclName = name,
+        { dataFamilyDeclName = name,
           dataFamilyDeclParams = params,
           dataFamilyDeclKind = kind
         }
@@ -319,8 +315,7 @@ typeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeFamilyInst
       TypeFamilyInst
-        { typeFamilyInstSpan = NoSourceSpan,
-          typeFamilyInstForall = forallBinders,
+        { typeFamilyInstForall = forallBinders,
           typeFamilyInstHeadForm = headForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
@@ -338,8 +333,7 @@ dataFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclDataFamilyInst
       DataFamilyInst
-        { dataFamilyInstSpan = NoSourceSpan,
-          dataFamilyInstIsNewtype = False,
+        { dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = forallBinders,
           dataFamilyInstHead = head',
           dataFamilyInstKind = kind,
@@ -370,8 +364,7 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclDataFamilyInst
       DataFamilyInst
-        { dataFamilyInstSpan = NoSourceSpan,
-          dataFamilyInstIsNewtype = True,
+        { dataFamilyInstIsNewtype = True,
           dataFamilyInstForall = forallBinders,
           dataFamilyInstHead = head',
           dataFamilyInstKind = kind,
@@ -387,23 +380,19 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- Callers must ensure the next token after @type@ is not @instance@
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
-classTypeFamilyDeclParser = withSpan $ do
+classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
-  pure $ \span' ->
-    ClassItemAnn
-      (mkAnnotation span')
-      ( ClassItemTypeFamilyDecl
-          TypeFamilyDecl
-            { typeFamilyDeclSpan = span',
-              typeFamilyDeclHeadForm = headForm,
-              typeFamilyDeclHead = headType,
-              typeFamilyDeclParams = params,
-              typeFamilyDeclKind = kind,
-              typeFamilyDeclEquations = Nothing
-            }
-      )
+  pure $
+    ClassItemTypeFamilyDecl
+      TypeFamilyDecl
+        { typeFamilyDeclHeadForm = headForm,
+          typeFamilyDeclHead = headType,
+          typeFamilyDeclParams = params,
+          typeFamilyDeclKind = kind,
+          typeFamilyDeclEquations = Nothing
+        }
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -415,8 +404,7 @@ classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   pure
     ( ClassItemDataFamilyDecl
         DataFamilyDecl
-          { dataFamilyDeclSpan = NoSourceSpan,
-            dataFamilyDeclName = name,
+          { dataFamilyDeclName = name,
             dataFamilyDeclParams = params,
             dataFamilyDeclKind = kind
           }
@@ -434,8 +422,7 @@ classDefaultTypeInstParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   pure
     ( ClassItemDefaultTypeInst
         TypeFamilyInst
-          { typeFamilyInstSpan = NoSourceSpan,
-            typeFamilyInstForall = forallBinders,
+          { typeFamilyInstForall = forallBinders,
             typeFamilyInstHeadForm = headForm,
             typeFamilyInstLhs = lhs,
             typeFamilyInstRhs = rhs
@@ -454,8 +441,7 @@ classDefaultTypeInstShorthandParser = withSpanAnn (ClassItemAnn . mkAnnotation) 
   pure
     ( ClassItemDefaultTypeInst
         TypeFamilyInst
-          { typeFamilyInstSpan = NoSourceSpan,
-            typeFamilyInstForall = forallBinders,
+          { typeFamilyInstForall = forallBinders,
             typeFamilyInstHeadForm = headForm,
             typeFamilyInstLhs = lhs,
             typeFamilyInstRhs = rhs
@@ -476,8 +462,7 @@ instanceTypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   pure $
     InstanceItemTypeFamilyInst
       TypeFamilyInst
-        { typeFamilyInstSpan = NoSourceSpan,
-          typeFamilyInstForall = forallBinders,
+        { typeFamilyInstForall = forallBinders,
           typeFamilyInstHeadForm = headForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
@@ -493,8 +478,7 @@ instanceDataFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   pure $
     InstanceItemDataFamilyInst
       DataFamilyInst
-        { dataFamilyInstSpan = NoSourceSpan,
-          dataFamilyInstIsNewtype = False,
+        { dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
           dataFamilyInstKind = kind,
@@ -523,8 +507,7 @@ instanceNewtypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $
   pure $
     InstanceItemDataFamilyInst
       DataFamilyInst
-        { dataFamilyInstSpan = NoSourceSpan,
-          dataFamilyInstIsNewtype = True,
+        { dataFamilyInstIsNewtype = True,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
           dataFamilyInstKind = kind,
@@ -605,8 +588,7 @@ classDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclClass
       ClassDecl
-        { classDeclSpan = NoSourceSpan,
-          classDeclContext = context,
+        { classDeclContext = context,
           classDeclHeadForm = headForm,
           classDeclName = className,
           classDeclParams = classParams,
@@ -626,7 +608,7 @@ classFundepParser = withSpan $ do
   determines <- MP.many lowerIdentifierParser
   pure $ \span' ->
     FunctionalDependency
-      { functionalDependencySpan = span',
+      { functionalDependencyAnns = [mkAnnotation span'],
         functionalDependencyDeterminers = determinedBy,
         functionalDependencyDetermined = determines
       }
@@ -706,8 +688,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclInstance
       InstanceDecl
-        { instanceDeclSpan = NoSourceSpan,
-          instanceDeclOverlapPragma = overlapPragma,
+        { instanceDeclOverlapPragma = overlapPragma,
           instanceDeclWarning = warningText,
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
@@ -732,8 +713,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
-        { standaloneDerivingSpan = NoSourceSpan,
-          standaloneDerivingStrategy = strategy,
+        { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = viaTy,
           standaloneDerivingOverlapPragma = overlapPragma,
           standaloneDerivingWarning = warningText,
@@ -837,8 +817,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclForeign
       ForeignDecl
-        { foreignDeclSpan = NoSourceSpan,
-          foreignDirection = direction,
+        { foreignDirection = direction,
           foreignCallConv = callConv,
           foreignSafety = safety,
           foreignEntity = fromMaybe ForeignEntityOmitted entity,
@@ -888,8 +867,7 @@ dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclData
       DataDecl
-        { dataDeclSpan = NoSourceSpan,
-          dataDeclHeadForm = headForm,
+        { dataDeclHeadForm = headForm,
           dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -928,8 +906,7 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeData
       DataDecl
-        { dataDeclSpan = NoSourceSpan,
-          dataDeclHeadForm = headForm,
+        { dataDeclHeadForm = headForm,
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -953,7 +930,7 @@ typeDataConDeclParser = withSpan $ do
   -- Parse arguments (no strictness, no records)
   -- Use typeAtomParser to parse individual type atoms as separate fields,
   -- rather than typeAppParser which would treat them as type application.
-  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False False <$> typeAtomParser
+  args <- MP.many $ BangType [] NoSourceUnpackedness False False <$> typeAtomParser
   pure $ \span' -> DataConAnn (mkAnnotation span') (PrefixCon [] context conName args)
 
 -- | Parse GADT-style constructors for type data (after `where`)
@@ -997,7 +974,7 @@ gadtTypeDataBodyParser = do
   case allTypes of
     [resultTy] -> pure (GadtPrefixBody [] resultTy)
     _ ->
-      let argTypes = map (BangType noSourceSpan NoSourceUnpackedness False False) (init allTypes)
+      let argTypes = map (BangType [] NoSourceUnpackedness False False) (init allTypes)
           resultTy = last allTypes
        in pure (GadtPrefixBody argTypes resultTy)
 
@@ -1007,7 +984,7 @@ dataConDeclParser = withSpan $ do
   MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 newtypeDeclParser :: TokParser Decl
-newtypeDeclParser = withSpan $ do
+newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
   (headForm, typeName, typeParams) <- typeDeclHeadParser
@@ -1015,11 +992,10 @@ newtypeDeclParser = withSpan $ do
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
-  pure $ \span' ->
+  pure $
     DeclNewtype
       NewtypeDecl
-        { newtypeDeclSpan = span',
-          newtypeDeclHeadForm = headForm,
+        { newtypeDeclHeadForm = headForm,
           newtypeDeclContext = fromMaybe [] context,
           newtypeDeclName = typeName,
           newtypeDeclParams = typeParams,
@@ -1130,7 +1106,7 @@ gadtBangTypeParser = withSpan $ do
   ty <- typeInfixParser
   pure $ \span' ->
     BangType
-      { bangSpan = span',
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
@@ -1197,9 +1173,9 @@ typeFamilyHeadParser =
       op <- typeFamilyOperatorParser
       rhs <- declTypeParamParser
       let lhsType =
-            typeAnnSpan (tyVarBinderSpan lhs) (TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs)))
+            TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
           rhsType =
-            typeAnnSpan (tyVarBinderSpan rhs) (TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs)))
+            TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
       headType <- withSpan $ do
         pure $ \span' ->
           typeAnnSpan
@@ -1228,29 +1204,24 @@ typeFamilyOperatorParser =
 
 typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
 typeFamilyLhsParser = do
-  lhs <- typeAtomParser
+  lhs <- typeAppParser
   hasInfixTail <- MP.optional (lookAhead typeInfixOperatorParser)
   case hasInfixTail of
     Just _ -> do
       rest <- typeHeadInfixTailParser
       pure (TypeHeadInfix, foldl buildInfixType lhs rest)
-    Nothing -> do
-      rest <- MP.many typeAtomParser
-      pure (TypeHeadPrefix, foldl buildTypeApp lhs rest)
+    Nothing ->
+      pure (TypeHeadPrefix, lhs)
   where
     typeHeadInfixTailParser :: TokParser [((Name, TypePromotion), Type)]
     typeHeadInfixTailParser = MP.many $ MP.try $ do
       op <- typeInfixOperatorParser
-      atom <- typeAtomParser
-      pure (op, atom)
+      rhs <- typeAppParser
+      pure (op, rhs)
 
     buildInfixType left ((op, promoted), right) =
-      let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
-          opType = typeAnnSpan span' (TCon op promoted)
-       in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType left)) right)
-
-    buildTypeApp left right =
-      typeAnnSpan (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) (TApp left right)
+      let opType = TCon op promoted
+       in TApp (TApp opType left) right
 
 classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
 classHeadParser =
@@ -1278,7 +1249,7 @@ explicitForallBinderParser =
                 | isTypeVarName name ->
                     Just name
               _ -> Nothing
-        pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBVisible)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -1286,7 +1257,7 @@ explicitForallBinderParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified TyVarBVisible)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
           )
 
 declTypeParamParser :: TokParser TyVarBinder
@@ -1391,7 +1362,7 @@ recordFieldDeclParser = withSpan $ do
   fieldTy <- recordFieldBangTypeParser
   pure $ \span' ->
     FieldDecl
-      { fieldSpan = span',
+      { fieldAnns = [mkAnnotation span'],
         fieldNames = names,
         fieldType = fieldTy
       }
@@ -1411,7 +1382,7 @@ infixConstructorArgParser = MP.try $ do
     ty <- typeAppParser
     pure $ \span' ->
       BangType
-        { bangSpan = span',
+        { bangAnns = [mkAnnotation span'],
           bangSourceUnpackedness = unpackedness,
           bangStrict = strict,
           bangLazy = lazy,
@@ -1433,7 +1404,7 @@ bangTypeParser = withSpan $ do
   ty <- typeAtomParser
   pure $ \span' ->
     BangType
-      { bangSpan = span',
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
@@ -1448,7 +1419,7 @@ recordFieldBangTypeParser = withSpan $ do
   ty <- constructorFieldTypeParser
   pure $ \span' ->
     BangType
-      { bangSpan = span',
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
@@ -1489,7 +1460,7 @@ constructorOperatorParser =
 patternBindDeclParser :: TokParser Decl
 patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
   pat <- region "while parsing pattern binding" patternParser
-  DeclValue . PatternBind NoSourceSpan pat <$> equationRhsParser
+  DeclValue . PatternBind pat <$> equationRhsParser
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
@@ -1524,15 +1495,14 @@ patSynNameParser =
 -- | Parse a pattern synonym declaration.
 -- Handles prefix, infix, and record forms with all three directionalities.
 patternSynonymDeclParser :: TokParser Decl
-patternSynonymDeclParser = withSpan $ do
+patternSynonymDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordPattern
   (name, args) <- patSynLhsParser
   (dir, pat) <- patSynDirAndPatParser name
-  pure $ \span' ->
+  pure $
     DeclPatSyn
       PatSynDecl
-        { patSynDeclSpan = span',
-          patSynDeclName = name,
+        { patSynDeclName = name,
           patSynDeclArgs = args,
           patSynDeclPat = pat,
           patSynDeclDir = dir
@@ -1602,7 +1572,7 @@ patSynWhereMatch = withSpan $ do
   rhs <- equationRhsParser
   pure $ \span' ->
     Match
-      { matchSpan = span',
+      { matchAnns = [mkAnnotation span'],
         matchHeadForm = headForm,
         matchPats = pats,
         matchRhs = rhs

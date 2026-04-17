@@ -59,7 +59,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve.Types
 import Data.List (mapAccumL)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -73,6 +73,13 @@ effectiveResolutionSpan ambient localSpan =
   case localSpan of
     NoSourceSpan -> ambient
     _ -> localSpan
+
+-- | Merge concrete source spans embedded in a list of annotations.
+sourceSpanFromAnns :: [Annotation] -> SourceSpan
+sourceSpanFromAnns anns =
+  case mapMaybe (fromAnnotation @SourceSpan) anns of
+    [] -> NoSourceSpan
+    s : _ -> s
 
 -- | Resolver-owned span tracking for nodes that now store source spans only in
 -- annotations.
@@ -99,8 +106,8 @@ peelDataConSpan ambient _ = ambient
 rhsSpan :: Rhs -> SourceSpan
 rhsSpan rhs =
   case rhs of
-    UnguardedRhs span' _ _ -> span'
-    GuardedRhss span' _ _ -> span'
+    UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
+    GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
@@ -187,14 +194,14 @@ resolveDeclCore scope nextLocal lastSeen decl =
   case decl of
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind bindSpan name matches ->
-          let ambient = effectiveResolutionSpan lastSeen bindSpan
+        FunctionBind name matches ->
+          let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
               (nextLocal', matches') = mapAccumL (resolveMatch scope ambient) nextLocal matches
-           in (nextLocal', DeclValue (FunctionBind bindSpan name matches'))
-        PatternBind bindSpan pat rhs ->
-          let ambient = effectiveResolutionSpan lastSeen bindSpan
+           in (nextLocal', DeclValue (FunctionBind name matches'))
+        PatternBind pat rhs ->
+          let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
               (nextLocal', rhs') = resolveRhs scope nextLocal ambient rhs
-           in (nextLocal', DeclValue (PatternBind bindSpan pat rhs'))
+           in (nextLocal', DeclValue (PatternBind pat rhs'))
     DeclTypeSig names ty ->
       let ty' = resolveTypeAt scope lastSeen ty
        in (nextLocal, DeclTypeSig names ty')
@@ -218,7 +225,7 @@ resolveDeclCore scope nextLocal lastSeen decl =
 
 resolveMatch :: Scope -> SourceSpan -> Int -> Match -> (Int, Match)
 resolveMatch scope ambient nextLocal match =
-  let here = effectiveResolutionSpan ambient (matchSpan match)
+  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (matchAnns match))
       (nextLocal', patScope, pats') = bindPatterns scope here nextLocal (matchPats match)
       scoped = unionScope patScope scope
       rhsHere = effectiveResolutionSpan here (rhsSpan (matchRhs match))
@@ -228,16 +235,16 @@ resolveMatch scope ambient nextLocal match =
 resolveRhs :: Scope -> Int -> SourceSpan -> Rhs -> (Int, Rhs)
 resolveRhs scope nextLocal ambient rhs =
   case rhs of
-    UnguardedRhs span' expr mDecls ->
-      let bodyHere = effectiveResolutionSpan ambient span'
+    UnguardedRhs anns expr mDecls ->
+      let bodyHere = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
           (nextLocal', expr') = resolveExprAt scope nextLocal bodyHere expr
           (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
-       in (nextLocal'', UnguardedRhs span' expr' mDecls')
-    GuardedRhss span' guardedRhss mDecls ->
-      let here = effectiveResolutionSpan ambient span'
+       in (nextLocal'', UnguardedRhs anns expr' mDecls')
+    GuardedRhss anns guardedRhss mDecls ->
+      let here = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
           (nextLocal', guardedRhss') = mapAccumL (resolveGuardedRhs scope here) nextLocal guardedRhss
           (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
-       in (nextLocal'', GuardedRhss span' guardedRhss' mDecls')
+       in (nextLocal'', GuardedRhss anns guardedRhss' mDecls')
 
 resolveWhereDecls :: Scope -> Int -> Maybe [Decl] -> (Int, Maybe [Decl])
 resolveWhereDecls _ nextLocal Nothing = (nextLocal, Nothing)
@@ -249,7 +256,7 @@ resolveWhereDecls scope nextLocal (Just decls) =
 
 resolveGuardedRhs :: Scope -> SourceSpan -> Int -> GuardedRhs -> (Int, GuardedRhs)
 resolveGuardedRhs scope ambient nextLocal guardedRhs =
-  let here = effectiveResolutionSpan ambient (guardedRhsSpan guardedRhs)
+  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (guardedRhsAnns guardedRhs))
       (nextLocal', scope', guards') = resolveGuardQualifiers scope nextLocal here (guardedRhsGuards guardedRhs)
       (nextLocal'', body') = resolveExprAt scope' nextLocal' here (guardedRhsBody guardedRhs)
    in (nextLocal'', guardedRhs {guardedRhsGuards = guards', guardedRhsBody = body'})
@@ -640,15 +647,15 @@ declBinderCandidate decl =
    in case innerDecl of
         DeclValue valueDecl ->
           case valueDecl of
-            FunctionBind span' name _ ->
-              let loc = effectiveResolutionSpan outerSp span'
+            FunctionBind name _ ->
+              let loc = effectiveResolutionSpan outerSp NoSourceSpan
                in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
-            PatternBind bindSp pat _ ->
+            PatternBind pat _ ->
               case peelPatternAnn pat of
                 PVar name ->
                   let loc =
                         effectiveResolutionSpan
-                          (effectiveResolutionSpan outerSp bindSp)
+                          (effectiveResolutionSpan outerSp NoSourceSpan)
                           (peelPatternSpan NoSourceSpan pat)
                    in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
                 _ -> Nothing
@@ -663,7 +670,7 @@ topLevelDeclAnnotations decl scope =
     (declSpan, DeclTypeData dataDecl) -> dataDeclAnnotations declSpan "type data " dataDecl
     (declSpan, DeclData dataDecl) -> dataDeclAnnotations declSpan "data " dataDecl
     (declSpan, DeclNewtype newtypeDecl) ->
-      let span' = effectiveResolutionSpan declSpan (newtypeDeclSpan newtypeDecl)
+      let span' = declSpan
           typeAnnotation =
             ResolutionAnnotation
               (declKeywordNameSpan "newtype " span' (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
@@ -676,7 +683,7 @@ topLevelDeclAnnotations decl scope =
     _ -> []
   where
     dataDeclAnnotations declSpan keyword dataDecl =
-      let span' = effectiveResolutionSpan declSpan (dataDeclSpan dataDecl)
+      let span' = declSpan
           typeAnnotation =
             ResolutionAnnotation
               (declKeywordNameSpan keyword span' (renderUnqualifiedName (dataDeclName dataDecl)))
@@ -688,7 +695,7 @@ topLevelDeclAnnotations decl scope =
 classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
 classAnnotation scope declSpan classDecl =
   let className = mkUnqualifiedName NameConId (classDeclName classDecl)
-      span' = effectiveResolutionSpan declSpan (classDeclSpan classDecl)
+      span' = declSpan
    in ResolutionAnnotation
         (declKeywordNameSpan "class " span' (classDeclName classDecl))
         (classDeclName classDecl)
@@ -751,8 +758,8 @@ declExportedNames decl =
     DeclAnn _ inner -> declExportedNames inner
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind _ name _ -> ([name], [])
-        PatternBind _ pat _ ->
+        FunctionBind name _ -> ([name], [])
+        PatternBind pat _ ->
           case peelPatternAnn pat of
             PVar name -> ([name], [])
             _ -> ([], [])

@@ -71,7 +71,7 @@ forallBinderParser =
         ident <- forallBinderNameParser
         mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
         expectedTok TkSpecialRBrace
-        pure (\span' -> TyVarBinder span' ident mKind TyVarBInferred TyVarBVisible)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident mKind TyVarBInferred TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -79,11 +79,11 @@ forallBinderParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified TyVarBVisible)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
           )
       <|> ( do
               ident <- forallBinderNameParser
-              pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified TyVarBVisible)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
           )
 
 forallBinderNameParser :: TokParser Text
@@ -95,18 +95,7 @@ contextTypeParser :: TokParser Type
 contextTypeParser = do
   constraints <- contextItemsParser
   expectedTok TkReservedDoubleArrow
-  inner <- typeParser
-  pure
-    ( typeAnnSpan
-        (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner))
-        (TContext constraints inner)
-    )
-
-constraintHeadSpan :: [Type] -> SourceSpan
-constraintHeadSpan constraints =
-  case constraints of
-    [] -> NoSourceSpan
-    constraint : _ -> getSourceSpan constraint
+  TContext constraints <$> typeParser
 
 contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
@@ -117,10 +106,7 @@ typeFunParser = do
   mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParser)
   pure $
     case mRhs of
-      Just rhs ->
-        typeAnnSpan
-          (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))
-          (TFun lhs rhs)
+      Just rhs -> TFun lhs rhs
       Nothing -> lhs
 
 typeInfixParser :: TokParser Type
@@ -145,9 +131,8 @@ typeHeadInfixLoopParser = MP.many $ MP.try $ do
 
 buildInfixType :: Type -> ((Name, TypePromotion), Type) -> Type
 buildInfixType lhs ((op, promoted), rhs) =
-  let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = typeAnnSpan span' (TCon op promoted)
-   in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType lhs)) rhs)
+  let opType = TCon op promoted
+   in TApp (TApp opType lhs) rhs
 
 typeInfixOperatorParser :: TokParser (Name, TypePromotion)
 typeInfixOperatorParser =
@@ -205,8 +190,7 @@ typeAppParser = do
   pure (foldl buildTypeApp first rest)
 
 buildTypeApp :: Type -> Type -> Type
-buildTypeApp lhs rhs =
-  typeAnnSpan (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) (TApp lhs rhs)
+buildTypeApp = TApp
 
 typeAtomParser :: TokParser Type
 typeAtomParser = do

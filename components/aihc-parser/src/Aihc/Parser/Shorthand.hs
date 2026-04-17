@@ -234,8 +234,8 @@ docDecl decl =
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
   case vdecl of
-    FunctionBind _ name matches -> "FunctionBind" <+> docUnqualifiedName name <+> brackets (hsep (punctuate comma (map docMatch matches)))
-    PatternBind _ pat rhs -> "PatternBind" <+> docPattern pat <+> docRhs rhs
+    FunctionBind name matches -> "FunctionBind" <+> docUnqualifiedName name <+> brackets (hsep (punctuate comma (map docMatch matches)))
+    PatternBind pat rhs -> "PatternBind" <+> docPattern pat <+> docRhs rhs
 
 docPatSynDecl :: PatSynDecl -> Doc ann
 docPatSynDecl ps =
