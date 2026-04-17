@@ -19,6 +19,7 @@ import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
+    genFieldName,
     genIdent,
     genVarSym,
     shrinkConIdent,
@@ -386,8 +387,12 @@ genRecordCon = do
 genFieldDecl :: Gen FieldDecl
 genFieldDecl = do
   fieldCount <- chooseInt (1, 3)
-  fieldNames <- vectorOf fieldCount genVarBinderName
+  fieldNames <- vectorOf fieldCount genRecordFieldName
   FieldDecl [] fieldNames <$> genSimpleBangType
+
+genRecordFieldName :: Gen UnqualifiedName
+genRecordFieldName =
+  mkUnqualifiedName NameVarId <$> genFieldName
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = do
@@ -563,7 +568,7 @@ genNewtypePrefixCon = do
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
   conName <- mkUnqualifiedName NameConId <$> genConIdent
-  fieldName <- genVarBinderName
+  fieldName <- genRecordFieldName
   ty <- genSimpleType
   pure (RecordCon [] [] conName [FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)])
 

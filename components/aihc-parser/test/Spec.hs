@@ -253,6 +253,7 @@ buildTests = do
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
@@ -373,6 +374,7 @@ buildTests = do
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
+              QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
@@ -584,6 +586,13 @@ test_warnedExportReexportRoundtrip =
    in case validateParser "WarnedExportReexport.hs" Haskell2010Edition [] source of
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
+
+test_symbolicBundledImportMemberRoundtrip :: Assertion
+test_symbolicBundledImportMemberRoundtrip =
+  let source = T.unlines ["{-# LANGUAGE MagicHash #-}", "module M where", "import A (A(( # )))"]
+   in case validateParser "SymbolicBundledImportMember.hs" Haskell2010Edition [EnableExtension MagicHash] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected symbolic bundled import member to roundtrip, got: " <> show err)
 
 test_infixClassHeadParses :: Assertion
 test_infixClassHeadParses =
@@ -1771,6 +1780,26 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels :: Property
+prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels =
+  let samples = sampleGen 6000 genDeclDataFamilyInst
+      matching =
+        [ fieldName
+        | DeclDataFamilyInst DataFamilyInst {dataFamilyInstConstructors} <- samples,
+          ctor <- dataFamilyInstConstructors,
+          RecordCon {} <- [peelDataConAnn ctor],
+          RecordCon _ _ _ fields <- [peelDataConAnn ctor],
+          field <- fields,
+          fieldName <- fieldNames field
+        ]
+   in counterexample
+        ( "expected generated data family instances to include record fields with identifier labels only; sampled "
+            <> show (length samples)
+            <> ", record field labels="
+            <> show (length matching)
+        )
+        (not (null matching) && all ((== NameVarId) . unqualifiedNameType) matching)
 
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =

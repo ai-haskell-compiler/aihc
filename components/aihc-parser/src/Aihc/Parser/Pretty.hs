@@ -195,7 +195,7 @@ prettyImportItem item =
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =
-  prettyMemberNamespacePrefix namespace <> prettyName name
+  prettyMemberNamespacePrefix namespace <> prettyBundledMemberName name
 
 prettyNamespacePrefix :: Maybe IEEntityNamespace -> Doc ann
 prettyNamespacePrefix namespace =
@@ -1021,6 +1021,20 @@ prettyName :: Name -> Doc ann
 prettyName name
   | nameType name == NameVarSym || nameType name == NameConSym = parens (pretty (renderName name))
   | otherwise = pretty (renderName name)
+
+prettyBundledMemberName :: Name -> Doc ann
+prettyBundledMemberName name
+  | isHashLeadingSymbolicName name = parens (" " <> pretty (renderName name) <> " ")
+  | otherwise = prettyName name
+
+isHashLeadingSymbolicName :: Name -> Bool
+isHashLeadingSymbolicName name =
+  isSymbolicName name
+    && case nameQualifier name of
+      Nothing -> case T.uncons (nameText name) of
+        Just ('#', _) -> True
+        _ -> False
+      Just _ -> False
 
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name
