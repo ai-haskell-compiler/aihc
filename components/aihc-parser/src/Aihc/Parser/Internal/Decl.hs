@@ -266,14 +266,14 @@ closedTypeFamilyWhereParser =
 
 -- | Parse one closed type family equation: @[forall binders.] LhsType = RhsType@
 typeFamilyEqParser :: TokParser TypeFamilyEq
-typeFamilyEqParser = do
+typeFamilyEqParser = withSpan $ do
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
-  pure
+  pure $ \span' ->
     TypeFamilyEq
-      { typeFamilyEqAnns = [],
+      { typeFamilyEqAnns = [mkAnnotation span'],
         typeFamilyEqForall = forallBinders,
         typeFamilyEqHeadForm = headForm,
         typeFamilyEqLhs = lhs,
@@ -601,13 +601,13 @@ classFundepsParser = do
   classFundepParser `MP.sepBy1` expectedTok TkSpecialComma
 
 classFundepParser :: TokParser FunctionalDependency
-classFundepParser = do
+classFundepParser = withSpan $ do
   determinedBy <- MP.many lowerIdentifierParser
   expectedTok TkReservedRightArrow
   determines <- MP.many lowerIdentifierParser
-  pure
+  pure $ \span' ->
     FunctionalDependency
-      { functionalDependencyAnns = [],
+      { functionalDependencyAnns = [mkAnnotation span'],
         functionalDependencyDeterminers = determinedBy,
         functionalDependencyDetermined = determines
       }
@@ -1102,14 +1102,14 @@ gadtPrefixBodyParser = do
 -- Uses 'typeInfixParser' so that infix type operators (e.g. @key := v@) are
 -- accepted as argument types without requiring parentheses.
 gadtBangTypeParser :: TokParser BangType
-gadtBangTypeParser = do
+gadtBangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- typeInfixParser
-  pure
+  pure $ \span' ->
     BangType
-      { bangAnns = [],
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
@@ -1342,13 +1342,13 @@ recordFieldsParser :: TokParser [FieldDecl]
 recordFieldsParser = braces (recordFieldDeclParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 recordFieldDeclParser :: TokParser FieldDecl
-recordFieldDeclParser = do
+recordFieldDeclParser = withSpan $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   fieldTy <- recordFieldBangTypeParser
-  pure
+  pure $ \span' ->
     FieldDecl
-      { fieldAnns = [],
+      { fieldAnns = [mkAnnotation span'],
         fieldNames = names,
         fieldType = fieldTy
       }
@@ -1361,18 +1361,19 @@ constructorArgParser = MP.try $ do
 infixConstructorArgParser :: TokParser BangType
 infixConstructorArgParser = MP.try $ do
   MP.notFollowedBy derivingKeywordParser
-  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
-  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
-  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
-  ty <- typeAppParser
-  pure
-    BangType
-      { bangAnns = [],
-        bangSourceUnpackedness = unpackedness,
-        bangStrict = strict,
-        bangLazy = lazy,
-        bangType = ty
-      }
+  withSpan $ do
+    unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
+    strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+    lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
+    ty <- typeAppParser
+    pure $ \span' ->
+      BangType
+        { bangAnns = [mkAnnotation span'],
+          bangSourceUnpackedness = unpackedness,
+          bangStrict = strict,
+          bangLazy = lazy,
+          bangType = ty
+        }
 
 derivingKeywordParser :: TokParser ()
 derivingKeywordParser =
@@ -1382,14 +1383,14 @@ derivingKeywordParser =
       _ -> Nothing
 
 bangTypeParser :: TokParser BangType
-bangTypeParser = do
+bangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- typeAtomParser
-  pure
+  pure $ \span' ->
     BangType
-      { bangAnns = [],
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
@@ -1397,14 +1398,14 @@ bangTypeParser = do
       }
 
 recordFieldBangTypeParser :: TokParser BangType
-recordFieldBangTypeParser = do
+recordFieldBangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- constructorFieldTypeParser
-  pure
+  pure $ \span' ->
     BangType
-      { bangAnns = [],
+      { bangAnns = [mkAnnotation span'],
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangLazy = lazy,
