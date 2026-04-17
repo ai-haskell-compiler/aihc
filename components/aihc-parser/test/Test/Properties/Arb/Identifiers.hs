@@ -92,7 +92,8 @@ genIdent = do
   first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements identTailChars)
-  let candidate = T.pack (first : rest)
+  hashCount <- chooseInt (0, 4)
+  let candidate = T.pack (first : rest) <> T.replicate hashCount "#"
   if isValidGeneratedIdent candidate
     then pure candidate
     else genIdent
@@ -102,13 +103,22 @@ shrinkIdent = shrinkWithPreservedFirstChar isValidGeneratedIdent
 
 isValidGeneratedIdent :: Text -> Bool
 isValidGeneratedIdent ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      ident /= "_"
-        && isValidGeneratedIdentStartChar first
-        && T.all isValidIdentTailChar rest
-        && not (isReservedIdentifier allExtensions ident)
+  case unsnocMagicHash ident of
+    Just (baseIdent, _magicHashes) ->
+      case T.uncons baseIdent of
+        Just (first, rest) ->
+          baseIdent /= "_"
+            && isValidGeneratedIdentStartChar first
+            && T.all isValidIdentTailChar rest
+            && not (isReservedIdentifier allExtensions ident)
+        Nothing -> False
     Nothing -> False
+
+unsnocMagicHash :: Text -> Maybe (Text, Text)
+unsnocMagicHash ident =
+  let magicHashes = T.takeWhileEnd (== '#') ident
+      baseIdent = T.dropEnd (T.length magicHashes) ident
+   in if T.null ident || T.null baseIdent then Nothing else Just (baseIdent, magicHashes)
 
 -------------------------------------------------------------------------------
 -- Constructor identifiers (uppercase-starting names)
@@ -121,17 +131,21 @@ genConIdent = do
   first <- elements conIdentStartChars
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements identTailChars)
-  pure (T.pack (first : rest))
+  hashCount <- chooseInt (0, 4)
+  pure (T.pack (first : rest) <> T.replicate hashCount "#")
 
 shrinkConIdent :: Text -> [Text]
 shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent
 
 isValidConIdent :: Text -> Bool
 isValidConIdent ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      isValidConIdentStartChar first
-        && T.all isValidIdentTailChar rest
+  case unsnocMagicHash ident of
+    Just (baseIdent, _magicHashes) ->
+      case T.uncons baseIdent of
+        Just (first, rest) ->
+          isValidConIdentStartChar first
+            && T.all isValidIdentTailChar rest
+        Nothing -> False
     Nothing -> False
 
 -------------------------------------------------------------------------------

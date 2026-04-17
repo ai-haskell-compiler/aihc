@@ -740,9 +740,11 @@ nameFromText txt =
         Nothing -> False
 
     isIdentifierSegment segment =
-      case T.uncons segment of
-        Just (c, rest) -> isIdentifierStartChar c && T.all isIdentChar rest
-        Nothing -> False
+      let magicHashes = T.takeWhileEnd (== '#') segment
+          baseSegment = T.dropEnd (T.length magicHashes) segment
+       in case T.uncons baseSegment of
+            Just (c, rest) -> isIdentifierStartChar c && T.all isIdentChar rest
+            Nothing -> False
 
 unqualifiedNameFromText :: Text -> UnqualifiedName
 unqualifiedNameFromText txt = UnqualifiedName (inferNameType txt) txt

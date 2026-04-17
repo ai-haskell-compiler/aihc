@@ -128,13 +128,13 @@ genExprLeaf =
 
 genOverloadedLabel :: Gen Expr
 genOverloadedLabel = do
-  labelName <- genIdent
+  labelName <- suchThat genIdent (not . T.isSuffixOf "#")
   pure (EOverloadedLabel labelName ("#" <> labelName))
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
 genQuasiQuoteName :: Gen Text
-genQuasiQuoteName = suchThat genIdent (`notElem` ["e", "d", "p", "t"])
+genQuasiQuoteName = suchThat genIdent (\name -> name `notElem` ["e", "d", "p", "t"] && not (T.isSuffixOf "#" name))
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
 -- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
