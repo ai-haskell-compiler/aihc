@@ -19,7 +19,6 @@ import Aihc.Parser.Syntax qualified as Syntax
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO.Utf8 qualified as Utf8
@@ -76,7 +75,6 @@ evaluateCaseFromFile meta = do
 evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
 evaluateCaseText meta source =
   let exts = caseExtensions meta
-      edition = fromMaybe Syntax.Haskell2010Edition (Syntax.editionFromExtensionSettings exts)
       source' =
         resultOutput
           ( preprocessForParserWithoutIncludesIfEnabled
@@ -86,8 +84,8 @@ evaluateCaseText meta source =
               []
               source
           )
-      oracleOk = either Just (const Nothing) (oracleModuleAstFingerprint (casePath meta) edition exts source')
-      validationOk = fmap show (validateParser (casePath meta) edition exts source')
+      oracleOk = either Just (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
+      validationOk = fmap show (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
    in finalizeOutcome meta oracleOk validationOk
 
 trim :: String -> String

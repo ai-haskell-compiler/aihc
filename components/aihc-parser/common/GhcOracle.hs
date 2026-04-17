@@ -14,7 +14,7 @@ import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (preprocessForParserWithoutIncludes)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Data.EnumSet qualified as EnumSet
@@ -174,4 +174,5 @@ computeEffectiveExtensions ::
   -- | Effective set of extensions
   [Syntax.Extension]
 computeEffectiveExtensions edition extensionSettings headerPragmas =
-  Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
+  let effectiveEdition = fromMaybe edition (Syntax.headerLanguageEdition headerPragmas)
+   in Syntax.effectiveExtensions effectiveEdition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
