@@ -29,7 +29,7 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1317,7 +1317,7 @@ thNameQuoteTextNeedsParens name
 splitQualifiedNameQuoteText :: Text -> Maybe (Text, Text)
 splitQualifiedNameQuoteText fullName =
   case T.uncons fullName of
-    Just (c, _) | isAsciiUpper c -> go fullName
+    Just (c, _) | isConIdentifierStartChar c -> go fullName
     _ -> Nothing
   where
     go txt =
@@ -1333,10 +1333,20 @@ splitQualifiedNameQuoteText fullName =
 
     isModuleSegment segment =
       case T.uncons segment of
-        Just (c, rest) -> isAsciiUpper c && T.all isIdentChar rest
+        Just (c, rest) -> isConIdentifierStartChar c && T.all isIdentChar rest
         Nothing -> False
 
-    isIdentChar c = isAsciiUpper c || isAsciiLower c || c == '_' || c == '\'' || c == '#' || isDigit c
+    isIdentChar c = isIdentifierStartChar c || isIdentifierNumberChar c || c == '\'' || c == '#'
+
+    isIdentifierStartChar c = c == '_' || generalCategory c == LowercaseLetter || isConIdentifierStartChar c
+
+    isConIdentifierStartChar c = generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
+
+    isIdentifierNumberChar c =
+      case generalCategory c of
+        DecimalNumber -> True
+        OtherNumber -> True
+        _ -> False
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =

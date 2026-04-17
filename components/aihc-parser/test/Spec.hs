@@ -31,7 +31,16 @@ import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
-import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
+import Test.Properties.Identifiers
+  ( genConSym,
+    genVarSym,
+    isValidConIdent,
+    isValidGeneratedConSym,
+    isValidGeneratedIdent,
+    isValidGeneratedVarSym,
+    shrinkConIdent,
+    shrinkIdent,
+  )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
@@ -225,6 +234,12 @@ buildTests = do
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
+            testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
+            testCase "shrinking identifiers preserves the first character" test_shrunkIdentifiersPreserveFirstCharacter,
+            testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
+            testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
+            testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
@@ -255,7 +270,9 @@ buildTests = do
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
-            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
+            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
+            QC.testProperty "generated constructor symbols are valid" prop_generatedConstructorSymbolsAreValid,
+            QC.testProperty "generated variable symbols are valid" prop_generatedVariableSymbolsAreValid
           ],
         testGroup
           "checkPattern (do-bind)"
@@ -1180,6 +1197,40 @@ test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
 
+test_generatedIdentifiersAcceptUnicodeVariableCharacters :: Assertion
+test_generatedIdentifiersAcceptUnicodeVariableCharacters = do
+  assertBool "unicode lowercase letters and unicode numbers should be accepted in generated identifiers" $
+    isValidGeneratedIdent "a\x03b1\x00b2"
+  assertBool "unicode lowercase letters should be accepted at the start of generated identifiers" $
+    isValidGeneratedIdent "\x03bbx"
+
+test_generatedConstructorIdentifiersAcceptUnicodeCharacters :: Assertion
+test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
+  assertBool "unicode titlecase letters should be accepted at the start of constructor identifiers" $
+    isValidConIdent "\x01c5tail"
+  assertBool "unicode uppercase letters and unicode numbers should be accepted in constructor identifiers" $
+    isValidConIdent "\x0394\x0660"
+
+test_shrunkIdentifiersPreserveFirstCharacter :: Assertion
+test_shrunkIdentifiersPreserveFirstCharacter =
+  assertBool "identifier shrinking must preserve the first character" $
+    all ((== Just '\x03bb') . fmap fst . T.uncons) (shrinkIdent "\x03bbAlpha9")
+
+test_shrunkConstructorIdentifiersPreserveFirstCharacter :: Assertion
+test_shrunkConstructorIdentifiersPreserveFirstCharacter =
+  assertBool "constructor identifier shrinking must preserve the first character" $
+    all ((== Just '\x0394') . fmap fst . T.uncons) (shrinkConIdent "\x0394elta9")
+
+test_generatedConstructorSymbolsRejectReservedSpellings :: Assertion
+test_generatedConstructorSymbolsRejectReservedSpellings =
+  assertBool "reserved constructor symbol spellings must be rejected" $
+    not (any isValidGeneratedConSym [":", "::"])
+
+test_generatedVariableSymbolsRejectReservedSpellings :: Assertion
+test_generatedVariableSymbolsRejectReservedSpellings =
+  assertBool "reserved variable symbol spellings and dash runs must be rejected" $
+    not (any isValidGeneratedVarSym ["..", "=", "\\", "|", "<-", "->", "@", "~", "=>", "--", "---"])
+
 test_generatedOperatorsRejectArrowTailSpellings :: Assertion
 test_generatedOperatorsRejectArrowTailSpellings =
   assertBool "arrow-tail operators must not be treated as valid generated operators" $
@@ -1238,6 +1289,18 @@ prop_generatedOperatorsCanProduceUnicodeAsterism =
     QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
       QC.counterexample "expected generator to include ⁂ in sampled operators" $
         "⁂" `elem` ops
+
+prop_generatedConstructorSymbolsAreValid :: QC.Property
+prop_generatedConstructorSymbolsAreValid =
+  QC.forAll (QC.vectorOf 2000 genConSym) $ \ops ->
+    let invalid = filter (not . isValidGeneratedConSym) ops
+     in QC.counterexample ("invalid generated constructor symbols: " <> show invalid) (null invalid)
+
+prop_generatedVariableSymbolsAreValid :: QC.Property
+prop_generatedVariableSymbolsAreValid =
+  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
+    let invalid = filter (not . isValidGeneratedVarSym) ops
+     in QC.counterexample ("invalid generated variable symbols: " <> show invalid) (null invalid)
 
 assertCharLiteralLexesLikeGhc :: T.Text -> Assertion
 assertCharLiteralLexesLikeGhc raw =

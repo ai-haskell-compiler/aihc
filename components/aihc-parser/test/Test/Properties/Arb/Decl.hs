@@ -15,11 +15,12 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
     genIdent,
+    genVarSym,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -164,7 +165,7 @@ genVarBinderName :: Gen UnqualifiedName
 genVarBinderName =
   oneof
     [ mkUnqualifiedName NameVarId <$> genIdent,
-      mkUnqualifiedName NameVarSym <$> genOperator
+      mkUnqualifiedName NameVarSym <$> genVarSym
     ]
 
 genDeclFixity :: Gen Decl
@@ -968,7 +969,7 @@ genTypeFamilyInstOperator =
 
 genFamilyInstVarOperator :: Gen Text
 genFamilyInstVarOperator =
-  suchThat genOperator (`notElem` ["*", ".", "!", "'"])
+  suchThat genVarSym (`notElem` ["*", ".", "!", "'"])
 
 genFamilyInstConOperator :: Gen Text
 genFamilyInstConOperator =
@@ -1230,7 +1231,7 @@ shrinkPatSynDecl ps =
 shrinkTypeSynDecl :: TypeSynDecl -> [TypeSynDecl]
 shrinkTypeSynDecl ts =
   [ts {typeSynBody = ty'} | ty' <- shrinkType (typeSynBody ts)]
-    <> [ts {typeSynParams = ps'} | ps' <- shrinkTyVarBinders (typeSynParams ts)]
+    <> [ts {typeSynParams = ps'} | ps' <- shrinkTypeHeadParams (typeSynHeadForm ts) (typeSynParams ts)]
 
 -- ---------------------------------------------------------------------------
 -- Data declarations
@@ -1243,7 +1244,7 @@ shrinkDataDecl dd =
     -- Shrink deriving clauses
     <> [dd {dataDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (dataDeclDeriving dd)]
     -- Shrink type parameters
-    <> [dd {dataDeclParams = ps'} | ps' <- shrinkTyVarBinders (dataDeclParams dd)]
+    <> [dd {dataDeclParams = ps'} | ps' <- shrinkTypeHeadParams (dataDeclHeadForm dd) (dataDeclParams dd)]
     -- Shrink context
     <> [dd {dataDeclContext = ctx'} | ctx' <- shrinkList shrinkType (dataDeclContext dd)]
 
@@ -1306,13 +1307,13 @@ shrinkDerivingClause dc =
 shrinkClassDecl :: ClassDecl -> [ClassDecl]
 shrinkClassDecl cd =
   [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
-    <> [cd {classDeclParams = ps'} | ps' <- shrinkTyVarBinders (classDeclParams cd)]
+    <> [cd {classDeclParams = ps'} | ps' <- shrinkTypeHeadParams (classDeclHeadForm cd) (classDeclParams cd)]
     <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
 
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =
   [inst {instanceDeclItems = is'} | is' <- shrinkList (const []) (instanceDeclItems inst)]
-    <> [inst {instanceDeclTypes = ts'} | ts' <- shrinkList shrinkType (instanceDeclTypes inst)]
+    <> [inst {instanceDeclTypes = ts'} | ts' <- shrinkTypeHeadTypes (instanceDeclHeadForm inst) (instanceDeclTypes inst)]
     <> [inst {instanceDeclContext = ctx'} | ctx' <- shrinkList shrinkType (instanceDeclContext inst)]
 
 -- ---------------------------------------------------------------------------
@@ -1339,7 +1340,7 @@ shrinkForeignDecl fd =
 
 shrinkTypeFamilyDecl :: TypeFamilyDecl -> [TypeFamilyDecl]
 shrinkTypeFamilyDecl tf =
-  [tf {typeFamilyDeclParams = ps'} | ps' <- shrinkTyVarBinders (typeFamilyDeclParams tf)]
+  [tf {typeFamilyDeclParams = ps'} | ps' <- shrinkTypeHeadParams (typeFamilyDeclHeadForm tf) (typeFamilyDeclParams tf)]
 
 shrinkDataFamilyDecl :: DataFamilyDecl -> [DataFamilyDecl]
 shrinkDataFamilyDecl df =
@@ -1426,6 +1427,18 @@ shrinkForallTelescopes = shrinkList shrinkForallTelescope
       [ telescope {forallTelescopeBinders = binders'}
       | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
       ]
+
+shrinkTypeHeadParams :: TypeHeadForm -> [TyVarBinder] -> [[TyVarBinder]]
+shrinkTypeHeadParams headForm params =
+  case headForm of
+    TypeHeadPrefix -> shrinkTyVarBinders params
+    TypeHeadInfix -> [ps' | ps' <- shrinkTyVarBinders params, length ps' >= 2]
+
+shrinkTypeHeadTypes :: TypeHeadForm -> [Type] -> [[Type]]
+shrinkTypeHeadTypes headForm tys =
+  case headForm of
+    TypeHeadPrefix -> shrinkList shrinkType tys
+    TypeHeadInfix -> [tys' | tys' <- shrinkList shrinkType tys, length tys' >= 2]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

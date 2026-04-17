@@ -74,8 +74,6 @@ evaluateCaseFromFile meta = do
 
 evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
 evaluateCaseText meta source =
-  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
-  -- are meant to be valid Haskell2010 code (possibly with extensions)
   let exts = caseExtensions meta
       source' =
         resultOutput

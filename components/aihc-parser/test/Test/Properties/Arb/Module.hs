@@ -16,8 +16,8 @@ import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
-import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Expr (isValidGeneratedOperator)
+import Test.Properties.Arb.Identifiers (genIdent, genVarSym, shrinkIdent)
 import Test.QuickCheck
 
 instance Arbitrary Module where
@@ -409,7 +409,7 @@ genUnqualifiedVarName :: Gen UnqualifiedName
 genUnqualifiedVarName =
   oneof
     [ mkUnqualifiedName NameVarId <$> genIdent,
-      mkUnqualifiedName NameVarSym <$> genOperator
+      mkUnqualifiedName NameVarSym <$> genVarSym
     ]
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
