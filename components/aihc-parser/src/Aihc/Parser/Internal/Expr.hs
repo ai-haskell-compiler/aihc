@@ -75,7 +75,7 @@ exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
   pure $ case afterArrow of
     Just (op, rhs) ->
       EAnn
-        (mkAnnotation (mergeSourceSpans (getSourceSpan withInfix) (getSourceSpan rhs)))
+        (mkAnnotation (mergeSourceSpans (getExprSourceSpan withInfix) (getExprSourceSpan rhs)))
         (EInfix withInfix op rhs)
     Nothing -> withInfix
 
@@ -85,7 +85,7 @@ exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix = do
   -- Optional type signature: expr :: type
   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
   pure $ case mTypeSig of
-    Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty))) (ETypeSig withArrow ty)
+    Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan withArrow) (getTypeSourceSpan ty))) (ETypeSig withArrow ty)
     Nothing -> withArrow
 
 -- | The operator name used to represent @->@ in view-pattern expressions.
@@ -101,7 +101,7 @@ maybeViewPattern lhs = do
   case mArrow of
     Just () -> do
       viewRhs <- texprParser
-      let sp = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan viewRhs)
+      let sp = mergeSourceSpans (getExprSourceSpan lhs) (getExprSourceSpan viewRhs)
       pure (EAnn (mkAnnotation sp) (EInfix lhs viewPatArrowName viewRhs))
     Nothing -> pure lhs
 
@@ -204,7 +204,7 @@ exprCoreParserNoArrowTail = do
   -- Optional type signature: expr :: type
   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   pure $ case mTypeSig of
-    Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty))) (ETypeSig base ty)
+    Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan base) (getTypeSourceSpan ty))) (ETypeSig base ty)
     Nothing -> base
 
 doStmtParser :: TokParser (DoStmt Expr)
@@ -309,7 +309,7 @@ lexpParser =
 
 buildInfix :: Expr -> (Name, Expr) -> Expr
 buildInfix lhs (op, rhs) =
-  EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (EInfix lhs op rhs)
+  EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan lhs) (getExprSourceSpan rhs))) (EInfix lhs op rhs)
 
 intExprParser :: TokParser Expr
 intExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -401,9 +401,9 @@ atomOrRecordExprParser = do
           let result = case peelExprAnn e of
                 EVar name
                   | isConLikeName name ->
-                      EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields))) (ERecordCon (renderName name) (map normalizeField fields) hasWildcard)
+                      EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan e) (fieldsEndSpan fields))) (ERecordCon (renderName name) (map normalizeField fields) hasWildcard)
                 _ ->
-                  EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields))) (ERecordUpd e (map normalizeField fields))
+                  EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan e) (fieldsEndSpan fields))) (ERecordUpd e (map normalizeField fields))
           applyRecordSuffixes result
 
     fieldsEndSpan :: [(Text, Maybe Expr, SourceSpan)] -> SourceSpan
@@ -710,11 +710,11 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                     Nothing -> do
                       mArrow <- MP.optional arrowTailParser
                       let withArrow = case mArrow of
-                            Just (arrowOp, arrowRhs) -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan base) (getSourceSpan arrowRhs))) (EInfix base arrowOp arrowRhs)
+                            Just (arrowOp, arrowRhs) -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan base) (getExprSourceSpan arrowRhs))) (EInfix base arrowOp arrowRhs)
                             Nothing -> base
                       mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
                       let typed = case mTypeSig of
-                            Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty))) (ETypeSig withArrow ty)
+                            Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan withArrow) (getTypeSourceSpan ty))) (ETypeSig withArrow ty)
                             Nothing -> withArrow
                       -- View pattern arrow: expr -> expr (inside parentheses)
                       finalExpr <- maybeViewPattern typed
@@ -743,11 +743,11 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                         Nothing -> do
                           mArrow <- MP.optional arrowTailParser
                           let withArrow = case mArrow of
-                                Just (arrowOp, arrowRhs) -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan arrowRhs))) (EInfix fullInfix arrowOp arrowRhs)
+                                Just (arrowOp, arrowRhs) -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan fullInfix) (getExprSourceSpan arrowRhs))) (EInfix fullInfix arrowOp arrowRhs)
                                 Nothing -> fullInfix
                           mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
                           let typed = case mTypeSig of
-                                Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty))) (ETypeSig withArrow ty)
+                                Just ty -> EAnn (mkAnnotation (mergeSourceSpans (getExprSourceSpan withArrow) (getTypeSourceSpan ty))) (ETypeSig withArrow ty)
                                 Nothing -> withArrow
                           -- View pattern arrow: expr -> expr (inside parentheses)
                           finalExpr <- maybeViewPattern typed
@@ -972,7 +972,7 @@ localTypeSigDeclsParser = do
         [name] -> do
           rhsExpr <- exprParser
           whereDecls <- MP.optional whereClauseParser
-          let bindSpan = mergeSourceSpans NoSourceSpan (getSourceSpan rhsExpr)
+          let bindSpan = mergeSourceSpans NoSourceSpan (getExprSourceSpan rhsExpr)
               bindAnns = [mkAnnotation bindSpan]
               pat = PAnn (mkAnnotation bindSpan) (PTypeSig (PAnn (mkAnnotation bindSpan) (PVar name)) ty)
               rhs = UnguardedRhs bindAnns rhsExpr whereDecls

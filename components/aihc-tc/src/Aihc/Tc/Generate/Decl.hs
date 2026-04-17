@@ -15,7 +15,6 @@ import Aihc.Parser.Syntax
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
-    HasSourceSpan (getSourceSpan),
     Match (..),
     Module (..),
     Name (..),
@@ -26,6 +25,8 @@ import Aihc.Parser.Syntax
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
+    getDeclSourceSpan,
+    getPatternSourceSpan,
     mergeSourceSpans,
     peelDeclAnn,
   )
@@ -90,7 +91,7 @@ extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) ->
-      let sp = getSourceSpan decl
+      let sp = getDeclSourceSpan decl
        in Just (sp, name, matches)
     _ -> Nothing
 
@@ -268,7 +269,7 @@ inferPatCts pat scrutTy = case pat of
         (conTy, _preds) <- instantiateSch scheme
         let conResTy = resultType conTy
         ev <- freshEvVar
-        let sp = getSourceSpan pat
+        let sp = getPatternSourceSpan pat
         pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
       _ -> pure []
   PAnn _ann inner -> inferPatCts inner scrutTy

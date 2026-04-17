@@ -438,7 +438,7 @@ normalizeDataConInner (GadtCon forallBinders constraints names body) =
 normalizeBangType :: BangType -> BangType
 normalizeBangType bt =
   BangType
-    { bangAnns = bangAnns bt,
+    { bangAnns = [],
       bangSourceUnpackedness = bangSourceUnpackedness bt,
       bangStrict = bangStrict bt,
       bangLazy = bangLazy bt,
@@ -448,7 +448,7 @@ normalizeBangType bt =
 normalizeFieldDecl :: FieldDecl -> FieldDecl
 normalizeFieldDecl fd =
   FieldDecl
-    { fieldAnns = fieldAnns fd,
+    { fieldAnns = [],
       fieldNames = fieldNames fd,
       fieldType = normalizeBangType (fieldType fd)
     }

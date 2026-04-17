@@ -23,7 +23,7 @@ patternParser = label "pattern" $ do
   pat <- infixPatternParser
   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   case mTypeSig of
-    Just ty -> pure (PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan pat) (getSourceSpan ty))) (PTypeSig pat ty))
+    Just ty -> pure (PAnn (mkAnnotation (mergeSourceSpans (getPatternSourceSpan pat) (getTypeSourceSpan ty))) (PTypeSig pat ty))
     Nothing -> pure pat
 
 infixPatternParser :: TokParser Pattern
@@ -47,7 +47,7 @@ asOrAppPatternParser = do
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
-  PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (PInfix lhs op rhs)
+  PAnn (mkAnnotation (mergeSourceSpans (getPatternSourceSpan lhs) (getPatternSourceSpan rhs))) (PInfix lhs op rhs)
 
 conOperatorParser :: TokParser Name
 conOperatorParser =
@@ -94,7 +94,7 @@ appPatternParser =
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
-    PCon name args -> PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (PCon name (args <> [rhs]))
+    PCon name args -> PAnn (mkAnnotation (mergeSourceSpans (getPatternSourceSpan lhs) (getPatternSourceSpan rhs))) (PCon name (args <> [rhs]))
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
@@ -304,7 +304,7 @@ listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         expr <- exprParser
         expectedTok TkReservedRightArrow
         inner <- patternParser
-        let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+        let sp = mergeSourceSpans (getExprSourceSpan expr) (getPatternSourceSpan inner)
         pure (PAnn (mkAnnotation sp) (PView expr inner))
       maybe patternParser pure mView
 
@@ -343,7 +343,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
       expectedTok TkReservedRightArrow
       inner <- patternParser
       expectedTok closeTok
-      let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+      let sp = mergeSourceSpans (getExprSourceSpan expr) (getPatternSourceSpan inner)
       pure (PParen (PAnn (mkAnnotation sp) (PView expr inner)))
 
     -- Parse a single element inside a paren/tuple/unboxed-sum pattern.
@@ -427,7 +427,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           -- View pattern: expr -> pattern
           expectedTok TkReservedRightArrow
           inner <- patternParser
-          let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+          let sp = mergeSourceSpans (getExprSourceSpan expr) (getPatternSourceSpan inner)
           pure (PAnn (mkAnnotation sp) (PView expr inner))
         Just (Right pat) ->
           pure pat

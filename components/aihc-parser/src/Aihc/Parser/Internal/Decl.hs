@@ -1223,7 +1223,7 @@ typeFamilyLhsParser = do
       pure (op, rhs)
 
     buildInfixType left ((op, promoted), right) =
-      let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
+      let span' = mergeSourceSpans (getTypeSourceSpan left) (getTypeSourceSpan right)
           opType = typeAnnSpan span' (TCon op promoted)
        in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType left)) right)
 
