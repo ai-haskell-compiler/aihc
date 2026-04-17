@@ -1,8 +1,5 @@
-{- ORACLE_TEST
-pass
---
-Minimal snippet reproducing GHC pretty-printer parentheses difference
---}
+{- ORACLE_TEST pass -}
+-- Minimal snippet reproducing GHC pretty-printer parentheses difference
 {-# LANGUAGE GHC2021 #-}
 
 -- The original roundtrip mismatch referenced a TyVarSig printing change

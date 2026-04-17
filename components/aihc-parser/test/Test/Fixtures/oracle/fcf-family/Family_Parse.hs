@@ -1,8 +1,5 @@
-{- ORACLE_TEST
-pass
---
-Minimal snippet inspired by fcf-family Family.hs parse errors
---}
+{- ORACLE_TEST pass -}
+-- Minimal snippet inspired by fcf-family Family.hs parse errors
 {-# LANGUAGE GHC2021 #-}
 
 type Name = Symbol
