@@ -35,6 +35,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Functor (($>))
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
@@ -1091,44 +1092,54 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  name <- identifierNameParser <|> MP.try tupleConstructorNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
+  quotedExpr <- atomExprParser
+  name <- liftCheck (termLevelNameFromExpr quotedExpr)
   pure (ETHNameQuote name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> MP.try tupleConstructorNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
+  quotedType <- typeAtomParser
+  name <- liftCheck (typeLevelNameFromType quotedType)
   pure (ETHTypeNameQuote name)
 
-parenOperatorNameParser :: TokParser Name
-parenOperatorNameParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
-      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
-      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
-      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
-      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure op
+termLevelNameFromExpr :: Expr -> Either Text Name
+termLevelNameFromExpr expr =
+  case peelExprAnn expr of
+    EVar name
+      | isValidTermLevelQuoteName name -> Right name
+      | otherwise -> Left "Template Haskell value name quote expects a term-level name"
+    EParen inner -> termLevelNameFromExpr inner
+    EList [] -> Right (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+    ETuple tupleFlavor elems
+      | all isNothing elems -> Right (tupleName tupleFlavor (length elems))
+      | otherwise -> Left "Template Haskell value name quote expects a term-level name"
+    _ -> Left "Template Haskell value name quote expects a term-level name"
 
-bracketConstructorNameParser :: TokParser Name
-bracketConstructorNameParser = do
-  expectedTok TkSpecialLBracket
-  expectedTok TkSpecialRBracket
-  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+typeLevelNameFromType :: Type -> Either Text Name
+typeLevelNameFromType ty =
+  case peelTypeAnn ty of
+    TVar name -> Right (qualifyName Nothing name)
+    TCon name _ -> Right name
+    TParen inner -> typeLevelNameFromType inner
+    TList _ [] -> Right (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+    TTuple tupleFlavor _ [] -> Right (tupleName tupleFlavor 0)
+    _ -> Left "Template Haskell type name quote expects a type-level name"
 
-tupleConstructorNameParser :: TokParser Name
-tupleConstructorNameParser = do
-  expectedTok TkSpecialLParen
-  _ <- expectedTok TkSpecialComma
-  moreCommas <- MP.many (expectedTok TkSpecialComma)
-  expectedTok TkSpecialRParen
-  let arity = 2 + length moreCommas
-  pure (qualifyName Nothing (mkUnqualifiedName NameConId ("(" <> T.replicate (arity - 1) "," <> ")")))
+isValidTermLevelQuoteName :: Name -> Bool
+isValidTermLevelQuoteName name =
+  renderName name `notElem` ["_", "=", "..", "::", "=>", "->", "<-", "|"]
+
+tupleName :: TupleFlavor -> Int -> Name
+tupleName tupleFlavor arity =
+  qualifyName Nothing (mkUnqualifiedName NameConId tupleText)
+  where
+    tupleText =
+      case (tupleFlavor, arity) of
+        (Boxed, 0) -> "()"
+        (Unboxed, 0) -> "(# #)"
+        (Boxed, _) -> "(" <> T.replicate (arity - 1) "," <> ")"
+        (Unboxed, _) -> "(#" <> T.replicate (arity - 1) "," <> "#)"
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =
