@@ -266,6 +266,8 @@ buildTests = do
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
+            testCase "TemplateHaskell type-name quotes parse tuple constructors" test_templateHaskellTypeNameQuoteParsesTupleConstructor,
+            testCase "TemplateHaskell type-name quotes roundtrip tuple constructors" test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
             testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
@@ -2224,6 +2226,23 @@ test_templateHaskellTypeQuoteParsesInfixSplices =
     "expected type quote with infix TH splices shorthand"
     "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
+
+test_templateHaskellTypeNameQuoteParsesTupleConstructor :: Assertion
+test_templateHaskellTypeNameQuoteParsesTupleConstructor =
+  assertEqual
+    "expected TH type-name quote for tuple constructor"
+    "ParseOk (ETHTypeNameQuote \"(,,)\")"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,,)")))
+
+test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor :: Assertion
+test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor =
+  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,)" of
+    ParseOk expr ->
+      assertEqual
+        "expected tuple TH type-name quote to pretty round-trip"
+        "''(,)"
+        (renderStrict (layoutPretty defaultLayoutOptions (pretty expr)))
+    other -> assertFailure ("expected tuple TH type-name quote to parse, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl

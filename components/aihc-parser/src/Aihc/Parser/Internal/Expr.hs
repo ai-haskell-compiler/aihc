@@ -1091,13 +1091,13 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
+  name <- identifierNameParser <|> MP.try tupleConstructorNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (ETHNameQuote name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
+  name <- identifierNameParser <|> MP.try tupleConstructorNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (ETHTypeNameQuote name)
 
 parenOperatorNameParser :: TokParser Name
@@ -1120,6 +1120,15 @@ bracketConstructorNameParser = do
   expectedTok TkSpecialLBracket
   expectedTok TkSpecialRBracket
   pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+
+tupleConstructorNameParser :: TokParser Name
+tupleConstructorNameParser = do
+  expectedTok TkSpecialLParen
+  _ <- expectedTok TkSpecialComma
+  moreCommas <- MP.many (expectedTok TkSpecialComma)
+  expectedTok TkSpecialRParen
+  let arity = 2 + length moreCommas
+  pure (qualifyName Nothing (mkUnqualifiedName NameConId ("(" <> T.replicate (arity - 1) "," <> ")")))
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =
