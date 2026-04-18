@@ -10,6 +10,7 @@ module Test.Properties.ExprHelpers
 where
 
 import Aihc.Parser.Syntax
+import Data.Maybe (isNothing)
 import Data.Text qualified as T
 
 -- | Canonical empty source span for normalization.
@@ -351,6 +352,11 @@ normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
     TVar name -> TVar name
+    TCon name Unpromoted
+      | isNothing (nameQualifier name),
+        nameType name == NameVarSym,
+        nameText name == T.pack "*" ->
+          TParen TStar
     TCon name promoted -> TCon name promoted
     TImplicitParam name inner -> TImplicitParam name (normalizeType inner)
     TTypeLit lit -> TTypeLit lit

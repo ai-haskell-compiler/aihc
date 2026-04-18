@@ -86,7 +86,7 @@ data MembersResult
   | MembersListAll Int [IEBundledMember]
 
 exportMembersParser :: TokParser MembersResult
-exportMembersParser = membersParser False
+exportMembersParser = membersParser True
 
 importMembersParser :: TokParser MembersResult
 importMembersParser = membersParser True

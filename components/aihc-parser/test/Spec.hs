@@ -262,6 +262,7 @@ buildTests = do
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "roundtrips abstract export items written as T()" test_emptyBundledExportRoundtrip,
             testCase "roundtrips abstract import items written as T()" test_emptyBundledImportRoundtrip,
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
@@ -644,6 +645,13 @@ test_warnedExportReexportRoundtrip =
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
 
+test_emptyBundledExportRoundtrip :: Assertion
+test_emptyBundledExportRoundtrip =
+  let source = T.unlines ["module M (Text()) where", "data Text = Text"]
+   in case validateParser "EmptyBundledExport.hs" Haskell2010Edition [] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected empty bundled export to roundtrip, got: " <> show err)
+
 test_emptyBundledImportRoundtrip :: Assertion
 test_emptyBundledImportRoundtrip =
   let source = T.unlines ["module M where", "import Data.Text (Text(), unpack)"]
@@ -799,7 +807,7 @@ test_infixTypeFamilyEquationWithApplicationOperands =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
                 }
             ]
-              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+              | TApp (TApp (TParen TStar) lhsArg) rhsArg <- stripTypeAnnotations lhs,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
                   pure ()
@@ -1387,7 +1395,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  QC.withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  QC.withNumTests 2000 $ QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1404,7 +1412,7 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withMaxSuccess 25 $
+  QC.withNumTests 25 $
     QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
       QC.counterexample "expected generator to include ⁂ in sampled operators" $
         "⁂" `elem` ops

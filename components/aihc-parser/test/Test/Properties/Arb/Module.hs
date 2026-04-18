@@ -188,7 +188,7 @@ instance Arbitrary ExportSpec where
           <> [ExportWithAll Nothing namespace name wildcardIndex members | Just _ <- [mWarning]]
           <> [ExportWithAll mWarning namespace shrunk wildcardIndex members | shrunk <- shrinkExportTypeName name]
           <> [ExportWithAll mWarning namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
-          <> [ExportWithAll mWarning namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members]
+          <> [ExportWithAll mWarning namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEEntityNamespace where
   arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
@@ -244,7 +244,7 @@ instance Arbitrary ImportItem where
         [ImportItemWith namespace name members]
           <> [ImportItemAllWith namespace shrunk wildcardIndex members | shrunk <- shrinkTypeName name]
           <> [ImportItemAllWith namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
-          <> [ImportItemAllWith namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members]
+          <> [ImportItemAllWith namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do
@@ -283,7 +283,7 @@ genExportWithAll = do
   mWarning <- arbitrary
   namespace <- arbitrary
   name <- genExportTypeName
-  members <- genExportMembers
+  members <- listOf1 arbitrary
   wildcardIndex <- chooseInt (0, length members)
   pure (ExportWithAll mWarning namespace name wildcardIndex members)
 
@@ -291,7 +291,7 @@ genImportItemAllWith :: Gen ImportItem
 genImportItemAllWith = do
   namespace <- genBundledNamespace
   name <- genTypeName
-  members <- genExportMembers
+  members <- listOf1 arbitrary
   wildcardIndex <- chooseInt (0, length members)
   pure (ImportItemAllWith namespace name wildcardIndex members)
 
@@ -410,7 +410,7 @@ isValidTypeName name =
 
 genExportMembers :: Gen [IEBundledMember]
 genExportMembers = do
-  n <- chooseInt (1, 3)
+  n <- chooseInt (0, 3)
   vectorOf n arbitrary
 
 genTypeNamespace :: Gen (Maybe IEEntityNamespace)

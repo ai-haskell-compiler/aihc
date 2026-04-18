@@ -9,6 +9,7 @@ where
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePattern)
 import Aihc.Parser.Parens (addPatternParens)
 import Aihc.Parser.Syntax
+import Data.Maybe (isNothing)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -68,6 +69,11 @@ normalizeTypeSpan :: Type -> Type
 normalizeTypeSpan ty =
   case ty of
     TVar name -> TVar name
+    TCon name Unpromoted
+      | isNothing (nameQualifier name),
+        nameType name == NameVarSym,
+        nameText name == "*" ->
+          TParen TStar
     TCon name promoted -> TCon name promoted
     TImplicitParam name inner -> TImplicitParam name (normalizeTypeSpan inner)
     TTypeLit lit -> TTypeLit lit

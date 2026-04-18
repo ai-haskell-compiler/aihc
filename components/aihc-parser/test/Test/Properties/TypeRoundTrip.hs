@@ -9,7 +9,7 @@ where
 import Aihc.Parser
 import Aihc.Parser.Parens (addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -46,6 +46,11 @@ normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
     TVar name -> TVar name
+    TCon name Unpromoted
+      | isNothing (nameQualifier name),
+        nameType name == NameVarSym,
+        nameText name == "*" ->
+          TParen TStar
     TCon name promoted -> TCon name promoted
     TImplicitParam name inner -> TImplicitParam name (normalizeType inner)
     TTypeLit lit -> TTypeLit lit
