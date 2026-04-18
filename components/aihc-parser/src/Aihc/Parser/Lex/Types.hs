@@ -227,7 +227,7 @@ data ImplicitLayoutKind
   = LayoutOrdinary
   | LayoutLetBlock
   | LayoutMultiWayIf
-  | LayoutAfterThenElse !Int -- column of the 'then'/'else' keyword that opened this do-block
+  | LayoutAfterThenElse -- do-block opened directly by a preceding 'then'/'else'
   deriving (Eq, Show)
 
 data PendingLayout
@@ -251,8 +251,7 @@ data LayoutState = LayoutState
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
     layoutBuffer :: [LexToken],
-    layoutNondecreasingIndent :: !Bool,
-    layoutThenColumn :: !(Maybe Int) -- column of most recent 'then'/'else' awaiting 'do'
+    layoutNondecreasingIndent :: !Bool
   }
   deriving (Eq, Show)
 
@@ -300,8 +299,7 @@ mkInitialLayoutState enableModuleLayout exts =
           else ModuleLayoutOff,
       layoutPrevTokenEndSpan = Nothing,
       layoutBuffer = [],
-      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,
-      layoutThenColumn = Nothing
+      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts
     }
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken

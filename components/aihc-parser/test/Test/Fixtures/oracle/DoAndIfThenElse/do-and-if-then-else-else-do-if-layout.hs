@@ -1,11 +1,9 @@
-{- ORACLE_TEST xfail else-do layout block closed prematurely by inner then/else -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: inner 'if-then-else' inside 'else do' layout block where the
--- outer if-then-else is on one line. The 'do' in the else branch starts a
--- layout block, but the lexer's closeBeforeThenElse incorrectly closes the
--- do-layout when it encounters the inner 'then' (whose column is less than
--- the outer 'else' column). GHC accepts this; aihc-parser rejects it.
+-- outer if-then-else is on one line. The else-do layout must stay open across
+-- the nested conditional and only close when the outer branch ends.
 -- Minimized from http-download-0.2.1.0 Verified.hs:322.
 module DoAndIfThenElseElseDoIfLayout where
 

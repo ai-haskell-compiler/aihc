@@ -309,8 +309,9 @@ isValidGeneratedOperator candidate =
         candidate
           `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
       dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
+      hasBacktick = T.any (== '`') candidate
       hasCanonicalizedUnicode = T.any (`elem` bannedUnicodeOperatorChars) candidate
-   in not reserved && not dashOnly && not hasCanonicalizedUnicode
+   in not reserved && not dashOnly && not hasBacktick && not hasCanonicalizedUnicode
 
 -- | Generate a data constructor name
 genConName :: Gen Text
