@@ -2,6 +2,7 @@
 
 module Aihc.Parser.Internal.Type
   ( typeParser,
+    forallTelescopeParser,
     typeInfixParser,
     typeInfixOperatorParser,
     typeHeadInfixParser,
@@ -48,10 +49,17 @@ contextOrFunTypeParser = do
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
+  telescope <- forallTelescopeParser
+  TForall telescope <$> typeParser
+
+forallTelescopeParser :: TokParser ForallTelescope
+forallTelescopeParser = do
   expectedTok TkKeywordForall
   binders <- MP.some forallBinderParser
-  expectedTok (TkVarSym ".")
-  TForall binders <$> contextOrFunTypeParser
+  visibility <-
+    (expectedTok (TkVarSym ".") $> ForallInvisible)
+      <|> (expectedTok TkReservedRightArrow $> ForallVisible)
+  pure (ForallTelescope visibility binders)
 
 -- | Parse a single forall binder: {k} | (k :: *) | k
 forallBinderParser :: TokParser TyVarBinder
@@ -60,23 +68,28 @@ forallBinderParser =
     -- Inferred binder: {k} | {k :: Type}
     ( do
         expectedTok TkSpecialLBrace
-        ident <- lowerIdentifierParser
+        ident <- forallBinderNameParser
         mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
         expectedTok TkSpecialRBrace
-        pure (\span' -> TyVarBinder [mkAnnotation span'] ident mKind TyVarBInferred)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident mKind TyVarBInferred TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
-              ident <- lowerIdentifierParser
+              ident <- forallBinderNameParser
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
           )
       <|> ( do
-              ident <- lowerIdentifierParser
-              pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified)
+              ident <- forallBinderNameParser
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
           )
+
+forallBinderNameParser :: TokParser Text
+forallBinderNameParser =
+  lowerIdentifierParser
+    <|> (expectedTok TkKeywordUnderscore $> "_")
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do

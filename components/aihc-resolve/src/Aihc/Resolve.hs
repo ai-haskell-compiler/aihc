@@ -28,6 +28,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     Expr (..),
     FieldDecl (..),
+    ForallTelescope (..),
     GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
@@ -335,6 +336,9 @@ resolveExprAt scope nextLocal lastSeen expr =
       let here = peelExprSpan lastSeen expr
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
        in (nextLocal', ETypeSig inner' (resolveTypeAt scope here ty))
+    ETypeSyntax form ty ->
+      let here = peelExprSpan lastSeen expr
+       in (nextLocal, ETypeSyntax form (resolveTypeAt scope here ty))
     EParen inner ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
@@ -342,7 +346,7 @@ resolveExprAt scope nextLocal lastSeen expr =
     ETypeApp fun ty ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
-       in (nextLocal', ETypeApp fun' ty)
+       in (nextLocal', ETypeApp fun' (resolveTypeAt scope here ty))
     EApp fun arg ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
@@ -409,6 +413,16 @@ bindPattern typeScope lastSeen nextLocal pat =
           resolvedName = ResolvedLocal nextLocal name
           annotation = ResolutionAnnotation sp (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
        in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty, annotatePattern annotation (PVar name))
+    PTypeBinder binder ->
+      let scoped = unionScope emptyScope typeScope
+          binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
+          resolvedName = ResolvedLocal nextLocal binderName
+          binder' = binder {tyVarBinderKind = fmap (resolveTypeAt scoped NoSourceSpan) (tyVarBinderKind binder)}
+          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty
+       in (nextLocal + 1, binderScope, PTypeBinder binder')
+    PTypeSyntax form ty ->
+      let here = peelPatternSpan lastSeen pat
+       in (nextLocal, emptyScope, PTypeSyntax form (resolveTypeAt typeScope here ty))
     PTuple flavor pats ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
@@ -417,10 +431,10 @@ bindPattern typeScope lastSeen nextLocal pat =
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
        in (nextLocal', scope, PList pats')
-    PCon name pats ->
+    PCon name typeArgs pats ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PCon name pats')
+       in (nextLocal', scope, PCon name (map (resolveTypeAt typeScope here) typeArgs) pats')
     PInfix left name right ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', leftScope, left') = bindPattern typeScope here nextLocal left
@@ -522,11 +536,11 @@ resolveTypeAt scope lastSeen ty =
     TImplicitParam name inner ->
       let here = lastSeen
        in TImplicitParam name (resolveTypeAt scope here inner)
-    TForall binders inner ->
+    TForall telescope inner ->
       let here = lastSeen
-          (binderScope, binders') = bindTyVarBinders scope binders
+          (binderScope, binders') = bindTyVarBinders scope (forallTelescopeBinders telescope)
           scoped = unionScope binderScope scope
-       in TForall binders' (resolveTypeAt scoped here inner)
+       in TForall (telescope {forallTelescopeBinders = binders'}) (resolveTypeAt scoped here inner)
     TApp left right ->
       let here = lastSeen
        in TApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
@@ -574,10 +588,10 @@ resolveTypeSignatureAt scope nextLocal ambient ty =
     -- Type signatures may carry span-only 'TAnn' wrappers (see 'typeAnnSpan'); peel
     -- them so we still allocate scoped type variables and advance 'nextLocal'.
     TAnn ann sub -> resolveTypeSignatureAt scope nextLocal (pushSpanFromAnn ambient ann) sub
-    TForall binders inner ->
-      let (nextLocal', binderScope, binders') = bindTyVarBindersWithIds scope nextLocal binders
+    TForall telescope inner ->
+      let (nextLocal', binderScope, binders') = bindTyVarBindersWithIds scope nextLocal (forallTelescopeBinders telescope)
           scoped = unionScope binderScope scope
-       in (nextLocal', binderScope, TForall binders' (resolveTypeAt scoped ambient inner))
+       in (nextLocal', binderScope, TForall (telescope {forallTelescopeBinders = binders'}) (resolveTypeAt scoped ambient inner))
     _ -> (nextLocal, emptyScope, resolveTypeAt scope ambient ty)
 
 bindTyVarBinders :: Scope -> [TyVarBinder] -> (Scope, [TyVarBinder])
@@ -680,11 +694,11 @@ topLevelDeclAnnotations decl scope =
 
 classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
 classAnnotation scope declSpan classDecl =
-  let className = mkUnqualifiedName NameConId (classDeclName classDecl)
+  let className = classDeclName classDecl
       span' = declSpan
    in ResolutionAnnotation
-        (declKeywordNameSpan "class " span' (classDeclName classDecl))
-        (classDeclName classDecl)
+        (declKeywordNameSpan "class " span' (renderUnqualifiedName className))
+        (renderUnqualifiedName className)
         ResolutionNamespaceType
         (resolveTopLevelType scope className)
 
@@ -750,7 +764,7 @@ declExportedNames decl =
             PVar name -> ([name], [])
             _ -> ([], [])
     DeclTypeSig names _ -> (names, [])
-    DeclClass classDecl -> ([], [mkUnqualifiedName NameConId (classDeclName classDecl)])
+    DeclClass classDecl -> ([], [classDeclName classDecl])
     DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
     DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
     DeclNewtype newtypeDecl ->

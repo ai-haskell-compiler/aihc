@@ -19,6 +19,7 @@ import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
+    genFieldName,
     genIdent,
     genVarSym,
     shrinkConIdent,
@@ -151,7 +152,7 @@ genPatternWithoutLeadingNegArg n =
 startsWithConstructorNegativeLiteral :: Pattern -> Bool
 startsWithConstructorNegativeLiteral pat =
   case pat of
-    PCon _ (PNegLit {} : _) -> True
+    PCon _ _ (PNegLit {} : _) -> True
     PParen inner -> startsWithConstructorNegativeLiteral inner
     _ -> False
 
@@ -187,7 +188,7 @@ genDeclRoleAnnotation = do
   pure $
     DeclRoleAnnotation
       RoleAnnotation
-        { roleAnnotationName = name,
+        { roleAnnotationName = mkUnqualifiedName NameConId name,
           roleAnnotationRoles = roles
         }
 
@@ -200,7 +201,7 @@ genDeclTypeSyn = do
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadPrefix,
-          typeSynName = name,
+          typeSynName = mkUnqualifiedName NameConId name,
           typeSynParams = params,
           typeSynBody = body
         }
@@ -213,14 +214,14 @@ genDeclTypeSynInfix = do
   name <- oneof [genConSym, genConIdent]
   lhsName <- genIdent
   rhsName <- genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
   body <- genSimpleType
   pure $
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadInfix,
-          typeSynName = name,
+          typeSynName = unqualifiedNameFromText name,
           typeSynParams = [lhs, rhs],
           typeSynBody = body
         }
@@ -260,9 +261,9 @@ genDeclDataInfix = do
   rhsName <- genIdent
   extraCount <- chooseInt (0, 2)
   extraNames <- vectorOf extraCount genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
-      extraParams = [TyVarBinder [] n Nothing TyVarBSpecified | n <- extraNames]
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
+      extraParams = [TyVarBinder [] n Nothing TyVarBSpecified TyVarBVisible | n <- extraNames]
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
@@ -390,7 +391,8 @@ genFieldDecl = do
   FieldDecl [] fieldNames <$> genSimpleBangType
 
 genRecordFieldName :: Gen UnqualifiedName
-genRecordFieldName = mkUnqualifiedName NameVarId <$> genIdent
+genRecordFieldName =
+  mkUnqualifiedName NameVarId <$> genFieldName
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = do
@@ -584,7 +586,7 @@ genDeclClassPrefix = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadPrefix,
-          classDeclName = name,
+          classDeclName = mkUnqualifiedName NameConId name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -654,8 +656,8 @@ genDeclClassInfix = do
   lhsName <- genIdent
   rhsName <- genIdent
   ctx <- genOptionalSimpleContext
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       params = [lhs, rhs]
   items <- genClassDeclItems params
   pure $
@@ -663,7 +665,7 @@ genDeclClassInfix = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadInfix,
-          classDeclName = name,
+          classDeclName = mkUnqualifiedName NameConId name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -687,7 +689,7 @@ genDeclInstancePrefix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadPrefix,
-          instanceDeclClassName = className,
+          instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = types,
           instanceDeclItems = []
         }
@@ -707,7 +709,7 @@ genDeclInstanceInfix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadInfix,
-          instanceDeclClassName = className,
+          instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = [lhs, rhs],
           instanceDeclItems = []
         }
@@ -717,7 +719,7 @@ genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStand
 
 genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
-  className <- mkUnqualifiedName NameConId <$> genConIdent
+  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
@@ -739,7 +741,7 @@ genDeclStandaloneDerivingPrefix = do
 
 genDeclStandaloneDerivingInfix :: Gen Decl
 genDeclStandaloneDerivingInfix = do
-  className <- mkUnqualifiedName NameConId <$> genConIdent
+  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
@@ -843,8 +845,8 @@ genDeclTypeFamilyDeclInfix = do
   name <- nameText
   lhsName <- genIdent
   rhsName <- genIdent
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified
+  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
+      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
       headType = TApp (TApp (TCon (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted) lhsType) rhsType
@@ -1020,7 +1022,7 @@ genDeclPatSyn = do
   argName <- genIdent
   conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   let args = PatSynPrefixArgs [argName]
-      pat = PCon conName [PVar (mkUnqualifiedName NameVarId argName)]
+      pat = PCon conName [] [PVar (mkUnqualifiedName NameVarId argName)]
   dir <- elements [PatSynBidirectional, PatSynUnidirectional]
   pure $ DeclPatSyn (PatSynDecl synName args pat dir)
 
@@ -1039,7 +1041,7 @@ genDeclStandaloneKindSig = do
 genSimpleTyVarBinders :: Gen [TyVarBinder]
 genSimpleTyVarBinders = do
   n <- chooseInt (0, 2)
-  vectorOf n (TyVarBinder [] <$> genIdent <*> pure Nothing <*> pure TyVarBSpecified)
+  vectorOf n (TyVarBinder [] <$> genIdent <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible)
 
 -- | Generate a simple type for use in declaration contexts.
 genSimpleType :: Gen Type
@@ -1278,7 +1280,7 @@ shrinkDataConDecl con =
       [GadtCon forall' ctx names' body | names' <- shrinkList (const []) names, not (null names')]
         <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
         <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
-        <> [GadtCon forall'' ctx names body | forall'' <- shrinkTyVarBinders forall']
+        <> [GadtCon forall'' ctx names body | forall'' <- shrinkForallTelescopes forall']
 
 shrinkGadtBody :: GadtBody -> [GadtBody]
 shrinkGadtBody body =
@@ -1378,7 +1380,7 @@ shrinkDataFamilyInst dfi =
 shrinkRoleAnnotation :: RoleAnnotation -> [RoleAnnotation]
 shrinkRoleAnnotation ra =
   [ra {roleAnnotationRoles = rs'} | rs' <- shrinkList (const []) (roleAnnotationRoles ra)]
-    <> [ra {roleAnnotationName = n'} | n' <- shrinkConIdent (roleAnnotationName ra)]
+    <> [ra {roleAnnotationName = n'} | n' <- shrinkConName (roleAnnotationName ra)]
 
 -- ---------------------------------------------------------------------------
 -- Name shrinking helpers
@@ -1422,6 +1424,14 @@ shrinkTyVarBinders = shrinkList shrinkTyVarBinder
   where
     shrinkTyVarBinder tvb =
       [tvb {tyVarBinderName = n'} | n' <- shrinkIdent (tyVarBinderName tvb)]
+
+shrinkForallTelescopes :: [ForallTelescope] -> [[ForallTelescope]]
+shrinkForallTelescopes = shrinkList shrinkForallTelescope
+  where
+    shrinkForallTelescope telescope =
+      [ telescope {forallTelescopeBinders = binders'}
+      | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
+      ]
 
 shrinkTypeHeadParams :: TypeHeadForm -> [TyVarBinder] -> [[TyVarBinder]]
 shrinkTypeHeadParams headForm params =

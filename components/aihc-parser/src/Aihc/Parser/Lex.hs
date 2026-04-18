@@ -79,7 +79,7 @@ import Aihc.Parser.Lex.Trivia
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
 import Control.Applicative ((<|>))
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -314,13 +314,6 @@ lexIdentifier env st =
                in gatherQualified hasMH (acc <> "." <> segWithHead) rest
         _ -> (acc, chars, T.any (== '.') acc)
 
-    consumeIdentTail :: Bool -> Text -> (Text, Text)
-    consumeIdentTail hasMH inp =
-      let (tailPart, rest) = T.span isIdentTail inp
-       in case rest of
-            '#' :< rest' | hasMH -> (tailPart <> "#", rest')
-            _ -> (tailPart, rest)
-
     -- Split a qualified identifier into (module part, name part).
     -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")
     splitQualified :: Text -> Text -> (Text, Text)
@@ -344,6 +337,16 @@ lexIdentifier env st =
               | isConIdStart firstChar -> TkConId ident
               | otherwise -> TkVarId ident
 
+consumeIdentTail :: Bool -> Text -> (Text, Text)
+consumeIdentTail hasMH inp =
+  let (tailPart, rest) = T.span isIdentTail inp
+   in case rest of
+        '#' :< _
+          | hasMH ->
+              let hashes = T.takeWhile (== '#') rest
+               in (tailPart <> hashes, T.drop (T.length hashes) rest)
+        _ -> (tailPart, rest)
+
 lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
   | not (hasExt ImplicitParams env) = Nothing
@@ -351,7 +354,8 @@ lexImplicitParam env st
       case lexerInput st of
         '?' :< rest0@(c :< _)
           | isVarIdentifierStartChar c ->
-              let tailChars = T.takeWhile isIdentTail (T.tail rest0)
+              let hasMagicHash = hasExt MagicHash env
+                  (tailChars, _rest) = consumeIdentTail hasMagicHash (T.tail rest0)
                   txt = T.take (2 + T.length tailChars) (lexerInput st)
                   st' = advanceChars txt st
                in Just (mkToken st st' txt (TkImplicitParam txt), st')
@@ -555,7 +559,20 @@ lexOverloadedLabel env st
            in if T.null label then Nothing else Just (label, label)
 
     isUnquotedLabelChar c =
-      not (isSpace c) && c `notElem` ("()[]{},;`#\"" :: String)
+      case generalCategory c of
+        UppercaseLetter -> True
+        LowercaseLetter -> True
+        TitlecaseLetter -> True
+        ModifierLetter -> True
+        OtherLetter -> True
+        DecimalNumber -> True
+        LetterNumber -> True
+        OtherNumber -> True
+        NonSpacingMark -> True
+        SpacingCombiningMark -> True
+        EnclosingMark -> True
+        ConnectorPunctuation -> True
+        _ -> c == '\''
 
     takeMalformedString chars =
       case scanQuoted '"' (T.drop 1 chars) of

@@ -70,8 +70,14 @@ conIdentStartChars = filter isValidConIdentStartChar allChars
 identTailChars :: [Char]
 identTailChars = filter isValidIdentTailChar allChars
 
+-- | Unicode characters that the lexer maps to reserved tokens or normalized
+-- ASCII operator names (see 'unicodeOpTokenKind' in Lex.hs). These must be
+-- excluded from symbol generation to prevent round-trip mismatches.
+unicodeOpChars :: [Char]
+unicodeOpChars = ['∷', '⇒', '→', '←', '∀', '★', '⤙', '⤚', '⤛', '⤜', '⦇', '⦈', '⟦', '⟧', '⊸']
+
 symbolChars :: [Char]
-symbolChars = filter isValidSymbolChar allChars
+symbolChars = filter (\c -> isValidSymbolChar c && c `notElem` unicodeOpChars) allChars
 
 varSymStartChars :: [Char]
 varSymStartChars = filter (/= ':') symbolChars
@@ -92,7 +98,8 @@ genIdent = do
   first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements identTailChars)
-  let candidate = T.pack (first : rest)
+  hashCount <- chooseInt (0, 4)
+  let candidate = T.pack (first : rest) <> T.replicate hashCount "#"
   if isValidGeneratedIdent candidate
     then pure candidate
     else genIdent
@@ -102,13 +109,22 @@ shrinkIdent = shrinkWithPreservedFirstChar isValidGeneratedIdent
 
 isValidGeneratedIdent :: Text -> Bool
 isValidGeneratedIdent ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      ident /= "_"
-        && isValidGeneratedIdentStartChar first
-        && T.all isValidIdentTailChar rest
-        && not (isReservedIdentifier allExtensions ident)
+  case unsnocMagicHash ident of
+    Just (baseIdent, _magicHashes) ->
+      case T.uncons baseIdent of
+        Just (first, rest) ->
+          baseIdent /= "_"
+            && isValidGeneratedIdentStartChar first
+            && T.all isValidIdentTailChar rest
+            && not (isReservedIdentifier allExtensions ident)
+        Nothing -> False
     Nothing -> False
+
+unsnocMagicHash :: Text -> Maybe (Text, Text)
+unsnocMagicHash ident =
+  let magicHashes = T.takeWhileEnd (== '#') ident
+      baseIdent = T.dropEnd (T.length magicHashes) ident
+   in if T.null ident || T.null baseIdent then Nothing else Just (baseIdent, magicHashes)
 
 -------------------------------------------------------------------------------
 -- Constructor identifiers (uppercase-starting names)
@@ -121,17 +137,21 @@ genConIdent = do
   first <- elements conIdentStartChars
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements identTailChars)
-  pure (T.pack (first : rest))
+  hashCount <- chooseInt (0, 4)
+  pure (T.pack (first : rest) <> T.replicate hashCount "#")
 
 shrinkConIdent :: Text -> [Text]
 shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent
 
 isValidConIdent :: Text -> Bool
 isValidConIdent ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      isValidConIdentStartChar first
-        && T.all isValidIdentTailChar rest
+  case unsnocMagicHash ident of
+    Just (baseIdent, _magicHashes) ->
+      case T.uncons baseIdent of
+        Just (first, rest) ->
+          isValidConIdentStartChar first
+            && T.all isValidIdentTailChar rest
+        Nothing -> False
     Nothing -> False
 
 -------------------------------------------------------------------------------
@@ -167,11 +187,33 @@ isValidGeneratedVarSym op =
   case T.uncons op of
     Just (first, rest) ->
       first /= ':'
+        && first /= '`'
         && isValidSymbolChar first
+        && T.all (/= '`') rest
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
+        && not (T.any (`elem` bannedUnicodeOperatorChars) op)
     Nothing -> False
+
+bannedUnicodeOperatorChars :: [Char]
+bannedUnicodeOperatorChars =
+  [ '→',
+    '←',
+    '⇒',
+    '∷',
+    '∀',
+    '⤙',
+    '⤚',
+    '⤛',
+    '⤜',
+    '⦇',
+    '⦈',
+    '⟦',
+    '⟧',
+    '⊸',
+    '★'
+  ]
 
 -------------------------------------------------------------------------------
 -- Module qualifiers
@@ -305,7 +347,7 @@ isValidIdentTailChar :: Char -> Bool
 isValidIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidIdentNumberChar c
 
 isValidSymbolChar :: Char -> Bool
-isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c
+isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c && c /= '`'
 
 isValidUnicodeSymbolChar :: Char -> Bool
 isValidUnicodeSymbolChar c =

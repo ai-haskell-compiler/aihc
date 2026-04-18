@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="module export lists reject identifiers that end in double hashes" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 
 module M (f##) where

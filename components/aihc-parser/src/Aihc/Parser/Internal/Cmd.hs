@@ -71,7 +71,7 @@ cmdInfixChain :: Cmd -> TokParser Cmd
 cmdInfixChain lhs = do
   rest <-
     MP.many
-      ( (,) . renderName
+      ( (,)
           <$> infixOperatorParserExcept []
           <*> cmdParser
       )
