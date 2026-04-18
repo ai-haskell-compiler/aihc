@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Main (main) where
 
@@ -46,7 +45,7 @@ import Test.Properties.Identifiers
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample, withMaxSuccess)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -289,9 +288,11 @@ buildTests = do
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
-            QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
+            localOption (QC.QuickCheckTests 2000) $
+              QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
-            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
+            localOption (QC.QuickCheckTests 25) $
+              QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
             QC.testProperty "generated constructor symbols are valid" prop_generatedConstructorSymbolsAreValid,
             QC.testProperty "generated variable symbols are valid" prop_generatedVariableSymbolsAreValid
           ],
@@ -808,7 +809,7 @@ test_infixTypeFamilyEquationWithApplicationOperands =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
                 }
             ]
-              | TApp (TApp (TParen TStar) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
                   pure ()
@@ -1396,7 +1397,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1413,10 +1414,9 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  withMaxSuccess 25 $
-    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-      QC.counterexample "expected generator to include ⁂ in sampled operators" $
-        "⁂" `elem` ops
+  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+    QC.counterexample "expected generator to include ⁂ in sampled operators" $
+      "⁂" `elem` ops
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =
