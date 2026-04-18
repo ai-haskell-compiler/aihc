@@ -353,7 +353,7 @@ isSimplePattern pat =
     PQuasiQuote {} -> True
     PTuple {} -> True
     PList {} -> True
-    PCon _ [] -> True
+    PCon _ [] [] -> True
     PRecord {} -> True
     PParen {} -> True
     PUnboxedSum {} -> True

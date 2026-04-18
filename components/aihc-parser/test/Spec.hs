@@ -1633,7 +1633,7 @@ test_lambdaCasesParsesMultiArgumentAlternatives = do
         ELambdaCases
           [ LambdaCaseAlt
               { lambdaCaseAltAnns = [],
-                lambdaCaseAltPats = [pat0 (PCon "True" []), pat0 (PCon "False" [])],
+                lambdaCaseAltPats = [pat0 (PCon "True" [] []), pat0 (PCon "False" [] [])],
                 lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
               },
             LambdaCaseAlt
@@ -1654,7 +1654,7 @@ test_prettyLambdaCasesRoundTrip = do
           ( ELambdaCases
               [ LambdaCaseAlt
                   { lambdaCaseAltAnns = [],
-                    lambdaCaseAltPats = [pat0 (PVar "x"), pat0 (PParen (pat0 (PCon "Just" [pat0 (PVar "y")])))],
+                    lambdaCaseAltPats = [pat0 (PVar "x"), pat0 (PParen (pat0 (PCon "Just" [] [pat0 (PVar "y")])))],
                     lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EVar "y")) Nothing
                   },
                 LambdaCaseAlt
