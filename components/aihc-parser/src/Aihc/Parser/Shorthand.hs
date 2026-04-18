@@ -740,8 +740,8 @@ docExpr expr =
     ETHDeclQuote decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     ETHTypeQuote ty -> "ETHTypeQuote" <+> parens (docType ty)
     ETHPatQuote pat -> "ETHPatQuote" <+> parens (docPattern pat)
-    ETHNameQuote name -> "ETHNameQuote" <+> docName name
-    ETHTypeNameQuote name -> "ETHTypeNameQuote" <+> docName name
+    ETHNameQuote body -> "ETHNameQuote" <+> parens (docExpr body)
+    ETHTypeNameQuote ty -> "ETHTypeNameQuote" <+> parens (docType ty)
     ETHSplice body -> "ETHSplice" <+> parens (docExpr body)
     ETHTypedSplice body -> "ETHTypedSplice" <+> parens (docExpr body)
     EIf cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)

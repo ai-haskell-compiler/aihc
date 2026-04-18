@@ -63,8 +63,8 @@ normalizeExpr expr =
     ETHDeclQuote decls -> ETHDeclQuote (map normalizeDecl decls)
     ETHTypeQuote ty -> ETHTypeQuote (normalizeType ty)
     ETHPatQuote pat -> ETHPatQuote (normalizePattern pat)
-    ETHNameQuote name -> ETHNameQuote name
-    ETHTypeNameQuote name -> ETHTypeNameQuote name
+    ETHNameQuote body -> ETHNameQuote (normalizeExpr body)
+    ETHTypeNameQuote ty -> ETHTypeNameQuote (normalizeType ty)
     ETHSplice body -> ETHSplice (normalizeExpr body)
     ETHTypedSplice body -> ETHTypedSplice (normalizeExpr body)
     EProc pat body -> EProc (normalizePattern pat) (normalizeCmd body)

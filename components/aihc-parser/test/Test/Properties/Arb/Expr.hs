@@ -96,8 +96,8 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote <$> genValueDeclsWith False (n - 1),
             ETHPatQuote <$> genPattern (n - 1),
             ETHTypeQuote <$> genTypeWith False (n - 1),
-            ETHNameQuote <$> genNameQuoteName,
-            ETHTypeNameQuote <$> genTypeNameQuote
+            ETHNameQuote <$> genNameQuoteExpr,
+            ETHTypeNameQuote <$> genTypeNameQuoteType
           ]
       | otherwise =
           []
@@ -154,17 +154,24 @@ genTypedSpliceBody n =
 -- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
 -- such as @M.v@ and @M.+@.
-genNameQuoteName :: Gen Name
-genNameQuoteName =
+genNameQuoteExpr :: Gen Expr
+genNameQuoteExpr =
   oneof
-    [ qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
+    [ EVar . qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        mkName (Just qual) NameVarId <$> genNameQuoteIdent,
+        EVar . mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
         op <- genOperator `suchThat` notDotLikeForQualifiedOp
-        pure (mkName (Just qual) NameVarSym op)
+        pure (EVar (mkName (Just qual) NameVarSym op)),
+      pure (EList []),
+      pure (ETuple Boxed []),
+      pure (ETuple Unboxed []),
+      (\n -> ETuple Boxed (replicate n Nothing))
+        <$> chooseInt (2, 5),
+      (\n -> ETuple Unboxed (replicate n Nothing))
+        <$> chooseInt (2, 5)
     ]
   where
     -- \| @renderName (mkName (Just q) NameVarSym op) == q <> "." <> op@ must not
@@ -172,6 +179,15 @@ genNameQuoteName =
     notDotLikeForQualifiedOp :: Text -> Bool
     notDotLikeForQualifiedOp op =
       not (T.null op) && not (".." `T.isInfixOf` op) && not ("." `T.isPrefixOf` op)
+
+genTypeNameQuoteType :: Gen Type
+genTypeNameQuoteType =
+  oneof
+    [ TCon <$> genTypeNameQuote <*> pure Unpromoted,
+      pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted),
+      pure (TTuple Boxed Unpromoted []),
+      pure (TTuple Unboxed Unpromoted [])
+    ]
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,

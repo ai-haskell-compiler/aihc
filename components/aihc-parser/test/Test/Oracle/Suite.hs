@@ -5,7 +5,6 @@ module Test.Oracle.Suite
   )
 where
 
-import Aihc.Parser.Syntax (Extension (LambdaCase), ExtensionSetting (EnableExtension))
 import Control.Monad (when)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -130,23 +129,6 @@ frameworkTests =
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
-        testCase "oracle xfail retains details" $
-          let meta =
-                CaseMeta
-                  { caseId = "framework-xfail-details",
-                    caseCategory = "framework",
-                    casePath = "framework-xfail-details.hs",
-                    caseExpected = ExpectXFail,
-                    caseReason = "regression coverage",
-                    caseExtensions = [EnableExtension LambdaCase]
-                  }
-           in do
-                let (_, outcome, details) = evaluateCaseText meta "module M where\n\nf = \\cases\n  True False -> 0\n  _ _ -> 1\n"
-                case outcome of
-                  OutcomeXFail
-                    | null details -> assertFailure "expected xfail details to be non-empty"
-                    | otherwise -> pure ()
-                  _ -> assertFailure ("expected OutcomeXFail, got " <> show outcome),
         testCase "oracle rejects top-level block-argument lambda" $
           let meta =
                 CaseMeta

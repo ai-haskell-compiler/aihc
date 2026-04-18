@@ -35,7 +35,6 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Functor (($>))
-import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
@@ -1092,54 +1091,12 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  quotedExpr <- atomExprParser
-  name <- liftCheck (termLevelNameFromExpr quotedExpr)
-  pure (ETHNameQuote name)
+  ETHNameQuote <$> atomExprParser
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  quotedType <- typeAtomParser
-  name <- liftCheck (typeLevelNameFromType quotedType)
-  pure (ETHTypeNameQuote name)
-
-termLevelNameFromExpr :: Expr -> Either Text Name
-termLevelNameFromExpr expr =
-  case peelExprAnn expr of
-    EVar name
-      | isValidTermLevelQuoteName name -> Right name
-      | otherwise -> Left "Template Haskell value name quote expects a term-level name"
-    EParen inner -> termLevelNameFromExpr inner
-    EList [] -> Right (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
-    ETuple tupleFlavor elems
-      | all isNothing elems -> Right (tupleName tupleFlavor (length elems))
-      | otherwise -> Left "Template Haskell value name quote expects a term-level name"
-    _ -> Left "Template Haskell value name quote expects a term-level name"
-
-typeLevelNameFromType :: Type -> Either Text Name
-typeLevelNameFromType ty =
-  case peelTypeAnn ty of
-    TVar name -> Right (qualifyName Nothing name)
-    TCon name _ -> Right name
-    TParen inner -> typeLevelNameFromType inner
-    TList _ [] -> Right (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
-    TTuple tupleFlavor _ [] -> Right (tupleName tupleFlavor 0)
-    _ -> Left "Template Haskell type name quote expects a type-level name"
-
-isValidTermLevelQuoteName :: Name -> Bool
-isValidTermLevelQuoteName name =
-  renderName name `notElem` ["_", "=", "..", "::", "=>", "->", "<-", "|"]
-
-tupleName :: TupleFlavor -> Int -> Name
-tupleName tupleFlavor arity =
-  qualifyName Nothing (mkUnqualifiedName NameConId tupleText)
-  where
-    tupleText =
-      case (tupleFlavor, arity) of
-        (Boxed, 0) -> "()"
-        (Unboxed, 0) -> "(# #)"
-        (Boxed, _) -> "(" <> T.replicate (arity - 1) "," <> ")"
-        (Unboxed, _) -> "(#" <> T.replicate (arity - 1) "," <> "#)"
+  ETHTypeNameQuote <$> typeAtomParser
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =
