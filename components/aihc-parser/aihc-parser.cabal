@@ -132,7 +132,7 @@ test-suite spec
     , deepseq
     , tasty
     , tasty-hunit
-    , tasty-quickcheck
+    , tasty-quickcheck >= 0.11.1 && < 0.12
     , QuickCheck
     , ghc-lib-parser
     , Cabal-syntax >= 3.14 && < 3.17

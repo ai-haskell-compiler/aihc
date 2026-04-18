@@ -86,18 +86,16 @@ data MembersResult
   | MembersListAll Int [IEBundledMember]
 
 exportMembersParser :: TokParser MembersResult
-exportMembersParser = membersParser False
+exportMembersParser = membersParser
 
 importMembersParser :: TokParser MembersResult
-importMembersParser = membersParser True
+importMembersParser = membersParser
 
-membersParser :: Bool -> TokParser MembersResult
-membersParser allowEmpty =
+membersParser :: TokParser MembersResult
+membersParser =
   parens (parseDotDotFirst <|> parseMemberList <|> emptyMembers)
   where
-    emptyMembers
-      | allowEmpty = pure (MembersList [])
-      | otherwise = MP.empty
+    emptyMembers = pure (MembersList [])
 
     parseDotDotFirst = do
       expectedTok TkReservedDotDot

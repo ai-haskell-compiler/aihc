@@ -262,6 +262,7 @@ buildTests = do
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "roundtrips abstract export items written as T()" test_emptyBundledExportRoundtrip,
             testCase "roundtrips abstract import items written as T()" test_emptyBundledImportRoundtrip,
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
@@ -287,9 +288,11 @@ buildTests = do
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
-            QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
+            localOption (QC.QuickCheckTests 2000) $
+              QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
-            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
+            localOption (QC.QuickCheckTests 25) $
+              QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
             QC.testProperty "generated constructor symbols are valid" prop_generatedConstructorSymbolsAreValid,
             QC.testProperty "generated variable symbols are valid" prop_generatedVariableSymbolsAreValid
           ],
@@ -643,6 +646,13 @@ test_warnedExportReexportRoundtrip =
    in case validateParser "WarnedExportReexport.hs" Haskell2010Edition [] source of
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
+
+test_emptyBundledExportRoundtrip :: Assertion
+test_emptyBundledExportRoundtrip =
+  let source = T.unlines ["module M (Text()) where", "data Text = Text"]
+   in case validateParser "EmptyBundledExport.hs" Haskell2010Edition [] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected empty bundled export to roundtrip, got: " <> show err)
 
 test_emptyBundledImportRoundtrip :: Assertion
 test_emptyBundledImportRoundtrip =
@@ -1387,7 +1397,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  QC.withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1404,10 +1414,9 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withMaxSuccess 25 $
-    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-      QC.counterexample "expected generator to include ⁂ in sampled operators" $
-        "⁂" `elem` ops
+  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+    QC.counterexample "expected generator to include ⁂ in sampled operators" $
+      "⁂" `elem` ops
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =

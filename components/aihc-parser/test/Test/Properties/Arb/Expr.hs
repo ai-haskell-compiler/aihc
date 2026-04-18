@@ -341,7 +341,7 @@ genTypeNameQuote =
   oneof
     [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
       -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genOperator (/= "*")
     ]
 
 genVarName :: Gen Name
