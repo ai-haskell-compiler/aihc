@@ -2264,7 +2264,7 @@ test_generatedPatternsIncludeRecordFieldViewPatterns = do
         PRecord _ fields _ -> any (isView . snd) fields || any (hasRecordFieldViewPattern . snd) fields
         PTuple _ elems -> any hasRecordFieldViewPattern elems
         PList elems -> any hasRecordFieldViewPattern elems
-        PCon _ args -> any hasRecordFieldViewPattern args
+        PCon _ _ args -> any hasRecordFieldViewPattern args
         PInfix lhs _ rhs -> hasRecordFieldViewPattern lhs || hasRecordFieldViewPattern rhs
         PView _ inner -> hasRecordFieldViewPattern inner
         PAs _ inner -> hasRecordFieldViewPattern inner
