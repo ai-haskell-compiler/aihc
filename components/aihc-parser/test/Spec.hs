@@ -12,6 +12,8 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
+import Data.Data (Data)
+import Data.Data qualified as Data
 import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -2259,27 +2261,22 @@ test_generatedPatternsIncludeRecordFieldViewPatterns = do
   assertBool "expected generated patterns to include a record field view pattern" (any hasRecordFieldViewPattern samples)
   where
     hasRecordFieldViewPattern :: Pattern -> Bool
-    hasRecordFieldViewPattern pat =
-      case peelPatternAnn pat of
-        PRecord _ fields _ -> any (isView . snd) fields || any (hasRecordFieldViewPattern . snd) fields
-        PTuple _ elems -> any hasRecordFieldViewPattern elems
-        PList elems -> any hasRecordFieldViewPattern elems
-        PCon _ _ args -> any hasRecordFieldViewPattern args
-        PInfix lhs _ rhs -> hasRecordFieldViewPattern lhs || hasRecordFieldViewPattern rhs
-        PView _ inner -> hasRecordFieldViewPattern inner
-        PAs _ inner -> hasRecordFieldViewPattern inner
-        PStrict inner -> hasRecordFieldViewPattern inner
-        PIrrefutable inner -> hasRecordFieldViewPattern inner
-        PParen inner -> hasRecordFieldViewPattern inner
-        PUnboxedSum _ _ inner -> hasRecordFieldViewPattern inner
-        PTypeSig inner _ -> hasRecordFieldViewPattern inner
-        _ -> False
+    hasRecordFieldViewPattern = go
+      where
+        go :: (Data a) => a -> Bool
+        go x
+          | hasRecordFieldWithPView x = True
+          | otherwise = any go (Data.gmapQ go x)
 
-    isView :: Pattern -> Bool
-    isView fieldPat =
-      case peelPatternAnn fieldPat of
-        PView {} -> True
-        _ -> False
+        hasRecordFieldWithPView :: (Data a) => a -> Bool
+        hasRecordFieldWithPView r = case Data.cast r of
+          Just (PRecord _ fields _) -> any (isPView . snd) fields
+          _ -> False
+
+        isPView :: (Data a) => a -> Bool
+        isPView p = case Data.cast p of
+          Just (PView _ _) -> True
+          _ -> False
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
