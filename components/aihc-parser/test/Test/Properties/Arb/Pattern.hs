@@ -36,13 +36,7 @@ instance Arbitrary Pattern where
   shrink = shrinkPattern
 
 genPattern :: Int -> Gen Pattern
-genPattern = genPatternWith True
-
--- | Internal pattern generator parameterized by whether all pattern constructors
--- are allowed. When @allowAll@ is False, PView, PIrrefutable, PStrict, and PAs
--- are excluded at all depths (for use in comprehension/guard contexts).
-genPatternWith :: Bool -> Int -> Gen Pattern
-genPatternWith allowAll depth =
+genPattern depth =
   oneof (leafGenerators <> recursiveGenerators)
   where
     allowRecursive = depth > 0
@@ -58,39 +52,39 @@ genPatternWith allowAll depth =
         PTuple Unboxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x")], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         pure (PList []),
         (\name -> PCon name [] []) <$> genPatternConAstName,
-        genUnboxedSumPatternWith allowAll 0
+        genUnboxedSumPatternWith 0
       ]
     recursiveGenerators =
-      [ PTuple Boxed <$> genTupleElemsWith allowAll nextDepth
+      [ PTuple Boxed <$> genTupleElemsWith nextDepth
       | allowRecursive
       ]
-        <> [PTuple Unboxed <$> genUnboxedTupleElemsWith allowAll nextDepth | allowRecursive]
-        <> [PList <$> genListElemsWith allowAll nextDepth | allowRecursive]
-        <> [genPatternConWith allowAll depth | allowRecursive]
-        <> [genPatternInfixWith allowAll depth | allowRecursive]
-        <> [PParen <$> genPatternWith allowAll nextDepth | allowRecursive]
-        <> [genRecordPatternWith allowAll nextDepth | allowRecursive]
-        <> [genPatternTypeSigWith allowAll depth | allowRecursive]
-        <> [genUnboxedSumPatternWith allowAll nextDepth | allowRecursive]
-        <> [PView <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PAs <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
-        <> [PStrict . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PIrrefutable . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PTuple Unboxed <$> genUnboxedTupleElemsWith nextDepth | allowRecursive]
+        <> [PList <$> genListElemsWith nextDepth | allowRecursive]
+        <> [genPatternConWith depth | allowRecursive]
+        <> [genPatternInfixWith depth | allowRecursive]
+        <> [PParen <$> genPattern nextDepth | allowRecursive]
+        <> [genRecordPatternWith nextDepth | allowRecursive]
+        <> [genPatternTypeSigWith depth | allowRecursive]
+        <> [genUnboxedSumPatternWith nextDepth | allowRecursive]
+        <> [PView <$> resize 2 genExpr <*> genPattern nextDepth | allowRecursive]
+        <> [PAs <$> genIdent <*> (canonicalPatternAtom <$> genPattern nextDepth) | allowRecursive]
+        <> [PStrict . canonicalPatternAtom <$> genPattern nextDepth | allowRecursive]
+        <> [PIrrefutable . canonicalPatternAtom <$> genPattern nextDepth | allowRecursive]
 
-genPatternConWith :: Bool -> Int -> Gen Pattern
-genPatternConWith allowView depth = do
+genPatternConWith :: Int -> Gen Pattern
+genPatternConWith depth = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount (canonicalPatternAtom <$> genPatternWith allowView (depth - 1))
+  args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
   pure (PCon con [] args)
 
-genPatternTypeSigWith :: Bool -> Int -> Gen Pattern
-genPatternTypeSigWith allowAll depth = do
+genPatternTypeSigWith :: Int -> Gen Pattern
+genPatternTypeSigWith depth = do
   -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
   -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
   -- prints as (-66 :: T) which the parser interprets as negation applied to
   -- (66 :: T) rather than a type signature on -66.
-  inner <- wrapNegLit <$> genPatternWith allowAll (depth - 1)
+  inner <- wrapNegLit <$> genPattern (depth - 1)
   PParen . PTypeSig inner <$> genPatternType
   where
     -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
@@ -105,66 +99,66 @@ genPatternType =
       (`TCon` Unpromoted) <$> genPatternConAstName
     ]
 
-genPatternInfixWith :: Bool -> Int -> Gen Pattern
-genPatternInfixWith allowAll depth = do
+genPatternInfixWith :: Int -> Gen Pattern
+genPatternInfixWith depth = do
   -- TODO: Switch back to canonicalPatternAtom once the pretty-printer correctly
   -- parenthesizes PNegLit as an infix operand. Currently, PInfix (PNegLit 433)
   -- ":+" (PVar "y") prints as (-433 :+ y) which is misparsed as negation of
   -- (433 :+ y).
-  lhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
+  lhs <- canonicalPatternAtom <$> genPattern (depth - 1)
   op <- genConOperatorName
-  rhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
+  rhs <- canonicalPatternAtom <$> genPattern (depth - 1)
   pure (PInfix lhs op rhs)
 
-genTupleElemsWith :: Bool -> Int -> Gen [Pattern]
-genTupleElemsWith allowView depth = do
+genTupleElemsWith :: Int -> Gen [Pattern]
+genTupleElemsWith depth = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n (genPatternWith allowView depth)
+      vectorOf n (genPattern depth)
 
 -- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
-genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Pattern]
-genUnboxedTupleElemsWith allowView depth = do
+genUnboxedTupleElemsWith :: Int -> Gen [Pattern]
+genUnboxedTupleElemsWith depth = do
   n <- chooseInt (0, 4)
-  vectorOf n (genPatternWith allowView depth)
+  vectorOf n (genPattern depth)
 
-genUnboxedSumPatternWith :: Bool -> Int -> Gen Pattern
-genUnboxedSumPatternWith allowView depth = do
+genUnboxedSumPatternWith :: Int -> Gen Pattern
+genUnboxedSumPatternWith depth = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genPatternWith allowView depth
+  inner <- genPattern depth
   pure (PUnboxedSum altIdx arity inner)
 
-genListElemsWith :: Bool -> Int -> Gen [Pattern]
-genListElemsWith allowView depth = do
+genListElemsWith :: Int -> Gen [Pattern]
+genListElemsWith depth = do
   n <- chooseInt (0, 4)
-  vectorOf n (genPatternWith allowView depth)
+  vectorOf n (genPattern depth)
 
-genRecordPatternWith :: Bool -> Int -> Gen Pattern
-genRecordPatternWith allowAll depth = do
+genRecordPatternWith :: Int -> Gen Pattern
+genRecordPatternWith depth = do
   con <- genPatternConAstName
-  fields <- genRecordFieldsWith allowAll depth
+  fields <- genRecordFieldsWith depth
   pure (PRecord con fields False)
 
-genRecordFieldsWith :: Bool -> Int -> Gen [(Name, Pattern)]
-genRecordFieldsWith allowView depth = do
+genRecordFieldsWith :: Int -> Gen [(Name, Pattern)]
+genRecordFieldsWith depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genRecordFieldPatternWith allowView depth)
+  pats <- vectorOf n (genRecordFieldPatternWith depth)
   pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
 
-genRecordFieldPatternWith :: Bool -> Int -> Gen Pattern
-genRecordFieldPatternWith allowAll depth
-  | allowAll && depth > 0 =
+genRecordFieldPatternWith :: Int -> Gen Pattern
+genRecordFieldPatternWith depth
+  | depth > 0 =
       frequency
-        [ (3, genPatternWith allowAll depth),
-          (1, PView <$> resize 2 genExpr <*> genPatternWith allowAll (depth - 1))
+        [ (3, genPattern depth),
+          (1, PView <$> resize 2 genExpr <*> genPattern (depth - 1))
         ]
-  | otherwise = genPatternWith allowAll depth
+  | otherwise = genPattern depth
 
 genLiteral :: Gen Literal
 genLiteral =
