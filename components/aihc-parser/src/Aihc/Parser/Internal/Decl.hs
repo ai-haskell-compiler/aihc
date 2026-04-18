@@ -1366,8 +1366,13 @@ derivingClauseParser = do
   viaTy <- MP.optional derivingViaTypeParser
   pure (DerivingClause strategy classes viaTy parenthesized)
   where
-    singleClass = (\c -> ([c], False)) <$> contextItemParserWith typeParser typeAtomParser
+    singleClass = (\c -> ([c], False)) <$> derivingClassParser
     parenClasses = fmap (,True) $ parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+
+    derivingClassParser = do
+      first <- typeAtomParser
+      rest <- MP.many (MP.notFollowedBy (varIdTok "via") *> typeAtomParser)
+      pure (foldl TApp first rest)
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do

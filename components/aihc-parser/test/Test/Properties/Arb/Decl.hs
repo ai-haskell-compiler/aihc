@@ -724,7 +724,7 @@ genDeclStandaloneDerivingPrefix = do
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
-  viaType <- frequency [(3, pure Nothing), (1, Just <$> genDerivingViaType)]
+  viaType <- frequency [(3, pure Nothing), (1, Just <$> arbitrary)]
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
@@ -747,7 +747,7 @@ genDeclStandaloneDerivingInfix = do
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
-  viaType <- frequency [(3, pure Nothing), (1, Just <$> genDerivingViaType)]
+  viaType <- frequency [(3, pure Nothing), (1, Just <$> arbitrary)]
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
@@ -1069,7 +1069,7 @@ genDerivingClause = do
   strategy <- elements [Nothing, Just DerivingStock]
   n <- chooseInt (0, 3)
   classes <- vectorOf n genDerivingType
-  viaType <- frequency [(4, pure Nothing), (1, Just <$> genDerivingViaType)]
+  viaType <- frequency [(4, pure Nothing), (1, Just <$> arbitrary)]
   let paren = case (n, viaType) of
         (1, Nothing) -> False
         _ -> True
@@ -1080,24 +1080,6 @@ genDerivingClause = do
         derivingViaType = viaType,
         derivingParenthesized = paren
       }
-
--- | Generate a type suitable for use in 'deriving via'.
--- Avoids types that the parser wraps in parentheses (implicit params, contexts,
--- foralls, kind sigs) to ensure round-trip fidelity.
-genDerivingViaType :: Gen Type
-genDerivingViaType =
-  frequency
-    [ (3, genDerivingTypeAtom),
-      (2, genDerivingViaTypeApp),
-      (1, TParen <$> genDerivingViaType)
-    ]
-
-genDerivingViaTypeApp :: Gen Type
-genDerivingViaTypeApp = do
-  f <- genSimpleConType
-  argCount <- chooseInt (1, 2)
-  args <- vectorOf argCount genDerivingTypeAtom
-  pure (foldl TApp f args)
 
 -- | Generate a type for use in deriving clauses.
 -- Avoids forall/context at top level since deriving clauses don't support those.
