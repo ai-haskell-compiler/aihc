@@ -1,0 +1,5 @@
+extensions: [ViewPatterns]
+input: |
+  Box {field = id -> x}
+ast: PRecord "Box" {"field" = PView (EVar "id") (PVar "x")}
+status: pass

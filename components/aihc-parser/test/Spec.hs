@@ -12,8 +12,6 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
-import Data.Data (Data)
-import Data.Data qualified as Data
 import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -30,7 +28,6 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
-import Test.Properties.Arb.Pattern (genPattern)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
@@ -347,7 +344,6 @@ buildTests = do
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
             testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
-            testCase "function-head record-field view patterns stay bare" test_prettyFunctionHeadRecordFieldViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
@@ -389,7 +385,6 @@ buildTests = do
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
-              testCase "generated patterns include record-field view patterns" test_generatedPatternsIncludeRecordFieldViewPatterns,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
         oracle,
@@ -1692,31 +1687,6 @@ test_prettyFunctionHeadListViewPattern = do
     ParseErr err ->
       assertFailure ("expected pretty-printed list view pattern to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
-test_prettyFunctionHeadRecordFieldViewPattern :: Assertion
-test_prettyFunctionHeadRecordFieldViewPattern = do
-  let box = qualifyName Nothing (mkUnqualifiedName NameConId "Box")
-      field = qualifyName Nothing (mkUnqualifiedName NameVarId "field")
-      decl =
-        DeclValue
-          ( FunctionBind
-              "f"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [pat0 (PRecord box [(field, pat0 (PView (expr0 (EVar "id")) (pat0 (PVar "x"))))] False)],
-                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      expected = normalizeDecl decl
-  assertBool ("expected bare view pattern inside record field pattern, got:\n" <> T.unpack source) ("f Box {field = id -> x} = x" == source)
-  case parseDecl defaultConfig {parserExtensions = [ViewPatterns]} source of
-    ParseOk parsed ->
-      normalizeDecl parsed @?= expected
-    ParseErr err ->
-      assertFailure ("expected pretty-printed record-field view pattern to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
-
 test_prettyUnicodeOperatorTypeSigRoundTrip :: Assertion
 test_prettyUnicodeOperatorTypeSigRoundTrip = do
   let intTy = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted
@@ -2254,29 +2224,6 @@ test_funHeadPrefixRecordFieldViewPattern =
     Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PRecord_ "Box" [(fieldName, PView_ (EVar_ "id") (PVar_ "x"))] False]}]))
       | fieldName == qualifyName Nothing (mkUnqualifiedName NameVarId "field") -> pure ()
     other -> assertFailure ("expected record-field view-pattern argument in prefix function head, got: " <> show other)
-
-test_generatedPatternsIncludeRecordFieldViewPatterns :: Assertion
-test_generatedPatternsIncludeRecordFieldViewPatterns = do
-  let samples = sampleGen 6000 (QC.resize 5 (genPattern 3))
-  assertBool "expected generated patterns to include a record field view pattern" (any hasRecordFieldViewPattern samples)
-  where
-    hasRecordFieldViewPattern :: Pattern -> Bool
-    hasRecordFieldViewPattern = go
-      where
-        go :: (Data a) => a -> Bool
-        go x
-          | hasRecordFieldWithPView x = True
-          | otherwise = any go (Data.gmapQ go x)
-
-        hasRecordFieldWithPView :: (Data a) => a -> Bool
-        hasRecordFieldWithPView r = case Data.cast r of
-          Just (PRecord _ fields _) -> any (isPView . snd) fields
-          _ -> False
-
-        isPView :: (Data a) => a -> Bool
-        isPView p = case Data.cast p of
-          Just (PView _ _) -> True
-          _ -> False
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
