@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="overloaded labels lex #. as a label instead of an exported operator" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE OverloadedLabels #-}
 
 module IndexedProfunctorsHashDotExport

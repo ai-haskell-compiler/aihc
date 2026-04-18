@@ -1027,8 +1027,17 @@ isSymbolicTypeName = isSymbolicName
 
 prettyFunctionBinder :: UnqualifiedName -> Doc ann
 prettyFunctionBinder name
-  | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym = parens (pretty (renderUnqualifiedName name))
+  | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym =
+      let rendered = renderUnqualifiedName name
+       in if startsWithHash rendered
+            then parens (" " <> pretty rendered <> " ")
+            else parens (pretty rendered)
   | otherwise = pretty (renderUnqualifiedName name)
+  where
+    startsWithHash t =
+      case T.uncons t of
+        Just ('#', _) -> True
+        _ -> False
 
 prettyBinderName :: UnqualifiedName -> Doc ann
 prettyBinderName = prettyFunctionBinder
@@ -1038,8 +1047,17 @@ prettyBinderUName = prettyFunctionBinder
 
 prettyName :: Name -> Doc ann
 prettyName name
-  | nameType name == NameVarSym || nameType name == NameConSym = parens (pretty (renderName name))
+  | nameType name == NameVarSym || nameType name == NameConSym =
+      let rendered = renderName name
+       in if startsWithHash rendered
+            then parens (" " <> pretty rendered <> " ")
+            else parens (pretty rendered)
   | otherwise = pretty (renderName name)
+  where
+    startsWithHash t =
+      case T.uncons t of
+        Just ('#', _) -> True
+        _ -> False
 
 prettyBundledMemberName :: Name -> Doc ann
 prettyBundledMemberName name
