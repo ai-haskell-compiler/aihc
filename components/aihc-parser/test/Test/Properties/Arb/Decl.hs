@@ -161,7 +161,7 @@ genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
   names <- vectorOf nameCount genVarBinderName
-  DeclTypeSig names <$> genSimpleType
+  DeclTypeSig names <$> sized (genType . min 4)
 
 genVarBinderName :: Gen UnqualifiedName
 genVarBinderName =
@@ -724,12 +724,13 @@ genDeclStandaloneDerivingPrefix = do
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  viaType <- frequency [(3, pure Nothing), (1, Just <$> genDerivingViaType)]
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
+          standaloneDerivingViaType = viaType,
           standaloneDerivingOverlapPragma = Nothing,
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -746,12 +747,13 @@ genDeclStandaloneDerivingInfix = do
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  viaType <- frequency [(3, pure Nothing), (1, Just <$> genDerivingViaType)]
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
+          standaloneDerivingViaType = viaType,
           standaloneDerivingOverlapPragma = Nothing,
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -793,7 +795,7 @@ genInfixInstanceHeadType = suchThat genInstanceHeadType isInfixInstanceHeadType
 genDeclDefault :: Gen Decl
 genDeclDefault = do
   n <- chooseInt (0, 3)
-  types <- vectorOf n genSimpleType
+  types <- vectorOf n (sized (genType . min 4))
   pure $ DeclDefault types
 
 genDeclSplice :: Gen Decl
@@ -1066,14 +1068,61 @@ genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
   strategy <- elements [Nothing, Just DerivingStock]
   n <- chooseInt (0, 3)
-  classes <- vectorOf n genSimpleConType
+  classes <- vectorOf n genDerivingType
+  viaType <- frequency [(4, pure Nothing), (1, Just <$> genDerivingViaType)]
+  let paren = case (n, viaType) of
+        (1, Nothing) -> False
+        _ -> True
   pure $
     DerivingClause
       { derivingStrategy = strategy,
         derivingClasses = classes,
-        derivingViaType = Nothing,
-        derivingParenthesized = n /= 1
+        derivingViaType = viaType,
+        derivingParenthesized = paren
       }
+
+-- | Generate a type suitable for use in 'deriving via'.
+-- Avoids types that the parser wraps in parentheses (implicit params, contexts,
+-- foralls, kind sigs) to ensure round-trip fidelity.
+genDerivingViaType :: Gen Type
+genDerivingViaType =
+  frequency
+    [ (3, genDerivingTypeAtom),
+      (2, genDerivingViaTypeApp),
+      (1, TParen <$> genDerivingViaType)
+    ]
+
+genDerivingViaTypeApp :: Gen Type
+genDerivingViaTypeApp = do
+  f <- genSimpleConType
+  argCount <- chooseInt (1, 2)
+  args <- vectorOf argCount genDerivingTypeAtom
+  pure (foldl TApp f args)
+
+-- | Generate a type for use in deriving clauses.
+-- Avoids forall/context at top level since deriving clauses don't support those.
+-- Also avoids TParen at the top level since the parser strips it when it's
+-- the sole deriving class (treating the parens as clause parentheses).
+genDerivingType :: Gen Type
+genDerivingType =
+  frequency
+    [ (3, genSimpleConType),
+      (2, genTypeAppForDeriving)
+    ]
+
+genTypeAppForDeriving :: Gen Type
+genTypeAppForDeriving = do
+  f <- genSimpleConType
+  argCount <- chooseInt (1, 2)
+  args <- vectorOf argCount genDerivingTypeAtom
+  pure (foldl TApp f args)
+
+genDerivingTypeAtom :: Gen Type
+genDerivingTypeAtom =
+  oneof
+    [ TVar . mkUnqualifiedName NameVarId <$> genIdent,
+      genSimpleConType
+    ]
 
 -- | Generate a simple constructor type (used in deriving/context).
 genSimpleConType :: Gen Type
@@ -1304,7 +1353,7 @@ shrinkFieldDecl fd =
 
 shrinkDerivingClause :: DerivingClause -> [DerivingClause]
 shrinkDerivingClause dc =
-  [dc {derivingClasses = cs'} | cs' <- shrinkList shrinkType (derivingClasses dc)]
+  [dc {derivingClasses = cs', derivingParenthesized = length cs' /= 1} | cs' <- shrinkList shrinkType (derivingClasses dc), not (null cs')]
 
 -- ---------------------------------------------------------------------------
 -- Class and instance declarations
