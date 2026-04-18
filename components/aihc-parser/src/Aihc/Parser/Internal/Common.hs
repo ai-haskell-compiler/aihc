@@ -794,10 +794,22 @@ startsWithContextType = MP.lookAhead (go [])
 startsWithTypeSig :: TokParser Bool
 startsWithTypeSig =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- binderNameParser
-    let moreNames = (expectedTok TkSpecialComma *> binderNameParser *> moreNames) <|> pure ()
+    _ <- sigBinderNameParser
+    let moreNames = (expectedTok TkSpecialComma *> sigBinderNameParser *> moreNames) <|> pure ()
     moreNames
     expectedTok TkReservedDoubleColon
+  where
+    sigBinderNameParser =
+      binderNameParser
+        <|> parens sigOperatorParser
+
+    sigOperatorParser =
+      tokenSatisfy "signature operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
+          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+          _ -> Nothing
 
 -- | Non-consuming lookahead: does the input start with @name \@@?
 startsWithAsPattern :: TokParser Bool

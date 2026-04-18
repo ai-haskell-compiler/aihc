@@ -235,9 +235,13 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
+            testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
+            testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "shrinking identifiers preserves the first character" test_shrunkIdentifiersPreserveFirstCharacter,
             testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
+            testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
+            testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
             testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
@@ -255,6 +259,7 @@ buildTests = do
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
+            testCase "parses class operator type signatures in where blocks" test_classOperatorTypeSigParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
@@ -617,6 +622,22 @@ test_infixClassHeadParses =
           [ DeclFixity {},
             DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
             ] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_classOperatorTypeSigParses :: Assertion
+test_classOperatorTypeSigParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE MagicHash #-}",
+            "{-# LANGUAGE TypeOperators #-}",
+            "module M where",
+            "class a `C#` b where { (##) :: x### -> y## }"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "C#", classDeclItems = [ClassItemTypeSig_ [UnqualifiedName NameVarSym "##"] _]}] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_ifElseWhereBranchRoundtrip :: Assertion
@@ -1213,12 +1234,26 @@ test_generatedIdentifiersAcceptUnicodeVariableCharacters = do
   assertBool "unicode lowercase letters should be accepted at the start of generated identifiers" $
     isValidGeneratedIdent "\x03bbx"
 
+test_generatedIdentifiersAcceptMagicHashSuffixes :: Assertion
+test_generatedIdentifiersAcceptMagicHashSuffixes = do
+  assertBool "MagicHash should allow a single trailing hash on variable identifiers" $
+    isValidGeneratedIdent "x#"
+  assertBool "MagicHash should allow repeated trailing hashes on variable identifiers" $
+    isValidGeneratedIdent "x####"
+
 test_generatedConstructorIdentifiersAcceptUnicodeCharacters :: Assertion
 test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
   assertBool "unicode titlecase letters should be accepted at the start of constructor identifiers" $
     isValidConIdent "\x01c5tail"
   assertBool "unicode uppercase letters and unicode numbers should be accepted in constructor identifiers" $
     isValidConIdent "\x0394\x0660"
+
+test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
+test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
+  assertBool "MagicHash should allow a single trailing hash on constructor identifiers" $
+    isValidConIdent "T#"
+  assertBool "MagicHash should allow repeated trailing hashes on constructor identifiers" $
+    isValidConIdent "T####"
 
 test_shrunkIdentifiersPreserveFirstCharacter :: Assertion
 test_shrunkIdentifiersPreserveFirstCharacter =
@@ -1229,6 +1264,28 @@ test_shrunkConstructorIdentifiersPreserveFirstCharacter :: Assertion
 test_shrunkConstructorIdentifiersPreserveFirstCharacter =
   assertBool "constructor identifier shrinking must preserve the first character" $
     all ((== Just '\x0394') . fmap fst . T.uncons) (shrinkConIdent "\x0394elta9")
+
+test_magicHashIdentifierLexes :: Assertion
+test_magicHashIdentifierLexes = do
+  let varTokens = lexTokensWithExtensions [MagicHash] "x####"
+      conTokens = lexTokensWithExtensions [MagicHash] "T####"
+  case varTokens of
+    [LexToken {lexTokenKind = TkVarId "x####"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected MagicHash var identifier token, got: " <> show other)
+  case conTokens of
+    [LexToken {lexTokenKind = TkConId "T####"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected MagicHash constructor identifier token, got: " <> show other)
+
+test_magicHashExportParses :: Assertion
+test_magicHashExportParses =
+  let source = T.unlines ["{-# LANGUAGE MagicHash #-}", "module M (f##) where", "", "f## = undefined"]
+      (errs, modu) = parseModule defaultConfig source
+   in case errs of
+        [] ->
+          case moduleHead modu of
+            Just ModuleHead {moduleHeadExports = Just [ExportAnn _ (ExportVar _ _ name)]} | name == qualifyName Nothing (mkUnqualifiedName NameVarId "f##") -> pure ()
+            other -> assertFailure ("expected export of f##, got: " <> show other)
+        _ -> assertFailure ("expected parse success for MagicHash export, got: " <> formatParseErrors "<quickcheck>" (Just source) errs)
 
 test_generatedConstructorSymbolsRejectReservedSpellings :: Assertion
 test_generatedConstructorSymbolsRejectReservedSpellings =

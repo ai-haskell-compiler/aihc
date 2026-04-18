@@ -314,13 +314,6 @@ lexIdentifier env st =
                in gatherQualified hasMH (acc <> "." <> segWithHead) rest
         _ -> (acc, chars, T.any (== '.') acc)
 
-    consumeIdentTail :: Bool -> Text -> (Text, Text)
-    consumeIdentTail hasMH inp =
-      let (tailPart, rest) = T.span isIdentTail inp
-       in case rest of
-            '#' :< rest' | hasMH -> (tailPart <> "#", rest')
-            _ -> (tailPart, rest)
-
     -- Split a qualified identifier into (module part, name part).
     -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")
     splitQualified :: Text -> Text -> (Text, Text)
@@ -344,6 +337,16 @@ lexIdentifier env st =
               | isConIdStart firstChar -> TkConId ident
               | otherwise -> TkVarId ident
 
+consumeIdentTail :: Bool -> Text -> (Text, Text)
+consumeIdentTail hasMH inp =
+  let (tailPart, rest) = T.span isIdentTail inp
+   in case rest of
+        '#' :< _
+          | hasMH ->
+              let hashes = T.takeWhile (== '#') rest
+               in (tailPart <> hashes, T.drop (T.length hashes) rest)
+        _ -> (tailPart, rest)
+
 lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
   | not (hasExt ImplicitParams env) = Nothing
@@ -351,7 +354,8 @@ lexImplicitParam env st
       case lexerInput st of
         '?' :< rest0@(c :< _)
           | isVarIdentifierStartChar c ->
-              let tailChars = T.takeWhile isIdentTail (T.tail rest0)
+              let hasMagicHash = hasExt MagicHash env
+                  (tailChars, _rest) = consumeIdentTail hasMagicHash (T.tail rest0)
                   txt = T.take (2 + T.length tailChars) (lexerInput st)
                   st' = advanceChars txt st
                in Just (mkToken st st' txt (TkImplicitParam txt), st')

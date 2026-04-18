@@ -21,7 +21,7 @@ import Text.Megaparsec.Error qualified as MPE
 typeConfig :: ParserConfig
 typeConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension ImplicitParams]
+    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension MagicHash, EnableExtension ImplicitParams]
     }
 
 prop_typePrettyRoundTrip :: Type -> Property
