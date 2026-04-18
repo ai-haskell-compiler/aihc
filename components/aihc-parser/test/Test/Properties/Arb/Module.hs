@@ -222,7 +222,7 @@ instance Arbitrary ImportItem where
       [ ImportItemVar Nothing <$> genUnqualifiedVarName,
         ImportItemAbs <$> genTypeNamespace <*> genTypeName,
         ImportItemAll <$> genTypeNamespace <*> genTypeName,
-        ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genExportMembers,
+        ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genImportMembers,
         genImportItemAllWith
       ]
 
@@ -294,6 +294,13 @@ genImportItemAllWith = do
   members <- genExportMembers
   wildcardIndex <- chooseInt (0, length members)
   pure (ImportItemAllWith namespace name wildcardIndex members)
+
+genImportMembers :: Gen [IEBundledMember]
+genImportMembers =
+  frequency
+    [ (1, pure []),
+      (4, genExportMembers)
+    ]
 
 shrinkWildcardIndex :: Int -> [a] -> [Int]
 shrinkWildcardIndex wildcardIndex members =
@@ -418,7 +425,7 @@ genBundledNamespace :: Gen (Maybe IEEntityNamespace)
 genBundledNamespace =
   frequency
     [ (5, pure Nothing),
-      (1, pure (Just IEEntityNamespacePattern))
+      (1, pure (Just IEEntityNamespaceData))
     ]
 
 genMemberNamespace :: Gen (Maybe IEBundledNamespace)
