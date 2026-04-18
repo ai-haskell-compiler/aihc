@@ -450,6 +450,11 @@ prettyType ty =
             <+> (if promoted == Promoted then "'" else mempty)
             <> prettyNameInfixOp op
             <+> prettyType rhs
+    TInfix lhs op promoted rhs ->
+      prettyType lhs
+        <+> (if promoted == Promoted then "'" else mempty)
+        <> prettyNameInfixOp op
+        <+> prettyType rhs
     TApp f x ->
       prettyType f <+> prettyType x
     TFun a b ->

@@ -336,6 +336,7 @@ stripTypeAnnotations ty =
     TQuasiQuote q b -> TQuasiQuote q b
     TForall telescope t -> TForall (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)}) (stripTypeAnnotations t)
     TApp a b -> TApp (stripTypeAnnotations a) (stripTypeAnnotations b)
+    TInfix lhs op promoted rhs -> TInfix (stripTypeAnnotations lhs) op promoted (stripTypeAnnotations rhs)
     TFun a b -> TFun (stripTypeAnnotations a) (stripTypeAnnotations b)
     TTuple fl pr es -> TTuple fl pr (map stripTypeAnnotations es)
     TUnboxedSum es -> TUnboxedSum (map stripTypeAnnotations es)
@@ -360,6 +361,7 @@ normalizeType ty =
         (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)})
         (normalizeType inner)
     TApp fn arg -> TApp (normalizeType fn) (normalizeType arg)
+    TInfix lhs op promoted rhs -> TInfix (normalizeType lhs) op promoted (normalizeType rhs)
     TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
     TList promoted elems -> TList promoted (map normalizeType elems)

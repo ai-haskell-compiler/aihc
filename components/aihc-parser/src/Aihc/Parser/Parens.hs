@@ -310,6 +310,7 @@ needsTypeParens ctx ty =
         TParen {} -> False
         TKindSig {} -> False
         TWildcard {} -> False
+        TInfix {} -> True
         _ -> True
     CtxKindSig ->
       case ty of
@@ -905,6 +906,8 @@ addTypeParensShared ctx prec ty =
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
               TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
+        TInfix lhs op promoted rhs ->
+          wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
         TApp f x ->
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
         TFun a b ->
