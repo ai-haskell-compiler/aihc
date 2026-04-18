@@ -342,6 +342,14 @@ operatorUnqualifiedNameParser =
     case lexTokenKind tok of
       TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
       TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+      TkReservedRightArrow -> Just (mkUnqualifiedName NameVarSym "->")
+      TkReservedLeftArrow -> Just (mkUnqualifiedName NameVarSym "<-")
+      TkReservedDoubleArrow -> Just (mkUnqualifiedName NameVarSym "=>")
+      TkReservedEquals -> Just (mkUnqualifiedName NameVarSym "=")
+      TkReservedPipe -> Just (mkUnqualifiedName NameVarSym "|")
+      TkReservedDotDot -> Just (mkUnqualifiedName NameVarSym "..")
+      TkReservedDoubleColon -> Just (mkUnqualifiedName NameVarSym "::")
+      TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
