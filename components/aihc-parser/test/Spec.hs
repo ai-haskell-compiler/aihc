@@ -7,7 +7,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
-import Aihc.Parser.Parens (addDeclParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -358,6 +358,8 @@ buildTests = do
         testGroup
           "pretty"
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
+            testCase "lambda-cases parses multi-argument alternatives" test_lambdaCasesParsesMultiArgumentAlternatives,
+            testCase "lambda-cases pretty round-trips" test_prettyLambdaCasesRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
             testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
@@ -1749,6 +1751,51 @@ test_prettyGuardLambdaRoundTrip = do
       normalizeDecl parsed @?= expected
     ParseErr err ->
       assertFailure ("expected pretty-printed guard lambda to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_lambdaCasesParsesMultiArgumentAlternatives :: Assertion
+test_lambdaCasesParsesMultiArgumentAlternatives = do
+  let source = "\\cases { True False -> 0; _ _ -> 1 }"
+      expected =
+        ELambdaCases
+          [ LambdaCaseAlt
+              { lambdaCaseAltAnns = [],
+                lambdaCaseAltPats = [pat0 (PCon "True" [] []), pat0 (PCon "False" [] [])],
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+              },
+            LambdaCaseAlt
+              { lambdaCaseAltAnns = [],
+                lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing
+              }
+          ]
+  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
+    ParseOk parsed -> normalizeExpr parsed @?= normalizeExpr (expr0 expected)
+    ParseErr err ->
+      assertFailure ("expected lambda-cases expression to parse, got:\n" <> MPE.errorBundlePretty err)
+
+test_prettyLambdaCasesRoundTrip :: Assertion
+test_prettyLambdaCasesRoundTrip = do
+  let expr =
+        expr0
+          ( ELambdaCases
+              [ LambdaCaseAlt
+                  { lambdaCaseAltAnns = [],
+                    lambdaCaseAltPats = [pat0 (PVar "x"), pat0 (PParen (pat0 (PCon "Just" [] [pat0 (PVar "y")])))],
+                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EVar "y")) Nothing
+                  },
+                LambdaCaseAlt
+                  { lambdaCaseAltAnns = [],
+                    lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
+                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+                  }
+              ]
+          )
+      parenthesized = normalizeExpr (addExprParens expr)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
+    ParseOk parsed -> normalizeExpr parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed lambda-cases to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
 test_prettyGuardLetFormatting :: Assertion
 test_prettyGuardLetFormatting = do

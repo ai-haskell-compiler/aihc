@@ -1151,6 +1151,8 @@ prettyExpr expr =
       "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExpr body
     ELambdaCase alts ->
       "\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}"
+    ELambdaCases alts ->
+      "\\" <> "cases" <+> "{" <+> hsep (punctuate semi (map prettyLambdaCaseAlt alts)) <+> "}"
     EInfix lhs op rhs ->
       prettyExpr lhs <+> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
@@ -1247,6 +1249,27 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
     GuardedRhss _ grhss whereDecls ->
       hsep
         [ prettyPattern pat,
+          hsep
+            [ "|"
+                <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                <+> "->"
+                <+> prettyExpr (guardedRhsBody grhs)
+            | grhs <- grhss
+            ]
+        ]
+        <> prettyWhereClause whereDecls
+
+prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
+prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
+  case rhs of
+    UnguardedRhs _ body whereDecls ->
+      hsep (map prettyPattern pats)
+        <+> "->"
+        <+> prettyExpr body
+        <> prettyWhereClause whereDecls
+    GuardedRhss _ grhss whereDecls ->
+      hsep
+        [ hsep (map prettyPattern pats),
           hsep
             [ "|"
                 <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))

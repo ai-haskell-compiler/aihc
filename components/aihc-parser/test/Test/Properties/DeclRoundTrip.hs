@@ -25,8 +25,9 @@ declConfig =
 
 prop_declPrettyRoundTrip :: Decl -> Property
 prop_declPrettyRoundTrip decl =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      expected = normalizeDecl (addDeclParens decl)
+  let parenthesized = addDeclParens decl
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+      expected = normalizeDecl parenthesized
       addValueDeclCoverage prop =
         case decl of
           DeclValue valueDecl -> assertCtorCoverage [] valueDecl prop

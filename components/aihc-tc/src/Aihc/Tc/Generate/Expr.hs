@@ -17,6 +17,7 @@ where
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
     Expr (..),
+    LambdaCaseAlt (..),
     Name (..),
     Pattern (..),
     Rhs (..),
@@ -53,6 +54,8 @@ inferExpr expr = case expr of
   ELambdaPats pats body -> inferLambda (getExprSourceSpan expr) pats body
   -- Lambda case: \case { pat -> body; ... }
   ELambdaCase alts -> inferLambdaCase (getExprSourceSpan expr) alts
+  -- Multi-argument lambda cases: \cases { p1 p2 -> body; ... }
+  ELambdaCases alts -> inferLambdaCases (getExprSourceSpan expr) alts
   -- Application: f x
   EApp fun arg -> inferApp (getExprSourceSpan expr) fun arg
   -- If-then-else
@@ -134,6 +137,14 @@ inferLambdaCase sp alts = do
   cts <- inferCaseAlts sp argTy resTy alts
   pure (TcFunTy argTy resTy, cts)
 
+inferLambdaCases :: SourceSpan -> [LambdaCaseAlt] -> TcM (TcType, [Ct])
+inferLambdaCases sp alts = do
+  let arity = maximum (0 : map (length . lambdaCaseAltPats) alts)
+  argTys <- mapM (const freshMetaTv) [1 .. arity]
+  resTy <- freshMetaTv
+  cts <- concat <$> mapM (inferLambdaCaseAlt sp argTys resTy) alts
+  pure (foldr TcFunTy resTy argTys, cts)
+
 -- | Infer constraints from case alternatives.
 --
 -- Each alternative's pattern is checked against the scrutinee type,
@@ -151,6 +162,17 @@ inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
       ev <- freshEvVar
       let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
       pure (patCts ++ rhsCts ++ [rhsCt])
+
+inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM [Ct]
+inferLambdaCaseAlt sp argTys resTy alt = do
+  let pats = lambdaCaseAltPats alt
+      rhs = lambdaCaseAltRhs alt
+      bindings = concatMap extractPatternBindings (zip pats argTys)
+  patCts <- concat <$> sequence [inferPatternConstraints sp argTy pat | (pat, argTy) <- zip pats argTys]
+  (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
+  ev <- freshEvVar
+  let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+  pure (patCts ++ rhsCts ++ [rhsCt])
 
 -- | Infer constraints from a pattern.
 --

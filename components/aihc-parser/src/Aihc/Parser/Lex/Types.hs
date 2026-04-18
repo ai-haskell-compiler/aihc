@@ -233,6 +233,7 @@ data ImplicitLayoutKind
 data PendingLayout
   = PendingImplicitLayout !ImplicitLayoutKind
   | PendingMaybeMultiWayIf
+  | PendingMaybeLambdaCases
   deriving (Eq, Show)
 
 data ModuleLayoutMode
