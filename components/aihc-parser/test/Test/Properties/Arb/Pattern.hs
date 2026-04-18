@@ -148,17 +148,8 @@ genRecordFieldsWith :: Int -> Gen [(Name, Pattern)]
 genRecordFieldsWith depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genRecordFieldPatternWith depth)
+  pats <- vectorOf n (genPattern depth)
   pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
-
-genRecordFieldPatternWith :: Int -> Gen Pattern
-genRecordFieldPatternWith depth
-  | depth > 0 =
-      frequency
-        [ (3, genPattern depth),
-          (1, PView <$> resize 2 genExpr <*> genPattern (depth - 1))
-        ]
-  | otherwise = genPattern depth
 
 genLiteral :: Gen Literal
 genLiteral =
