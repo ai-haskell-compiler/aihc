@@ -4,6 +4,7 @@ module Aihc.Parser.Internal.Pattern
   ( patternParser,
     simplePatternParser,
     appPatternParser,
+    lambdaCasePatternParser,
     literalParser,
   )
 where
@@ -270,6 +271,37 @@ simplePatternParser =
       )
       <|> typeBinderParser
       <|> patternAtomParser
+
+-- | Parse a pattern for lambda-cases alternatives.
+-- Accepts complex patterns (infix, as-patterns, strict, irrefutable, etc.)
+-- but does NOT combine consecutive patterns into constructor applications.
+-- This allows @\cases { True False -> 0 }@ to parse as two patterns,
+-- not as @True@ applied to @False@.
+lambdaCasePatternParser :: TokParser Pattern
+lambdaCasePatternParser = label "pattern" $ do
+  pat <- lambdaCaseInfixPatternParser
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  case mTypeSig of
+    Just ty -> pure (PTypeSig pat ty)
+    Nothing -> pure pat
+
+lambdaCaseInfixPatternParser :: TokParser Pattern
+lambdaCaseInfixPatternParser = do
+  lhs <- lambdaCaseAsOrSimpleParser
+  rest <- MP.many ((,) <$> conOperatorParser <*> lambdaCaseAsOrSimpleParser)
+  pure (foldl buildInfixPattern lhs rest)
+
+lambdaCaseAsOrSimpleParser :: TokParser Pattern
+lambdaCaseAsOrSimpleParser = do
+  isAsPattern <- startsWithAsPattern
+  if isAsPattern
+    then withSpanAnn (PAnn . mkAnnotation) $ do
+      name <- identifierTextParser
+      expectedTok TkReservedAt
+      PAs name <$> simplePatternParser
+    else
+      MP.try negativeLiteralPatternParser
+        <|> simplePatternParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =

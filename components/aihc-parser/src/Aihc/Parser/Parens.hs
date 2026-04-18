@@ -813,7 +813,22 @@ addCaseAltParens (CaseAlt sp pat rhs) =
 
 addLambdaCaseAltParens :: LambdaCaseAlt -> LambdaCaseAlt
 addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
-  LambdaCaseAlt sp (map addPatternParens pats) (addCaseAltRhsParens rhs)
+  let pats' = case pats of
+        [] -> []
+        [_] -> map addLambdaCaseSinglePatternParens pats
+        _ -> map (wrapPat True . addPatternParens) pats
+   in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
+
+-- | Add parens to a single pattern in a lambda-cases alternative.
+-- Constructor applications with arguments must be parenthesized because
+-- the lambda-cases parser does not combine consecutive patterns into
+-- constructor applications.
+addLambdaCaseSinglePatternParens :: Pattern -> Pattern
+addLambdaCaseSinglePatternParens pat =
+  let p = addPatternParens pat
+   in case peelPatternAnn p of
+        PCon _ _ (_ : _) -> wrapPat True p
+        _ -> p
 
 addCaseAltRhsParens :: Rhs -> Rhs
 addCaseAltRhsParens rhs =

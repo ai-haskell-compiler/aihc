@@ -7,7 +7,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
-import Aihc.Parser.Parens (addDeclParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -1664,9 +1664,10 @@ test_prettyLambdaCasesRoundTrip = do
                   }
               ]
           )
+      parenthesized = normalizeExpr (addExprParens expr)
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
-    ParseOk parsed -> normalizeExpr parsed @?= normalizeExpr expr
+    ParseOk parsed -> normalizeExpr parsed @?= parenthesized
     ParseErr err ->
       assertFailure ("expected pretty-printed lambda-cases to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 

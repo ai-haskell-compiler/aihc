@@ -339,38 +339,6 @@ genPatterns n = do
   count <- chooseInt (1, 3)
   vectorOf count (genPattern n)
 
-genSimplePatterns :: Int -> Gen [Pattern]
-genSimplePatterns n = do
-  count <- chooseInt (1, 3)
-  vectorOf count (genPattern n `suchThat` isSimplePattern)
-
-isSimplePattern :: Pattern -> Bool
-isSimplePattern pat =
-  case pat of
-    PVar {} -> True
-    PWildcard {} -> True
-    PLit {} -> True
-    PQuasiQuote {} -> True
-    PTuple {} -> True
-    PList {} -> True
-    PCon _ [] [] -> True
-    PRecord {} -> True
-    PParen {} -> True
-    PUnboxedSum {} -> True
-    PSplice {} -> True
-    PAs _ inner -> isSimpleAtomPattern inner
-    PStrict inner -> isSimpleAtomPattern inner
-    PIrrefutable inner -> isSimpleAtomPattern inner
-    _ -> False
-
-isSimpleAtomPattern :: Pattern -> Bool
-isSimpleAtomPattern pat =
-  case pat of
-    PAs _ inner -> isSimpleAtomPattern inner
-    PStrict inner -> isSimpleAtomPattern inner
-    PIrrefutable inner -> isSimpleAtomPattern inner
-    _ -> isSimplePattern pat
-
 genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
@@ -396,7 +364,7 @@ genLambdaCaseAltsWith allowTHQuotes n = do
 
 genLambdaCaseAltWith :: Bool -> Int -> Gen LambdaCaseAlt
 genLambdaCaseAltWith allowTHQuotes n = do
-  pats <- genSimplePatterns half
+  pats <- genPatterns half
   rhs <- genRhsWith allowTHQuotes half
   pure $
     LambdaCaseAlt

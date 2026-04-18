@@ -4,5 +4,5 @@
 module M where
 
 f = \cases
-  True False -> 0
-  _ _ -> 1
+  (True) (False) -> 0
+  (_) (_) -> 1
