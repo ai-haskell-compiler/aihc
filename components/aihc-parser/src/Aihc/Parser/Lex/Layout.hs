@@ -73,6 +73,7 @@ openPendingLayout st tok =
         PendingMaybeLambdaCases ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            TkReservedRightArrow -> ([], st {layoutPendingLayout = Nothing}, False)
             _ -> openImplicitLayout LayoutOrdinary st tok
         PendingImplicitLayout kind ->
           case lexTokenKind tok of
