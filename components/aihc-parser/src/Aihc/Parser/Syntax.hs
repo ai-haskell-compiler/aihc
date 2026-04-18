@@ -1231,14 +1231,14 @@ data Role
   deriving (Data, Eq, Show, Generic, NFData)
 
 data RoleAnnotation = RoleAnnotation
-  { roleAnnotationName :: Text,
+  { roleAnnotationName :: UnqualifiedName,
     roleAnnotationRoles :: [Role]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data TypeSynDecl = TypeSynDecl
   { typeSynHeadForm :: TypeHeadForm,
-    typeSynName :: Text,
+    typeSynName :: UnqualifiedName,
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
@@ -1409,7 +1409,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingHeadForm :: TypeHeadForm,
-    standaloneDerivingClassName :: UnqualifiedName,
+    standaloneDerivingClassName :: Name,
     standaloneDerivingTypes :: [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1417,7 +1417,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
 data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
     classDeclHeadForm :: TypeHeadForm,
-    classDeclName :: Text,
+    classDeclName :: UnqualifiedName,
     classDeclParams :: [TyVarBinder],
     classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
@@ -1463,7 +1463,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
     instanceDeclHeadForm :: TypeHeadForm,
-    instanceDeclClassName :: Text,
+    instanceDeclClassName :: UnqualifiedName,
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
   }
@@ -1614,7 +1614,7 @@ data Expr
   | ETHDeclQuote [Decl] -- [d| decls |]
   | ETHTypeQuote Type -- [t| type |]
   | ETHPatQuote Pattern -- [p| pat |]
-  | ETHNameQuote Text -- 'name
+  | ETHNameQuote Name -- 'name
   | ETHTypeNameQuote Name -- ''Name
   | -- Template Haskell splices
     ETHSplice Expr
@@ -1674,7 +1674,7 @@ data Cmd
   | -- | @exp -\< exp@ or @exp -\<\< exp@
     CmdArrApp Expr ArrAppType Expr
   | -- | Command-level infix: @cmd1 op cmd2@
-    CmdInfix Cmd Text Cmd
+    CmdInfix Cmd Name Cmd
   | -- | @do { cstmts }@
     CmdDo [DoStmt Cmd]
   | -- | @if exp then cmd else cmd@

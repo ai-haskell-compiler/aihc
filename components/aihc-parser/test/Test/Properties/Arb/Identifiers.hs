@@ -173,11 +173,33 @@ isValidGeneratedVarSym op =
   case T.uncons op of
     Just (first, rest) ->
       first /= ':'
+        && first /= '`'
         && isValidSymbolChar first
+        && T.all (/= '`') rest
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
+        && not (T.any (`elem` bannedUnicodeOperatorChars) op)
     Nothing -> False
+
+bannedUnicodeOperatorChars :: [Char]
+bannedUnicodeOperatorChars =
+  [ '→',
+    '←',
+    '⇒',
+    '∷',
+    '∀',
+    '⤙',
+    '⤚',
+    '⤛',
+    '⤜',
+    '⦇',
+    '⦈',
+    '⟦',
+    '⟧',
+    '⊸',
+    '★'
+  ]
 
 -------------------------------------------------------------------------------
 -- Module qualifiers

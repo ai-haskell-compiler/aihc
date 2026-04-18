@@ -29,7 +29,6 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -235,7 +234,7 @@ prettyDeclLines decl =
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
               <> maybe [] (pure . prettyNamespace) mNamespace
-              <> punctuate comma (map (prettyInfixOp . renderUnqualifiedName) ops)
+              <> punctuate comma (map prettyInfixOp ops)
           )
       ]
     DeclRoleAnnotation ann -> [prettyRoleAnnotation ann]
@@ -243,10 +242,8 @@ prettyDeclLines decl =
       let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
             (TypeHeadInfix, [lhs, rhs]) ->
               let name = typeSynName synDecl
-               in if isOperatorToken name
-                    then [pretty (tyVarBinderName lhs), pretty name, pretty (tyVarBinderName rhs)]
-                    else [pretty (tyVarBinderName lhs), "`" <> pretty name <> "`", pretty (tyVarBinderName rhs)]
-            _ -> [prettyDeclHead TypeHeadPrefix [] (unqualifiedNameFromText (typeSynName synDecl)) (typeSynParams synDecl)]
+               in [pretty (tyVarBinderName lhs), prettyInfixOp name, pretty (tyVarBinderName rhs)]
+            _ -> [prettyDeclHead TypeHeadPrefix [] (typeSynName synDecl) (typeSynParams synDecl)]
        in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
     DeclData dataDecl -> [prettyDataDecl dataDecl]
     DeclTypeData dataDecl -> [prettyTypeDataDecl dataDecl]
@@ -268,7 +265,7 @@ prettyRoleAnnotation ann =
   hsep
     ( [ "type",
         "role",
-        prettyConstructorName (roleAnnotationName ann)
+        prettyConstructorUName (roleAnnotationName ann)
       ]
         <> map prettyRole (roleAnnotationRoles ann)
     )
@@ -317,7 +314,7 @@ prettyPatSynLhs name args =
     PatSynPrefixArgs vars ->
       prettyConstructorUName name : map pretty vars
     PatSynInfixArgs lhs rhs ->
-      [pretty lhs, prettyInfixOp (renderUnqualifiedName name), pretty rhs]
+      [pretty lhs, prettyInfixOp name, pretty rhs]
     PatSynRecordArgs fields ->
       [prettyConstructorUName name <+> braces (hsep (punctuate comma (map pretty fields)))]
 
@@ -353,7 +350,7 @@ prettyFunctionHead name headForm pats =
     MatchHeadInfix ->
       case pats of
         lhs : rhsPat : tailPats ->
-          let infixHead = prettyPattern lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyPattern rhsPat
+          let infixHead = prettyPattern lhs <+> prettyInfixOp name <+> prettyPattern rhsPat
            in case tailPats of
                 [] -> infixHead
                 _ -> hsep (parens infixHead : map prettyPattern tailPats)
@@ -637,7 +634,7 @@ prettyDeclHead headForm constraints name params =
   where
     prettyDeclHeadNameAndParams nm prms = case (headForm, prms) of
       (TypeHeadInfix, lhs : rhs : tailPrms) ->
-        let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp (renderUnqualifiedName nm) <+> pretty (tyVarBinderName rhs)
+        let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp nm <+> pretty (tyVarBinderName rhs)
          in case tailPrms of
               [] -> [infixHead]
               _ -> parens infixHead : map prettyTyVarBinder tailPrms
@@ -689,7 +686,7 @@ prettyDataCon ctor =
     InfixCon forallVars constraints lhs op rhs ->
       hsep
         ( dataConQualifierPrefix forallVars constraints
-            <> [prettyBangType lhs, prettyInfixOp (renderUnqualifiedName op), prettyBangType rhs]
+            <> [prettyBangType lhs, prettyInfixOp op, prettyBangType rhs]
         )
     RecordCon forallVars constraints name fields ->
       hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorUName name])
@@ -709,7 +706,7 @@ prettyDataCon ctor =
       where
         prettyFieldName :: UnqualifiedName -> Doc ann
         prettyFieldName fieldName
-          | isOperatorToken (renderUnqualifiedName fieldName) = parens (pretty fieldName)
+          | isSymbolicUName fieldName = parens (pretty fieldName)
           | otherwise = pretty fieldName
     GadtCon foralls constraints names body ->
       prettyGadtCon foralls constraints names body
@@ -754,7 +751,7 @@ prettyRecordFields fields =
   where
     prettyFieldName :: UnqualifiedName -> Doc ann
     prettyFieldName name
-      | isOperatorToken (renderUnqualifiedName name) = parens (pretty name)
+      | isSymbolicUName name = parens (pretty name)
       | otherwise = pretty name
 
 dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
@@ -833,7 +830,7 @@ prettyClassItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map (prettyInfixOp . renderUnqualifiedName) ops
+            <> map prettyInfixOp ops
         )
     ClassItemDefault valueDecl -> prettyValueDeclSingleLine valueDecl
     ClassItemTypeFamilyDecl tf -> prettyAssocTypeFamilyDecl tf
@@ -883,16 +880,22 @@ instanceHeadDoc decl =
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
   maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    prettyInstanceLikeHead
+    prettyStandaloneDerivingHead
       (standaloneDerivingHeadForm decl)
-      (renderUnqualifiedName (standaloneDerivingClassName decl))
+      (standaloneDerivingClassName decl)
       (standaloneDerivingTypes decl)
 
-prettyInstanceLikeHead :: TypeHeadForm -> Text -> [Type] -> Doc ann
+prettyInstanceLikeHead :: TypeHeadForm -> UnqualifiedName -> [Type] -> Doc ann
 prettyInstanceLikeHead headForm className tys =
   case (headForm, tys) of
     (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyInfixOp className <+> prettyType rhs
-    _ -> hsep (pretty className : map prettyType tys)
+    _ -> hsep (prettyConstructorUName className : map prettyType tys)
+
+prettyStandaloneDerivingHead :: TypeHeadForm -> Name -> [Type] -> Doc ann
+prettyStandaloneDerivingHead headForm className tys =
+  case (headForm, tys) of
+    (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyNameInfixOp className <+> prettyType rhs
+    _ -> hsep (prettyPrefixName className : map prettyType tys)
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
@@ -940,7 +943,7 @@ prettyInstanceItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map (prettyInfixOp . renderUnqualifiedName) ops
+            <> map prettyInfixOp ops
         )
     InstanceItemTypeFamilyInst tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst dfi -> prettyInstDataFamilyInst dfi
@@ -998,10 +1001,10 @@ prettyForeignEntity spec =
     ForeignEntityAddress (Just name) -> Just (quoted ("&" <> name))
     ForeignEntityNamed name -> Just (quoted name)
 
-prettyInfixOp :: Text -> Doc ann
-prettyInfixOp op
-  | isOperatorToken op = pretty op
-  | otherwise = "`" <> pretty op <> "`"
+prettyInfixOp :: UnqualifiedName -> Doc ann
+prettyInfixOp name
+  | isSymbolicUName name = pretty (renderUnqualifiedName name)
+  | otherwise = "`" <> pretty (renderUnqualifiedName name) <> "`"
 
 prettyNameInfixOp :: Name -> Doc ann
 prettyNameInfixOp name
@@ -1014,6 +1017,13 @@ prettyPrefixName name
   | otherwise = pretty rendered
   where
     rendered = renderName name
+
+isSymbolicUName :: UnqualifiedName -> Bool
+isSymbolicUName name =
+  case unqualifiedNameType name of
+    NameVarSym -> True
+    NameConSym -> True
+    _ -> False
 
 isSymbolicName :: Name -> Bool
 isSymbolicName name =
@@ -1073,13 +1083,10 @@ isHashLeadingSymbolicName name =
         _ -> False
       Just _ -> False
 
-prettyConstructorName :: Text -> Doc ann
-prettyConstructorName name
-  | isOperatorToken name = parens (pretty name)
-  | otherwise = pretty name
-
 prettyConstructorUName :: UnqualifiedName -> Doc ann
-prettyConstructorUName = prettyConstructorName . renderUnqualifiedName
+prettyConstructorUName name
+  | isSymbolicUName name = parens (pretty (renderUnqualifiedName name))
+  | otherwise = pretty (renderUnqualifiedName name)
 
 -- | Pretty-print an expression. The AST is assumed to already have EParen
 -- nodes in the correct positions (inserted by 'addExprParens').
@@ -1111,7 +1118,7 @@ prettyExpr expr =
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote name
-      | thNameQuoteTextNeedsParens name -> "'" <> parens (pretty name)
+      | thNameQuoteNeedsParens name -> "'" <> parens (pretty name)
       | otherwise -> "'" <> pretty name
     ETHTypeNameQuote name
       | isOperatorName name -> "''" <> parens (pretty name)
@@ -1268,7 +1275,7 @@ prettyCmd cmd =
     CmdArrApp lhs HsHigherOrderApp rhs ->
       prettyExpr lhs <+> "-<<" <+> prettyExpr rhs
     CmdInfix l op r ->
-      prettyCmd l <+> prettyInfixOp op <+> prettyCmd r
+      prettyCmd l <+> prettyNameInfixOp op <+> prettyCmd r
     CmdDo stmts ->
       "do" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
     CmdIf cond yes no ->
@@ -1338,64 +1345,8 @@ isOperatorName name =
 --
 -- Unqualified operators need @'(+), ...@. Qualified operators such as @P.+@
 -- must be written @'(P.+), ...@ because @'P.+@ is not a single lexeme.
-thNameQuoteTextNeedsParens :: Text -> Bool
-thNameQuoteTextNeedsParens name
-  | isOperatorToken name = True
-  | otherwise =
-      case splitQualifiedNameQuoteText name of
-        Just (_, quotedName) -> isOperatorToken quotedName
-        Nothing -> False
-
-splitQualifiedNameQuoteText :: Text -> Maybe (Text, Text)
-splitQualifiedNameQuoteText fullName =
-  case T.uncons fullName of
-    Just (c, _) | isConIdentifierStartChar c -> go fullName
-    _ -> Nothing
-  where
-    go txt =
-      let (segment, rest) = T.breakOn "." txt
-       in case T.stripPrefix "." rest of
-            Just next
-              | isModuleSegment segment,
-                not (T.null next) ->
-                  case go next of
-                    Just (qualifier, quotedName) -> Just (segment <> "." <> qualifier, quotedName)
-                    Nothing -> Just (segment, next)
-            _ -> Nothing
-
-    isModuleSegment segment =
-      case T.uncons segment of
-        Just (c, rest) -> isConIdentifierStartChar c && T.all isIdentChar rest
-        Nothing -> False
-
-    isIdentChar c = isIdentifierStartChar c || isIdentifierNumberChar c || c == '\'' || c == '#'
-
-    isIdentifierStartChar c = c == '_' || generalCategory c == LowercaseLetter || isConIdentifierStartChar c
-
-    isConIdentifierStartChar c = generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
-
-    isIdentifierNumberChar c =
-      case generalCategory c of
-        DecimalNumber -> True
-        OtherNumber -> True
-        _ -> False
-
-isOperatorToken :: Text -> Bool
-isOperatorToken tok =
-  not (T.null tok) && T.all isSymbolicOpChar tok
-
-isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c =
-  c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbolCategory c
-
-isUnicodeSymbolCategory :: Char -> Bool
-isUnicodeSymbolCategory c = case generalCategory c of
-  MathSymbol -> True
-  CurrencySymbol -> True
-  ModifierSymbol -> True
-  OtherSymbol -> True
-  OtherPunctuation -> not (isAscii c)
-  _ -> False
+thNameQuoteNeedsParens :: Name -> Bool
+thNameQuoteNeedsParens = isOperatorName
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
@@ -1526,7 +1477,7 @@ prettyInstTypeFamilyInst tfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
 
-prettyNamedTypeHead :: TypeHeadForm -> Text -> [TyVarBinder] -> [Doc ann]
+prettyNamedTypeHead :: TypeHeadForm -> UnqualifiedName -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
     (TypeHeadInfix, [lhs, rhs]) ->
@@ -1534,9 +1485,9 @@ prettyNamedTypeHead headForm name params =
         prettyTypeHeadInfixName name,
         prettyTyVarBinder rhs
       ]
-    _ -> [prettyConstructorName name] <> map prettyTyVarBinder params
+    _ -> [prettyConstructorUName name] <> map prettyTyVarBinder params
 
-prettyTypeHeadInfixName :: Text -> Doc ann
+prettyTypeHeadInfixName :: UnqualifiedName -> Doc ann
 prettyTypeHeadInfixName = prettyInfixOp
 
 prettyTypeFamilyInfix :: Type -> Doc ann

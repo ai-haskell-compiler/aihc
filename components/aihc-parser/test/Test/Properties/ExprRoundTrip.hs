@@ -41,7 +41,7 @@ prop_exprPrettyRoundTrip expr =
 
 test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote :: Assertion
 test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote =
-  let expr = EAnn (mkAnnotation span0) (ETHNameQuote "H3xVBC.NB.Y.‼.")
+  let expr = EAnn (mkAnnotation span0) (ETHNameQuote (mkName (Just "H3xVBC.NB.Y") NameVarSym "‼."))
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr (addExprParens expr)
    in case parseExpr exprConfig source of

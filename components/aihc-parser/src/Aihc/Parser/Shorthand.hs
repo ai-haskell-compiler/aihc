@@ -303,7 +303,7 @@ docTypeSynDecl syn =
   "TypeSynDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docText (typeSynName syn))]
+      [field "name" (docUnqualifiedName (typeSynName syn))]
         <> listField "params" docTyVarBinder (typeSynParams syn)
         <> [field "body" (docType (typeSynBody syn))]
 
@@ -312,7 +312,7 @@ docRoleAnnotation ann =
   "RoleAnnotation" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docText (roleAnnotationName ann))]
+      [field "name" (docUnqualifiedName (roleAnnotationName ann))]
         <> [field "roles" (brackets (hsep (punctuate comma (map docRole (roleAnnotationRoles ann)))))]
 
 docRole :: Role -> Doc ann
@@ -412,7 +412,7 @@ docClassDecl cd =
   "ClassDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (classDeclHeadForm cd)), field "name" (docText (classDeclName cd))]
+      [field "headForm" (docTypeHeadForm (classDeclHeadForm cd)), field "name" (docUnqualifiedName (classDeclName cd))]
         <> optionalField "context" (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)
         <> listField "params" docTyVarBinder (classDeclParams cd)
         <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
@@ -449,7 +449,7 @@ docInstanceDecl inst =
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
         <> [field "headForm" (docTypeHeadForm (instanceDeclHeadForm inst))]
-        <> [field "className" (docText (instanceDeclClassName inst))]
+        <> [field "className" (docUnqualifiedName (instanceDeclClassName inst))]
         <> listField "context" docType (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceDeclTypes inst)))))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
@@ -474,7 +474,7 @@ docStandaloneDerivingDecl sd =
         <> optionalField "warning" docWarningText (standaloneDerivingWarning sd)
         <> boolField "parenthesizedHead" (standaloneDerivingParenthesizedHead sd)
         <> [field "headForm" (docTypeHeadForm (standaloneDerivingHeadForm sd))]
-        <> [field "className" (docUnqualifiedName (standaloneDerivingClassName sd))]
+        <> [field "className" (docName (standaloneDerivingClassName sd))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docType (standaloneDerivingContext sd)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
@@ -740,7 +740,7 @@ docExpr expr =
     ETHDeclQuote decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     ETHTypeQuote ty -> "ETHTypeQuote" <+> parens (docType ty)
     ETHPatQuote pat -> "ETHPatQuote" <+> parens (docPattern pat)
-    ETHNameQuote name -> "ETHNameQuote" <+> docText name
+    ETHNameQuote name -> "ETHNameQuote" <+> docName name
     ETHTypeNameQuote name -> "ETHTypeNameQuote" <+> docName name
     ETHSplice body -> "ETHSplice" <+> parens (docExpr body)
     ETHTypedSplice body -> "ETHTypedSplice" <+> parens (docExpr body)
@@ -800,7 +800,7 @@ docCmd cmd =
     CmdAnn _ inner -> docCmd inner
     CmdArrApp lhs HsFirstOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsFirstOrderApp" <+> parens (docExpr rhs)
     CmdArrApp lhs HsHigherOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsHigherOrderApp" <+> parens (docExpr rhs)
-    CmdInfix l op r -> "CmdInfix" <+> parens (docCmd l) <+> docText op <+> parens (docCmd r)
+    CmdInfix l op r -> "CmdInfix" <+> parens (docCmd l) <+> docName op <+> parens (docCmd r)
     CmdDo stmts -> "CmdDo" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
     CmdIf cond yes no -> "CmdIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
     CmdCase scrut alts -> "CmdCase" <+> parens (docExpr scrut) <+> brackets (hsep (punctuate comma (map docCmdCaseAlt alts)))

@@ -694,11 +694,11 @@ topLevelDeclAnnotations decl scope =
 
 classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
 classAnnotation scope declSpan classDecl =
-  let className = mkUnqualifiedName NameConId (classDeclName classDecl)
+  let className = classDeclName classDecl
       span' = declSpan
    in ResolutionAnnotation
-        (declKeywordNameSpan "class " span' (classDeclName classDecl))
-        (classDeclName classDecl)
+        (declKeywordNameSpan "class " span' (renderUnqualifiedName className))
+        (renderUnqualifiedName className)
         ResolutionNamespaceType
         (resolveTopLevelType scope className)
 
@@ -764,7 +764,7 @@ declExportedNames decl =
             PVar name -> ([name], [])
             _ -> ([], [])
     DeclTypeSig names _ -> (names, [])
-    DeclClass classDecl -> ([], [mkUnqualifiedName NameConId (classDeclName classDecl)])
+    DeclClass classDecl -> ([], [classDeclName classDecl])
     DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
     DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
     DeclNewtype newtypeDecl ->
