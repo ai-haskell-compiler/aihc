@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="view patterns inside record field patterns are rejected" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ViewPatterns #-}
 
 module M where

@@ -998,7 +998,7 @@ addPatternParens pat =
     PNegLit lit -> PNegLit lit
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
-      PRecord con [(fieldName, addPatternParens fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
+      PRecord con [(fieldName, addPatternInDelimited fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
     PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 

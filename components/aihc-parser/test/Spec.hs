@@ -365,6 +365,7 @@ buildTests = do
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
             testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
             testCase "prefix list view pattern arg: fn [id -> x] = x" test_funHeadPrefixListViewPattern,
+            testCase "prefix record field view pattern arg: f (Box {field = id -> x}) = x" test_funHeadPrefixRecordFieldViewPattern,
             testCase "prefix singleton unboxed tuple arg: f (# x #) = x" test_funHeadPrefixUnboxedTupleSingletonArg,
             testCase "infix: x + y = x" test_funHeadInfix,
             testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
@@ -2273,6 +2274,13 @@ test_funHeadPrefixListViewPattern =
   case parseTopDeclWithExts [ViewPatterns] "fn [id -> x] = x" of
     Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList_ [PView_ (EVar_ "id") (PVar_ "x")]]}])) -> pure ()
     other -> assertFailure ("expected list view-pattern argument in prefix function head, got: " <> show other)
+
+test_funHeadPrefixRecordFieldViewPattern :: Assertion
+test_funHeadPrefixRecordFieldViewPattern =
+  case parseTopDeclWithExts [ViewPatterns] "f (Box {field = id -> x}) = x" of
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PRecord_ "Box" [(fieldName, PView_ (EVar_ "id") (PVar_ "x"))] False]}]))
+      | fieldName == qualifyName Nothing (mkUnqualifiedName NameVarId "field") -> pure ()
+    other -> assertFailure ("expected record-field view-pattern argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
