@@ -816,7 +816,7 @@ addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
   let pats' = case pats of
         [] -> []
         [_] -> map addFunctionHeadPatternAtomParens pats
-        _ -> map (wrapPat True . addPatternParens) pats
+        _ -> map addPatternAtomParens pats
    in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
 
 addCaseAltRhsParens :: Rhs -> Rhs
