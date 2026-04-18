@@ -818,6 +818,14 @@ prettyFunctionalDependency dep =
       hsep (map pretty (functionalDependencyDetermined dep))
     ]
 
+prettyTypeFamilyInjectivity :: TypeFamilyInjectivity -> Doc ann
+prettyTypeFamilyInjectivity injectivity =
+  hsep
+    [ pretty (typeFamilyInjectivityResult injectivity),
+      "->",
+      hsep (map pretty (typeFamilyInjectivityDetermined injectivity))
+    ]
+
 maybeContextPrefix :: Maybe [Type] -> [Doc ann]
 maybeContextPrefix maybeConstraints =
   case maybeConstraints of
@@ -1361,11 +1369,13 @@ prettyTypeFamilyDecl tf =
   hsep $
     ["type", "family"]
       <> prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)
-      <> kindPart (typeFamilyDeclKind tf)
+      <> resultSigPart (typeFamilyDeclResultSig tf)
       <> eqsPart (typeFamilyDeclEquations tf)
   where
-    kindPart Nothing = []
-    kindPart (Just k) = ["::", prettyType k]
+    resultSigPart Nothing = []
+    resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
+    resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
+      ["=", prettyTyVarBinder result, "|", prettyTypeFamilyInjectivity injectivity]
     eqsPart Nothing = []
     eqsPart (Just eqs) = ["where", braces (hsep (punctuate semi (map prettyTypeFamilyEq eqs)))]
 
@@ -1426,10 +1436,12 @@ prettyAssocTypeFamilyDecl tf =
   hsep $
     ["type"]
       <> prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)
-      <> kindPart (typeFamilyDeclKind tf)
+      <> resultSigPart (typeFamilyDeclResultSig tf)
   where
-    kindPart Nothing = []
-    kindPart (Just k) = ["::", prettyType k]
+    resultSigPart Nothing = []
+    resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
+    resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
+      ["=", prettyTyVarBinder result, "|", prettyTypeFamilyInjectivity injectivity]
 
 prettyTypeFamilyHead :: TypeHeadForm -> Type -> [TyVarBinder] -> [Doc ann]
 prettyTypeFamilyHead headForm headType params =

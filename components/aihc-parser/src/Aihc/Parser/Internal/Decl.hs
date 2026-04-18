@@ -231,10 +231,53 @@ instanceForallParser = do
   expectedTok (TkVarSym ".")
   pure binders
 
--- | Parse the optional @:: Kind@ result annotation on a type/data family head.
+-- | Parse an optional unnamed @:: Kind@ result signature for a family head.
 familyResultKindParser :: TokParser (Maybe Type)
 familyResultKindParser =
   MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+
+-- | Parse an optional type family result signature. GHC admits either an unnamed
+-- @:: Kind@ annotation or a named result variable with injectivity annotation,
+-- such as @= r | r -> a@ or @= (r :: Type) | r -> a where ...@.
+typeFamilyResultSigParser :: TokParser (Maybe TypeFamilyResultSig)
+typeFamilyResultSigParser =
+  MP.optional (kindSigParser <|> injectiveSigParser)
+  where
+    kindSigParser =
+      TypeFamilyKindSig <$> (expectedTok TkReservedDoubleColon *> typeParser)
+
+    injectiveSigParser = do
+      expectedTok TkReservedEquals
+      result <- injectiveResultBinderParser
+      TypeFamilyInjectiveSig result <$> typeFamilyInjectivityParser
+
+    injectiveResultBinderParser =
+      withSpan $
+        ( do
+            ident <- lowerIdentifierParser
+            pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
+        )
+          <|> ( do
+                  expectedTok TkSpecialLParen
+                  ident <- lowerIdentifierParser
+                  expectedTok TkReservedDoubleColon
+                  kind <- typeParser
+                  expectedTok TkSpecialRParen
+                  pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
+              )
+
+typeFamilyInjectivityParser :: TokParser TypeFamilyInjectivity
+typeFamilyInjectivityParser = withSpan $ do
+  expectedTok TkReservedPipe
+  result <- lowerIdentifierParser
+  expectedTok TkReservedRightArrow
+  determined <- MP.some lowerIdentifierParser
+  pure $ \span' ->
+    TypeFamilyInjectivity
+      { typeFamilyInjectivityAnns = [mkAnnotation span'],
+        typeFamilyInjectivityResult = result,
+        typeFamilyInjectivityDetermined = determined
+      }
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: top-level type family declaration
@@ -245,7 +288,7 @@ typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   expectedTok TkVarFamily
   (headForm, headType, params) <- typeFamilyHeadParser
-  kind <- familyResultKindParser
+  resultSig <- typeFamilyResultSigParser
   -- A closed type family has a `where` clause with equations.
   equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
   pure $
@@ -254,7 +297,7 @@ typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
         { typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
-          typeFamilyDeclKind = kind,
+          typeFamilyDeclResultSig = resultSig,
           typeFamilyDeclEquations = equations
         }
 
@@ -383,14 +426,14 @@ classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   (headForm, headType, params) <- typeFamilyHeadParser
-  kind <- familyResultKindParser
+  resultSig <- typeFamilyResultSigParser
   pure $
     ClassItemTypeFamilyDecl
       TypeFamilyDecl
         { typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
-          typeFamilyDeclKind = kind,
+          typeFamilyDeclResultSig = resultSig,
           typeFamilyDeclEquations = Nothing
         }
 
@@ -643,7 +686,7 @@ ordinaryClassDeclItemParser = do
     TkKeywordDefault -> classDefaultSigItemParser
     TkKeywordType
       | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
-    TkKeywordType -> MP.try classDefaultTypeInstShorthandParser <|> classTypeFamilyDeclParser
+    TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser

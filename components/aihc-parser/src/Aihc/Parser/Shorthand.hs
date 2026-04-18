@@ -426,6 +426,22 @@ docFunctionalDependency dep =
       listField "determiners" docText (functionalDependencyDeterminers dep)
         <> listField "determined" docText (functionalDependencyDetermined dep)
 
+docTypeFamilyInjectivity :: TypeFamilyInjectivity -> Doc ann
+docTypeFamilyInjectivity injectivity =
+  "TypeFamilyInjectivity" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [ field "result" (docText (typeFamilyInjectivityResult injectivity))
+      ]
+        <> listField "determined" docText (typeFamilyInjectivityDetermined injectivity)
+
+docTypeFamilyResultSig :: TypeFamilyResultSig -> Doc ann
+docTypeFamilyResultSig sig =
+  case sig of
+    TypeFamilyKindSig kind -> "TypeFamilyKindSig" <+> parens (docType kind)
+    TypeFamilyInjectiveSig result injectivity ->
+      "TypeFamilyInjectiveSig" <+> braces (hsep (punctuate comma [field "result" (docTyVarBinder result), field "injectivity" (docTypeFamilyInjectivity injectivity)]))
+
 docClassDeclItem :: ClassDeclItem -> Doc ann
 docClassDeclItem item =
   case item of
@@ -994,7 +1010,7 @@ docTypeFamilyDecl tf =
     fields =
       [field "headForm" (docTypeHeadForm (typeFamilyDeclHeadForm tf)), field "head" (docType (typeFamilyDeclHead tf))]
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
-        <> optionalField "kind" docType (typeFamilyDeclKind tf)
+        <> optionalField "resultSig" docTypeFamilyResultSig (typeFamilyDeclResultSig tf)
         <> case typeFamilyDeclEquations tf of
           Nothing -> []
           Just eqs -> [field "equations" (brackets (hsep (punctuate comma (map docTypeFamilyEq eqs))))]

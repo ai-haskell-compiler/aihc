@@ -563,9 +563,16 @@ normalizeTypeFamilyDecl tf =
     { typeFamilyDeclHeadForm = typeFamilyDeclHeadForm tf,
       typeFamilyDeclHead = normalizeType (typeFamilyDeclHead tf),
       typeFamilyDeclParams = map normalizeTyVarBinder (typeFamilyDeclParams tf),
-      typeFamilyDeclKind = fmap normalizeType (typeFamilyDeclKind tf),
+      typeFamilyDeclResultSig = fmap normalizeTypeFamilyResultSig (typeFamilyDeclResultSig tf),
       typeFamilyDeclEquations = fmap (map normalizeTypeFamilyEq) (typeFamilyDeclEquations tf)
     }
+
+normalizeTypeFamilyResultSig :: TypeFamilyResultSig -> TypeFamilyResultSig
+normalizeTypeFamilyResultSig sig =
+  case sig of
+    TypeFamilyKindSig kind -> TypeFamilyKindSig (normalizeType kind)
+    TypeFamilyInjectiveSig result injectivity ->
+      TypeFamilyInjectiveSig (normalizeTyVarBinder result) injectivity
 
 normalizeTypeFamilyEq :: TypeFamilyEq -> TypeFamilyEq
 normalizeTypeFamilyEq eq =

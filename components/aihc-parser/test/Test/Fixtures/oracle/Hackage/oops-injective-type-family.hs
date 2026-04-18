@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="injective type families with result kind signatures stop at the equals sign" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilyDependencies #-}

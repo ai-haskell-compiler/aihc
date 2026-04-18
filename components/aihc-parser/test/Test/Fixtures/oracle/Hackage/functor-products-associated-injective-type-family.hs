@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="associated type families with injectivity annotations stop at the bar" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
