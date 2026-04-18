@@ -439,10 +439,14 @@ atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
+  explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
+  requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
+    TkKeywordType
+      | explicitNamespacesEnabled || requiredTypeArgumentsEnabled -> explicitTypeExprParser
     _ ->
       MP.try prefixNegateAtomExprParser
         <|> MP.try parenOperatorExprParser
@@ -468,6 +472,11 @@ atomExprParser = do
         <|> overloadedLabelExprParser
         <|> wildcardExprParser
         <|> varExprParser
+
+explicitTypeExprParser :: TokParser Expr
+explicitTypeExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  expectedTok TkKeywordType
+  ETypeSyntax TypeSyntaxExplicitNamespace <$> typeParser
 
 prefixNegateAtomExprParser :: TokParser Expr
 prefixNegateAtomExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -930,7 +939,7 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       ELambdaCases <$> (bracedLambdaCaseAlts <|> plainLambdaCaseAlts)
 
     lambdaPatsParser = do
-      pats <- MP.some patternParser
+      pats <- MP.some simplePatternParser
       expectedTok TkReservedRightArrow
       body <- region "while parsing lambda body" exprParser
       pure (ELambdaPats pats body)
@@ -1100,7 +1109,7 @@ thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
   name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHNameQuote (renderName name))
+  pure (ETHNameQuote name)
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do

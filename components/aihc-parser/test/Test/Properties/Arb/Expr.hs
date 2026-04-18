@@ -97,7 +97,7 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote <$> genValueDeclsWith False (n - 1),
             ETHPatQuote <$> genPattern (n - 1),
             ETHTypeQuote <$> genTypeWith False (n - 1),
-            ETHNameQuote . renderName <$> genNameQuoteName,
+            ETHNameQuote <$> genNameQuoteName,
             ETHTypeNameQuote <$> genTypeNameQuote
           ]
       | otherwise =
@@ -310,7 +310,8 @@ isValidGeneratedOperator candidate =
         candidate
           `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
       dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
-   in not reserved && not dashOnly
+      hasCanonicalizedUnicode = T.any (`elem` bannedUnicodeOperatorChars) candidate
+   in not reserved && not dashOnly && not hasCanonicalizedUnicode
 
 -- | Generate a data constructor name
 genConName :: Gen Text
@@ -744,6 +745,7 @@ shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
     EVar name -> [EVar (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
+    ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
     EInt value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EIntHash value _ -> [EIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EIntBase value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]

@@ -79,7 +79,7 @@ import Aihc.Parser.Lex.Trivia
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
 import Control.Applicative ((<|>))
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -555,7 +555,20 @@ lexOverloadedLabel env st
            in if T.null label then Nothing else Just (label, label)
 
     isUnquotedLabelChar c =
-      not (isSpace c) && c `notElem` ("()[]{},;`#\"" :: String)
+      case generalCategory c of
+        UppercaseLetter -> True
+        LowercaseLetter -> True
+        TitlecaseLetter -> True
+        ModifierLetter -> True
+        OtherLetter -> True
+        DecimalNumber -> True
+        LetterNumber -> True
+        OtherNumber -> True
+        NonSpacingMark -> True
+        SpacingCombiningMark -> True
+        EnclosingMark -> True
+        ConnectorPunctuation -> True
+        _ -> c == '\''
 
     takeMalformedString chars =
       case scanQuoted '"' (T.drop 1 chars) of

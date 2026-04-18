@@ -81,9 +81,13 @@ module Aihc.Parser.Syntax
     StandaloneDerivingDecl (..),
     Type (..),
     TupleFlavor (..),
+    TypeSyntaxForm (..),
     TypeLiteral (..),
     TypePromotion (..),
+    ForallVis (..),
+    ForallTelescope (..),
     TyVarBSpecificity (..),
+    TyVarBVisibility (..),
     TyVarBinder (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -590,9 +594,11 @@ impliedExtensions =
     (Strict, [EnableExtension StrictData]),
     (TemplateHaskell, [EnableExtension TemplateHaskellQuotes]),
     (TypeFamilies, [EnableExtension ExplicitNamespaces, EnableExtension KindSignatures, EnableExtension MonoLocalBinds]),
+    (TypeAbstractions, [EnableExtension TypeApplications]),
     (TypeFamilyDependencies, [EnableExtension TypeFamilies]),
     (TypeInType, [EnableExtension PolyKinds, EnableExtension DataKinds, EnableExtension KindSignatures]),
     (TypeOperators, [EnableExtension ExplicitNamespaces]),
+    (RequiredTypeArguments, [EnableExtension TypeApplications]),
     (UnboxedTuples, [EnableExtension UnboxedSums]),
     (UnliftedDatatypes, [EnableExtension DataKinds, EnableExtension StandaloneKindSignatures])
   ]
@@ -1082,13 +1088,15 @@ data TupleFlavor
 data Pattern
   = PAnn Annotation Pattern
   | PVar UnqualifiedName
+  | PTypeBinder TyVarBinder
+  | PTypeSyntax TypeSyntaxForm Type
   | PWildcard
   | PLit Literal
   | PQuasiQuote Text Text
   | PTuple TupleFlavor [Pattern]
   | PUnboxedSum Int Int Pattern
   | PList [Pattern]
-  | PCon Name [Pattern]
+  | PCon Name [Type] [Pattern]
   | PInfix Pattern Name Pattern
   | PView Expr Pattern
   | PAs Text Pattern
@@ -1115,6 +1123,22 @@ peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn (PAnn _ inner) = peelPatternAnn inner
 peelPatternAnn p = p
 
+data TypeSyntaxForm
+  = TypeSyntaxExplicitNamespace
+  | TypeSyntaxInTerm
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ForallVis
+  = ForallInvisible
+  | ForallVisible
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ForallTelescope = ForallTelescope
+  { forallTelescopeVisibility :: ForallVis,
+    forallTelescopeBinders :: [TyVarBinder]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Type
   = TAnn Annotation Type
   | TVar UnqualifiedName
@@ -1123,7 +1147,7 @@ data Type
   | TTypeLit TypeLiteral
   | TStar
   | TQuasiQuote Text Text
-  | TForall [TyVarBinder] Type
+  | TForall ForallTelescope Type
   | TApp Type Type
   | TFun Type Type
   | TTuple TupleFlavor TypePromotion [Type]
@@ -1177,6 +1201,11 @@ data TyVarBSpecificity
   | TyVarBSpecified
   deriving (Data, Eq, Show, Generic, NFData)
 
+data TyVarBVisibility
+  = TyVarBVisible
+  | TyVarBInvisible
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data TyVarBinder = TyVarBinder
   { tyVarBinderAnns :: [Annotation],
     tyVarBinderName :: Text,
@@ -1184,7 +1213,9 @@ data TyVarBinder = TyVarBinder
     tyVarBinderKind :: Maybe Type,
     -- | Whether the binder was written as specified (@a@, @(a :: k)@)
     -- or inferred (@{a}@, @{a :: k}@).
-    tyVarBinderSpecificity :: TyVarBSpecificity
+    tyVarBinderSpecificity :: TyVarBSpecificity,
+    -- | Whether the binder was written visibly (@a@) or invisibly (@@a@).
+    tyVarBinderVisibility :: TyVarBVisibility
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1201,14 +1232,14 @@ data Role
   deriving (Data, Eq, Show, Generic, NFData)
 
 data RoleAnnotation = RoleAnnotation
-  { roleAnnotationName :: Text,
+  { roleAnnotationName :: UnqualifiedName,
     roleAnnotationRoles :: [Role]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data TypeSynDecl = TypeSynDecl
   { typeSynHeadForm :: TypeHeadForm,
-    typeSynName :: Text,
+    typeSynName :: UnqualifiedName,
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
@@ -1303,7 +1334,7 @@ data DataConDecl
   | RecordCon [Text] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon [TyVarBinder] [Type] [UnqualifiedName] GadtBody
+    GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Strip nested 'DataConAnn' wrappers.
@@ -1379,7 +1410,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingHeadForm :: TypeHeadForm,
-    standaloneDerivingClassName :: UnqualifiedName,
+    standaloneDerivingClassName :: Name,
     standaloneDerivingTypes :: [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1387,7 +1418,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
 data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
     classDeclHeadForm :: TypeHeadForm,
-    classDeclName :: Text,
+    classDeclName :: UnqualifiedName,
     classDeclParams :: [TyVarBinder],
     classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
@@ -1433,7 +1464,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
     instanceDeclHeadForm :: TypeHeadForm,
-    instanceDeclClassName :: Text,
+    instanceDeclClassName :: UnqualifiedName,
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
   }
@@ -1542,6 +1573,7 @@ instance NFData Annotation where
 data Expr
   = EAnn Annotation Expr
   | EVar Name
+  | ETypeSyntax TypeSyntaxForm Type
   | EInt Integer Text
   | EIntHash Integer Text
   | EIntBase Integer Text
@@ -1584,7 +1616,7 @@ data Expr
   | ETHDeclQuote [Decl] -- [d| decls |]
   | ETHTypeQuote Type -- [t| type |]
   | ETHPatQuote Pattern -- [p| pat |]
-  | ETHNameQuote Text -- 'name
+  | ETHNameQuote Name -- 'name
   | ETHTypeNameQuote Name -- ''Name
   | -- Template Haskell splices
     ETHSplice Expr
@@ -1651,7 +1683,7 @@ data Cmd
   | -- | @exp -\< exp@ or @exp -\<\< exp@
     CmdArrApp Expr ArrAppType Expr
   | -- | Command-level infix: @cmd1 op cmd2@
-    CmdInfix Cmd Text Cmd
+    CmdInfix Cmd Name Cmd
   | -- | @do { cstmts }@
     CmdDo [DoStmt Cmd]
   | -- | @if exp then cmd else cmd@

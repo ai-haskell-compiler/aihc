@@ -52,7 +52,10 @@ normalizeType ty =
     TStar -> TStar
     TWildcard -> TWildcard
     TQuasiQuote quoter body -> TQuasiQuote quoter body
-    TForall binders inner -> TForall (map normalizeTyVarBinder binders) (normalizeType inner)
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)})
+        (normalizeType inner)
     TApp f x -> TApp (normalizeType f) (normalizeType x)
     TFun a b -> TFun (normalizeType a) (normalizeType b)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
@@ -76,7 +79,7 @@ normalizeTyVarBinder tvb =
 containsKindedInferredBinder :: Type -> Bool
 containsKindedInferredBinder ty =
   case ty of
-    TForall binders inner -> any isKindedInferredBinder binders || containsKindedInferredBinder inner
+    TForall telescope inner -> any isKindedInferredBinder (forallTelescopeBinders telescope) || containsKindedInferredBinder inner
     TImplicitParam _name inner -> containsKindedInferredBinder inner
     TApp f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
     TFun a b -> containsKindedInferredBinder a || containsKindedInferredBinder b

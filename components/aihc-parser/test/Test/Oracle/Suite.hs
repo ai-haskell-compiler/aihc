@@ -5,7 +5,7 @@ module Test.Oracle.Suite
   )
 where
 
-import Aihc.Parser.Syntax (Extension (RequiredTypeArguments), ExtensionSetting (EnableExtension))
+import Aihc.Parser.Syntax (Extension (TemplateHaskell), ExtensionSetting (EnableExtension))
 import Control.Monad (when)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -138,10 +138,10 @@ frameworkTests =
                     casePath = "framework-xfail-details.hs",
                     caseExpected = ExpectXFail,
                     caseReason = "regression coverage",
-                    caseExtensions = [EnableExtension RequiredTypeArguments]
+                    caseExtensions = [EnableExtension TemplateHaskell]
                   }
            in do
-                let (_, outcome, details) = evaluateCaseText meta "module Basic where\n\nx = f (type Int) 5\n"
+                let (_, outcome, details) = evaluateCaseText meta "module Basic where\n\nf = ''(,)\n"
                 case outcome of
                   OutcomeXFail
                     | null details -> assertFailure "expected xfail details to be non-empty"

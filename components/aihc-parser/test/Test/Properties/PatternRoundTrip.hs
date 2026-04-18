@@ -21,7 +21,7 @@ import Text.Megaparsec.Error qualified as MPE
 patternConfig :: ParserConfig
 patternConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments]
     }
 
 prop_patternPrettyRoundTrip :: Pattern -> Property
@@ -29,7 +29,7 @@ prop_patternPrettyRoundTrip pat =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
       expected = normalizePattern (addPatternParens pat)
    in checkCoverage $
-        assertCtorCoverage ["PAnn"] pat $
+        assertCtorCoverage ["PAnn", "PTypeBinder", "PTypeSyntax"] pat $
           counterexample (T.unpack source) $
             case parsePattern patternConfig source of
               ParseErr err ->
@@ -43,12 +43,14 @@ normalizePattern pat =
   case pat of
     PAnn _ sub -> normalizePattern sub
     PVar name -> PVar name
+    PTypeBinder binder -> PTypeBinder (normalizeTyVarBinderSpan binder)
+    PTypeSyntax form ty -> PTypeSyntax form (normalizeTypeSpan ty)
     PWildcard -> PWildcard
     PLit lit -> PLit (normalizeLiteral lit)
     PQuasiQuote quoter body -> PQuasiQuote quoter body
     PTuple tupleFlavor elems -> PTuple tupleFlavor (map normalizePattern elems)
     PList elems -> PList (map normalizePattern elems)
-    PCon con args -> PCon con (map normalizePattern args)
+    PCon con typeArgs args -> PCon con (map normalizeTypeSpan typeArgs) (map normalizePattern args)
     PInfix lhs op rhs -> PInfix (normalizePattern lhs) op (normalizePattern rhs)
     PView expr inner -> PView (normalizeExpr expr) (normalizePattern inner)
     PAs name inner -> PAs name (normalizeAsInner inner)
@@ -71,7 +73,7 @@ normalizeTypeSpan ty =
     TTypeLit lit -> TTypeLit lit
     TStar -> TStar
     TQuasiQuote quoter body -> TQuasiQuote quoter body
-    TForall binders inner -> TForall (map normalizeTyVarBinderSpan binders) (normalizeTypeSpan inner)
+    TForall telescope inner -> TForall (normalizeForallTelescope telescope) (normalizeTypeSpan inner)
     TApp lhs rhs -> TApp (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TFun lhs rhs -> TFun (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeTypeSpan elems)
@@ -128,4 +130,10 @@ normalizeTyVarBinderSpan tvb =
   tvb
     { tyVarBinderAnns = [],
       tyVarBinderKind = fmap normalizeTypeSpan (tyVarBinderKind tvb)
+    }
+
+normalizeForallTelescope :: ForallTelescope -> ForallTelescope
+normalizeForallTelescope telescope =
+  telescope
+    { forallTelescopeBinders = map normalizeTyVarBinderSpan (forallTelescopeBinders telescope)
     }

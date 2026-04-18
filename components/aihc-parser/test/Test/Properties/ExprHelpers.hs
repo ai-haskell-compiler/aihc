@@ -33,6 +33,7 @@ normalizeExpr expr =
     EString value repr -> EString value repr
     EStringHash value repr -> EStringHash value repr
     EOverloadedLabel value repr -> EOverloadedLabel value repr
+    ETypeSyntax form ty -> ETypeSyntax form (normalizeType ty)
     EQuasiQuote quoter body -> EQuasiQuote quoter body
     EApp fn arg -> EApp (normalizeExpr fn) (normalizeExpr arg)
     EInfix lhs op rhs -> EInfix (normalizeExpr lhs) op (normalizeExpr rhs)
@@ -115,12 +116,14 @@ normalizePattern pat =
   case pat of
     PAnn _ sub -> normalizePattern sub
     PVar name -> PVar name
+    PTypeBinder binder -> PTypeBinder (normalizeTyVarBinder binder)
+    PTypeSyntax form ty -> PTypeSyntax form (normalizeType ty)
     PWildcard -> PWildcard
     PLit lit -> PLit (normalizeLiteral lit)
     PQuasiQuote quoter body -> PQuasiQuote quoter body
     PTuple tupleFlavor elems -> PTuple tupleFlavor (map normalizePattern elems)
     PList elems -> PList (map normalizePattern elems)
-    PCon con args -> PCon con (map normalizePattern args)
+    PCon con typeArgs args -> PCon con (map normalizeType typeArgs) (map normalizePattern args)
     PInfix lhs op rhs -> PInfix (normalizePattern lhs) op (normalizePattern rhs)
     PView e inner -> PView (normalizeExpr e) (normalizePattern inner)
     PAs name inner -> PAs name (normalizeUnaryPatInner inner)
@@ -331,7 +334,7 @@ stripTypeAnnotations ty =
     TTypeLit l -> TTypeLit l
     TStar -> TStar
     TQuasiQuote q b -> TQuasiQuote q b
-    TForall bs t -> TForall bs (stripTypeAnnotations t)
+    TForall telescope t -> TForall (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)}) (stripTypeAnnotations t)
     TApp a b -> TApp (stripTypeAnnotations a) (stripTypeAnnotations b)
     TFun a b -> TFun (stripTypeAnnotations a) (stripTypeAnnotations b)
     TTuple fl pr es -> TTuple fl pr (map stripTypeAnnotations es)
@@ -352,7 +355,10 @@ normalizeType ty =
     TTypeLit lit -> TTypeLit lit
     TStar -> TStar
     TQuasiQuote quoter body -> TQuasiQuote quoter body
-    TForall binders inner -> TForall (map normalizeTyVarBinder binders) (normalizeType inner)
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)})
+        (normalizeType inner)
     TApp fn arg -> TApp (normalizeType fn) (normalizeType arg)
     TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
@@ -370,6 +376,12 @@ normalizeTyVarBinder tvb =
   tvb
     { tyVarBinderAnns = [],
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
+    }
+
+normalizeForallTelescope :: ForallTelescope -> ForallTelescope
+normalizeForallTelescope telescope =
+  telescope
+    { forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)
     }
 
 normalizeWarningText :: WarningText -> WarningText
@@ -442,7 +454,7 @@ normalizeDataConInner (InfixCon forallVars constraints lhs op rhs) =
 normalizeDataConInner (RecordCon forallVars constraints name fields) =
   RecordCon forallVars (map normalizeType constraints) name (map normalizeFieldDecl fields)
 normalizeDataConInner (GadtCon forallBinders constraints names body) =
-  GadtCon (map normalizeTyVarBinder forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
+  GadtCon (map normalizeForallTelescope forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
 
 normalizeBangType :: BangType -> BangType
 normalizeBangType bt =
