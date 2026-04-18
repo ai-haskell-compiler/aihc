@@ -558,10 +558,20 @@ contextItemParserWith typeParser typeAtomParser =
           pure (TFun baseType rhs)
         Nothing -> pure baseType
     buildInfixType lhs ((op, promoted), rhs) =
-      let opType = TCon op promoted
-       in TApp (TApp opType lhs) rhs
+      TInfix lhs op promoted rhs
     constraintTypeInfixOperatorParser =
-      MP.try promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
+      MP.try promotedInfixOperatorParser <|> backtickConstraintOperatorParser <|> unpromotedInfixOperatorParser
+    backtickConstraintOperatorParser = MP.try $ do
+      expectedTok TkSpecialBacktick
+      op <- constraintOperatorIdentifierParser
+      expectedTok TkSpecialBacktick
+      pure (op, Unpromoted)
+    constraintOperatorIdentifierParser =
+      tokenSatisfy "constraint operator identifier" $ \tok ->
+        case lexTokenKind tok of
+          TkVarId name -> Just (qualifyName Nothing (mkUnqualifiedName NameVarId name))
+          TkConId name -> Just (qualifyName Nothing (mkUnqualifiedName NameConId name))
+          _ -> Nothing
     unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
