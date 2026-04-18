@@ -22,6 +22,10 @@ module Test.Properties.Arb.Identifiers
     genVarSym,
     isValidGeneratedVarSym,
 
+    -- * Operator symbols
+    genOperator,
+    isValidGeneratedOperator,
+
     -- * Module qualifiers
     genOptionalQualifier,
     genModuleQualifier,
@@ -48,11 +52,11 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax (Extension, SourceSpan, allKnownExtensions, noSourceSpan)
-import Data.Char (GeneralCategory (..), generalCategory)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, shrink, shrinkIntegral, vectorOf)
+import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, frequency, oneof, shrink, shrinkIntegral, vectorOf)
 
 -- | All extensions enabled for maximum keyword coverage in testing.
 allExtensions :: Set.Set Extension
@@ -70,14 +74,8 @@ conIdentStartChars = filter isValidConIdentStartChar allChars
 identTailChars :: [Char]
 identTailChars = filter isValidIdentTailChar allChars
 
--- | Unicode characters that the lexer maps to reserved tokens or normalized
--- ASCII operator names (see 'unicodeOpTokenKind' in Lex.hs). These must be
--- excluded from symbol generation to prevent round-trip mismatches.
-unicodeOpChars :: [Char]
-unicodeOpChars = ['∷', '⇒', '→', '←', '∀', '★', '⤙', '⤚', '⤛', '⤜', '⦇', '⦈', '⟦', '⟧', '⊸']
-
 symbolChars :: [Char]
-symbolChars = filter (\c -> isValidSymbolChar c && c `notElem` unicodeOpChars) allChars
+symbolChars = filter isValidSymbolChar allChars
 
 varSymStartChars :: [Char]
 varSymStartChars = filter (/= ':') symbolChars
@@ -214,6 +212,110 @@ bannedUnicodeOperatorChars =
     '⊸',
     '★'
   ]
+
+-------------------------------------------------------------------------------
+-- Operator symbols
+-------------------------------------------------------------------------------
+
+genOperator :: Gen Text
+genOperator =
+  oneof
+    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
+      genCustomOperator
+    ]
+
+genCustomOperator :: Gen Text
+genCustomOperator = do
+  len <- chooseInt (1, 3)
+  chars <- vectorOf len genOperatorChar
+  let candidate = T.pack chars
+  if isValidGeneratedOperator candidate
+    then pure candidate
+    else genCustomOperator
+
+genOperatorChar :: Gen Char
+genOperatorChar =
+  frequency
+    [ (10, elements asciiOperatorChars),
+      (2, elements curatedUnicodeOperatorChars)
+    ]
+
+asciiOperatorChars :: [Char]
+asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
+
+curatedUnicodeOperatorChars :: [Char]
+curatedUnicodeOperatorChars =
+  [ '⁂',
+    '‼',
+    '∘',
+    '⊕',
+    '⋆',
+    '¤',
+    '₿',
+    '¨',
+    '¯',
+    '©'
+  ]
+
+unicodeOperatorChars :: [Char]
+unicodeOperatorChars =
+  extraUnicodeOperatorChars <> concatMap (filter isAllowedUnicodeOperatorChar . expandRange) unicodeOperatorRanges
+
+extraUnicodeOperatorChars :: [Char]
+extraUnicodeOperatorChars =
+  ['⁂', '‼']
+
+unicodeOperatorRanges :: [(Char, Char)]
+unicodeOperatorRanges =
+  [ ('\x00A2', '\x00A9'),
+    ('\x2000', '\x206F'),
+    ('\x02C2', '\x02DF'),
+    ('\x20A0', '\x20CF'),
+    ('\x2100', '\x214F'),
+    ('\x2190', '\x21FF'),
+    ('\x2200', '\x22FF'),
+    ('\x2300', '\x23FF'),
+    ('\x2460', '\x24FF'),
+    ('\x2500', '\x257F'),
+    ('\x2580', '\x259F'),
+    ('\x25A0', '\x25FF'),
+    ('\x2600', '\x26FF'),
+    ('\x27C0', '\x27EF'),
+    ('\x27F0', '\x27FF'),
+    ('\x2900', '\x297F'),
+    ('\x2980', '\x29FF'),
+    ('\x2A00', '\x2AFF'),
+    ('\x2B00', '\x2BFF')
+  ]
+
+expandRange :: (Char, Char) -> [Char]
+expandRange (lo, hi) = [lo .. hi]
+
+isAllowedUnicodeOperatorChar :: Char -> Bool
+isAllowedUnicodeOperatorChar c =
+  isTargetUnicodeOperatorCategory c
+    && c `notElem` bannedUnicodeOperatorChars
+
+isTargetUnicodeOperatorCategory :: Char -> Bool
+isTargetUnicodeOperatorCategory c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
+    _ -> False
+
+isValidGeneratedOperator :: Text -> Bool
+isValidGeneratedOperator candidate =
+  let reserved =
+        candidate
+          `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
+      dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
+      hasBacktick = T.any (== '`') candidate
+      hasCanonicalizedUnicode = T.any (`elem` bannedUnicodeOperatorChars) candidate
+      isBareReservedUnicode = candidate `elem` ["→", "←", "⇒", "∷", "∀", "★", "⤙", "⤚", "⤛", "⤜", "⦇", "⦈", "⟦", "⟧", "⊸"]
+   in not reserved && not dashOnly && not hasBacktick && not hasCanonicalizedUnicode && not isBareReservedUnicode
 
 -------------------------------------------------------------------------------
 -- Module qualifiers

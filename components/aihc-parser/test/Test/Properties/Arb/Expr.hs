@@ -3,8 +3,6 @@
 
 module Test.Properties.Arb.Expr
   ( genExpr,
-    genOperator,
-    isValidGeneratedOperator,
     mkIntExpr,
     shrinkExpr,
     span0,
@@ -12,7 +10,7 @@ module Test.Properties.Arb.Expr
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace)
+import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -22,6 +20,7 @@ import Test.Properties.Arb.Identifiers
     genFieldName,
     genIdent,
     genModuleQualifier,
+    genOperator,
     genOptionalQualifier,
     genStringValue,
     genTenths,
@@ -62,8 +61,8 @@ genExprSizedWith allowTHQuotes n
         EApp <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EInfix <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
         ENegate <$> genExprSizedWith allowTHQuotes (n - 1),
-        ESectionL <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
-        ESectionR <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
+        ESectionL <$> genExprSizedWith allowTHQuotes half <*> genOperatorName,
+        ESectionR <$> genOperatorName <*> genExprSizedWith allowTHQuotes half,
         EIf <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
         EMultiWayIf <$> genGuardedRhsListWith allowTHQuotes (n - 1),
         ECase <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
@@ -80,7 +79,7 @@ genExprSizedWith allowTHQuotes n
         ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
         genUnboxedSumExprWith allowTHQuotes (n - 1),
         EArithSeq <$> genArithSeqWith allowTHQuotes (n - 1),
-        (\name fields -> ERecordCon name fields False) <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1),
+        (\name fields -> ERecordCon name fields False) <$> genConIdent <*> genRecordFieldsWith allowTHQuotes (n - 1),
         ERecordUpd <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
         ETypeSig <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
         ETypeApp . canonicalTypeAppExpr <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
@@ -184,12 +183,13 @@ genNameQuoteIdent = do
     then genNameQuoteIdent
     else pure ident
 
--- | Generate an operator symbol
-genOperator :: Gen Text
-genOperator =
+-- | Generate a type name for TH type quotes (''Name).
+-- Can produce either a constructor name (e.g., ''Maybe) or an operator name (e.g., ''(:>)).
+genTypeNameQuote :: Gen Name
+genTypeNameQuote =
   oneof
-    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
-      genCustomOperator
+    [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
     ]
 
 genOperatorName :: Gen Name
@@ -197,135 +197,6 @@ genOperatorName = do
   qual <- genOptionalQualifier
   op <- mkUnqualifiedName NameVarSym <$> genOperator
   pure (qualifyName qual op)
-
--- | Generate a custom operator
--- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
-genCustomOperator :: Gen Text
-genCustomOperator = do
-  len <- chooseInt (1, 3)
-  chars <- vectorOf len genOperatorChar
-  let candidate = T.pack chars
-  -- Avoid reserved operators and symbols that lex as comments.
-  if isValidGeneratedOperator candidate
-    then pure candidate
-    else genCustomOperator
-
-genOperatorChar :: Gen Char
-genOperatorChar =
-  frequency
-    [ (5, elements asciiOperatorChars),
-      (3, elements curatedUnicodeOperatorChars),
-      (2, elements unicodeOperatorChars)
-    ]
-
-asciiOperatorChars :: [Char]
-asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
-
-curatedUnicodeOperatorChars :: [Char]
-curatedUnicodeOperatorChars =
-  [ '⁂',
-    '‼',
-    '∘',
-    '⊕',
-    '⋆',
-    '¤',
-    '₿',
-    '¨',
-    '¯',
-    '©'
-  ]
-
-unicodeOperatorChars :: [Char]
-unicodeOperatorChars =
-  extraUnicodeOperatorChars <> concatMap (filter isAllowedUnicodeOperatorChar . expandRange) unicodeOperatorRanges
-
-extraUnicodeOperatorChars :: [Char]
-extraUnicodeOperatorChars =
-  ['⁂', '‼']
-
-unicodeOperatorRanges :: [(Char, Char)]
-unicodeOperatorRanges =
-  [ ('\x00A2', '\x00A9'),
-    ('\x2000', '\x206F'),
-    ('\x02C2', '\x02DF'),
-    ('\x20A0', '\x20CF'),
-    ('\x2100', '\x214F'),
-    ('\x2190', '\x21FF'),
-    ('\x2200', '\x22FF'),
-    ('\x2300', '\x23FF'),
-    ('\x2460', '\x24FF'),
-    ('\x2500', '\x257F'),
-    ('\x2580', '\x259F'),
-    ('\x25A0', '\x25FF'),
-    ('\x2600', '\x26FF'),
-    ('\x27C0', '\x27EF'),
-    ('\x27F0', '\x27FF'),
-    ('\x2900', '\x297F'),
-    ('\x2980', '\x29FF'),
-    ('\x2A00', '\x2AFF'),
-    ('\x2B00', '\x2BFF')
-  ]
-
-expandRange :: (Char, Char) -> [Char]
-expandRange (lo, hi) = [lo .. hi]
-
-isAllowedUnicodeOperatorChar :: Char -> Bool
-isAllowedUnicodeOperatorChar c =
-  isTargetUnicodeOperatorCategory c
-    && c `notElem` bannedUnicodeOperatorChars
-
-isTargetUnicodeOperatorCategory :: Char -> Bool
-isTargetUnicodeOperatorCategory c =
-  case generalCategory c of
-    MathSymbol -> True
-    CurrencySymbol -> True
-    ModifierSymbol -> True
-    OtherSymbol -> True
-    OtherPunctuation -> not (isAscii c)
-    _ -> False
-
-bannedUnicodeOperatorChars :: [Char]
-bannedUnicodeOperatorChars =
-  [ '→',
-    '←',
-    '⇒',
-    '∷',
-    '∀',
-    '⤙',
-    '⤚',
-    '⤛',
-    '⤜',
-    '⦇',
-    '⦈',
-    '⟦',
-    '⟧',
-    '⊸',
-    '★'
-  ]
-
-isValidGeneratedOperator :: Text -> Bool
-isValidGeneratedOperator candidate =
-  let reserved =
-        candidate
-          `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
-      dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
-      hasBacktick = T.any (== '`') candidate
-      hasCanonicalizedUnicode = T.any (`elem` bannedUnicodeOperatorChars) candidate
-   in not reserved && not dashOnly && not hasBacktick && not hasCanonicalizedUnicode
-
--- | Generate a data constructor name
-genConName :: Gen Text
-genConName = genConIdent
-
--- | Generate a type name for TH type quotes (''Name).
--- Can produce either a constructor name (e.g., ''Maybe) or an operator name (e.g., ''(:>)).
-genTypeNameQuote :: Gen Name
-genTypeNameQuote =
-  oneof
-    [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
-      -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
-    ]
 
 genVarName :: Gen Name
 genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
@@ -360,8 +231,23 @@ genCaseAltWith allowTHQuotes n = do
 genRhsWith :: Bool -> Int -> Gen Rhs
 genRhsWith allowTHQuotes n =
   oneof
-    [ (\e -> UnguardedRhs [] e Nothing) <$> genBindingExprWith allowTHQuotes n,
-      (\gs -> GuardedRhss [] gs Nothing) <$> genGuardedRhsListWith allowTHQuotes n
+    [ do
+        e <- genBindingExprWith allowTHQuotes n
+        mWhere <- genOptionalWhereDecls allowTHQuotes n
+        pure (UnguardedRhs [] e mWhere),
+      do
+        gs <- genGuardedRhsListWith allowTHQuotes n
+        mWhere <- genOptionalWhereDecls allowTHQuotes n
+        pure (GuardedRhss [] gs mWhere)
+    ]
+
+genOptionalWhereDecls :: Bool -> Int -> Gen (Maybe [Decl])
+genOptionalWhereDecls _ 0 = pure Nothing
+genOptionalWhereDecls allowTHQuotes n =
+  oneof
+    [ pure Nothing,
+      pure Nothing,
+      Just <$> genValueDeclsWith allowTHQuotes (n `div` 2)
     ]
 
 genGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
@@ -394,7 +280,7 @@ genGuardQualifierWith allowTHQuotes n =
       -- which includes parenthesized view patterns such as `(view -> pat)`.
       GuardPat <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       -- Let guard: | let decls = ...
-      GuardLet <$> genValueDeclsWith allowTHQuotes n
+      GuardLet <$> genValueDeclsWith allowTHQuotes half
     ]
   where
     half = n `div` 2
@@ -407,7 +293,7 @@ genGuardQualifierWith allowTHQuotes n =
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
-  vectorOf count (genValueDeclWith allowTHQuotes (n `div` max 1 count))
+  vectorOf count (genValueDeclWith allowTHQuotes (n `div` max 1 (count + 1)))
 
 -- | Generate a single value declaration: either a simple pattern binding or a
 -- function binding with argument patterns and optional guards.
@@ -470,9 +356,9 @@ genDoStmtWith :: Bool -> Int -> Gen (DoStmt Expr)
 genDoStmtWith allowTHQuotes n =
   oneof
     [ DoBind <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
-      DoLetDecls <$> genValueDeclsWith allowTHQuotes (n - 1),
+      DoLetDecls <$> genValueDeclsWith allowTHQuotes half,
       DoExpr <$> genExprSizedWith allowTHQuotes (n - 1),
-      DoRecStmt <$> genRecDoStmtsWith allowTHQuotes (n - 1)
+      DoRecStmt <$> genRecDoStmtsWith allowTHQuotes half
     ]
   where
     half = n `div` 2
@@ -486,7 +372,7 @@ genRecDoStmtsWith allowTHQuotes n = do
   vectorOf count $
     oneof
       [ DoBind <$> genPattern (perStmt `div` 2) <*> genExprSizedWith allowTHQuotes (perStmt `div` 2),
-        DoLetDecls <$> genValueDeclsWith allowTHQuotes perStmt,
+        DoLetDecls <$> genValueDeclsWith allowTHQuotes (perStmt `div` 2),
         DoExpr <$> genExprSizedWith allowTHQuotes perStmt
       ]
 
@@ -499,8 +385,8 @@ genCompStmtWith :: Bool -> Int -> Gen CompStmt
 genCompStmtWith allowTHQuotes n =
   oneof
     [ CompGen <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
-      CompGuard <$> genExprSizedWith allowTHQuotes (n - 1),
-      CompLetDecls <$> genValueDeclsWith allowTHQuotes (n - 1)
+      CompGuard <$> genExprSizedWith allowTHQuotes half,
+      CompLetDecls <$> genValueDeclsWith allowTHQuotes half
     ]
   where
     half = n `div` 2
@@ -574,7 +460,9 @@ genRecordFieldsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   names <- vectorOf count genFieldName
   exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
-  pure (zip names exprs)
+  quals <- vectorOf count genOptionalQualifier
+  let qualifiedNames = zipWith (\q name -> maybe name (<> "." <> name) q) quals names
+  pure (zip qualifiedNames exprs)
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Int -> Gen Type

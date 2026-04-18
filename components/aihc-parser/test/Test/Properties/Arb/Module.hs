@@ -16,8 +16,7 @@ import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Expr (isValidGeneratedOperator)
-import Test.Properties.Arb.Identifiers (genIdent, genVarSym, shrinkIdent)
+import Test.Properties.Arb.Identifiers (genIdent, genVarSym, isValidGeneratedOperator, shrinkIdent)
 import Test.QuickCheck
 
 instance Arbitrary Module where

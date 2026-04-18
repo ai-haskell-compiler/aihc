@@ -15,13 +15,14 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
     genFieldName,
     genIdent,
     genVarSym,
+    isValidGeneratedOperator,
     shrinkConIdent,
     shrinkIdent,
   )
