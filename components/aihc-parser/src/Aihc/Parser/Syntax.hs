@@ -877,7 +877,7 @@ data ExportSpec
   | ExportAbs (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportAll (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportWith (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  | ExportWithAll (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportWithAll (Maybe WarningText) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
   | ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -920,7 +920,7 @@ data ImportItem
   | ImportItemAbs (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemAll (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
-  | ImportItemAllWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | ImportItemAllWith (Maybe IEEntityNamespace) UnqualifiedName Int [IEBundledMember]
   | ImportAnn Annotation ImportItem
   deriving (Data, Eq, Show, Generic, NFData)
 

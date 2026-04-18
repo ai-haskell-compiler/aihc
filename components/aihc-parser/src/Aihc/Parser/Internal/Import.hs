@@ -73,7 +73,7 @@ exportNameParser mWarning = do
     case members of
       Just MembersAll -> ExportAll mWarning namespace name
       Just (MembersList names) -> ExportWith mWarning namespace name names
-      Just (MembersListAll names) -> ExportWithAll mWarning namespace name names
+      Just (MembersListAll wildcardIndex names) -> ExportWithAll mWarning namespace name wildcardIndex names
       Nothing
         | namespace == Just IEEntityNamespaceType || isTypeName name ->
             ExportAbs mWarning namespace name
@@ -83,19 +83,40 @@ exportNameParser mWarning = do
 data MembersResult
   = MembersAll
   | MembersList [IEBundledMember]
-  | MembersListAll [IEBundledMember]
+  | MembersListAll Int [IEBundledMember]
 
 exportMembersParser :: TokParser MembersResult
 exportMembersParser =
   parens $
-    (expectedTok TkReservedDotDot >> pure MembersAll)
-      <|> parseMemberList
+    parseDotDotFirst <|> parseMemberList
   where
+    parseDotDotFirst = do
+      expectedTok TkReservedDotDot
+      MP.optional (expectedTok TkSpecialComma) >>= \case
+        Nothing -> pure MembersAll
+        Just _ -> do
+          trailingMembers <- memberNameParser `MP.sepBy` expectedTok TkSpecialComma
+          pure (MembersListAll 0 trailingMembers)
+
     parseMemberList = do
-      members <- memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma
-      hasTrailingDotDot <-
-        MP.option False (expectedTok TkReservedDotDot >> MP.optional (expectedTok TkSpecialComma) >> pure True)
-      pure $ if hasTrailingDotDot then MembersListAll members else MembersList members
+      firstMember <- memberNameParser
+      parseMemberSegments [firstMember]
+
+    parseMemberSegments members =
+      MP.optional (expectedTok TkSpecialComma) >>= \case
+        Nothing -> pure (MembersList members)
+        Just _ ->
+          (expectedTok TkReservedDotDot >> parseWildcardTail members)
+            <|> do
+              nextMember <- memberNameParser
+              parseMemberSegments (members <> [nextMember])
+
+    parseWildcardTail members =
+      MP.optional (expectedTok TkSpecialComma) >>= \case
+        Nothing -> pure (MembersListAll (length members) members)
+        Just _ -> do
+          trailingMembers <- memberNameParser `MP.sepBy` expectedTok TkSpecialComma
+          pure (MembersListAll (length members) (members <> trailingMembers))
     memberNameParser = do
       namespace <- MP.optional bundledNamespaceParser
       name <- identifierNameParser <|> parens operatorNameParser
@@ -190,7 +211,7 @@ importItemParser = withSpanAnn (ImportAnn . mkAnnotation) $ do
     case members of
       Just MembersAll -> ImportItemAll effectiveNamespace itemName
       Just (MembersList names) -> ImportItemWith effectiveNamespace itemName names
-      Just (MembersListAll names) -> ImportItemAllWith effectiveNamespace itemName names
+      Just (MembersListAll wildcardIndex names) -> ImportItemAllWith effectiveNamespace itemName wildcardIndex names
       Nothing
         | effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName Nothing itemName) -> ImportItemAbs effectiveNamespace itemName
         | otherwise -> ImportItemVar effectiveNamespace itemName

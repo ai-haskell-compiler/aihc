@@ -124,10 +124,10 @@ prettyExportSpec spec =
       prettyExportWarning
         mWarning
         (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
-    ExportWithAll mWarning namespace name members ->
+    ExportWithAll mWarning namespace name wildcardIndex members ->
       prettyExportWarning
         mWarning
-        (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."]))))
+        (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (insertWildcard wildcardIndex (map prettyExportMember members)))))
 
 prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
@@ -189,8 +189,13 @@ prettyImportItem item =
     ImportItemAll namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)"
     ImportItemWith namespace name members ->
       prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
-    ImportItemAllWith namespace name members ->
-      prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."])))
+    ImportItemAllWith namespace name wildcardIndex members ->
+      prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (insertWildcard wildcardIndex (map prettyExportMember members))))
+
+insertWildcard :: Int -> [Doc ann] -> [Doc ann]
+insertWildcard wildcardIndex members =
+  let (before, after) = splitAt wildcardIndex members
+   in before <> [".."] <> after
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =

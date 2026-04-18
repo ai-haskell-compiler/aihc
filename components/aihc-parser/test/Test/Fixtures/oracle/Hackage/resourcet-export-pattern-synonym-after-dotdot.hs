@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="export lists reject pattern synonym names after .. in a constructor export" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternSynonyms #-}
 
 module M (T (.., P)) where

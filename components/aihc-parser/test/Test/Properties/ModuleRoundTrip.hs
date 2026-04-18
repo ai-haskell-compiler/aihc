@@ -63,7 +63,7 @@ normalizeExportSpec spec =
     ExportAbs mWarning namespace name -> ExportAbs (normalizeWarningText <$> mWarning) namespace name
     ExportAll mWarning namespace name -> ExportAll (normalizeWarningText <$> mWarning) namespace name
     ExportWith mWarning namespace name members -> ExportWith (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
-    ExportWithAll mWarning namespace name members -> ExportWithAll (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
+    ExportWithAll mWarning namespace name wildcardIndex members -> ExportWithAll (normalizeWarningText <$> mWarning) namespace name wildcardIndex (map normalizeExportMember members)
 
 normalizeExportMember :: IEBundledMember -> IEBundledMember
 normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespace name
@@ -106,4 +106,4 @@ normalizeImportItem item =
     ImportItemAbs namespace name -> ImportItemAbs namespace name
     ImportItemAll namespace name -> ImportItemAll namespace name
     ImportItemWith namespace name members -> ImportItemWith namespace name (map normalizeExportMember members)
-    ImportItemAllWith namespace name members -> ImportItemAllWith namespace name (map normalizeExportMember members)
+    ImportItemAllWith namespace name wildcardIndex members -> ImportItemAllWith namespace name wildcardIndex (map normalizeExportMember members)

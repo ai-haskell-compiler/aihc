@@ -216,6 +216,7 @@ buildTests = do
             testCase "skips mid-stream shebang lines as trivia" test_midStreamShebangIsSkipped,
             testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
             testCase "lexes overloaded labels as single tokens" test_overloadedLabelLexesAsSingleToken,
+            testCase "preserves bundled export wildcard position" test_bundledExportWildcardPosition,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
@@ -1626,6 +1627,35 @@ parseGuardsExt exts src =
             Left ("unexpected AST: " <> show other)
   where
     fullSrc = "{-# LANGUAGE " <> T.intercalate ", " (map (T.pack . show) exts) <> " #-}\n" <> src
+
+test_bundledExportWildcardPosition :: Assertion
+test_bundledExportWildcardPosition = do
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE PatternSynonyms #-}",
+            "{-# LANGUAGE ExplicitNamespaces #-}",
+            "module M (T (.., P, data Q)) where",
+            "data T = A | B",
+            "pattern P :: T",
+            "pattern P = A",
+            "pattern Q :: T",
+            "pattern Q = B"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+      (reparseErrs, reparsed) = parseModule defaultConfig rendered
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        assertBool ("expected reparsed pretty output to succeed, got: " <> show reparseErrs) (null reparseErrs)
+        case moduleExports modu of
+          Just [ExportAnn _ (ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"])] ->
+            case moduleExports reparsed of
+              Just [ExportAnn _ (ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"])] ->
+                pure ()
+              other ->
+                assertFailure ("unexpected reparsed export AST: " <> show other)
+          other ->
+            assertFailure ("unexpected export AST: " <> show other)
 
 test_guardExpr :: Assertion
 test_guardExpr =
