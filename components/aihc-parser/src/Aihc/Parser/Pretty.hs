@@ -195,7 +195,7 @@ prettyImportItem item =
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =
-  prettyMemberNamespacePrefix namespace <> prettyName name
+  prettyMemberNamespacePrefix namespace <> prettyBundledMemberName name
 
 prettyNamespacePrefix :: Maybe IEEntityNamespace -> Doc ann
 prettyNamespacePrefix namespace =
@@ -437,8 +437,8 @@ prettyType ty =
     TTypeLit lit -> prettyTypeLiteral lit
     TStar -> "*"
     TQuasiQuote quoter body -> prettyQuasiQuote quoter body
-    TForall binders inner ->
-      "forall" <+> hsep (map prettyTyVarBinder binders) <> "." <+> prettyType inner
+    TForall telescope inner ->
+      prettyForallTelescope telescope <+> prettyType inner
     -- Before infix detection: required grouping from the parser ('TParen',
     -- @(a :+: b) -> c@, constraints, nested @(c => t)@).
     TParen inner -> parens (prettyType inner)
@@ -490,6 +490,9 @@ prettyPattern pat =
   case pat of
     PAnn _ sub -> prettyPattern sub
     PVar name -> pretty name
+    PTypeBinder binder -> prettyTyVarBinder binder
+    PTypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
+    PTypeSyntax TypeSyntaxInTerm ty -> prettyType ty
     PWildcard -> "_"
     PLit lit -> prettyLiteral lit
     PQuasiQuote quoter body -> prettyQuasiQuote quoter body
@@ -498,7 +501,7 @@ prettyPattern pat =
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     PList elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
-    PCon con args -> hsep (prettyPrefixName con : map prettyPattern args)
+    PCon con typeArgs args -> hsep ([prettyPrefixName con] <> map prettyInvisibleTypeArg typeArgs <> map prettyPattern args)
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
       prettyExpr viewExpr <+> "->" <+> prettyPattern inner
@@ -643,11 +646,18 @@ prettyDeclHead headForm constraints name params =
 
 prettyTyVarBinder :: TyVarBinder -> Doc ann
 prettyTyVarBinder binder =
-  case (tyVarBinderSpecificity binder, tyVarBinderKind binder) of
-    (TyVarBInferred, Nothing) -> braces (pretty (tyVarBinderName binder))
-    (TyVarBInferred, Just kind) -> braces (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
-    (TyVarBSpecified, Nothing) -> pretty (tyVarBinderName binder)
-    (TyVarBSpecified, Just kind) -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
+  visibleDoc
+  where
+    coreDoc =
+      case (tyVarBinderSpecificity binder, tyVarBinderKind binder) of
+        (TyVarBInferred, Nothing) -> braces (pretty (tyVarBinderName binder))
+        (TyVarBInferred, Just kind) -> braces (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
+        (TyVarBSpecified, Nothing) -> pretty (tyVarBinderName binder)
+        (TyVarBSpecified, Just kind) -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
+    visibleDoc =
+      case tyVarBinderVisibility binder of
+        TyVarBVisible -> coreDoc
+        TyVarBInvisible -> "@" <> coreDoc
 
 contextPrefix :: [Type] -> [Doc ann]
 contextPrefix constraints =
@@ -658,6 +668,17 @@ contextPrefix constraints =
 forallTyVarBinderPrefix :: [TyVarBinder] -> [Doc ann]
 forallTyVarBinderPrefix [] = []
 forallTyVarBinderPrefix binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+prettyForallTelescope :: ForallTelescope -> Doc ann
+prettyForallTelescope telescope =
+  "forall"
+    <+> hsep (map prettyTyVarBinder (forallTelescopeBinders telescope))
+    <> case forallTelescopeVisibility telescope of
+      ForallInvisible -> "."
+      ForallVisible -> " ->"
+
+prettyInvisibleTypeArg :: Type -> Doc ann
+prettyInvisibleTypeArg ty = "@" <> prettyType ty
 
 prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
@@ -690,10 +711,10 @@ prettyDataCon ctor =
         prettyFieldName fieldName
           | isOperatorToken (renderUnqualifiedName fieldName) = parens (pretty fieldName)
           | otherwise = pretty fieldName
-    GadtCon forallBinders constraints names body ->
-      prettyGadtCon forallBinders constraints names body
+    GadtCon foralls constraints names body ->
+      prettyGadtCon foralls constraints names body
 
-prettyGadtCon :: [TyVarBinder] -> [Type] -> [UnqualifiedName] -> GadtBody -> Doc ann
+prettyGadtCon :: [ForallTelescope] -> [Type] -> [UnqualifiedName] -> GadtBody -> Doc ann
 prettyGadtCon forallBinders constraints names body =
   hsep
     ( [hsep (punctuate comma (map prettyConstructorUName names)), "::"]
@@ -702,9 +723,7 @@ prettyGadtCon forallBinders constraints names body =
         <> [prettyGadtBody body]
     )
   where
-    forallPart
-      | null forallBinders = []
-      | otherwise = ["forall", hsep (map prettyTyVarBinder forallBinders) <> "."]
+    forallPart = map prettyForallTelescope forallBinders
     contextPart
       | null constraints = []
       | otherwise = [prettyContext constraints, "=>"]
@@ -1014,8 +1033,17 @@ isSymbolicTypeName = isSymbolicName
 
 prettyFunctionBinder :: UnqualifiedName -> Doc ann
 prettyFunctionBinder name
-  | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym = parens (pretty (renderUnqualifiedName name))
+  | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym =
+      let rendered = renderUnqualifiedName name
+       in if startsWithHash rendered
+            then parens (" " <> pretty rendered <> " ")
+            else parens (pretty rendered)
   | otherwise = pretty (renderUnqualifiedName name)
+  where
+    startsWithHash t =
+      case T.uncons t of
+        Just ('#', _) -> True
+        _ -> False
 
 prettyBinderName :: UnqualifiedName -> Doc ann
 prettyBinderName = prettyFunctionBinder
@@ -1025,8 +1053,31 @@ prettyBinderUName = prettyFunctionBinder
 
 prettyName :: Name -> Doc ann
 prettyName name
-  | nameType name == NameVarSym || nameType name == NameConSym = parens (pretty (renderName name))
+  | nameType name == NameVarSym || nameType name == NameConSym =
+      let rendered = renderName name
+       in if startsWithHash rendered
+            then parens (" " <> pretty rendered <> " ")
+            else parens (pretty rendered)
   | otherwise = pretty (renderName name)
+  where
+    startsWithHash t =
+      case T.uncons t of
+        Just ('#', _) -> True
+        _ -> False
+
+prettyBundledMemberName :: Name -> Doc ann
+prettyBundledMemberName name
+  | isHashLeadingSymbolicName name = parens (" " <> pretty (renderName name) <> " ")
+  | otherwise = prettyName name
+
+isHashLeadingSymbolicName :: Name -> Bool
+isHashLeadingSymbolicName name =
+  isSymbolicName name
+    && case nameQualifier name of
+      Nothing -> case T.uncons (nameText name) of
+        Just ('#', _) -> True
+        _ -> False
+      Just _ -> False
 
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name
@@ -1046,6 +1097,8 @@ prettyExpr expr =
     EVar name
       | isSymbolicName name -> parens (pretty (renderName name))
       | otherwise -> pretty name
+    ETypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
+    ETypeSyntax TypeSyntaxInTerm ty -> prettyType ty
     EInt _ repr -> pretty repr
     EIntHash _ repr -> pretty repr
     EIntBase _ repr -> pretty repr

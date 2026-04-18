@@ -85,7 +85,7 @@ pattern PList_ :: [Pattern] -> Pattern
 pattern PList_ elems <- (peelPatternAnn -> PList elems)
 
 pattern PCon_ :: Name -> [Pattern] -> Pattern
-pattern PCon_ con args <- (peelPatternAnn -> PCon con args)
+pattern PCon_ con args <- (peelPatternAnn -> PCon con [] args)
 
 pattern PInfix_ :: Pattern -> Name -> Pattern -> Pattern
 pattern PInfix_ lhs op rhs <- (peelPatternAnn -> PInfix lhs op rhs)
@@ -253,6 +253,7 @@ buildTests = do
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
@@ -261,6 +262,12 @@ buildTests = do
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
+            testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
+            testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
+            testCase "parses lambda type binders" test_lambdaTypeBinderParses,
+            testCase "parses function head type binders" test_functionHeadTypeBinderParses,
+            testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
+            testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -373,6 +380,7 @@ buildTests = do
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
+              QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
@@ -585,6 +593,13 @@ test_warnedExportReexportRoundtrip =
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
 
+test_symbolicBundledImportMemberRoundtrip :: Assertion
+test_symbolicBundledImportMemberRoundtrip =
+  let source = T.unlines ["{-# LANGUAGE MagicHash #-}", "module M where", "import A (A(( # )))"]
+   in case validateParser "SymbolicBundledImportMember.hs" Haskell2010Edition [EnableExtension MagicHash] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected symbolic bundled import member to roundtrip, got: " <> show err)
+
 test_infixClassHeadParses :: Assertion
 test_infixClassHeadParses =
   let source =
@@ -600,7 +615,7 @@ test_infixClassHeadParses =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [ DeclFixity {},
-            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
+            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -677,7 +692,7 @@ test_infixTypeFamilyHeadRoundtrip =
               TypeFamilyDecl
                 { typeFamilyDeclHeadForm = TypeHeadInfix,
                   typeFamilyDeclHead = h,
-                  typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified, TyVarBinder _ "r" Nothing TyVarBSpecified],
+                  typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "r" Nothing TyVarBSpecified TyVarBVisible],
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs, typeFamilyEqRhs = rhs}]
                 }
             ]
@@ -726,6 +741,73 @@ test_parserConfigPassesExtensions =
       | EInt_ (-1) _ <- normalizeExpr parsed -> pure ()
     ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
     ParseErr err -> assertFailure ("expected parse success, got parse error: " <> MPE.errorBundlePretty err)
+
+test_explicitTypeSyntaxExprParses :: Assertion
+test_explicitTypeSyntaxExprParses =
+  case parseExpr defaultConfig {parserExtensions = [ExplicitNamespaces, RequiredTypeArguments]} "type Int" of
+    ParseOk parsed
+      | ETypeSyntax TypeSyntaxExplicitNamespace ty <- normalizeExpr parsed,
+        TCon "Int" Unpromoted <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected explicit type syntax expression, got: " <> show other)
+
+test_explicitTypeSyntaxPatternParses :: Assertion
+test_explicitTypeSyntaxPatternParses =
+  case parsePattern defaultConfig {parserExtensions = [ExplicitNamespaces, RequiredTypeArguments]} "type a" of
+    ParseOk parsed
+      | PTypeSyntax TypeSyntaxExplicitNamespace ty <- peelPatternAnn parsed,
+        TVar "a" <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected explicit type syntax pattern, got: " <> show other)
+
+test_lambdaTypeBinderParses :: Assertion
+test_lambdaTypeBinderParses =
+  case parseExpr defaultConfig {parserExtensions = [TypeAbstractions]} "\\ @a x -> x" of
+    ParseOk parsed
+      | ELambdaPats [PTypeBinder binder, PVar_ "x"] (EVar_ "x") <- normalizeExpr parsed,
+        tyVarBinderName binder == "a",
+        tyVarBinderVisibility binder == TyVarBInvisible ->
+          pure ()
+    other -> assertFailure ("expected lambda type binder, got: " <> show other)
+
+test_functionHeadTypeBinderParses :: Assertion
+test_functionHeadTypeBinderParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "f @a x = x" of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTypeBinder binder, PVar_ "x"], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+          | tyVarBinderName binder == "a",
+            tyVarBinderVisibility binder == TyVarBInvisible ->
+              pure ()
+        other -> assertFailure ("expected function head type binder, got normalized decl: " <> show other)
+    other -> assertFailure ("expected function head type binder, got: " <> show other)
+
+test_invisibleTypeDeclBinderParses :: Assertion
+test_invisibleTypeDeclBinderParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "type T @k a = a" of
+    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "T", typeSynParams = [kBinder, aBinder], typeSynBody = body})
+      | tyVarBinderName kBinder == "k",
+        tyVarBinderVisibility kBinder == TyVarBInvisible,
+        tyVarBinderName aBinder == "a",
+        tyVarBinderVisibility aBinder == TyVarBVisible,
+        TVar "a" <- stripTypeAnnotations body ->
+          pure ()
+    other -> assertFailure ("expected invisible type declaration binder, got: " <> show other)
+
+test_constructorPatternWithTypeArgParses :: Assertion
+test_constructorPatternWithTypeArgParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeApplications, TypeAbstractions]} "f (Just @Int x) = x" of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [outerPat], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+          | PCon con typeArgs args <- peelPatternAnn outerPat,
+            nameText con == "Just",
+            [typeArg] <- typeArgs,
+            TCon "Int" Unpromoted <- stripTypeAnnotations typeArg,
+            [PVar_ "x"] <- args ->
+              pure ()
+        other -> assertFailure ("expected constructor pattern with type arg, got: " <> show other)
+    other -> assertFailure ("expected parse success, got: " <> show other)
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =
@@ -1638,7 +1720,7 @@ test_prettyPrefixFunctionHeadRecordPattern = do
 
 test_prettyInfixFunctionHeadConstructorPatterns :: Assertion
 test_prettyInfixFunctionHeadConstructorPatterns = do
-  let box name = pat0 (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [pat0 (PVar name)])
+  let box name = pat0 (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [] [pat0 (PVar name)])
       decl =
         DeclValue
           ( FunctionBind
@@ -1771,6 +1853,26 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
+
+prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels :: Property
+prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels =
+  let samples = sampleGen 6000 genDeclDataFamilyInst
+      matching =
+        [ fieldName
+        | DeclDataFamilyInst DataFamilyInst {dataFamilyInstConstructors} <- samples,
+          ctor <- dataFamilyInstConstructors,
+          RecordCon {} <- [peelDataConAnn ctor],
+          RecordCon _ _ _ fields <- [peelDataConAnn ctor],
+          field <- fields,
+          fieldName <- fieldNames field
+        ]
+   in counterexample
+        ( "expected generated data family instances to include record fields with identifier labels only; sampled "
+            <> show (length samples)
+            <> ", record field labels="
+            <> show (length matching)
+        )
+        (not (null matching) && all ((== NameVarId) . unqualifiedNameType) matching)
 
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =

@@ -159,7 +159,7 @@ inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
 -- no extra constraints are needed (the variable just gets the scrutinee type).
 inferPatternConstraints :: SourceSpan -> TcType -> Pattern -> TcM [Ct]
 inferPatternConstraints sp scrutTy pat = case pat of
-  PCon name _subPats -> do
+  PCon name _typeArgs _subPats -> do
     -- Look up the constructor; if found, emit scrutTy ~ constructor result type.
     let conName = nameToText name
     mBinder <- lookupTerm conName
@@ -294,7 +294,7 @@ extractPatternBindings (pat, ty) = case pat of
   -- For constructor patterns like (True), (Just x), etc. the overall
   -- pattern type doesn't directly give us the sub-pattern types. But
   -- we can still extract the variable names for binding purposes.
-  PCon _name subPats ->
+  PCon _name _typeArgs subPats ->
     -- Each sub-pattern gets an unknown type (we'd need constructor info
     -- to assign proper types). For the MVP, they're not needed since
     -- constructor pattern matching in function heads is handled by tcMatches.

@@ -12,11 +12,12 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
 import Data.Char (isLower)
+import Data.Functor (($>))
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -217,7 +218,7 @@ contextPrefixDispatchList = do
 typeFamilyForallParser :: TokParser [TyVarBinder]
 typeFamilyForallParser = do
   expectedTok TkKeywordForall
-  binders <- MP.some typeParamParser
+  binders <- MP.some explicitForallBinderParser
   expectedTok (TkVarSym ".")
   pure binders
 
@@ -226,7 +227,7 @@ typeFamilyForallParser = do
 instanceForallParser :: TokParser [TyVarBinder]
 instanceForallParser = do
   expectedTok TkKeywordForall
-  binders <- MP.some typeParamParser
+  binders <- MP.some explicitForallBinderParser
   expectedTok (TkVarSym ".")
   pure binders
 
@@ -289,7 +290,7 @@ dataFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   varIdTok "family"
   name <- constructorUnqualifiedNameParser
-  params <- MP.many typeParamParser
+  params <- MP.many declTypeParamParser
   kind <- familyResultKindParser
   pure $
     DeclDataFamilyDecl
@@ -398,7 +399,7 @@ classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   name <- constructorUnqualifiedNameParser
-  params <- MP.many typeParamParser
+  params <- MP.many declTypeParamParser
   kind <- familyResultKindParser
   pure
     ( ClassItemDataFamilyDecl
@@ -979,7 +980,7 @@ gadtTypeDataConDeclParser = withSpan $ do
   names <- gadtConNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   -- Parse optional forall
-  forallBinders <- MP.option [] gadtForallParser
+  forallBinders <- MP.many gadtForallParser
   -- Parse context (only equality constraints permitted, but we parse generally)
   context <- contextPrefixDispatchList
   -- Parse the body (prefix only for type data - no record style)
@@ -1067,7 +1068,7 @@ gadtConDeclParser = withSpan $ do
   names <- gadtConNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   -- Parse optional forall
-  forallBinders <- MP.option [] gadtForallParser
+  forallBinders <- MP.many gadtForallParser
   -- Parse optional context
   context <- contextPrefixDispatchList
   -- Parse the body (record or prefix style)
@@ -1081,12 +1082,8 @@ gadtConNameParser =
     <|> parens constructorOperatorUnqualifiedNameParser
 
 -- | Parse forall in GADT context: @forall a b.@
-gadtForallParser :: TokParser [TyVarBinder]
-gadtForallParser = do
-  expectedTok TkKeywordForall
-  binders <- MP.some typeParamParser
-  expectedTok (TkVarSym ".")
-  pure binders
+gadtForallParser :: TokParser ForallTelescope
+gadtForallParser = forallTelescopeParser
 
 -- | Parse the body of a GADT constructor (after :: and optional forall/context)
 -- Can be either prefix style: @a -> b -> T a@
@@ -1158,22 +1155,22 @@ typeDeclHeadParser =
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
-      params <- MP.many typeParamParser
+      params <- MP.many declTypeParamParser
       pure (TypeHeadPrefix, name, params)
 
     infixDeclHeadParser = do
-      lhs <- typeParamParser
+      lhs <- declTypeParamParser
       op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
-      rhs <- typeParamParser
+      rhs <- declTypeParamParser
       pure (TypeHeadInfix, op, [lhs, rhs])
 
     parenthesizedInfixDeclHeadParser = do
       expectedTok TkSpecialLParen
-      lhs <- typeParamParser
+      lhs <- declTypeParamParser
       op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
-      rhs <- typeParamParser
+      rhs <- declTypeParamParser
       expectedTok TkSpecialRParen
-      tailParams <- MP.many typeParamParser
+      tailParams <- MP.many declTypeParamParser
       pure (TypeHeadInfix, op, [lhs, rhs] <> tailParams)
 
 typeSynonymOperatorParser :: TokParser Text
@@ -1196,13 +1193,13 @@ typeFamilyHeadParser =
           constructorNameParser
             <|> (qualifyName Nothing <$> parens operatorUnqualifiedNameParser)
         pure (\span' -> typeAnnSpan span' (TCon name Unpromoted))
-      params <- MP.many typeParamParser
+      params <- MP.many declTypeParamParser
       pure (TypeHeadPrefix, headType, params)
 
     infixHeadParser = do
-      lhs <- typeParamParser
+      lhs <- declTypeParamParser
       op <- typeFamilyOperatorParser
-      rhs <- typeParamParser
+      rhs <- declTypeParamParser
       let lhsType =
             TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
           rhsType =
@@ -1260,20 +1257,20 @@ classHeadParser =
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser
-      params <- MP.many typeParamParser
+      params <- MP.many declTypeParamParser
       pure (TypeHeadPrefix, name, params)
 
     infixDeclHeadParser = do
-      lhs <- typeParamParser
+      lhs <- declTypeParamParser
       op <- constructorOperatorParser
-      rhs <- typeParamParser
+      rhs <- declTypeParamParser
       pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
 
-typeParamParser :: TokParser TyVarBinder
-typeParamParser =
+explicitForallBinderParser :: TokParser TyVarBinder
+explicitForallBinderParser =
   withSpan $
     ( do
         ident <-
@@ -1283,7 +1280,7 @@ typeParamParser =
                 | isTypeVarName name ->
                     Just name
               _ -> Nothing
-        pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified)
+        pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -1291,8 +1288,26 @@ typeParamParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified)
+              pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
           )
+
+declTypeParamParser :: TokParser TyVarBinder
+declTypeParamParser = MP.try invisibleDeclTypeParamParser <|> explicitForallBinderParser
+
+invisibleDeclTypeParamParser :: TokParser TyVarBinder
+invisibleDeclTypeParamParser = withSpan $ do
+  expectedTok TkTypeApp
+  ( do
+      ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+      pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBInvisible)
+    )
+    <|> do
+      expectedTok TkSpecialLParen
+      ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+      expectedTok TkReservedDoubleColon
+      kind <- typeParser
+      expectedTok TkSpecialRParen
+      pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBInvisible)
 
 isTypeVarName :: Text -> Bool
 isTypeVarName name =
@@ -1331,7 +1346,7 @@ dataConQualifiersParser = do
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do
   expectedTok TkKeywordForall
-  binders <- MP.some typeParamParser
+  binders <- MP.some explicitForallBinderParser
   expectedTok (TkVarSym ".")
   pure (map tyVarBinderName binders)
 

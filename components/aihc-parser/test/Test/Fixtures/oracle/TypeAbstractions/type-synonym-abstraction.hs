@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="type synonym declarations with visible type abstractions are rejected" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeAbstractions #-}
