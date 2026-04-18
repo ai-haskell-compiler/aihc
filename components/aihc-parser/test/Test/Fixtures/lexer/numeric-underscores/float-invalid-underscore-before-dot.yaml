@@ -5,9 +5,9 @@ extensions:
   - NumericUnderscores
 input: "0_.0001"
 tokens:
-  - 'TkInteger 0'
+  - 'TkInteger 0 TInteger'
   - TkKeywordUnderscore
   - 'TkVarSym "."'
-  - 'TkInteger 1'
+  - 'TkInteger 1 TInteger'
   - 'TkEOF'
 status: pass

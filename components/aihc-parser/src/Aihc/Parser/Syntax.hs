@@ -83,6 +83,8 @@ module Aihc.Parser.Syntax
     Type (..),
     TupleFlavor (..),
     TypeSyntaxForm (..),
+    FloatType (..),
+    NumericType (..),
     TypeLiteral (..),
     TypePromotion (..),
     ForallVis (..),
@@ -1056,12 +1058,8 @@ getGuardQualifierSourceSpan qualifier =
 
 data Literal
   = LitAnn Annotation Literal
-  | LitInt Integer Text
-  | LitIntHash Integer Text
-  | LitIntBase Integer Text
-  | LitIntBaseHash Integer Text
-  | LitFloat Double Text
-  | LitFloatHash Double Text
+  | LitInt Integer NumericType Text
+  | LitFloat Double FloatType Text
   | LitChar Char Text
   | LitCharHash Char Text
   | LitString Text Text
@@ -1193,6 +1191,30 @@ data TypeLiteral
   | TypeLitSymbol Text Text
   | TypeLitChar Char Text
   deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Numeric type suffix for integer literals.
+-- Corresponds to the ExtendedLiterals extension (GHC 9.8+).
+-- Examples: @1@ -> TInteger, @1#@ -> TIntHash, @1#Word8@ -> TWord8Hash
+data NumericType
+  = TInteger
+  | TIntHash
+  | TWordHash
+  | TInt8Hash
+  | TInt16Hash
+  | TInt32Hash
+  | TInt64Hash
+  | TWord8Hash
+  | TWord16Hash
+  | TWord32Hash
+  | TWord64Hash
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
+
+-- | Float type suffix for fractional literals.
+data FloatType
+  = TFractional
+  | TFloatHash
+  | TDoubleHash
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 data TypePromotion
   = Unpromoted
@@ -1590,12 +1612,8 @@ data Expr
   = EAnn Annotation Expr
   | EVar Name
   | ETypeSyntax TypeSyntaxForm Type
-  | EInt Integer Text
-  | EIntHash Integer Text
-  | EIntBase Integer Text
-  | EIntBaseHash Integer Text
-  | EFloat Double Text
-  | EFloatHash Double Text
+  | EInt Integer NumericType Text
+  | EFloat Double FloatType Text
   | EChar Char Text
   | ECharHash Char Text
   | EString Text Text

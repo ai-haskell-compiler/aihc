@@ -2,7 +2,7 @@ input: "1_000_000"
 args: ["--lex", "-XNumericUnderscores"]
 output: |
   TkSpecialLBrace
-  TkInteger 1000000
+  TkInteger 1000000 TInteger
   TkSpecialRBrace
   TkEOF
 status: pass

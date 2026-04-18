@@ -1,5 +1,5 @@
 extensions: [MagicHash]
 input: |
   0##
-ast: EIntHash 0 "0##"
+ast: EInt 0 TWordHash
 status: pass

@@ -111,12 +111,8 @@ data LexTokenKind
   | TkQVarSym Text Text
   | TkQConSym Text Text
   | -- Literals
-    TkInteger Integer
-  | TkIntegerHash Integer Text
-  | TkIntegerBase Integer Text
-  | TkIntegerBaseHash Integer Text
-  | TkFloat Double Text
-  | TkFloatHash Double Text
+    TkInteger Integer NumericType
+  | TkFloat Double FloatType
   | TkChar Char
   | TkCharHash Char Text
   | TkString Text

@@ -11,34 +11,13 @@ module Aihc.Parser.Lex.Numbers
 where
 
 import Aihc.Parser.Lex.Types
-import Aihc.Parser.Syntax (Extension (MagicHash, NumericUnderscores))
-import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit)
+import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, NumericUnderscores), FloatType (..), NumericType (..))
+import Data.Char (digitToInt, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text, pattern (:<))
 import Data.Text qualified as T
 import Numeric (readHex, readInt, readOct)
 import Text.Read (readMaybe)
-
-withOptionalMagicHashSuffix ::
-  Int ->
-  LexerEnv ->
-  LexerState ->
-  Text ->
-  LexTokenKind ->
-  (Text -> LexTokenKind) ->
-  (Text, LexTokenKind, LexerState)
-withOptionalMagicHashSuffix maxHashes env st raw plainKind hashKind =
-  let st' = advanceChars raw st
-      hashCount =
-        if hasExt MagicHash env
-          then min maxHashes (T.length (T.takeWhile (== '#') (lexerInput st')))
-          else 0
-   in case hashCount of
-        0 -> (raw, plainKind, st')
-        _ ->
-          let hashes = T.replicate hashCount "#"
-              rawHash = raw <> hashes
-           in (rawHash, hashKind rawHash, advanceChars hashes st')
 
 lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIntBase env st =
@@ -60,7 +39,7 @@ lexIntBase env st =
                         | base `elem` ("oO" :: String) = readOctLiteral raw
                         | otherwise = readBinLiteral raw
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix 2 env st raw (TkIntegerBase n raw) (TkIntegerBaseHash n)
+                        lexIntSuffix env st raw n
                    in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
@@ -89,7 +68,7 @@ lexHexFloat env st =
                   raw = "0" <> T.singleton x <> intDigits <> dotAndFrac <> expo
                   value = parseHexFloatLiteral (T.unpack intDigits) (T.unpack fracDigits) (T.unpack expo)
                   (tokTxt, tokKind, st') =
-                    withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
+                    lexFloatSuffix env st raw value
                in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
@@ -97,7 +76,6 @@ lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexFloat env st =
   let allowUnderscores = hasExt NumericUnderscores env
       input = lexerInput st
-      -- Reject if input starts with underscore (e.g. _123 is not a number)
       startsWithUnderscore =
         case input of
           '_' :< _ -> True
@@ -114,7 +92,7 @@ lexFloat env st =
                     normalized = T.filter (/= '_') raw
                     value = read (T.unpack normalized) :: Double
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
+                      lexFloatSuffix env st raw value
                  in Just (mkToken st st' tokTxt tokKind, st')
           _ ->
             case takeExponent allowUnderscores rest of
@@ -125,14 +103,13 @@ lexFloat env st =
                         normalized = T.filter (/= '_') raw
                         value = read (T.unpack normalized) :: Double
                         (tokTxt, tokKind, st') =
-                          withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
+                          lexFloatSuffix env st raw value
                      in Just (mkToken st st' tokTxt tokKind, st')
 
 lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexInt env st =
   let allowUnderscores = hasExt NumericUnderscores env
       input = lexerInput st
-      -- Reject if input starts with underscore (e.g. _123 is not a number)
       startsWithUnderscore =
         case input of
           '_' :< _ -> True
@@ -144,19 +121,115 @@ lexInt env st =
           let digits = T.filter (/= '_') digitsRaw
               n = read (T.unpack digits) :: Integer
               (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix 2 env st digitsRaw (TkInteger n) (TkIntegerHash n)
+                lexIntSuffix env st digitsRaw n
            in Just (mkToken st st' tokTxt tokKind, st')
 
+-- | Parse optional MagicHash and ExtendedLiterals suffix for integers.
+-- Handles: (nothing), #, ##, #Int8, #Int16, #Int32, #Int64, #Int, #Word8, #Word16, #Word32, #Word64, #Word
+lexIntSuffix :: LexerEnv -> LexerState -> Text -> Integer -> (Text, LexTokenKind, LexerState)
+lexIntSuffix env st raw n =
+  let st' = advanceChars raw st
+      input = lexerInput st'
+   in case input of
+        '#' :< rest
+          | hasExt ExtendedLiterals env ->
+              case parseExtendedIntSuffix rest of
+                Just (typeName, suffixLen) ->
+                  let fullRaw = raw <> T.take (1 + suffixLen) input
+                      st'' = advanceN (1 + suffixLen) st'
+                   in (fullRaw, TkInteger n typeName, st'')
+                Nothing
+                  | hasExt MagicHash env ->
+                      case rest of
+                        '#' :< _ ->
+                          let fullRaw = raw <> "##"
+                              st'' = advanceN 2 st'
+                           in (fullRaw, TkInteger n TWordHash, st'')
+                        _ ->
+                          let fullRaw = raw <> "#"
+                              st'' = advanceN 1 st'
+                           in (fullRaw, TkInteger n TIntHash, st'')
+                  | otherwise ->
+                      (raw, TkInteger n TInteger, st')
+          | hasExt MagicHash env ->
+              case rest of
+                '#' :< _ ->
+                  let fullRaw = raw <> "##"
+                      st'' = advanceN 2 st'
+                   in (fullRaw, TkInteger n TWordHash, st'')
+                _ ->
+                  let fullRaw = raw <> "#"
+                      st'' = advanceN 1 st'
+                   in (fullRaw, TkInteger n TIntHash, st'')
+        _ -> (raw, TkInteger n TInteger, st')
+
+-- | Parse optional MagicHash and ExtendedLiterals suffix for floats.
+-- Handles: (nothing), #, ##
+lexFloatSuffix :: LexerEnv -> LexerState -> Text -> Double -> (Text, LexTokenKind, LexerState)
+lexFloatSuffix env st raw value =
+  let st' = advanceChars raw st
+      input = lexerInput st'
+   in case input of
+        '#' :< rest
+          | hasExt MagicHash env ->
+              case rest of
+                '#' :< _ ->
+                  let fullRaw = raw <> "##"
+                      st'' = advanceN 2 st'
+                   in (fullRaw, TkFloat value TDoubleHash, st'')
+                _ ->
+                  let fullRaw = raw <> "#"
+                      st'' = advanceN 1 st'
+                   in (fullRaw, TkFloat value TFloatHash, st'')
+        _ -> (raw, TkFloat value TFractional, st')
+
+-- | Parse an ExtendedLiterals type suffix after the initial '#'.
+-- Returns (NumericType, length of type name without the '#').
+-- e.g. "Word8" -> (TWord8Hash, 5), "Int" -> (TIntHash, 3)
+parseExtendedIntSuffix :: Text -> Maybe (NumericType, Int)
+parseExtendedIntSuffix input =
+  case matchType input of
+    Just ("Int8", len) -> Just (TInt8Hash, len)
+    Just ("Int16", len) -> Just (TInt16Hash, len)
+    Just ("Int32", len) -> Just (TInt32Hash, len)
+    Just ("Int64", len) -> Just (TInt64Hash, len)
+    Just ("Int", len) -> Just (TIntHash, len)
+    Just ("Word8", len) -> Just (TWord8Hash, len)
+    Just ("Word16", len) -> Just (TWord16Hash, len)
+    Just ("Word32", len) -> Just (TWord32Hash, len)
+    Just ("Word64", len) -> Just (TWord64Hash, len)
+    Just ("Word", len) -> Just (TWordHash, len)
+    _ -> Nothing
+
+-- | Try to match one of the known type names at the start of the text.
+-- Returns (matched name, length) if the match is followed by a non-identifier char
+-- or end of input.
+matchType :: Text -> Maybe (Text, Int)
+matchType input =
+  let candidates = ["Int8", "Int16", "Int32", "Int64", "Int", "Word8", "Word16", "Word32", "Word64", "Word"]
+   in firstMatch candidates input
+
+firstMatch :: [Text] -> Text -> Maybe (Text, Int)
+firstMatch [] _ = Nothing
+firstMatch (name : rest) input =
+  let len = T.length name
+   in case T.stripPrefix name input of
+        Just remaining
+          | T.null remaining || not (isIdentChar (T.head remaining)) ->
+              Just (name, len)
+        _ -> firstMatch rest input
+
+isIdentChar :: Char -> Bool
+isIdentChar c = isDigit c || isAsciiUpper c || c == '_' || isAsciiLower c
+
 -- Scan ([_]*[digit])* and return a zero-copy split.
--- Uses T.span (which tracks the byte offset while scanning, no second pass)
--- rather than computing a character count and calling T.splitAt.
 takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
 takeDigitsWithUnderscores False isDigitChar = T.span isDigitChar
 takeDigitsWithUnderscores True isDigitChar = \chars ->
   let (consumed, rest) = T.span (\c -> isDigitChar c || c == '_') chars
    in if T.null consumed || T.last consumed /= '_'
         then (consumed, rest)
-        else -- Rare: trailing underscores (invalid syntax). Trim them off.
+        else
           let trimmed = T.dropWhileEnd (== '_') consumed
            in (trimmed, T.drop (T.length trimmed) chars)
 
@@ -173,7 +246,6 @@ takeExponent allowUnderscores chars =
                             case rest2 of
                               sign :< more | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                               _ -> ("", rest2)
-                          -- Reject underscore after exponent sign (e.g. 1e+_23)
                           digitsStartWithUnderscore =
                             case rest3 of
                               '_' :< _ -> True
@@ -191,7 +263,6 @@ takeExponent allowUnderscores chars =
                 case rest of
                   sign :< more | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                   _ -> ("", rest)
-              -- Reject underscore after exponent sign (e.g. 1e+_23 or 1e_23)
               digitsStartWithUnderscore =
                 case rest1 of
                   '_' :< _ -> True
@@ -249,3 +320,24 @@ exponentValue expo =
     _ : '+' : ds | not (null ds) -> fromMaybe 0 (readMaybe ds)
     _ : ds | not (null ds) -> fromMaybe 0 (readMaybe ds)
     _ -> 0
+
+withOptionalMagicHashSuffix ::
+  Int ->
+  LexerEnv ->
+  LexerState ->
+  Text ->
+  LexTokenKind ->
+  (Text -> LexTokenKind) ->
+  (Text, LexTokenKind, LexerState)
+withOptionalMagicHashSuffix maxHashes env st raw plainKind hashKind =
+  let st' = advanceChars raw st
+      hashCount =
+        if hasExt MagicHash env
+          then min maxHashes (T.length (T.takeWhile (== '#') (lexerInput st')))
+          else 0
+   in case hashCount of
+        0 -> (raw, plainKind, st')
+        _ ->
+          let hashes = T.replicate hashCount "#"
+              rawHash = raw <> hashes
+           in (rawHash, hashKind rawHash, advanceChars hashes st')

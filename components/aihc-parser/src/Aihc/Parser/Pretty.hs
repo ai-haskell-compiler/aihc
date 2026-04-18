@@ -536,12 +536,8 @@ prettyPatternFieldBinding fieldName fieldPat =
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
   case peelLiteralAnn lit of
-    LitInt _ repr -> pretty repr
-    LitIntHash _ repr -> pretty repr
-    LitIntBase _ repr -> pretty repr
-    LitIntBaseHash _ repr -> pretty repr
-    LitFloat _ repr -> pretty repr
-    LitFloatHash _ repr -> pretty repr
+    LitInt _ _ repr -> pretty repr
+    LitFloat _ _ repr -> pretty repr
     LitChar _ repr -> pretty repr
     LitCharHash _ repr -> pretty repr
     LitString _ repr -> pretty repr
@@ -1113,12 +1109,8 @@ prettyExpr expr =
       | otherwise -> pretty name
     ETypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
     ETypeSyntax TypeSyntaxInTerm ty -> prettyType ty
-    EInt _ repr -> pretty repr
-    EIntHash _ repr -> pretty repr
-    EIntBase _ repr -> pretty repr
-    EIntBaseHash _ repr -> pretty repr
-    EFloat _ repr -> pretty repr
-    EFloatHash _ repr -> pretty repr
+    EInt _ _ repr -> pretty repr
+    EFloat _ _ repr -> pretty repr
     EChar _ repr -> pretty repr
     ECharHash _ repr -> pretty repr
     EString _ repr -> pretty repr

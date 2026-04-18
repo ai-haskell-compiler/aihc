@@ -114,8 +114,7 @@ genExprLeaf =
       mkCharExpr <$> genCharValue,
       mkStringExpr <$> genStringValue,
       -- MagicHash literals
-      (\v -> EIntHash v (T.pack (show v) <> "#")) <$> chooseInteger (0, 999),
-      (\v -> EFloatHash v (T.pack (show v) <> "#")) <$> genTenths,
+      (\v -> EInt v TIntHash (T.pack (show v) <> "#")) <$> chooseInteger (0, 999),
       (\v -> ECharHash v (T.pack (show v) <> "#")) <$> genCharValue,
       (\v -> EStringHash v (T.pack (show (T.unpack v)) <> "#")) <$> genStringValue,
       EQuasiQuote <$> genQuasiQuoteName <*> genStringValue,
@@ -646,11 +645,7 @@ canonicalTypeAppExpr e = case e of
   EUnboxedSum {} -> e
   ERecordCon {} -> e
   EInt {} -> e
-  EIntHash {} -> e
-  EIntBase {} -> e
-  EIntBaseHash {} -> e
   EFloat {} -> e
-  EFloatHash {} -> e
   EChar {} -> e
   ECharHash {} -> e
   EString {} -> e
@@ -670,10 +665,10 @@ canonicalTypeAppExpr e = case e of
 
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
-mkHexExpr value = EIntBase value ("0x" <> T.pack (showHex value))
+mkHexExpr value = EInt value TInteger ("0x" <> T.pack (showHex value))
 
 mkFloatExpr :: Double -> Expr
-mkFloatExpr value = EFloat value (T.pack (show value))
+mkFloatExpr value = EFloat value TFractional (T.pack (show value))
 
 mkCharExpr :: Char -> Expr
 mkCharExpr value = EChar value (T.pack (show value))
@@ -683,12 +678,7 @@ mkStringExpr value = EString value (T.pack (show (T.unpack value)))
 
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
-mkIntExpr value = EInt value (T.pack (show value))
-
-renderIntBaseHash :: Integer -> Text
-renderIntBaseHash value
-  | value < 0 = "-0x" <> T.pack (showHex (abs value)) <> "#"
-  | otherwise = "0x" <> T.pack (showHex value) <> "#"
+mkIntExpr value = EInt value TInteger (T.pack (show value))
 
 shrinkOverloadedLabel :: Text -> Text -> [String]
 shrinkOverloadedLabel value raw
@@ -712,12 +702,8 @@ shrinkExpr expr =
   case expr of
     EVar name -> [EVar (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
-    EInt value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntHash value _ -> [EIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
-    EIntBase value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntBaseHash value _ -> [EIntBaseHash shrunk (renderIntBaseHash shrunk) | shrunk <- shrinkIntegral value]
-    EFloat value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
-    EFloatHash value _ -> [EFloatHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
+    EInt value _ _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EFloat value _ _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
     EChar {} -> []
     ECharHash {} -> []
     EString value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]

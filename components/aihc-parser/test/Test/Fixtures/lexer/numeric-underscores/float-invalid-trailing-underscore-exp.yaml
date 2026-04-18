@@ -4,7 +4,7 @@ extensions:
   - NumericUnderscores
 input: "1e+23_"
 tokens:
-  - 'TkFloat 1.0e23 "1e+23"'
+  - 'TkFloat 1.0e23 TFractional'
   - TkKeywordUnderscore
   - 'TkEOF'
 status: pass

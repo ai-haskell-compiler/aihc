@@ -41,10 +41,9 @@ inferExpr expr = case expr of
   EVar name -> inferVar (getExprSourceSpan expr) (nameToText name)
   -- Integer literals: monomorphic Int for MVP.
   -- (Full version would use Num constraint.)
-  EInt _ _ -> pure (intTyCon, [])
-  EIntBase _ _ -> pure (intTyCon, [])
+  EInt {} -> pure (intTyCon, [])
   -- Float literals.
-  EFloat _ _ -> pure (doubleTyCon, [])
+  EFloat {} -> pure (doubleTyCon, [])
   -- Char literals.
   EChar _ _ -> pure (charTyCon, [])
   -- String literals.

@@ -668,11 +668,7 @@ addExprParensPrec prec expr =
     ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
-    EIntHash {} -> expr
-    EIntBase {} -> expr
-    EIntBaseHash {} -> expr
     EFloat {} -> expr
-    EFloatHash {} -> expr
     EChar {} -> expr
     ECharHash {} -> expr
     EString {} -> expr

@@ -8,5 +8,5 @@ input: |
     #-}
   module Demo where
   x = 1
-ast: Module {name = Just "Demo", languagePragmas = ["DataKinds", "DeriveGeneric", "DeriveDataTypeable", "OverloadedStrings"], warningText = Nothing, exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, pats = [], rhs = UnguardedRhs (EInt 1)}])]}
+ast: Module {name = Just "Demo", languagePragmas = ["DataKinds", "DeriveGeneric", "DeriveDataTypeable", "OverloadedStrings"], warningText = Nothing, exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, pats = [], rhs = UnguardedRhs (EInt 1 TInteger)}])]}
 status: pass

@@ -4,7 +4,7 @@ extensions:
   - NumericUnderscores
 input: "0.0001_"
 tokens:
-  - 'TkFloat 1.0e-4 "0.0001"'
+  - 'TkFloat 1.0e-4 TFractional'
   - TkKeywordUnderscore
   - 'TkEOF'
 status: pass

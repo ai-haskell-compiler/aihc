@@ -75,8 +75,8 @@ pattern PWildcard_ <- (peelPatternAnn -> PWildcard)
 pattern PLit_ :: Literal -> Pattern
 pattern PLit_ lit <- (peelPatternAnn -> PLit lit)
 
-pattern LitInt_ :: Integer -> Text -> Literal
-pattern LitInt_ value repr <- (peelLiteralAnn -> LitInt value repr)
+pattern LitInt_ :: Integer -> NumericType -> Text -> Literal
+pattern LitInt_ value nt repr = LitInt value nt repr
 
 pattern PTuple_ :: TupleFlavor -> [Pattern] -> Pattern
 pattern PTuple_ tupleFlavor elems <- (peelPatternAnn -> PTuple tupleFlavor elems)
@@ -120,8 +120,8 @@ pattern PSplice_ body <- (peelPatternAnn -> PSplice body)
 pattern EVar_ :: Name -> Expr
 pattern EVar_ name <- (peelExprAnn -> EVar name)
 
-pattern EInt_ :: Integer -> Text -> Expr
-pattern EInt_ value repr <- (peelExprAnn -> EInt value repr)
+pattern EInt_ :: Integer -> NumericType -> Text -> Expr
+pattern EInt_ value nt repr = EInt value nt repr
 
 pattern EOverloadedLabel_ :: Text -> Text -> Expr
 pattern EOverloadedLabel_ value repr <- (peelExprAnn -> EOverloadedLabel value repr)
@@ -799,7 +799,7 @@ test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
   case parseExpr defaultConfig {parserExtensions = [NegativeLiterals]} "-1" of
     ParseOk parsed
-      | EInt_ (-1) _ <- normalizeExpr parsed -> pure ()
+      | EInt_ (-1) _ _ <- normalizeExpr parsed -> pure ()
     ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
     ParseErr err -> assertFailure ("expected parse success, got parse error: " <> MPE.errorBundlePretty err)
 
@@ -1572,13 +1572,13 @@ test_doBindListPattern =
 test_doBindLitPattern :: Assertion
 test_doBindLitPattern =
   case parseDoStmts "do { 0 <- return 1; return 2 }" of
-    Right [DoBind_ (PLit_ (LitInt_ 0 _)) _, DoExpr_ _] -> pure ()
+    Right [DoBind_ (PLit_ (LitInt_ 0 _ _)) _, DoExpr_ _] -> pure ()
     other -> assertFailure ("expected literal bind, got: " <> show other)
 
 test_doBindNegLitPattern :: Assertion
 test_doBindNegLitPattern =
   case parseDoStmts "do { -1 <- return 0; return 2 }" of
-    Right [DoBind_ (PNegLit_ (LitInt_ 1 _)) _, DoExpr_ _] -> pure ()
+    Right [DoBind_ (PNegLit_ (LitInt_ 1 _ _)) _, DoExpr_ _] -> pure ()
     other -> assertFailure ("expected negated literal bind, got: " <> show other)
 
 test_doBindNestedConPattern :: Assertion
@@ -1620,7 +1620,7 @@ test_doBindAsPattern =
 test_doBindNestedPrefixPattern :: Assertion
 test_doBindNestedPrefixPattern =
   case parseDoStmtsExt [BangPatterns, ViewPatterns] "do { K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs; pure y }" of
-    Right [DoBind_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _))]) _, DoExpr_ _] -> pure ()
+    Right [DoBind_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _ _))]) _, DoExpr_ _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern bind, got: " <> show other)
 
 test_doExprStmt :: Assertion
@@ -1772,9 +1772,9 @@ test_prettyGuardLetFormatting = do
                                         ( expr0
                                             ( ELetDecls
                                                 [ DeclValue
-                                                    (FunctionBind "x" [Match {matchAnns = [], matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing}])
+                                                    (FunctionBind "x" [Match {matchAnns = [], matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs [] (expr0 (EInt 1 TInteger "1")) Nothing}])
                                                 ]
-                                                (expr0 (EInfix (expr0 (EVar "x")) (qualifyName Nothing ">") (expr0 (EInt 0 "0"))))
+                                                (expr0 (EInfix (expr0 (EVar "x")) (qualifyName Nothing ">") (expr0 (EInt 0 TInteger "0"))))
                                             )
                                         )
                                     )
@@ -1837,7 +1837,7 @@ test_prettyPrefixFunctionHeadRecordPattern = do
                   { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [pat0 (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "Point")) [] True)],
-                    matchRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+                    matchRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
                   }
               ]
           )
@@ -1908,7 +1908,7 @@ test_prettyViewLetTypeSigParens = do
 test_prettyGuardPatTypeSigParens :: Assertion
 test_prettyGuardPatTypeSigParens = do
   let tyCon = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted
-      guardExpr = expr0 (ETypeSig (expr0 (EInt 262 "262")) tyCon)
+      guardExpr = expr0 (ETypeSig (expr0 (EInt 262 TInteger "262")) tyCon)
       grhs =
         GuardedRhs
           { guardedRhsAnns = [],
@@ -2087,7 +2087,7 @@ test_guardAsBind =
 test_guardNestedPrefixBind :: Assertion
 test_guardNestedPrefixBind =
   case parseGuardsExt [BangPatterns, ViewPatterns] "f xs | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs = y" of
-    Right [GuardPat_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _))]) _] -> pure ()
+    Right [GuardPat_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _ _))]) _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern guard, got: " <> show other)
 
 test_guardInfixBind :: Assertion
@@ -2179,7 +2179,7 @@ test_compAsGen =
 test_compNestedPrefixGen :: Assertion
 test_compNestedPrefixGen =
   case parseCompStmtsExt [BangPatterns, ViewPatterns] "[y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]" of
-    Right [CompGen_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _))]) _] -> pure ()
+    Right [CompGen_ (PCon_ "K" [PStrict_ (PVar_ "y"), PIrrefutable_ (PCon_ "Just" [PVar_ "z"]), PAs_ "q" (PCon_ "Right" [PWildcard_]), PParen_ (PParen_ (PView_ _ (PVar_ "n"))), PParen_ (PNegLit_ (LitInt_ 1 _ _))]) _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern generator, got: " <> show other)
 
 test_compInfixGen :: Assertion

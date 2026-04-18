@@ -4,7 +4,7 @@ extensions:
   - NumericUnderscores
 input: "1e_23"
 tokens:
-  - "TkInteger 1"
+  - "TkInteger 1 TInteger"
   - 'TkVarId "e_23"'
   - "TkEOF"
 status: pass

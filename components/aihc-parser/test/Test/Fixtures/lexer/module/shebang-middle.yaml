@@ -7,11 +7,11 @@ tokens:
   - 'TkSpecialLBrace'
   - 'TkVarId "x"'
   - 'TkReservedEquals'
-  - 'TkInteger 1'
+  - 'TkInteger 1 TInteger'
   - 'TkSpecialSemicolon'
   - 'TkVarId "y"'
   - 'TkReservedEquals'
-  - 'TkInteger 2'
+  - 'TkInteger 2 TInteger'
   - 'TkSpecialRBrace'
   - 'TkEOF'
 status: pass

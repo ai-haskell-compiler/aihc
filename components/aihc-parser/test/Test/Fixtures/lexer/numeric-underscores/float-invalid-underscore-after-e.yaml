@@ -4,9 +4,9 @@ extensions:
   - NumericUnderscores
 input: "1e_+23"
 tokens:
-  - 'TkInteger 1'
+  - 'TkInteger 1 TInteger'
   - 'TkVarId "e_"'
   - 'TkVarSym "+"'
-  - 'TkInteger 23'
+  - 'TkInteger 23 TInteger'
   - 'TkEOF'
 status: pass

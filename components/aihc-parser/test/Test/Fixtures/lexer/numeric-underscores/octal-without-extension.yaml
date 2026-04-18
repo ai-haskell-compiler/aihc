@@ -2,7 +2,7 @@
 extensions: []
 input: "0o777_777"
 tokens:
-  - 'TkIntegerBase 511 "0o777"'
+  - 'TkInteger 511 TInteger'
   - 'TkVarId "_777"'
   - 'TkEOF'
 status: pass

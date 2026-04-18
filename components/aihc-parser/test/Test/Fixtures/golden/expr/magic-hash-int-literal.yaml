@@ -1,5 +1,5 @@
 extensions: [MagicHash]
 input: |
   42#
-ast: EIntHash 42 "42#"
+ast: EInt 42 TIntHash
 status: pass

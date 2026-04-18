@@ -82,12 +82,8 @@ checkPattern expr = case expr of
     patFields <- traverse (\(n, e) -> (nameFromText n,) <$> checkPattern e) fields
     Right (PRecord (nameFromText name) patFields wc)
   -- Literals
-  EInt n repr -> Right (PLit (LitInt n repr))
-  EIntHash n repr -> Right (PLit (LitIntHash n repr))
-  EIntBase n repr -> Right (PLit (LitIntBase n repr))
-  EIntBaseHash n repr -> Right (PLit (LitIntBaseHash n repr))
-  EFloat x repr -> Right (PLit (LitFloat x repr))
-  EFloatHash x repr -> Right (PLit (LitFloatHash x repr))
+  EInt n nt repr -> Right (PLit (LitInt n nt repr))
+  EFloat x ft repr -> Right (PLit (LitFloat x ft repr))
   EChar c repr -> Right (PLit (LitChar c repr))
   ECharHash c repr -> Right (PLit (LitCharHash c repr))
   EString s repr -> Right (PLit (LitString s repr))
@@ -138,12 +134,8 @@ checkTupleElement (Just e) = checkPattern e
 -- | Check that a negated expression is a literal (for PNegLit patterns).
 checkNegLitPattern :: Expr -> Either Text Pattern
 checkNegLitPattern inner = case inner of
-  EInt n repr -> Right (PNegLit (LitInt n repr))
-  EIntHash n repr -> Right (PNegLit (LitIntHash n repr))
-  EIntBase n repr -> Right (PNegLit (LitIntBase n repr))
-  EIntBaseHash n repr -> Right (PNegLit (LitIntBaseHash n repr))
-  EFloat x repr -> Right (PNegLit (LitFloat x repr))
-  EFloatHash x repr -> Right (PNegLit (LitFloatHash x repr))
+  EInt n nt repr -> Right (PNegLit (LitInt n nt repr))
+  EFloat x ft repr -> Right (PNegLit (LitFloat x ft repr))
   EAnn ann sub -> fmap (PAnn ann) (checkNegLitPattern sub)
   _ -> Left "negation in pattern requires a numeric literal"
 

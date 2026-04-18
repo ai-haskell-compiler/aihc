@@ -1,5 +1,5 @@
 extensions: [MagicHash]
 input: |
   0.0##
-ast: EFloatHash 0.0 "0.0##"
+ast: EFloat 0.0 TDoubleHash
 status: pass

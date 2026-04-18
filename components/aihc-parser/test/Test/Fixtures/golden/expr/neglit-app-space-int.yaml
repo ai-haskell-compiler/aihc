@@ -1,5 +1,5 @@
 extensions: [NegativeLiterals]
 input: |
   f -5
-ast: EApp (EVar "f") (EInt -5)
+ast: EApp (EVar "f") (EInt -5 TInteger)
 status: pass

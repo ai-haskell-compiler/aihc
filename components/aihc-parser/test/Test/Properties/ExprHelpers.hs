@@ -22,12 +22,8 @@ normalizeExpr :: Expr -> Expr
 normalizeExpr expr =
   case expr of
     EVar name -> EVar name
-    EInt value _ -> EInt value (T.pack (show value))
-    EIntHash value repr -> EIntHash value repr
-    EIntBase value repr -> EIntBase value repr
-    EIntBaseHash value repr -> EIntBaseHash value repr
-    EFloat value repr -> EFloat value repr
-    EFloatHash value repr -> EFloatHash value repr
+    EInt value _ _ -> EInt value TInteger (T.pack (show value))
+    EFloat value _ _ -> EFloat value TFractional (T.pack (show value))
     EChar value repr -> EChar value repr
     ECharHash value repr -> ECharHash value repr
     EString value repr -> EString value repr
@@ -147,12 +143,8 @@ normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case lit of
     LitAnn _ sub -> normalizeLiteral sub
-    LitInt value repr -> LitInt value repr
-    LitIntHash value repr -> LitIntHash value repr
-    LitIntBase value repr -> LitIntBase value repr
-    LitIntBaseHash value repr -> LitIntBaseHash value repr
-    LitFloat value repr -> LitFloat value repr
-    LitFloatHash value repr -> LitFloatHash value repr
+    LitInt value _ _ -> LitInt value TInteger (T.pack (show value))
+    LitFloat value _ _ -> LitFloat value TFractional (T.pack (show value))
     LitChar value repr -> LitChar value repr
     LitCharHash value repr -> LitCharHash value repr
     LitString value repr -> LitString value repr

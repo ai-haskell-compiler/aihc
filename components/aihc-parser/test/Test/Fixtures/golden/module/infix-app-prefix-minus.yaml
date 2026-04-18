@@ -2,5 +2,5 @@ extensions: []
 input: |
   module Demo where
   f = id $ - 1
-ast: Module {name = "Demo", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EInfix (EVar "id") "$" (ENegate (EInt 1)))}])]}
+ast: Module {name = "Demo", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EInfix (EVar "id") "$" (ENegate (EInt 1 TInteger)))}])]}
 status: pass

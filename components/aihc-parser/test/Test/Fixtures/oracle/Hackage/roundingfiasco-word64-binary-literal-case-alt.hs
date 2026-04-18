@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="binary extended literals with primitive suffixes fail in case alternatives" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE ExtendedLiterals #-}
 {-# LANGUAGE MagicHash #-}

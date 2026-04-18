@@ -2,6 +2,6 @@ extensions:
   - NegativeLiterals
 input: "-10"
 tokens:
-  - 'TkInteger (-10)'
+  - 'TkInteger (-10) TInteger'
   - 'TkEOF'
 status: pass

@@ -1,0 +1,5 @@
+extensions: [ExtendedLiterals, MagicHash]
+input: |
+  123#Word8
+ast: EInt 123 TWord8Hash
+status: pass

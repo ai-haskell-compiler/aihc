@@ -1,5 +1,5 @@
 extensions: []
 input: |
   a + - 1
-ast: EInfix (EVar "a") "+" (ENegate (EInt 1))
+ast: EInfix (EVar "a") "+" (ENegate (EInt 1 TInteger))
 status: pass

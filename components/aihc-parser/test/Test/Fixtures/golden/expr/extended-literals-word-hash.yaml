@@ -1,0 +1,5 @@
+extensions: [ExtendedLiterals, MagicHash]
+input: |
+  1##
+ast: EInt 1 TWordHash
+status: pass

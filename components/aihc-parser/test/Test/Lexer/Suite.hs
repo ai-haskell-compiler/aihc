@@ -146,7 +146,8 @@ validXFailFixture =
     [ "extensions: []",
       "input: \"-10\"",
       "tokens:",
-      "  - 'TkInteger 10'",
+      "  - 'TkVarSym \"-\"'",
+      "  - 'TkInteger 10 TInteger'",
       "status: xfail",
       "reason: known bug"
     ]
@@ -158,7 +159,7 @@ validXPassFixture =
       "input: \"-10\"",
       "tokens:",
       "  - 'TkVarSym \"-\"'",
-      "  - 'TkInteger 10'",
+      "  - 'TkInteger 10 TInteger'",
       "status: xpass",
       "reason: known bug"
     ]

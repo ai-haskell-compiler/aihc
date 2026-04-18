@@ -410,12 +410,8 @@ negateToken stBefore numTok =
   where
     negateKind k =
       case k of
-        TkInteger n -> TkInteger (negate n)
-        TkIntegerHash n repr -> TkIntegerHash (negate n) ("-" <> repr)
-        TkIntegerBase n repr -> TkIntegerBase (negate n) ("-" <> repr)
-        TkIntegerBaseHash n repr -> TkIntegerBaseHash (negate n) ("-" <> repr)
-        TkFloat n repr -> TkFloat (negate n) ("-" <> repr)
-        TkFloatHash n repr -> TkFloatHash (negate n) ("-" <> repr)
+        TkInteger n nt -> TkInteger (negate n) nt
+        TkFloat n ft -> TkFloat (negate n) ft
         other -> other
 
     extendSpanLeft sp =
