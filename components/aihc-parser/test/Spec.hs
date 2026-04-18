@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Main (main) where
 
@@ -45,7 +46,7 @@ import Test.Properties.Identifiers
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample, withMaxSuccess)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -1395,7 +1396,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  QC.withNumTests 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1412,7 +1413,7 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withNumTests 25 $
+  withMaxSuccess 25 $
     QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
       QC.counterexample "expected generator to include ⁂ in sampled operators" $
         "⁂" `elem` ops
