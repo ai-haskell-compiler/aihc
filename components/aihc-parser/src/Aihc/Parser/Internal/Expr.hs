@@ -29,7 +29,7 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, pragmaDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, lambdaCasePatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -644,7 +644,7 @@ caseAltParser = withSpan $ do
 
 lambdaCaseAltParser :: TokParser LambdaCaseAlt
 lambdaCaseAltParser = withSpan $ do
-  pats <- region "while parsing lambda-cases alternative" (MP.some lambdaCasePatternParser)
+  pats <- region "while parsing lambda-cases alternative" (MP.some simplePatternParser)
   rhs <- region "while parsing lambda-cases alternative" rhsParser
   pure $ \span' ->
     LambdaCaseAlt
