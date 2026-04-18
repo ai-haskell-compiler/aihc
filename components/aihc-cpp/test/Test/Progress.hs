@@ -9,9 +9,8 @@ module Test.Progress
   )
 where
 
-import Aihc.Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), defaultConfig, preprocess)
+import Aihc.Cpp (Config (..), Diagnostic (..), Result (..), Severity (..), defaultConfig)
 import qualified Control.Exception as E
-import qualified Data.ByteString as BS
 import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe)
@@ -21,8 +20,9 @@ import qualified Data.Text.IO as TIO
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), hClose, hFlush, openTempFile, stderr, withFile)
+import Test.Runner (runPreprocessFromFile)
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
@@ -56,8 +56,7 @@ progressSummary outcomes =
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   let sourcePath = fixtureRoot </> casePath meta
-  source <- BS.readFile sourcePath
-  ours <- runOurs sourcePath source
+  ours <- runOurs sourcePath
   oracle <- runOracle sourcePath
   let (outcome, details) = classify (caseExpected meta) ours oracle
   pure (meta, outcome, details)
@@ -165,30 +164,13 @@ parseLinePragma raw =
                             _ -> Nothing
                   _ -> Nothing
 
-runOurs :: FilePath -> BS.ByteString -> IO (Either String Text)
-runOurs sourcePath source = do
-  result <- drive (preprocess defaultConfig {configInputFile = sourcePath} source)
+runOurs :: FilePath -> IO (Either String Text)
+runOurs sourcePath = do
+  result <- runPreprocessFromFile defaultConfig {configInputFile = sourcePath} sourcePath
   let errors = [diagMessage d | d <- resultDiagnostics result, diagSeverity d == Error]
   case errors of
     [] -> pure (Right (resultOutput result))
     (msg : _) -> pure (Left (T.unpack msg))
-  where
-    drive (Done result) = pure result
-    drive (NeedInclude req k) = do
-      let includeAbsPath = resolveIncludePath sourcePath req
-      exists <- doesFileExist includeAbsPath
-      content <- if exists then Just <$> BS.readFile includeAbsPath else pure Nothing
-      drive (k content)
-
-resolveIncludePath :: FilePath -> IncludeRequest -> FilePath
-resolveIncludePath rootPath req =
-  includeBaseDir </> includePath req
-  where
-    includeFromDir = takeDirectory (includeFrom req)
-    includeBaseDir =
-      if null includeFromDir
-        then takeDirectory rootPath
-        else includeFromDir
 
 runOracle :: FilePath -> IO (Either String Text)
 runOracle sourcePath = do

@@ -1,0 +1,3 @@
+input: input.hs
+output: expected.out
+status: pass

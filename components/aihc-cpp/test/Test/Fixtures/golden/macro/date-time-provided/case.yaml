@@ -1,0 +1,7 @@
+input: input.hs
+output: expected.out
+status: pass
+config:
+  macros:
+    __DATE__: '"Mar 15 2026"'
+    __TIME__: '"12:00:00"'

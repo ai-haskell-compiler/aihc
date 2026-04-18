@@ -34,19 +34,23 @@ test-suite spec
   hs-source-dirs:   test
   main-is:          Spec.hs
   other-modules:
+      Test.Golden
       Test.Progress
+      Test.Runner
   build-depends:
-      base >=4.16 && <5
-    , aihc-cpp
-    , bytestring
-    , cpphs
-    , text
-    , containers
-    , directory
-    , filepath
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
+       base >=4.16 && <5
+     , aihc-cpp
+     , aeson
+     , bytestring
+     , cpphs
+     , text
+     , containers
+     , directory
+     , filepath
+      , tasty
+      , tasty-hunit
+      , tasty-quickcheck
+     , yaml
   ghc-options:        -Wall
   default-language: Haskell2010
 
@@ -57,9 +61,10 @@ executable cpp-progress
   main-is:          Main.hs
   other-modules:
       Test.Progress
+      Test.Runner
   build-depends:
-      base >=4.16 && <5
-    , aihc-cpp
+       base >=4.16 && <5
+     , aihc-cpp
     , bytestring
     , cpphs
     , text

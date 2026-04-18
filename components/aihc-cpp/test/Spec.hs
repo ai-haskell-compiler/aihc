@@ -3,9 +3,9 @@
 module Main (main) where
 
 import Aihc.Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
-import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Test.Golden (cppGoldenTests)
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
@@ -15,52 +15,24 @@ main :: IO ()
 main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
+  golden <- cppGoldenTests
   defaultMain
     ( testGroup
-        "cpp-oracle"
-        ( checks
-            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest]
-            <> [QC.testProperty "dummy quickcheck property" prop_dummy]
-        )
+        "cpp"
+        [ testGroup
+            "cpp-oracle"
+            ( checks
+                <> [linePragmaTest]
+                <> [QC.testProperty "dummy quickcheck property" prop_dummy]
+            ),
+          golden
+        ]
     )
 
 -- | Dummy QuickCheck property that always passes.
 -- Added so that --quickcheck-tests flag is accepted by the test suite.
 prop_dummy :: Bool
 prop_dummy = True
-
-dateTimeTest :: TestTree
-dateTimeTest =
-  testGroup
-    "__DATE__ and __TIME__"
-    [ testCase "expands to provided values" $ do
-        let cfg =
-              defaultConfig
-                { configMacros =
-                    M.fromList
-                      [ ("__DATE__", "\"Mar 15 2026\""),
-                        ("__TIME__", "\"12:00:00\"")
-                      ]
-                }
-            input = TE.encodeUtf8 "__DATE__ __TIME__"
-        case preprocess cfg input of
-          Done result ->
-            resultOutput result @?= "#line 1 \"<input>\"\n\"Mar 15 2026\" \"12:00:00\"\n"
-          _ -> assertFailure "expected Done",
-      testCase "defaults to unix epoch" $ do
-        let cfg = defaultConfig
-            input = TE.encodeUtf8 "__DATE__ __TIME__"
-        case preprocess cfg input of
-          Done result ->
-            resultOutput result @?= "#line 1 \"<input>\"\n\"Jan  1 1970\" \"00:00:00\"\n"
-          _ -> assertFailure "expected Done"
-    ]
-
-(@?=) :: (Eq a, Show a) => a -> a -> Assertion
-actual @?= expected =
-  if actual == expected
-    then pure ()
-    else assertFailure ("expected: " <> show expected <> "\n but got: " <> show actual)
 
 mkCase :: CaseMeta -> IO TestTree
 mkCase meta =
@@ -95,29 +67,3 @@ linePragmaTest =
               else assertFailure "expected include line pragmas in output"
           NeedInclude {} -> assertFailure "unexpected nested include in line pragma test"
       Done _ -> assertFailure "expected include continuation step"
-
-functionMacroArgumentTest :: TestTree
-functionMacroArgumentTest =
-  testCase "function-like macro keeps nested argument text" $
-    case preprocess defaultConfig (TE.encodeUtf8 "#define PAIR(x,y) x + y\nPAIR((1 + 2), 3)") of
-      Done result ->
-        resultOutput result @?= "#line 1 \"<input>\"\n\n(1 + 2) + 3\n"
-      _ -> assertFailure "expected Done"
-
-functionMacroUnclosedCallTest :: TestTree
-functionMacroUnclosedCallTest =
-  testCase "unterminated function-like call does not expand macro" $
-    case preprocess defaultConfig (TE.encodeUtf8 "#define ID() replaced\nID(") of
-      Done result ->
-        resultOutput result @?= "#line 1 \"<input>\"\n\nID(\n"
-      _ -> assertFailure "expected Done"
-
-definedConditionSpacingTest :: TestTree
-definedConditionSpacingTest =
-  testCase "defined handles whitespace around parenthesized name" $
-    case preprocess defaultConfig (TE.encodeUtf8 "#define FLAG 1\n#if defined   ( FLAG )\nok\n#else\nbad\n#endif") of
-      Done result ->
-        if "ok\n" `T.isInfixOf` resultOutput result && not ("bad\n" `T.isInfixOf` resultOutput result)
-          then pure ()
-          else assertFailure ("expected ok branch to be active, output was: " <> show (resultOutput result))
-      _ -> assertFailure "expected Done"

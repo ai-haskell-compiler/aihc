@@ -1,0 +1,4 @@
+input: input.hs
+output: expected.out
+status: xfail
+reason: stringification and token pasting are not implemented yet
