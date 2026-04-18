@@ -270,6 +270,13 @@ buildTests = do
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
+            testCase "TemplateHaskell value-name quotes parse list constructors" test_templateHaskellNameQuoteParsesListConstructor,
+            testCase "TemplateHaskell value-name quotes parse unboxed tuple constructors" test_templateHaskellNameQuoteParsesUnboxedTupleConstructor,
+            testCase "TemplateHaskell value-name quotes reject non-name expressions" test_templateHaskellNameQuoteRejectsNonNameExpr,
+            testCase "TemplateHaskell type-name quotes parse tuple constructors" test_templateHaskellTypeNameQuoteParsesTupleConstructor,
+            testCase "TemplateHaskell type-name quotes parse unboxed tuple constructors" test_templateHaskellTypeNameQuoteParsesUnboxedTupleConstructor,
+            testCase "TemplateHaskell type-name quotes roundtrip tuple constructors" test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor,
+            testCase "TemplateHaskell type-name quotes reject non-name types" test_templateHaskellTypeNameQuoteRejectsNonNameType,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
             testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
@@ -2286,6 +2293,58 @@ test_templateHaskellTypeQuoteParsesInfixSplices =
     "expected type quote with infix TH splices shorthand"
     "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
+
+test_templateHaskellTypeNameQuoteParsesTupleConstructor :: Assertion
+test_templateHaskellTypeNameQuoteParsesTupleConstructor =
+  assertEqual
+    "expected TH type-name quote for tuple constructor"
+    "ParseOk (ETHTypeNameQuote (TCon \"(,,)\"))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,,)")))
+
+test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor :: Assertion
+test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor =
+  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,)" of
+    ParseOk expr ->
+      assertEqual
+        "expected tuple TH type-name quote to pretty round-trip"
+        "''(,)"
+        (renderStrict (layoutPretty defaultLayoutOptions (pretty expr)))
+    other -> assertFailure ("expected tuple TH type-name quote to parse, got: " <> show other)
+
+test_templateHaskellNameQuoteParsesListConstructor :: Assertion
+test_templateHaskellNameQuoteParsesListConstructor =
+  assertEqual
+    "expected TH value-name quote for list constructor"
+    "ParseOk (ETHNameQuote (EList []))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "'[]")))
+
+test_templateHaskellNameQuoteParsesUnboxedTupleConstructor :: Assertion
+test_templateHaskellNameQuoteParsesUnboxedTupleConstructor =
+  assertEqual
+    "expected TH value-name quote for unboxed tuple constructor"
+    "ParseOk (ETHNameQuote (ETupleUnboxed []))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, UnboxedTuples]} "'(# #)")))
+
+test_templateHaskellNameQuoteRejectsNonNameExpr :: Assertion
+test_templateHaskellNameQuoteRejectsNonNameExpr =
+  assertEqual
+    "expected TH value-name quote to preserve quoted application"
+    "ParseOk (ETHNameQuote (EParen (EApp (EVar \"f\") (EVar \"x\"))))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "'(f x)")))
+
+test_templateHaskellTypeNameQuoteParsesUnboxedTupleConstructor :: Assertion
+test_templateHaskellTypeNameQuoteParsesUnboxedTupleConstructor =
+  assertEqual
+    "expected TH type-name quote for unboxed tuple constructor"
+    "ParseOk (ETHTypeNameQuote (TTupleUnboxed []))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, UnboxedTuples]} "''(# #)")))
+
+test_templateHaskellTypeNameQuoteRejectsNonNameType :: Assertion
+test_templateHaskellTypeNameQuoteRejectsNonNameType =
+  assertEqual
+    "expected TH type-name quote to preserve quoted type application"
+    "ParseOk (ETHTypeNameQuote (TParen (TApp (TCon \"Either\") (TCon \"Int\"))))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(Either Int)")))
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl

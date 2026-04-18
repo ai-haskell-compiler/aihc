@@ -684,8 +684,8 @@ addExprParensPrec prec expr =
     ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
     ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
     ETHPatQuote pat -> ETHPatQuote (addPatternParens pat)
-    ETHNameQuote {} -> expr
-    ETHTypeNameQuote {} -> expr
+    ETHNameQuote body -> ETHNameQuote (addExprParens body)
+    ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
     ETHSplice body -> ETHSplice (addSpliceBodyParens body)
     ETHTypedSplice body -> ETHTypedSplice (addSpliceBodyParens body)
     EIf cond yes no ->

@@ -1631,8 +1631,8 @@ data Expr
   | ETHDeclQuote [Decl] -- [d| decls |]
   | ETHTypeQuote Type -- [t| type |]
   | ETHPatQuote Pattern -- [p| pat |]
-  | ETHNameQuote Name -- 'name
-  | ETHTypeNameQuote Name -- ''Name
+  | ETHNameQuote Expr -- 'expr in the term namespace
+  | ETHTypeNameQuote Type -- ''type in the type namespace
   | -- Template Haskell splices
     ETHSplice Expr
   | -- \$expr or $(expr)

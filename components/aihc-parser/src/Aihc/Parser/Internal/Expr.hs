@@ -1091,35 +1091,12 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHNameQuote name)
+  ETHNameQuote <$> atomExprParser
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHTypeNameQuote name)
-
-parenOperatorNameParser :: TokParser Name
-parenOperatorNameParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
-      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
-      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
-      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
-      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure op
-
-bracketConstructorNameParser :: TokParser Name
-bracketConstructorNameParser = do
-  expectedTok TkSpecialLBracket
-  expectedTok TkSpecialRBracket
-  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+  ETHTypeNameQuote <$> typeAtomParser
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

@@ -1130,12 +1130,8 @@ prettyExpr expr =
     ETHDeclQuote decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
-    ETHNameQuote name
-      | thNameQuoteNeedsParens name -> "'" <> parens (pretty name)
-      | otherwise -> "'" <> pretty name
-    ETHTypeNameQuote name
-      | isOperatorName name -> "''" <> parens (pretty name)
-      | otherwise -> "''" <> pretty name
+    ETHNameQuote body -> "'" <> prettyExpr body
+    ETHTypeNameQuote ty -> "''" <> prettyType ty
     ETHSplice body -> "$" <> prettyExpr body
     ETHTypedSplice body -> "$$" <> prettyExpr body
     EIf cond yes no ->
@@ -1348,18 +1344,6 @@ quoted txt = pretty (show (T.unpack txt))
 
 prettyQuasiQuote :: Text -> Text -> Doc ann
 prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]"
-
-isOperatorName :: Name -> Bool
-isOperatorName name =
-  let ty = nameType name
-   in ty == NameVarSym || ty == NameConSym
-
--- | Whether a TH value name quote @'...@ must wrap its payload in parentheses.
---
--- Unqualified operators need @'(+), ...@. Qualified operators such as @P.+@
--- must be written @'(P.+), ...@ because @'P.+@ is not a single lexeme.
-thNameQuoteNeedsParens :: Name -> Bool
-thNameQuoteNeedsParens = isOperatorName
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
