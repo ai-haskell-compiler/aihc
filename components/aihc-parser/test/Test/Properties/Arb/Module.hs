@@ -16,7 +16,7 @@ import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Identifiers (genIdent, genVarSym, isValidGeneratedOperator, shrinkIdent)
+import Test.Properties.Arb.Identifiers (genIdent, genVarSym, isValidGeneratedVarSym, shrinkIdent)
 import Test.QuickCheck
 
 instance Arbitrary Module where
@@ -452,7 +452,7 @@ shrinkSymbolicName txt =
   filter (not . T.null) $
     shrinkList noShrink (T.unpack txt) >>= \chars ->
       let candidate = T.pack chars
-       in [candidate | isValidGeneratedOperator candidate]
+        in [candidate | isValidGeneratedVarSym candidate]
   where
     noShrink _ = []
 

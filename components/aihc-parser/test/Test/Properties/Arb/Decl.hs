@@ -22,7 +22,7 @@ import Test.Properties.Arb.Identifiers
     genFieldName,
     genIdent,
     genVarSym,
-    isValidGeneratedOperator,
+    isValidGeneratedVarSym,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -1461,7 +1461,7 @@ shrinkSymbolicName txt =
   filter (not . T.null) $
     shrinkList noShrink (T.unpack txt) >>= \chars ->
       let candidate = T.pack chars
-       in [candidate | isValidGeneratedOperator candidate]
+        in [candidate | isValidGeneratedVarSym candidate]
   where
     noShrink _ = []
 

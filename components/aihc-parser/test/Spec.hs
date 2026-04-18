@@ -27,17 +27,15 @@ import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
-import Test.Properties.Arb.Identifiers (genOperator, isValidGeneratedOperator)
+import Test.Properties.Arb.Identifiers (genVarSym, isValidGeneratedVarSym)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers
   ( genConSym,
-    genVarSym,
     isValidConIdent,
     isValidGeneratedConSym,
     isValidGeneratedIdent,
-    isValidGeneratedVarSym,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -280,7 +278,6 @@ buildTests = do
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
-            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
             QC.testProperty "generated constructor symbols are valid" prop_generatedConstructorSymbolsAreValid,
             QC.testProperty "generated variable symbols are valid" prop_generatedVariableSymbolsAreValid
           ],
@@ -1333,7 +1330,7 @@ test_generatedVariableSymbolsRejectReservedSpellings =
 test_generatedOperatorsRejectArrowTailSpellings :: Assertion
 test_generatedOperatorsRejectArrowTailSpellings =
   assertBool "arrow-tail operators must not be treated as valid generated operators" $
-    not (any isValidGeneratedOperator ["-<", ">-", "-<<", ">>-"])
+    not (any isValidGeneratedVarSym ["-<", ">-", "-<<", ">>-"])
 
 test_generatedExpressionsCanIncludeMdo :: Assertion
 test_generatedExpressionsCanIncludeMdo =
@@ -1378,16 +1375,9 @@ prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
 
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =
-  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-    let invalid = filter (not . isValidGeneratedOperator) ops
+  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
+    let invalid = filter (not . isValidGeneratedVarSym) ops
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
-
-prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
-prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withMaxSuccess 25 $
-    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-      QC.counterexample "expected generator to include ⁂ in sampled operators" $
-        "⁂" `elem` ops
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =

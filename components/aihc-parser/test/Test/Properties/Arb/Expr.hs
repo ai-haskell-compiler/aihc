@@ -20,7 +20,7 @@ import Test.Properties.Arb.Identifiers
     genFieldName,
     genIdent,
     genModuleQualifier,
-    genOperator,
+    genVarSym,
     genOptionalQualifier,
     genStringValue,
     genTenths,
@@ -162,7 +162,7 @@ genNameQuoteName =
         mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        op <- genOperator `suchThat` notDotLikeForQualifiedOp
+        op <- genVarSym `suchThat` notDotLikeForQualifiedOp
         pure (mkName (Just qual) NameVarSym op)
     ]
   where
@@ -189,13 +189,13 @@ genTypeNameQuote :: Gen Name
 genTypeNameQuote =
   oneof
     [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genVarSym
     ]
 
 genOperatorName :: Gen Name
 genOperatorName = do
   qual <- genOptionalQualifier
-  op <- mkUnqualifiedName NameVarSym <$> genOperator
+  op <- mkUnqualifiedName NameVarSym <$> genVarSym
   pure (qualifyName qual op)
 
 genVarName :: Gen Name
