@@ -126,13 +126,13 @@ docExportSpec spec =
           optionalField "warningText" docWarningText mWarning
             <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
-    ExportWithAll mWarning mNamespace name members ->
+    ExportWithAll mWarning mNamespace name wildcardIndex members ->
       "ExportWithAll" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "warningText" docWarningText mWarning
             <> optionalField "namespace" docIENamespace mNamespace
-            <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
+            <> [field "name" (docName name), field "wildcardIndex" (pretty wildcardIndex), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
 docImportDecl :: ImportDecl -> Doc ann
 docImportDecl decl =
@@ -179,12 +179,12 @@ docImportItem item =
         fields =
           optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docUnqualifiedName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
-    ImportItemAllWith mNamespace name members ->
+    ImportItemAllWith mNamespace name wildcardIndex members ->
       "ImportItemAllWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "namespace" docIENamespace mNamespace
-            <> [field "name" (docUnqualifiedName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
+            <> [field "name" (docUnqualifiedName name), field "wildcardIndex" (pretty wildcardIndex), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
 docIENamespace :: IEEntityNamespace -> Doc ann
 docIENamespace namespace =

@@ -826,7 +826,7 @@ allowedNames items =
       ImportItemAbs _ itemName -> [renderUnqualifiedName itemName]
       ImportItemAll _ itemName -> [renderUnqualifiedName itemName]
       ImportItemWith _ itemName _ -> [renderUnqualifiedName itemName]
-      ImportItemAllWith _ itemName _ -> [renderUnqualifiedName itemName]
+      ImportItemAllWith _ itemName _ _ -> [renderUnqualifiedName itemName]
       ImportAnn _ sub -> allowedNames [sub]
   ]
 

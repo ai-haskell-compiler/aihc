@@ -160,7 +160,7 @@ instance Arbitrary ExportSpec where
         ExportAbs <$> arbitrary <*> arbitrary <*> genExportTypeName,
         ExportAll <$> arbitrary <*> arbitrary <*> genExportTypeName,
         ExportWith <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers,
-        ExportWithAll <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers
+        genExportWithAll
       ]
 
   shrink spec =
@@ -183,11 +183,12 @@ instance Arbitrary ExportSpec where
           <> [ExportWith Nothing namespace name members | Just _ <- [mWarning]]
           <> [ExportWith mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
           <> [ExportWith mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ExportWithAll mWarning namespace name members ->
+      ExportWithAll mWarning namespace name wildcardIndex members ->
         [ExportWith mWarning namespace name members]
-          <> [ExportWithAll Nothing namespace name members | Just _ <- [mWarning]]
-          <> [ExportWithAll mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
-          <> [ExportWithAll mWarning namespace name shrunk | shrunk <- shrinkList shrink members]
+          <> [ExportWithAll Nothing namespace name wildcardIndex members | Just _ <- [mWarning]]
+          <> [ExportWithAll mWarning namespace shrunk wildcardIndex members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWithAll mWarning namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
+          <> [ExportWithAll mWarning namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEEntityNamespace where
   arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
@@ -222,7 +223,7 @@ instance Arbitrary ImportItem where
         ImportItemAbs <$> genTypeNamespace <*> genTypeName,
         ImportItemAll <$> genTypeNamespace <*> genTypeName,
         ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genExportMembers,
-        ImportItemAllWith <$> genBundledNamespace <*> genTypeName <*> genExportMembers
+        genImportItemAllWith
       ]
 
   shrink item =
@@ -239,10 +240,11 @@ instance Arbitrary ImportItem where
         [ImportItemAbs namespace name | not (null members)]
           <> [ImportItemWith namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ImportItemWith namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ImportItemAllWith namespace name members ->
+      ImportItemAllWith namespace name wildcardIndex members ->
         [ImportItemWith namespace name members]
-          <> [ImportItemAllWith namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ImportItemAllWith namespace name shrunk | shrunk <- shrinkList shrink members]
+          <> [ImportItemAllWith namespace shrunk wildcardIndex members | shrunk <- shrinkTypeName name]
+          <> [ImportItemAllWith namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
+          <> [ImportItemAllWith namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do
@@ -275,6 +277,27 @@ genMemberNameFor namespace =
   case namespace of
     Nothing -> genMemberName
     Just _ -> qualifyName Nothing <$> genTypeName
+
+genExportWithAll :: Gen ExportSpec
+genExportWithAll = do
+  mWarning <- arbitrary
+  namespace <- arbitrary
+  name <- genExportTypeName
+  members <- genExportMembers
+  wildcardIndex <- chooseInt (0, length members)
+  pure (ExportWithAll mWarning namespace name wildcardIndex members)
+
+genImportItemAllWith :: Gen ImportItem
+genImportItemAllWith = do
+  namespace <- genBundledNamespace
+  name <- genTypeName
+  members <- genExportMembers
+  wildcardIndex <- chooseInt (0, length members)
+  pure (ImportItemAllWith namespace name wildcardIndex members)
+
+shrinkWildcardIndex :: Int -> [a] -> [Int]
+shrinkWildcardIndex wildcardIndex members =
+  [shrunk | shrunk <- shrink wildcardIndex, shrunk >= 0, shrunk <= length members]
 
 shrinkMemberNameFor :: Maybe IEBundledNamespace -> Name -> [Name]
 shrinkMemberNameFor namespace name =
