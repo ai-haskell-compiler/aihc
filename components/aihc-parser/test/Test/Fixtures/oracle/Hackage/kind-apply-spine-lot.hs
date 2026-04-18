@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="type family injectivity annotation with equality constraint is not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeFamilies #-}

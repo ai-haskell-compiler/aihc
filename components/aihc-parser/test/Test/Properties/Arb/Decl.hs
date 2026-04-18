@@ -628,7 +628,7 @@ genAssociatedTypeFamilyDecl classParams = do
       { typeFamilyDeclHeadForm = TypeHeadPrefix,
         typeFamilyDeclHead = headType,
         typeFamilyDeclParams = params,
-        typeFamilyDeclKind = Nothing,
+        typeFamilyDeclResultSig = Nothing,
         typeFamilyDeclEquations = Nothing
       }
 
@@ -832,7 +832,7 @@ genDeclTypeFamilyDecl = do
         { typeFamilyDeclHeadForm = TypeHeadPrefix,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
-          typeFamilyDeclKind = Nothing,
+          typeFamilyDeclResultSig = Nothing,
           typeFamilyDeclEquations = Nothing
         }
 
@@ -856,7 +856,7 @@ genDeclTypeFamilyDeclInfix = do
         { typeFamilyDeclHeadForm = TypeHeadInfix,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = [lhs, rhs],
-          typeFamilyDeclKind = Nothing,
+          typeFamilyDeclResultSig = Nothing,
           typeFamilyDeclEquations = Nothing
         }
 

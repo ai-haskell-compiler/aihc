@@ -582,9 +582,15 @@ addTypeFamilyDeclParens :: TypeFamilyDecl -> TypeFamilyDecl
 addTypeFamilyDeclParens tf =
   tf
     { typeFamilyDeclHead = addTypeParens (typeFamilyDeclHead tf),
-      typeFamilyDeclKind = fmap addTypeParens (typeFamilyDeclKind tf),
+      typeFamilyDeclResultSig = fmap addTypeFamilyResultSigParens (typeFamilyDeclResultSig tf),
       typeFamilyDeclEquations = fmap (map addTypeFamilyEqParens) (typeFamilyDeclEquations tf)
     }
+
+addTypeFamilyResultSigParens :: TypeFamilyResultSig -> TypeFamilyResultSig
+addTypeFamilyResultSigParens sig =
+  case sig of
+    TypeFamilyKindSig kind -> TypeFamilyKindSig (addTypeParens kind)
+    TypeFamilyInjectiveSig result injectivity -> TypeFamilyInjectiveSig (addTyVarBinderParens result) injectivity
 
 addTypeFamilyEqParens :: TypeFamilyEq -> TypeFamilyEq
 addTypeFamilyEqParens eq =

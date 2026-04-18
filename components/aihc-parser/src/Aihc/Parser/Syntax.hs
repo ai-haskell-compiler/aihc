@@ -22,6 +22,8 @@ module Aihc.Parser.Syntax
     CmdCaseAlt (..),
     CompStmt (..),
     FunctionalDependency (..),
+    TypeFamilyResultSig (..),
+    TypeFamilyInjectivity (..),
     TypeHeadForm (..),
     DataConDecl (..),
     DataDecl (..),
@@ -1254,10 +1256,23 @@ data TypeFamilyDecl = TypeFamilyDecl
     -- For infix families like @type family l `And` r@, this is the full infix type.
     typeFamilyDeclHead :: Type,
     typeFamilyDeclParams :: [TyVarBinder],
-    -- | Optional result kind annotation (@:: Kind@)
-    typeFamilyDeclKind :: Maybe Type,
+    -- | Optional result signature, either an unnamed kind annotation (@:: Kind@)
+    -- or a named result variable with injectivity annotation (@= r | r -> a@).
+    typeFamilyDeclResultSig :: Maybe TypeFamilyResultSig,
     -- | @Nothing@ = open family; @Just eqs@ = closed family with equations
     typeFamilyDeclEquations :: Maybe [TypeFamilyEq]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data TypeFamilyResultSig
+  = TypeFamilyKindSig Type
+  | TypeFamilyInjectiveSig TyVarBinder TypeFamilyInjectivity
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data TypeFamilyInjectivity = TypeFamilyInjectivity
+  { typeFamilyInjectivityAnns :: [Annotation],
+    typeFamilyInjectivityResult :: Text,
+    typeFamilyInjectivityDetermined :: [Text]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
