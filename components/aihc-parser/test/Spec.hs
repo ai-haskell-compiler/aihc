@@ -248,6 +248,9 @@ buildTests = do
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
+            testCase "parses top-level kind signatures on type literals" test_typeParsesTopLevelKindSignatureOnTypeLiteral,
+            testCase "parses type synonym rhs with top-level kind signatures" test_typeSynonymRhsParsesTopLevelKindSignature,
+            testCase "pretty-prints type synonym rhs kind signatures without extra parens" test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens,
             testCase "parses empty list type constructor" test_typeParsesEmptyListConstructor,
             testCase "parses promoted empty list type constructor" test_typeParsesPromotedEmptyListConstructor,
             testCase "parses parenthesized empty list in instance heads" test_instanceParsesParenthesizedEmptyListType,
@@ -451,6 +454,34 @@ test_typeParsesKindSignatureApplicationHead =
           stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected kind-signature application head, got: " <> show other)
+
+test_typeParsesTopLevelKindSignatureOnTypeLiteral :: Assertion
+test_typeParsesTopLevelKindSignatureOnTypeLiteral =
+  case parseType defaultConfig {parserExtensions = [DataKinds, KindSignatures]} "\"UTF8\" :: NameStyle" of
+    ParseOk ty
+      | TKindSig (TTypeLit (TypeLitSymbol "UTF8" "\"UTF8\"")) (TCon "NameStyle" Unpromoted) <- stripTypeAnnotations ty ->
+          pure ()
+    other -> assertFailure ("expected top-level kind signature on type literal, got: " <> show other)
+
+test_typeSynonymRhsParsesTopLevelKindSignature :: Assertion
+test_typeSynonymRhsParsesTopLevelKindSignature =
+  case parseDecl
+    defaultConfig {parserExtensions = [DataKinds, KindSignatures]}
+    "type UTF8 = \"UTF8\" :: NameStyle" of
+    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "UTF8", typeSynBody = body})
+      | TKindSig (TTypeLit (TypeLitSymbol "UTF8" "\"UTF8\"")) (TCon "NameStyle" Unpromoted) <- stripTypeAnnotations body ->
+          pure ()
+    other -> assertFailure ("expected type synonym rhs kind signature, got: " <> show other)
+
+test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens :: Assertion
+test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens =
+  case parseDecl
+    defaultConfig {parserExtensions = [DataKinds, KindSignatures]}
+    "type UTF8 = \"UTF8\" :: NameStyle" of
+    ParseOk decl ->
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+       in assertEqual "pretty-printed declaration" "type UTF8 = \"UTF8\" :: NameStyle" source
+    other -> assertFailure ("expected parse success, got: " <> show other)
 
 test_typeParsesEmptyListConstructor :: Assertion
 test_typeParsesEmptyListConstructor =

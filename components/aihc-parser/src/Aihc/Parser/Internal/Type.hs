@@ -40,7 +40,16 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
 
 typeParser :: TokParser Type
-typeParser = label "type" $ forallTypeParser <|> contextOrFunTypeParser
+typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
+
+kindSigTypeParser :: TokParser Type
+kindSigTypeParser = do
+  ty <- contextOrFunTypeParser
+  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  pure $
+    case mKind of
+      Just kind -> TKindSig ty kind
+      Nothing -> ty
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
