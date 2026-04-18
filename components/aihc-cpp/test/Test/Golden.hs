@@ -25,8 +25,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
+import Paths_aihc_cpp (getDataFileName)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (takeBaseName, takeDirectory, takeExtension, (</>))
+import System.FilePath (makeRelative, takeBaseName, takeDirectory, takeExtension, (</>))
 import Test.Runner (runPreprocessFromFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
@@ -223,15 +224,16 @@ pct done totalN
 
 loadGoldenCases :: IO [GoldenCase]
 loadGoldenCases = do
-  exists <- doesDirectoryExist fixtureRoot
+  fixtureRootAbs <- getDataFileName fixtureRoot
+  exists <- doesDirectoryExist fixtureRootAbs
   if not exists
     then pure []
     else do
-      paths <- listCaseFiles fixtureRoot
-      mapM loadGoldenCase paths
+      paths <- listCaseFiles fixtureRootAbs
+      mapM (loadGoldenCase fixtureRootAbs) paths
 
-loadGoldenCase :: FilePath -> IO GoldenCase
-loadGoldenCase caseFile = do
+loadGoldenCase :: FilePath -> FilePath -> IO GoldenCase
+loadGoldenCase fixtureRootAbs caseFile = do
   raw <- Y.decodeFileEither caseFile
   value <-
     either
@@ -240,7 +242,7 @@ loadGoldenCase caseFile = do
       raw
   spec <- either fail pure (parseGoldenSpec caseFile value)
   let caseDirectory = takeDirectory caseFile
-      relDir = dropRootPrefix caseDirectory
+      relDir = makeRelative fixtureRootAbs caseDirectory
       actualInputPath = caseDirectory </> specInput spec
       displayInputPath = fromMaybe (specInput spec) (specInputFile spec)
       config =
@@ -393,10 +395,6 @@ listCaseFiles dir = do
                 else pure []
       )
       entries
-
-dropRootPrefix :: FilePath -> FilePath
-dropRootPrefix path =
-  maybe path T.unpack (T.stripPrefix (T.pack (fixtureRoot <> "/")) (T.pack path))
 
 categoryFromPath :: FilePath -> String
 categoryFromPath path =

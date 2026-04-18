@@ -8,6 +8,13 @@ author:             David Himmelstrup
 maintainer:         lemmih@gmail.com
 category:           Compilers
 synopsis:           Pure Haskell C preprocessor for aihc
+data-files:
+    test/Test/Fixtures/golden/**/*.hs
+  , test/Test/Fixtures/golden/**/*.out
+  , test/Test/Fixtures/golden/**/*.yaml
+  , test/Test/Fixtures/progress/*.hs
+  , test/Test/Fixtures/progress/*.tsv
+  , test/Test/Fixtures/progress/includes/*.inc
 
 library
   exposed-modules:
@@ -34,6 +41,7 @@ test-suite spec
   hs-source-dirs:   test
   main-is:          Spec.hs
   other-modules:
+      Paths_aihc_cpp
       Test.Golden
       Test.Progress
       Test.Runner
@@ -60,6 +68,7 @@ executable cpp-progress
     , test
   main-is:          Main.hs
   other-modules:
+      Paths_aihc_cpp
       Test.Progress
       Test.Runner
   build-depends:

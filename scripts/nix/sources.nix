@@ -26,6 +26,7 @@ in rec {
     ".cabal"
     ".yaml"
     ".yml"
+    ".out"
     ".tsv"
     ".inc"
   ];
@@ -110,6 +111,7 @@ in rec {
           ".cabal"
           ".yaml"
           ".yml"
+          ".out"
           ".tsv"
           ".json"
           ".inc"

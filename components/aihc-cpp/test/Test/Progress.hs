@@ -19,6 +19,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
+import Paths_aihc_cpp (getDataFileName)
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), hClose, hFlush, openTempFile, stderr, withFile)
@@ -55,7 +56,8 @@ progressSummary outcomes =
 
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
-  let sourcePath = fixtureRoot </> casePath meta
+  fixtureRootAbs <- getDataFileName fixtureRoot
+  let sourcePath = fixtureRootAbs </> casePath meta
   ours <- runOurs sourcePath
   oracle <- runOracle sourcePath
   let (outcome, details) = classify (caseExpected meta) ours oracle
@@ -234,7 +236,8 @@ stderrSuffix captured
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do
-  raw <- TIO.readFile manifestPath
+  manifestPathAbs <- getDataFileName manifestPath
+  raw <- TIO.readFile manifestPathAbs
   let rows = filter (not . T.null) (map stripComment (T.lines raw))
   mapM parseRow rows
 
@@ -253,7 +256,8 @@ parseRow row =
 parseRowWithReason :: Text -> Text -> Text -> Text -> Text -> IO CaseMeta
 parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
   let path = T.unpack pathTxt
-  exists <- doesFileExist (fixtureRoot </> path)
+  fixtureRootAbs <- getDataFileName fixtureRoot
+  exists <- doesFileExist (fixtureRootAbs </> path)
   if not exists
     then fail ("Manifest references missing case file: " <> path)
     else do
