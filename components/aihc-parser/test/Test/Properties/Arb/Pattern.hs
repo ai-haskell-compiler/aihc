@@ -28,6 +28,7 @@ import Test.Properties.Arb.Identifiers
     shrinkFloat,
     shrinkIdent,
   )
+import Test.Properties.Arb.Type (shrinkType)
 import Test.QuickCheck
 
 instance Arbitrary Pattern where
@@ -56,7 +57,7 @@ genPatternWith allowAll depth =
         PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         PTuple Unboxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x")], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         pure (PList []),
-        (`PCon` []) <$> genPatternConAstName,
+        (\name -> PCon name [] []) <$> genPatternConAstName,
         genUnboxedSumPatternWith allowAll 0
       ]
     recursiveGenerators =
@@ -81,7 +82,7 @@ genPatternConWith allowView depth = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
   args <- vectorOf argCount (canonicalPatternAtom <$> genPatternWith allowView (depth - 1))
-  pure (PCon con args)
+  pure (PCon con [] args)
 
 genPatternTypeSigWith :: Bool -> Int -> Gen Pattern
 genPatternTypeSigWith allowAll depth = do
@@ -225,7 +226,7 @@ isPatternAtom pat =
     PView {} -> True
     PAs {} -> True
     PUnboxedSum {} -> True
-    PCon _ [] -> True
+    PCon _ [] [] -> True
     _ -> False
 
 mkIntLiteral :: Integer -> Literal
@@ -249,6 +250,8 @@ shrinkPattern pat =
     PAnn _ sub -> shrinkPattern sub
     PVar name ->
       [PVar (name {unqualifiedNameText = shrunk}) | shrunk <- shrinkIdent (unqualifiedNameText name)]
+    PTypeBinder binder -> [PTypeBinder binder' | binder' <- shrinkTyVarBinder binder]
+    PTypeSyntax form ty -> [PTypeSyntax form ty' | ty' <- shrinkType ty]
     PWildcard -> []
     PLit lit ->
       [PLit shrunk | shrunk <- shrinkLiteral lit]
@@ -259,9 +262,9 @@ shrinkPattern pat =
       shrinkPatternTupleElems tupleFlavor elems
     PList elems ->
       [PList elems' | elems' <- shrinkList shrinkPattern elems]
-    PCon con args ->
-      [PCon con [] | not (null args)]
-        <> [PCon con args' | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
+    PCon con typeArgs args ->
+      [PCon con typeArgs [] | not (null args)]
+        <> [PCon con typeArgs args' | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
     PInfix lhs op rhs ->
       [canonicalPatternAtom lhs, canonicalPatternAtom rhs]
         <> [PInfix (canonicalPatternAtom lhs') op (canonicalPatternAtom rhs) | lhs' <- shrinkPattern lhs]
@@ -295,6 +298,10 @@ shrinkPattern pat =
         <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
     PSplice {} ->
       []
+
+shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
+shrinkTyVarBinder tvb =
+  [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
 
 shrinkPatternTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkPatternTupleElems tupleFlavor elems =

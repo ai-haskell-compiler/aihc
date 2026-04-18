@@ -41,7 +41,7 @@ import Aihc.Parser.Lex
     TokenOrigin (..),
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Decl, Expr, Module (..), Pattern, SourceSpan (..), Type)
+import Aihc.Parser.Syntax (Decl, Expr, Module (..), Pattern, SourceSpan (..), Type, applyImpliedExtensions)
 import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
@@ -97,7 +97,7 @@ defaultConfig =
 -- "error"
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
-  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+  let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (exprParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
@@ -111,7 +111,7 @@ parseExpr cfg input =
 -- ParseOk (PCon "Just" [PVar "x"])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
-  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+  let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (patternParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
@@ -125,7 +125,7 @@ parsePattern cfg input =
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
-  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+  let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (typeParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
@@ -136,7 +136,7 @@ parseType cfg input =
 -- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1))}]))
 parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
-  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+  let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (declParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right decl -> ParseOk decl
@@ -156,7 +156,7 @@ parseDecl cfg input =
 -- Nothing
 parseModule :: ParserConfig -> Text -> ([(SourceSpan, Text)], Module)
 parseModule cfg input =
-  let ts = mkTokStreamModule (parserSourceName cfg) (parserExtensions cfg) input
+  let ts = mkTokStreamModule (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
       parser = do
         modu <- moduleParser
         _ <- eofTok

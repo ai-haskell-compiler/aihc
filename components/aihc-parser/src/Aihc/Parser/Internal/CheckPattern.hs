@@ -34,9 +34,10 @@ checkPattern expr = case expr of
   -- Variables and constructors
   EVar name
     | nameText name == "_" -> Right PWildcard
-    | isConLikeName name -> Right (PCon name [])
+    | isConLikeName name -> Right (PCon name [] [])
     | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
     | otherwise -> Right (PVar (mkUnqualifiedName (nameType name) (nameText name)))
+  ETypeSyntax form ty -> Right (PTypeSyntax form ty)
   -- Parenthesized expression
   -- When the inner expression is a view-pattern arrow (@expr -> expr@),
   -- produce @PParen (PView f pat)@ to preserve the explicit parens in
@@ -74,7 +75,7 @@ checkPattern expr = case expr of
     fPat <- checkPattern f
     xPat <- checkPattern x
     case peelPatternAnn fPat of
-      PCon name args -> Right (PCon name (args ++ [xPat]))
+      PCon name typeArgs args -> Right (PCon name typeArgs (args ++ [xPat]))
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
   ERecordCon name fields wc -> do
@@ -110,7 +111,11 @@ checkPattern expr = case expr of
   ESectionL {} -> Left "unexpected left section in pattern"
   ESectionR {} -> Left "unexpected right section in pattern"
   ERecordUpd {} -> Left "unexpected record update in pattern"
-  ETypeApp {} -> Left "unexpected type application in pattern"
+  ETypeApp fun ty -> do
+    funPat <- checkPattern fun
+    case peelPatternAnn funPat of
+      PCon name typeArgs args -> Right (PCon name (typeArgs ++ [ty]) args)
+      _ -> Left "unexpected type application in pattern"
   ETHExpQuote {} -> Left "unexpected Template Haskell expression quote in pattern"
   ETHTypedQuote {} -> Left "unexpected Template Haskell typed quote in pattern"
   ETHDeclQuote {} -> Left "unexpected Template Haskell declaration quote in pattern"
