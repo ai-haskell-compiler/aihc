@@ -352,7 +352,7 @@ addDeclParens decl =
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
-      DeclTypeSyn (synDecl {typeSynBody = addTypeParens (typeSynBody synDecl)})
+      DeclTypeSyn (synDecl {typeSynBody = addTypeTopLevelParens (typeSynBody synDecl)})
     DeclData dataDecl -> DeclData (addDataDeclParens dataDecl)
     DeclTypeData dataDecl -> DeclTypeData (addDataDeclParens dataDecl)
     DeclNewtype newtypeDecl -> DeclNewtype (addNewtypeDeclParens newtypeDecl)
@@ -848,6 +848,11 @@ addExprGuardedParens = addExprParensIn CtxGuarded
 -- | Add parentheses to a type at all required positions.
 addTypeParens :: Type -> Type
 addTypeParens = addTypeParensShared CtxTypeAtom 0
+
+addTypeTopLevelParens :: Type -> Type
+addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
+addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addTypeParensShared CtxTypeAtom 0 ty) (addTypeParensShared CtxTypeAtom 0 kind)
+addTypeTopLevelParens ty = addTypeParens ty
 
 addTypeIn :: TypeCtx -> Type -> Type
 addTypeIn ctx ty =
