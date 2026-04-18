@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="import lists reject abstract type imports written as T()" -}
+{- ORACLE_TEST pass -}
 module ImportTypeEmptyConstructorsXFail where
 
 import Data.Text (Text(), unpack)
