@@ -2,7 +2,6 @@
 
 module Aihc.Parser.Internal.Type
   ( typeParser,
-    derivingClassTypeParser,
     forallTelescopeParser,
     typeInfixParser,
     typeInfixOperatorParser,
@@ -42,12 +41,6 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
 
 typeParser :: TokParser Type
 typeParser = typeParserWith (pure ())
-
--- | Parse a type in a deriving clause, stopping a type-application spine
--- before a trailing @via@ keyword so that @deriving C via T@ parses as the
--- class @C@ with a @via@ type, not as the type application @C via@.
-derivingClassTypeParser :: TokParser Type
-derivingClassTypeParser = typeParserWith (MP.notFollowedBy (varIdTok "via"))
 
 typeParserWith :: TokParser () -> TokParser Type
 typeParserWith continueTypeApp = label "type" $ forallTypeParserWith continueTypeApp <|> kindSigTypeParserWith continueTypeApp

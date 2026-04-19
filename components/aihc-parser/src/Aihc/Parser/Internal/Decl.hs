@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 
 module Aihc.Parser.Internal.Decl
   ( declParser,
@@ -13,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (derivingClassTypeParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
@@ -1363,23 +1362,22 @@ derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
-  (classes, parenthesized) <- parenClasses <|> singleClass
+  classType <- MP.notFollowedBy (varIdTok "via") *> typeAtomParser
   viaTy <- MP.optional derivingViaTypeParser
+  let (classes, parenthesized) = unpackDerivingClasses classType
   pure (DerivingClause strategy classes viaTy parenthesized)
-  where
-    singleClass = (\c -> ([c], False)) <$> derivingClassTypeParser
-    parenClasses = (,True) <$> derivingClassListParser
 
-derivingClassListParser :: TokParser [Type]
-derivingClassListParser = do
-  expectedTok TkSpecialLParen
-  mClosed <- MP.optional (expectedTok TkSpecialRParen)
-  case mClosed of
-    Just () -> pure []
-    Nothing -> do
-      classes <- derivingClassTypeParser `MP.sepEndBy` expectedTok TkSpecialComma
-      expectedTok TkSpecialRParen
-      pure classes
+unpackDerivingClasses :: Type -> ([Type], Bool)
+unpackDerivingClasses ty =
+  case peelTypeAnn ty of
+    TParen inner ->
+      case peelTypeAnn inner of
+        TTuple Boxed Unpromoted classes -> (classes, True)
+        TTuple Boxed Promoted classes -> (classes, True)
+        other -> ([other], True)
+    TTuple Boxed Unpromoted classes -> (classes, True)
+    TTuple Boxed Promoted classes -> (classes, True)
+    other -> ([other], False)
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
