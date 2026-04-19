@@ -195,21 +195,23 @@ quasiQuotePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
 
+tokenLiteralParser :: String -> (LexToken -> Maybe Literal) -> TokParser Literal
+tokenLiteralParser expected matchToken =
+  withSpanAnn (LitAnn . mkAnnotation) (tokenSatisfy expected matchToken)
+
 intLiteralParser :: TokParser Literal
-intLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, n, nt, repr) <- tokenSatisfy "integer literal" $ \tok ->
+intLiteralParser =
+  tokenLiteralParser "integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger i nt' -> Just (LitInt, i, nt', lexTokenText tok)
+      TkInteger i nt -> Just (LitInt i nt (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n nt repr)
 
 floatLiteralParser :: TokParser Literal
-floatLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, n, ft, repr) <- tokenSatisfy "floating literal" $ \tok ->
+floatLiteralParser =
+  tokenLiteralParser "floating literal" $ \tok ->
     case lexTokenKind tok of
-      TkFloat x ft' -> Just (LitFloat, x, ft', lexTokenText tok)
+      TkFloat x ft -> Just (LitFloat x ft (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n ft repr)
 
 charLiteralParser :: TokParser Literal
 charLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
