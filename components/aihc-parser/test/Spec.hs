@@ -7,7 +7,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
-import Aihc.Parser.Parens (addDeclParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -28,6 +28,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
+import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
@@ -44,7 +45,7 @@ import Test.Properties.Identifiers
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (Gen, Property, counterexample)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -261,6 +262,8 @@ buildTests = do
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "roundtrips abstract export items written as T()" test_emptyBundledExportRoundtrip,
+            testCase "roundtrips abstract import items written as T()" test_emptyBundledImportRoundtrip,
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "parses class operator type signatures in where blocks" test_classOperatorTypeSigParses,
@@ -285,9 +288,11 @@ buildTests = do
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
-            QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
+            localOption (QC.QuickCheckTests 2000) $
+              QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
-            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
+            localOption (QC.QuickCheckTests 25) $
+              QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism,
             QC.testProperty "generated constructor symbols are valid" prop_generatedConstructorSymbolsAreValid,
             QC.testProperty "generated variable symbols are valid" prop_generatedVariableSymbolsAreValid
           ],
@@ -358,6 +363,8 @@ buildTests = do
         testGroup
           "pretty"
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
+            testCase "lambda-cases parses multi-argument alternatives" test_lambdaCasesParsesMultiArgumentAlternatives,
+            testCase "lambda-cases pretty round-trips" test_prettyLambdaCasesRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
             testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
@@ -399,6 +406,8 @@ buildTests = do
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
+              QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
+              QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
@@ -637,6 +646,20 @@ test_warnedExportReexportRoundtrip =
    in case validateParser "WarnedExportReexport.hs" Haskell2010Edition [] source of
         Nothing -> pure ()
         Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
+
+test_emptyBundledExportRoundtrip :: Assertion
+test_emptyBundledExportRoundtrip =
+  let source = T.unlines ["module M (Text()) where", "data Text = Text"]
+   in case validateParser "EmptyBundledExport.hs" Haskell2010Edition [] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected empty bundled export to roundtrip, got: " <> show err)
+
+test_emptyBundledImportRoundtrip :: Assertion
+test_emptyBundledImportRoundtrip =
+  let source = T.unlines ["module M where", "import Data.Text (Text(), unpack)"]
+   in case validateParser "EmptyBundledImport.hs" Haskell2010Edition [] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected empty bundled import to roundtrip, got: " <> show err)
 
 test_symbolicBundledImportMemberRoundtrip :: Assertion
 test_symbolicBundledImportMemberRoundtrip =
@@ -1374,7 +1397,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  QC.withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1391,10 +1414,9 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withMaxSuccess 25 $
-    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-      QC.counterexample "expected generator to include ⁂ in sampled operators" $
-        "⁂" `elem` ops
+  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+    QC.counterexample "expected generator to include ⁂ in sampled operators" $
+      "⁂" `elem` ops
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =
@@ -1750,6 +1772,51 @@ test_prettyGuardLambdaRoundTrip = do
     ParseErr err ->
       assertFailure ("expected pretty-printed guard lambda to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
+test_lambdaCasesParsesMultiArgumentAlternatives :: Assertion
+test_lambdaCasesParsesMultiArgumentAlternatives = do
+  let source = "\\cases { True False -> 0; _ _ -> 1 }"
+      expected =
+        ELambdaCases
+          [ LambdaCaseAlt
+              { lambdaCaseAltAnns = [],
+                lambdaCaseAltPats = [pat0 (PCon "True" [] []), pat0 (PCon "False" [] [])],
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+              },
+            LambdaCaseAlt
+              { lambdaCaseAltAnns = [],
+                lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing
+              }
+          ]
+  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
+    ParseOk parsed -> normalizeExpr parsed @?= normalizeExpr (expr0 expected)
+    ParseErr err ->
+      assertFailure ("expected lambda-cases expression to parse, got:\n" <> MPE.errorBundlePretty err)
+
+test_prettyLambdaCasesRoundTrip :: Assertion
+test_prettyLambdaCasesRoundTrip = do
+  let expr =
+        expr0
+          ( ELambdaCases
+              [ LambdaCaseAlt
+                  { lambdaCaseAltAnns = [],
+                    lambdaCaseAltPats = [pat0 (PVar "x"), pat0 (PParen (pat0 (PCon "Just" [] [pat0 (PVar "y")])))],
+                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EVar "y")) Nothing
+                  },
+                LambdaCaseAlt
+                  { lambdaCaseAltAnns = [],
+                    lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
+                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+                  }
+              ]
+          )
+      parenthesized = normalizeExpr (addExprParens expr)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
+    ParseOk parsed -> normalizeExpr parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed lambda-cases to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 test_prettyGuardLetFormatting :: Assertion
 test_prettyGuardLetFormatting = do
   let decl =
@@ -2029,6 +2096,51 @@ prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
       case ty of
         TApp {} -> True
         _ -> False
+
+prop_generatedModulesCanIncludeEmptyBundledImports :: Property
+prop_generatedModulesCanIncludeEmptyBundledImports =
+  let samples = sampleGen 6000 (arbitrary :: Gen Module)
+      matching =
+        [ modu
+        | modu <- samples,
+          any hasEmptyBundledImport (moduleImports modu)
+        ]
+   in counterexample
+        ( "expected generated modules to include empty bundled imports; sampled "
+            <> show (length samples)
+            <> ", matches="
+            <> show (length matching)
+        )
+        (not (null matching))
+  where
+    hasEmptyBundledImport decl =
+      case importDeclSpec decl of
+        Just spec -> any isEmptyBundledImportItem (importSpecItems spec)
+        Nothing -> False
+    isEmptyBundledImportItem item =
+      case item of
+        ImportAnn _ sub -> isEmptyBundledImportItem sub
+        ImportItemWith _ _ [] -> True
+        _ -> False
+
+prop_generatedTypeNamesSupportEmptyBundledImports :: Property
+prop_generatedTypeNamesSupportEmptyBundledImports =
+  let samples = sampleGen 512 genTypeName
+      renderImport name = T.unlines ["module M where", "import A (" <> renderUnqualifiedName name <> "())"]
+      failures =
+        [ (name, err)
+        | name <- samples,
+          Just err <- [validateParser "GeneratedEmptyBundledImport.hs" Haskell2010Edition [] (renderImport name)]
+        ]
+   in counterexample
+        ( unlines
+            [ "expected generated type names to support empty bundled import syntax",
+              "sample count: " <> show (length samples),
+              "failure count: " <> show (length failures),
+              unlines [T.unpack (renderUnqualifiedName name) <> ": " <> show err | (name, err) <- take 10 failures]
+            ]
+        )
+        (null failures)
 
 test_guardPatBind :: Assertion
 test_guardPatBind =

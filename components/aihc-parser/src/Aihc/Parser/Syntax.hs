@@ -55,6 +55,7 @@ module Aihc.Parser.Syntax
     InstanceDeclItem (..),
     InstanceOverlapPragma (..),
     LanguageEdition (..),
+    LambdaCaseAlt (..),
     Literal (..),
     Match (..),
     MatchHeadForm (..),
@@ -1150,6 +1151,7 @@ data Type
   | TQuasiQuote Text Text
   | TForall ForallTelescope Type
   | TApp Type Type
+  | TInfix Type Name TypePromotion Type
   | TFun Type Type
   | TTuple TupleFlavor TypePromotion [Type]
   | TUnboxedSum [Type]
@@ -1624,6 +1626,7 @@ data Expr
   | EMultiWayIf [GuardedRhs]
   | ELambdaPats [Pattern] Expr
   | ELambdaCase [CaseAlt]
+  | ELambdaCases [LambdaCaseAlt]
   | EInfix Expr Name Expr
   | ENegate Expr
   | ESectionL Expr Name
@@ -1676,6 +1679,13 @@ data CaseAlt = CaseAlt
   { caseAltAnns :: [Annotation],
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data LambdaCaseAlt = LambdaCaseAlt
+  { lambdaCaseAltAnns :: [Annotation],
+    lambdaCaseAltPats :: [Pattern],
+    lambdaCaseAltRhs :: Rhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
 

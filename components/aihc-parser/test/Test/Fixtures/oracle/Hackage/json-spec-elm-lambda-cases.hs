@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="multi-argument \\cases alternatives are rejected after the first branch" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase #-}
 
 module M where

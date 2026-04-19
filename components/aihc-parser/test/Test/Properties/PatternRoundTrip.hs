@@ -21,7 +21,7 @@ import Text.Megaparsec.Error qualified as MPE
 patternConfig :: ParserConfig
 patternConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments, LambdaCase]
     }
 
 prop_patternPrettyRoundTrip :: Pattern -> Property
@@ -75,6 +75,7 @@ normalizeTypeSpan ty =
     TQuasiQuote quoter body -> TQuasiQuote quoter body
     TForall telescope inner -> TForall (normalizeForallTelescope telescope) (normalizeTypeSpan inner)
     TApp lhs rhs -> TApp (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
+    TInfix lhs op promoted rhs -> TInfix (normalizeTypeSpan lhs) op promoted (normalizeTypeSpan rhs)
     TFun lhs rhs -> TFun (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeTypeSpan elems)
     TList promoted elems -> TList promoted (map normalizeTypeSpan elems)
