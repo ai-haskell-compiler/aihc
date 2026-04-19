@@ -7,6 +7,7 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Parens (addModuleParens)
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -19,14 +20,16 @@ prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
       (errs, reparsed) = parseModule moduleConfig source
-   in counterexample (T.unpack source) $
-        case errs of
-          [] ->
-            let expected = normalizeModule (addModuleParens modu)
-                actual = normalizeModule reparsed
-             in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-          _ ->
-            counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
+      reparsedSource = renderStrict (layoutPretty defaultLayoutOptions (pretty reparsed))
+   in counterexample ("Original source:\n" <> T.unpack source) $
+        counterexample ("Reparsed source:\n" <> T.unpack reparsedSource) $
+          case errs of
+            [] ->
+              let expected = normalizeModule (addModuleParens modu)
+                  actual = normalizeModule reparsed
+               in counterexample ("Original AST:\n" <> show (shorthand expected) <> "\nActual AST:\n" <> show (shorthand actual)) (expected == actual)
+            _ ->
+              counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
 
 moduleConfig :: ParserConfig
 moduleConfig =

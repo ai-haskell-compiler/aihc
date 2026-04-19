@@ -277,8 +277,8 @@ buildTests = do
             testCase "TemplateHaskell value-name quotes parse unboxed tuple constructors" test_templateHaskellNameQuoteParsesUnboxedTupleConstructor,
             testCase "TemplateHaskell value-name quotes reject non-name expressions" test_templateHaskellNameQuoteRejectsNonNameExpr,
             testCase "TemplateHaskell type-name quotes parse tuple constructors" test_templateHaskellTypeNameQuoteParsesTupleConstructor,
+            testCase "TemplateHaskell type-name quotes ignore whitespace before names" test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName,
             testCase "TemplateHaskell type-name quotes parse unboxed tuple constructors" test_templateHaskellTypeNameQuoteParsesUnboxedTupleConstructor,
-            testCase "TemplateHaskell type-name quotes roundtrip tuple constructors" test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor,
             testCase "TemplateHaskell type-name quotes reject non-name types" test_templateHaskellTypeNameQuoteRejectsNonNameType,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
@@ -2417,15 +2417,12 @@ test_templateHaskellTypeNameQuoteParsesTupleConstructor =
     "ParseOk (ETHTypeNameQuote (TCon \"(,,)\"))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,,)")))
 
-test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor :: Assertion
-test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor =
-  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,)" of
-    ParseOk expr ->
-      assertEqual
-        "expected tuple TH type-name quote to pretty round-trip"
-        "''(,)"
-        (renderStrict (layoutPretty defaultLayoutOptions (pretty expr)))
-    other -> assertFailure ("expected tuple TH type-name quote to parse, got: " <> show other)
+test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName :: Assertion
+test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName =
+  assertEqual
+    "expected TH type-name quote to ignore whitespace before names"
+    "ParseOk (ETHTypeNameQuote (TVar \"name\"))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "'' name")))
 
 test_templateHaskellNameQuoteParsesListConstructor :: Assertion
 test_templateHaskellNameQuoteParsesListConstructor =

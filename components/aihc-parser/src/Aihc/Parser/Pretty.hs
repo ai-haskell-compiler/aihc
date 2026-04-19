@@ -166,7 +166,6 @@ prettyImportLevel level =
 prettyDeclSpliceExpr :: Expr -> Doc ann
 prettyDeclSpliceExpr body =
   case peelExprAnn body of
-    EParen inner | isOperatorExpr inner -> "$" <> parens (prettyOperatorExpr inner)
     EVar {} -> "$" <> prettyExpr body
     EParen {} -> "$" <> prettyExpr body
     _ -> prettyExpr body
@@ -1128,8 +1127,8 @@ prettyExpr expr =
     ETHDeclQuote decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
-    ETHNameQuote body -> "'" <> prettyExpr body
-    ETHTypeNameQuote ty -> "''" <> prettyType ty
+    ETHNameQuote body -> "' " <> prettyExpr body
+    ETHTypeNameQuote ty -> "'' " <> prettyType ty
     ETHSplice body -> "$" <> prettyExpr body
     ETHTypedSplice body -> "$$" <> prettyExpr body
     EIf cond yes no ->
@@ -1155,8 +1154,8 @@ prettyExpr expr =
       prettyExpr lhs <+> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
     ESectionL lhs op ->
-      parens (prettyExpr lhs <+> prettyNameInfixOp op)
-    ESectionR op rhs -> parens (prettyNameInfixOp op <+> prettyExpr rhs)
+      prettyExpr lhs <+> prettyNameInfixOp op
+    ESectionR op rhs -> prettyNameInfixOp op <+> prettyExpr rhs
     ELetDecls decls body ->
       "let"
         <+> spacedBraces (prettyInlineDecls decls)
@@ -1196,11 +1195,7 @@ prettyExpr expr =
     ERecordUpd base fields ->
       prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
-    EParen inner ->
-      case peelExprAnn inner of
-        ESectionL {} -> prettyExpr inner
-        ESectionR {} -> prettyExpr inner
-        _ -> parens (prettyExpr inner)
+    EParen inner -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
     ETuple tupleFlavor values ->
       prettyTupleBody
@@ -1223,18 +1218,6 @@ prettyExpr expr =
     EProc pat body ->
       "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
     EAnn _ sub -> prettyExpr sub
-
-isOperatorExpr :: Expr -> Bool
-isOperatorExpr expr =
-  case peelExprAnn expr of
-    EVar name -> isSymbolicName name
-    _ -> False
-
-prettyOperatorExpr :: Expr -> Doc ann
-prettyOperatorExpr expr =
-  case peelExprAnn expr of
-    EVar name -> pretty (renderName name)
-    other -> prettyExpr other
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
