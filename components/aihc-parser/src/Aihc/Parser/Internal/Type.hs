@@ -2,14 +2,18 @@
 
 module Aihc.Parser.Internal.Type
   ( typeParser,
+    typeParserUntil,
     forallTelescopeParser,
     typeInfixParser,
+    typeInfixParserUntil,
     typeInfixOperatorParser,
     typeHeadInfixParser,
     typeAppParser,
+    typeAppParserUntil,
     buildTypeApp,
     buildInfixType,
     typeAtomParser,
+    typeAtomParserUntil,
     contextItemsParser,
     thSpliceTypeParser,
   )
@@ -40,29 +44,32 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
 
 typeParser :: TokParser Type
-typeParser = typeParserWith (pure ())
+typeParser = typeParserWith MP.empty (pure ())
 
-typeParserWith :: TokParser () -> TokParser Type
-typeParserWith continueTypeApp = label "type" $ forallTypeParserWith continueTypeApp <|> kindSigTypeParserWith continueTypeApp
+typeParserUntil :: TokParser () -> TokParser Type
+typeParserUntil stop = typeParserWith stop (pure ())
 
-kindSigTypeParserWith :: TokParser () -> TokParser Type
-kindSigTypeParserWith continueTypeApp = do
-  ty <- contextOrFunTypeParserWith continueTypeApp
-  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith continueTypeApp)
+typeParserWith :: TokParser () -> TokParser () -> TokParser Type
+typeParserWith stop continueTypeApp = label "type" $ forallTypeParserWith stop continueTypeApp <|> kindSigTypeParserWith stop continueTypeApp
+
+kindSigTypeParserWith :: TokParser () -> TokParser () -> TokParser Type
+kindSigTypeParserWith stop continueTypeApp = do
+  ty <- contextOrFunTypeParserWith stop continueTypeApp
+  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith stop continueTypeApp)
   pure $
     case mKind of
       Just kind -> TKindSig ty kind
       Nothing -> ty
 
-contextOrFunTypeParserWith :: TokParser () -> TokParser Type
-contextOrFunTypeParserWith continueTypeApp = do
+contextOrFunTypeParserWith :: TokParser () -> TokParser () -> TokParser Type
+contextOrFunTypeParserWith stop continueTypeApp = do
   isContextType <- startsWithContextType
-  if isContextType then contextTypeParserWith continueTypeApp else typeFunParserWith continueTypeApp
+  if isContextType then contextTypeParserWith stop continueTypeApp else typeFunParserWith stop continueTypeApp
 
-forallTypeParserWith :: TokParser () -> TokParser Type
-forallTypeParserWith continueTypeApp = withSpanAnn (TAnn . mkAnnotation) $ do
+forallTypeParserWith :: TokParser () -> TokParser () -> TokParser Type
+forallTypeParserWith stop continueTypeApp = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeParserWith continueTypeApp
+  TForall telescope <$> typeParserWith stop continueTypeApp
 
 forallTelescopeParser :: TokParser ForallTelescope
 forallTelescopeParser = do
@@ -103,31 +110,34 @@ forallBinderNameParser =
   lowerIdentifierParser
     <|> (expectedTok TkKeywordUnderscore $> "_")
 
-contextTypeParserWith :: TokParser () -> TokParser Type
-contextTypeParserWith continueTypeApp = do
-  constraints <- contextItemsParserWith (typeParserWith continueTypeApp) typeAtomParser
+contextTypeParserWith :: TokParser () -> TokParser () -> TokParser Type
+contextTypeParserWith stop continueTypeApp = do
+  constraints <- contextItemsParserWith (typeParserWith stop continueTypeApp) (typeAtomParserWith stop)
   expectedTok TkReservedDoubleArrow
-  TContext constraints <$> typeParserWith continueTypeApp
+  TContext constraints <$> typeParserWith stop continueTypeApp
 
 contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
-typeFunParserWith :: TokParser () -> TokParser Type
-typeFunParserWith continueTypeApp = do
-  lhs <- typeInfixParserWith continueTypeApp
-  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParserWith continueTypeApp)
+typeFunParserWith :: TokParser () -> TokParser () -> TokParser Type
+typeFunParserWith stop continueTypeApp = do
+  lhs <- typeInfixParserWith stop continueTypeApp
+  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParserWith stop continueTypeApp)
   pure $
     case mRhs of
       Just rhs -> TFun lhs rhs
       Nothing -> lhs
 
 typeInfixParser :: TokParser Type
-typeInfixParser = typeInfixParserWith (pure ())
+typeInfixParser = typeInfixParserWith MP.empty (pure ())
 
-typeInfixParserWith :: TokParser () -> TokParser Type
-typeInfixParserWith continueTypeApp = do
-  lhs <- typeAppParserWith continueTypeApp
-  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParserWith continueTypeApp)
+typeInfixParserUntil :: TokParser () -> TokParser Type
+typeInfixParserUntil stop = typeInfixParserWith stop (pure ())
+
+typeInfixParserWith :: TokParser () -> TokParser () -> TokParser Type
+typeInfixParserWith stop continueTypeApp = do
+  lhs <- typeAppParserWith stop continueTypeApp
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParserWith stop continueTypeApp)
   pure (foldl buildInfixType lhs rest)
 
 -- | Parse a type head that may contain infix operators but NOT type applications.
@@ -199,19 +209,29 @@ typeInfixOperatorParser =
           _ -> Nothing
 
 typeAppParser :: TokParser Type
-typeAppParser = typeAppParserWith (pure ())
+typeAppParser = typeAppParserWith MP.empty (pure ())
 
-typeAppParserWith :: TokParser () -> TokParser Type
-typeAppParserWith continueTypeApp = do
-  first <- typeAtomParser
-  rest <- MP.many (continueTypeApp *> typeAtomParser)
+typeAppParserUntil :: TokParser () -> TokParser Type
+typeAppParserUntil stop = typeAppParserWith stop (pure ())
+
+typeAppParserWith :: TokParser () -> TokParser () -> TokParser Type
+typeAppParserWith stop continueTypeApp = do
+  first <- typeAtomParserWith stop
+  rest <- MP.many (MP.notFollowedBy stop *> continueTypeApp *> typeAtomParserWith stop)
   pure (foldl buildTypeApp first rest)
 
 buildTypeApp :: Type -> Type -> Type
 buildTypeApp = TApp
 
 typeAtomParser :: TokParser Type
-typeAtomParser = do
+typeAtomParser = typeAtomParserWith MP.empty
+
+typeAtomParserUntil :: TokParser () -> TokParser Type
+typeAtomParserUntil = typeAtomParserWith
+
+typeAtomParserWith :: TokParser () -> TokParser Type
+typeAtomParserWith stop = do
+  MP.notFollowedBy stop
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   ipEnabled <- isExtensionEnabled ImplicitParams
@@ -220,7 +240,7 @@ typeAtomParser = do
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser
     <|> (if thAny then thSpliceTypeParser else MP.empty)
-    <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
+    <|> (if ipEnabled then typeImplicitParamParserWith stop else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
@@ -228,12 +248,11 @@ typeAtomParser = do
     <|> typeWildcardParser
     <|> typeIdentifierParser
 
--- | Parse an implicit parameter type: @?name :: Type@
-typeImplicitParamParser :: TokParser Type
-typeImplicitParamParser = withSpanAnn (TAnn . mkAnnotation) $ do
+typeImplicitParamParserWith :: TokParser () -> TokParser Type
+typeImplicitParamParserWith stop = withSpanAnn (TAnn . mkAnnotation) $ do
   name <- implicitParamNameParser
   expectedTok TkReservedDoubleColon
-  TImplicitParam name <$> typeParser
+  TImplicitParam name <$> typeParserWith stop (pure ())
 
 typeWildcardParser :: TokParser Type
 typeWildcardParser = withSpanAnn (TAnn . mkAnnotation) $ do
@@ -349,7 +368,7 @@ typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do
   case mClosed of
     Just () -> pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
     Nothing -> do
-      elems <- typeParserWith (pure ()) `MP.sepBy1` expectedTok TkSpecialComma
+      elems <- typeParserWith MP.empty (pure ()) `MP.sepBy1` expectedTok TkSpecialComma
       expectedTok TkSpecialRBracket
       pure (TList Unpromoted elems)
 
@@ -376,8 +395,8 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
       pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
-      first <- typeParserWith (pure ())
-      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith (pure ())) else pure Nothing
+      first <- typeParserWith MP.empty (pure ())
+      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith MP.empty (pure ())) else pure Nothing
       case mKind of
         Just kind -> do
           expectedTok closeTok
@@ -391,7 +410,7 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
               case mPipe of
                 Just () -> do
                   -- (# Type1 | Type2 | ... #) - unboxed sum type
-                  rest <- typeParserWith (pure ()) `MP.sepBy1` expectedTok TkReservedPipe
+                  rest <- typeParserWith MP.empty (pure ()) `MP.sepBy1` expectedTok TkReservedPipe
                   expectedTok closeTok
                   pure (TUnboxedSum (first : rest))
                 Nothing -> do
@@ -400,8 +419,8 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
                     then pure (TParen first)
                     else fail "not an unboxed tuple type"
             Just () -> do
-              second <- typeParserWith (pure ())
-              more <- MP.many (expectedTok TkSpecialComma *> typeParserWith (pure ()))
+              second <- typeParserWith MP.empty (pure ())
+              more <- MP.many (expectedTok TkSpecialComma *> typeParserWith MP.empty (pure ()))
               expectedTok closeTok
               pure (TTuple tupleFlavor Unpromoted (first : second : more))
 

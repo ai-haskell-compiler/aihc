@@ -12,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeAtomParserUntil, typeInfixOperatorParser, typeInfixParser, typeParser, typeParserUntil)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
@@ -1362,14 +1362,20 @@ derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
-  classType <- MP.notFollowedBy (varIdTok "via") *> typeAtomParser
+  classType <- typeAtomParserUntil derivingViaKeywordParser
   viaTy <- MP.optional derivingViaTypeParser
   pure (DerivingClause strategy classType viaTy)
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
-  varIdTok "via"
-  typeParser
+  derivingViaKeywordParser
+  typeParserUntil (lookAheadDerivingClauseBoundary <|> eofTok)
+
+derivingViaKeywordParser :: TokParser ()
+derivingViaKeywordParser = varIdTok "via"
+
+lookAheadDerivingClauseBoundary :: TokParser ()
+lookAheadDerivingClauseBoundary = MP.lookAhead (expectedTok TkKeywordDeriving <|> expectedTok TkSpecialSemicolon <|> expectedTok TkSpecialRBrace)
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
