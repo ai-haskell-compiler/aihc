@@ -1,0 +1,8 @@
+extensions: []
+input: "$`$"
+tokens:
+  - 'TkVarSym "$"'
+  - 'TkSpecialBacktick'
+  - 'TkVarSym "$"'
+  - 'TkEOF'
+status: pass
