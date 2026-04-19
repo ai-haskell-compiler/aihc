@@ -1005,7 +1005,7 @@ isUnicodeSymbolCategory c =
   case generalCategory c of
     MathSymbol -> True
     CurrencySymbol -> True
-    ModifierSymbol -> True
+    ModifierSymbol -> not (isAscii c)
     OtherSymbol -> True
     OtherPunctuation -> not (isAscii c)
     _ -> False

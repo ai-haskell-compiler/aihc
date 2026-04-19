@@ -1,0 +1,5 @@
+extensions: []
+input: "--`"
+tokens:
+  - 'TkEOF'
+status: pass
