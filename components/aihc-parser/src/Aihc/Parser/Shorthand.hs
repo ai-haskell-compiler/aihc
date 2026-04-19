@@ -396,8 +396,9 @@ docDerivingClause dc =
   where
     fields =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
-        <> [field "classes" (docType (derivingClasses dc))]
+        <> listField "classes" docType (derivingClasses dc)
         <> optionalField "viaType" docType (derivingViaType dc)
+        <> boolField "parenthesized" (derivingParenthesized dc)
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
 docDerivingStrategy ds =

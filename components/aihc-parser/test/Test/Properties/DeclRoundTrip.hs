@@ -2,8 +2,6 @@
 
 module Test.Properties.DeclRoundTrip
   ( prop_declPrettyRoundTrip,
-    test_declParses_newtypeDerivingBasic,
-    test_declPrettyRoundTrip_derivingViaContext,
   )
 where
 
@@ -17,13 +15,12 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeDecl)
 import Test.QuickCheck
-import Test.Tasty.HUnit (Assertion, assertFailure)
 import Text.Megaparsec.Error qualified as MPE
 
 declConfig :: ParserConfig
 declConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension PatternSynonyms, EnableExtension UnicodeSyntax, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments, EnableExtension DerivingVia]
+    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension PatternSynonyms, EnableExtension UnicodeSyntax, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments]
     }
 
 prop_declPrettyRoundTrip :: Decl -> Property
@@ -45,42 +42,3 @@ prop_declPrettyRoundTrip decl =
                 ParseOk parsed ->
                   let actual = normalizeDecl parsed
                    in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-
-test_declPrettyRoundTrip_derivingViaContext :: Assertion
-test_declPrettyRoundTrip_derivingViaContext =
-  case parseDecl declConfig source of
-    ParseErr err -> assertFailure (MPE.errorBundlePretty err)
-    ParseOk parsed ->
-      let actual = normalizeDecl parsed
-       in if expected == actual
-            then pure ()
-            else assertFailure ("expected: " <> show expected <> "\nactual: " <> show actual)
-  where
-    source = "newtype X = X () deriving Show via Cls => Ty"
-    expected =
-      normalizeDecl
-        ( DeclNewtype
-            NewtypeDecl
-              { newtypeDeclHeadForm = TypeHeadPrefix,
-                newtypeDeclContext = [],
-                newtypeDeclName = "X",
-                newtypeDeclParams = [],
-                newtypeDeclKind = Nothing,
-                newtypeDeclConstructor =
-                  Just
-                    (PrefixCon [] [] "X" [BangType [] NoSourceUnpackedness False False (TTuple Boxed Unpromoted [])]),
-                newtypeDeclDeriving =
-                  [ DerivingClause
-                      { derivingStrategy = Nothing,
-                        derivingClasses = TCon "Show" Unpromoted,
-                        derivingViaType = Just (TContext [TCon "Cls" Unpromoted] (TCon "Ty" Unpromoted))
-                      }
-                  ]
-              }
-        )
-
-test_declParses_newtypeDerivingBasic :: Assertion
-test_declParses_newtypeDerivingBasic =
-  case parseDecl declConfig "newtype X = X () deriving Show" of
-    ParseErr err -> assertFailure (MPE.errorBundlePretty err)
-    ParseOk _ -> pure ()

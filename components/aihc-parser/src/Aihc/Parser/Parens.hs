@@ -472,8 +472,8 @@ addNewtypeDeclParens decl =
 addDerivingClauseParens :: DerivingClause -> DerivingClause
 addDerivingClauseParens dc =
   dc
-    { derivingClasses = addTypeIn CtxTypeAtom (derivingClasses dc),
-      derivingViaType = fmap (addTypeIn CtxTypeAtom) (derivingViaType dc)
+    { derivingClasses = map addTypeParens (derivingClasses dc),
+      derivingViaType = fmap addTypeParens (derivingViaType dc)
     }
 
 addDataConDeclParens :: DataConDecl -> DataConDecl
@@ -573,7 +573,7 @@ addInstanceItemParens item =
 addStandaloneDerivingParens :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 addStandaloneDerivingParens decl =
   decl
-    { standaloneDerivingViaType = fmap (addTypeIn CtxTypeAtom) (standaloneDerivingViaType decl),
+    { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
       standaloneDerivingTypes = map (addTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
     }

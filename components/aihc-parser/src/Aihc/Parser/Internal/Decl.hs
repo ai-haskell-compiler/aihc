@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections #-}
 
 module Aihc.Parser.Internal.Decl
   ( declParser,
@@ -12,7 +13,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeAtomParserUntil, typeInfixOperatorParser, typeInfixParser, typeParser, typeParserUntil)
+import Aihc.Parser.Internal.Type (derivingClassTypeParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
@@ -1362,20 +1363,28 @@ derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
-  classType <- typeAtomParserUntil derivingViaKeywordParser
+  (classes, parenthesized) <- parenClasses <|> singleClass
   viaTy <- MP.optional derivingViaTypeParser
-  pure (DerivingClause strategy classType viaTy)
+  pure (DerivingClause strategy classes viaTy parenthesized)
+  where
+    singleClass = (\c -> ([c], False)) <$> derivingClassTypeParser
+    parenClasses = (,True) <$> derivingClassListParser
+
+derivingClassListParser :: TokParser [Type]
+derivingClassListParser = do
+  expectedTok TkSpecialLParen
+  mClosed <- MP.optional (expectedTok TkSpecialRParen)
+  case mClosed of
+    Just () -> pure []
+    Nothing -> do
+      classes <- derivingClassTypeParser `MP.sepEndBy` expectedTok TkSpecialComma
+      expectedTok TkSpecialRParen
+      pure classes
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
-  derivingViaKeywordParser
-  typeParserUntil (lookAheadDerivingClauseBoundary <|> eofTok)
-
-derivingViaKeywordParser :: TokParser ()
-derivingViaKeywordParser = varIdTok "via"
-
-lookAheadDerivingClauseBoundary :: TokParser ()
-lookAheadDerivingClauseBoundary = MP.lookAhead (expectedTok TkKeywordDeriving <|> expectedTok TkSpecialSemicolon <|> expectedTok TkSpecialRBrace)
+  varIdTok "via"
+  typeParser
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =

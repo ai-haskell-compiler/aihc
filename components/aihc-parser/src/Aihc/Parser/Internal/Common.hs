@@ -777,7 +777,6 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBracket -> go [TkSpecialRBracket]
         TkSpecialLBrace -> go [TkSpecialRBrace]
         -- Keywords that cannot appear inside a type expression: stop scanning.
-        TkKeywordDeriving -> pure False
         TkKeywordInstance -> pure False
         TkKeywordWhere -> pure False
         TkKeywordClass -> pure False

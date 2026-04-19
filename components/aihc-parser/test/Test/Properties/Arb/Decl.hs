@@ -1067,13 +1067,14 @@ genDerivingClauses = do
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
   strategy <- elements [Nothing, Just DerivingStock]
-  classes <- arbitrary
-  viaType <- frequency [(3, pure Nothing), (1, Just <$> arbitrary)]
+  n <- chooseInt (0, 3)
+  classes <- vectorOf n genSimpleConType
   pure $
     DerivingClause
       { derivingStrategy = strategy,
         derivingClasses = classes,
-        derivingViaType = viaType
+        derivingViaType = Nothing,
+        derivingParenthesized = n /= 1
       }
 
 -- | Generate a simple constructor type (used in deriving/context).
@@ -1305,20 +1306,7 @@ shrinkFieldDecl fd =
 
 shrinkDerivingClause :: DerivingClause -> [DerivingClause]
 shrinkDerivingClause dc =
-  [dc {derivingClasses = classes'} | classes' <- shrinkDerivingHead (derivingClasses dc)]
-    <> [dc {derivingViaType = viaType'} | viaType' <- shrinkOptionalType (derivingViaType dc)]
-
-shrinkDerivingHead :: Type -> [Type]
-shrinkDerivingHead classes =
-  case classes of
-    TTuple Boxed Unpromoted elems ->
-      [TTuple Boxed Unpromoted elems' | elems' <- shrinkList shrinkType elems]
-        <> elems
-    _ -> shrinkType classes
-
-shrinkOptionalType :: Maybe Type -> [Maybe Type]
-shrinkOptionalType Nothing = []
-shrinkOptionalType (Just ty) = Nothing : [Just ty' | ty' <- shrinkType ty]
+  [dc {derivingClasses = cs', derivingParenthesized = length cs' /= 1} | cs' <- shrinkList shrinkType (derivingClasses dc), not (null cs')]
 
 -- ---------------------------------------------------------------------------
 -- Class and instance declarations

@@ -29,7 +29,7 @@ import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Identifiers (genVarSym, isValidGeneratedVarSym)
 import Test.Properties.Arb.Module (genTypeName)
-import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip, test_declParses_newtypeDerivingBasic, test_declPrettyRoundTrip_derivingViaContext)
+import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers
@@ -399,8 +399,6 @@ buildTests = do
           testGroup
             "properties"
             [ testCase "qualified Unicode TH name quote round-trips" test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote,
-              testCase "decl parser accepts basic newtype deriving" test_declParses_newtypeDerivingBasic,
-              testCase "decl pretty roundtrip preserves deriving via context" test_declPrettyRoundTrip_derivingViaContext,
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,

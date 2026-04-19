@@ -1407,8 +1407,9 @@ data FieldDecl = FieldDecl
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: Type,
-    derivingViaType :: Maybe Type
+    derivingClasses :: [Type],
+    derivingViaType :: Maybe Type,
+    derivingParenthesized :: Bool
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
