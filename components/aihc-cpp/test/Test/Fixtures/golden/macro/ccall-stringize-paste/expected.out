@@ -1,3 +1,0 @@
-#line 1 "input.hs"
-
-foreign import ccall unsafe "foo"     c_foo :: Int -> IO ()

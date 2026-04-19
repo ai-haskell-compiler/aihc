@@ -1376,7 +1376,7 @@ test_escapedBackslashConsPatternCharLiteralParses =
 
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc :: QC.Property
 prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
-  QC.withMaxSuccess 2000 $ QC.forAll genValidCharLiteral $ \raw ->
+  QC.withNumTests 2000 $ QC.forAll genValidCharLiteral $ \raw ->
     QC.counterexample ("literal: " <> T.unpack raw) $
       case ghcReadCharLiteral raw of
         Nothing -> QC.counterexample "generator produced an invalid literal" False
@@ -1393,7 +1393,7 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.withMaxSuccess 25 $
+  QC.withNumTests 25 $
     QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
       QC.counterexample "expected generator to include ⁂ in sampled operators" $
         "⁂" `elem` ops

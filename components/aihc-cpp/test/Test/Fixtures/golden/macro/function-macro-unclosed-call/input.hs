@@ -1,2 +1,0 @@
-#define ID() replaced
-ID(

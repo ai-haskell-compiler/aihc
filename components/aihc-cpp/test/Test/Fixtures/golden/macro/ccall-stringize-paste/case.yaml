@@ -1,4 +1,4 @@
-input: input.hs
-output: expected.out
+input: "#define CCALL(name,signature) \\\nforeign import ccall unsafe #name \\\n    c_##name :: signature\n\nCCALL(foo, Int -> IO ())"
+output: "#line 1 \"input.hs\"\n\nforeign import ccall unsafe \"foo\"     c_foo :: Int -> IO ()"
 status: xfail
 reason: stringification and token pasting are not implemented yet

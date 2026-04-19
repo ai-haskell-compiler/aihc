@@ -1,5 +1,5 @@
-input: input.hs
-output: expected.out
+input: "__DATE__ __TIME__"
+output: "#line 1 \"input.hs\"\n\"Mar 15 2026\" \"12:00:00\""
 status: pass
 config:
   macros:

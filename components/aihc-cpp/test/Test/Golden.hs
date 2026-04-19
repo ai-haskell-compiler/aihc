@@ -20,7 +20,7 @@ import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -28,7 +28,7 @@ import qualified Data.Yaml as Y
 import Paths_aihc_cpp (getDataFileName)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (makeRelative, takeBaseName, takeDirectory, takeExtension, (</>))
-import Test.Runner (runPreprocessFromFile)
+import Test.Runner (runPreprocessFromFile, runPreprocessFromText)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -56,9 +56,9 @@ data DiagnosticExpectation = DiagnosticExpectation
 data GoldenCase = GoldenCase
   { caseId :: !String,
     caseCategory :: !String,
-    caseActualInputPath :: !FilePath,
+    caseActualInput :: !(Either FilePath Text),
     caseConfig :: !Config,
-    caseExpectedOutput :: !(Maybe Text),
+    caseExpectedOutput :: !(Either FilePath Text),
     caseExpectedDiagnostics :: ![DiagnosticExpectation],
     caseExpectError :: !Bool,
     caseStatus :: !ExpectedStatus,
@@ -66,9 +66,9 @@ data GoldenCase = GoldenCase
   }
 
 data GoldenSpec = GoldenSpec
-  { specInput :: !FilePath,
+  { specInput :: !(Either FilePath Text),
     specInputFile :: !(Maybe FilePath),
-    specOutput :: !(Maybe FilePath),
+    specOutput :: !(Either FilePath Text),
     specDiagnostics :: !(Maybe FilePath),
     specExpectError :: !Bool,
     specStatus :: !ExpectedStatus,
@@ -121,7 +121,10 @@ mkGoldenTest gcase =
 
 evaluateCase :: GoldenCase -> IO (GoldenCase, Outcome, String)
 evaluateCase gcase = do
-  result <- runPreprocessFromFile (caseConfig gcase) (caseActualInputPath gcase)
+  result <-
+    case caseActualInput gcase of
+      Left path -> runPreprocessFromFile (caseConfig gcase) path
+      Right text -> runPreprocessFromText (caseConfig gcase) text
   let (outcome, details) = classify gcase result
   pure (gcase, outcome, details)
 
@@ -148,9 +151,9 @@ compareResult gcase result =
   where
     outputMismatch =
       case caseExpectedOutput gcase of
-        Nothing -> []
-        Just expectedOutput
-          | resultOutput result == expectedOutput -> []
+        Left _path -> []
+        Right expectedOutput
+          | T.stripEnd (resultOutput result) == T.stripEnd expectedOutput -> []
           | otherwise ->
               [ "output mismatch\nexpected: "
                   <> show (T.unpack expectedOutput)
@@ -243,23 +246,35 @@ loadGoldenCase fixtureRootAbs caseFile = do
   spec <- either fail pure (parseGoldenSpec caseFile value)
   let caseDirectory = takeDirectory caseFile
       relDir = makeRelative fixtureRootAbs caseDirectory
-      actualInputPath = caseDirectory </> specInput spec
-      displayInputPath = fromMaybe (specInput spec) (specInputFile spec)
+      actualInput = specInput spec
+      displayInputPath = fromMaybe "input.hs" (specInputFile spec)
       config =
         defaultConfig
           { configInputFile = displayInputPath,
             configMacros = M.union (specMacros spec) (configMacros defaultConfig)
           }
-  inputExists <- doesFileExist actualInputPath
-  unless inputExists (fail ("Golden fixture input is missing: " <> actualInputPath))
-  expectedOutput <- mapM (readTextFile caseDirectory) (specOutput spec)
+  either
+    ( \path -> do
+        exists <- doesFileExist (caseDirectory </> path)
+        unless exists (fail ("Golden fixture input is missing: " <> path))
+    )
+    (\_ -> pure ())
+    actualInput
+  expectedOutput <-
+    case specOutput spec of
+      Left path -> do
+        exists <- doesFileExist (caseDirectory </> path)
+        unless exists (fail ("Golden fixture output is missing: " <> path))
+        content <- TIO.readFile (caseDirectory </> path)
+        pure (Right content)
+      Right inlineContent -> pure (Right inlineContent)
   expectedDiagnostics <- maybe (pure []) (loadExpectedDiagnostics caseDirectory) (specDiagnostics spec)
   validateGoldenCase caseFile spec expectedOutput expectedDiagnostics
   pure
     GoldenCase
       { caseId = relDir,
         caseCategory = categoryFromPath relDir,
-        caseActualInputPath = actualInputPath,
+        caseActualInput = actualInput,
         caseConfig = config,
         caseExpectedOutput = expectedOutput,
         caseExpectedDiagnostics = expectedDiagnostics,
@@ -270,32 +285,37 @@ loadGoldenCase fixtureRootAbs caseFile = do
 
 parseGoldenSpec :: FilePath -> Y.Value -> Either String GoldenSpec
 parseGoldenSpec path value = do
-  (inputPath, maybeInputFilePath, outputPath, diagnosticsPath, expectError, statusText, reasonText, macros) <-
+  (inputText, maybeInputFilePath, outputText, diagnosticsPath, expectError, statusText, reasonText, macros) <-
     parseEither
       ( withObject "cpp golden fixture" $ \obj -> do
-          inputPath <- obj .: "input"
-          outputPath <- obj .:? "output"
+          inputText <- obj .: "input"
+          outputText <- obj .:? "output"
           diagnosticsPath <- obj .:? "diagnostics"
           expectError <- obj .:? "expect-error" .!= False
           statusText <- obj .: "status"
           reasonText <- obj .:? "reason" .!= ""
           configValues <- obj .:? "config" .!= Y.Object mempty
           (maybeInputFilePath, macros) <- parseConfigValues configValues
-          pure (inputPath, maybeInputFilePath, outputPath, diagnosticsPath, expectError, statusText, reasonText, macros)
+          pure (inputText, maybeInputFilePath, outputText, diagnosticsPath, expectError, statusText, reasonText, macros)
       )
       value
   status <- parseStatus path statusText
+  let inputSpec = parseInlineOrFileText inputText
+      outputSpec = maybe (Right "") parseInlineOrFileText outputText
   pure
     GoldenSpec
-      { specInput = inputPath,
+      { specInput = inputSpec,
         specInputFile = maybeInputFilePath,
-        specOutput = outputPath,
+        specOutput = outputSpec,
         specDiagnostics = diagnosticsPath,
         specExpectError = expectError,
         specStatus = status,
         specReason = trim (T.unpack reasonText),
         specMacros = macros
       }
+
+parseInlineOrFileText :: Text -> Either FilePath Text
+parseInlineOrFileText = Right
 
 parseConfigValues :: Y.Value -> Y.Parser (Maybe FilePath, M.Map Text Text)
 parseConfigValues = withObject "cpp golden config" parser
@@ -313,14 +333,6 @@ parseStatus path raw =
     "xfail" -> Right StatusXFail
     "xpass" -> Left ("xpass is not allowed in " <> path <> ": use xfail instead")
     _ -> Left ("Invalid status in " <> path <> ": " <> T.unpack raw)
-
-readTextFile :: FilePath -> FilePath -> IO Text
-readTextFile root relPath = do
-  let fullPath = root </> relPath
-  exists <- doesFileExist fullPath
-  if not exists
-    then fail ("Missing golden file: " <> fullPath)
-    else TIO.readFile fullPath
 
 loadExpectedDiagnostics :: FilePath -> FilePath -> IO [DiagnosticExpectation]
 loadExpectedDiagnostics root relPath = do
@@ -358,9 +370,12 @@ parseDiagnostics path value =
             expectedLine = lineNo
           }
 
-validateGoldenCase :: FilePath -> GoldenSpec -> Maybe Text -> [DiagnosticExpectation] -> IO ()
+validateGoldenCase :: FilePath -> GoldenSpec -> Either FilePath Text -> [DiagnosticExpectation] -> IO ()
 validateGoldenCase path spec expectedOutput expectedDiagnostics = do
-  let hasOutput = isJust expectedOutput
+  let hasOutput =
+        case expectedOutput of
+          Left _ -> True
+          Right txt -> not (T.null (T.strip txt))
       hasDiagnostics = not (null expectedDiagnostics)
       expectsError = any ((== Error) . expectedSeverity) expectedDiagnostics
   case specStatus spec of
@@ -412,15 +427,15 @@ fixtureValidationTests =
     [ testCase "rejects xfail without reason" $
         case parseGoldenSpec "case.yaml" invalidXFailMissingReason of
           Left err -> assertFailure ("expected parse success, got: " <> err)
-          Right spec -> expectValidationFailure "missing xfail reason" (validateGoldenCase "case.yaml" spec (Just "ok") []),
+          Right spec -> expectValidationFailure "missing xfail reason" (validateGoldenCase "case.yaml" spec (Right "ok") []),
       testCase "rejects pass without output" $
         case parseGoldenSpec "case.yaml" invalidPassMissingOutput of
           Left err -> assertFailure ("expected parse success, got: " <> err)
-          Right spec -> expectValidationFailure "missing pass output" (validateGoldenCase "case.yaml" spec Nothing []),
+          Right spec -> expectValidationFailure "missing pass output" (validateGoldenCase "case.yaml" spec (Right "") []),
       testCase "rejects fail without error expectation" $
         case parseGoldenSpec "case.yaml" invalidFailMissingError of
           Left err -> assertFailure ("expected parse success, got: " <> err)
-          Right spec -> expectValidationFailure "missing fail error expectation" (validateGoldenCase "case.yaml" spec Nothing []),
+          Right spec -> expectValidationFailure "missing fail error expectation" (validateGoldenCase "case.yaml" spec (Right "") []),
       testCase "accepts explicit input-file override" $
         case parseGoldenSpec "case.yaml" validInputFileOverride of
           Left err -> assertFailure ("expected parse success, got: " <> err)
@@ -434,7 +449,14 @@ fixtureValidationTests =
           Right spec ->
             if M.lookup "__DATE__" (specMacros spec) == Just "\"Mar 15 2026\""
               then pure ()
-              else assertFailure "expected config.macros to be preserved"
+              else assertFailure "expected config.macros to be preserved",
+      testCase "preserves inline input whitespace" $
+        case parseGoldenSpec "case.yaml" validInlineWhitespace of
+          Left err -> assertFailure ("expected parse success, got: " <> err)
+          Right spec ->
+            if specInput spec == Right "  foo\n"
+              then pure ()
+              else assertFailure "expected inline input text to be preserved exactly"
     ]
 
 expectValidationFailure :: String -> IO () -> Assertion
@@ -447,22 +469,23 @@ expectValidationFailure label action = do
 invalidXFailMissingReason :: Y.Value
 invalidXFailMissingReason =
   Y.object
-    [ ("input", Y.String "input.hs"),
-      ("output", Y.String "expected.out"),
+    [ ("input", Y.String "#define FOO 1"),
+      ("output", Y.String ""),
       ("status", Y.String "xfail")
     ]
 
 invalidPassMissingOutput :: Y.Value
 invalidPassMissingOutput =
   Y.object
-    [ ("input", Y.String "input.hs"),
+    [ ("input", Y.String "#define FOO 1"),
+      ("output", Y.String ""),
       ("status", Y.String "pass")
     ]
 
 invalidFailMissingError :: Y.Value
 invalidFailMissingError =
   Y.object
-    [ ("input", Y.String "input.hs"),
+    [ ("input", Y.String "#define FOO 1"),
       ("status", Y.String "fail")
     ]
 
@@ -470,8 +493,8 @@ validInputFileOverride :: Y.Value
 validInputFileOverride =
   Y.Object
     ( KeyMap.fromList
-        [ ("input", Y.String "input.hs"),
-          ("output", Y.String "expected.out"),
+        [ ("input", Y.String "#define FOO 1"),
+          ("output", Y.String ""),
           ("status", Y.String "pass"),
           ( "config",
             Y.Object
@@ -486,3 +509,11 @@ validInputFileOverride =
           )
         ]
     )
+
+validInlineWhitespace :: Y.Value
+validInlineWhitespace =
+  Y.object
+    [ ("input", Y.String "  foo\n"),
+      ("output", Y.String "bar"),
+      ("status", Y.String "pass")
+    ]
