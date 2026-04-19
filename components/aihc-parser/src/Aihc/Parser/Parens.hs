@@ -791,7 +791,7 @@ addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
     -- Bare variable: $name is valid splice syntax without parens.
-    EVar {} -> body
+    EVar name -> wrapExpr (isSymbolicName name) body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).

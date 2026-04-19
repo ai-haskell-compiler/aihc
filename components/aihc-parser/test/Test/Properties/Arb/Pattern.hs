@@ -14,6 +14,7 @@ import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConId,
+    genConName,
     genConSym,
     genFieldName,
     genOptionalQualifier,
@@ -22,6 +23,7 @@ import Test.Properties.Arb.Identifiers
     genStringValue,
     genTenths,
     genVarId,
+    genVarName,
     isValidQuoterName,
     showHex,
     shrinkFloat,
@@ -100,7 +102,7 @@ genPatternType =
 genPatternInfixWith :: Gen Pattern
 genPatternInfixWith = do
   lhs <- genPattern
-  op <- genConOperatorName
+  op <- genConName
   rhs <- genPattern
   pure (PInfix lhs op rhs)
 
@@ -169,12 +171,9 @@ genNumericLiteral =
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
   oneof
-    [ EVar <$> genEVarName,
-      EParen . EVar <$> genEVarName
+    [ EVar <$> genVarName,
+      EParen . EVar <$> genVarName
     ]
-
-genEVarName :: Gen Name
-genEVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genVarId)
 
 genConOperatorName :: Gen Name
 genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)

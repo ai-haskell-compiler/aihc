@@ -530,7 +530,7 @@ prettyPattern pat =
               )
           )
     PTypeSig inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
-    PSplice body -> "$" <> prettyExpr body
+    PSplice body -> prettyExprSplice "$" body
 
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
@@ -1227,7 +1227,6 @@ prettyExpr expr =
 prettyExprSplice :: Doc ann -> Expr -> Doc ann
 prettyExprSplice prefix body =
   case peelExprAnn body of
-    EParen inner | isOperatorExpr inner -> prefix <> parens (prettyOperatorExpr inner)
     _ -> prefix <> prettyExpr body
 
 isOperatorExpr :: Expr -> Bool

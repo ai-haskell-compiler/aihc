@@ -235,14 +235,48 @@ stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
 thSplicePatternParser :: TokParser Pattern
 thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  body <- parenSpliceBody <|> bareSpliceBody
+  body <- MP.try parenOperatorSpliceBody <|> parenExprSpliceBody <|> bareSpliceBody
   pure (PSplice body)
   where
-    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+    parenOperatorSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+      body <- parens (MP.try operatorExprParser <|> exprParser)
+      case peelExprAnn body of
+        EVar name | isSymbolicOperatorName name -> pure (EParen body)
+        _ -> fail "expected symbolic operator splice body"
+    parenExprSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       body <- parens exprParser
       pure (EParen body)
     bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
+
+    operatorExprParser :: TokParser Expr
+    operatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ EVar <$> operatorExprNameParser
+
+    operatorExprNameParser :: TokParser Name
+    operatorExprNameParser =
+      tokenSatisfy "operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+          TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+          TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
+          TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
+          TkMinusOperator -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-"))
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
+          TkReservedDoubleColon -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "::"))
+          TkReservedEquals -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "="))
+          TkReservedPipe -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "|"))
+          TkReservedLeftArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "<-"))
+          TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
+          TkReservedDoubleArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "=>"))
+          TkReservedDotDot -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym ".."))
+          _ -> Nothing
+
+    isSymbolicOperatorName :: Name -> Bool
+    isSymbolicOperatorName name =
+      case nameType name of
+        NameVarSym -> True
+        NameConSym -> True
+        _ -> False
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =

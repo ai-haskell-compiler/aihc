@@ -1091,13 +1091,25 @@ thTypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
 thSpliceBody :: TokParser Expr
 thSpliceBody =
-  parenSpliceBody <|> bareSpliceBody
+  MP.try parenOperatorSpliceBody <|> parenExprSpliceBody <|> bareSpliceBody
   where
-    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+    parenOperatorSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       body <- parens (MP.try operatorExprParser <|> exprParser)
+      case peelExprAnn body of
+        EVar name | isSymbolicOperatorName name -> pure (EParen body)
+        _ -> fail "expected symbolic operator splice body"
+    parenExprSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+      body <- parens exprParser
       pure (EParen body)
     bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
+
+    isSymbolicOperatorName :: Name -> Bool
+    isSymbolicOperatorName name =
+      case nameType name of
+        NameVarSym -> True
+        NameConSym -> True
+        _ -> False
 
 thNameQuoteExprParser :: TokParser Expr
 thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser

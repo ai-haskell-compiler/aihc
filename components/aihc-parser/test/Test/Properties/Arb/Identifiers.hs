@@ -14,6 +14,8 @@ module Test.Properties.Arb.Identifiers
 
     -- * Constructor identifiers
     genConId,
+    genConUnqualifiedName,
+    genConName,
     shrinkConIdent,
     isValidConIdent,
 
@@ -169,6 +171,14 @@ genConId = do
   rest <- vectorOf restLen (elements identTailChars)
   hashCount <- chooseInt (0, 4)
   pure (T.pack (first : rest) <> T.replicate hashCount "#")
+
+genConUnqualifiedName :: Gen UnqualifiedName
+genConUnqualifiedName = oneof [mkUnqualifiedName NameConId <$> genConId, mkUnqualifiedName NameConSym <$> genConSym]
+
+genConName :: Gen Name
+genConName = do
+  qual <- genOptionalQualifier
+  qualifyName qual <$> genConUnqualifiedName
 
 shrinkConIdent :: Text -> [Text]
 shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent

@@ -271,6 +271,7 @@ buildTests = do
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
+            testCase "TemplateHaskell expression splices parse negative bodies" test_templateHaskellParsesNegativeSpliceBodyExpr,
             testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "TemplateHaskell value-name quotes parse list constructors" test_templateHaskellNameQuoteParsesListConstructor,
             testCase "TemplateHaskell value-name quotes parse unboxed tuple constructors" test_templateHaskellNameQuoteParsesUnboxedTupleConstructor,
@@ -390,6 +391,8 @@ buildTests = do
             testCase "infix tuple lhs and qualified record rhs" test_funHeadInfixTupleLhsQualifiedRecordRhs,
             testCase "infix complex tuple lhs and qualified record rhs" test_funHeadInfixComplexTupleLhsQualifiedRecordRhs,
             testCase "infix backtick with TH splice lhs: $splice `fn` () = ()" test_funHeadInfixThSpliceLhs,
+            testCase "prefix with TH operator splice pattern: x $(*) = ()" test_funHeadPrefixThOperatorSplicePattern,
+            testCase "prefix with TH negative splice pattern: x $(-()) = ()" test_funHeadPrefixThNegativeSplicePattern,
             testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
             testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
             testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
@@ -2394,6 +2397,12 @@ test_templateHaskellQuotesLexesTypedSplice =
     [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
     other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
 
+test_templateHaskellParsesNegativeSpliceBodyExpr :: Assertion
+test_templateHaskellParsesNegativeSpliceBodyExpr =
+  case parseTopDeclWithExts [TemplateHaskell, MagicHash, UnboxedTuples] "x = $(-(#  #))" of
+    Right (DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (ETHSplice (EParen (ENegate (ETuple Unboxed [])))) _))) -> pure ()
+    other -> assertFailure ("expected TH splice with negative body on RHS, got: " <> show other)
+
 test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
 test_templateHaskellTypeQuoteParsesInfixSplices =
   assertEqual
@@ -2550,6 +2559,18 @@ test_funHeadInfixThSpliceLhs =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
     Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
     other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
+
+test_funHeadPrefixThOperatorSplicePattern :: Assertion
+test_funHeadPrefixThOperatorSplicePattern =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(*) = ()" of
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EParen (EVar_ "*"))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    other -> assertFailure ("expected TH operator splice pattern in prefix function bind, got: " <> show other)
+
+test_funHeadPrefixThNegativeSplicePattern :: Assertion
+test_funHeadPrefixThNegativeSplicePattern =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(-()) = ()" of
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EParen (ENegate (ETuple Boxed [])))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    other -> assertFailure ("expected TH negative splice pattern in prefix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =
