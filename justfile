@@ -14,9 +14,9 @@ replay ARGUMENT:
 qc:
   while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000" || break; done
 
-# Auto-format all Haskell files (excludes dist-newstyle and test fixtures)
+# Auto-format Nix files and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
-  nix develop --quiet --command bash -c 'ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
 # Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
 hlint-refactor:

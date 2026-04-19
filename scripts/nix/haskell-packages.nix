@@ -44,19 +44,21 @@
     hsLib.overrideCabal drv (old: {
       configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
       testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-      preCheck = (old.preCheck or "") + ''
-        # GHC 9.12: test-suite mix files land in dist/build/<comp>/<comp>-tmp/extra-compilation-artifacts/
-        # but hpc markup only searches dist/build/extra-compilation-artifacts/hpc/vanilla/mix/.
-        # Copy all vanilla mix files from component build dirs into the searched location.
-        target_mix=dist/build/extra-compilation-artifacts/hpc/vanilla/mix
-        mkdir -p "$target_mix"
-        while IFS= read -r mix_file; do
-          rel="''${mix_file##*/extra-compilation-artifacts/hpc/vanilla/mix/}"
-          pkg_dir="$target_mix/$(dirname "$rel")"
-          mkdir -p "$pkg_dir"
-          cp "$mix_file" "$pkg_dir/" 2>/dev/null || true
-        done < <(find dist/build -path "*/extra-compilation-artifacts/hpc/vanilla/mix/*.mix" 2>/dev/null)
-      '';
+      preCheck =
+        (old.preCheck or "")
+        + ''
+          # GHC 9.12: test-suite mix files land in dist/build/<comp>/<comp>-tmp/extra-compilation-artifacts/
+          # but hpc markup only searches dist/build/extra-compilation-artifacts/hpc/vanilla/mix/.
+          # Copy all vanilla mix files from component build dirs into the searched location.
+          target_mix=dist/build/extra-compilation-artifacts/hpc/vanilla/mix
+          mkdir -p "$target_mix"
+          while IFS= read -r mix_file; do
+            rel="''${mix_file##*/extra-compilation-artifacts/hpc/vanilla/mix/}"
+            pkg_dir="$target_mix/$(dirname "$rel")"
+            mkdir -p "$pkg_dir"
+            cp "$mix_file" "$pkg_dir/" 2>/dev/null || true
+          done < <(find dist/build -path "*/extra-compilation-artifacts/hpc/vanilla/mix/*.mix" 2>/dev/null)
+        '';
       postInstall =
         (old.postInstall or "")
         + ''
