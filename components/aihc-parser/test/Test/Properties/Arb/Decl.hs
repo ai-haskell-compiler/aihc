@@ -317,11 +317,7 @@ genMixedDataCon =
 genPrefixCon :: Gen DataConDecl
 genPrefixCon = do
   -- Prefix constructors can be alphabetic (Cons) or symbolic ((:+))
-  name <-
-    oneof
-      [ mkUnqualifiedName NameConId <$> genConId,
-        mkUnqualifiedName NameConSym <$> genConSym
-      ]
+  name <- genConUnqualifiedName
   n <- chooseInt (0, 2)
   fields <- vectorOf n genSimpleBangType
   pure (PrefixCon [] [] name fields)
@@ -329,13 +325,9 @@ genPrefixCon = do
 genInfixCon :: Gen DataConDecl
 genInfixCon = do
   -- Infix constructors can be symbolic (:+) or alphabetic (`Cons`)
-  opName <-
-    oneof
-      [ mkUnqualifiedName NameConSym <$> genConSym,
-        mkUnqualifiedName NameConId <$> genConId
-      ]
-  lhs <- genSimpleBangTypeWithoutFun
-  InfixCon [] [] lhs opName <$> genSimpleBangTypeWithoutFun
+  opName <- genConUnqualifiedName
+  lhs <- genSimpleBangType
+  InfixCon [] [] lhs opName <$> genSimpleBangType
 
 genRecordCon :: Gen DataConDecl
 genRecordCon = do
@@ -459,6 +451,39 @@ genGadtFieldDecl = do
   fieldName <- mkUnqualifiedName NameVarId <$> genVarId
   ty <- scale (min 6) genType
   pure $ FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)
+
+genBangType :: Gen BangType
+genBangType = do
+  ty <- genType
+  annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
+  case annotation of
+    NoAnnotation ->
+      pure $
+        BangType
+          { bangAnns = [],
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = False,
+            bangType = ty
+          }
+    StrictAnnotation ->
+      pure $
+        BangType
+          { bangAnns = [],
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = True,
+            bangLazy = False,
+            bangType = ty
+          }
+    LazyAnnotation ->
+      pure $
+        BangType
+          { bangAnns = [],
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = True,
+            bangType = ty
+          }
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do

@@ -369,6 +369,11 @@ buildTests = do
             testCase "lambda-cases parses multi-argument alternatives" test_lambdaCasesParsesMultiArgumentAlternatives,
             testCase "lambda-cases pretty round-trips" test_prettyLambdaCasesRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
+            testCase "lazy symbolic constructor fields are parenthesized" test_prettyLazySymbolicConstructorField,
+            testCase "lazy implicit-parameter constructor fields are parenthesized" test_prettyLazyImplicitParamConstructorField,
+            testCase "prefix constructor implicit-parameter fields are parenthesized" test_prettyPrefixConstructorImplicitParamField,
+            testCase "infix constructor operands keep bare type applications" test_prettyInfixConstructorOperandKeepsBareTypeApp,
+            testCase "gadt implicit parameter arguments are parenthesized" test_prettyGadtImplicitParamArgument,
             testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
@@ -1897,6 +1902,237 @@ test_prettyGuardLetFormatting = do
           )
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertBool ("expected guard let expression without extra parens, got:\n" <> T.unpack source) (not ("| (let" `T.isInfixOf` source))
+
+test_prettyLazySymbolicConstructorField :: Assertion
+test_prettyLazySymbolicConstructorField = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHeadForm = TypeHeadPrefix,
+              dataDeclContext = [],
+              dataDeclName = mkUnqualifiedName NameConId "T",
+              dataDeclParams = [],
+              dataDeclKind = Nothing,
+              dataDeclConstructors =
+                [ PrefixCon
+                    []
+                    []
+                    (mkUnqualifiedName NameConId "MkT")
+                    [ BangType
+                        []
+                        NoSourceUnpackedness
+                        False
+                        True
+                        TStar
+                    ]
+                ],
+              dataDeclDeriving = []
+            }
+      config =
+        defaultConfig
+          { parserExtensions =
+              effectiveExtensions
+                GHC2024Edition
+                [ EnableExtension BlockArguments,
+                  EnableExtension UnboxedTuples,
+                  EnableExtension UnboxedSums,
+                  EnableExtension TemplateHaskell,
+                  EnableExtension PatternSynonyms,
+                  EnableExtension UnicodeSyntax,
+                  EnableExtension MagicHash,
+                  EnableExtension OverloadedLabels,
+                  EnableExtension MultiWayIf,
+                  EnableExtension RecursiveDo,
+                  EnableExtension CApiFFI,
+                  EnableExtension ImplicitParams,
+                  EnableExtension TypeAbstractions,
+                  EnableExtension RequiredTypeArguments
+                ]
+          }
+      parenthesized = normalizeDecl (addDeclParens decl)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertBool ("expected lazy symbolic field to be parenthesized, got:\n" <> T.unpack source) ("~(*)" `T.isInfixOf` source)
+  case parseDecl config source of
+    ParseOk parsed -> normalizeDecl parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed lazy symbolic field to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_prettyLazyImplicitParamConstructorField :: Assertion
+test_prettyLazyImplicitParamConstructorField = do
+  let decl =
+        DeclDataFamilyInst
+          DataFamilyInst
+            { dataFamilyInstIsNewtype = False,
+              dataFamilyInstForall = [],
+              dataFamilyInstHead = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted,
+              dataFamilyInstKind = Nothing,
+              dataFamilyInstConstructors =
+                [ PrefixCon
+                    []
+                    []
+                    (mkUnqualifiedName NameConId "MkC")
+                    [ BangType
+                        []
+                        NoSourceUnpackedness
+                        False
+                        True
+                        (TImplicitParam "?x" (TUnboxedSum [TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Promoted, TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted]))
+                    ]
+                ],
+              dataFamilyInstDeriving = []
+            }
+      config =
+        defaultConfig
+          { parserExtensions =
+              effectiveExtensions
+                GHC2024Edition
+                [ EnableExtension BlockArguments,
+                  EnableExtension UnboxedTuples,
+                  EnableExtension UnboxedSums,
+                  EnableExtension TemplateHaskell,
+                  EnableExtension PatternSynonyms,
+                  EnableExtension UnicodeSyntax,
+                  EnableExtension MagicHash,
+                  EnableExtension OverloadedLabels,
+                  EnableExtension MultiWayIf,
+                  EnableExtension RecursiveDo,
+                  EnableExtension CApiFFI,
+                  EnableExtension ImplicitParams,
+                  EnableExtension TypeAbstractions,
+                  EnableExtension RequiredTypeArguments
+                ]
+          }
+      parenthesized = normalizeDecl (addDeclParens decl)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertBool ("expected lazy implicit-parameter field to be parenthesized, got:\n" <> T.unpack source) ("~(?x :: (# ' C | C #))" `T.isInfixOf` source)
+  case parseDecl config source of
+    ParseOk parsed -> normalizeDecl parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed lazy implicit-parameter field to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_prettyGadtImplicitParamArgument :: Assertion
+test_prettyGadtImplicitParamArgument = do
+  let decl =
+        DeclDataFamilyInst
+          DataFamilyInst
+            { dataFamilyInstIsNewtype = False,
+              dataFamilyInstForall = [],
+              dataFamilyInstHead = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted,
+              dataFamilyInstKind = Nothing,
+              dataFamilyInstConstructors =
+                [ GadtCon
+                    []
+                    []
+                    [mkUnqualifiedName NameConId "MkC"]
+                    ( GadtPrefixBody
+                        [BangType [] NoSourceUnpackedness False False (TImplicitParam "?x" (TFun (TQuasiQuote "a" "") (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted)))]
+                        (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Promoted)
+                    )
+                ],
+              dataFamilyInstDeriving = []
+            }
+      config =
+        defaultConfig
+          { parserExtensions =
+              effectiveExtensions
+                GHC2024Edition
+                [ EnableExtension BlockArguments,
+                  EnableExtension UnboxedTuples,
+                  EnableExtension UnboxedSums,
+                  EnableExtension TemplateHaskell,
+                  EnableExtension PatternSynonyms,
+                  EnableExtension UnicodeSyntax,
+                  EnableExtension MagicHash,
+                  EnableExtension OverloadedLabels,
+                  EnableExtension MultiWayIf,
+                  EnableExtension RecursiveDo,
+                  EnableExtension CApiFFI,
+                  EnableExtension ImplicitParams,
+                  EnableExtension TypeAbstractions,
+                  EnableExtension RequiredTypeArguments
+                ]
+          }
+      parenthesized = normalizeDecl (addDeclParens decl)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertBool ("expected GADT implicit-parameter argument to be parenthesized, got:\n" <> T.unpack source) ("(?x :: [a||] -> B) -> ' C" `T.isInfixOf` source)
+  case parseDecl config source of
+    ParseOk parsed -> normalizeDecl parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed GADT implicit-parameter argument to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_prettyPrefixConstructorImplicitParamField :: Assertion
+test_prettyPrefixConstructorImplicitParamField = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHeadForm = TypeHeadPrefix,
+              dataDeclContext = [],
+              dataDeclName = mkUnqualifiedName NameConId "X",
+              dataDeclParams = [],
+              dataDeclKind = Nothing,
+              dataDeclConstructors =
+                [ PrefixCon
+                    []
+                    []
+                    (mkUnqualifiedName NameConId "MkX")
+                    [ BangType [] NoSourceUnpackedness False False (TImplicitParam "?v" (TTuple Boxed Unpromoted [])),
+                      BangType [] NoSourceUnpackedness False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted)
+                    ]
+                ],
+              dataDeclDeriving = []
+            }
+      config =
+        defaultConfig
+          { parserExtensions =
+              effectiveExtensions
+                GHC2024Edition
+                [ EnableExtension ImplicitParams
+                ]
+          }
+      parenthesized = normalizeDecl (addDeclParens decl)
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertBool
+    ("expected prefix constructor implicit parameter field to be parenthesized, got:\n" <> T.unpack source)
+    (source == "data X = MkX (?v :: ()) Int")
+  case parseDecl config source of
+    ParseOk parsed -> normalizeDecl parsed @?= parenthesized
+    ParseErr err ->
+      assertFailure ("expected pretty-printed prefix constructor implicit parameter field to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_prettyInfixConstructorOperandKeepsBareTypeApp :: Assertion
+test_prettyInfixConstructorOperandKeepsBareTypeApp = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHeadForm = TypeHeadPrefix,
+              dataDeclContext = [],
+              dataDeclName = mkUnqualifiedName NameConId "Infinite",
+              dataDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
+              dataDeclKind = Nothing,
+              dataDeclConstructors =
+                [ InfixCon
+                    []
+                    []
+                    (BangType [] NoSourceUnpackedness False False (TVar "a"))
+                    (mkUnqualifiedName NameConSym ":~")
+                    ( BangType
+                        []
+                        NoSourceUnpackedness
+                        False
+                        False
+                        (TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Infinite")) Unpromoted) (TVar "a"))
+                    )
+                ],
+              dataDeclDeriving = []
+            }
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertBool
+    ("expected infix constructor operand type application to stay bare, got:\n" <> T.unpack source)
+    (source == "data Infinite a = a :~ Infinite a")
+  case parseDecl defaultConfig source of
+    ParseOk parsed -> normalizeDecl parsed @?= normalizeDecl (addDeclParens decl)
+    ParseErr err ->
+      assertFailure ("expected pretty-printed infix constructor operand to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
 test_prettyFunctionHeadListViewPattern :: Assertion
 test_prettyFunctionHeadListViewPattern = do
