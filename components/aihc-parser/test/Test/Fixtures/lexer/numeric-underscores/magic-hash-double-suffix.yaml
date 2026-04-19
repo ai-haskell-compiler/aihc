@@ -2,8 +2,8 @@ extensions: [MagicHash]
 input: |
   0## 0x0## 0.0##
 tokens:
-  - 'TkIntegerHash 0 "0##"'
-  - 'TkIntegerBaseHash 0 "0x0##"'
-  - 'TkFloatHash 0.0 "0.0##"'
+  - 'TkInteger 0 TWordHash'
+  - 'TkInteger 0 TWordHash'
+  - 'TkFloat 0.0 TDoubleHash'
   - 'TkEOF'
 status: pass

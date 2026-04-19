@@ -235,8 +235,7 @@ typeLiteralTypeParser :: TokParser Type
 typeLiteralTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   lit <- tokenSatisfy "type literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger n -> Just (TypeLitInteger n (lexTokenText tok))
-      TkIntegerBase n _ -> Just (TypeLitInteger n (lexTokenText tok))
+      TkInteger n _ -> Just (TypeLitInteger n (lexTokenText tok))
       TkString s -> Just (TypeLitSymbol s (lexTokenText tok))
       TkChar c -> Just (TypeLitChar c (lexTokenText tok))
       _ -> Nothing

@@ -1,0 +1,5 @@
+extensions: [ExtendedLiterals, MagicHash]
+input: |
+  10.3#
+ast: EFloat 10.3 TFloatHash
+status: pass

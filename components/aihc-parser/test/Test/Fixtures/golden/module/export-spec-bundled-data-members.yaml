@@ -5,4 +5,4 @@ input: |
   module Demo (Nat (data Zero, data Succ)) where
   x = 1
 status: pass
-ast: Module {name = "Demo", exports = [ExportWith{name = "Nat", members = [ExportMember{namespace = "data", name = "Zero"}, ExportMember{namespace = "data", name = "Succ"}]}], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]}
+ast: Module {name = "Demo", exports = [ExportWith{name = "Nat", members = [ExportMember{namespace = "data", name = "Zero"}, ExportMember{namespace = "data", name = "Succ"}]}], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1 TInteger)}])]}

@@ -2,7 +2,7 @@
 extensions: []
 input: "0b01_0000_0000"
 tokens:
-  - 'TkIntegerBase 1 "0b01"'
+  - 'TkInteger 1 TInteger'
   - 'TkVarId "_0000_0000"'
   - 'TkEOF'
 status: pass

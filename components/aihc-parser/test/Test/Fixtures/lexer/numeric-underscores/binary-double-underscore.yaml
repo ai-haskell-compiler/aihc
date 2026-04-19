@@ -3,6 +3,6 @@ extensions:
   - NumericUnderscores
 input: "0b1100_1011__1110_1111__0101_0011"
 tokens:
-  - 'TkIntegerBase 13365075 "0b1100_1011__1110_1111__0101_0011"'
+  - 'TkInteger 13365075 TInteger'
   - 'TkEOF'
 status: pass

@@ -2,5 +2,5 @@ extensions: []
 input: |
   module DatasetPrefix where
   dataset = 5
-ast: Module {name = "DatasetPrefix", decls = [DeclValue (FunctionBind "dataset" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 5)}])]}
+ast: Module {name = "DatasetPrefix", decls = [DeclValue (FunctionBind "dataset" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 5 TInteger)}])]}
 status: pass

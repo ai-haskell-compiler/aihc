@@ -3,6 +3,6 @@ extensions:
   - NegativeLiterals
 input: "-0x10"
 tokens:
-  - 'TkIntegerBase (-16) "-0x10"'
+  - 'TkInteger -16 TInteger'
   - 'TkEOF'
 status: pass

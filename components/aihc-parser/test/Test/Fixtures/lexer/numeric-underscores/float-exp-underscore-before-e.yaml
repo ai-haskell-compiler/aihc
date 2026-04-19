@@ -3,6 +3,6 @@ extensions:
   - NumericUnderscores
 input: "1_e+23"
 tokens:
-  - 'TkFloat 1.0e23 "1_e+23"'
+  - 'TkFloat 1.0e23 TFractional'
   - 'TkEOF'
 status: pass

@@ -2,6 +2,6 @@ extensions:
   - NumericUnderscores
 input: "96_485.332_89"
 tokens:
-  - 'TkFloat 96485.33289 "96_485.332_89"'
+  - 'TkFloat 96485.33289 TFractional'
   - 'TkEOF'
 status: pass

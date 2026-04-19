@@ -5,4 +5,4 @@ input: |
   import PatternSynonymsSource (data Zero)
   x = 1
 status: pass
-ast: Module {name = "Demo", imports = [ImportDecl {module = "PatternSynonymsSource", spec = ImportSpec {items = [ImportItemAbs{namespace = "data", name = "Zero"}]}}], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]}
+ast: Module {name = "Demo", imports = [ImportDecl {module = "PatternSynonymsSource", spec = ImportSpec {items = [ImportItemAbs{namespace = "data", name = "Zero"}]}}], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1 TInteger)}])]}

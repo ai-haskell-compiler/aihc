@@ -86,10 +86,10 @@ defaultConfig =
 -- | Parse a Haskell expression.
 --
 -- >>> shorthand $ parseExpr defaultConfig "1 + 2"
--- ParseOk (EInfix (EInt 1) "+" (EInt 2))
+-- ParseOk (EInfix (EInt 1 TInteger) "+" (EInt 2 TInteger))
 --
 -- >>> shorthand $ parseExpr defaultConfig "\\x -> x + 1"
--- ParseOk (ELambdaPats [PVar "x"] (EInfix (EVar "x") "+" (EInt 1)))
+-- ParseOk (ELambdaPats [PVar "x"] (EInfix (EVar "x") "+" (EInt 1 TInteger)))
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -133,7 +133,7 @@ parseType cfg input =
 -- | Parse a single Haskell declaration.
 --
 -- >>> shorthand $ parseDecl defaultConfig "f x = x + 1"
--- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1))}]))
+-- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1 TInteger))}]))
 parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input

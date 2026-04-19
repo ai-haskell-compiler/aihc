@@ -1,5 +1,5 @@
 extensions: [ViewPatterns]
 input: |
   ((== 0) -> True)
-ast: PParen (PView (EParen (ESectionR "==" (EInt 0))) (PCon "True" []))
+ast: PParen (PView (EParen (ESectionR "==" (EInt 0 TInteger))) (PCon "True" []))
 status: pass

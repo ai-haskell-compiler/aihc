@@ -1,8 +1,9 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE ExtendedLiterals #-}
+{-# LANGUAGE MagicHash #-}
 module Unsigned where
 
-x = 123u8
-y = 123u16
-z = 123u32
-w = 123u64
+x = 123#Word8
+y = 123#Word16
+z = 123#Word32
+w = 123#Word64

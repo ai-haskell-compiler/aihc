@@ -2,7 +2,7 @@ input: "-10"
 args: ["--lex", "-XNegativeLiterals"]
 output: |
   TkSpecialLBrace
-  TkInteger -10
+  TkInteger -10 TInteger
   TkSpecialRBrace
   TkEOF
 status: pass

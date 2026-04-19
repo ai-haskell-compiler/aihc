@@ -92,12 +92,8 @@ normalizeTypeSpan ty =
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case peelLiteralAnn lit of
-    LitInt value repr -> LitInt value repr
-    LitIntHash value repr -> LitIntHash value repr
-    LitIntBase value repr -> LitIntBase value repr
-    LitIntBaseHash value repr -> LitIntBaseHash value repr
-    LitFloat value repr -> LitFloat value repr
-    LitFloatHash value repr -> LitFloatHash value repr
+    LitInt value nt repr -> LitInt value nt repr
+    LitFloat value ft repr -> LitFloat value ft repr
     LitChar value repr -> LitChar value repr
     LitCharHash value repr -> LitCharHash value repr
     LitString value repr -> LitString value repr

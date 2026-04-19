@@ -4,5 +4,5 @@ input: |
   module MagicHashBasic where
   x# :: Int#
   x# = 42#
-ast: Module {name = "MagicHashBasic", languagePragmas = [EnableExtension MagicHash], decls = [DeclTypeSig {names = ["x#"], type = TCon "Int#"}, DeclValue (FunctionBind "x#" [Match {headForm = Prefix, rhs = UnguardedRhs (EIntHash 42 "42#")}])]}
+ast: Module {name = "MagicHashBasic", languagePragmas = [EnableExtension MagicHash], decls = [DeclTypeSig {names = ["x#"], type = TCon "Int#"}, DeclValue (FunctionBind "x#" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 42 TIntHash)}])]}
 status: pass

@@ -4,7 +4,7 @@ extensions:
   - NumericUnderscores
 input: "0._0001"
 tokens:
-  - "TkInteger 0"
+  - "TkInteger 0 TInteger"
   - 'TkVarSym "."'
   - 'TkVarId "_0001"'
   - "TkEOF"

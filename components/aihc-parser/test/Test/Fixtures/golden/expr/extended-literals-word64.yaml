@@ -1,0 +1,5 @@
+extensions: [ExtendedLiterals, MagicHash]
+input: |
+  123#Word64
+ast: EInt 123 TWord64Hash
+status: pass

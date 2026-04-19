@@ -215,19 +215,22 @@ isPatternAtom pat =
     _ -> False
 
 mkIntLiteral :: Integer -> Literal
-mkIntLiteral value = LitInt value (T.pack (show value))
+mkIntLiteral value = LitInt value TInteger (T.pack (show value))
 
 mkHexLiteral :: Integer -> Literal
-mkHexLiteral value = LitIntBase value ("0x" <> T.pack (showHex value))
+mkHexLiteral value = LitInt value TInteger ("0x" <> T.pack (showHex value))
 
-mkFloatLiteral :: Double -> Literal
-mkFloatLiteral value = LitFloat value (T.pack (show value))
+mkFloatLiteral :: Rational -> Literal
+mkFloatLiteral value = LitFloat value TFractional (renderFloat value)
 
 mkCharLiteral :: Char -> Literal
 mkCharLiteral value = LitChar value (T.pack (show value))
 
 mkStringLiteral :: Text -> Literal
 mkStringLiteral value = LitString value (T.pack (show (T.unpack value)))
+
+renderFloat :: Rational -> T.Text
+renderFloat value = T.pack (show (fromRational value :: Double))
 
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
@@ -305,12 +308,8 @@ shrinkField (fieldName, fieldPat) =
 shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =
   case peelLiteralAnn lit of
-    LitInt value _ -> [mkIntLiteral shrunk | shrunk <- shrinkIntegral value]
-    LitIntHash value _ -> [LitIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
-    LitIntBase value _ -> [mkHexLiteral shrunk | shrunk <- shrinkIntegral value, shrunk >= 0]
-    LitIntBaseHash value _ -> [LitIntBaseHash shrunk ("0x" <> T.pack (showHex shrunk) <> "#") | shrunk <- shrinkIntegral value, shrunk >= 0]
-    LitFloat value _ -> [mkFloatLiteral shrunk | shrunk <- shrinkFloat value, shrunk >= 0]
-    LitFloatHash value _ -> [LitFloatHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value, shrunk >= 0]
+    LitInt value _ _ -> [mkIntLiteral shrunk | shrunk <- shrinkIntegral value]
+    LitFloat value _ _ -> [mkFloatLiteral shrunk | shrunk <- shrinkFloat value, shrunk >= 0]
     LitChar c _ -> [mkCharLiteral shrunk | shrunk <- shrink c]
     LitCharHash c _ -> [LitCharHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrink c]
     LitString txt _ -> [mkStringLiteral (T.pack shrunk) | shrunk <- shrink (T.unpack txt)]
@@ -321,11 +320,7 @@ shrinkNumericLiteral :: Literal -> [Literal]
 shrinkNumericLiteral lit =
   case lit of
     LitInt {} -> shrinkLiteral lit
-    LitIntHash {} -> shrinkLiteral lit
-    LitIntBase {} -> shrinkLiteral lit
-    LitIntBaseHash {} -> shrinkLiteral lit
     LitFloat {} -> shrinkLiteral lit
-    LitFloatHash {} -> shrinkLiteral lit
     _ -> []
 
 shrinkQuoterName :: Text -> [Text]

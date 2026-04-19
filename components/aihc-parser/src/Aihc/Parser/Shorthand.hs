@@ -16,7 +16,7 @@
 -- Example:
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Demo where x = 1"
--- Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]}
+-- Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1 TInteger)}])]}
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )
@@ -25,6 +25,7 @@ where
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
+import Data.Ratio (denominator, numerator)
 import Data.Text (Text)
 import Prettyprinter
   ( Doc,
@@ -93,6 +94,12 @@ instance Shorthand LexToken where
 
 instance Shorthand LexTokenKind where
   shorthand = docTokenKind
+
+showRationalAsFloat :: Rational -> String
+showRationalAsFloat value =
+  case denominator value of
+    1 -> show (numerator value) <> ".0"
+    _ -> show (fromRational value :: Double)
 
 docWarningText :: WarningText -> Doc ann
 docWarningText wt =
@@ -726,12 +733,8 @@ docPattern pat =
 docLiteral :: Literal -> Doc ann
 docLiteral lit =
   case peelLiteralAnn lit of
-    LitInt n _ -> "LitInt" <+> pretty n
-    LitIntHash n repr -> "LitIntHash" <+> pretty n <+> docText repr
-    LitIntBase n repr -> "LitIntBase" <+> pretty n <+> docText repr
-    LitIntBaseHash n repr -> "LitIntBaseHash" <+> pretty n <+> docText repr
-    LitFloat n _ -> "LitFloat" <+> pretty n
-    LitFloatHash n repr -> "LitFloatHash" <+> pretty n <+> docText repr
+    LitInt n nt _ -> "LitInt" <+> pretty n <+> docNumericType nt
+    LitFloat n ft _ -> "LitFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     LitChar c _ -> "LitChar" <+> pretty (show c)
     LitCharHash c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
     LitString s _ -> "LitString" <+> docText s
@@ -745,12 +748,8 @@ docExpr expr =
   case expr of
     EVar name -> "EVar" <+> docName name
     ETypeSyntax form ty -> "ETypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
-    EInt n _ -> "EInt" <+> pretty n
-    EIntHash n repr -> "EIntHash" <+> pretty n <+> docText repr
-    EIntBase n repr -> "EIntBase" <+> pretty n <+> docText repr
-    EIntBaseHash n repr -> "EIntBaseHash" <+> pretty n <+> docText repr
-    EFloat n _ -> "EFloat" <+> pretty n
-    EFloatHash n repr -> "EFloatHash" <+> pretty n <+> docText repr
+    EInt n nt _ -> "EInt" <+> pretty n <+> docNumericType nt
+    EFloat n ft _ -> "EFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     EChar c _ -> "EChar" <+> pretty (show c)
     ECharHash c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
     EString s _ -> "EString" <+> docText s
@@ -920,12 +919,8 @@ docTokenKind kind =
     TkConSym name -> "TkConSym" <+> docText name
     TkQVarSym modName name -> "TkQVarSym" <+> docText modName <+> docText name
     TkQConSym modName name -> "TkQConSym" <+> docText modName <+> docText name
-    TkInteger n -> "TkInteger" <+> pretty n
-    TkIntegerHash n repr -> "TkIntegerHash" <+> pretty n <+> docText repr
-    TkIntegerBase n repr -> "TkIntegerBase" <+> pretty n <+> docText repr
-    TkIntegerBaseHash n repr -> "TkIntegerBaseHash" <+> pretty n <+> docText repr
-    TkFloat n repr -> "TkFloat" <+> pretty n <+> docText repr
-    TkFloatHash n repr -> "TkFloatHash" <+> pretty n <+> docText repr
+    TkInteger n nt -> "TkInteger" <+> pretty n <+> docNumericType nt
+    TkFloat n ft -> "TkFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     TkChar c -> "TkChar" <+> pretty (show c)
     TkCharHash c repr -> "TkCharHash" <+> pretty (show c) <+> docText repr
     TkString s -> "TkString" <+> docText s
@@ -976,6 +971,28 @@ docTypeSyntaxForm form =
   case form of
     TypeSyntaxExplicitNamespace -> "TypeSyntaxExplicitNamespace"
     TypeSyntaxInTerm -> "TypeSyntaxInTerm"
+
+docNumericType :: NumericType -> Doc ann
+docNumericType nt =
+  case nt of
+    TInteger -> "TInteger"
+    TIntHash -> "TIntHash"
+    TWordHash -> "TWordHash"
+    TInt8Hash -> "TInt8Hash"
+    TInt16Hash -> "TInt16Hash"
+    TInt32Hash -> "TInt32Hash"
+    TInt64Hash -> "TInt64Hash"
+    TWord8Hash -> "TWord8Hash"
+    TWord16Hash -> "TWord16Hash"
+    TWord32Hash -> "TWord32Hash"
+    TWord64Hash -> "TWord64Hash"
+
+docFloatType :: FloatType -> Doc ann
+docFloatType ft =
+  case ft of
+    TFractional -> "TFractional"
+    TFloatHash -> "TFloatHash"
+    TDoubleHash -> "TDoubleHash"
 
 -- Helpers
 

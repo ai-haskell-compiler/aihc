@@ -14,15 +14,16 @@ where
 
 import Aihc.Parser.Lex
   ( LexToken (..),
-    LexTokenKind,
+    LexTokenKind (..),
     lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
   )
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
+import Aihc.Parser.Syntax (Extension, FloatType, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
-import Data.Char (isSpace, toLower)
+import Data.Char (isDigit, isSpace, toLower)
 import Data.List (dropWhileEnd, isPrefixOf, sort)
+import Data.Ratio ((%))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
@@ -188,9 +189,59 @@ parseFixtureExtensionName path name =
 
 parseTokenKind :: FilePath -> Text -> Either String LexTokenKind
 parseTokenKind path raw =
-  case readMaybe (T.unpack (T.strip raw)) of
+  case parseFloatTokenKind (T.strip raw) of
     Just parsed -> Right parsed
-    Nothing -> Left ("Invalid token constructor in " <> path <> ": " <> T.unpack raw)
+    Nothing -> case readMaybe (T.unpack (T.strip raw)) of
+      Just parsed -> Right parsed
+      Nothing -> Left ("Invalid token constructor in " <> path <> ": " <> T.unpack raw)
+
+parseFloatTokenKind :: Text -> Maybe LexTokenKind
+parseFloatTokenKind raw = do
+  body <- T.stripPrefix "TkFloat " raw
+  let (valueTxt, typeTxt0) = T.break isSpace body
+      typeTxt = T.strip typeTxt0
+  value <- parseDecimalRational valueTxt
+  floatType <- readMaybe (T.unpack typeTxt) :: Maybe FloatType
+  pure (TkFloat value floatType)
+
+parseDecimalRational :: Text -> Maybe Rational
+parseDecimalRational txt = do
+  let (sign, unsigned) =
+        case T.uncons txt of
+          Just ('-', rest) -> (-1, rest)
+          Just ('+', rest) -> (1, rest)
+          _ -> (1, txt)
+      (mantissaTxt, exponentTxt0) = T.break (`elem` ['e', 'E']) unsigned
+      exponentTxt = T.drop 1 exponentTxt0
+  mantissa <- parseMantissa mantissaTxt
+  exponentValue <-
+    if T.null exponentTxt0
+      then Just 0
+      else readMaybe (T.unpack exponentTxt)
+  pure (applyExponent (fromInteger sign * mantissa) exponentValue)
+
+parseMantissa :: Text -> Maybe Rational
+parseMantissa txt = do
+  let (whole, frac0) = T.break (== '.') txt
+      frac = T.drop 1 frac0
+  if T.null whole && T.null frac
+    then Nothing
+    else do
+      wholeDigits <- parseDigitsAllowEmpty whole
+      fracDigits <- parseDigitsAllowEmpty frac
+      let fracScale = 10 ^ T.length frac
+      pure ((wholeDigits * fracScale + fracDigits) % fracScale)
+
+parseDigitsAllowEmpty :: Text -> Maybe Integer
+parseDigitsAllowEmpty digits
+  | T.null digits = Just 0
+  | T.all isDigit digits = readMaybe (T.unpack digits)
+  | otherwise = Nothing
+
+applyExponent :: Rational -> Integer -> Rational
+applyExponent value exponentValue
+  | exponentValue >= 0 = value * fromInteger (10 ^ exponentValue)
+  | otherwise = value / fromInteger (10 ^ negate exponentValue)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =

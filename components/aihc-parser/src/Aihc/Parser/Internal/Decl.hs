@@ -601,7 +601,7 @@ fixityPrecedenceParser :: TokParser Int
 fixityPrecedenceParser =
   tokenSatisfy "fixity precedence" $ \tok ->
     case lexTokenKind tok of
-      TkInteger n
+      TkInteger n _
         | n >= 0 && n <= 9 -> Just (fromInteger n)
       _ -> Nothing
 

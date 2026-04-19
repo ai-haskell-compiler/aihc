@@ -3,6 +3,6 @@ extensions:
   - NumericUnderscores
 input: "1__000000"
 tokens:
-  - 'TkInteger 1000000'
+  - 'TkInteger 1000000 TInteger'
   - 'TkEOF'
 status: pass

@@ -124,11 +124,7 @@ patternAtomParser = do
     TkTHSplice | thAny -> thSplicePatternParser
     TkKeywordUnderscore -> wildcardPatternParser
     TkInteger {} -> literalPatternParser
-    TkIntegerHash {} -> literalPatternParser
-    TkIntegerBase {} -> literalPatternParser
-    TkIntegerBaseHash {} -> literalPatternParser
     TkFloat {} -> literalPatternParser
-    TkFloatHash {} -> literalPatternParser
     TkChar {} -> literalPatternParser
     TkCharHash {} -> literalPatternParser
     TkString {} -> literalPatternParser
@@ -177,7 +173,7 @@ negativeLiteralPatternParser = MP.try $ withSpanAnn (PAnn . mkAnnotation) $ do
 -- | Parse only numeric literals (integer or float), used for negative literal
 -- patterns where GHC only allows @-@ before numeric literals, not strings or chars.
 numericLiteralParser :: TokParser Literal
-numericLiteralParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser
+numericLiteralParser = intLiteralParser <|> floatLiteralParser
 
 wildcardPatternParser :: TokParser Pattern
 wildcardPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -197,34 +193,25 @@ quasiQuotePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   pure (PQuasiQuote quoter body)
 
 literalParser :: TokParser Literal
-literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
+literalParser = intLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
+
+tokenLiteralParser :: String -> (LexToken -> Maybe Literal) -> TokParser Literal
+tokenLiteralParser expected matchToken =
+  withSpanAnn (LitAnn . mkAnnotation) (tokenSatisfy expected matchToken)
 
 intLiteralParser :: TokParser Literal
-intLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "integer literal" $ \tok ->
+intLiteralParser =
+  tokenLiteralParser "integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just (LitInt, i, lexTokenText tok)
-      TkIntegerHash i txt -> Just (LitIntHash, i, txt)
+      TkInteger i nt -> Just (LitInt i nt (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n repr)
-
-intBaseLiteralParser :: TokParser Literal
-intBaseLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
-    case lexTokenKind tok of
-      TkIntegerBase i txt -> Just (LitIntBase, i, txt)
-      TkIntegerBaseHash i txt -> Just (LitIntBaseHash, i, txt)
-      _ -> Nothing
-  pure (ctor n repr)
 
 floatLiteralParser :: TokParser Literal
-floatLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "floating literal" $ \tok ->
+floatLiteralParser =
+  tokenLiteralParser "floating literal" $ \tok ->
     case lexTokenKind tok of
-      TkFloat x txt -> Just (LitFloat, x, txt)
-      TkFloatHash x txt -> Just (LitFloatHash, x, txt)
+      TkFloat x ft -> Just (LitFloat x ft (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n repr)
 
 charLiteralParser :: TokParser Literal
 charLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do

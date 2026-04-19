@@ -15,7 +15,7 @@ tokens:
   - 'TkSpecialLBrace'
   - 'TkVarId "z"'
   - 'TkReservedEquals'
-  - 'TkInteger 1'
+  - 'TkInteger 1 TInteger'
   - 'TkSpecialRBrace'
   - 'TkKeywordIn'
   - 'TkVarId "z"'

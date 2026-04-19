@@ -306,31 +306,22 @@ buildInfix lhs (op, rhs) =
   EInfix lhs op rhs
 
 intExprParser :: TokParser Expr
-intExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "integer literal" $ \tok ->
+intExprParser =
+  tokenExprParser "integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just (EInt, i, lexTokenText tok)
-      TkIntegerHash i txt -> Just (EIntHash, i, txt)
+      TkInteger i nt -> Just (EInt i nt (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n repr)
-
-intBaseExprParser :: TokParser Expr
-intBaseExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
-    case lexTokenKind tok of
-      TkIntegerBase i txt -> Just (EIntBase, i, txt)
-      TkIntegerBaseHash i txt -> Just (EIntBaseHash, i, txt)
-      _ -> Nothing
-  pure (ctor n repr)
 
 floatExprParser :: TokParser Expr
-floatExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (ctor, n, repr) <- tokenSatisfy "floating literal" $ \tok ->
+floatExprParser =
+  tokenExprParser "floating literal" $ \tok ->
     case lexTokenKind tok of
-      TkFloat x txt -> Just (EFloat, x, txt)
-      TkFloatHash x txt -> Just (EFloatHash, x, txt)
+      TkFloat x ft -> Just (EFloat x ft (lexTokenText tok))
       _ -> Nothing
-  pure (ctor n repr)
+
+tokenExprParser :: String -> (LexToken -> Maybe Expr) -> TokParser Expr
+tokenExprParser expected matchToken =
+  withSpanAnn (EAnn . mkAnnotation) (tokenSatisfy expected matchToken)
 
 charExprParser :: TokParser Expr
 charExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -464,9 +455,8 @@ atomExprParser = do
         <|> quasiQuoteExprParser
         <|> parenExprParser
         <|> listExprParser
-        <|> intBaseExprParser
-        <|> floatExprParser
         <|> intExprParser
+        <|> floatExprParser
         <|> charExprParser
         <|> stringExprParser
         <|> overloadedLabelExprParser

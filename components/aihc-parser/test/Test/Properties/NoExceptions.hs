@@ -31,7 +31,7 @@ import Aihc.Parser.Lex
     lexModuleTokens,
     lexTokens,
   )
-import Aihc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
+import Aihc.Parser.Syntax (ExtensionSetting (..), FloatType (..), NumericType (..), SourceSpan (..))
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
@@ -145,9 +145,8 @@ genLexTokenKind =
       TkConId <$> genConstructorText,
       TkVarSym <$> genOperatorText,
       TkConSym <$> genConOperatorText,
-      TkInteger <$> arbitrary,
-      TkIntegerBase <$> arbitrary <*> genTokenText,
-      TkFloat <$> arbitrary <*> genTokenText,
+      (`TkInteger` TInteger) <$> arbitrary,
+      (`TkFloat` TFractional) <$> arbitrary,
       TkChar <$> arbitrary,
       TkString <$> genTokenText,
       pure TkSpecialLParen,

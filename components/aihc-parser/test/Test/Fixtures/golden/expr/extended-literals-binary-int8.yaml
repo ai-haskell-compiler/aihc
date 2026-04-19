@@ -1,0 +1,5 @@
+extensions: [ExtendedLiterals]
+input: |
+  0b1010#Int8
+ast: EInt 10 TInt8Hash
+status: pass
