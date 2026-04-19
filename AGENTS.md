@@ -26,6 +26,7 @@ If `just check` fails, do NOT commit. Fix the issues first.
 
 - Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
+- If you are working on a branch with an active PR, always commit and push your changes. If you are unsure whether the PR is active, check with `gh`.
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
 
 ## Just Commands
@@ -50,6 +51,7 @@ This project uses [Just](https://just.systems) as a command runner. Common comma
 
 ## Gotchas
 
+- Never run `cabal test` in parallel. Use `cabal` sequentially for test execution.
 - CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `just check`.
 - Golden AST strings are sensitive to upstream AST/shorthand changes (for example, `Match` now printing `headForm = Prefix`), so new fixtures must match current `main` formatting.
 - In parser oracle suites, `pass` means both oracle acceptance and AST roundtrip-fingerprint equality. A case can parse successfully and still fail as `roundtrip mismatch against oracle AST`.
