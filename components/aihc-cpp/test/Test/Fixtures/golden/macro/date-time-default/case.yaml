@@ -1,3 +1,6 @@
-input: "__DATE__ __TIME__"
-output: "#line 1 \"input.hs\"\n\"Jan  1 1970\" \"00:00:00\""
+input: |-
+  __DATE__ __TIME__
+output: |-
+  #line 1 "input.hs"
+  "Jan  1 1970" "00:00:00"
 status: pass

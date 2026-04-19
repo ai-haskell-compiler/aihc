@@ -1,3 +1,8 @@
-input: "#define PAIR(x,y) x + y\nPAIR((1 + 2), 3)"
-output: "#line 1 \"input.hs\"\n\n(1 + 2) + 3"
+input: |-
+  #define PAIR(x,y) x + y
+  PAIR((1 + 2), 3)
+output: |-
+  #line 1 "input.hs"
+
+  (1 + 2) + 3
 status: pass

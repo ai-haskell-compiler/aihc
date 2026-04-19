@@ -1,3 +1,16 @@
-input: "#define FLAG 1\n#if defined   ( FLAG )\nok\n#else\nbad\n#endif"
-output: "#line 1 \"input.hs\"\n\n\nok\n\n\n\n"
+input: |-
+  #define FLAG 1
+  #if defined   ( FLAG )
+  ok
+  #else
+  bad
+  #endif
+output: |+
+  #line 1 "input.hs"
+
+
+  ok
+
+
+
 status: pass
