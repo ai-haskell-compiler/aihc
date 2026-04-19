@@ -593,6 +593,12 @@ docType ty =
             <+> parens (docType inner)
         ForallVisible -> "TForall" <+> parens (docForallTelescope telescope) <+> parens (docType inner)
     TApp f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
+    TInfix lhs op promoted rhs ->
+      "TInfix"
+        <+> parens (docType lhs)
+        <+> docName op
+        <> (if promoted == Promoted then "'" else "")
+        <+> parens (docType rhs)
     TFun a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
     TTuple tupleFlavor promoted elems ->
       ( case (tupleFlavor, promoted) of
@@ -756,14 +762,15 @@ docExpr expr =
     ETHDeclQuote decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     ETHTypeQuote ty -> "ETHTypeQuote" <+> parens (docType ty)
     ETHPatQuote pat -> "ETHPatQuote" <+> parens (docPattern pat)
-    ETHNameQuote name -> "ETHNameQuote" <+> docName name
-    ETHTypeNameQuote name -> "ETHTypeNameQuote" <+> docName name
+    ETHNameQuote body -> "ETHNameQuote" <+> parens (docExpr body)
+    ETHTypeNameQuote ty -> "ETHTypeNameQuote" <+> parens (docType ty)
     ETHSplice body -> "ETHSplice" <+> parens (docExpr body)
     ETHTypedSplice body -> "ETHTypedSplice" <+> parens (docExpr body)
     EIf cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     EMultiWayIf rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
     ELambdaCase alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
+    ELambdaCases alts -> "ELambdaCases" <+> brackets (hsep (punctuate comma (map docLambdaCaseAlt alts)))
     EInfix lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docName op <+> parens (docExpr rhs)
     ENegate inner -> "ENegate" <+> parens (docExpr inner)
     ESectionL lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docName op
@@ -792,6 +799,10 @@ docExpr expr =
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
   "CaseAlt" <+> parens (docPattern pat) <+> parens (docRhs rhs)
+
+docLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
+docLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
+  "LambdaCaseAlt" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docRhs rhs)
 
 docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =

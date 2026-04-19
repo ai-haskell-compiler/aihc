@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="infix type operator in instance context roundtrips to prefix form" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}

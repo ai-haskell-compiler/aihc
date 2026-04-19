@@ -642,6 +642,17 @@ caseAltParser = withSpan $ do
         caseAltRhs = rhs
       }
 
+lambdaCaseAltParser :: TokParser LambdaCaseAlt
+lambdaCaseAltParser = withSpan $ do
+  pats <- region "while parsing lambda-cases alternative" (MP.some simplePatternParser)
+  rhs <- region "while parsing lambda-cases alternative" rhsParser
+  pure $ \span' ->
+    LambdaCaseAlt
+      { lambdaCaseAltAnns = [mkAnnotation span'],
+        lambdaCaseAltPats = pats,
+        lambdaCaseAltRhs = rhs
+      }
+
 caseExprParser :: TokParser Expr
 caseExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordCase
@@ -917,19 +928,25 @@ compLetStmtParser = withSpanAnn (CompAnn . mkAnnotation) $ do
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkReservedBackslash
-  lambdaCaseParser <|> lambdaPatsParser
+  MP.try lambdaCaseParser <|> MP.try lambdaCasesParser <|> lambdaPatsParser
   where
     lambdaCaseParser = do
       expectedTok TkKeywordCase
-      ELambdaCase <$> bracedAlts
+      ELambdaCase <$> bracedCaseAlts
+
+    lambdaCasesParser = do
+      varIdTok "cases"
+      ELambdaCases <$> (bracedLambdaCaseAlts <|> plainLambdaCaseAlts)
 
     lambdaPatsParser = do
-      pats <- MP.some simplePatternParser
+      pats <- MP.some patternParser
       expectedTok TkReservedRightArrow
       body <- region "while parsing lambda body" exprParser
       pure (ELambdaPats pats body)
 
-    bracedAlts = bracedSemiSep caseAltParser
+    bracedCaseAlts = bracedSemiSep caseAltParser
+    bracedLambdaCaseAlts = bracedSemiSep lambdaCaseAltParser
+    plainLambdaCaseAlts = plainSemiSep1 lambdaCaseAltParser
 
 letExprParser :: TokParser Expr
 letExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -1091,35 +1108,12 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHNameQuote name)
+  ETHNameQuote <$> atomExprParser
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
-  pure (ETHTypeNameQuote name)
-
-parenOperatorNameParser :: TokParser Name
-parenOperatorNameParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
-      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
-      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
-      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
-      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure op
-
-bracketConstructorNameParser :: TokParser Name
-bracketConstructorNameParser = do
-  expectedTok TkSpecialLBracket
-  expectedTok TkSpecialRBracket
-  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
+  ETHTypeNameQuote <$> typeAtomParser
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

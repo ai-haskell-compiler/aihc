@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="template haskell type-name quotes reject tuple constructors" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 
 module TraverseWithClassTHTupleNameQuote where

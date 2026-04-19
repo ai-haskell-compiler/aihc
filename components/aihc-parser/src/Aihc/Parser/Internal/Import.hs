@@ -86,10 +86,17 @@ data MembersResult
   | MembersListAll Int [IEBundledMember]
 
 exportMembersParser :: TokParser MembersResult
-exportMembersParser =
-  parens $
-    parseDotDotFirst <|> parseMemberList
+exportMembersParser = membersParser
+
+importMembersParser :: TokParser MembersResult
+importMembersParser = membersParser
+
+membersParser :: TokParser MembersResult
+membersParser =
+  parens (parseDotDotFirst <|> parseMemberList <|> emptyMembers)
   where
+    emptyMembers = pure (MembersList [])
+
     parseDotDotFirst = do
       expectedTok TkReservedDotDot
       MP.optional (expectedTok TkSpecialComma) >>= \case
@@ -117,6 +124,7 @@ exportMembersParser =
         Just _ -> do
           trailingMembers <- memberNameParser `MP.sepBy` expectedTok TkSpecialComma
           pure (MembersListAll (length members) (members <> trailingMembers))
+
     memberNameParser = do
       namespace <- MP.optional bundledNamespaceParser
       name <- identifierNameParser <|> parens operatorNameParser
@@ -205,7 +213,7 @@ importItemParser = withSpanAnn (ImportAnn . mkAnnotation) $ do
   let shouldTryMembers = case namespace of
         Just _ -> True
         Nothing -> isTypeName (qualifyName Nothing itemName)
-  members <- if shouldTryMembers then MP.optional exportMembersParser else pure Nothing
+  members <- if shouldTryMembers then MP.optional importMembersParser else pure Nothing
   let effectiveNamespace = namespace
   pure $
     case members of

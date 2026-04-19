@@ -68,6 +68,7 @@ genExprSizedWith allowTHQuotes n
         ECase <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
         ELambdaPats <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
         ELambdaCase <$> genCaseAltsWith allowTHQuotes (n - 1),
+        ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EDo <$> genDoStmtsWith allowTHQuotes (n - 1) <*> arbitrary,
         EListComp <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
@@ -95,8 +96,8 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote <$> genValueDeclsWith False (n - 1),
             ETHPatQuote <$> genPattern (n - 1),
             ETHTypeQuote <$> genTypeWith False (n - 1),
-            ETHNameQuote <$> genNameQuoteName,
-            ETHTypeNameQuote <$> genTypeNameQuote
+            ETHNameQuote <$> genNameQuoteExpr,
+            ETHTypeNameQuote <$> genTypeNameQuoteType
           ]
       | otherwise =
           []
@@ -153,17 +154,25 @@ genTypedSpliceBody n =
 -- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
 -- such as @M.v@ and @M.+@.
-genNameQuoteName :: Gen Name
-genNameQuoteName =
+genNameQuoteExpr :: Gen Expr
+genNameQuoteExpr =
   oneof
-    [ qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
+    [ EVar . qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        mkName (Just qual) NameVarId <$> genNameQuoteIdent,
+        EVar . mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        op <- genVarSym `suchThat` notDotLikeForQualifiedOp
-        pure (mkName (Just qual) NameVarSym op)
+        op <- genOperator `suchThat` notDotLikeForQualifiedOp
+        pure (EVar (mkName (Just qual) NameVarSym op)),
+      pure (EList []),
+      pure (ETuple Boxed []),
+      pure (ETuple Unboxed []),
+      (\n -> ETuple Boxed (replicate n Nothing))
+        <$> chooseInt (2, 5),
+      (\n -> ETuple Unboxed (replicate n Nothing))
+        <$> chooseInt (2, 5)
+    ]
     ]
   where
     -- \| @renderName (mkName (Just q) NameVarSym op) == q <> "." <> op@ must not
@@ -171,6 +180,15 @@ genNameQuoteName =
     notDotLikeForQualifiedOp :: Text -> Bool
     notDotLikeForQualifiedOp op =
       not (T.null op) && not (".." `T.isInfixOf` op) && not ("." `T.isPrefixOf` op)
+
+genTypeNameQuoteType :: Gen Type
+genTypeNameQuoteType =
+  oneof
+    [ TCon <$> genTypeNameQuote <*> pure Unpromoted,
+      pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted),
+      pure (TTuple Boxed Unpromoted []),
+      pure (TTuple Unboxed Unpromoted [])
+    ]
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,
@@ -189,7 +207,8 @@ genTypeNameQuote :: Gen Name
 genTypeNameQuote =
   oneof
     [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genVarSym
+      -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genOperator (/= "*")
     ]
 
 genOperatorName :: Gen Name
@@ -224,6 +243,24 @@ genCaseAltWith allowTHQuotes n = do
       { caseAltAnns = [],
         caseAltPattern = pat,
         caseAltRhs = rhs
+      }
+  where
+    half = n `div` 2
+
+genLambdaCaseAltsWith :: Bool -> Int -> Gen [LambdaCaseAlt]
+genLambdaCaseAltsWith allowTHQuotes n = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genLambdaCaseAltWith allowTHQuotes n)
+
+genLambdaCaseAltWith :: Bool -> Int -> Gen LambdaCaseAlt
+genLambdaCaseAltWith allowTHQuotes n = do
+  pats <- genPatterns half
+  rhs <- genRhsWith allowTHQuotes half
+  pure $
+    LambdaCaseAlt
+      { lambdaCaseAltAnns = [],
+        lambdaCaseAltPats = pats,
+        lambdaCaseAltRhs = rhs
       }
   where
     half = n `div` 2
@@ -624,6 +661,8 @@ shrinkExpr expr =
       body : [ELambdaPats pats body' | body' <- shrinkExpr body]
     ELambdaCase alts ->
       [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+    ELambdaCases alts ->
+      [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
     ELetDecls decls body ->
       body
         : [ELetDecls decls body' | body' <- shrinkExpr body]
@@ -686,6 +725,9 @@ shrinkExpr expr =
 shrinkCaseAlts :: [CaseAlt] -> [[CaseAlt]]
 shrinkCaseAlts = shrinkList shrinkCaseAlt
 
+shrinkLambdaCaseAlts :: [LambdaCaseAlt] -> [[LambdaCaseAlt]]
+shrinkLambdaCaseAlts = shrinkList shrinkLambdaCaseAlt
+
 shrinkCaseAlt :: CaseAlt -> [CaseAlt]
 shrinkCaseAlt alt =
   case caseAltRhs alt of
@@ -695,6 +737,15 @@ shrinkCaseAlt alt =
       -- Shrink to unguarded using the first guard's body
       [alt {caseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
         <> [alt {caseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+
+shrinkLambdaCaseAlt :: LambdaCaseAlt -> [LambdaCaseAlt]
+shrinkLambdaCaseAlt alt =
+  case lambdaCaseAltRhs alt of
+    UnguardedRhs _ expr _ ->
+      [alt {lambdaCaseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
+    GuardedRhss _ rhss _ ->
+      [alt {lambdaCaseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
+        <> [alt {lambdaCaseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
 shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
 shrinkGuardedRhs grhs =

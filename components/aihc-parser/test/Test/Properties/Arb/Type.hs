@@ -313,6 +313,10 @@ shrinkType ty =
       [lhs, rhs]
         <> [TFun lhs' rhs | lhs' <- shrinkType lhs]
         <> [TFun lhs rhs' | rhs' <- shrinkType rhs]
+    TInfix lhs op promoted rhs ->
+      [lhs, rhs]
+        <> [TInfix lhs' op promoted rhs | lhs' <- shrinkType lhs]
+        <> [TInfix lhs op promoted rhs' | rhs' <- shrinkType rhs]
     TTuple tupleFlavor _ elems ->
       shrinkTypeTupleElems tupleFlavor elems
     TList _ elems ->

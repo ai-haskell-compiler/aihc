@@ -90,6 +90,7 @@ isBlockExpr = \case
   EDo {} -> True
   ELambdaPats {} -> True
   ELambdaCase {} -> True
+  ELambdaCases {} -> True
   ELetDecls {} -> True
   _ -> False
 
@@ -101,6 +102,7 @@ isGreedyExpr = \case
   EIf {} -> True
   ELambdaPats {} -> True
   ELambdaCase {} -> True
+  ELambdaCases {} -> True
   ELetDecls {} -> True
   EDo {} -> True
   EProc {} -> True
@@ -119,6 +121,7 @@ isBracedExpr = \case
   ECase {} -> True
   EDo {} -> True
   ELambdaCase {} -> True
+  ELambdaCases {} -> True
   _ -> False
 
 -- | Check if an expression is "open-ended" - its rightmost component can
@@ -128,6 +131,7 @@ isOpenEnded = \case
   EAnn _ sub -> isOpenEnded sub
   EIf {} -> True
   ELambdaPats {} -> True
+  ELambdaCases {} -> True
   ELetDecls {} -> True
   EProc {} -> True
   EInfix _ _ rhs -> isOpenEnded rhs
@@ -208,6 +212,7 @@ needsExprParens ctx expr =
         ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
+        ELambdaCases {} -> True
         _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
 
@@ -305,6 +310,7 @@ needsTypeParens ctx ty =
         TParen {} -> False
         TKindSig {} -> False
         TWildcard {} -> False
+        TInfix {} -> True
         _ -> True
     CtxKindSig ->
       case ty of
@@ -684,8 +690,8 @@ addExprParensPrec prec expr =
     ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
     ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
     ETHPatQuote pat -> ETHPatQuote (addPatternParens pat)
-    ETHNameQuote {} -> expr
-    ETHTypeNameQuote {} -> expr
+    ETHNameQuote body -> ETHNameQuote (addExprParens body)
+    ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
     ETHSplice body -> ETHSplice (addSpliceBodyParens body)
     ETHTypedSplice body -> ETHTypedSplice (addSpliceBodyParens body)
     EIf cond yes no ->
@@ -698,6 +704,8 @@ addExprParensPrec prec expr =
       wrapExpr (prec > 0) (ELambdaPats (map addLambdaPatternAtomParens pats) (addExprParens body))
     ELambdaCase alts ->
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
+    ELambdaCases alts ->
+      wrapExpr (prec > 0) (ELambdaCases (map addLambdaCaseAltParens alts))
     EInfix lhs op rhs
       | isArrowTailOp (renderName op) ->
           -- Arrow tail operators always parenthesized, LHS also parenthesized
@@ -810,6 +818,14 @@ addCaseAltParens :: CaseAlt -> CaseAlt
 addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addPatternParens pat) (addCaseAltRhsParens rhs)
 
+addLambdaCaseAltParens :: LambdaCaseAlt -> LambdaCaseAlt
+addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
+  let pats' = case pats of
+        [] -> []
+        [_] -> map addFunctionHeadPatternAtomParens pats
+        _ -> map addPatternAtomParens pats
+   in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
+
 addCaseAltRhsParens :: Rhs -> Rhs
 addCaseAltRhsParens rhs =
   case rhs of
@@ -890,6 +906,8 @@ addTypeParensShared ctx prec ty =
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
               TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
+        TInfix lhs op promoted rhs ->
+          wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
         TApp f x ->
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
         TFun a b ->

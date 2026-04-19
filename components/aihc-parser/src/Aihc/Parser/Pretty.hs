@@ -450,6 +450,11 @@ prettyType ty =
             <+> (if promoted == Promoted then "'" else mempty)
             <> prettyNameInfixOp op
             <+> prettyType rhs
+    TInfix lhs op promoted rhs ->
+      prettyType lhs
+        <+> (if promoted == Promoted then "'" else mempty)
+        <> prettyNameInfixOp op
+        <+> prettyType rhs
     TApp f x ->
       prettyType f <+> prettyType x
     TFun a b ->
@@ -1130,12 +1135,8 @@ prettyExpr expr =
     ETHDeclQuote decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
-    ETHNameQuote name
-      | thNameQuoteNeedsParens name -> "'" <> parens (pretty name)
-      | otherwise -> "'" <> pretty name
-    ETHTypeNameQuote name
-      | isOperatorName name -> "''" <> parens (pretty name)
-      | otherwise -> "''" <> pretty name
+    ETHNameQuote body -> "'" <> prettyExpr body
+    ETHTypeNameQuote ty -> "''" <> prettyType ty
     ETHSplice body -> "$" <> prettyExpr body
     ETHTypedSplice body -> "$$" <> prettyExpr body
     EIf cond yes no ->
@@ -1155,6 +1156,8 @@ prettyExpr expr =
       "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExpr body
     ELambdaCase alts ->
       "\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}"
+    ELambdaCases alts ->
+      "\\" <> "cases" <+> "{" <+> hsep (punctuate semi (map prettyLambdaCaseAlt alts)) <+> "}"
     EInfix lhs op rhs ->
       prettyExpr lhs <+> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
@@ -1261,6 +1264,27 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
         ]
         <> prettyWhereClause whereDecls
 
+prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
+prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
+  case rhs of
+    UnguardedRhs _ body whereDecls ->
+      hsep (map prettyPattern pats)
+        <+> "->"
+        <+> prettyExpr body
+        <> prettyWhereClause whereDecls
+    GuardedRhss _ grhss whereDecls ->
+      hsep
+        [ hsep (map prettyPattern pats),
+          hsep
+            [ "|"
+                <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                <+> "->"
+                <+> prettyExpr (guardedRhsBody grhs)
+            | grhs <- grhss
+            ]
+        ]
+        <> prettyWhereClause whereDecls
+
 prettyGuardQualifier :: GuardQualifier -> Doc ann
 prettyGuardQualifier qualifier =
   case qualifier of
@@ -1348,18 +1372,6 @@ quoted txt = pretty (show (T.unpack txt))
 
 prettyQuasiQuote :: Text -> Text -> Doc ann
 prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]"
-
-isOperatorName :: Name -> Bool
-isOperatorName name =
-  let ty = nameType name
-   in ty == NameVarSym || ty == NameConSym
-
--- | Whether a TH value name quote @'...@ must wrap its payload in parentheses.
---
--- Unqualified operators need @'(+), ...@. Qualified operators such as @P.+@
--- must be written @'(P.+), ...@ because @'P.+@ is not a single lexeme.
-thNameQuoteNeedsParens :: Name -> Bool
-thNameQuoteNeedsParens = isOperatorName
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers

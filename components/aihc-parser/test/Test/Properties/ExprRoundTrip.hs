@@ -23,13 +23,14 @@ import Text.Megaparsec.Error qualified as MPE
 exprConfig :: ParserConfig
 exprConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments, LambdaCase]
     }
 
 prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      expected = normalizeExpr (addExprParens expr)
+  let parenthesized = addExprParens expr
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+      expected = normalizeExpr parenthesized
    in assertCtorCoverage ["EAnn"] expr $
         counterexample (T.unpack source) $
           case parseExpr exprConfig source of
@@ -41,7 +42,7 @@ prop_exprPrettyRoundTrip expr =
 
 test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote :: Assertion
 test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote =
-  let expr = EAnn (mkAnnotation span0) (ETHNameQuote (mkName (Just "H3xVBC.NB.Y") NameVarSym "‼."))
+  let expr = EAnn (mkAnnotation span0) (ETHNameQuote (EVar (mkName (Just "H3xVBC.NB.Y") NameVarSym "‼.")))
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr (addExprParens expr)
    in case parseExpr exprConfig source of
