@@ -434,7 +434,7 @@ prettyType ty =
           base
             | isSymbolicTypeName name = parens (pretty rendered)
             | otherwise = pretty rendered
-       in if promoted == Promoted then "'" <> base else base
+       in if promoted == Promoted then "' " <> base else base
     TImplicitParam name inner -> pretty name <+> "::" <+> prettyType inner
     TTypeLit lit -> prettyTypeLiteral lit
     TStar -> "*"
