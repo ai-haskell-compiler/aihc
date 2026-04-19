@@ -629,8 +629,18 @@ derivingPart (DerivingClause strategy classes viaTy parenthesized) =
     classesPart [] = ["()"]
     classesPart [single]
       | parenthesized = [parens (prettyType single)]
+      | needsParens single = [parens (prettyType single)]
       | otherwise = [prettyType single]
     classesPart _ = [parens (hsep (punctuate comma (map prettyType classes)))]
+
+    needsParens TKindSig {} = True
+    needsParens TForall {} = True
+    needsParens TContext {} = True
+    needsParens TFun {} = True
+    needsParens TUnboxedSum {} = True
+    needsParens TTuple {} = True
+    needsParens TQuasiQuote {} = True
+    needsParens _ = False
 
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]

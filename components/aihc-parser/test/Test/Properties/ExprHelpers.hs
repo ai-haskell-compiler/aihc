@@ -486,10 +486,38 @@ normalizeDerivingClause :: DerivingClause -> DerivingClause
 normalizeDerivingClause dc =
   DerivingClause
     { derivingStrategy = derivingStrategy dc,
-      derivingClasses = map normalizeType (derivingClasses dc),
+      derivingClasses = normalizedClasses,
       derivingViaType = fmap normalizeType (derivingViaType dc),
-      derivingParenthesized = derivingParenthesized dc
+      derivingParenthesized = normalizedParenthesized
     }
+  where
+    normalizedClasses :: [Type]
+    normalizedClasses = map normalizeDerivingClass (derivingClasses dc)
+
+    normalizeDerivingClass :: Type -> Type
+    normalizeDerivingClass = normalizeType . stripAllParens
+      where
+        stripAllParens (TParen t) = stripAllParens t
+        stripAllParens t = t
+
+    normalizedParenthesized :: Bool
+    normalizedParenthesized
+      | length normalizedClasses > 1 = True
+      | [single] <- normalizedClasses = needsParensInDeriving single
+      | otherwise = False
+
+    needsParensInDeriving :: Type -> Bool
+    needsParensInDeriving TKindSig {} = True
+    needsParensInDeriving TForall {} = True
+    needsParensInDeriving TContext {} = True
+    needsParensInDeriving TFun {} = True
+    needsParensInDeriving TUnboxedSum {} = True
+    needsParensInDeriving TSplice {} = True
+    needsParensInDeriving (TApp _ _) = True
+    needsParensInDeriving TList {} = True
+    needsParensInDeriving TTuple {} = True
+    needsParensInDeriving TQuasiQuote {} = True
+    needsParensInDeriving _ = False
 
 normalizeClassDecl :: ClassDecl -> ClassDecl
 normalizeClassDecl decl =

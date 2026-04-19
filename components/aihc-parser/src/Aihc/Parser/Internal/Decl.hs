@@ -12,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (contextItemsParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
@@ -1367,12 +1367,55 @@ derivingClauseParser = do
   pure (DerivingClause strategy classes viaTy parenthesized)
   where
     singleClass = (\c -> ([c], False)) <$> derivingClassParser
-    parenClasses = fmap (,True) $ parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+    parenClasses = fmap (\cs -> (map stripTParen cs, True)) $ parens $ derivingClassParser `MP.sepEndBy` expectedTok TkSpecialComma
 
-    derivingClassParser = do
+    stripTParen (TParen t) = t
+    stripTParen t = t
+
+    derivingClassParser = derivingForallTypeParser <|> derivingKindSigTypeParser <|> derivingContextOrFunTypeParser
+
+    derivingForallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
+      telescope <- forallTelescopeParser
+      TForall telescope <$> derivingClassParser
+
+    derivingKindSigTypeParser = do
+      ty <- derivingContextOrFunTypeParser
+      mKind <- MP.optional (expectedTok TkReservedDoubleColon *> derivingClassParser)
+      pure $
+        case mKind of
+          Just kind -> TKindSig ty kind
+          Nothing -> ty
+
+    derivingContextOrFunTypeParser = do
+      isContextType <- startsWithContextType
+      if isContextType then derivingContextTypeParser else derivingTypeFunParser
+
+    derivingContextTypeParser = do
+      constraints <- contextItemsParser
+      expectedTok TkReservedDoubleArrow
+      TContext constraints <$> derivingClassParser
+
+    derivingTypeFunParser = do
+      lhs <- derivingTypeInfixParser
+      mRhs <- MP.optional (expectedTok TkReservedRightArrow *> derivingClassParser)
+      pure $
+        case mRhs of
+          Just rhs -> TFun lhs rhs
+          Nothing -> lhs
+
+    derivingTypeInfixParser = do
+      lhs <- derivingTypeAppParser
+      rest <- MP.many ((,) <$> typeInfixOperatorParser <*> derivingTypeAppParser)
+      pure (foldl buildInfixType lhs rest)
+
+    derivingTypeAppParser = do
       first <- typeAtomParser
       rest <- MP.many (MP.notFollowedBy (varIdTok "via") *> typeAtomParser)
       pure (foldl TApp first rest)
+
+    buildInfixType lhs ((op, promoted), rhs) =
+      let opType = TCon op promoted
+       in TApp (TApp opType lhs) rhs
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do

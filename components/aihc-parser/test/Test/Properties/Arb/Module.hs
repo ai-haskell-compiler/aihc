@@ -459,7 +459,7 @@ shrinkSymbolicName txt =
   filter (not . T.null) $
     shrinkList noShrink (T.unpack txt) >>= \chars ->
       let candidate = T.pack chars
-        in [candidate | isValidGeneratedVarSym candidate]
+       in [candidate | isValidGeneratedVarSym candidate]
   where
     noShrink _ = []
 

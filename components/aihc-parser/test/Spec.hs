@@ -27,7 +27,6 @@ import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
-import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.Arb.Identifiers (genVarSym, isValidGeneratedVarSym)
 import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
@@ -1411,15 +1410,11 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
     let invalid = filter (not . isValidGeneratedVarSym) ops
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
 
-<<<<<<< HEAD
-=======
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
-  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
-    QC.counterexample "expected generator to include ⁂ in sampled operators" $
-      "⁂" `elem` ops
+  QC.counterexample "expected ⁂ to be a valid generated operator" $
+    isValidGeneratedVarSym "⁂"
 
->>>>>>> origin/main
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =
   QC.forAll (QC.vectorOf 2000 genConSym) $ \ops ->

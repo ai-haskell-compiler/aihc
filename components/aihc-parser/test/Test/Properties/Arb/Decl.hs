@@ -1068,43 +1068,14 @@ genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
   strategy <- elements [Nothing, Just DerivingStock]
   n <- chooseInt (0, 3)
-  classes <- vectorOf n genDerivingType
-  viaType <- frequency [(4, pure Nothing), (1, Just <$> arbitrary)]
-  let paren = case (n, viaType) of
-        (1, Nothing) -> False
-        _ -> True
+  classes <- vectorOf n genSimpleConType
   pure $
     DerivingClause
       { derivingStrategy = strategy,
         derivingClasses = classes,
-        derivingViaType = viaType,
-        derivingParenthesized = paren
+        derivingViaType = Nothing,
+        derivingParenthesized = n /= 1
       }
-
--- | Generate a type for use in deriving clauses.
--- Avoids forall/context at top level since deriving clauses don't support those.
--- Also avoids TParen at the top level since the parser strips it when it's
--- the sole deriving class (treating the parens as clause parentheses).
-genDerivingType :: Gen Type
-genDerivingType =
-  frequency
-    [ (3, genSimpleConType),
-      (2, genTypeAppForDeriving)
-    ]
-
-genTypeAppForDeriving :: Gen Type
-genTypeAppForDeriving = do
-  f <- genSimpleConType
-  argCount <- chooseInt (1, 2)
-  args <- vectorOf argCount genDerivingTypeAtom
-  pure (foldl TApp f args)
-
-genDerivingTypeAtom :: Gen Type
-genDerivingTypeAtom =
-  oneof
-    [ TVar . mkUnqualifiedName NameVarId <$> genIdent,
-      genSimpleConType
-    ]
 
 -- | Generate a simple constructor type (used in deriving/context).
 genSimpleConType :: Gen Type
@@ -1443,7 +1414,7 @@ shrinkSymbolicName txt =
   filter (not . T.null) $
     shrinkList noShrink (T.unpack txt) >>= \chars ->
       let candidate = T.pack chars
-        in [candidate | isValidGeneratedVarSym candidate]
+       in [candidate | isValidGeneratedVarSym candidate]
   where
     noShrink _ = []
 

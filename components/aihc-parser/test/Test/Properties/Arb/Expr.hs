@@ -20,10 +20,10 @@ import Test.Properties.Arb.Identifiers
     genFieldName,
     genIdent,
     genModuleQualifier,
-    genVarSym,
     genOptionalQualifier,
     genStringValue,
     genTenths,
+    genVarSym,
     showHex,
     shrinkFloat,
     shrinkIdent,
@@ -163,7 +163,7 @@ genNameQuoteExpr =
         EVar . mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        op <- genOperator `suchThat` notDotLikeForQualifiedOp
+        op <- genVarSym `suchThat` notDotLikeForQualifiedOp
         pure (EVar (mkName (Just qual) NameVarSym op)),
       pure (EList []),
       pure (ETuple Boxed []),
@@ -172,7 +172,6 @@ genNameQuoteExpr =
         <$> chooseInt (2, 5),
       (\n -> ETuple Unboxed (replicate n Nothing))
         <$> chooseInt (2, 5)
-    ]
     ]
   where
     -- \| @renderName (mkName (Just q) NameVarSym op) == q <> "." <> op@ must not
@@ -208,7 +207,7 @@ genTypeNameQuote =
   oneof
     [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
       -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genOperator (/= "*")
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genVarSym (/= "*")
     ]
 
 genOperatorName :: Gen Name
