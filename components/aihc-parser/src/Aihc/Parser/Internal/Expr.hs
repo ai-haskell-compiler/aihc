@@ -3,6 +3,7 @@
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
+    atomExprParser,
     equationRhsParser,
     -- Re-exports from Pattern
     simplePatternParser,
@@ -500,9 +501,6 @@ parenOperatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   op <- operatorExprNameParser
   expectedTok TkSpecialRParen
   pure (EVar op)
-
-operatorExprParser :: TokParser Expr
-operatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ EVar <$> operatorExprNameParser
 
 operatorExprNameParser :: TokParser Name
 operatorExprNameParser =
@@ -1082,34 +1080,12 @@ thPatQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  ETHSplice <$> thSpliceBody
+  ETHSplice <$> atomExprParser
 
 thTypedSpliceParser :: TokParser Expr
 thTypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypedSplice
-  ETHTypedSplice <$> thSpliceBody
-
-thSpliceBody :: TokParser Expr
-thSpliceBody =
-  MP.try parenOperatorSpliceBody <|> parenExprSpliceBody <|> bareSpliceBody
-  where
-    parenOperatorSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens (MP.try operatorExprParser <|> exprParser)
-      case peelExprAnn body of
-        EVar name | isSymbolicOperatorName name -> pure (EParen body)
-        _ -> fail "expected symbolic operator splice body"
-    parenExprSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens exprParser
-      pure (EParen body)
-    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      EVar <$> identifierNameParser
-
-    isSymbolicOperatorName :: Name -> Bool
-    isSymbolicOperatorName name =
-      case nameType name of
-        NameVarSym -> True
-        NameConSym -> True
-        _ -> False
+  ETHTypedSplice <$> atomExprParser
 
 thNameQuoteExprParser :: TokParser Expr
 thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser

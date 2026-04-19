@@ -530,7 +530,7 @@ prettyPattern pat =
               )
           )
     PTypeSig inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
-    PSplice body -> prettyExprSplice "$" body
+    PSplice body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
@@ -1130,8 +1130,8 @@ prettyExpr expr =
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote body -> "'" <> prettyExpr body
     ETHTypeNameQuote ty -> "''" <> prettyType ty
-    ETHSplice body -> prettyExprSplice "$" body
-    ETHTypedSplice body -> prettyExprSplice "$$" body
+    ETHSplice body -> "$" <> prettyExpr body
+    ETHTypedSplice body -> "$$" <> prettyExpr body
     EIf cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no
     EMultiWayIf rhss ->
@@ -1223,11 +1223,6 @@ prettyExpr expr =
     EProc pat body ->
       "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
     EAnn _ sub -> prettyExpr sub
-
-prettyExprSplice :: Doc ann -> Expr -> Doc ann
-prettyExprSplice prefix body =
-  case peelExprAnn body of
-    _ -> prefix <> prettyExpr body
 
 isOperatorExpr :: Expr -> Bool
 isOperatorExpr expr =

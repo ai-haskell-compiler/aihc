@@ -13,6 +13,7 @@ import Aihc.Parser.Syntax (Decl, Expr, Rhs)
 
 -- | Parse a full expression
 exprParser :: TokParser Expr
+atomExprParser :: TokParser Expr
 
 -- | Parse an expression without consuming arrow tail operators.
 -- Used in command contexts where -< / -<< should be left for the command parser.

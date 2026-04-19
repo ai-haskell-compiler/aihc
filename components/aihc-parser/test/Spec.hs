@@ -2563,7 +2563,7 @@ test_funHeadInfixThSpliceLhs =
 test_funHeadPrefixThOperatorSplicePattern :: Assertion
 test_funHeadPrefixThOperatorSplicePattern =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(*) = ()" of
-    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EParen (EVar_ "*"))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EVar_ "*")], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
     other -> assertFailure ("expected TH operator splice pattern in prefix function bind, got: " <> show other)
 
 test_funHeadPrefixThNegativeSplicePattern :: Assertion
