@@ -2,6 +2,7 @@
 
 module Aihc.Parser.Internal.Type
   ( typeParser,
+    derivingClassTypeParser,
     forallTelescopeParser,
     typeInfixParser,
     typeInfixOperatorParser,
@@ -40,26 +41,35 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
 
 typeParser :: TokParser Type
-typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
+typeParser = typeParserWith (pure ())
 
-kindSigTypeParser :: TokParser Type
-kindSigTypeParser = do
-  ty <- contextOrFunTypeParser
-  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+-- | Parse a type in a deriving clause, stopping a type-application spine
+-- before a trailing @via@ keyword so that @deriving C via T@ parses as the
+-- class @C@ with a @via@ type, not as the type application @C via@.
+derivingClassTypeParser :: TokParser Type
+derivingClassTypeParser = typeParserWith (MP.notFollowedBy (varIdTok "via"))
+
+typeParserWith :: TokParser () -> TokParser Type
+typeParserWith continueTypeApp = label "type" $ forallTypeParserWith continueTypeApp <|> kindSigTypeParserWith continueTypeApp
+
+kindSigTypeParserWith :: TokParser () -> TokParser Type
+kindSigTypeParserWith continueTypeApp = do
+  ty <- contextOrFunTypeParserWith continueTypeApp
+  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith continueTypeApp)
   pure $
     case mKind of
       Just kind -> TKindSig ty kind
       Nothing -> ty
 
-contextOrFunTypeParser :: TokParser Type
-contextOrFunTypeParser = do
+contextOrFunTypeParserWith :: TokParser () -> TokParser Type
+contextOrFunTypeParserWith continueTypeApp = do
   isContextType <- startsWithContextType
-  if isContextType then contextTypeParser else typeFunParser
+  if isContextType then contextTypeParserWith continueTypeApp else typeFunParserWith continueTypeApp
 
-forallTypeParser :: TokParser Type
-forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
+forallTypeParserWith :: TokParser () -> TokParser Type
+forallTypeParserWith continueTypeApp = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeParser
+  TForall telescope <$> typeParserWith continueTypeApp
 
 forallTelescopeParser :: TokParser ForallTelescope
 forallTelescopeParser = do
@@ -100,28 +110,31 @@ forallBinderNameParser =
   lowerIdentifierParser
     <|> (expectedTok TkKeywordUnderscore $> "_")
 
-contextTypeParser :: TokParser Type
-contextTypeParser = do
-  constraints <- contextItemsParser
+contextTypeParserWith :: TokParser () -> TokParser Type
+contextTypeParserWith continueTypeApp = do
+  constraints <- contextItemsParserWith (typeParserWith continueTypeApp) typeAtomParser
   expectedTok TkReservedDoubleArrow
-  TContext constraints <$> typeParser
+  TContext constraints <$> typeParserWith continueTypeApp
 
 contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
-typeFunParser :: TokParser Type
-typeFunParser = do
-  lhs <- typeInfixParser
-  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParser)
+typeFunParserWith :: TokParser () -> TokParser Type
+typeFunParserWith continueTypeApp = do
+  lhs <- typeInfixParserWith continueTypeApp
+  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParserWith continueTypeApp)
   pure $
     case mRhs of
       Just rhs -> TFun lhs rhs
       Nothing -> lhs
 
 typeInfixParser :: TokParser Type
-typeInfixParser = do
-  lhs <- typeAppParser
-  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
+typeInfixParser = typeInfixParserWith (pure ())
+
+typeInfixParserWith :: TokParser () -> TokParser Type
+typeInfixParserWith continueTypeApp = do
+  lhs <- typeAppParserWith continueTypeApp
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParserWith continueTypeApp)
   pure (foldl buildInfixType lhs rest)
 
 -- | Parse a type head that may contain infix operators but NOT type applications.
@@ -193,9 +206,12 @@ typeInfixOperatorParser =
           _ -> Nothing
 
 typeAppParser :: TokParser Type
-typeAppParser = do
+typeAppParser = typeAppParserWith (pure ())
+
+typeAppParserWith :: TokParser () -> TokParser Type
+typeAppParserWith continueTypeApp = do
   first <- typeAtomParser
-  rest <- MP.many typeAtomParser
+  rest <- MP.many (continueTypeApp *> typeAtomParser)
   pure (foldl buildTypeApp first rest)
 
 buildTypeApp :: Type -> Type -> Type
@@ -340,7 +356,7 @@ typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do
   case mClosed of
     Just () -> pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
     Nothing -> do
-      elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
+      elems <- typeParserWith (pure ()) `MP.sepBy1` expectedTok TkSpecialComma
       expectedTok TkSpecialRBracket
       pure (TList Unpromoted elems)
 
@@ -367,8 +383,8 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
       pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
-      first <- typeParser
-      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParser) else pure Nothing
+      first <- typeParserWith (pure ())
+      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParserWith (pure ())) else pure Nothing
       case mKind of
         Just kind -> do
           expectedTok closeTok
@@ -382,7 +398,7 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
               case mPipe of
                 Just () -> do
                   -- (# Type1 | Type2 | ... #) - unboxed sum type
-                  rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
+                  rest <- typeParserWith (pure ()) `MP.sepBy1` expectedTok TkReservedPipe
                   expectedTok closeTok
                   pure (TUnboxedSum (first : rest))
                 Nothing -> do
@@ -391,8 +407,8 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
                     then pure (TParen first)
                     else fail "not an unboxed tuple type"
             Just () -> do
-              second <- typeParser
-              more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+              second <- typeParserWith (pure ())
+              more <- MP.many (expectedTok TkSpecialComma *> typeParserWith (pure ()))
               expectedTok closeTok
               pure (TTuple tupleFlavor Unpromoted (first : second : more))
 
