@@ -247,6 +247,9 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "parses symbolic traditional type data constructors" test_symbolicTypeDataConstructorParses,
+            testCase "parses symbolic traditional type data head and constructor" test_symbolicTypeDataHeadAndConstructorParses,
+            testCase "parses infix traditional type data constructors" test_infixTypeDataConstructorParses,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses top-level kind signatures on type literals" test_typeParsesTopLevelKindSignatureOnTypeLiteral,
@@ -372,6 +375,7 @@ buildTests = do
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
             testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
+            testCase "symbolic type application parenthesizes context arguments" test_symbolicTypeApplicationContextArgRoundTrip,
             testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
             testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens,
             testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
@@ -502,6 +506,46 @@ test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens =
       let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
        in assertEqual "pretty-printed declaration" "type UTF8 = \"UTF8\" :: NameStyle" source
     other -> assertFailure ("expected parse success, got: " <> show other)
+
+test_symbolicTypeDataConstructorParses :: Assertion
+test_symbolicTypeDataConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeData]} "type data T = (:**)" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data T = (:**)" source
+      case peelDataConAnn ctor of
+        PrefixCon [] [] name []
+          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
+        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected symbolic type data constructor to parse, got: " <> show other)
+
+test_symbolicTypeDataHeadAndConstructorParses :: Assertion
+test_symbolicTypeDataHeadAndConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TemplateHaskell, TypeData]} "type data (:*) = (:**)" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclHeadForm = TypeHeadPrefix, dataDeclName, dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data (:*) = (:**)" source
+      assertEqual "type data head" (mkUnqualifiedName NameConSym ":*") dataDeclName
+      case peelDataConAnn ctor of
+        PrefixCon [] [] name []
+          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
+        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected symbolic type data head and constructor to parse, got: " <> show other)
+
+test_infixTypeDataConstructorParses :: Assertion
+test_infixTypeDataConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeData]} "type data T = A :** B" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data T = A :** B" source
+      case peelDataConAnn ctor of
+        InfixCon [] [] lhs op rhs
+          | op == mkUnqualifiedName NameConSym ":**",
+            stripTypeAnnotations (bangType lhs) == TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Unpromoted,
+            stripTypeAnnotations (bangType rhs) == TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted ->
+              pure ()
+        other -> assertFailure ("expected infix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected infix type data constructor to parse, got: " <> show other)
 
 test_typeParsesEmptyListConstructor :: Assertion
 test_typeParsesEmptyListConstructor =
@@ -2034,6 +2078,16 @@ test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
       normalizeDecl parsed @?= normalizeDecl decl
     ParseErr err ->
       assertFailure ("expected infix type family instance with bare applications to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_symbolicTypeApplicationContextArgRoundTrip :: Assertion
+test_symbolicTypeApplicationContextArgRoundTrip = do
+  let op = qualifyName (Just "M") (mkUnqualifiedName NameConSym ":+")
+      aPromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Promoted
+      aUnpromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Unpromoted
+      rhs = TContext [aUnpromoted] (TTypeLit (TypeLitChar '9' "'9'"))
+      ty = TApp (TApp (TCon op Promoted) aPromoted) rhs
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
+  assertEqual "pretty-printed type" "' (M.:+) ' A (A => '9')" source
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =

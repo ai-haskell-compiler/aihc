@@ -20,6 +20,7 @@ import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConId,
     genConSym,
+    genConUnqualifiedName,
     genFieldName,
     genVarId,
     genVarSym,
@@ -72,12 +73,13 @@ genDecl =
 
 genDeclValue :: Gen Decl
 genDeclValue =
-  oneof
-    [ genFunctionValueDecl,
-      genPatternValueDecl
-    ]
+  DeclValue
+    <$> oneof
+      [ genFunctionValueDecl,
+        genPatternValueDecl
+      ]
 
-genFunctionValueDecl :: Gen Decl
+genFunctionValueDecl :: Gen ValueDecl
 genFunctionValueDecl = do
   name <- genVarUnqualifiedName
   rhs <- genRhsWith False
@@ -86,39 +88,37 @@ genFunctionValueDecl = do
         patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (scale (min 3) genPattern)
         pure $
-          DeclValue
-            ( FunctionBind
-                name
-                [ Match
-                    { matchAnns = [],
-                      matchHeadForm = MatchHeadPrefix,
-                      matchPats = pats,
-                      matchRhs = rhs
-                    }
-                ]
-            ),
+          ( FunctionBind
+              name
+              [ Match
+                  { matchAnns = [],
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = pats,
+                    matchRhs = rhs
+                  }
+              ]
+          ),
       do
         lhsPat <- genPattern
         rhsPat <- scale (min 3) genPattern
         extraCount <- chooseInt (0, 2)
         extraPats <- vectorOf extraCount (scale (min 3) genPattern)
         pure $
-          DeclValue
-            ( FunctionBind
-                name
-                [ Match
-                    { matchAnns = [],
-                      matchHeadForm = MatchHeadInfix,
-                      matchPats = [lhsPat, rhsPat] <> extraPats,
-                      matchRhs = rhs
-                    }
-                ]
-            )
+          ( FunctionBind
+              name
+              [ Match
+                  { matchAnns = [],
+                    matchHeadForm = MatchHeadInfix,
+                    matchPats = [lhsPat, rhsPat] <> extraPats,
+                    matchRhs = rhs
+                  }
+              ]
+          )
     ]
 
-genPatternValueDecl :: Gen Decl
+genPatternValueDecl :: Gen ValueDecl
 genPatternValueDecl =
-  DeclValue <$> (PatternBind <$> genPattern <*> genRhsWith False)
+  PatternBind <$> genPattern <*> genRhsWith False
 
 genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = do
@@ -130,7 +130,7 @@ genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
   names <- vectorOf nameCount genVarUnqualifiedName
-  DeclTypeSig names <$> scale (min 6) genType
+  DeclTypeSig names <$> genType
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
@@ -142,26 +142,26 @@ genDeclFixity = do
 
 genDeclRoleAnnotation :: Gen Decl
 genDeclRoleAnnotation = do
-  name <- genConId
+  name <- genConUnqualifiedName
   n <- chooseInt (0, 3)
   roles <- vectorOf n (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
   pure $
     DeclRoleAnnotation
       RoleAnnotation
-        { roleAnnotationName = mkUnqualifiedName NameConId name,
+        { roleAnnotationName = name,
           roleAnnotationRoles = roles
         }
 
 genDeclTypeSyn :: Gen Decl
 genDeclTypeSyn = do
-  name <- genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
-  body <- genSimpleType
+  body <- genType
   pure $
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadPrefix,
-          typeSynName = mkUnqualifiedName NameConId name,
+          typeSynName = name,
           typeSynParams = params,
           typeSynBody = body
         }
@@ -171,17 +171,17 @@ genDeclTypeSyn = do
 -- (e.g. @type a \`Plus\` b = (a, b)@).
 genDeclTypeSynInfix :: Gen Decl
 genDeclTypeSynInfix = do
-  name <- oneof [genConSym, genConId]
+  name <- genConUnqualifiedName
   lhsName <- genVarId
   rhsName <- genVarId
   let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
       rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
-  body <- genSimpleType
+  body <- genType
   pure $
     DeclTypeSyn
       TypeSynDecl
         { typeSynHeadForm = TypeHeadInfix,
-          typeSynName = unqualifiedNameFromText name,
+          typeSynName = name,
           typeSynParams = [lhs, rhs],
           typeSynBody = body
         }
@@ -196,7 +196,7 @@ genDeclData =
 
 genDeclDataGadt :: Gen Decl
 genDeclDataGadt = do
-  name <- mkUnqualifiedName NameConId <$> genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctors <- genGadtDataCons
   pure $
@@ -216,7 +216,7 @@ genDeclDataGadt = do
 -- and backtick-wrapped identifiers (e.g. @data (f \`Dot\` g) x = ...@).
 genDeclDataInfix :: Gen Decl
 genDeclDataInfix = do
-  name <- oneof [mkUnqualifiedName NameConSym <$> genConSym, mkUnqualifiedName NameConId <$> genConId]
+  name <- genConUnqualifiedName
   lhsName <- genVarId
   rhsName <- genVarId
   extraCount <- chooseInt (0, 2)
@@ -243,7 +243,7 @@ genDeclTypeData = genDeclTypeDataPrefix
 
 genDeclTypeDataPrefix :: Gen Decl
 genDeclTypeDataPrefix = do
-  name <- mkUnqualifiedName NameConId <$> genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctors <- genTypeDataCons
   pure $
@@ -264,7 +264,7 @@ genTypeDataCons = do
   vectorOf n genTypeDataCon
   where
     genTypeDataCon = do
-      conName <- mkUnqualifiedName NameConId <$> genConId
+      conName <- genConUnqualifiedName
       n <- chooseInt (0, 3)
       -- Type data constructors don't support strictness annotations
       fields <- vectorOf n genNonStrictBangType

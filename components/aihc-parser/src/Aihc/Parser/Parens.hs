@@ -900,8 +900,11 @@ addTypeParensShared ctx prec ty =
             )
         tyInfix
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
-              -- Infix type operator: args are treated as atoms
-              TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
+              -- Prefix application of a symbolic type constructor still obeys
+              -- normal type-application precedence. In particular, an operand
+              -- like @A => B@ must stay parenthesized so it is not re-parsed as
+              -- an outer context.
+              TApp (TApp op (addTypeIn CtxTypeAppArg lhs)) (addTypeIn CtxTypeAppArg rhs)
         TInfix lhs op promoted rhs ->
           wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
         TApp f x ->

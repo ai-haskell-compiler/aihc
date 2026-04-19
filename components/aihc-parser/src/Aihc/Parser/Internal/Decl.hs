@@ -996,13 +996,34 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 typeDataConDeclParser :: TokParser DataConDecl
 typeDataConDeclParser = withSpan $ do
   (_forallVars, context) <- dataConQualifiersParser
-  -- Parse constructor name
-  conName <- constructorUnqualifiedNameParser
-  -- Parse arguments (no strictness, no records)
-  -- Use typeAtomParser to parse individual type atoms as separate fields,
-  -- rather than typeAppParser which would treat them as type application.
+  MP.try (typeDataConPrefixParser context) <|> typeDataConInfixParser context
+
+typeDataConPrefixParser :: [Type] -> TokParser (SourceSpan -> DataConDecl)
+typeDataConPrefixParser context = do
+  conName <- constructorUnqualifiedNameParser <|> parens constructorOperatorUnqualifiedNameParser
+  -- Parse arguments (no strictness, no records).
+  -- Use typeAtomParser to keep adjacent atoms as separate fields instead of
+  -- merging them into a type application.
   args <- MP.many $ BangType [] NoSourceUnpackedness False False <$> typeAtomParser
+  -- If a constructor operator follows, this declaration is actually infix.
+  MP.notFollowedBy constructorOperatorParser
   pure $ \span' -> DataConAnn (mkAnnotation span') (PrefixCon [] context conName args)
+
+typeDataConInfixParser :: [Type] -> TokParser (SourceSpan -> DataConDecl)
+typeDataConInfixParser context = do
+  lhs <- typeDataConArgParser
+  op <- constructorOperatorUnqualifiedNameParser <|> backtickConstructorUnqualifiedParser
+  rhs <- typeDataConArgParser
+  pure $ \span' -> DataConAnn (mkAnnotation span') (InfixCon [] context lhs op rhs)
+  where
+    backtickConstructorUnqualifiedParser = do
+      expectedTok TkSpecialBacktick
+      name <- constructorUnqualifiedNameParser
+      expectedTok TkSpecialBacktick
+      pure name
+
+typeDataConArgParser :: TokParser BangType
+typeDataConArgParser = BangType [] NoSourceUnpackedness False False <$> typeAtomParser
 
 -- | Parse GADT-style constructors for type data (after `where`)
 -- No labelled fields, no strictness annotations

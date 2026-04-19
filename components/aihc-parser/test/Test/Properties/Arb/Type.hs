@@ -256,7 +256,7 @@ shrinkType ty =
       [TVar $ unqualifiedNameFromText "a"]
         <> [TVar (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon name promoted ->
-      [TCon (nameFromText "A") promoted | T.length (renderName name) > 1]
+      [TCon (nameFromText "C") promoted | renderName name /= "C"]
         <> [ TCon (name {nameText = shrunk}) promoted
            | shrunk <- shrinkConIdent (nameText name),
              promoted == Unpromoted || (T.length shrunk >= 2 && not (T.any (== '\'') shrunk))
