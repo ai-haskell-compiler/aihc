@@ -15,13 +15,14 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
     genFieldName,
     genIdent,
     genVarSym,
+    isValidGeneratedVarSym,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -1411,7 +1412,7 @@ shrinkSymbolicName txt =
   filter (not . T.null) $
     shrinkList noShrink (T.unpack txt) >>= \chars ->
       let candidate = T.pack chars
-       in [candidate | isValidGeneratedOperator candidate]
+       in [candidate | isValidGeneratedVarSym candidate]
   where
     noShrink _ = []
 
