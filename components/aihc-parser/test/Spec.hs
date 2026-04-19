@@ -782,8 +782,8 @@ test_infixTypeFamilyHeadRoundtrip =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs, typeFamilyEqRhs = rhs}]
                 }
             ]
-              | TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations h,
-                TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations lhs,
+              | TInfix (TVar "l") "And" Unpromoted (TVar "r") <- stripTypeAnnotations h,
+                TInfix (TVar "l") "And" Unpromoted (TVar "r") <- stripTypeAnnotations lhs,
                 TVar "l" <- stripTypeAnnotations rhs ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
@@ -811,7 +811,7 @@ test_infixTypeFamilyEquationWithApplicationOperands =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
                 }
             ]
-              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+              | TInfix lhsArg "*" Unpromoted rhsArg <- stripTypeAnnotations lhs,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
                   pure ()
@@ -2011,11 +2011,10 @@ test_dataFamilyInstanceKindSignatureRoundTrip = do
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip :: Assertion
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
   let lhs =
-        TApp
-          ( TApp
-              (TCon (qualifyName Nothing (mkUnqualifiedName NameVarSym "$")) Unpromoted)
-              (TApp (TVar "a") (TVar "b"))
-          )
+        TInfix
+          (TApp (TVar "a") (TVar "b"))
+          (qualifyName Nothing (mkUnqualifiedName NameVarSym "$"))
+          Unpromoted
           (TVar "c")
       rhs = TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "F")) Unpromoted) (TVar "d")
       decl =
@@ -2072,7 +2071,7 @@ prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
         [ decl
         | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstHeadForm = TypeHeadInfix, typeFamilyInstLhs}) <- samples,
           case stripTypeAnnotations typeFamilyInstLhs of
-            TApp (TApp _ lhsOperand) rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
+            TInfix lhsOperand _ _ rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
             _ -> False
         ]
       rhsMatches =
@@ -2407,7 +2406,7 @@ test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
 test_templateHaskellTypeQuoteParsesInfixSplices =
   assertEqual
     "expected type quote with infix TH splices shorthand"
-    "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
+    "ParseOk (ETHTypeQuote (TInfix (TSplice (EVar \"c\")) \":=\" (TSplice (EVar \"v\"))))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
 
 test_templateHaskellTypeNameQuoteParsesTupleConstructor :: Assertion

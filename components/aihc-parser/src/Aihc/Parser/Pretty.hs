@@ -384,42 +384,13 @@ prettyWhereClause Nothing = mempty
 prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
 prettyWhereClause (Just decls) = " where" <+> spacedBraces (prettyInlineDecls decls)
 
--- FIXME: If we strip the annotations before pretty-printing, we can get rid of these two functions.
-
--- | Recognize @lhs \`op\` rhs@ / @lhs op rhs@ after peeling span-only 'TAnn'
--- on each 'TApp' spine step. Do not peel 'TParen' here: explicit parentheses
--- must be handled by the 'TParen' case in 'prettyType' first (see
--- 'typeAnnSpan', 'addTypeParens').
-typeInfixAppView :: Type -> Maybe (Name, TypePromotion, Type, Type)
-typeInfixAppView ty =
-  case peelTypeAnn ty of
-    TApp l r ->
-      case peelTypeAnn l of
-        TApp opRaw lhs ->
-          case peelTypeAnn opRaw of
-            TCon op promoted
-              | isSymbolicTypeName op,
-                renderName op /= "->" ->
-                  Just (op, promoted, lhs, r)
-            _ -> Nothing
-        _ -> Nothing
-    _ -> Nothing
-
 -- | Infix type-family heads use @l \`Op\` r@ with a 'NameConId' operator (e.g.
 -- @\`And\`@), so 'isSymbolicTypeName' is false; 'TypeHeadInfix' already marks
 -- this shape as infix.
 typeFamilyInfixAppView :: Type -> Maybe (Name, TypePromotion, Type, Type)
 typeFamilyInfixAppView ty =
   case peelTypeAnn ty of
-    TApp l r ->
-      case peelTypeAnn l of
-        TApp opRaw lhs ->
-          case peelTypeAnn opRaw of
-            TCon op promoted
-              | renderName op /= "->" ->
-                  Just (op, promoted, lhs, r)
-            _ -> Nothing
-        _ -> Nothing
+    TInfix lhs op promoted rhs -> Just (op, promoted, lhs, rhs)
     _ -> Nothing
 
 -- | Pretty-print a type. The AST is assumed to already have TParen nodes
@@ -444,12 +415,6 @@ prettyType ty =
     -- Before infix detection: required grouping from the parser ('TParen',
     -- @(a :+: b) -> c@, constraints, nested @(c => t)@).
     TParen inner -> parens (prettyType inner)
-    other
-      | Just (op, promoted, lhs, rhs) <- typeInfixAppView other ->
-          prettyType lhs
-            <+> (if promoted == Promoted then "'" else mempty)
-            <> prettyNameInfixOp op
-            <+> prettyType rhs
     TInfix lhs op promoted rhs ->
       prettyType lhs
         <+> (if promoted == Promoted then "'" else mempty)

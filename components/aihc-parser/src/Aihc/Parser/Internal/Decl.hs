@@ -1248,16 +1248,7 @@ typeFamilyHeadParser =
           rhsType =
             TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
       headType <- withSpan $ do
-        pure $ \span' ->
-          typeAnnSpan
-            span'
-            ( TApp
-                ( typeAnnSpan
-                    span'
-                    (TApp (typeAnnSpan span' (TCon op Unpromoted)) lhsType)
-                )
-                rhsType
-            )
+        pure $ \span' -> typeAnnSpan span' (TInfix lhsType op Unpromoted rhsType)
       pure (TypeHeadInfix, headType, [lhs, rhs])
 
 -- | Parse an operator for type family declarations.
@@ -1290,9 +1281,7 @@ typeFamilyLhsParser = do
       rhs <- typeAppParser
       pure (op, rhs)
 
-    buildInfixType left ((op, promoted), right) =
-      let opType = TCon op promoted
-       in TApp (TApp opType left) right
+    buildInfixType left ((op, promoted), right) = TInfix left op promoted right
 
 classHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 classHeadParser =

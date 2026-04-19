@@ -809,7 +809,7 @@ genDeclTypeFamilyDeclInfix = do
       rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
-      headType = TApp (TApp (TCon (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted) lhsType) rhsType
+      headType = TInfix lhsType (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted rhsType
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
@@ -863,7 +863,7 @@ genDeclTypeFamilyInstInfix = do
       TypeFamilyInst
         { typeFamilyInstForall = [],
           typeFamilyInstHeadForm = TypeHeadInfix,
-          typeFamilyInstLhs = TApp (TApp (TCon op Unpromoted) lhsArg) rhsArg,
+          typeFamilyInstLhs = TInfix lhsArg op Unpromoted rhsArg,
           typeFamilyInstRhs = rhs
         }
 
