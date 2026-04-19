@@ -6,6 +6,7 @@ in {
       hsPkgs.ghc
       pkgs.cabal-install
       pkgs.ormolu
+      pkgs.alejandra
       pkgs.hlint
     ];
   };
