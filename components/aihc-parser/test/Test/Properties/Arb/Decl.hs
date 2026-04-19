@@ -392,43 +392,6 @@ genGadtBangType = do
     typeStartsWithAlpha (TParen inner) = typeStartsWithAlpha inner
     typeStartsWithAlpha _ = False
 
--- | Generate a BangType without function types at the top level.
--- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
--- GHC rejects those (e.g., ~* or !* are treated as operators).
-genSimpleBangTypeWithoutFun :: Gen BangType
-genSimpleBangTypeWithoutFun = do
-  ty <- genSimpleTypeWithoutFun
-  -- genSimpleTypeWithoutFun only generates TVar and TCon, which are safe for annotations
-  annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
-  case annotation of
-    NoAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = False,
-            bangLazy = False,
-            bangType = ty
-          }
-    StrictAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = True,
-            bangLazy = False,
-            bangType = ty
-          }
-    LazyAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = False,
-            bangLazy = True,
-            bangType = ty
-          }
-
 -- | Generate a simple type without function types at the top level.
 genSimpleTypeWithoutFun :: Gen Type
 genSimpleTypeWithoutFun =
@@ -451,39 +414,6 @@ genGadtFieldDecl = do
   fieldName <- mkUnqualifiedName NameVarId <$> genVarId
   ty <- scale (min 6) genType
   pure $ FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)
-
-genBangType :: Gen BangType
-genBangType = do
-  ty <- genType
-  annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
-  case annotation of
-    NoAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = False,
-            bangLazy = False,
-            bangType = ty
-          }
-    StrictAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = True,
-            bangLazy = False,
-            bangType = ty
-          }
-    LazyAnnotation ->
-      pure $
-        BangType
-          { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
-            bangStrict = False,
-            bangLazy = True,
-            bangType = ty
-          }
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
