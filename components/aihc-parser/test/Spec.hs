@@ -1780,12 +1780,12 @@ test_lambdaCasesParsesMultiArgumentAlternatives = do
           [ LambdaCaseAlt
               { lambdaCaseAltAnns = [],
                 lambdaCaseAltPats = [pat0 (PCon "True" [] []), pat0 (PCon "False" [] [])],
-                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
               },
             LambdaCaseAlt
               { lambdaCaseAltAnns = [],
                 lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
-                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 1 "1")) Nothing
+                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 1 TInteger "1")) Nothing
               }
           ]
   case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
@@ -1806,7 +1806,7 @@ test_prettyLambdaCasesRoundTrip = do
                 LambdaCaseAlt
                   { lambdaCaseAltAnns = [],
                     lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
-                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 "0")) Nothing
+                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
                   }
               ]
           )
