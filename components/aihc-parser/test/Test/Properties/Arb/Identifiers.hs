@@ -3,10 +3,7 @@
 -- | Shared generators and helpers used by Expr.hs, Pattern.hs, Type.hs, and Decl.hs.
 -- This module breaks import cycles because it doesn't depend on any of those modules.
 module Test.Properties.Arb.Identifiers
-  ( -- * Canonical source span
-    span0,
-
-    -- * Variable identifiers
+  ( -- * Variable identifiers
     genIdent,
     shrinkIdent,
     isValidGeneratedIdent,
@@ -70,20 +67,46 @@ conIdentStartChars = filter isValidConIdentStartChar allChars
 identTailChars :: [Char]
 identTailChars = filter isValidIdentTailChar allChars
 
--- | Unicode characters that the lexer maps to reserved tokens or normalized
--- ASCII operator names (see 'unicodeOpTokenKind' in Lex.hs). These must be
--- excluded from symbol generation to prevent round-trip mismatches.
-unicodeOpChars :: [Char]
-unicodeOpChars = ['∷', '⇒', '→', '←', '∀', '★', '⤙', '⤚', '⤛', '⤜', '⦇', '⦈', '⟦', '⟧', '⊸']
-
 symbolChars :: [Char]
-symbolChars = filter (\c -> isValidSymbolChar c && c `notElem` unicodeOpChars) allChars
+symbolChars = filter isValidSymbolChar allChars
 
 varSymStartChars :: [Char]
 varSymStartChars = filter (/= ':') symbolChars
 
 reservedOperators :: Set.Set Text
-reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>", "-<", ">-", "-<<", ">>-"]
+reservedOperators =
+  Set.fromList
+    [ "..",
+      ":",
+      "::",
+      "=",
+      "\\",
+      "|",
+      "<-",
+      "->",
+      "@",
+      "~",
+      "=>",
+      "-<",
+      ">-",
+      "-<<",
+      ">>-",
+      "→",
+      "←",
+      "⇒",
+      "∷",
+      "∀",
+      "⤙",
+      "⤚",
+      "⤛",
+      "⤜",
+      "⦇",
+      "⦈",
+      "⟦",
+      "⟧",
+      "⊸",
+      "★"
+    ]
 
 -- | Canonical empty source span for normalization.
 span0 :: SourceSpan
@@ -187,33 +210,12 @@ isValidGeneratedVarSym op =
   case T.uncons op of
     Just (first, rest) ->
       first /= ':'
-        && first /= '`'
         && isValidSymbolChar first
-        && T.all (/= '`') rest
+        && T.all (/= '`') op
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
-        && not (T.any (`elem` bannedUnicodeOperatorChars) op)
     Nothing -> False
-
-bannedUnicodeOperatorChars :: [Char]
-bannedUnicodeOperatorChars =
-  [ '→',
-    '←',
-    '⇒',
-    '∷',
-    '∀',
-    '⤙',
-    '⤚',
-    '⤛',
-    '⤜',
-    '⦇',
-    '⦈',
-    '⟦',
-    '⟧',
-    '⊸',
-    '★'
-  ]
 
 -------------------------------------------------------------------------------
 -- Module qualifiers

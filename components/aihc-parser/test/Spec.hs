@@ -1407,9 +1407,8 @@ prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
 
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =
-  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedVarSym) ops
-     in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
+  QC.forAll genVarSym $ \op ->
+    QC.counterexample ("invalid generated operator: " <> show op) (isValidGeneratedVarSym op)
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
@@ -1418,15 +1417,13 @@ prop_generatedOperatorsCanProduceUnicodeAsterism =
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =
-  QC.forAll (QC.vectorOf 2000 genConSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedConSym) ops
-     in QC.counterexample ("invalid generated constructor symbols: " <> show invalid) (null invalid)
+  QC.forAll genConSym $ \op ->
+    QC.counterexample ("invalid generated constructor symbol: " <> show op) (isValidGeneratedConSym op)
 
 prop_generatedVariableSymbolsAreValid :: QC.Property
 prop_generatedVariableSymbolsAreValid =
-  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedVarSym) ops
-     in QC.counterexample ("invalid generated variable symbols: " <> show invalid) (null invalid)
+  QC.forAll genVarSym $ \op ->
+    QC.counterexample ("invalid generated variable symbol: " <> show op) (isValidGeneratedVarSym op)
 
 assertCharLiteralLexesLikeGhc :: T.Text -> Assertion
 assertCharLiteralLexesLikeGhc raw =

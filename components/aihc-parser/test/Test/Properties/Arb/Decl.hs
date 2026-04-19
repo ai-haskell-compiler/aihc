@@ -161,7 +161,7 @@ genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
   names <- vectorOf nameCount genVarBinderName
-  DeclTypeSig names <$> genSimpleType
+  DeclTypeSig names <$> sized (genType . min 6)
 
 genVarBinderName :: Gen UnqualifiedName
 genVarBinderName =

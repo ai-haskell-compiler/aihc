@@ -5,7 +5,6 @@ module Test.Properties.Arb.Expr
   ( genExpr,
     mkIntExpr,
     shrinkExpr,
-    span0,
   )
 where
 
@@ -27,7 +26,6 @@ import Test.Properties.Arb.Identifiers
     showHex,
     shrinkFloat,
     shrinkIdent,
-    span0,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (shrinkType)
