@@ -3,13 +3,14 @@
 module Main (main) where
 
 import Aihc.Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
+import qualified Control.Exception as E
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
-import Test.Tasty.Providers (IsTest (..), singleTest, testPassed)
+import Test.Tasty.Providers (IsTest (..), singleTest, testFailed, testPassed)
 import qualified Test.Tasty.QuickCheck as QC
 
 main :: IO ()
@@ -125,13 +126,40 @@ definedConditionSpacingTest =
 
 ccallMacroConcatTest :: TestTree
 ccallMacroConcatTest =
-  ignoredTest "CCALL macro expands stringizing and token pasting" "token pasting with ## is not supported yet"
+  knownFailureTest "CCALL macro expands stringizing and token pasting" "token pasting with ## is not supported yet" $
+    case preprocess defaultConfig (TE.encodeUtf8 ccallMacroInput) of
+      Done result ->
+        resultOutput result @?= ccallMacroExpectedOutput
+      _ -> assertFailure "expected Done"
 
-ignoredTest :: String -> String -> TestTree
-ignoredTest name reason = singleTest name (IgnoredTest reason)
+ccallMacroInput :: T.Text
+ccallMacroInput =
+  T.unlines
+    [ "#define CCALL(name,signature) \\",
+      "foreign import ccall unsafe #name \\",
+      "    c_##name :: signature",
+      "",
+      "CCALL(foo, Int -> IO Int)"
+    ]
 
-newtype IgnoredTest = IgnoredTest String
+ccallMacroExpectedOutput :: T.Text
+ccallMacroExpectedOutput =
+  T.unlines
+    [ "#line 1 \"<input>\"",
+      "",
+      "foreign import ccall unsafe \"foo\"",
+      "    c_foo :: Int -> IO Int"
+    ]
 
-instance IsTest IgnoredTest where
-  run _ (IgnoredTest reason) _ = pure (testPassed ("ignored: " <> reason))
+knownFailureTest :: String -> String -> Assertion -> TestTree
+knownFailureTest name reason assertion = singleTest name (KnownFailureTest reason assertion)
+
+data KnownFailureTest = KnownFailureTest String Assertion
+
+instance IsTest KnownFailureTest where
+  run _ (KnownFailureTest reason assertion) _ = do
+    result <- E.try assertion :: IO (Either E.SomeException ())
+    case result of
+      Left err -> pure (testPassed ("known failure: " <> reason <> "\n" <> E.displayException err))
+      Right () -> pure (testFailed ("unexpected pass for known failure: " <> reason))
   testOptions = pure []
