@@ -189,7 +189,6 @@ isLineComment rest =
     c :< _
       | c == '-' -> isLineComment (T.dropWhile (== '-') rest)
       | isSymbolicOpChar c -> False
-      | c == '`' -> False
       | otherwise -> True
     _ -> True
 

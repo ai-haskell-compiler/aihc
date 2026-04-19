@@ -1,7 +1,5 @@
 extensions: []
 input: "--`"
 tokens:
-  - 'TkVarSym "--"'
-  - 'TkSpecialBacktick'
   - 'TkEOF'
 status: pass
