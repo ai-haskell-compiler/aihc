@@ -1364,20 +1364,7 @@ derivingClauseParser = do
   strategy <- MP.optional derivingStrategyParser
   classType <- MP.notFollowedBy (varIdTok "via") *> typeAtomParser
   viaTy <- MP.optional derivingViaTypeParser
-  let (classes, parenthesized) = unpackDerivingClasses classType
-  pure (DerivingClause strategy classes viaTy parenthesized)
-
-unpackDerivingClasses :: Type -> ([Type], Bool)
-unpackDerivingClasses ty =
-  case peelTypeAnn ty of
-    TParen inner ->
-      case peelTypeAnn inner of
-        TTuple Boxed Unpromoted classes -> (classes, True)
-        TTuple Boxed Promoted classes -> (classes, True)
-        other -> ([other], True)
-    TTuple Boxed Unpromoted classes -> (classes, True)
-    TTuple Boxed Promoted classes -> (classes, True)
-    other -> ([other], False)
+  pure (DerivingClause strategy classType viaTy)
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do

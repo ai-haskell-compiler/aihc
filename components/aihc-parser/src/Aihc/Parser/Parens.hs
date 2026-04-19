@@ -472,16 +472,9 @@ addNewtypeDeclParens decl =
 addDerivingClauseParens :: DerivingClause -> DerivingClause
 addDerivingClauseParens dc =
   dc
-    { derivingClasses = classes',
-      derivingViaType = fmap addTypeParens (derivingViaType dc),
-      derivingParenthesized = derivingParenthesized dc || needsSingletonDerivingParens classes'
+    { derivingClasses = addTypeIn CtxTypeAtom (derivingClasses dc),
+      derivingViaType = fmap addTypeParens (derivingViaType dc)
     }
-  where
-    classes' = map addTypeParens (derivingClasses dc)
-
-needsSingletonDerivingParens :: [Type] -> Bool
-needsSingletonDerivingParens [single] = needsTypeParens CtxTypeAtom single
-needsSingletonDerivingParens _ = False
 
 addDataConDeclParens :: DataConDecl -> DataConDecl
 addDataConDeclParens con =

@@ -618,19 +618,13 @@ derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
 
 derivingPart :: DerivingClause -> [Doc ann]
-derivingPart (DerivingClause strategy classes viaTy parenthesized) =
-  ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart viaTy
+derivingPart (DerivingClause strategy classes viaTy) =
+  ["deriving"] <> strategyPart strategy <> [prettyType classes] <> viaPart viaTy
   where
     strategyPart Nothing = []
     strategyPart (Just DerivingStock) = ["stock"]
     strategyPart (Just DerivingNewtype) = ["newtype"]
     strategyPart (Just DerivingAnyclass) = ["anyclass"]
-
-    classesPart [] = ["()"]
-    classesPart [single]
-      | parenthesized = [parens (prettyType single)]
-      | otherwise = [prettyType single]
-    classesPart _ = [parens (hsep (punctuate comma (map prettyType classes)))]
 
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
