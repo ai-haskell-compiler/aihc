@@ -1060,7 +1060,7 @@ getGuardQualifierSourceSpan qualifier =
 data Literal
   = LitAnn Annotation Literal
   | LitInt Integer NumericType Text
-  | LitFloat Double FloatType Text
+  | LitFloat Rational FloatType Text
   | LitChar Char Text
   | LitCharHash Char Text
   | LitString Text Text
@@ -1615,7 +1615,7 @@ data Expr
   | EVar Name
   | ETypeSyntax TypeSyntaxForm Type
   | EInt Integer NumericType Text
-  | EFloat Double FloatType Text
+  | EFloat Rational FloatType Text
   | EChar Char Text
   | ECharHash Char Text
   | EString Text Text

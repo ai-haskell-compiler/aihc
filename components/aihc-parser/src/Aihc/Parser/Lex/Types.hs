@@ -112,7 +112,7 @@ data LexTokenKind
   | TkQConSym Text Text
   | -- Literals
     TkInteger Integer NumericType
-  | TkFloat Double FloatType
+  | TkFloat Rational FloatType
   | TkChar Char
   | TkCharHash Char Text
   | TkString Text

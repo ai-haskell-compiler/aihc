@@ -220,14 +220,17 @@ mkIntLiteral value = LitInt value TInteger (T.pack (show value))
 mkHexLiteral :: Integer -> Literal
 mkHexLiteral value = LitInt value TInteger ("0x" <> T.pack (showHex value))
 
-mkFloatLiteral :: Double -> Literal
-mkFloatLiteral value = LitFloat value TFractional (T.pack (show value))
+mkFloatLiteral :: Rational -> Literal
+mkFloatLiteral value = LitFloat value TFractional (renderFloat value)
 
 mkCharLiteral :: Char -> Literal
 mkCharLiteral value = LitChar value (T.pack (show value))
 
 mkStringLiteral :: Text -> Literal
 mkStringLiteral value = LitString value (T.pack (show (T.unpack value)))
+
+renderFloat :: Rational -> T.Text
+renderFloat value = T.pack (show (fromRational value :: Double))
 
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =

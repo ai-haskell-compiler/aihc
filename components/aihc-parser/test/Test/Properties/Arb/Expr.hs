@@ -686,8 +686,8 @@ canonicalTypeAppExpr e = case e of
 mkHexExpr :: Integer -> Expr
 mkHexExpr value = EInt value TInteger ("0x" <> T.pack (showHex value))
 
-mkFloatExpr :: Double -> Expr
-mkFloatExpr value = EFloat value TFractional (T.pack (show value))
+mkFloatExpr :: Rational -> Expr
+mkFloatExpr value = EFloat value TFractional (renderFloat value)
 
 mkCharExpr :: Char -> Expr
 mkCharExpr value = EChar value (T.pack (show value))
@@ -698,6 +698,9 @@ mkStringExpr value = EString value (T.pack (show (T.unpack value)))
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
 mkIntExpr value = EInt value TInteger (T.pack (show value))
+
+renderFloat :: Rational -> T.Text
+renderFloat value = T.pack (show (fromRational value :: Double))
 
 shrinkOverloadedLabel :: Text -> Text -> [String]
 shrinkOverloadedLabel value raw

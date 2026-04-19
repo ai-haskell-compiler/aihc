@@ -311,7 +311,7 @@ genStringValue = do
 -------------------------------------------------------------------------------
 
 -- | Generate a decimal value with one decimal digit of precision.
-genTenths :: Gen Double
+genTenths :: Gen Rational
 genTenths = do
   whole <- chooseInteger (0, 99)
   frac <- chooseInteger (0, 9)
@@ -326,9 +326,9 @@ showHex value
     hexDigit x = "0123456789abcdef" !! fromInteger x
 
 -- | Shrink a floating-point value, maintaining one decimal digit of precision.
-shrinkFloat :: Double -> [Double]
+shrinkFloat :: Rational -> [Rational]
 shrinkFloat value =
-  [fromInteger shrunk / 10 | shrunk <- shrinkIntegral (round (value * 10 :: Double) :: Integer), shrunk >= 0]
+  [fromInteger shrunk / 10 | shrunk <- shrinkIntegral (round (value * 10) :: Integer), shrunk >= 0]
 
 isValidGeneratedIdentStartChar :: Char -> Bool
 isValidGeneratedIdentStartChar c = c == '_' || generalCategory c == LowercaseLetter

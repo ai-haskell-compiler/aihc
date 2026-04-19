@@ -14,6 +14,7 @@ import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, NumericUnderscores), FloatType (..), NumericType (..))
 import Data.Char (digitToInt, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit)
 import Data.Maybe (fromMaybe)
+import Data.Ratio ((%))
 import Data.Text (Text, pattern (:<))
 import Data.Text qualified as T
 import Numeric (readHex, readInt, readOct)
@@ -90,7 +91,7 @@ lexFloat env st =
                     (expo, _) = takeExponent allowUnderscores rest'
                     raw = lhsRaw <> "." <> rhsRaw <> expo
                     normalized = T.filter (/= '_') raw
-                    value = read (T.unpack normalized) :: Double
+                    value = parseDecimalFloatLiteral normalized
                     (tokTxt, tokKind, st') =
                       lexFloatSuffix env st raw value
                  in Just (mkToken st st' tokTxt tokKind, st')
@@ -101,7 +102,7 @@ lexFloat env st =
                 | otherwise ->
                     let raw = lhsRaw <> expo
                         normalized = T.filter (/= '_') raw
-                        value = read (T.unpack normalized) :: Double
+                        value = parseDecimalFloatLiteral normalized
                         (tokTxt, tokKind, st') =
                           lexFloatSuffix env st raw value
                      in Just (mkToken st st' tokTxt tokKind, st')
@@ -165,7 +166,7 @@ lexIntSuffix env st raw n =
 
 -- | Parse optional MagicHash and ExtendedLiterals suffix for floats.
 -- Handles: (nothing), #, ##
-lexFloatSuffix :: LexerEnv -> LexerState -> Text -> Double -> (Text, LexTokenKind, LexerState)
+lexFloatSuffix :: LexerEnv -> LexerState -> Text -> Rational -> (Text, LexTokenKind, LexerState)
 lexFloatSuffix env st raw value =
   let st' = advanceChars raw st
       input = lexerInput st'
@@ -302,16 +303,68 @@ readBinLiteral txt =
     [(n, "")] -> n
     _ -> error ("invalid binary literal: " ++ T.unpack txt)
 
-parseHexFloatLiteral :: String -> String -> String -> Double
+parseDecimalFloatLiteral :: Text -> Rational
+parseDecimalFloatLiteral txt =
+  case parseSignedDecimalRational txt of
+    Just value -> value
+    Nothing -> error ("invalid decimal float literal: " ++ T.unpack txt)
+
+parseSignedDecimalRational :: Text -> Maybe Rational
+parseSignedDecimalRational txt = do
+  let (sign, unsigned) =
+        case T.uncons txt of
+          Just ('-', rest) -> (-1, rest)
+          Just ('+', rest) -> (1, rest)
+          _ -> (1, txt)
+      (mantissaTxt, exponentTxt0) = T.break (`elem` ['e', 'E']) unsigned
+      exponentTxt = T.drop 1 exponentTxt0
+  mantissa <- parseDecimalMantissa mantissaTxt
+  exponentN <-
+    if T.null exponentTxt0
+      then Just 0
+      else parseSignedInteger exponentTxt
+  pure (applyDecimalExponent (fromInteger sign * mantissa) exponentN)
+
+parseDecimalMantissa :: Text -> Maybe Rational
+parseDecimalMantissa txt = do
+  let (whole, frac0) = T.break (== '.') txt
+      frac = T.drop 1 frac0
+  if T.null whole && T.null frac
+    then Nothing
+    else do
+      wholeDigits <- parseDecimalDigits whole
+      fracDigits <- parseDecimalDigits frac
+      let fracScale = 10 ^ T.length frac
+      pure ((wholeDigits * fracScale + fracDigits) % fracScale)
+
+parseDecimalDigits :: Text -> Maybe Integer
+parseDecimalDigits digits
+  | T.null digits = Just 0
+  | T.all isDigit digits = readMaybe (T.unpack digits)
+  | otherwise = Nothing
+
+parseSignedInteger :: Text -> Maybe Integer
+parseSignedInteger digits =
+  case T.uncons digits of
+    Just ('+', rest) -> parseDecimalDigits rest
+    Just ('-', rest) -> negate <$> parseDecimalDigits rest
+    _ -> parseDecimalDigits digits
+
+applyDecimalExponent :: Rational -> Integer -> Rational
+applyDecimalExponent value exponentN
+  | exponentN >= 0 = value * fromInteger (10 ^ exponentN)
+  | otherwise = value / fromInteger (10 ^ negate exponentN)
+
+parseHexFloatLiteral :: String -> String -> String -> Rational
 parseHexFloatLiteral intDigits fracDigits expo =
   (parseHexDigits intDigits + parseHexFraction fracDigits) * (2 ^^ exponentValue expo)
 
-parseHexDigits :: String -> Double
+parseHexDigits :: String -> Rational
 parseHexDigits = foldl (\acc d -> acc * 16 + fromIntegral (digitToInt d)) 0
 
-parseHexFraction :: String -> Double
+parseHexFraction :: String -> Rational
 parseHexFraction ds =
-  sum [fromIntegral (digitToInt d) / (16 ^^ i) | (d, i) <- zip ds [1 :: Int ..]]
+  sum [fromIntegral (digitToInt d) % (16 ^ i) | (d, i) <- zip ds [1 :: Integer ..]]
 
 exponentValue :: String -> Int
 exponentValue expo =

@@ -25,6 +25,7 @@ where
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
+import Data.Ratio (denominator, numerator)
 import Data.Text (Text)
 import Prettyprinter
   ( Doc,
@@ -93,6 +94,12 @@ instance Shorthand LexToken where
 
 instance Shorthand LexTokenKind where
   shorthand = docTokenKind
+
+showRationalAsFloat :: Rational -> String
+showRationalAsFloat value =
+  case denominator value of
+    1 -> show (numerator value) <> ".0"
+    _ -> show (fromRational value :: Double)
 
 docWarningText :: WarningText -> Doc ann
 docWarningText wt =
@@ -727,7 +734,7 @@ docLiteral :: Literal -> Doc ann
 docLiteral lit =
   case peelLiteralAnn lit of
     LitInt n nt _ -> "LitInt" <+> pretty n <+> docNumericType nt
-    LitFloat n ft _ -> "LitFloat" <+> pretty n <+> docFloatType ft
+    LitFloat n ft _ -> "LitFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     LitChar c _ -> "LitChar" <+> pretty (show c)
     LitCharHash c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
     LitString s _ -> "LitString" <+> docText s
@@ -742,7 +749,7 @@ docExpr expr =
     EVar name -> "EVar" <+> docName name
     ETypeSyntax form ty -> "ETypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
     EInt n nt _ -> "EInt" <+> pretty n <+> docNumericType nt
-    EFloat n ft _ -> "EFloat" <+> pretty n <+> docFloatType ft
+    EFloat n ft _ -> "EFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     EChar c _ -> "EChar" <+> pretty (show c)
     ECharHash c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
     EString s _ -> "EString" <+> docText s
@@ -913,7 +920,7 @@ docTokenKind kind =
     TkQVarSym modName name -> "TkQVarSym" <+> docText modName <+> docText name
     TkQConSym modName name -> "TkQConSym" <+> docText modName <+> docText name
     TkInteger n nt -> "TkInteger" <+> pretty n <+> docNumericType nt
-    TkFloat n ft -> "TkFloat" <+> pretty n <+> docFloatType ft
+    TkFloat n ft -> "TkFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
     TkChar c -> "TkChar" <+> pretty (show c)
     TkCharHash c repr -> "TkCharHash" <+> pretty (show c) <+> docText repr
     TkString s -> "TkString" <+> docText s
