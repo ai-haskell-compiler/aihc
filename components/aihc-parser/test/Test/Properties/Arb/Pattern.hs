@@ -65,7 +65,7 @@ genPattern = scale (`div` 2) $ do
         genPatternTypeSigWith,
         genUnboxedSumPatternWith,
         PView <$> resize 2 genExpr <*> genPattern,
-        PAs <$> genVarId <*> (genPattern),
+        PAs <$> genVarId <*> genPattern,
         PStrict <$> genPattern,
         PIrrefutable <$> genPattern
       ]
@@ -102,8 +102,7 @@ genPatternInfixWith :: Gen Pattern
 genPatternInfixWith = do
   lhs <- genPattern
   op <- genConName
-  rhs <- genPattern
-  pure (PInfix lhs op rhs)
+  PInfix lhs op <$> genPattern
 
 genTupleElemsWith :: Gen [Pattern]
 genTupleElemsWith = do
@@ -125,8 +124,7 @@ genUnboxedSumPatternWith :: Gen Pattern
 genUnboxedSumPatternWith = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genPattern
-  pure (PUnboxedSum altIdx arity inner)
+  PUnboxedSum altIdx arity <$> genPattern
 
 genListElemsWith :: Gen [Pattern]
 genListElemsWith = do
@@ -218,7 +216,7 @@ shrinkPattern pat =
       [PList elems' | elems' <- shrinkList shrinkPattern elems]
     PCon con typeArgs args ->
       [PCon con typeArgs [] | not (null args)]
-        <> [PCon con typeArgs args' | args' <- shrinkList (shrinkPattern) args]
+        <> [PCon con typeArgs args' | args' <- shrinkList shrinkPattern args]
     PInfix lhs op rhs ->
       [lhs, rhs]
         <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]

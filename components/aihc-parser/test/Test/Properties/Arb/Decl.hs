@@ -87,8 +87,7 @@ genFunctionValueDecl = do
     [ do
         patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (scale (min 3) genPattern)
-        pure $
-          ( FunctionBind
+        pure ( FunctionBind
               name
               [ Match
                   { matchAnns = [],
@@ -103,8 +102,7 @@ genFunctionValueDecl = do
         rhsPat <- scale (min 3) genPattern
         extraCount <- chooseInt (0, 2)
         extraPats <- vectorOf extraCount (scale (min 3) genPattern)
-        pure $
-          ( FunctionBind
+        pure ( FunctionBind
               name
               [ Match
                   { matchAnns = [],
@@ -124,7 +122,7 @@ genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = do
   n <- getSize
   missing <- arbitrary
-  if missing || n <= 0 then pure Nothing else Just <$> (scale (`div` 2) $ listOf genDeclValue)
+  if missing || n <= 0 then pure Nothing else Just <$> scale (`div` 2) (listOf genDeclValue)
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do

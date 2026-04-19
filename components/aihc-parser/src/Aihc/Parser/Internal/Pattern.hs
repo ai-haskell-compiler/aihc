@@ -235,8 +235,7 @@ stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
 thSplicePatternParser :: TokParser Pattern
 thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  body <- atomExprParser
-  pure (PSplice body)
+  PSplice <$> atomExprParser
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =

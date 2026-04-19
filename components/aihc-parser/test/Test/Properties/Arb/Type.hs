@@ -87,9 +87,8 @@ genTypeSpliceBody =
 genTypeContext :: Gen Type
 genTypeContext = do
   n <- chooseInt (1, 3)
-  constraints <- vectorOf n (genConstraintType)
-  inner <- genType
-  pure $ TContext constraints inner
+  constraints <- vectorOf n genConstraintType
+  TContext constraints <$> genType
 
 -- | Generate a constraint type (used in contexts).
 -- Typically a type constructor applied to some arguments.
@@ -107,8 +106,7 @@ genConstraintType = do
 genTypeImplicitParam :: Gen Type
 genTypeImplicitParam = do
   name <- ("?" <>) <$> genVarId
-  inner <- genType
-  pure $ TImplicitParam name inner
+  TImplicitParam name <$> genType
 
 genTypeTupleElems :: Gen [Type]
 genTypeTupleElems = do
