@@ -17,13 +17,14 @@ import Data.Text qualified as T
 import Test.Properties.Arb.Decl (genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConIdent,
+    genConId,
     genFieldName,
-    genIdent,
     genModuleQualifier,
     genOptionalQualifier,
     genStringValue,
     genTenths,
+    genVarId,
+    genVarName,
     genVarSym,
     showHex,
     shrinkFloat,
@@ -72,7 +73,7 @@ genExprWith allowTHQuotes = do
         ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes,
         genUnboxedSumExprWith allowTHQuotes,
         EArithSeq <$> genArithSeqWith allowTHQuotes,
-        (\name fields -> ERecordCon name fields False) <$> genConIdent <*> genRecordFieldsWith allowTHQuotes,
+        (\name fields -> ERecordCon name fields False) <$> genConId <*> genRecordFieldsWith allowTHQuotes,
         ERecordUpd <$> genExprWith allowTHQuotes <*> genRecordFieldsWith allowTHQuotes,
         ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         ETypeApp . canonicalTypeAppExpr <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
@@ -119,13 +120,13 @@ genExprLeaf =
 
 genOverloadedLabel :: Gen Expr
 genOverloadedLabel = do
-  labelName <- suchThat genIdent (not . T.isSuffixOf "#")
+  labelName <- suchThat genVarId (not . T.isSuffixOf "#")
   pure (EOverloadedLabel labelName ("#" <> labelName))
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
 genQuasiQuoteName :: Gen Text
-genQuasiQuoteName = suchThat genIdent (\name -> name `notElem` ["e", "d", "p", "t"] && not (T.isSuffixOf "#" name))
+genQuasiQuoteName = suchThat genVarId (\name -> name `notElem` ["e", "d", "p", "t"] && not (T.isSuffixOf "#" name))
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
 -- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
@@ -185,7 +186,7 @@ genTypeNameQuoteType =
 -- as 'x'y would be parsed as char literal 'x' followed by identifier y.
 genNameQuoteIdent :: Gen Text
 genNameQuoteIdent = do
-  ident <- genIdent
+  ident <- genVarId
   -- If length >= 2 and second char is a quote, regenerate
   if T.length ident >= 2 && T.index ident 1 == '\''
     then genNameQuoteIdent
@@ -196,7 +197,7 @@ genNameQuoteIdent = do
 genTypeNameQuote :: Gen Name
 genTypeNameQuote =
   oneof
-    [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
+    [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId,
       -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
       qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genVarSym (/= "*")
     ]
@@ -207,11 +208,8 @@ genOperatorName = do
   op <- mkUnqualifiedName NameVarSym <$> genVarSym
   pure (qualifyName qual op)
 
-genVarName :: Gen Name
-genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
-
 genConAstName :: Gen Name
-genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
+genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Gen [Pattern]
@@ -322,7 +320,7 @@ genPatternBindDecl allowTHQuotes = scale (`div` 2) $ do
 -- 'FunctionBind' per equation.
 genFunctionBindDecl :: Bool -> Gen Decl
 genFunctionBindDecl allowTHQuotes = do
-  name <- mkUnqualifiedName NameVarId <$> genIdent
+  name <- mkUnqualifiedName NameVarId <$> genVarId
   patCount <- chooseInt (1, 3)
   scale (`div` (patCount + 1)) $ do
     pats <- vectorOf patCount genPattern
@@ -498,7 +496,7 @@ genTypeListElemsWith allowTHQuotes = do
   scale (`div` count) $ vectorOf count (genTypeWith allowTHQuotes)
 
 genTypeVarName :: Gen UnqualifiedName
-genTypeVarName = mkUnqualifiedName NameVarId <$> genIdent
+genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
 
 -- | Wrap an expression in parens if it's not suitable as the LHS of a type
 -- application (@expr \@Type@). Type application has the same precedence as

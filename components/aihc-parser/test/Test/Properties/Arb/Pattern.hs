@@ -13,15 +13,15 @@ import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConIdent,
+    genConId,
     genConSym,
     genFieldName,
-    genIdent,
     genOptionalQualifier,
     genQuasiBody,
     genQuoterName,
     genStringValue,
     genTenths,
+    genVarId,
     isValidQuoterName,
     showHex,
     shrinkFloat,
@@ -64,7 +64,7 @@ genPattern = do
         genPatternTypeSigWith,
         genUnboxedSumPatternWith,
         PView <$> resize 2 genExpr <*> genPattern,
-        PAs <$> genIdent <*> (genPattern),
+        PAs <$> genVarId <*> (genPattern),
         PStrict <$> genPattern,
         PIrrefutable <$> genPattern
       ]
@@ -93,7 +93,7 @@ genPatternTypeSigWith = do
 genPatternType :: Gen Type
 genPatternType =
   oneof
-    [ TVar . mkUnqualifiedName NameVarId <$> genIdent,
+    [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
       (`TCon` Unpromoted) <$> genPatternConAstName
     ]
 
@@ -174,16 +174,16 @@ genPatSpliceBody =
     ]
 
 genEVarName :: Gen Name
-genEVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
+genEVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genVarId)
 
 genConOperatorName :: Gen Name
 genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)
 
 genPatternUnqualVarName :: Gen UnqualifiedName
-genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
+genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
 
 genPatternConAstName :: Gen Name
-genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
+genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
 
 mkIntLiteral :: Integer -> Literal
 mkIntLiteral value = LitInt value TInteger (T.pack (show value))

@@ -14,11 +14,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConIdent,
-    genIdent,
+    genConId,
     genOptionalQualifier,
     genQuasiBody,
     genQuoterName,
+    genVarId,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -112,7 +112,7 @@ genConstraintType depth = do
 
 genTypeImplicitParam :: Int -> Gen Type
 genTypeImplicitParam depth = do
-  name <- ("?" <>) <$> genIdent
+  name <- ("?" <>) <$> genVarId
   inner <- genType (depth - 1)
   pure $ TImplicitParam name inner
 
@@ -247,18 +247,18 @@ genTypeVarName = do
     else pure (mkUnqualifiedName NameVarId candidate)
 
 genTypeConAstName :: Gen Name
-genTypeConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
+genTypeConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
 
 -- | Generate a type constructor name that is safe for promotion with @'@.
 -- Avoids names containing @'@ since @'Name'rest@ would be lexed as
 -- a character literal @'N'@ followed by @amerest@.
 genPromotableTypeConName :: Gen Name
 genPromotableTypeConName = do
-  name <- suchThat genConIdent (\n -> T.length n >= 2 && not (T.any (== '\'') n))
+  name <- suchThat genConId (\n -> T.length n >= 2 && not (T.any (== '\'') n))
   pure (qualifyName Nothing (mkUnqualifiedName NameConId name))
 
 genTypeVarExprName :: Gen Name
-genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
+genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genVarId
 
 genTypeLiteral :: Gen TypeLiteral
 genTypeLiteral =

@@ -166,6 +166,7 @@ prettyImportLevel level =
 prettyDeclSpliceExpr :: Expr -> Doc ann
 prettyDeclSpliceExpr body =
   case peelExprAnn body of
+    EParen inner | isOperatorExpr inner -> "$" <> parens (prettyOperatorExpr inner)
     EVar {} -> "$" <> prettyExpr body
     EParen {} -> "$" <> prettyExpr body
     _ -> prettyExpr body
@@ -1129,8 +1130,8 @@ prettyExpr expr =
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote body -> "'" <> prettyExpr body
     ETHTypeNameQuote ty -> "''" <> prettyType ty
-    ETHSplice body -> "$" <> prettyExpr body
-    ETHTypedSplice body -> "$$" <> prettyExpr body
+    ETHSplice body -> prettyExprSplice "$" body
+    ETHTypedSplice body -> prettyExprSplice "$$" body
     EIf cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no
     EMultiWayIf rhss ->
@@ -1222,6 +1223,24 @@ prettyExpr expr =
     EProc pat body ->
       "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
     EAnn _ sub -> prettyExpr sub
+
+prettyExprSplice :: Doc ann -> Expr -> Doc ann
+prettyExprSplice prefix body =
+  case peelExprAnn body of
+    EParen inner | isOperatorExpr inner -> prefix <> parens (prettyOperatorExpr inner)
+    _ -> prefix <> prettyExpr body
+
+isOperatorExpr :: Expr -> Bool
+isOperatorExpr expr =
+  case peelExprAnn expr of
+    EVar name -> isSymbolicName name
+    _ -> False
+
+prettyOperatorExpr :: Expr -> Doc ann
+prettyOperatorExpr expr =
+  case peelExprAnn expr of
+    EVar name -> pretty (renderName name)
+    other -> prettyExpr other
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =

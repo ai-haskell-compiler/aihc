@@ -497,7 +497,16 @@ prefixMinusTokenParser =
 parenOperatorExprParser :: TokParser Expr
 parenOperatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
+  op <- operatorExprNameParser
+  expectedTok TkSpecialRParen
+  pure (EVar op)
+
+operatorExprParser :: TokParser Expr
+operatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ EVar <$> operatorExprNameParser
+
+operatorExprNameParser :: TokParser Name
+operatorExprNameParser =
+  tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
       TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
@@ -513,8 +522,6 @@ parenOperatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       TkReservedDoubleArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "=>"))
       TkReservedDotDot -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym ".."))
       _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure (EVar op)
 
 rhsParser :: TokParser Rhs
 rhsParser = label "right-hand side" (rhsParserWithArrow RhsArrowCase)
@@ -1087,7 +1094,7 @@ thSpliceBody =
   parenSpliceBody <|> bareSpliceBody
   where
     parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens exprParser
+      body <- parens (MP.try operatorExprParser <|> exprParser)
       pure (EParen body)
     bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
