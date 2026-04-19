@@ -16,13 +16,14 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, genRhsWith, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConId,
     genConSym,
     genFieldName,
     genVarId,
     genVarSym,
+    genVarUnqualifiedName,
     isValidGeneratedVarSym,
     shrinkConIdent,
     shrinkIdent,
@@ -41,32 +42,33 @@ instance Arbitrary Decl where
 
 genDecl :: Gen Decl
 genDecl =
-  oneof
-    [ genDeclValue,
-      genDeclTypeSig,
-      genDeclFixity,
-      genDeclRoleAnnotation,
-      genDeclTypeSyn,
-      genDeclTypeSynInfix,
-      genDeclData,
-      genDeclTypeData,
-      genDeclNewtype,
-      genDeclClass,
-      genDeclInstance,
-      genDeclStandaloneDeriving,
-      genDeclDefault,
-      genDeclSplice,
-      genDeclForeign,
-      genDeclTypeFamilyDecl,
-      genDeclTypeFamilyDeclInfix,
-      genDeclDataFamilyDecl,
-      genDeclTypeFamilyInst,
-      genDeclDataFamilyInst,
-      genDeclPragma,
-      genDeclPatSyn,
-      genDeclPatSynSig,
-      genDeclStandaloneKindSig
-    ]
+  scale (`div` 2) $
+    oneof
+      [ genDeclValue,
+        genDeclTypeSig,
+        genDeclFixity,
+        genDeclRoleAnnotation,
+        genDeclTypeSyn,
+        genDeclTypeSynInfix,
+        genDeclData,
+        genDeclTypeData,
+        genDeclNewtype,
+        genDeclClass,
+        genDeclInstance,
+        genDeclStandaloneDeriving,
+        genDeclDefault,
+        genDeclSplice,
+        genDeclForeign,
+        genDeclTypeFamilyDecl,
+        genDeclTypeFamilyDeclInfix,
+        genDeclDataFamilyDecl,
+        genDeclTypeFamilyInst,
+        genDeclDataFamilyInst,
+        genDeclPragma,
+        genDeclPatSyn,
+        genDeclPatSynSig,
+        genDeclStandaloneKindSig
+      ]
 
 genDeclValue :: Gen Decl
 genDeclValue =
@@ -77,12 +79,10 @@ genDeclValue =
 
 genFunctionValueDecl :: Gen Decl
 genFunctionValueDecl = do
-  name <- genVarBinderName
-  expr <- genExpr
-  headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
-  case headForm of
-    MatchHeadPrefix ->
-      do
+  name <- genVarUnqualifiedName
+  rhs <- genRhsWith False
+  oneof
+    [ do
         patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (scale (min 3) genPattern)
         pure $
@@ -93,11 +93,10 @@ genFunctionValueDecl = do
                     { matchAnns = [],
                       matchHeadForm = MatchHeadPrefix,
                       matchPats = pats,
-                      matchRhs = UnguardedRhs [] expr Nothing
+                      matchRhs = rhs
                     }
                 ]
-            )
-    MatchHeadInfix ->
+            ),
       do
         lhsPat <- genPattern
         rhsPat <- scale (min 3) genPattern
@@ -111,10 +110,11 @@ genFunctionValueDecl = do
                     { matchAnns = [],
                       matchHeadForm = MatchHeadInfix,
                       matchPats = [lhsPat, rhsPat] <> extraPats,
-                      matchRhs = UnguardedRhs [] expr Nothing
+                      matchRhs = rhs
                     }
                 ]
             )
+    ]
 
 genPatternValueDecl :: Gen Decl
 genPatternValueDecl =
@@ -122,28 +122,22 @@ genPatternValueDecl =
 
 genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = do
+  n <- getSize
   missing <- arbitrary
-  if missing then pure Nothing else Just <$> (scale (`div` 2) $ listOf genDeclValue)
+  if missing || n <= 0 then pure Nothing else Just <$> (scale (`div` 2) $ listOf genDeclValue)
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
-  names <- vectorOf nameCount genVarBinderName
-  DeclTypeSig names <$> sized (genType . min 6)
-
-genVarBinderName :: Gen UnqualifiedName
-genVarBinderName =
-  oneof
-    [ mkUnqualifiedName NameVarId <$> genVarId,
-      mkUnqualifiedName NameVarSym <$> genVarSym
-    ]
+  names <- vectorOf nameCount genVarUnqualifiedName
+  DeclTypeSig names <$> scale (min 6) genType
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
   assoc <- elements [Infix, InfixL, InfixR]
   prec <- elements [Nothing, Just 0, Just 6, Just 9]
   n <- chooseInt (1, 2)
-  ops <- vectorOf n genVarBinderName
+  ops <- vectorOf n genVarUnqualifiedName
   pure $ DeclFixity assoc Nothing prec ops
 
 genDeclRoleAnnotation :: Gen Decl
@@ -382,7 +376,7 @@ genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
   args <- vectorOf n genGadtBangType
-  result <- sized (genType . min 6)
+  result <- scale (min 6) genType
   pure $ GadtPrefixBody args result
 
 -- | Generate a BangType for GADT prefix body arg position.
@@ -391,7 +385,7 @@ genGadtPrefixBody = do
 -- as single operator tokens.
 genGadtBangType :: Gen BangType
 genGadtBangType = do
-  ty <- sized (genType . min 6)
+  ty <- scale (min 6) genType
   -- Only generate lazy/strict annotations on types that start with alphabetic characters
   let canAnnotate = typeStartsWithAlpha ty
   annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
@@ -455,7 +449,7 @@ genGadtRecordBody :: Gen GadtBody
 genGadtRecordBody = do
   n <- chooseInt (1, 3)
   fields <- vectorOf n genGadtFieldDecl
-  result <- sized (genType . min 6)
+  result <- scale (min 6) genType
   pure $ GadtRecordBody fields result
 
 -- | Generate a field declaration for GADT record body position.
@@ -463,7 +457,7 @@ genGadtRecordBody = do
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldName <- mkUnqualifiedName NameVarId <$> genVarId
-  ty <- sized (genType . min 6)
+  ty <- scale (min 6) genType
   pure $ FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)
 
 genSimpleBangType :: Gen BangType
@@ -569,7 +563,7 @@ genClassDeclItems params =
 
 genClassTypeSigItem :: Gen ClassDeclItem
 genClassTypeSigItem = do
-  name <- genVarBinderName
+  name <- genVarUnqualifiedName
   ClassItemTypeSig [name] <$> genSimpleType
 
 genClassAssociatedTypeDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
@@ -728,7 +722,7 @@ genDeclStandaloneDerivingInfix = do
         }
 
 genInstanceHeadType :: Gen Type
-genInstanceHeadType = suchThat (sized (genType . min 4)) isValidInstanceHeadType
+genInstanceHeadType = suchThat (scale (min 4) genType) isValidInstanceHeadType
 
 isValidInstanceHeadType :: Type -> Bool
 isValidInstanceHeadType ty =
@@ -921,7 +915,7 @@ genOptionalDataFamilyInstKind =
 
 genDataFamilyInstKind :: Gen Type
 genDataFamilyInstKind =
-  sized (genType . min 6)
+  scale (min 6) genType
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
@@ -971,7 +965,7 @@ genFamilyTypeAtom :: Gen Type
 genFamilyTypeAtom = genSimpleTypeWithoutFun
 
 genFamilyLhsArg :: Gen Type
-genFamilyLhsArg = suchThat (sized (genType . min 4)) (not . isStarType)
+genFamilyLhsArg = suchThat (scale (min 4) genType) (not . isStarType)
 
 isStarType :: Type -> Bool
 isStarType TStar = True
@@ -1000,7 +994,7 @@ genDeclPatSynSig = do
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do
   name <- mkUnqualifiedName NameConId <$> genConId
-  kind <- sized (genType . min 6)
+  kind <- scale (min 6) genType
   pure $ DeclStandaloneKindSig name kind
 
 -- | Generate simple type variable binders (0-2 params).

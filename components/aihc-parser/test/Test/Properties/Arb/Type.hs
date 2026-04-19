@@ -29,12 +29,20 @@ allExtensions :: Set.Set Extension
 allExtensions = Set.fromList allKnownExtensions
 
 instance Arbitrary Type where
-  arbitrary = sized (genType . min 6)
+  arbitrary = scale (min 6) genType
   shrink = shrinkType
 
-genType :: Int -> Gen Type
-genType depth
-  | depth <= 0 =
+-- | Decrease QuickCheck size by one (mirrors the old explicit depth budget).
+dec :: Gen a -> Gen a
+dec = scale (\s -> max 0 (s - 1))
+
+-- | Generate a random type. Uses QuickCheck's size parameter to control
+-- recursion depth.
+genType :: Gen Type
+genType = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0
+    then
       oneof
         [ TVar <$> genTypeVarName,
           (`TCon` Unpromoted) <$> genTypeConAstName,
@@ -45,11 +53,11 @@ genType depth
           TQuasiQuote <$> genQuoterName <*> genQuasiBody,
           TTuple Boxed Unpromoted <$> elements [[], [TVar "a", TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
           TTuple Unboxed Unpromoted <$> elements [[], [TVar "a", TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
-          TList Unpromoted <$> genTypeListElems 0,
-          TParen <$> genTypeAtom 0,
-          TUnboxedSum <$> genUnboxedSumElems 0
+          TList Unpromoted <$> genTypeListElems,
+          TParen <$> resize 0 genTypeAtom,
+          TUnboxedSum <$> genUnboxedSumElems
         ]
-  | otherwise =
+    else
       frequency
         [ (3, TVar <$> genTypeVarName),
           (3, (`TCon` Unpromoted) <$> genTypeConAstName),
@@ -58,30 +66,27 @@ genType depth
           (1, pure TStar),
           (1, pure TWildcard),
           (2, TQuasiQuote <$> genQuoterName <*> genQuasiBody),
-          (2, TForall <$> genForallTelescope <*> genForallInner (depth - 1)),
-          (4, genTypeApp depth),
-          (4, genTypeFun depth),
-          (3, TTuple Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (2, TForall <$> genForallTelescope <*> dec genType),
+          (4, genTypeApp),
+          (4, genTypeFun),
+          (3, TTuple Boxed Unpromoted <$> dec genTypeTupleElems),
           (1, TTuple Boxed Promoted <$> genPromotedTupleElems),
-          (2, TTuple Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
-          (2, TUnboxedSum <$> genUnboxedSumElems (depth - 1)),
-          (3, TList Unpromoted <$> genTypeListElems (depth - 1)),
+          (2, TTuple Unboxed Unpromoted <$> dec genTypeTupleElems),
+          (2, TUnboxedSum <$> dec genUnboxedSumElems),
+          (3, TList Unpromoted <$> dec genTypeListElems),
           (1, TList Promoted <$> genPromotedListElems),
-          (3, TParen <$> genType (depth - 1)),
+          (3, TParen <$> dec genType),
           (2, TSplice <$> genTypeSpliceBody),
-          (2, genTypeContext depth),
-          (2, genTypeImplicitParam depth),
-          (2, TKindSig <$> genKindSigSubject (depth - 1) <*> genKindSigKind (depth - 1))
+          (2, genTypeContext),
+          (2, genTypeImplicitParam),
+          (2, TKindSig <$> dec genKindSigSubject <*> dec genKindSigKind)
         ]
 
-genTypeApp :: Int -> Gen Type
-genTypeApp depth = TApp <$> genType (depth - 1) <*> genType (depth - 1)
+genTypeApp :: Gen Type
+genTypeApp = TApp <$> dec genType <*> dec genType
 
-genTypeFun :: Int -> Gen Type
-genTypeFun depth = TFun <$> genType (depth - 1) <*> genType (depth - 1)
-
-genForallInner :: Int -> Gen Type
-genForallInner = genType
+genTypeFun :: Gen Type
+genTypeFun = TFun <$> dec genType <*> dec genType
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr
@@ -91,49 +96,50 @@ genTypeSpliceBody =
       EParen . EVar <$> genTypeVarExprName
     ]
 
-genTypeContext :: Int -> Gen Type
-genTypeContext depth = do
+genTypeContext :: Gen Type
+genTypeContext = do
   n <- chooseInt (1, 3)
-  constraints <- vectorOf n (genConstraintType (depth - 1))
-  inner <- genType (depth - 1)
+  constraints <- vectorOf n (dec genConstraintType)
+  inner <- dec genType
   pure $ TContext constraints inner
 
 -- | Generate a constraint type (used in contexts).
 -- Typically a type constructor applied to some arguments.
-genConstraintType :: Int -> Gen Type
-genConstraintType depth = do
+genConstraintType :: Gen Type
+genConstraintType = do
+  s <- getSize
   className <- (`TCon` Unpromoted) <$> genTypeConAstName
   oneof
     [ -- Simple constraint: ClassName tyvar
       TApp className . TVar <$> genTypeVarName,
       -- Applied constraint: ClassName (Type)
-      TApp className . TParen <$> genType (max 0 depth)
+      TApp className . TParen <$> resize s genType
     ]
 
-genTypeImplicitParam :: Int -> Gen Type
-genTypeImplicitParam depth = do
+genTypeImplicitParam :: Gen Type
+genTypeImplicitParam = do
   name <- ("?" <>) <$> genVarId
-  inner <- genType (depth - 1)
+  inner <- dec genType
   pure $ TImplicitParam name inner
 
-genTypeTupleElems :: Int -> Gen [Type]
-genTypeTupleElems depth = do
+genTypeTupleElems :: Gen [Type]
+genTypeTupleElems = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n (genType depth)
+      scale (`div` n) $ vectorOf n genType
 
-genTypeListElems :: Int -> Gen [Type]
-genTypeListElems depth = do
+genTypeListElems :: Gen [Type]
+genTypeListElems = do
   n <- chooseInt (1, 4)
-  vectorOf n (genType depth)
+  scale (`div` n) $ vectorOf n genType
 
-genUnboxedSumElems :: Int -> Gen [Type]
-genUnboxedSumElems depth = do
+genUnboxedSumElems :: Gen [Type]
+genUnboxedSumElems = do
   n <- chooseInt (2, 4)
-  vectorOf n (genType depth)
+  scale (`div` n) $ vectorOf n genType
 
 -- | Generate elements for a promoted tuple or list. Uses simple types only
 -- to avoid nesting ambiguities with kind signatures and unboxed tuples
@@ -176,15 +182,15 @@ genPromotedSafeTypeLiteral =
           pure (TypeLitSymbol txt (T.pack (show (T.unpack txt))))
       ]
 
-genTypeAtom :: Int -> Gen Type
-genTypeAtom depth =
+genTypeAtom :: Gen Type
+genTypeAtom =
   oneof
-    [ genSimpleTypeAtom depth,
-      TKindSig <$> genKindSigSubject depth <*> genKindSigKind depth
+    [ genSimpleTypeAtom,
+      TKindSig <$> genKindSigSubject <*> genKindSigKind
     ]
 
-genSimpleTypeAtom :: Int -> Gen Type
-genSimpleTypeAtom depth =
+genSimpleTypeAtom :: Gen Type
+genSimpleTypeAtom =
   oneof
     [ TVar <$> genTypeVarName,
       (`TCon` Unpromoted) <$> genTypeConAstName,
@@ -192,21 +198,21 @@ genSimpleTypeAtom depth =
       pure TStar,
       pure TWildcard,
       TQuasiQuote <$> genQuoterName <*> genQuasiBody,
-      TTuple Boxed Unpromoted <$> genTypeTupleElems depth,
-      TTuple Unboxed Unpromoted <$> genTypeTupleElems depth,
-      TUnboxedSum <$> genUnboxedSumElems depth,
-      TList Unpromoted <$> genTypeListElems depth,
-      TParen <$> genType depth
+      TTuple Boxed Unpromoted <$> genTypeTupleElems,
+      TTuple Unboxed Unpromoted <$> genTypeTupleElems,
+      TUnboxedSum <$> genUnboxedSumElems,
+      TList Unpromoted <$> genTypeListElems,
+      TParen <$> genType
     ]
 
-genKindSigSubject :: Int -> Gen Type
+genKindSigSubject :: Gen Type
 genKindSigSubject = genSimpleTypeAtom
 
-genKindSigKind :: Int -> Gen Type
-genKindSigKind depth =
+genKindSigKind :: Gen Type
+genKindSigKind =
   frequency
-    [ (3, genSimpleTypeAtom depth),
-      (1, TFun <$> genSimpleTypeAtom depth <*> genSimpleTypeAtom depth)
+    [ (3, genSimpleTypeAtom),
+      (1, TFun <$> genSimpleTypeAtom <*> genSimpleTypeAtom)
     ]
 
 genTypeBinders :: Gen [TyVarBinder]
@@ -228,11 +234,11 @@ genTyVarBinder = do
       pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred TyVarBVisible),
       -- Kinded inferred binder: {a :: Kind}
       do
-        kind <- genSimpleTypeAtom 0
+        kind <- resize 0 genSimpleTypeAtom
         pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred TyVarBVisible),
       -- Kinded specified binder: (a :: Kind)
       do
-        kind <- genSimpleTypeAtom 0
+        kind <- resize 0 genSimpleTypeAtom
         pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified TyVarBVisible)
     ]
 

@@ -878,9 +878,9 @@ lexTHNameQuote env st
         '\'' :< ('\'' :< rest)
           | Just c <- nextNonTriviaChar rest,
             isIdentStart c || c == '(' || c == '[' ->
-               let raw = "''"
-                   st' = advanceChars raw st
-                in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
+              let raw = "''"
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
         '\'' :< rest0
           | not (isValidCharLiteral rest0) ->
               let raw = "'"

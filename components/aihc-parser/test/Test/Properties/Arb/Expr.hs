@@ -43,9 +43,9 @@ genExpr = genExprWith True
 -- Nested TH brackets are rejected by GHC unless separated by splices, so quote
 -- bodies disable further quote generation.
 genExprWith :: Bool -> Gen Expr
-genExprWith allowTHQuotes = do
+genExprWith allowTHQuotes = scale (`div` 2) $ do
   n <- getSize
-  if n <= 0 then genExprLeaf else scale (`div` 2) $ oneof (baseGenerators <> quoteGenerators)
+  if n <= 0 then genExprLeaf else oneof (baseGenerators <> quoteGenerators)
   where
     baseGenerators =
       [ -- Leaf expressions

@@ -15,7 +15,6 @@ import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConId,
     genConName,
-    genConSym,
     genFieldName,
     genOptionalQualifier,
     genQuasiBody,
@@ -37,11 +36,11 @@ instance Arbitrary Pattern where
   shrink = shrinkPattern
 
 genPattern :: Gen Pattern
-genPattern = do
+genPattern = scale (`div` 2) $ do
   n <- getSize
   if n <= 0
     then oneof leafGenerators
-    else scale (`div` 2) $ oneof (leafGenerators <> recursiveGenerators)
+    else oneof (leafGenerators <> recursiveGenerators)
   where
     leafGenerators =
       [ PVar <$> genPatternUnqualVarName,
@@ -174,9 +173,6 @@ genPatSpliceBody =
     [ EVar <$> genVarName,
       EParen . EVar <$> genVarName
     ]
-
-genConOperatorName :: Gen Name
-genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)
 
 genPatternUnqualVarName :: Gen UnqualifiedName
 genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
