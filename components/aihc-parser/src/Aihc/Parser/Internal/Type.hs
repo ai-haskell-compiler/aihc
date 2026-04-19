@@ -139,9 +139,7 @@ typeHeadInfixLoopParser = MP.many $ MP.try $ do
   pure (op, atom)
 
 buildInfixType :: Type -> ((Name, TypePromotion), Type) -> Type
-buildInfixType lhs ((op, promoted), rhs) =
-  let opType = TCon op promoted
-   in TApp (TApp opType lhs) rhs
+buildInfixType lhs ((op, promoted), rhs) = TInfix lhs op promoted rhs
 
 typeInfixOperatorParser :: TokParser (Name, TypePromotion)
 typeInfixOperatorParser =

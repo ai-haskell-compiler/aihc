@@ -875,8 +875,9 @@ lexTHNameQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
-        '\'' :< ('\'' :< (c :< _))
-          | isIdentStart c || c == '(' || c == '[' ->
+        '\'' :< ('\'' :< rest)
+          | Just c <- nextNonTriviaChar rest,
+            isIdentStart c || c == '(' || c == '[' ->
               let raw = "''"
                   st' = advanceChars raw st
                in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
@@ -891,6 +892,17 @@ lexTHNameQuote env st
       case scanQuoted '\'' chars of
         Right (body, _) -> isJust (readMaybeChar ("'" <> body <> "'"))
         Left _ -> False
+
+    nextNonTriviaChar chars =
+      case skipTrivia (st {lexerInput = chars}) of
+        SkipDone st' ->
+          case lexerInput st' of
+            c :< _ -> Just c
+            _ -> Nothing
+        SkipToken _ st' ->
+          case lexerInput st' of
+            c :< _ -> Just c
+            _ -> Nothing
 
 thQuotesEnabled :: LexerEnv -> LexerState -> Bool
 thQuotesEnabled env _ =

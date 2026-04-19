@@ -4,7 +4,6 @@
 module Test.Properties.Arb.Pattern
   ( genPattern,
     shrinkPattern,
-    canonicalPatternAtom,
   )
 where
 
@@ -14,15 +13,16 @@ import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConIdent,
-    genConSym,
+    genConId,
+    genConName,
     genFieldName,
-    genIdent,
     genOptionalQualifier,
     genQuasiBody,
     genQuoterName,
     genStringValue,
     genTenths,
+    genVarId,
+    genVarName,
     isValidQuoterName,
     showHex,
     shrinkFloat,
@@ -32,15 +32,16 @@ import Test.Properties.Arb.Type (shrinkType)
 import Test.QuickCheck
 
 instance Arbitrary Pattern where
-  arbitrary = sized (genPattern . min 3)
+  arbitrary = scale (min 3) genPattern
   shrink = shrinkPattern
 
-genPattern :: Int -> Gen Pattern
-genPattern depth =
-  oneof (leafGenerators <> recursiveGenerators)
+genPattern :: Gen Pattern
+genPattern = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0
+    then oneof leafGenerators
+    else oneof (leafGenerators <> recursiveGenerators)
   where
-    allowRecursive = depth > 0
-    nextDepth = depth - 1
     leafGenerators =
       [ PVar <$> genPatternUnqualVarName,
         pure PWildcard,
@@ -51,40 +52,38 @@ genPattern depth =
         PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         PTuple Unboxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x")], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         pure (PList []),
-        (\name -> PCon name [] []) <$> genPatternConAstName,
-        genUnboxedSumPatternWith 0
+        (\name -> PCon name [] []) <$> genPatternConAstName
       ]
     recursiveGenerators =
-      [ PTuple Boxed <$> genTupleElemsWith nextDepth
-      | allowRecursive
+      [ PTuple Boxed <$> genTupleElemsWith,
+        PTuple Unboxed <$> genUnboxedTupleElemsWith,
+        PList <$> genListElemsWith,
+        genPatternConWith,
+        genPatternInfixWith,
+        PParen <$> genPattern,
+        genRecordPatternWith,
+        genPatternTypeSigWith,
+        genUnboxedSumPatternWith,
+        PView <$> resize 2 genExpr <*> genPattern,
+        PAs <$> genVarId <*> genPattern,
+        PStrict <$> genPattern,
+        PIrrefutable <$> genPattern
       ]
-        <> [PTuple Unboxed <$> genUnboxedTupleElemsWith nextDepth | allowRecursive]
-        <> [PList <$> genListElemsWith nextDepth | allowRecursive]
-        <> [genPatternConWith depth | allowRecursive]
-        <> [genPatternInfixWith depth | allowRecursive]
-        <> [PParen <$> genPattern nextDepth | allowRecursive]
-        <> [genRecordPatternWith nextDepth | allowRecursive]
-        <> [genPatternTypeSigWith depth | allowRecursive]
-        <> [genUnboxedSumPatternWith nextDepth | allowRecursive]
-        <> [PView <$> resize 2 genExpr <*> genPattern nextDepth | allowRecursive]
-        <> [PAs <$> genIdent <*> (canonicalPatternAtom <$> genPattern nextDepth) | allowRecursive]
-        <> [PStrict . canonicalPatternAtom <$> genPattern nextDepth | allowRecursive]
-        <> [PIrrefutable . canonicalPatternAtom <$> genPattern nextDepth | allowRecursive]
 
-genPatternConWith :: Int -> Gen Pattern
-genPatternConWith depth = do
+genPatternConWith :: Gen Pattern
+genPatternConWith = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
+  args <- vectorOf argCount genPattern
   pure (PCon con [] args)
 
-genPatternTypeSigWith :: Int -> Gen Pattern
-genPatternTypeSigWith depth = do
+genPatternTypeSigWith :: Gen Pattern
+genPatternTypeSigWith = do
   -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
   -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
   -- prints as (-66 :: T) which the parser interprets as negation applied to
   -- (66 :: T) rather than a type signature on -66.
-  inner <- wrapNegLit <$> genPattern (depth - 1)
+  inner <- wrapNegLit <$> genPattern
   PParen . PTypeSig inner <$> genPatternType
   where
     -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
@@ -95,60 +94,54 @@ genPatternTypeSigWith depth = do
 genPatternType :: Gen Type
 genPatternType =
   oneof
-    [ TVar . mkUnqualifiedName NameVarId <$> genIdent,
+    [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
       (`TCon` Unpromoted) <$> genPatternConAstName
     ]
 
-genPatternInfixWith :: Int -> Gen Pattern
-genPatternInfixWith depth = do
-  -- TODO: Switch back to canonicalPatternAtom once the pretty-printer correctly
-  -- parenthesizes PNegLit as an infix operand. Currently, PInfix (PNegLit 433)
-  -- ":+" (PVar "y") prints as (-433 :+ y) which is misparsed as negation of
-  -- (433 :+ y).
-  lhs <- canonicalPatternAtom <$> genPattern (depth - 1)
-  op <- genConOperatorName
-  rhs <- canonicalPatternAtom <$> genPattern (depth - 1)
-  pure (PInfix lhs op rhs)
+genPatternInfixWith :: Gen Pattern
+genPatternInfixWith = do
+  lhs <- genPattern
+  op <- genConName
+  PInfix lhs op <$> genPattern
 
-genTupleElemsWith :: Int -> Gen [Pattern]
-genTupleElemsWith depth = do
+genTupleElemsWith :: Gen [Pattern]
+genTupleElemsWith = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n (genPattern depth)
+      vectorOf n genPattern
 
 -- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
-genUnboxedTupleElemsWith :: Int -> Gen [Pattern]
-genUnboxedTupleElemsWith depth = do
+genUnboxedTupleElemsWith :: Gen [Pattern]
+genUnboxedTupleElemsWith = do
   n <- chooseInt (0, 4)
-  vectorOf n (genPattern depth)
+  vectorOf n genPattern
 
-genUnboxedSumPatternWith :: Int -> Gen Pattern
-genUnboxedSumPatternWith depth = do
+genUnboxedSumPatternWith :: Gen Pattern
+genUnboxedSumPatternWith = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genPattern depth
-  pure (PUnboxedSum altIdx arity inner)
+  PUnboxedSum altIdx arity <$> genPattern
 
-genListElemsWith :: Int -> Gen [Pattern]
-genListElemsWith depth = do
+genListElemsWith :: Gen [Pattern]
+genListElemsWith = do
   n <- chooseInt (0, 4)
-  vectorOf n (genPattern depth)
+  vectorOf n genPattern
 
-genRecordPatternWith :: Int -> Gen Pattern
-genRecordPatternWith depth = do
+genRecordPatternWith :: Gen Pattern
+genRecordPatternWith = do
   con <- genPatternConAstName
-  fields <- genRecordFieldsWith depth
+  fields <- genRecordFieldsWith
   pure (PRecord con fields False)
 
-genRecordFieldsWith :: Int -> Gen [(Name, Pattern)]
-genRecordFieldsWith depth = do
+genRecordFieldsWith :: Gen [(Name, Pattern)]
+genRecordFieldsWith = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genPattern (depth - 1))
+  pats <- vectorOf n genPattern
   quals <- vectorOf n genOptionalQualifier
   let qualifiedNames = zipWith (\q name -> qualifyName q (mkUnqualifiedName NameVarId name)) quals names
   pure (zip qualifiedNames pats)
@@ -175,46 +168,15 @@ genNumericLiteral =
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
   oneof
-    [ EVar <$> genEVarName,
-      EParen . EVar <$> genEVarName
+    [ EVar <$> genVarName,
+      EParen . EVar <$> genVarName
     ]
 
-genEVarName :: Gen Name
-genEVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
-
-genConOperatorName :: Gen Name
-genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)
-
 genPatternUnqualVarName :: Gen UnqualifiedName
-genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
+genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
 
 genPatternConAstName :: Gen Name
-genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
-
--- FIXME: This should be removed.
-canonicalPatternAtom :: Pattern -> Pattern
-canonicalPatternAtom pat =
-  if isPatternAtom pat
-    then pat
-    else PParen pat
-
-isPatternAtom :: Pattern -> Bool
-isPatternAtom pat =
-  case pat of
-    PVar {} -> True
-    PWildcard {} -> True
-    PLit {} -> True
-    PQuasiQuote {} -> True
-    PNegLit {} -> True
-    PList {} -> True
-    PTuple {} -> True
-    PParen {} -> True
-    PStrict {} -> True
-    PView {} -> True
-    PAs {} -> True
-    PUnboxedSum {} -> True
-    PCon _ [] [] -> True
-    _ -> False
+genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
 
 mkIntLiteral :: Integer -> Literal
 mkIntLiteral value = LitInt value TInteger (T.pack (show value))
@@ -254,25 +216,25 @@ shrinkPattern pat =
       [PList elems' | elems' <- shrinkList shrinkPattern elems]
     PCon con typeArgs args ->
       [PCon con typeArgs [] | not (null args)]
-        <> [PCon con typeArgs args' | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
+        <> [PCon con typeArgs args' | args' <- shrinkList shrinkPattern args]
     PInfix lhs op rhs ->
-      [canonicalPatternAtom lhs, canonicalPatternAtom rhs]
-        <> [PInfix (canonicalPatternAtom lhs') op (canonicalPatternAtom rhs) | lhs' <- shrinkPattern lhs]
-        <> [PInfix (canonicalPatternAtom lhs) op (canonicalPatternAtom rhs') | rhs' <- shrinkPattern rhs]
+      [lhs, rhs]
+        <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]
+        <> [PInfix lhs op rhs' | rhs' <- shrinkPattern rhs]
     PView expr inner ->
       [inner]
         <> [PView expr' inner | expr' <- shrinkExpr expr]
         <> [PView expr inner' | inner' <- shrinkPattern inner]
     PAs name inner ->
-      [canonicalPatternAtom inner]
-        <> [PAs name' (canonicalPatternAtom inner) | name' <- shrinkIdent name]
-        <> [PAs name (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
+      [inner]
+        <> [PAs name' inner | name' <- shrinkIdent name]
+        <> [PAs name inner' | inner' <- shrinkPattern inner]
     PStrict inner ->
-      [canonicalPatternAtom inner]
-        <> [PStrict (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
+      [inner]
+        <> [PStrict inner' | inner' <- shrinkPattern inner]
     PIrrefutable inner ->
-      [canonicalPatternAtom inner]
-        <> [PIrrefutable (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
+      [inner]
+        <> [PIrrefutable inner' | inner' <- shrinkPattern inner]
     PNegLit lit ->
       [PLit lit]
         <> [PNegLit shrunk | shrunk <- shrinkNumericLiteral lit]

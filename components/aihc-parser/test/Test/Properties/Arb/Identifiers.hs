@@ -3,24 +3,25 @@
 -- | Shared generators and helpers used by Expr.hs, Pattern.hs, Type.hs, and Decl.hs.
 -- This module breaks import cycles because it doesn't depend on any of those modules.
 module Test.Properties.Arb.Identifiers
-  ( -- * Canonical source span
-    span0,
-
-    -- * Variable identifiers
-    genIdent,
+  ( -- * Variable identifiers
+    genVarId,
+    genVarUnqualifiedName,
+    genVarName,
     shrinkIdent,
     isValidGeneratedIdent,
+    genVarSym,
+    isValidGeneratedVarSym,
 
     -- * Constructor identifiers
-    genConIdent,
+    genConId,
+    genConUnqualifiedName,
+    genConName,
     shrinkConIdent,
     isValidConIdent,
 
     -- * Constructor operator symbols
     genConSym,
     isValidGeneratedConSym,
-    genVarSym,
-    isValidGeneratedVarSym,
 
     -- * Module qualifiers
     genOptionalQualifier,
@@ -47,12 +48,12 @@ module Test.Properties.Arb.Identifiers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax (Extension, SourceSpan, allKnownExtensions, noSourceSpan)
+import Aihc.Parser.Syntax (Extension, Name, NameType (..), UnqualifiedName, allKnownExtensions, mkUnqualifiedName, qualifyName)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, shrink, shrinkIntegral, vectorOf)
+import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, oneof, shrink, shrinkIntegral, vectorOf)
 
 -- | All extensions enabled for maximum keyword coverage in testing.
 allExtensions :: Set.Set Extension
@@ -70,31 +71,54 @@ conIdentStartChars = filter isValidConIdentStartChar allChars
 identTailChars :: [Char]
 identTailChars = filter isValidIdentTailChar allChars
 
--- | Unicode characters that the lexer maps to reserved tokens or normalized
--- ASCII operator names (see 'unicodeOpTokenKind' in Lex.hs). These must be
--- excluded from symbol generation to prevent round-trip mismatches.
-unicodeOpChars :: [Char]
-unicodeOpChars = ['∷', '⇒', '→', '←', '∀', '★', '⤙', '⤚', '⤛', '⤜', '⦇', '⦈', '⟦', '⟧', '⊸']
-
 symbolChars :: [Char]
-symbolChars = filter (\c -> isValidSymbolChar c && c `notElem` unicodeOpChars) allChars
+symbolChars = filter isValidSymbolChar allChars
 
+-- Symbols starting with ':' are constructors, and symbols ending with '#' clashes with overloaded labels.
 varSymStartChars :: [Char]
-varSymStartChars = filter (/= ':') symbolChars
+varSymStartChars = filter (\c -> c /= ':' && c /= '#') symbolChars
 
 reservedOperators :: Set.Set Text
-reservedOperators = Set.fromList ["..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>", "-<", ">-", "-<<", ">>-"]
-
--- | Canonical empty source span for normalization.
-span0 :: SourceSpan
-span0 = noSourceSpan
+reservedOperators =
+  Set.fromList
+    [ "..",
+      ":",
+      "::",
+      "=",
+      "\\",
+      "|",
+      "<-",
+      "->",
+      "@",
+      "~",
+      "=>",
+      "-<",
+      ">-",
+      "-<<",
+      ">>-",
+      "→",
+      "←",
+      "⇒",
+      "∷",
+      "∀",
+      "⤙",
+      "⤚",
+      "⤛",
+      "⤜",
+      "⦇",
+      "⦈",
+      "⟦",
+      "⟧",
+      "⊸",
+      "★"
+    ]
 
 -------------------------------------------------------------------------------
 -- Variable identifiers
 -------------------------------------------------------------------------------
 
-genIdent :: Gen Text
-genIdent = do
+genVarId :: Gen Text
+genVarId = do
   first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements identTailChars)
@@ -102,7 +126,15 @@ genIdent = do
   let candidate = T.pack (first : rest) <> T.replicate hashCount "#"
   if isValidGeneratedIdent candidate
     then pure candidate
-    else genIdent
+    else genVarId
+
+genVarUnqualifiedName :: Gen UnqualifiedName
+genVarUnqualifiedName = oneof [mkUnqualifiedName NameVarId <$> genVarId, mkUnqualifiedName NameVarSym <$> genVarSym]
+
+genVarName :: Gen Name
+genVarName = do
+  qual <- genOptionalQualifier
+  qualifyName qual <$> genVarUnqualifiedName
 
 shrinkIdent :: Text -> [Text]
 shrinkIdent = shrinkWithPreservedFirstChar isValidGeneratedIdent
@@ -132,13 +164,21 @@ unsnocMagicHash ident =
 
 -- | Generate a constructor/type constructor name starting with uppercase.
 -- Produces names like @Foo@, @A1@, @T'x@, etc.
-genConIdent :: Gen Text
-genConIdent = do
+genConId :: Gen Text
+genConId = do
   first <- elements conIdentStartChars
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements identTailChars)
   hashCount <- chooseInt (0, 4)
   pure (T.pack (first : rest) <> T.replicate hashCount "#")
+
+genConUnqualifiedName :: Gen UnqualifiedName
+genConUnqualifiedName = oneof [mkUnqualifiedName NameConId <$> genConId, mkUnqualifiedName NameConSym <$> genConSym]
+
+genConName :: Gen Name
+genConName = do
+  qual <- genOptionalQualifier
+  qualifyName qual <$> genConUnqualifiedName
 
 shrinkConIdent :: Text -> [Text]
 shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent
@@ -187,33 +227,12 @@ isValidGeneratedVarSym op =
   case T.uncons op of
     Just (first, rest) ->
       first /= ':'
-        && first /= '`'
         && isValidSymbolChar first
-        && T.all (/= '`') rest
+        && T.all (/= '`') op
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
-        && not (T.any (`elem` bannedUnicodeOperatorChars) op)
     Nothing -> False
-
-bannedUnicodeOperatorChars :: [Char]
-bannedUnicodeOperatorChars =
-  [ '→',
-    '←',
-    '⇒',
-    '∷',
-    '∀',
-    '⤙',
-    '⤚',
-    '⤛',
-    '⤜',
-    '⦇',
-    '⦈',
-    '⟦',
-    '⟧',
-    '⊸',
-    '★'
-  ]
 
 -------------------------------------------------------------------------------
 -- Module qualifiers
@@ -223,10 +242,9 @@ bannedUnicodeOperatorChars =
 -- Biased towards Nothing to keep most names unqualified.
 genOptionalQualifier :: Gen (Maybe Text)
 genOptionalQualifier =
-  elements
-    [ Nothing,
-      Nothing,
-      Just "M"
+  oneof
+    [ pure Nothing,
+      Just <$> genModuleQualifier
     ]
 
 -- | Generate a module qualifier like "Data.List" or "Prelude".
@@ -236,13 +254,9 @@ genModuleQualifier = do
   segs <- vectorOf segCount genModuleSegment
   pure (T.intercalate "." segs)
 
--- | Generate a single module name segment (starts with uppercase).
+-- | Generate a single module name segment (starts with uppercase). Contrary to conids, module segments may not contain magic hashes.
 genModuleSegment :: Gen Text
-genModuleSegment = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
-  pure (T.pack (first : rest))
+genModuleSegment = T.filter (/= '#') <$> genConId
 
 -------------------------------------------------------------------------------
 -- Field names

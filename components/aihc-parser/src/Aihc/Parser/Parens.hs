@@ -481,9 +481,9 @@ addDataConDeclParens con =
   case con of
     DataConAnn ann inner -> DataConAnn ann (addDataConDeclParens inner)
     PrefixCon forallVars constraints name fields ->
-      PrefixCon forallVars (addContextConstraints constraints) name (map addBangTypeParens fields)
+      PrefixCon forallVars (addContextConstraints constraints) name (map addPrefixConBangTypeParens fields)
     InfixCon forallVars constraints lhs op rhs ->
-      InfixCon forallVars (addContextConstraints constraints) (addBangTypeAtomParens lhs) op (addBangTypeAtomParens rhs)
+      InfixCon forallVars (addContextConstraints constraints) (addInfixConBangTypeParens lhs) op (addInfixConBangTypeParens rhs)
     RecordCon forallVars constraints name fields ->
       RecordCon forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
     GadtCon forallBinders constraints names body ->
@@ -493,18 +493,47 @@ addBangTypeParens :: BangType -> BangType
 addBangTypeParens bt =
   bt
     { bangType =
-        if bangStrict bt
-          then addTypeIn CtxTypeAtom (bangType bt)
-          else addTypeIn CtxTypeFunArg (bangType bt)
+        wrapTy
+          ( (bangStrict bt || bangLazy bt)
+              && bangTypeNeedsPrefixParens (bangType bt)
+          )
+          (addTypeIn CtxTypeAtom (bangType bt))
     }
 
-addBangTypeAtomParens :: BangType -> BangType
-addBangTypeAtomParens bt =
+bangTypeNeedsPrefixParens :: Type -> Bool
+bangTypeNeedsPrefixParens (TAnn _ sub) = bangTypeNeedsPrefixParens sub
+bangTypeNeedsPrefixParens (TParen _) = False
+bangTypeNeedsPrefixParens TStar = True
+bangTypeNeedsPrefixParens (TCon name promoted) = promoted /= Promoted && isSymbolicName name
+bangTypeNeedsPrefixParens TImplicitParam {} = True
+bangTypeNeedsPrefixParens TSplice {} = True
+bangTypeNeedsPrefixParens _ = False
+
+addPrefixConBangTypeParens :: BangType -> BangType
+addPrefixConBangTypeParens bt =
   let inner = addBangTypeParens bt
    in inner
         { bangType =
-            wrapTy (needsTypeParens CtxTypeFunArg (bangType bt)) (bangType inner)
+            wrapTy (prefixConBangTypeNeedsParens (bangType bt)) (bangType inner)
         }
+
+addInfixConBangTypeParens :: BangType -> BangType
+addInfixConBangTypeParens bt =
+  bt
+    { bangType =
+        wrapTy
+          ( ( (bangStrict bt || bangLazy bt)
+                && bangTypeNeedsPrefixParens (bangType bt)
+            )
+              || needsTypeParens CtxTypeFunArg (bangType bt)
+          )
+          (addTypeIn CtxTypeFunArg (bangType bt))
+    }
+
+prefixConBangTypeNeedsParens :: Type -> Bool
+prefixConBangTypeNeedsParens (TAnn _ sub) = prefixConBangTypeNeedsParens sub
+prefixConBangTypeNeedsParens TImplicitParam {} = True
+prefixConBangTypeNeedsParens _ = False
 
 addRecordFieldDeclParens :: FieldDecl -> FieldDecl
 addRecordFieldDeclParens fd =
@@ -526,10 +555,16 @@ addGadtBodyParens body =
       -- per component). A result type that is itself a TFun, TForall, TContext,
       -- TImplicitParam, or TKindSig would be misinterpreted as additional
       -- constructor arguments, so we use addTypeIn CtxTypeFunArg to wrap it.
-      GadtPrefixBody (map addBangTypeParens args) (addTypeIn CtxTypeFunArg resultTy)
+      GadtPrefixBody (map addGadtBangTypeParens args) (addTypeIn CtxTypeFunArg resultTy)
     GadtRecordBody fields resultTy ->
       -- Record GADT result type uses typeParser so any type is fine here.
       GadtRecordBody (map addRecordFieldDeclParens fields) (addTypeParens resultTy)
+
+addGadtBangTypeParens :: BangType -> BangType
+addGadtBangTypeParens bt =
+  bt
+    { bangType = addTypeIn CtxTypeFunArg (bangType bt)
+    }
 
 addClassDeclParens :: ClassDecl -> ClassDecl
 addClassDeclParens decl =
@@ -900,8 +935,11 @@ addTypeParensShared ctx prec ty =
             )
         tyInfix
           | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
-              -- Infix type operator: args are treated as atoms
-              TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
+              -- Prefix application of a symbolic type constructor still obeys
+              -- normal type-application precedence. In particular, an operand
+              -- like @A => B@ must stay parenthesized so it is not re-parsed as
+              -- an outer context.
+              TApp (TApp op (addTypeIn CtxTypeAppArg lhs)) (addTypeIn CtxTypeAppArg rhs)
         TInfix lhs op promoted rhs ->
           wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
         TApp f x ->
@@ -1115,6 +1153,7 @@ addPatternAtomStrictParens pat =
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
+    PSplice {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
 
 -- ---------------------------------------------------------------------------

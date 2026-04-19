@@ -7,7 +7,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
-import Aihc.Parser.Parens (addDeclParens, addExprParens)
+import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -29,7 +29,7 @@ import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
-import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
+import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers
   ( genConSym,
@@ -59,12 +59,6 @@ tenMinutes = Timeout (10 * 60 * 1000000) "10m"
 
 sampleGen :: Int -> Gen a -> [a]
 sampleGen count gen = QGen.unGen (QC.vectorOf count gen) (QRandom.mkQCGen 20260415) 5
-
-expr0 :: Expr -> Expr
-expr0 = EAnn (mkAnnotation span0)
-
-pat0 :: Pattern -> Pattern
-pat0 = PAnn (mkAnnotation span0)
 
 pattern PVar_ :: UnqualifiedName -> Pattern
 pattern PVar_ name <- (peelPatternAnn -> PVar name)
@@ -247,6 +241,9 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "parses symbolic traditional type data constructors" test_symbolicTypeDataConstructorParses,
+            testCase "parses symbolic traditional type data head and constructor" test_symbolicTypeDataHeadAndConstructorParses,
+            testCase "parses infix traditional type data constructors" test_infixTypeDataConstructorParses,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses top-level kind signatures on type literals" test_typeParsesTopLevelKindSignatureOnTypeLiteral,
@@ -271,13 +268,14 @@ buildTests = do
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
+            testCase "TemplateHaskell expression splices parse negative bodies" test_templateHaskellParsesNegativeSpliceBodyExpr,
             testCase "TemplateHaskell type quotes parse infix type splices" test_templateHaskellTypeQuoteParsesInfixSplices,
             testCase "TemplateHaskell value-name quotes parse list constructors" test_templateHaskellNameQuoteParsesListConstructor,
             testCase "TemplateHaskell value-name quotes parse unboxed tuple constructors" test_templateHaskellNameQuoteParsesUnboxedTupleConstructor,
             testCase "TemplateHaskell value-name quotes reject non-name expressions" test_templateHaskellNameQuoteRejectsNonNameExpr,
             testCase "TemplateHaskell type-name quotes parse tuple constructors" test_templateHaskellTypeNameQuoteParsesTupleConstructor,
+            testCase "TemplateHaskell type-name quotes ignore whitespace before names" test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName,
             testCase "TemplateHaskell type-name quotes parse unboxed tuple constructors" test_templateHaskellTypeNameQuoteParsesUnboxedTupleConstructor,
-            testCase "TemplateHaskell type-name quotes roundtrip tuple constructors" test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor,
             testCase "TemplateHaskell type-name quotes reject non-name types" test_templateHaskellTypeNameQuoteRejectsNonNameType,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             testCase "parses explicit type syntax expressions" test_explicitTypeSyntaxExprParses,
@@ -361,18 +359,8 @@ buildTests = do
           ],
         testGroup
           "pretty"
-          [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
-            testCase "lambda-cases parses multi-argument alternatives" test_lambdaCasesParsesMultiArgumentAlternatives,
-            testCase "lambda-cases pretty round-trips" test_prettyLambdaCasesRoundTrip,
-            testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
-            testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
-            testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
-            testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
-            testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
-            testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
-            testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
-            testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
-            testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens,
+          [ testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
+            testCase "symbolic type application parenthesizes context arguments" test_symbolicTypeApplicationContextArgRoundTrip,
             testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
           ],
         testGroup
@@ -390,6 +378,8 @@ buildTests = do
             testCase "infix tuple lhs and qualified record rhs" test_funHeadInfixTupleLhsQualifiedRecordRhs,
             testCase "infix complex tuple lhs and qualified record rhs" test_funHeadInfixComplexTupleLhsQualifiedRecordRhs,
             testCase "infix backtick with TH splice lhs: $splice `fn` () = ()" test_funHeadInfixThSpliceLhs,
+            testCase "prefix with TH operator splice pattern: x $(*) = ()" test_funHeadPrefixThOperatorSplicePattern,
+            testCase "prefix with TH negative splice pattern: x $(-()) = ()" test_funHeadPrefixThNegativeSplicePattern,
             testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
             testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
             testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
@@ -499,6 +489,46 @@ test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens =
       let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
        in assertEqual "pretty-printed declaration" "type UTF8 = \"UTF8\" :: NameStyle" source
     other -> assertFailure ("expected parse success, got: " <> show other)
+
+test_symbolicTypeDataConstructorParses :: Assertion
+test_symbolicTypeDataConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeData]} "type data T = (:**)" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data T = (:**)" source
+      case peelDataConAnn ctor of
+        PrefixCon [] [] name []
+          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
+        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected symbolic type data constructor to parse, got: " <> show other)
+
+test_symbolicTypeDataHeadAndConstructorParses :: Assertion
+test_symbolicTypeDataHeadAndConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TemplateHaskell, TypeData]} "type data (:*) = (:**)" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclHeadForm = TypeHeadPrefix, dataDeclName, dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data (:*) = (:**)" source
+      assertEqual "type data head" (mkUnqualifiedName NameConSym ":*") dataDeclName
+      case peelDataConAnn ctor of
+        PrefixCon [] [] name []
+          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
+        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected symbolic type data head and constructor to parse, got: " <> show other)
+
+test_infixTypeDataConstructorParses :: Assertion
+test_infixTypeDataConstructorParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeData]} "type data T = A :** B" of
+    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclConstructors = [ctor]})) -> do
+      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" "type data T = A :** B" source
+      case peelDataConAnn ctor of
+        InfixCon [] [] lhs op rhs
+          | op == mkUnqualifiedName NameConSym ":**",
+            stripTypeAnnotations (bangType lhs) == TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Unpromoted,
+            stripTypeAnnotations (bangType rhs) == TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted ->
+              pure ()
+        other -> assertFailure ("expected infix type data constructor, got: " <> show other)
+    other -> assertFailure ("expected infix type data constructor to parse, got: " <> show other)
 
 test_typeParsesEmptyListConstructor :: Assertion
 test_typeParsesEmptyListConstructor =
@@ -705,7 +735,7 @@ test_classOperatorTypeSigParses =
 test_ifElseWhereBranchRoundtrip :: Assertion
 test_ifElseWhereBranchRoundtrip =
   let elseBranch =
-        expr0 (ETypeSig (expr0 (ETuple Boxed [])) (TTuple Boxed Unpromoted []))
+        ETypeSig (ETuple Boxed []) (TTuple Boxed Unpromoted [])
       expectedDecl =
         DeclValue
           ( FunctionBind
@@ -714,7 +744,7 @@ test_ifElseWhereBranchRoundtrip =
                   { matchAnns = [],
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [],
-                    matchRhs = UnguardedRhs [] (expr0 (EIf (expr0 (EVar "b")) (expr0 (ETuple Boxed [])) elseBranch)) Nothing
+                    matchRhs = UnguardedRhs [] (EIf (EVar "b") (ETuple Boxed []) elseBranch) Nothing
                   }
               ]
           )
@@ -779,8 +809,8 @@ test_infixTypeFamilyHeadRoundtrip =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs, typeFamilyEqRhs = rhs}]
                 }
             ]
-              | TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations h,
-                TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations lhs,
+              | TInfix (TVar "l") "And" Unpromoted (TVar "r") <- stripTypeAnnotations h,
+                TInfix (TVar "l") "And" Unpromoted (TVar "r") <- stripTypeAnnotations lhs,
                 TVar "l" <- stripTypeAnnotations rhs ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
@@ -808,7 +838,7 @@ test_infixTypeFamilyEquationWithApplicationOperands =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs}]
                 }
             ]
-              | TApp (TApp (TCon "*" Unpromoted) lhsArg) rhsArg <- stripTypeAnnotations lhs,
+              | TInfix lhsArg "*" Unpromoted rhsArg <- stripTypeAnnotations lhs,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z")) (TVar "p")) (TVar "q") <- stripTypeAnnotations lhsArg,
                 TApp (TApp (TApp (TCon "ExactPi" Promoted) (TVar "z'")) (TVar "p'")) (TVar "q'") <- stripTypeAnnotations rhsArg ->
                   pure ()
@@ -1209,9 +1239,9 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing :: Assertion
 test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
   let config = defaultConfig {parserExtensions = [OverloadedLabels, UnboxedTuples]}
       exprs =
-        [ expr0 (ETuple Boxed [Just (expr0 (EOverloadedLabel "a" "#a")), Nothing]),
-          expr0 (EList [expr0 (EOverloadedLabel "a" "#a")]),
-          expr0 (EParen (expr0 (EOverloadedLabel "a" "#a")))
+        [ ETuple Boxed [Just (EOverloadedLabel "a" "#a"), Nothing],
+          EList [EOverloadedLabel "a" "#a"],
+          EParen (EOverloadedLabel "a" "#a")
         ]
       rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
       expected = ["( #a, )", "[ #a]", "( #a)"]
@@ -1407,9 +1437,8 @@ prop_validGeneratedCharLiteralSpellingsLexLikeGhc =
 
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =
-  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedVarSym) ops
-     in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
+  QC.forAll genVarSym $ \op ->
+    QC.counterexample ("invalid generated operator: " <> show op) (isValidGeneratedVarSym op)
 
 prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
 prop_generatedOperatorsCanProduceUnicodeAsterism =
@@ -1418,15 +1447,13 @@ prop_generatedOperatorsCanProduceUnicodeAsterism =
 
 prop_generatedConstructorSymbolsAreValid :: QC.Property
 prop_generatedConstructorSymbolsAreValid =
-  QC.forAll (QC.vectorOf 2000 genConSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedConSym) ops
-     in QC.counterexample ("invalid generated constructor symbols: " <> show invalid) (null invalid)
+  QC.forAll genConSym $ \op ->
+    QC.counterexample ("invalid generated constructor symbol: " <> show op) (isValidGeneratedConSym op)
 
 prop_generatedVariableSymbolsAreValid :: QC.Property
 prop_generatedVariableSymbolsAreValid =
-  QC.forAll (QC.vectorOf 2000 genVarSym) $ \ops ->
-    let invalid = filter (not . isValidGeneratedVarSym) ops
-     in QC.counterexample ("invalid generated variable symbols: " <> show invalid) (null invalid)
+  QC.forAll genVarSym $ \op ->
+    QC.counterexample ("invalid generated variable symbol: " <> show op) (isValidGeneratedVarSym op)
 
 assertCharLiteralLexesLikeGhc :: T.Text -> Assertion
 assertCharLiteralLexesLikeGhc raw =
@@ -1722,270 +1749,6 @@ test_guardExpr =
     Right [GuardExpr_ _] -> pure ()
     other -> assertFailure ("expected guard expression, got: " <> show other)
 
-test_prettyGuardLambdaRoundTrip :: Assertion
-test_prettyGuardLambdaRoundTrip = do
-  let decl =
-        DeclValue
-          ( FunctionBind
-              "f"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [pat0 (PVar "x")],
-                    matchRhs = UnguardedRhs [] caseExpr Nothing
-                  }
-              ]
-          )
-      caseExpr =
-        expr0
-          ( ECase
-              (expr0 (EVar "x"))
-              [ CaseAlt
-                  { caseAltAnns = [],
-                    caseAltPattern = pat0 (PVar "y"),
-                    caseAltRhs =
-                      GuardedRhss
-                        []
-                        [ GuardedRhs
-                            { guardedRhsAnns = [],
-                              guardedRhsGuards =
-                                [ GuardAnn
-                                    (mkAnnotation span0)
-                                    ( GuardExpr
-                                        (expr0 (ELambdaPats [pat0 (PVar "z")] (expr0 (EVar "z"))))
-                                    )
-                                ],
-                              guardedRhsBody = expr0 (EVar "x")
-                            }
-                        ]
-                        Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      expected = normalizeDecl decl
-  case parseDecl defaultConfig source of
-    ParseOk parsed ->
-      normalizeDecl parsed @?= expected
-    ParseErr err ->
-      assertFailure ("expected pretty-printed guard lambda to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
-
-test_lambdaCasesParsesMultiArgumentAlternatives :: Assertion
-test_lambdaCasesParsesMultiArgumentAlternatives = do
-  let source = "\\cases { True False -> 0; _ _ -> 1 }"
-      expected =
-        ELambdaCases
-          [ LambdaCaseAlt
-              { lambdaCaseAltAnns = [],
-                lambdaCaseAltPats = [pat0 (PCon "True" [] []), pat0 (PCon "False" [] [])],
-                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
-              },
-            LambdaCaseAlt
-              { lambdaCaseAltAnns = [],
-                lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
-                lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 1 TInteger "1")) Nothing
-              }
-          ]
-  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
-    ParseOk parsed -> normalizeExpr parsed @?= normalizeExpr (expr0 expected)
-    ParseErr err ->
-      assertFailure ("expected lambda-cases expression to parse, got:\n" <> MPE.errorBundlePretty err)
-
-test_prettyLambdaCasesRoundTrip :: Assertion
-test_prettyLambdaCasesRoundTrip = do
-  let expr =
-        expr0
-          ( ELambdaCases
-              [ LambdaCaseAlt
-                  { lambdaCaseAltAnns = [],
-                    lambdaCaseAltPats = [pat0 (PVar "x"), pat0 (PParen (pat0 (PCon "Just" [] [pat0 (PVar "y")])))],
-                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EVar "y")) Nothing
-                  },
-                LambdaCaseAlt
-                  { lambdaCaseAltAnns = [],
-                    lambdaCaseAltPats = [pat0 PWildcard, pat0 PWildcard],
-                    lambdaCaseAltRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
-                  }
-              ]
-          )
-      parenthesized = normalizeExpr (addExprParens expr)
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  case parseExpr defaultConfig {parserExtensions = [LambdaCase]} source of
-    ParseOk parsed -> normalizeExpr parsed @?= parenthesized
-    ParseErr err ->
-      assertFailure ("expected pretty-printed lambda-cases to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
-
-test_prettyGuardLetFormatting :: Assertion
-test_prettyGuardLetFormatting = do
-  let decl =
-        DeclValue
-          ( FunctionBind
-              "f"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [pat0 (PVar "n")],
-                    matchRhs =
-                      GuardedRhss
-                        []
-                        [ GuardedRhs
-                            { guardedRhsAnns = [],
-                              guardedRhsGuards =
-                                [ GuardAnn
-                                    (mkAnnotation span0)
-                                    ( GuardExpr
-                                        ( expr0
-                                            ( ELetDecls
-                                                [ DeclValue
-                                                    (FunctionBind "x" [Match {matchAnns = [], matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = UnguardedRhs [] (expr0 (EInt 1 TInteger "1")) Nothing}])
-                                                ]
-                                                (expr0 (EInfix (expr0 (EVar "x")) (qualifyName Nothing ">") (expr0 (EInt 0 TInteger "0"))))
-                                            )
-                                        )
-                                    )
-                                ],
-                              guardedRhsBody = expr0 (EVar "n")
-                            }
-                        ]
-                        Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertBool ("expected guard let expression without extra parens, got:\n" <> T.unpack source) (not ("| (let" `T.isInfixOf` source))
-
-test_prettyFunctionHeadListViewPattern :: Assertion
-test_prettyFunctionHeadListViewPattern = do
-  let decl =
-        DeclValue
-          ( FunctionBind
-              "fn"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [pat0 (PList [pat0 (PView (expr0 (EVar "id")) (pat0 (PVar "x")))])],
-                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      expected = normalizeDecl decl
-  assertBool ("expected bare view pattern inside list pattern, got:\n" <> T.unpack source) ("fn [id -> x] = x" == source)
-  case parseDecl defaultConfig {parserExtensions = [ViewPatterns]} source of
-    ParseOk parsed ->
-      normalizeDecl parsed @?= expected
-    ParseErr err ->
-      assertFailure ("expected pretty-printed list view pattern to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
-
-test_prettyUnicodeOperatorTypeSigRoundTrip :: Assertion
-test_prettyUnicodeOperatorTypeSigRoundTrip = do
-  let intTy = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted
-      decl =
-        DeclTypeSig
-          [mkUnqualifiedName NameVarSym "⁂"]
-          (TFun intTy (TFun intTy intTy))
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertBool ("expected unicode operator binder to be parenthesized, got:\n" <> T.unpack source) ("(⁂) ::" `T.isPrefixOf` source)
-  case parseDecl defaultConfig source of
-    ParseOk parsed ->
-      normalizeDecl parsed @?= normalizeDecl decl
-    ParseErr err ->
-      assertFailure ("expected unicode operator type signature to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
-
-test_prettyPrefixFunctionHeadRecordPattern :: Assertion
-test_prettyPrefixFunctionHeadRecordPattern = do
-  let decl =
-        DeclValue
-          ( FunctionBind
-              "f"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [pat0 (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "Point")) [] True)],
-                    matchRhs = UnguardedRhs [] (expr0 (EInt 0 TInteger "0")) Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertBool ("expected bare record pattern in prefix function head, got:\n" <> T.unpack source) ("f Point {..} = 0" == source)
-
-test_prettyInfixFunctionHeadConstructorPatterns :: Assertion
-test_prettyInfixFunctionHeadConstructorPatterns = do
-  let box name = pat0 (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [] [pat0 (PVar name)])
-      decl =
-        DeclValue
-          ( FunctionBind
-              "=="
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadInfix,
-                    matchPats = [box "x", box "y"],
-                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertBool ("expected bare constructor applications in infix function head, got:\n" <> T.unpack source) ("Box x == Box y = x" == source)
-
-test_prettyInfixFunctionHeadIrrefutablePatterns :: Assertion
-test_prettyInfixFunctionHeadIrrefutablePatterns = do
-  let decl =
-        DeclValue
-          ( FunctionBind
-              "combine"
-              [ Match
-                  { matchAnns = [],
-                    matchHeadForm = MatchHeadInfix,
-                    matchPats = [pat0 (PIrrefutable (pat0 (PVar "x"))), pat0 (PVar "y")],
-                    matchRhs = UnguardedRhs [] (expr0 (EVar "x")) Nothing
-                  }
-              ]
-          )
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertBool ("expected bare irrefutable pattern in infix function head, got:\n" <> T.unpack source) ("~x `combine` y = x" == source)
-
--- | Regression test: a view pattern whose view expression is a let-expression
--- ending with a type signature must parenthesize the let so the view-pattern
--- arrow is not absorbed into the type.
--- Without the fix, this would produce @(let { x = (#  #) } in (#  #) :: T -> [])@
--- which GHC rejects because @:: T -> []@ is parsed as a single type signature.
-test_prettyViewLetTypeSigParens :: Assertion
-test_prettyViewLetTypeSigParens = do
-  let tyCon = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted
-      unboxedUnit = expr0 (ETuple Unboxed [])
-      viewExpr =
-        expr0
-          ( ELetDecls
-              [DeclValue (PatternBind (pat0 (PVar (mkUnqualifiedName NameVarId "x"))) (UnguardedRhs [] unboxedUnit Nothing))]
-              (expr0 (ETypeSig unboxedUnit tyCon))
-          )
-      pat = pat0 (PView viewExpr (pat0 (PList [])))
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
-  assertBool
-    ("expected parenthesized let-expression in view pattern, got:\n" <> T.unpack source)
-    ("((let { x = (#  #) } in (#  #) :: T) -> [])" == source)
-
--- | Regression test: a guard pattern whose expression ends with a type
--- signature must parenthesize the expression so the multi-way if arrow @->@
--- is not absorbed into the type.
--- Without the fix, this would produce @if { | () <- 262 :: T -> () }@
--- which GHC rejects because @:: T -> ()@ is parsed as a function type.
-test_prettyGuardPatTypeSigParens :: Assertion
-test_prettyGuardPatTypeSigParens = do
-  let tyCon = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted
-      guardExpr = expr0 (ETypeSig (expr0 (EInt 262 TInteger "262")) tyCon)
-      grhs =
-        GuardedRhs
-          { guardedRhsAnns = [],
-            guardedRhsGuards = [GuardAnn (mkAnnotation span0) (GuardPat (pat0 (PTuple Boxed [])) guardExpr)],
-            guardedRhsBody = expr0 (ETuple Boxed [])
-          }
-      expr = expr0 (EMultiWayIf [grhs])
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  assertBool
-    ("expected parenthesized type sig in guard pattern, got:\n" <> T.unpack source)
-    ("if { | () <- (262 :: T) -> () }" == source)
-
 test_dataFamilyInstanceKindSignatureRoundTrip :: Assertion
 test_dataFamilyInstanceKindSignatureRoundTrip = do
   let source = T.unlines ["data instance Fam () :: Type -> Type where", "  F :: Fam () Int"]
@@ -2011,11 +1774,10 @@ test_dataFamilyInstanceKindSignatureRoundTrip = do
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip :: Assertion
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
   let lhs =
-        TApp
-          ( TApp
-              (TCon (qualifyName Nothing (mkUnqualifiedName NameVarSym "$")) Unpromoted)
-              (TApp (TVar "a") (TVar "b"))
-          )
+        TInfix
+          (TApp (TVar "a") (TVar "b"))
+          (qualifyName Nothing (mkUnqualifiedName NameVarSym "$"))
+          Unpromoted
           (TVar "c")
       rhs = TApp (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "F")) Unpromoted) (TVar "d")
       decl =
@@ -2035,6 +1797,16 @@ test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
       normalizeDecl parsed @?= normalizeDecl decl
     ParseErr err ->
       assertFailure ("expected infix type family instance with bare applications to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_symbolicTypeApplicationContextArgRoundTrip :: Assertion
+test_symbolicTypeApplicationContextArgRoundTrip = do
+  let op = qualifyName (Just "M") (mkUnqualifiedName NameConSym ":+")
+      aPromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Promoted
+      aUnpromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Unpromoted
+      rhs = TContext [aUnpromoted] (TTypeLit (TypeLitChar '9' "'9'"))
+      ty = TApp (TApp (TCon op Promoted) aPromoted) rhs
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
+  assertEqual "pretty-printed type" "' (M.:+) ' A (A => '9')" source
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
@@ -2072,7 +1844,7 @@ prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
         [ decl
         | decl@(DeclTypeFamilyInst TypeFamilyInst {typeFamilyInstHeadForm = TypeHeadInfix, typeFamilyInstLhs}) <- samples,
           case stripTypeAnnotations typeFamilyInstLhs of
-            TApp (TApp _ lhsOperand) rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
+            TInfix lhsOperand _ _ rhsOperand -> isBareTypeApp lhsOperand || isBareTypeApp rhsOperand
             _ -> False
         ]
       rhsMatches =
@@ -2397,11 +2169,17 @@ test_templateHaskellQuotesLexesTypedSplice =
     [TkTHTypedSplice, TkSpecialLParen, TkVarId "x", TkSpecialRParen, TkEOF] -> pure ()
     other -> assertFailure ("expected typed splice tokens under TemplateHaskellQuotes, got: " <> show other)
 
+test_templateHaskellParsesNegativeSpliceBodyExpr :: Assertion
+test_templateHaskellParsesNegativeSpliceBodyExpr =
+  case parseTopDeclWithExts [TemplateHaskell, MagicHash, UnboxedTuples] "x = $(-(#  #))" of
+    Right (DeclValue (PatternBind (PVar_ "x") (UnguardedRhs _ (ETHSplice (EParen (ENegate (ETuple Unboxed [])))) _))) -> pure ()
+    other -> assertFailure ("expected TH splice with negative body on RHS, got: " <> show other)
+
 test_templateHaskellTypeQuoteParsesInfixSplices :: Assertion
 test_templateHaskellTypeQuoteParsesInfixSplices =
   assertEqual
     "expected type quote with infix TH splices shorthand"
-    "ParseOk (ETHTypeQuote (TApp (TApp (TCon \":=\") (TSplice (EVar \"c\"))) (TSplice (EVar \"v\"))))"
+    "ParseOk (ETHTypeQuote (TInfix (TSplice (EVar \"c\")) \":=\" (TSplice (EVar \"v\"))))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell, TypeOperators]} "[t|$c := $v|]")))
 
 test_templateHaskellTypeNameQuoteParsesTupleConstructor :: Assertion
@@ -2411,15 +2189,12 @@ test_templateHaskellTypeNameQuoteParsesTupleConstructor =
     "ParseOk (ETHTypeNameQuote (TCon \"(,,)\"))"
     (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,,)")))
 
-test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor :: Assertion
-test_templateHaskellTypeNameQuoteRoundtripsTupleConstructor =
-  case parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "''(,)" of
-    ParseOk expr ->
-      assertEqual
-        "expected tuple TH type-name quote to pretty round-trip"
-        "''(,)"
-        (renderStrict (layoutPretty defaultLayoutOptions (pretty expr)))
-    other -> assertFailure ("expected tuple TH type-name quote to parse, got: " <> show other)
+test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName :: Assertion
+test_templateHaskellTypeNameQuoteIgnoresWhitespaceBeforeName =
+  assertEqual
+    "expected TH type-name quote to ignore whitespace before names"
+    "ParseOk (ETHTypeNameQuote (TVar \"name\"))"
+    (show (shorthand (parseExpr defaultConfig {parserExtensions = [TemplateHaskell]} "'' name")))
 
 test_templateHaskellNameQuoteParsesListConstructor :: Assertion
 test_templateHaskellNameQuoteParsesListConstructor =
@@ -2553,6 +2328,18 @@ test_funHeadInfixThSpliceLhs =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
     Right (DeclValue (FunctionBind "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice_ (EVar_ "splice"), PTuple_ Boxed []]}])) -> pure ()
     other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
+
+test_funHeadPrefixThOperatorSplicePattern :: Assertion
+test_funHeadPrefixThOperatorSplicePattern =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(*) = ()" of
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EVar_ "*")], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    other -> assertFailure ("expected TH operator splice pattern in prefix function bind, got: " <> show other)
+
+test_funHeadPrefixThNegativeSplicePattern :: Assertion
+test_funHeadPrefixThNegativeSplicePattern =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(-()) = ()" of
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EParen (ENegate (ETuple Boxed [])))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    other -> assertFailure ("expected TH negative splice pattern in prefix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =

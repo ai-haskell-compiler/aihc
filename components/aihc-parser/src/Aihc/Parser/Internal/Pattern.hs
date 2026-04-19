@@ -10,7 +10,7 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
 import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
@@ -235,14 +235,7 @@ stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
 thSplicePatternParser :: TokParser Pattern
 thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  body <- parenSpliceBody <|> bareSpliceBody
-  pure (PSplice body)
-  where
-    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens exprParser
-      pure (EParen body)
-    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      EVar <$> identifierNameParser
+  PSplice <$> atomExprParser
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
