@@ -3,8 +3,6 @@
 
 module Test.Properties.Arb.Expr
   ( genExpr,
-    genOperator,
-    isValidGeneratedOperator,
     mkIntExpr,
     shrinkExpr,
     span0,
@@ -12,7 +10,7 @@ module Test.Properties.Arb.Expr
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace)
+import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -25,6 +23,7 @@ import Test.Properties.Arb.Identifiers
     genOptionalQualifier,
     genStringValue,
     genTenths,
+    genVarSym,
     showHex,
     shrinkFloat,
     shrinkIdent,
@@ -81,7 +80,7 @@ genExprSizedWith allowTHQuotes n
         ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
         genUnboxedSumExprWith allowTHQuotes (n - 1),
         EArithSeq <$> genArithSeqWith allowTHQuotes (n - 1),
-        (\name fields -> ERecordCon name fields False) <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1),
+        (\name fields -> ERecordCon name fields False) <$> genConIdent <*> genRecordFieldsWith allowTHQuotes (n - 1),
         ERecordUpd <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
         ETypeSig <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
         ETypeApp . canonicalTypeAppExpr <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
@@ -163,7 +162,7 @@ genNameQuoteExpr =
         EVar . mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        op <- genOperator `suchThat` notDotLikeForQualifiedOp
+        op <- genVarSym `suchThat` notDotLikeForQualifiedOp
         pure (EVar (mkName (Just qual) NameVarSym op)),
       pure (EList []),
       pure (ETuple Boxed []),
@@ -200,139 +199,6 @@ genNameQuoteIdent = do
     then genNameQuoteIdent
     else pure ident
 
--- | Generate an operator symbol
-genOperator :: Gen Text
-genOperator =
-  oneof
-    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
-      genCustomOperator
-    ]
-
-genOperatorName :: Gen Name
-genOperatorName = do
-  qual <- genOptionalQualifier
-  op <- mkUnqualifiedName NameVarSym <$> genOperator
-  pure (qualifyName qual op)
-
--- | Generate a custom operator
--- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
-genCustomOperator :: Gen Text
-genCustomOperator = do
-  len <- chooseInt (1, 3)
-  chars <- vectorOf len genOperatorChar
-  let candidate = T.pack chars
-  -- Avoid reserved operators and symbols that lex as comments.
-  if isValidGeneratedOperator candidate
-    then pure candidate
-    else genCustomOperator
-
-genOperatorChar :: Gen Char
-genOperatorChar =
-  frequency
-    [ (5, elements asciiOperatorChars),
-      (3, elements curatedUnicodeOperatorChars),
-      (2, elements unicodeOperatorChars)
-    ]
-
-asciiOperatorChars :: [Char]
-asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
-
-curatedUnicodeOperatorChars :: [Char]
-curatedUnicodeOperatorChars =
-  [ '⁂',
-    '‼',
-    '∘',
-    '⊕',
-    '⋆',
-    '¤',
-    '₿',
-    '¨',
-    '¯',
-    '©'
-  ]
-
-unicodeOperatorChars :: [Char]
-unicodeOperatorChars =
-  extraUnicodeOperatorChars <> concatMap (filter isAllowedUnicodeOperatorChar . expandRange) unicodeOperatorRanges
-
-extraUnicodeOperatorChars :: [Char]
-extraUnicodeOperatorChars =
-  ['⁂', '‼']
-
-unicodeOperatorRanges :: [(Char, Char)]
-unicodeOperatorRanges =
-  [ ('\x00A2', '\x00A9'),
-    ('\x2000', '\x206F'),
-    ('\x02C2', '\x02DF'),
-    ('\x20A0', '\x20CF'),
-    ('\x2100', '\x214F'),
-    ('\x2190', '\x21FF'),
-    ('\x2200', '\x22FF'),
-    ('\x2300', '\x23FF'),
-    ('\x2460', '\x24FF'),
-    ('\x2500', '\x257F'),
-    ('\x2580', '\x259F'),
-    ('\x25A0', '\x25FF'),
-    ('\x2600', '\x26FF'),
-    ('\x27C0', '\x27EF'),
-    ('\x27F0', '\x27FF'),
-    ('\x2900', '\x297F'),
-    ('\x2980', '\x29FF'),
-    ('\x2A00', '\x2AFF'),
-    ('\x2B00', '\x2BFF')
-  ]
-
-expandRange :: (Char, Char) -> [Char]
-expandRange (lo, hi) = [lo .. hi]
-
-isAllowedUnicodeOperatorChar :: Char -> Bool
-isAllowedUnicodeOperatorChar c =
-  isTargetUnicodeOperatorCategory c
-    && c `notElem` bannedUnicodeOperatorChars
-
-isTargetUnicodeOperatorCategory :: Char -> Bool
-isTargetUnicodeOperatorCategory c =
-  case generalCategory c of
-    MathSymbol -> True
-    CurrencySymbol -> True
-    ModifierSymbol -> True
-    OtherSymbol -> True
-    OtherPunctuation -> not (isAscii c)
-    _ -> False
-
-bannedUnicodeOperatorChars :: [Char]
-bannedUnicodeOperatorChars =
-  [ '→',
-    '←',
-    '⇒',
-    '∷',
-    '∀',
-    '⤙',
-    '⤚',
-    '⤛',
-    '⤜',
-    '⦇',
-    '⦈',
-    '⟦',
-    '⟧',
-    '⊸',
-    '★'
-  ]
-
-isValidGeneratedOperator :: Text -> Bool
-isValidGeneratedOperator candidate =
-  let reserved =
-        candidate
-          `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
-      dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
-      hasBacktick = T.any (== '`') candidate
-      hasCanonicalizedUnicode = T.any (`elem` bannedUnicodeOperatorChars) candidate
-   in not reserved && not dashOnly && not hasBacktick && not hasCanonicalizedUnicode
-
--- | Generate a data constructor name
-genConName :: Gen Text
-genConName = genConIdent
-
 -- | Generate a type name for TH type quotes (''Name).
 -- Can produce either a constructor name (e.g., ''Maybe) or an operator name (e.g., ''(:>)).
 genTypeNameQuote :: Gen Name
@@ -340,8 +206,14 @@ genTypeNameQuote =
   oneof
     [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
       -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
-      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genOperator (/= "*")
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genVarSym (/= "*")
     ]
+
+genOperatorName :: Gen Name
+genOperatorName = do
+  qual <- genOptionalQualifier
+  op <- mkUnqualifiedName NameVarSym <$> genVarSym
+  pure (qualifyName qual op)
 
 genVarName :: Gen Name
 genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
@@ -608,7 +480,9 @@ genRecordFieldsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   names <- vectorOf count genFieldName
   exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
-  pure (zip names exprs)
+  quals <- vectorOf count genOptionalQualifier
+  let qualifiedNames = zipWith (\q name -> maybe name (<> "." <> name) q) quals names
+  pure (zip qualifiedNames exprs)
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Int -> Gen Type

@@ -148,8 +148,10 @@ genRecordFieldsWith :: Int -> Gen [(Name, Pattern)]
 genRecordFieldsWith depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genPattern depth)
-  pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
+  pats <- vectorOf n (genPattern (depth - 1))
+  quals <- vectorOf n genOptionalQualifier
+  let qualifiedNames = zipWith (\q name -> qualifyName q (mkUnqualifiedName NameVarId name)) quals names
+  pure (zip qualifiedNames pats)
 
 genLiteral :: Gen Literal
 genLiteral =
@@ -173,15 +175,15 @@ genNumericLiteral =
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
   oneof
-    [ EVar <$> genPatternVarName,
-      EParen . EVar <$> genPatternVarName
+    [ EVar <$> genEVarName,
+      EParen . EVar <$> genEVarName
     ]
+
+genEVarName :: Gen Name
+genEVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
 
 genConOperatorName :: Gen Name
 genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)
-
-genPatternVarName :: Gen Name
-genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
 genPatternUnqualVarName :: Gen UnqualifiedName
 genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
