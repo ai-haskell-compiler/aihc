@@ -1115,6 +1115,7 @@ addPatternAtomStrictParens pat =
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
+    PSplice {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
 
 -- ---------------------------------------------------------------------------

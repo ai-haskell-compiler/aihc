@@ -5,7 +5,8 @@ module Test.Properties.Arb.Decl
   ( genDecl,
     genDeclDataFamilyInst,
     genDeclTypeFamilyInst,
-    genFunctionDecl,
+    genDeclValue,
+    genWhereDecls,
     shrinkDecl,
   )
 where
@@ -15,7 +16,7 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, genRhsWith, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
@@ -26,7 +27,7 @@ import Test.Properties.Arb.Identifiers
     shrinkConIdent,
     shrinkIdent,
   )
-import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
+import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkType)
 import Test.QuickCheck
 
@@ -39,9 +40,9 @@ instance Arbitrary Decl where
   shrink = shrinkDecl
 
 genDecl :: Gen Decl
-genDecl = sized $ \n ->
+genDecl =
   oneof
-    [ genDeclValue n,
+    [ genDeclValue,
       genDeclTypeSig,
       genDeclFixity,
       genDeclRoleAnnotation,
@@ -67,50 +68,23 @@ genDecl = sized $ \n ->
       genDeclStandaloneKindSig
     ]
 
-genDeclValue :: Int -> Gen Decl
-genDeclValue n =
+genDeclValue :: Gen Decl
+genDeclValue =
   oneof
-    [ genFunctionValueDecl n,
-      genPatternValueDecl n
+    [ genFunctionValueDecl,
+      genPatternValueDecl
     ]
 
-genFunctionValueDecl :: Int -> Gen Decl
-genFunctionValueDecl n = do
+genFunctionValueDecl :: Gen Decl
+genFunctionValueDecl = do
   name <- genVarBinderName
-  expr <- resize n genExpr
-  genFunctionDecl (name, expr)
-
-genPatternValueDecl :: Int -> Gen Decl
-genPatternValueDecl n = do
-  pat <- genPatternBindPattern n
-  expr <- resize n genExpr
-  pure $ DeclValue (PatternBind pat (UnguardedRhs [] expr Nothing))
-
-genPatternBindPattern :: Int -> Gen Pattern
-genPatternBindPattern n =
-  frequency
-    [ (1, PVar . mkUnqualifiedName NameVarId <$> genIdent),
-      (4, sized (genGeneralPatternBindPattern . min 3 . min n))
-    ]
-
-genGeneralPatternBindPattern :: Int -> Gen Pattern
-genGeneralPatternBindPattern n =
-  suchThat (genPattern n) isGeneralPatternBindPattern
-
-isGeneralPatternBindPattern :: Pattern -> Bool
-isGeneralPatternBindPattern pat =
-  case pat of
-    PVar {} -> False
-    _ -> True
-
-genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
-genFunctionDecl (name, expr) = do
+  expr <- genExpr
   headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
   case headForm of
     MatchHeadPrefix ->
       do
         patCount <- chooseInt (1, 3)
-        pats <- vectorOf patCount (sized (genPattern . min 3))
+        pats <- vectorOf patCount (scale (min 3) genPattern)
         pure $
           DeclValue
             ( FunctionBind
@@ -125,10 +99,10 @@ genFunctionDecl (name, expr) = do
             )
     MatchHeadInfix ->
       do
-        lhsPat <- genInfixLhsPattern
-        rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        lhsPat <- genPattern
+        rhsPat <- scale (min 3) genPattern
         extraCount <- chooseInt (0, 2)
-        extraPats <- vectorOf extraCount (canonicalPatternAtom <$> sized (genPattern . min 3))
+        extraPats <- vectorOf extraCount (scale (min 3) genPattern)
         pure $
           DeclValue
             ( FunctionBind
@@ -142,20 +116,14 @@ genFunctionDecl (name, expr) = do
                 ]
             )
 
-genInfixLhsPattern :: Gen Pattern
-genInfixLhsPattern =
-  canonicalPatternAtom <$> sized (genPatternWithoutLeadingNegArg . min 3)
+genPatternValueDecl :: Gen Decl
+genPatternValueDecl =
+  DeclValue <$> (PatternBind <$> genPattern <*> genRhsWith False)
 
-genPatternWithoutLeadingNegArg :: Int -> Gen Pattern
-genPatternWithoutLeadingNegArg n =
-  suchThat (genPattern n) (not . startsWithConstructorNegativeLiteral)
-
-startsWithConstructorNegativeLiteral :: Pattern -> Bool
-startsWithConstructorNegativeLiteral pat =
-  case pat of
-    PCon _ _ (PNegLit {} : _) -> True
-    PParen inner -> startsWithConstructorNegativeLiteral inner
-    _ -> False
+genWhereDecls :: Gen (Maybe [Decl])
+genWhereDecls = do
+  missing <- arbitrary
+  if missing then pure Nothing else Just <$> (scale (`div` 2) $ listOf genDeclValue)
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
@@ -175,11 +143,8 @@ genDeclFixity = do
   assoc <- elements [Infix, InfixL, InfixR]
   prec <- elements [Nothing, Just 0, Just 6, Just 9]
   n <- chooseInt (1, 2)
-  ops <- vectorOf n (mkUnqualifiedName NameVarSym <$> genSymbolicOp)
+  ops <- vectorOf n genVarBinderName
   pure $ DeclFixity assoc Nothing prec ops
-
-genSymbolicOp :: Gen Text
-genSymbolicOp = elements ["+", "<>", "&&", "||", "**", "^", ">>"]
 
 genDeclRoleAnnotation :: Gen Decl
 genDeclRoleAnnotation = do
@@ -1455,15 +1420,15 @@ shrinkFunctionHeadPats headForm pats =
         not (null shrunk)
       ]
     MatchHeadInfix ->
-      [ canonicalPatternAtom lhs' : canonicalPatternAtom rhs : tailPats
+      [ lhs' : rhs : tailPats
       | lhs : rhs : tailPats <- [pats],
         lhs' <- shrinkPattern lhs
       ]
-        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs' : tailPats
+        <> [ lhs : rhs' : tailPats
            | lhs : rhs : tailPats <- [pats],
              rhs' <- shrinkPattern rhs
            ]
-        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs : shrunkTail
+        <> [ lhs : rhs : shrunkTail
            | lhs : rhs : tailPats <- [pats],
              shrunkTail <- shrinkList shrinkPattern tailPats
            ]

@@ -44,7 +44,7 @@ module Test.Properties.Arb.Identifiers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax (Extension, SourceSpan, allKnownExtensions, noSourceSpan)
+import Aihc.Parser.Syntax (Extension, allKnownExtensions)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -70,8 +70,9 @@ identTailChars = filter isValidIdentTailChar allChars
 symbolChars :: [Char]
 symbolChars = filter isValidSymbolChar allChars
 
+-- Symbols starting with ':' are constructors, and symbols ending with '#' clashes with overloaded labels.
 varSymStartChars :: [Char]
-varSymStartChars = filter (/= ':') symbolChars
+varSymStartChars = filter (\c -> c /= ':' && c /= '#') symbolChars
 
 reservedOperators :: Set.Set Text
 reservedOperators =
@@ -107,10 +108,6 @@ reservedOperators =
       "⊸",
       "★"
     ]
-
--- | Canonical empty source span for normalization.
-span0 :: SourceSpan
-span0 = noSourceSpan
 
 -------------------------------------------------------------------------------
 -- Variable identifiers

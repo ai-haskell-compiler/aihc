@@ -6,8 +6,9 @@
 -- while Expr.hs needs genPattern from Pattern.hs.
 module Test.Properties.Arb.Expr where
 
-import Aihc.Parser.Syntax (Expr)
+import Aihc.Parser.Syntax (Expr, Rhs)
 import Test.QuickCheck (Gen)
 
 genExpr :: Gen Expr
+genRhsWith :: Bool -> Gen Rhs
 shrinkExpr :: Expr -> [Expr]

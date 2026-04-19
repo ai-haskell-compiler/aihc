@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Expr
   ( genExpr,
+    genRhsWith,
     mkIntExpr,
     shrinkExpr,
   )
@@ -13,6 +14,7 @@ import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Test.Properties.Arb.Decl (genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConIdent,
@@ -34,66 +36,58 @@ import Test.QuickCheck
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
 genExpr :: Gen Expr
-genExpr = sized (genExprSizedWith True)
-
--- | Generate an expression with a given size budget.
--- When size is 0, only generate non-recursive (leaf) expressions.
-genExprSized :: Int -> Gen Expr
-genExprSized = genExprSizedWith True
+genExpr = genExprWith True
 
 -- | Generate an expression, optionally allowing Template Haskell quote forms.
 -- Nested TH brackets are rejected by GHC unless separated by splices, so quote
 -- bodies disable further quote generation.
-genExprSizedWith :: Bool -> Int -> Gen Expr
-genExprSizedWith allowTHQuotes n
-  | n <= 0 = genExprLeaf
-  | otherwise =
-      oneof (baseGenerators <> quoteGenerators)
+genExprWith :: Bool -> Gen Expr
+genExprWith allowTHQuotes = do
+  n <- getSize
+  if n <= 0 then genExprLeaf else scale (`div` 2) $ oneof (baseGenerators <> quoteGenerators)
   where
-    half = n `div` 2
-    third = n `div` 3
     baseGenerators =
       [ -- Leaf expressions
         genExprLeaf,
         -- Recursive expressions (reduce size for subexpressions)
-        EApp <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EInfix <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
-        ENegate <$> genExprSizedWith allowTHQuotes (n - 1),
-        ESectionL <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
-        ESectionR <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
-        EIf <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
-        EMultiWayIf <$> genGuardedRhsListWith allowTHQuotes (n - 1),
-        ECase <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
-        ELambdaPats <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
-        ELambdaCase <$> genCaseAltsWith allowTHQuotes (n - 1),
-        ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes (n - 1),
-        ELetDecls <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EDo <$> genDoStmtsWith allowTHQuotes (n - 1) <*> arbitrary,
-        EListComp <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
-        EListCompParallel <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
-        EList <$> genListElemsWith allowTHQuotes (n - 1),
-        ETuple Boxed . map Just <$> genTupleElemsWith allowTHQuotes (n - 1),
-        ETuple Unboxed . map Just <$> genUnboxedTupleElemsWith allowTHQuotes (n - 1),
-        ETuple Boxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
-        ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
-        genUnboxedSumExprWith allowTHQuotes (n - 1),
-        EArithSeq <$> genArithSeqWith allowTHQuotes (n - 1),
-        (\name fields -> ERecordCon name fields False) <$> genConIdent <*> genRecordFieldsWith allowTHQuotes (n - 1),
-        ERecordUpd <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
-        ETypeSig <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-        ETypeApp . canonicalTypeAppExpr <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-        EParen <$> genExprSizedWith allowTHQuotes (n - 1),
+        EApp <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        EInfix <$> genExprWith allowTHQuotes <*> genOperatorName <*> genExprWith allowTHQuotes,
+        ENegate <$> genExprWith allowTHQuotes,
+        ESectionL <$> genExprWith allowTHQuotes <*> genOperatorName,
+        ESectionR <$> genOperatorName <*> genExprWith allowTHQuotes,
+        EIf <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        EMultiWayIf <$> genGuardedRhsListWith allowTHQuotes,
+        ECase <$> genExprWith allowTHQuotes <*> genCaseAltsWith allowTHQuotes,
+        ELambdaPats <$> genPatterns <*> genExprWith allowTHQuotes,
+        ELambdaCase <$> genCaseAltsWith allowTHQuotes,
+        ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes,
+        ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        EDo <$> genDoStmtsWith allowTHQuotes <*> arbitrary,
+        EListComp <$> genExprWith allowTHQuotes <*> genCompStmtsWith allowTHQuotes,
+        EListCompParallel <$> genExprWith allowTHQuotes <*> genParallelCompStmtsWith allowTHQuotes,
+        EList <$> genListElemsWith allowTHQuotes,
+        ETuple Boxed . map Just <$> genTupleElemsWith allowTHQuotes,
+        ETuple Unboxed . map Just <$> genUnboxedTupleElemsWith allowTHQuotes,
+        ETuple Boxed <$> genTupleSectionElemsWith allowTHQuotes,
+        ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes,
+        genUnboxedSumExprWith allowTHQuotes,
+        EArithSeq <$> genArithSeqWith allowTHQuotes,
+        (\name fields -> ERecordCon name fields False) <$> genConIdent <*> genRecordFieldsWith allowTHQuotes,
+        ERecordUpd <$> genExprWith allowTHQuotes <*> genRecordFieldsWith allowTHQuotes,
+        ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+        ETypeApp . canonicalTypeAppExpr <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+        EParen <$> genExprWith allowTHQuotes,
         -- Template Haskell splices are valid inside quote bodies.
-        ETHSplice <$> genSpliceBody (n - 1),
-        ETHTypedSplice <$> genTypedSpliceBody (n - 1)
+        ETHSplice <$> genSpliceBody,
+        ETHTypedSplice <$> genTypedSpliceBody
       ]
     quoteGenerators
       | allowTHQuotes =
-          [ ETHExpQuote <$> genExprSizedWith False (n - 1),
-            ETHTypedQuote <$> genExprSizedWith False (n - 1),
-            ETHDeclQuote <$> genValueDeclsWith False (n - 1),
-            ETHPatQuote <$> genPattern (n - 1),
-            ETHTypeQuote <$> genTypeWith False (n - 1),
+          [ ETHExpQuote <$> genExprWith False,
+            ETHTypedQuote <$> genExprWith False,
+            ETHDeclQuote <$> genValueDeclsWith False,
+            ETHPatQuote <$> genPattern,
+            ETHTypeQuote <$> genTypeWith False,
             ETHNameQuote <$> genNameQuoteExpr,
             ETHTypeNameQuote <$> genTypeNameQuoteType
           ]
@@ -135,18 +129,18 @@ genQuasiQuoteName = suchThat genIdent (\name -> name `notElem` ["e", "d", "p", "
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
 -- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
-genSpliceBody :: Int -> Gen Expr
-genSpliceBody n =
+genSpliceBody :: Gen Expr
+genSpliceBody =
   oneof
     [ EVar <$> genVarName,
-      EParen <$> genExprSized (max 0 (n - 1))
+      EParen <$> scale (`div` 2) genExpr
     ]
 
 -- | Generate the body of a TH typed splice: always parenthesized.
 -- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
-genTypedSpliceBody :: Int -> Gen Expr
-genTypedSpliceBody n =
-  EParen <$> genExprSized (max 0 (n - 1))
+genTypedSpliceBody :: Gen Expr
+genTypedSpliceBody =
+  EParen <$> scale (`div` 2) genExpr
 
 -- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
@@ -220,233 +214,219 @@ genConAstName :: Gen Name
 genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
 
 -- | Generate simple patterns for lambdas
-genPatterns :: Int -> Gen [Pattern]
-genPatterns n = do
+genPatterns :: Gen [Pattern]
+genPatterns = do
   count <- chooseInt (1, 3)
-  vectorOf count (genPattern n)
+  vectorOf count genPattern
 
-genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
-genCaseAltsWith allowTHQuotes n = do
+genCaseAltsWith :: Bool -> Gen [CaseAlt]
+genCaseAltsWith allowTHQuotes = do
   count <- chooseInt (0, 3)
-  vectorOf count (genCaseAltWith allowTHQuotes n)
+  vectorOf count (genCaseAltWith allowTHQuotes)
 
-genCaseAltWith :: Bool -> Int -> Gen CaseAlt
-genCaseAltWith allowTHQuotes n = do
-  pat <- genPattern half
-  rhs <- genRhsWith allowTHQuotes half
+genCaseAltWith :: Bool -> Gen CaseAlt
+genCaseAltWith allowTHQuotes = scale (`div` 2) $ do
+  pat <- genPattern
+  rhs <- genRhsWith allowTHQuotes
   pure $
     CaseAlt
       { caseAltAnns = [],
         caseAltPattern = pat,
         caseAltRhs = rhs
       }
-  where
-    half = n `div` 2
 
-genLambdaCaseAltsWith :: Bool -> Int -> Gen [LambdaCaseAlt]
-genLambdaCaseAltsWith allowTHQuotes n = do
+genLambdaCaseAltsWith :: Bool -> Gen [LambdaCaseAlt]
+genLambdaCaseAltsWith allowTHQuotes = do
   count <- chooseInt (0, 3)
-  vectorOf count (genLambdaCaseAltWith allowTHQuotes n)
+  vectorOf count (genLambdaCaseAltWith allowTHQuotes)
 
-genLambdaCaseAltWith :: Bool -> Int -> Gen LambdaCaseAlt
-genLambdaCaseAltWith allowTHQuotes n = do
-  pats <- genPatterns half
-  rhs <- genRhsWith allowTHQuotes half
+genLambdaCaseAltWith :: Bool -> Gen LambdaCaseAlt
+genLambdaCaseAltWith allowTHQuotes = scale (`div` 2) $ do
+  pats <- genPatterns
+  rhs <- genRhsWith allowTHQuotes
   pure $
     LambdaCaseAlt
       { lambdaCaseAltAnns = [],
         lambdaCaseAltPats = pats,
         lambdaCaseAltRhs = rhs
       }
-  where
-    half = n `div` 2
 
-genRhsWith :: Bool -> Int -> Gen Rhs
-genRhsWith allowTHQuotes n =
+genRhsWith :: Bool -> Gen Rhs
+genRhsWith allowTHQuotes =
   oneof
-    [ (\e -> UnguardedRhs [] e Nothing) <$> genBindingExprWith allowTHQuotes n,
-      (\gs -> GuardedRhss [] gs Nothing) <$> genGuardedRhsListWith allowTHQuotes n
+    [ UnguardedRhs [] <$> genBindingExprWith allowTHQuotes <*> genWhereDecls,
+      GuardedRhss [] <$> genGuardedRhsListWith allowTHQuotes <*> genWhereDecls
     ]
 
-genGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
-genGuardedRhsListWith allowTHQuotes n = do
+genGuardedRhsListWith :: Bool -> Gen [GuardedRhs]
+genGuardedRhsListWith allowTHQuotes = do
   count <- chooseInt (1, 3)
-  vectorOf count (genGuardedRhsWith allowTHQuotes (n `div` count))
+  scale (`div` count) $ vectorOf count (genGuardedRhsWith allowTHQuotes)
 
-genGuardedRhsWith :: Bool -> Int -> Gen GuardedRhs
-genGuardedRhsWith allowTHQuotes n = do
+genGuardedRhsWith :: Bool -> Gen GuardedRhs
+genGuardedRhsWith allowTHQuotes = scale (`div` 2) $ do
   guardCount <- chooseInt (1, 2)
-  guards <- vectorOf guardCount (genGuardQualifierWith allowTHQuotes (half `div` guardCount))
-  body <- genBindingExprWith allowTHQuotes half
+  guards <- vectorOf guardCount (genGuardQualifierWith allowTHQuotes)
+  body <- genBindingExprWith allowTHQuotes
   pure $
     GuardedRhs
       { guardedRhsAnns = [],
         guardedRhsGuards = guards,
         guardedRhsBody = body
       }
-  where
-    half = n `div` 2
 
 -- | Generate a guard qualifier.
-genGuardQualifierWith :: Bool -> Int -> Gen GuardQualifier
-genGuardQualifierWith allowTHQuotes n =
+genGuardQualifierWith :: Bool -> Gen GuardQualifier
+genGuardQualifierWith allowTHQuotes =
   oneof
     [ -- Boolean guard: | expr = ...
-      GuardExpr <$> genExprSizedWith allowTHQuotes n,
+      GuardExpr <$> genExprWith allowTHQuotes,
       -- Pattern guard: | pat <- expr = ...
       -- The guarded-qualifier parser now accepts the full pattern generator,
       -- which includes parenthesized view patterns such as `(view -> pat)`.
-      GuardPat <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
+      scale (`div` 2) (GuardPat <$> genPattern <*> genExprWith allowTHQuotes),
       -- Let guard: | let decls = ...
-      GuardLet <$> genValueDeclsWith allowTHQuotes n
+      GuardLet <$> genValueDeclsWith allowTHQuotes
     ]
-  where
-    half = n `div` 2
 
 -- | Generate value declarations for let/where.
 -- Produces a mix of simple pattern bindings (@x = expr@) and function bindings
 -- (@f pat ... = expr@ or @f pat ... | guard = expr@), mirroring the parser
 -- which creates each equation as a separate 'FunctionBind' with a single
 -- 'Match'.
-genValueDeclsWith :: Bool -> Int -> Gen [Decl]
-genValueDeclsWith allowTHQuotes n = do
+genValueDeclsWith :: Bool -> Gen [Decl]
+genValueDeclsWith allowTHQuotes = do
   count <- chooseInt (0, 3)
-  vectorOf count (genValueDeclWith allowTHQuotes (n `div` max 1 count))
+  scale (`div` max 1 count) $ vectorOf count (genValueDeclWith allowTHQuotes)
 
 -- | Generate a single value declaration: either a simple pattern binding or a
 -- function binding with argument patterns and optional guards.
-genValueDeclWith :: Bool -> Int -> Gen Decl
-genValueDeclWith allowTHQuotes n =
+genValueDeclWith :: Bool -> Gen Decl
+genValueDeclWith allowTHQuotes =
   oneof
-    [ genPatternBindDecl allowTHQuotes n,
-      genFunctionBindDecl allowTHQuotes n
+    [ genPatternBindDecl allowTHQuotes,
+      genFunctionBindDecl allowTHQuotes
     ]
 
 -- | Generate a pattern binding: @pat = expr@ or @pat | guard = expr@.
 -- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
 -- can be guarded, matching what GHC accepts.
-genPatternBindDecl :: Bool -> Int -> Gen Decl
-genPatternBindDecl allowTHQuotes n = do
-  pat <- genPattern half
-  rhs <- genRhsWith allowTHQuotes half
-  pure $
-    DeclValue
-      (PatternBind pat rhs)
-  where
-    half = n `div` 2
+genPatternBindDecl :: Bool -> Gen Decl
+genPatternBindDecl allowTHQuotes = scale (`div` 2) $ do
+  pat <- genPattern
+  rhs <- genRhsWith allowTHQuotes
+  pure $ DeclValue (PatternBind pat rhs)
 
 -- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
 -- Produces a single 'Match', consistent with the parser which creates one
 -- 'FunctionBind' per equation.
-genFunctionBindDecl :: Bool -> Int -> Gen Decl
-genFunctionBindDecl allowTHQuotes n = do
+genFunctionBindDecl :: Bool -> Gen Decl
+genFunctionBindDecl allowTHQuotes = do
   name <- mkUnqualifiedName NameVarId <$> genIdent
   patCount <- chooseInt (1, 3)
-  let perItem = n `div` max 1 (patCount + 1)
-  pats <- vectorOf patCount (genPattern perItem)
-  rhs <- genRhsWith allowTHQuotes perItem
-  pure $
-    DeclValue
-      ( FunctionBind
-          name
-          [ Match
-              { matchAnns = [],
-                matchHeadForm = MatchHeadPrefix,
-                matchPats = pats,
-                matchRhs = rhs
-              }
-          ]
-      )
+  scale (`div` (patCount + 1)) $ do
+    pats <- vectorOf patCount genPattern
+    rhs <- genRhsWith allowTHQuotes
+    pure $
+      DeclValue
+        ( FunctionBind
+            name
+            [ Match
+                { matchAnns = [],
+                  matchHeadForm = MatchHeadPrefix,
+                  matchPats = pats,
+                  matchRhs = rhs
+                }
+            ]
+        )
 
-genBindingExprWith :: Bool -> Int -> Gen Expr
-genBindingExprWith = genExprSizedWith
+genBindingExprWith :: Bool -> Gen Expr
+genBindingExprWith = genExprWith
 
-genDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
-genDoStmtsWith allowTHQuotes n = do
+genDoStmtsWith :: Bool -> Gen [DoStmt Expr]
+genDoStmtsWith allowTHQuotes = do
   count <- chooseInt (1, 3)
-  let perStmt = n `div` count
-  stmts <- vectorOf (count - 1) (genDoStmtWith allowTHQuotes perStmt)
-  -- Last statement must be DoExpr
-  lastExpr <- genExprSizedWith allowTHQuotes perStmt
-  pure (stmts <> [DoExpr lastExpr])
+  scale (`div` count) $ do
+    stmts <- vectorOf (count - 1) (genDoStmtWith allowTHQuotes)
+    -- Last statement must be DoExpr
+    lastExpr <- genExprWith allowTHQuotes
+    pure (stmts <> [DoExpr lastExpr])
 
-genDoStmtWith :: Bool -> Int -> Gen (DoStmt Expr)
-genDoStmtWith allowTHQuotes n =
-  oneof
-    [ DoBind <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
-      DoLetDecls <$> genValueDeclsWith allowTHQuotes (n - 1),
-      DoExpr <$> genExprSizedWith allowTHQuotes (n - 1),
-      DoRecStmt <$> genRecDoStmtsWith allowTHQuotes (n - 1)
-    ]
-  where
-    half = n `div` 2
+genDoStmtWith :: Bool -> Gen (DoStmt Expr)
+genDoStmtWith allowTHQuotes =
+  scale (`div` 2) $
+    oneof
+      [ DoBind <$> genPattern <*> genExprWith allowTHQuotes,
+        DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+        DoExpr <$> genExprWith allowTHQuotes,
+        DoRecStmt <$> genRecDoStmtsWith allowTHQuotes
+      ]
 
 -- | Generate statements for a @rec@ block inside @mdo@/@do@.
 -- At least one statement is required.
-genRecDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
-genRecDoStmtsWith allowTHQuotes n = do
+genRecDoStmtsWith :: Bool -> Gen [DoStmt Expr]
+genRecDoStmtsWith allowTHQuotes = do
   count <- chooseInt (1, 3)
-  let perStmt = n `div` count
-  vectorOf count $
+  scale (`div` count) $
+    vectorOf count $
+      oneof
+        [ scale (`div` 2) (DoBind <$> genPattern <*> genExprWith allowTHQuotes),
+          DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+          DoExpr <$> genExprWith allowTHQuotes
+        ]
+
+genCompStmtsWith :: Bool -> Gen [CompStmt]
+genCompStmtsWith allowTHQuotes = do
+  count <- chooseInt (1, 3)
+  scale (`div` count) $ vectorOf count (genCompStmtWith allowTHQuotes)
+
+genCompStmtWith :: Bool -> Gen CompStmt
+genCompStmtWith allowTHQuotes =
+  scale (`div` 2) $
     oneof
-      [ DoBind <$> genPattern (perStmt `div` 2) <*> genExprSizedWith allowTHQuotes (perStmt `div` 2),
-        DoLetDecls <$> genValueDeclsWith allowTHQuotes perStmt,
-        DoExpr <$> genExprSizedWith allowTHQuotes perStmt
+      [ CompGen <$> genPattern <*> genExprWith allowTHQuotes,
+        CompGuard <$> genExprWith allowTHQuotes,
+        CompLetDecls <$> genValueDeclsWith allowTHQuotes
       ]
 
-genCompStmtsWith :: Bool -> Int -> Gen [CompStmt]
-genCompStmtsWith allowTHQuotes n = do
-  count <- chooseInt (1, 3)
-  vectorOf count (genCompStmtWith allowTHQuotes (n `div` count))
-
-genCompStmtWith :: Bool -> Int -> Gen CompStmt
-genCompStmtWith allowTHQuotes n =
-  oneof
-    [ CompGen <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
-      CompGuard <$> genExprSizedWith allowTHQuotes (n - 1),
-      CompLetDecls <$> genValueDeclsWith allowTHQuotes (n - 1)
-    ]
-  where
-    half = n `div` 2
-
-genParallelCompStmtsWith :: Bool -> Int -> Gen [[CompStmt]]
-genParallelCompStmtsWith allowTHQuotes n = do
+genParallelCompStmtsWith :: Bool -> Gen [[CompStmt]]
+genParallelCompStmtsWith allowTHQuotes = do
   count <- chooseInt (2, 3)
-  vectorOf count (genCompStmtsWith allowTHQuotes (n `div` count))
+  scale (`div` count) $ vectorOf count (genCompStmtsWith allowTHQuotes)
 
-genListElemsWith :: Bool -> Int -> Gen [Expr]
-genListElemsWith allowTHQuotes n = do
+genListElemsWith :: Bool -> Gen [Expr]
+genListElemsWith allowTHQuotes = do
   count <- chooseInt (0, 4)
-  vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
+  scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
 
 -- | Generate tuple elements
-genTupleElemsWith :: Bool -> Int -> Gen [Expr]
-genTupleElemsWith allowTHQuotes n =
+genTupleElemsWith :: Bool -> Gen [Expr]
+genTupleElemsWith allowTHQuotes =
   oneof
     [ pure [],
       do
         count <- chooseInt (2, 4)
-        vectorOf count (genExprSizedWith allowTHQuotes (n `div` count))
+        scale (`div` count) $ vectorOf count (genExprWith allowTHQuotes)
     ]
 
 -- | Generate elements for an unboxed tuple (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
-genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Expr]
-genUnboxedTupleElemsWith allowTHQuotes n = do
+genUnboxedTupleElemsWith :: Bool -> Gen [Expr]
+genUnboxedTupleElemsWith allowTHQuotes = do
   count <- chooseInt (0, 4)
-  vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
+  scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
 
-genUnboxedSumExprWith :: Bool -> Int -> Gen Expr
-genUnboxedSumExprWith allowTHQuotes n = do
+genUnboxedSumExprWith :: Bool -> Gen Expr
+genUnboxedSumExprWith allowTHQuotes = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genExprSizedWith allowTHQuotes n
+  inner <- genExprWith allowTHQuotes
   pure (EUnboxedSum altIdx arity inner)
 
-genTupleSectionElemsWith :: Bool -> Int -> Gen [Maybe Expr]
-genTupleSectionElemsWith allowTHQuotes n = do
+genTupleSectionElemsWith :: Bool -> Gen [Maybe Expr]
+genTupleSectionElemsWith allowTHQuotes = do
   count <- chooseInt (2, 4)
-  elems <- vectorOf count (genMaybeExprWith allowTHQuotes (n `div` count))
+  elems <- scale (`div` count) $ vectorOf count (genMaybeExprWith allowTHQuotes)
   -- Ensure at least one Nothing (otherwise it's just a tuple)
   if Nothing `notElem` elems
     then do
@@ -454,49 +434,47 @@ genTupleSectionElemsWith allowTHQuotes n = do
       pure (take idx elems <> [Nothing] <> drop (idx + 1) elems)
     else pure elems
 
-genMaybeExprWith :: Bool -> Int -> Gen (Maybe Expr)
-genMaybeExprWith allowTHQuotes n =
+genMaybeExprWith :: Bool -> Gen (Maybe Expr)
+genMaybeExprWith allowTHQuotes =
   oneof
-    [ Just <$> genExprSizedWith allowTHQuotes n,
+    [ Just <$> genExprWith allowTHQuotes,
       pure Nothing
     ]
 
-genArithSeqWith :: Bool -> Int -> Gen ArithSeq
-genArithSeqWith allowTHQuotes n =
+genArithSeqWith :: Bool -> Gen ArithSeq
+genArithSeqWith allowTHQuotes =
   oneof
-    [ ArithSeqFrom <$> genExprSizedWith allowTHQuotes n,
-      ArithSeqFromThen <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-      ArithSeqFromTo <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-      ArithSeqFromThenTo <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third
+    [ ArithSeqFrom <$> genExprWith allowTHQuotes,
+      scale (`div` 2) (ArithSeqFromThen <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes),
+      scale (`div` 2) (ArithSeqFromTo <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes),
+      scale (`div` 3) (ArithSeqFromThenTo <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes)
     ]
-  where
-    half = n `div` 2
-    third = n `div` 3
 
-genRecordFieldsWith :: Bool -> Int -> Gen [(Text, Expr)]
-genRecordFieldsWith allowTHQuotes n = do
+genRecordFieldsWith :: Bool -> Gen [(Text, Expr)]
+genRecordFieldsWith allowTHQuotes = do
   count <- chooseInt (0, 3)
   names <- vectorOf count genFieldName
-  exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
+  exprs <- scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
   quals <- vectorOf count genOptionalQualifier
   let qualifiedNames = zipWith (\q name -> maybe name (<> "." <> name) q) quals names
   pure (zip qualifiedNames exprs)
 
 -- | Generate a type (simple version for use inside expressions).
-genTypeWith :: Bool -> Int -> Gen Type
-genTypeWith allowTHQuotes n
-  | n <= 0 = genTypeLeaf
-  | otherwise =
-      oneof
-        [ genTypeLeaf,
-          TApp <$> genTypeWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-          TFun <$> genTypeWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-          TList Unpromoted <$> genTypeListElemsWith allowTHQuotes (n - 1),
-          TTuple Boxed Unpromoted <$> genTypeTupleElemsWith allowTHQuotes (n - 1),
-          TParen <$> genTypeWith allowTHQuotes (n - 1)
-        ]
-  where
-    half = n `div` 2
+genTypeWith :: Bool -> Gen Type
+genTypeWith allowTHQuotes = do
+  n <- getSize
+  if n <= 0
+    then genTypeLeaf
+    else
+      scale (`div` 2) $
+        oneof
+          [ genTypeLeaf,
+            TApp <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+            TFun <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+            TList Unpromoted <$> genTypeListElemsWith allowTHQuotes,
+            TTuple Boxed Unpromoted <$> genTypeTupleElemsWith allowTHQuotes,
+            TParen <$> genTypeWith allowTHQuotes
+          ]
 
 genTypeLeaf :: Gen Type
 genTypeLeaf =
@@ -505,19 +483,19 @@ genTypeLeaf =
       (`TCon` Unpromoted) <$> genConAstName
     ]
 
-genTypeTupleElemsWith :: Bool -> Int -> Gen [Type]
-genTypeTupleElemsWith allowTHQuotes n =
+genTypeTupleElemsWith :: Bool -> Gen [Type]
+genTypeTupleElemsWith allowTHQuotes =
   oneof
     [ pure [],
       do
         count <- chooseInt (2, 3)
-        vectorOf count (genTypeWith allowTHQuotes (n `div` count))
+        scale (`div` count) $ vectorOf count (genTypeWith allowTHQuotes)
     ]
 
-genTypeListElemsWith :: Bool -> Int -> Gen [Type]
-genTypeListElemsWith allowTHQuotes n = do
+genTypeListElemsWith :: Bool -> Gen [Type]
+genTypeListElemsWith allowTHQuotes = do
   count <- chooseInt (1, 4)
-  vectorOf count (genTypeWith allowTHQuotes (n `div` count))
+  scale (`div` count) $ vectorOf count (genTypeWith allowTHQuotes)
 
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = mkUnqualifiedName NameVarId <$> genIdent
