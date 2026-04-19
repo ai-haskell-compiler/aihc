@@ -87,7 +87,8 @@ genFunctionValueDecl = do
     [ do
         patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (scale (min 3) genPattern)
-        pure ( FunctionBind
+        pure
+          ( FunctionBind
               name
               [ Match
                   { matchAnns = [],
@@ -102,7 +103,8 @@ genFunctionValueDecl = do
         rhsPat <- scale (min 3) genPattern
         extraCount <- chooseInt (0, 2)
         extraPats <- vectorOf extraCount (scale (min 3) genPattern)
-        pure ( FunctionBind
+        pure
+          ( FunctionBind
               name
               [ Match
                   { matchAnns = [],
