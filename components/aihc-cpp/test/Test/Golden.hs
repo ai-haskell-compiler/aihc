@@ -56,6 +56,7 @@ data DiagnosticExpectation = DiagnosticExpectation
 data GoldenCase = GoldenCase
   { caseId :: !String,
     caseCategory :: !String,
+    caseDirectory :: !FilePath,
     caseActualInput :: !(Either FilePath Text),
     caseConfig :: !Config,
     caseExpectedOutput :: !(Either FilePath Text),
@@ -124,7 +125,7 @@ evaluateCase gcase = do
   result <-
     case caseActualInput gcase of
       Left path -> runPreprocessFromFile (caseConfig gcase) path
-      Right text -> runPreprocessFromText (caseConfig gcase) text
+      Right text -> runPreprocessFromText (caseDirectory gcase) (caseConfig gcase) text
   let (outcome, details) = classify gcase result
   pure (gcase, outcome, details)
 
@@ -230,7 +231,7 @@ loadGoldenCases = do
   fixtureRootAbs <- getDataFileName fixtureRoot
   exists <- doesDirectoryExist fixtureRootAbs
   if not exists
-    then pure []
+    then fail ("Missing cpp golden fixture root: " <> fixtureRootAbs)
     else do
       paths <- listCaseFiles fixtureRootAbs
       mapM (loadGoldenCase fixtureRootAbs) paths
@@ -244,36 +245,37 @@ loadGoldenCase fixtureRootAbs caseFile = do
       pure
       raw
   spec <- either fail pure (parseGoldenSpec caseFile value)
-  let caseDirectory = takeDirectory caseFile
-      relDir = makeRelative fixtureRootAbs caseDirectory
-      actualInput = specInput spec
+  let fixtureDir = takeDirectory caseFile
+      relDir = makeRelative fixtureRootAbs fixtureDir
       displayInputPath = fromMaybe "input.hs" (specInputFile spec)
       config =
         defaultConfig
           { configInputFile = displayInputPath,
             configMacros = M.union (specMacros spec) (configMacros defaultConfig)
           }
-  either
-    ( \path -> do
-        exists <- doesFileExist (caseDirectory </> path)
+  actualInput <-
+    case specInput spec of
+      Left path -> do
+        let fullPath = fixtureDir </> path
+        exists <- doesFileExist fullPath
         unless exists (fail ("Golden fixture input is missing: " <> path))
-    )
-    (\_ -> pure ())
-    actualInput
+        pure (Left fullPath)
+      Right inlineContent -> pure (Right inlineContent)
   expectedOutput <-
     case specOutput spec of
       Left path -> do
-        exists <- doesFileExist (caseDirectory </> path)
+        exists <- doesFileExist (fixtureDir </> path)
         unless exists (fail ("Golden fixture output is missing: " <> path))
-        content <- TIO.readFile (caseDirectory </> path)
+        content <- TIO.readFile (fixtureDir </> path)
         pure (Right content)
       Right inlineContent -> pure (Right inlineContent)
-  expectedDiagnostics <- maybe (pure []) (loadExpectedDiagnostics caseDirectory) (specDiagnostics spec)
+  expectedDiagnostics <- maybe (pure []) (loadExpectedDiagnostics fixtureDir) (specDiagnostics spec)
   validateGoldenCase caseFile spec expectedOutput expectedDiagnostics
   pure
     GoldenCase
       { caseId = relDir,
         caseCategory = categoryFromPath relDir,
+        caseDirectory = fixtureDir,
         caseActualInput = actualInput,
         caseConfig = config,
         caseExpectedOutput = expectedOutput,
@@ -285,23 +287,25 @@ loadGoldenCase fixtureRootAbs caseFile = do
 
 parseGoldenSpec :: FilePath -> Y.Value -> Either String GoldenSpec
 parseGoldenSpec path value = do
-  (inputText, maybeInputFilePath, outputText, diagnosticsPath, expectError, statusText, reasonText, macros) <-
+  (inputSpec, maybeInputFilePath, outputSpec, diagnosticsPath, expectError, statusText, reasonText, macros) <-
     parseEither
       ( withObject "cpp golden fixture" $ \obj -> do
-          inputText <- obj .: "input"
-          outputText <- obj .:? "output"
+          inlineInput <- obj .:? "input"
+          fileInput <- obj .:? "input-file"
+          inlineOutput <- obj .:? "output"
+          fileOutput <- obj .:? "output-file"
           diagnosticsPath <- obj .:? "diagnostics"
           expectError <- obj .:? "expect-error" .!= False
           statusText <- obj .: "status"
           reasonText <- obj .:? "reason" .!= ""
           configValues <- obj .:? "config" .!= Y.Object mempty
           (maybeInputFilePath, macros) <- parseConfigValues configValues
-          pure (inputText, maybeInputFilePath, outputText, diagnosticsPath, expectError, statusText, reasonText, macros)
+          inputSpec <- parseRequiredTextOrFile "input" "input-file" inlineInput fileInput
+          outputSpec <- parseOptionalTextOrFile "output" "output-file" inlineOutput fileOutput
+          pure (inputSpec, maybeInputFilePath, outputSpec, diagnosticsPath, expectError, statusText, reasonText, macros)
       )
       value
   status <- parseStatus path statusText
-  let inputSpec = parseInlineOrFileText inputText
-      outputSpec = maybe (Right "") parseInlineOrFileText outputText
   pure
     GoldenSpec
       { specInput = inputSpec,
@@ -314,8 +318,21 @@ parseGoldenSpec path value = do
         specMacros = macros
       }
 
-parseInlineOrFileText :: Text -> Either FilePath Text
-parseInlineOrFileText = Right
+parseRequiredTextOrFile :: String -> String -> Maybe Text -> Maybe FilePath -> Y.Parser (Either FilePath Text)
+parseRequiredTextOrFile textKey fileKey maybeText maybeFile =
+  case (maybeText, maybeFile) of
+    (Just _, Just _) -> fail ("fixture must not define both [" <> textKey <> "] and [" <> fileKey <> "]")
+    (Just textValue, Nothing) -> pure (Right textValue)
+    (Nothing, Just filePath) -> pure (Left filePath)
+    (Nothing, Nothing) -> fail ("fixture must define either [" <> textKey <> "] or [" <> fileKey <> "]")
+
+parseOptionalTextOrFile :: String -> String -> Maybe Text -> Maybe FilePath -> Y.Parser (Either FilePath Text)
+parseOptionalTextOrFile textKey fileKey maybeText maybeFile =
+  case (maybeText, maybeFile) of
+    (Just _, Just _) -> fail ("fixture must not define both [" <> textKey <> "] and [" <> fileKey <> "]")
+    (Just textValue, Nothing) -> pure (Right textValue)
+    (Nothing, Just filePath) -> pure (Left filePath)
+    (Nothing, Nothing) -> pure (Right "")
 
 parseConfigValues :: Y.Value -> Y.Parser (Maybe FilePath, M.Map Text Text)
 parseConfigValues = withObject "cpp golden config" parser
@@ -456,7 +473,18 @@ fixtureValidationTests =
           Right spec ->
             if specInput spec == Right "  foo\n"
               then pure ()
-              else assertFailure "expected inline input text to be preserved exactly"
+              else assertFailure "expected inline input text to be preserved exactly",
+      testCase "parses file-backed input and output" $
+        case parseGoldenSpec "case.yaml" validFileBackedFixture of
+          Left err -> assertFailure ("expected parse success, got: " <> err)
+          Right spec ->
+            if specInput spec == Left "input.hs" && specOutput spec == Left "expected.out"
+              then pure ()
+              else assertFailure "expected input-file and output-file to be preserved",
+      testCase "rejects duplicate inline and file-backed input" $
+        case parseGoldenSpec "case.yaml" invalidDuplicateInputSource of
+          Left _ -> pure ()
+          Right _ -> assertFailure "expected duplicate input specification to fail"
     ]
 
 expectValidationFailure :: String -> IO () -> Assertion
@@ -515,5 +543,22 @@ validInlineWhitespace =
   Y.object
     [ ("input", Y.String "  foo\n"),
       ("output", Y.String "bar"),
+      ("status", Y.String "pass")
+    ]
+
+validFileBackedFixture :: Y.Value
+validFileBackedFixture =
+  Y.object
+    [ ("input-file", Y.String "input.hs"),
+      ("output-file", Y.String "expected.out"),
+      ("status", Y.String "pass")
+    ]
+
+invalidDuplicateInputSource :: Y.Value
+invalidDuplicateInputSource =
+  Y.object
+    [ ("input", Y.String "inline"),
+      ("input-file", Y.String "input.hs"),
+      ("output", Y.String "out"),
       ("status", Y.String "pass")
     ]

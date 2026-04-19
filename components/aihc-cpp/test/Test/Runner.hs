@@ -16,10 +16,9 @@ import Aihc.Cpp
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import System.Directory (doesFileExist)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (isAbsolute, takeDirectory, (</>))
 
 runPreprocessFromFile :: Config -> FilePath -> IO Result
 runPreprocessFromFile cfg actualInputPath = do
@@ -28,14 +27,18 @@ runPreprocessFromFile cfg actualInputPath = do
   where
     initialSources = M.singleton (configInputFile cfg) actualInputPath
 
-runPreprocessFromText :: Config -> Text -> IO Result
-runPreprocessFromText cfg sourceText = do
+runPreprocessFromText :: FilePath -> Config -> Text -> IO Result
+runPreprocessFromText baseDir cfg sourceText = do
   let source = T.encodeUtf8 sourceText
       displayInputPath =
         if null (configInputFile cfg)
           then "<input>"
           else configInputFile cfg
-  drive (M.singleton displayInputPath displayInputPath) (preprocess cfg source)
+      actualInputPath =
+        if isAbsolute displayInputPath
+          then displayInputPath
+          else baseDir </> displayInputPath
+  drive (M.singleton displayInputPath actualInputPath) (preprocess cfg source)
 
 drive :: M.Map FilePath FilePath -> Step -> IO Result
 drive _ (Done result) = pure result

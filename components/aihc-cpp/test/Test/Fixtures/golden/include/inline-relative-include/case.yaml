@@ -1,0 +1,13 @@
+input: |-
+  before
+  #include "nested.inc"
+  after
+output: |-
+  #line 1 "input.hs"
+  before
+  #line 1 "./nested.inc"
+  inside
+
+  #line 3 "input.hs"
+  after
+status: pass

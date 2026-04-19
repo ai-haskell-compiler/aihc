@@ -1,0 +1,3 @@
+input-file: input.hs
+output-file: expected.out
+status: pass

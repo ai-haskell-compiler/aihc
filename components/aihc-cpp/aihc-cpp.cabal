@@ -12,6 +12,7 @@ data-files:
     test/Test/Fixtures/golden/**/*.hs
   , test/Test/Fixtures/golden/**/*.out
   , test/Test/Fixtures/golden/**/*.yaml
+  , test/Test/Fixtures/golden/**/*.inc
   , test/Test/Fixtures/progress/*.hs
   , test/Test/Fixtures/progress/*.tsv
   , test/Test/Fixtures/progress/includes/*.inc
