@@ -143,6 +143,9 @@ goText st painted inString inChar escaped txt acc =
           goText st painted False True False rest (acc <> TB.singleton c)
       | isIdentStart c ->
           expandIdentBlue st painted txt acc
+      | c == '-', Just ('-', _) <- T.uncons rest ->
+          -- Haskell line comment: copy remainder verbatim without macro expansion
+          acc <> TB.fromText txt
       | otherwise ->
           goText st painted False False False rest (acc <> TB.singleton c)
 
@@ -204,8 +207,28 @@ parseArgs depth argsRev current remaining =
       | ch == ',' && depth == 0 ->
           let arg = trimSpacesText (builderToText current)
            in parseArgs depth (arg : argsRev) mempty rest
+      | ch == '-' && depth == 0, Just ('-', afterDash) <- T.uncons rest ->
+          -- Haskell line comment inside arg list: close the arg, find ')' in comment
+          let commentText = "--" <> afterDash
+           in case findLastCloseParen commentText of
+                Nothing -> Nothing
+                Just (commentPrefix, afterClose) ->
+                  let currentText = builderToText current
+                      arg = trimSpacesText currentText
+                      trailingWS = T.takeWhileEnd isSpace currentText
+                      argsRev' = if T.null arg && null argsRev then [""] else arg : argsRev
+                   in Just (reverse argsRev', trailingWS <> commentPrefix <> afterClose)
       | otherwise ->
           parseArgs depth argsRev (current <> TB.singleton ch) rest
+
+-- | Find the last ')' in text and split before it.
+findLastCloseParen :: Text -> Maybe (Text, Text)
+findLastCloseParen txt =
+  case T.findIndex (== ')') (T.reverse txt) of
+    Nothing -> Nothing
+    Just revIdx ->
+      let idx = T.length txt - revIdx - 1
+       in Just (T.take idx txt, T.drop (idx + 1) txt)
 
 data Piece
   = PieceWhitespace !Text

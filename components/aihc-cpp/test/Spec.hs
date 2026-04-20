@@ -19,7 +19,7 @@ main = do
     ( testGroup
         "cpp-oracle"
         ( checks
-            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, tokenPastingTests]
+            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, tokenPastingTests, ccallLineCommentTest]
             <> [QC.testProperty "dummy quickcheck property" prop_dummy]
         )
     )
@@ -154,6 +154,28 @@ tokenPastingTests =
           Done result ->
             resultOutput result @?= "#line 1 \"<input>\"\n\nfoobar\n"
           _ -> assertFailure "expected Done"
+    ]
+
+ccallLineCommentTest :: TestTree
+ccallLineCommentTest =
+  testCase "CCALL macro with -- comment in argument list" $
+    case preprocess defaultConfig (TE.encodeUtf8 ccallLineCommentInput) of
+      Done result ->
+        if "foreign import ccall unsafe \"xls_wb_sheetcount\"" `T.isInfixOf` resultOutput result
+          && "c_xls_wb_sheetcount :: XLSWorkbook -> IO CInt" `T.isInfixOf` resultOutput result
+          && " -- Int32" `T.isInfixOf` resultOutput result
+          then pure ()
+          else assertFailure ("expected CCALL expansion with line comment, got: " <> show (resultOutput result))
+      _ -> assertFailure "expected Done"
+
+ccallLineCommentInput :: T.Text
+ccallLineCommentInput =
+  T.unlines
+    [ "#define CCALL(name,signature) \\",
+      "foreign import ccall unsafe #name \\",
+      "    c_##name :: signature",
+      "",
+      "CCALL(xls_wb_sheetcount, XLSWorkbook -> IO CInt -- Int32)"
     ]
 
 ccallMacroInput :: T.Text

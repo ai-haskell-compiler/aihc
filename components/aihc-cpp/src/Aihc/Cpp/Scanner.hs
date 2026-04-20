@@ -59,14 +59,20 @@ expandLineBySpan st =
 -- single-line expansion to preserve comment span positions.
 expandLineBySpanMultiline :: EngineState -> [LineSpan] -> Cursor -> (Text, Int)
 expandLineBySpanMultiline st spans futureCursor =
-  let hasCommentSpans = any lineSpanInBlockComment spans
-   in if hasCommentSpans
-        then -- Mixed line: fall back to single-line expansion
-          (expandLineBySpan st spans, 0)
-        else -- Pure code line: try multi-line expansion
-          let codeText = T.concat [lineSpanText s | s <- spans]
-              futureCodeLines = cursorToLines futureCursor
-           in expandMacrosMultiline st codeText futureCodeLines
+  let commentSpans = filter lineSpanInBlockComment spans
+      hasLineComment = any (\s -> "--" `T.isPrefixOf` lineSpanText s) commentSpans
+      hasBlockComment = any (\s -> not ("--" `T.isPrefixOf` lineSpanText s)) commentSpans
+   in if hasLineComment && not hasBlockComment
+        then -- Line with -- comment: full-line expansion so macro args can span into the comment
+          let fullText = T.concat [lineSpanText s | s <- spans]
+           in (expandMacros st fullText, 0)
+        else if hasBlockComment
+          then -- Block comment spans: fall back to per-span expansion
+            (expandLineBySpan st spans, 0)
+          else -- Pure code line: try multi-line expansion
+            let codeText = T.concat [lineSpanText s | s <- spans]
+                futureCodeLines = cursorToLines futureCursor
+             in expandMacrosMultiline st codeText futureCodeLines
 
 -- | Extract lines from a cursor as a lazy list of Text values.
 -- Each line is the text up to the next newline (or EOF).
