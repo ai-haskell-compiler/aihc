@@ -98,5 +98,8 @@ scripts/start-lima-runner.sh \
 - Fork PRs do not use the self-hosted runner path.
 - A hard VM stop can still leave an offline runner registration behind.
 - The start script deletes stale offline registrations with the same runner name before registering again.
+- The Lima VM is persistent, so local caches such as `/nix/store` survive across jobs.
+- The runner registration is ephemeral: the service fetches a fresh registration token, runs exactly one job with `run.sh --once`, then lets GitHub de-register that runner automatically.
+- Before each job assignment, the runner clears `~/actions-runner/_work` and `~/actions-runner/_diag/pages` to avoid carrying runner-local state between jobs.
 - The stop script first tries a graceful `config.sh remove`, then force-deletes the runner registration if it still exists.
 - Do not use plain `limactl stop` if you want immediate cleanup on GitHub; use `scripts/stop-lima-runner.sh` instead.

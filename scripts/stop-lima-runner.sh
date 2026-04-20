@@ -133,6 +133,7 @@ if [ "$instance_exists" -eq 1 ]; then
 	limactl shell "$INSTANCE_NAME" bash -lc '
 set -euo pipefail
 sudo systemctl stop aihc-github-runner.service >/dev/null 2>&1 || true
+sudo rm -f /etc/aihc-github-runner.env
 if [ -x "$HOME/actions-runner/svc.sh" ]; then
 	"$HOME/actions-runner/svc.sh" stop >/dev/null 2>&1 || true
 fi
