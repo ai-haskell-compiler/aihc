@@ -39,7 +39,6 @@ import Prettyprinter
     brackets,
     comma,
     hsep,
-    nest,
     parens,
     punctuate,
     semi,
@@ -832,7 +831,7 @@ prettyInstanceDecl decl =
           )
    in case instanceDeclItems decl of
         [] -> headDoc
-        items -> vsep [headDoc <+> "where", nest 2 (braces (vsep (punctuate semi (map prettyInstanceItem items))))]
+        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
 
 prettyInstanceWarning :: WarningText -> Doc ann
 prettyInstanceWarning (DeprText msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
