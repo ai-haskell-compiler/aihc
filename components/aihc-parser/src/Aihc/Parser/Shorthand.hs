@@ -600,6 +600,7 @@ docType ty =
             <+> parens (docType inner)
         ForallVisible -> "TForall" <+> parens (docForallTelescope telescope) <+> parens (docType inner)
     TApp f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
+    TTypeApp f x -> "TTypeApp" <+> parens (docType f) <+> parens (docType x)
     TInfix lhs op promoted rhs ->
       "TInfix"
         <+> parens (docType lhs)

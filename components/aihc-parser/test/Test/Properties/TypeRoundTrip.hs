@@ -32,7 +32,7 @@ prop_typePrettyRoundTrip ty =
    in checkCoverage $
         withMaxShrinks 100 $
           cover 1 hasKindedInferredBinder "kinded inferred forall binder" $
-            assertCtorCoverage ["TAnn", "TInfix"] ty $
+            assertCtorCoverage ["TAnn", "TInfix", "TTypeApp"] ty $
               counterexample (T.unpack source) $
                 case parseType typeConfig source of
                   ParseErr err ->
@@ -57,6 +57,7 @@ normalizeType ty =
         (telescope {forallTelescopeBinders = map normalizeTyVarBinder (forallTelescopeBinders telescope)})
         (normalizeType inner)
     TApp f x -> TApp (normalizeType f) (normalizeType x)
+    TTypeApp f x -> TTypeApp (normalizeType f) (normalizeType x)
     TInfix lhs op promoted rhs -> TInfix (normalizeType lhs) op promoted (normalizeType rhs)
     TFun a b -> TFun (normalizeType a) (normalizeType b)
     TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
@@ -83,6 +84,7 @@ containsKindedInferredBinder ty =
     TForall telescope inner -> any isKindedInferredBinder (forallTelescopeBinders telescope) || containsKindedInferredBinder inner
     TImplicitParam _name inner -> containsKindedInferredBinder inner
     TApp f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
+    TTypeApp f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
     TInfix lhs _ _ rhs -> containsKindedInferredBinder lhs || containsKindedInferredBinder rhs
     TFun a b -> containsKindedInferredBinder a || containsKindedInferredBinder b
     TTuple _tupleFlavor _promoted elems -> any containsKindedInferredBinder elems
