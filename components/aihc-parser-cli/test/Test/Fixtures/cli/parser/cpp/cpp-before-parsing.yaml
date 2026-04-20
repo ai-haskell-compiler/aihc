@@ -1,0 +1,8 @@
+input: |
+  {-# LANGUAGE CPP #-}
+  module Demo where
+  #define VALUE 42
+  x = VALUE
+output: |
+  Module {name = "Demo", languagePragmas = [EnableExtension CPP], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 42 TInteger)}])]}
+status: pass
