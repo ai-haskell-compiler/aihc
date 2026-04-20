@@ -1,3 +1,3 @@
 {- ORACLE_TEST xfail Incomplete case expression -}
-module IncompleteCase where
-val = case val of
+instance Cls T1 where
+  val = case val of

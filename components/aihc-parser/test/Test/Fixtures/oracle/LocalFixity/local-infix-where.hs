@@ -1,11 +1,7 @@
 {- ORACLE_TEST xfail Local infix operator in where clause -}
-module LocalInfixWhere where
-
-data Key = MongoKey Int
-
-instance Show Key where
-    showsPrec _ input =
-      shows input
+instance FromHttpApiData (BackendKey DB.MongoContext) where
+    parseUrlPiece input = do
+      MongoKey <$> readTextData s
       where
         infixl 3 <!>
         Left _ <!> y = y

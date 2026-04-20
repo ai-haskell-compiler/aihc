@@ -1,9 +1,6 @@
 {- ORACLE_TEST xfail ExtendedLiterals with custom operator -}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ExtendedLiterals #-}
-module ExtendedLiteralsCustomOp where
-
-import GHC.Exts
 
 f64_predecessorIEEE#
   :: Double#
@@ -14,6 +11,7 @@ f64_predecessorIEEE#
   where
     symetric_result
       = negateDouble#
+      $# f64_successorIEEE#
       $# negateDouble#
       $# value
 

@@ -1,11 +1,11 @@
 {- ORACLE_TEST xfail String with Unicode quote -}
-module HelpMessageUnicodeQuote where
-
-helpMessage :: Bool -> String -> String
-helpMessage isTerminal name = usageInfo header options ++ footer
+helpMessage :: Bool -- ^ 'True' when showing in a terminal.
+            -> String -- ^ Executable program name.
+            -> String
+helpMessage is_terminal name = usageInfo header options ++ footer
   where
-    b = bold isTerminal
-    bu = boldUnderline isTerminal
+    b = bold is_terminal
+    bu = boldUnderline is_terminal
     header = "A tool to generate reports from .tix and .mix files\n\
 \\n\
 \" ++ bu "USAGE:" ++ " " ++ b name ++ " [OPTIONS] TARGET\n\
@@ -24,15 +24,3 @@ helpMessage isTerminal name = usageInfo header options ++ footer
 \\n\
 \  https://github.com/8c6794b6/hpc-codecov#readme\n\
 \"
-
-bold :: Bool -> String -> String
-bold _ x = x
-
-boldUnderline :: Bool -> String -> String
-boldUnderline _ x = x
-
-usageInfo :: String -> [String] -> String
-usageInfo _ _ = ""
-
-options :: [String]
-options = []
