@@ -299,7 +299,7 @@ cat >"$runner_home/actions-runner-hooks/register-and-run.sh" <<EOF
 set -euo pipefail
 
 source "${runner_env_file}"
-export HOME="${RUNNER_HOME}"
+export HOME="\${RUNNER_HOME}"
 
 api_token() {
 	local endpoint="\$1"
