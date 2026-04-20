@@ -143,7 +143,8 @@ goText st painted inString inChar escaped txt acc =
           goText st painted False True False rest (acc <> TB.singleton c)
       | isIdentStart c ->
           expandIdentBlue st painted txt acc
-      | c == '-', Just ('-', _) <- T.uncons rest ->
+      | c == '-',
+        Just ('-', _) <- T.uncons rest ->
           -- Haskell line comment: copy remainder verbatim without macro expansion
           acc <> TB.fromText txt
       | otherwise ->
@@ -207,7 +208,8 @@ parseArgs depth argsRev current remaining =
       | ch == ',' && depth == 0 ->
           let arg = trimSpacesText (builderToText current)
            in parseArgs depth (arg : argsRev) mempty rest
-      | ch == '-' && depth == 0, Just ('-', afterDash) <- T.uncons rest ->
+      | ch == '-' && depth == 0,
+        Just ('-', afterDash) <- T.uncons rest ->
           -- Haskell line comment inside arg list: close the arg, find ')' in comment
           let commentText = "--" <> afterDash
            in case findLastCloseParen commentText of

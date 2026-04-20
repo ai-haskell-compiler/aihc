@@ -66,13 +66,14 @@ expandLineBySpanMultiline st spans futureCursor =
         then -- Line with -- comment: full-line expansion so macro args can span into the comment
           let fullText = T.concat [lineSpanText s | s <- spans]
            in (expandMacros st fullText, 0)
-        else if hasBlockComment
-          then -- Block comment spans: fall back to per-span expansion
-            (expandLineBySpan st spans, 0)
-          else -- Pure code line: try multi-line expansion
-            let codeText = T.concat [lineSpanText s | s <- spans]
-                futureCodeLines = cursorToLines futureCursor
-             in expandMacrosMultiline st codeText futureCodeLines
+        else
+          if hasBlockComment
+            then -- Block comment spans: fall back to per-span expansion
+              (expandLineBySpan st spans, 0)
+            else -- Pure code line: try multi-line expansion
+              let codeText = T.concat [lineSpanText s | s <- spans]
+                  futureCodeLines = cursorToLines futureCursor
+               in expandMacrosMultiline st codeText futureCodeLines
 
 -- | Extract lines from a cursor as a lazy list of Text values.
 -- Each line is the text up to the next newline (or EOF).
