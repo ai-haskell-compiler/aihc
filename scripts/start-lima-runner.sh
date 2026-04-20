@@ -299,6 +299,7 @@ cat >"$runner_home/actions-runner-hooks/register-and-run.sh" <<EOF
 set -euo pipefail
 
 source "${runner_env_file}"
+export HOME="${RUNNER_HOME}"
 
 api_token() {
 	local endpoint="\$1"
@@ -375,6 +376,7 @@ ExecStart=${runner_home}/actions-runner-hooks/register-and-run.sh
 Restart=always
 RestartSec=5
 KillMode=process
+Environment=HOME=${runner_home}
 Environment=LANG=en_US.UTF-8
 Environment=LC_ALL=en_US.UTF-8
 
