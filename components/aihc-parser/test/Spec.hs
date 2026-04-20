@@ -218,6 +218,7 @@ buildTests = do
             testCase "preserves bundled export wildcard position" test_bundledExportWildcardPosition,
             testCase "parses associated data family operator names" test_associatedDataFamilyOperatorName,
             testCase "parses infix associated data family operator names" test_associatedDataFamilyInfixOperatorName,
+            testCase "parses infix associated data family instances inside instance bodies" test_associatedDataFamilyInfixInstanceItem,
             testCase "pretty-prints associated data family operator names" test_prettyAssocDataFamilyOperatorName,
             testCase "pretty-prints infix associated data family operator names" test_prettyAssocDataFamilyInfixOperatorName,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
@@ -407,6 +408,7 @@ buildTests = do
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
+              QC.testProperty "generated instance declarations can include infix associated data family instances" prop_generatedInstanceDeclsCanIncludeInfixAssociatedDataFamilyInstances,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated class items include explicit associated type family syntax" prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword,
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
@@ -1874,6 +1876,46 @@ test_associatedDataFamilyInfixOperatorName = do
     (errs, _) ->
       assertFailure ("expected infix associated data family operator declaration to parse, got: " <> show errs)
 
+test_associatedDataFamilyInfixInstanceItem :: Assertion
+test_associatedDataFamilyInfixInstanceItem = do
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE TypeFamilies #-}",
+            "{-# LANGUAGE TypeOperators #-}",
+            "class C x where",
+            "  data x :->: y",
+            "instance C X where",
+            "  data a :->: b = VoidTrie"
+          ]
+      expectedOp = qualifyName Nothing (mkUnqualifiedName NameConSym ":->:")
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      case map peelDeclAnn (moduleDecls modu) of
+        [ DeclClass {},
+          DeclInstance
+            InstanceDecl
+              { instanceDeclItems =
+                  [ InstanceItemAnn
+                      _
+                      ( InstanceItemDataFamilyInst
+                          DataFamilyInst
+                            { dataFamilyInstHead = head',
+                              dataFamilyInstConstructors = [constructor]
+                            }
+                        )
+                    ]
+              }
+          ]
+            | TInfix (TVar "a") op Unpromoted (TVar "b") <- stripTypeAnnotations head',
+              op == expectedOp,
+              PrefixCon _ _ ctorName [] <- peelDataConAnn constructor,
+              ctorName == mkUnqualifiedName NameConId "VoidTrie" ->
+                pure ()
+        other ->
+          assertFailure ("expected infix associated data family instance item, got: " <> show other)
+    (errs, _) ->
+      assertFailure ("expected infix associated data family instance item to parse, got: " <> show errs)
+
 test_prettyAssocDataFamilyOperatorName :: Assertion
 test_prettyAssocDataFamilyOperatorName = do
   let decl =
@@ -2011,6 +2053,26 @@ prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators =
             <> show (length infixMatches)
         )
         (not (null prefixMatches) && not (null infixMatches))
+
+prop_generatedInstanceDeclsCanIncludeInfixAssociatedDataFamilyInstances :: Property
+prop_generatedInstanceDeclsCanIncludeInfixAssociatedDataFamilyInstances =
+  let samples = sampleGen 6000 (arbitrary :: Gen Module)
+      matching =
+        [ modu
+        | modu@Module {moduleDecls} <- samples,
+          DeclInstance InstanceDecl {instanceDeclItems} <- moduleDecls,
+          InstanceItemDataFamilyInst DataFamilyInst {dataFamilyInstHead} <- map peelInstanceDeclItemAnn instanceDeclItems,
+          case stripTypeAnnotations dataFamilyInstHead of
+            TInfix {} -> True
+            _ -> False
+        ]
+   in counterexample
+        ( "expected generated modules to include infix associated data family instances in instance bodies; sampled "
+            <> show (length samples)
+            <> ", matches="
+            <> show (length matching)
+        )
+        (not (null matching))
 
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =

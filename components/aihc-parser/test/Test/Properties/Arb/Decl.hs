@@ -624,12 +624,25 @@ genDeclClassInfix = do
 genDeclInstance :: Gen Decl
 genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix]
 
+genInstanceDeclItems :: Gen [InstanceDeclItem]
+genInstanceDeclItems =
+  frequency
+    [ (4, pure []),
+      (1, (: []) <$> genInstanceAssociatedDataFamilyInstItem)
+    ]
+
+genInstanceAssociatedDataFamilyInstItem :: Gen InstanceDeclItem
+genInstanceAssociatedDataFamilyInstItem = do
+  inst <- genDataFamilyInstWith genFamilyInfixHead genSimpleDataCons
+  pure (InstanceItemDataFamilyInst inst)
+
 genDeclInstancePrefix :: Gen Decl
 genDeclInstancePrefix = do
   className <- genConId
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
   ctx <- genSimpleContext
+  items <- if null types then pure [] else genInstanceDeclItems
   pure $
     DeclInstance $
       InstanceDecl
@@ -641,7 +654,7 @@ genDeclInstancePrefix = do
           instanceDeclHeadForm = TypeHeadPrefix,
           instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = types,
-          instanceDeclItems = []
+          instanceDeclItems = items
         }
 
 genDeclInstanceInfix :: Gen Decl
@@ -650,6 +663,7 @@ genDeclInstanceInfix = do
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   ctx <- genSimpleContext
+  items <- genInstanceDeclItems
   pure $
     DeclInstance $
       InstanceDecl
@@ -661,7 +675,7 @@ genDeclInstanceInfix = do
           instanceDeclHeadForm = TypeHeadInfix,
           instanceDeclClassName = mkUnqualifiedName NameConId className,
           instanceDeclTypes = [lhs, rhs],
-          instanceDeclItems = []
+          instanceDeclItems = items
         }
 
 genDeclStandaloneDeriving :: Gen Decl
@@ -876,40 +890,36 @@ genDeclDataFamilyInst :: Gen Decl
 genDeclDataFamilyInst =
   oneof
     [ genDeclDataFamilyInstPrefix,
+      genDeclDataFamilyInstInfix,
       genDeclDataFamilyInstGadt
     ]
 
+genDataFamilyInstWith :: Gen Type -> Gen [DataConDecl] -> Gen DataFamilyInst
+genDataFamilyInstWith genHead genConstructors = do
+  head' <- genHead
+  kind <- genOptionalDataFamilyInstKind
+  ctors <- genConstructors
+  pure $
+    DataFamilyInst
+      { dataFamilyInstIsNewtype = False,
+        dataFamilyInstForall = [],
+        dataFamilyInstHead = head',
+        dataFamilyInstKind = kind,
+        dataFamilyInstConstructors = ctors,
+        dataFamilyInstDeriving = []
+      }
+
 genDeclDataFamilyInstPrefix :: Gen Decl
 genDeclDataFamilyInstPrefix = do
-  head' <- genFamilyLhsType
-  kind <- genOptionalDataFamilyInstKind
-  ctors <- genSimpleDataCons
-  pure $
-    DeclDataFamilyInst $
-      DataFamilyInst
-        { dataFamilyInstIsNewtype = False,
-          dataFamilyInstForall = [],
-          dataFamilyInstHead = head',
-          dataFamilyInstKind = kind,
-          dataFamilyInstConstructors = ctors,
-          dataFamilyInstDeriving = []
-        }
+  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyLhsType genSimpleDataCons
+
+genDeclDataFamilyInstInfix :: Gen Decl
+genDeclDataFamilyInstInfix =
+  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyInfixHead genSimpleDataCons
 
 genDeclDataFamilyInstGadt :: Gen Decl
 genDeclDataFamilyInstGadt = do
-  head' <- genFamilyLhsType
-  kind <- genOptionalDataFamilyInstKind
-  ctors <- genGadtDataCons
-  pure $
-    DeclDataFamilyInst $
-      DataFamilyInst
-        { dataFamilyInstIsNewtype = False,
-          dataFamilyInstForall = [],
-          dataFamilyInstHead = head',
-          dataFamilyInstKind = kind,
-          dataFamilyInstConstructors = ctors,
-          dataFamilyInstDeriving = []
-        }
+  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyLhsType genGadtDataCons
 
 genOptionalDataFamilyInstKind :: Gen (Maybe Type)
 genOptionalDataFamilyInstKind =
@@ -951,6 +961,12 @@ genFamilyInfixOperand =
     [ (1, genFamilyTypeAtom),
       (3, genFamilyTypeApp)
     ]
+
+genFamilyInfixHead :: Gen Type
+genFamilyInfixHead = do
+  op <- genTypeFamilyInstOperator
+  lhs <- genFamilyInfixOperand
+  TInfix lhs op Unpromoted <$> genFamilyInfixOperand
 
 genFamilyRhsType :: Gen Type
 genFamilyRhsType =

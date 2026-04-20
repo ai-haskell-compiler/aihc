@@ -358,7 +358,7 @@ dataFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  head' <- typeAppParser
+  (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $
@@ -387,7 +387,7 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
   expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  head' <- typeAppParser
+  (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   expectedTok TkReservedEquals
   constructor <- newtypeConDeclParser
@@ -491,7 +491,7 @@ instanceTypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
 instanceDataFamilyInstParser :: TokParser InstanceDeclItem
 instanceDataFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
-  head' <- typeAppParser
+  (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $
@@ -518,7 +518,7 @@ instanceDataFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
 instanceNewtypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceNewtypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
-  head' <- typeAppParser
+  (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   expectedTok TkReservedEquals
   constructor <- newtypeConDeclParser
