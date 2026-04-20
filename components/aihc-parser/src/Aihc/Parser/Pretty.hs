@@ -1357,8 +1357,8 @@ prettyTypeFamilyEq eq =
 prettyDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyDataFamilyDecl df =
   hsep $
-    ["data", "family", prettyConstructorUName (dataFamilyDeclName df)]
-      <> map prettyTyVarBinder (dataFamilyDeclParams df)
+    ["data", "family"]
+      <> prettyNamedTypeHead (dataFamilyDeclHeadForm df) (dataFamilyDeclName df) (dataFamilyDeclParams df)
       <> kindPart (dataFamilyDeclKind df)
   where
     kindPart Nothing = []
@@ -1430,8 +1430,8 @@ prettyTypeFamilyLhs headForm lhs =
 prettyAssocDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyAssocDataFamilyDecl df =
   hsep $
-    ["data", prettyConstructorUName (dataFamilyDeclName df)]
-      <> map prettyTyVarBinder (dataFamilyDeclParams df)
+    ["data"]
+      <> prettyNamedTypeHead (dataFamilyDeclHeadForm df) (dataFamilyDeclName df) (dataFamilyDeclParams df)
       <> kindPart (dataFamilyDeclKind df)
   where
     kindPart Nothing = []

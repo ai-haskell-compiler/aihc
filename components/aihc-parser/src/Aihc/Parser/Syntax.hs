@@ -1312,7 +1312,8 @@ data TypeFamilyEq = TypeFamilyEq
 
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
-  { dataFamilyDeclName :: UnqualifiedName,
+  { dataFamilyDeclHeadForm :: TypeHeadForm,
+    dataFamilyDeclName :: UnqualifiedName,
     dataFamilyDeclParams :: [TyVarBinder],
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type

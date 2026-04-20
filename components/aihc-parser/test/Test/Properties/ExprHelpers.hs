@@ -593,7 +593,8 @@ normalizeTypeFamilyEq eq =
 normalizeDataFamilyDecl :: DataFamilyDecl -> DataFamilyDecl
 normalizeDataFamilyDecl df =
   DataFamilyDecl
-    { dataFamilyDeclName = dataFamilyDeclName df,
+    { dataFamilyDeclHeadForm = dataFamilyDeclHeadForm df,
+      dataFamilyDeclName = dataFamilyDeclName df,
       dataFamilyDeclParams = map normalizeTyVarBinder (dataFamilyDeclParams df),
       dataFamilyDeclKind = fmap normalizeType (dataFamilyDeclKind df)
     }

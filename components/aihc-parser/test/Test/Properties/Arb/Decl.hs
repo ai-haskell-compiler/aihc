@@ -556,13 +556,26 @@ genAssociatedTypeFamilyDecl classParams = do
 
 genAssociatedDataFamilyDecl :: [TyVarBinder] -> Gen DataFamilyDecl
 genAssociatedDataFamilyDecl classParams = do
-  name <- genConUnqualifiedName
-  paramCount <- chooseInt (0, min 2 (length classParams))
-  params <- take paramCount <$> shuffle classParams
+  let canUseInfixHead = length classParams >= 2
+  infixHead <- if canUseInfixHead then elements [False, True] else pure False
+  (headForm, name, params) <-
+    if infixHead
+      then do
+        name <- mkUnqualifiedName NameConSym <$> genConSym
+        shuffled <- shuffle classParams
+        case shuffled of
+          lhs : rhs : _ -> pure (TypeHeadInfix, name, [lhs, rhs])
+          _ -> error "genAssociatedDataFamilyDecl: expected at least two class params"
+      else do
+        name <- genConUnqualifiedName
+        paramCount <- chooseInt (0, min 2 (length classParams))
+        params <- take paramCount <$> shuffle classParams
+        pure (TypeHeadPrefix, name, params)
   kind <- frequency [(3, pure Nothing), (1, Just <$> genSimpleType)]
   pure $
     DataFamilyDecl
-      { dataFamilyDeclName = name,
+      { dataFamilyDeclHeadForm = headForm,
+        dataFamilyDeclName = name,
         dataFamilyDeclParams = params,
         dataFamilyDeclKind = kind
       }
@@ -797,12 +810,23 @@ genDeclTypeFamilyDeclInfix = do
 
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
-  name <- mkUnqualifiedName NameConId <$> genConId
-  params <- genSimpleTyVarBinders
+  infixHead <- elements [False, True]
+  (headForm, name, params) <-
+    if infixHead
+      then do
+        name <- mkUnqualifiedName NameConSym <$> genConSym
+        lhs <- TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
+        rhs <- TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
+        pure (TypeHeadInfix, name, [lhs, rhs])
+      else do
+        name <- mkUnqualifiedName NameConId <$> genConId
+        params <- genSimpleTyVarBinders
+        pure (TypeHeadPrefix, name, params)
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
-        { dataFamilyDeclName = name,
+        { dataFamilyDeclHeadForm = headForm,
+          dataFamilyDeclName = name,
           dataFamilyDeclParams = params,
           dataFamilyDeclKind = Nothing
         }
@@ -1284,7 +1308,7 @@ shrinkTypeFamilyDecl tf =
 
 shrinkDataFamilyDecl :: DataFamilyDecl -> [DataFamilyDecl]
 shrinkDataFamilyDecl df =
-  [df {dataFamilyDeclParams = ps'} | ps' <- shrinkTyVarBinders (dataFamilyDeclParams df)]
+  [df {dataFamilyDeclParams = ps'} | ps' <- shrinkTypeHeadParams (dataFamilyDeclHeadForm df) (dataFamilyDeclParams df)]
 
 shrinkTypeFamilyInst :: TypeFamilyInst -> [TypeFamilyInst]
 shrinkTypeFamilyInst tfi =

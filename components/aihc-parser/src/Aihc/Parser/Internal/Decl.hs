@@ -332,13 +332,13 @@ dataFamilyDeclParser :: TokParser Decl
 dataFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   varIdTok "family"
-  name <- constructorUnqualifiedNameParser
-  params <- MP.many declTypeParamParser
+  (headForm, name, params) <- typeDeclHeadParser
   kind <- familyResultKindParser
   pure $
     DeclDataFamilyDecl
       DataFamilyDecl
-        { dataFamilyDeclName = name,
+        { dataFamilyDeclHeadForm = headForm,
+          dataFamilyDeclName = name,
           dataFamilyDeclParams = params,
           dataFamilyDeclKind = kind
         }
@@ -441,13 +441,13 @@ classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
 classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
-  name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
-  params <- MP.many declTypeParamParser
+  (headForm, name, params) <- typeDeclHeadParser
   kind <- familyResultKindParser
   pure
     ( ClassItemDataFamilyDecl
         DataFamilyDecl
-          { dataFamilyDeclName = name,
+          { dataFamilyDeclHeadForm = headForm,
+            dataFamilyDeclName = name,
             dataFamilyDeclParams = params,
             dataFamilyDeclKind = kind
           }
