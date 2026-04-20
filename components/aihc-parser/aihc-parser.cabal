@@ -94,6 +94,7 @@ test-suite spec
     , ParserValidation
     , ShrinkUtils
     , StackageProgress.CLI
+    , StackageProgress.FileChecker
     , StackageProgress.Summary
     , StackageProgress.FileCheckerTiming
     , Test.ErrorMessages.Suite
@@ -119,6 +120,7 @@ test-suite spec
     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.FileCheckerTiming
+    , Test.StackageProgress.FileChecker
     , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5

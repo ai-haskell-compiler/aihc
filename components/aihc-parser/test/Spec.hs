@@ -47,6 +47,7 @@ import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
+import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
@@ -404,6 +405,7 @@ buildTests = do
         oracle,
         extensionMappingTests,
         hackageTester,
+        stackageProgressFileCheckerTests,
         stackageProgressFileCheckerTimingTests,
         stackageProgressSummaryTests
       ]
