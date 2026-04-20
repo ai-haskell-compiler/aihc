@@ -537,10 +537,12 @@ genAssociatedTypeFamilyDecl classParams = do
   name <- genConId
   paramCount <- chooseInt (0, min 2 (length classParams))
   params <- take paramCount <$> shuffle classParams
+  explicitFamilyKeyword <- arbitrary
   let headType = TCon (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
   pure $
     TypeFamilyDecl
       { typeFamilyDeclHeadForm = TypeHeadPrefix,
+        typeFamilyDeclExplicitFamilyKeyword = explicitFamilyKeyword,
         typeFamilyDeclHead = headType,
         typeFamilyDeclParams = params,
         typeFamilyDeclResultSig = Nothing,
@@ -745,6 +747,7 @@ genDeclTypeFamilyDecl = do
     DeclTypeFamilyDecl $
       TypeFamilyDecl
         { typeFamilyDeclHeadForm = TypeHeadPrefix,
+          typeFamilyDeclExplicitFamilyKeyword = True,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclResultSig = Nothing,
@@ -769,6 +772,7 @@ genDeclTypeFamilyDeclInfix = do
     DeclTypeFamilyDecl $
       TypeFamilyDecl
         { typeFamilyDeclHeadForm = TypeHeadInfix,
+          typeFamilyDeclExplicitFamilyKeyword = True,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = [lhs, rhs],
           typeFamilyDeclResultSig = Nothing,
@@ -1261,6 +1265,7 @@ shrinkForeignDecl fd =
 shrinkTypeFamilyDecl :: TypeFamilyDecl -> [TypeFamilyDecl]
 shrinkTypeFamilyDecl tf =
   [tf {typeFamilyDeclParams = ps'} | ps' <- shrinkTypeHeadParams (typeFamilyDeclHeadForm tf) (typeFamilyDeclParams tf)]
+    <> [tf {typeFamilyDeclExplicitFamilyKeyword = False} | typeFamilyDeclExplicitFamilyKeyword tf]
 
 shrinkDataFamilyDecl :: DataFamilyDecl -> [DataFamilyDecl]
 shrinkDataFamilyDecl df =

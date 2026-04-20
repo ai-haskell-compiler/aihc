@@ -1332,11 +1332,14 @@ prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]
 prettyTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyTypeFamilyDecl tf =
   hsep $
-    ["type", "family"]
+    ["type"]
+      <> familyKeywordPart (typeFamilyDeclExplicitFamilyKeyword tf)
       <> prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)
       <> resultSigPart (typeFamilyDeclResultSig tf)
       <> eqsPart (typeFamilyDeclEquations tf)
   where
+    familyKeywordPart True = ["family"]
+    familyKeywordPart False = []
     resultSigPart Nothing = []
     resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
     resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
@@ -1400,9 +1403,12 @@ prettyAssocTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyAssocTypeFamilyDecl tf =
   hsep $
     ["type"]
+      <> familyKeywordPart (typeFamilyDeclExplicitFamilyKeyword tf)
       <> prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)
       <> resultSigPart (typeFamilyDeclResultSig tf)
   where
+    familyKeywordPart True = ["family"]
+    familyKeywordPart False = []
     resultSigPart Nothing = []
     resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
     resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =

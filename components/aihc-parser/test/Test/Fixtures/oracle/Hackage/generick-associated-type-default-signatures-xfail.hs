@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="associated type families with kind signatures followed by default signatures fail to parse" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE PolyKinds #-}

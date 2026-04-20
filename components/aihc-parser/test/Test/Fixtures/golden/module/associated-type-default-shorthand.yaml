@@ -6,5 +6,5 @@ input: |
     type O n
     type O n = Int
 ast: |
-  Module {name = "M", languagePragmas = [EnableExtension TypeFamilies], decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo", params = [TyVarBinder {name = "n"}], items = [ClassItemTypeFamilyDecl (TypeFamilyDecl {headForm = TypeHeadPrefix, head = TCon "O", params = [TyVarBinder {name = "n"}]}), ClassItemDefaultTypeInst (TypeFamilyInst {headForm = TypeHeadPrefix, lhs = TApp (TCon "O") (TVar "n"), rhs = TCon "Int"})]})]}
+  Module {name = "M", languagePragmas = [EnableExtension TypeFamilies], decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo", params = [TyVarBinder {name = "n"}], items = [ClassItemTypeFamilyDecl (TypeFamilyDecl {headForm = TypeHeadPrefix, explicitFamilyKeyword = False, head = TCon "O", params = [TyVarBinder {name = "n"}]}), ClassItemDefaultTypeInst (TypeFamilyInst {headForm = TypeHeadPrefix, lhs = TApp (TCon "O") (TVar "n"), rhs = TCon "Int"})]})]}
 status: pass

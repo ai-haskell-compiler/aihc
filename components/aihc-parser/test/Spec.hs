@@ -165,6 +165,9 @@ pattern EApp_ fn arg <- (peelExprAnn -> EApp fn arg)
 pattern ClassItemTypeSig_ :: [BinderName] -> Type -> ClassDeclItem
 pattern ClassItemTypeSig_ names ty <- (peelClassDeclItemAnn -> ClassItemTypeSig names ty)
 
+pattern ClassItemTypeFamilyDecl_ :: TypeFamilyDecl -> ClassDeclItem
+pattern ClassItemTypeFamilyDecl_ tf <- (peelClassDeclItemAnn -> ClassItemTypeFamilyDecl tf)
+
 main :: IO ()
 main = buildTests >>= defaultMain
 
@@ -263,6 +266,8 @@ buildTests = do
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "parses class operator type signatures in where blocks" test_classOperatorTypeSigParses,
+            testCase "parses explicit associated type family declarations" test_explicitAssociatedTypeFamilyDeclParses,
+            testCase "roundtrips explicit associated type family declarations with default signatures" test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
@@ -395,6 +400,7 @@ buildTests = do
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
+              QC.testProperty "generated class items include explicit associated type family syntax" prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword,
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
@@ -731,6 +737,47 @@ test_classOperatorTypeSigParses =
         case map normalizeDecl (moduleDecls modu) of
           [DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "C#", classDeclItems = [ClassItemTypeSig_ [UnqualifiedName NameVarSym "##"] _]}] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_explicitAssociatedTypeFamilyDeclParses :: Assertion
+test_explicitAssociatedTypeFamilyDeclParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE TypeFamilies #-}",
+            "module M where",
+            "class C a where",
+            "  type family F a :: Type"
+          ]
+      exts = [EnableExtension TypeFamilies]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = effectiveExtensions Haskell2010Edition exts} source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [DeclClass ClassDecl {classDeclItems = [ClassItemTypeFamilyDecl_ TypeFamilyDecl {typeFamilyDeclExplicitFamilyKeyword = True, typeFamilyDeclHeadForm = TypeHeadPrefix, typeFamilyDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible], typeFamilyDeclResultSig = Just (TypeFamilyKindSig kind)}]}]
+            | TCon "Type" Unpromoted <- stripTypeAnnotations kind -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip :: Assertion
+test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE DataKinds #-}",
+            "{-# LANGUAGE DefaultSignatures #-}",
+            "{-# LANGUAGE PolyKinds #-}",
+            "{-# LANGUAGE TypeFamilies #-}",
+            "module M where",
+            "import Data.Kind (Type)",
+            "import Data.Proxy (Proxy)",
+            "class C (f :: k) where",
+            "  type family F f :: Type",
+            "  m :: Proxy f -> Proxy f",
+            "  default",
+            "    m :: Proxy f -> Proxy f",
+            "  m = id"
+          ]
+      exts = [EnableExtension DataKinds, EnableExtension DefaultSignatures, EnableExtension PolyKinds, EnableExtension TypeFamilies]
+   in case validateParser "ExplicitAssociatedTypeFamilyWithDefaultSignature.hs" Haskell2010Edition exts source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected explicit associated type family with default signature to roundtrip, got: " <> show err)
 
 test_ifElseWhereBranchRoundtrip :: Assertion
 test_ifElseWhereBranchRoundtrip =
@@ -1866,6 +1913,24 @@ prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
       case ty of
         TApp {} -> True
         _ -> False
+
+prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword :: Property
+prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword =
+  let samples = sampleGen 6000 (arbitrary :: Gen Module)
+      matching =
+        [ tf
+        | modu <- samples,
+          DeclClass ClassDecl {classDeclItems} <- moduleDecls modu,
+          ClassItemTypeFamilyDecl tf <- map peelClassDeclItemAnn classDeclItems,
+          typeFamilyDeclExplicitFamilyKeyword tf
+        ]
+   in counterexample
+        ( "expected generated modules to include explicit associated type family syntax; sampled "
+            <> show (length samples)
+            <> ", matches="
+            <> show (length matching)
+        )
+        (not (null matching))
 
 prop_generatedModulesCanIncludeEmptyBundledImports :: Property
 prop_generatedModulesCanIncludeEmptyBundledImports =

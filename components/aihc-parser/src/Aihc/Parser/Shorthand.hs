@@ -1036,7 +1036,10 @@ docTypeFamilyDecl tf =
   "TypeFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (typeFamilyDeclHeadForm tf)), field "head" (docType (typeFamilyDeclHead tf))]
+      [ field "headForm" (docTypeHeadForm (typeFamilyDeclHeadForm tf)),
+        field "explicitFamilyKeyword" (if typeFamilyDeclExplicitFamilyKeyword tf then "True" else "False"),
+        field "head" (docType (typeFamilyDeclHead tf))
+      ]
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
         <> optionalField "resultSig" docTypeFamilyResultSig (typeFamilyDeclResultSig tf)
         <> case typeFamilyDeclEquations tf of
