@@ -285,11 +285,10 @@ substituteParamsBuilder subs = renderPieces . collapseTokenPastes . collapseStri
 
     collapseStringizing :: [Piece] -> [Piece]
     collapseStringizing [] = []
+    collapseStringizing (PieceRaw "#" : PieceParam name : rest) =
+      PieceRaw (stringizeArgument (lookupParam name)) : collapseStringizing rest
     collapseStringizing (PieceRaw "#" : rest) =
-      case span isWhitespacePiece rest of
-        (_, PieceParam name : remaining) ->
-          PieceRaw (stringizeArgument (lookupParam name)) : collapseStringizing remaining
-        _ -> PieceRaw "#" : collapseStringizing rest
+      PieceRaw "#" : collapseStringizing rest
     collapseStringizing (piece : rest) = piece : collapseStringizing rest
 
     collapseTokenPastes :: [Piece] -> [Piece]
