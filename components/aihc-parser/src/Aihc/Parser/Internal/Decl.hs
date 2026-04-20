@@ -441,7 +441,7 @@ classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
 classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
-  name <- constructorUnqualifiedNameParser
+  name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
   params <- MP.many declTypeParamParser
   kind <- familyResultKindParser
   pure

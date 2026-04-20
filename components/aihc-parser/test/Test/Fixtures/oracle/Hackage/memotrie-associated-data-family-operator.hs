@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="associated data family declarations reject operator names" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 

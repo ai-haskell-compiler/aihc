@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Decl
   ( genDecl,
+    genDeclClass,
     genDeclDataFamilyInst,
     genDeclTypeFamilyInst,
     genDeclValue,
@@ -513,6 +514,7 @@ genClassDeclItems params =
     [ (3, pure []),
       (2, (: []) <$> genClassTypeSigItem),
       (2, (: []) <$> genClassAssociatedTypeDeclItem params),
+      (2, (: []) <$> genClassAssociatedDataDeclItem params),
       (1, genClassAssociatedTypeItems params)
     ]
 
@@ -532,6 +534,11 @@ genClassAssociatedTypeItems params = do
   mDefault <- genAssociatedTypeDefaultInst tf params
   pure $ ClassItemTypeFamilyDecl tf : maybe [] (pure . ClassItemDefaultTypeInst) mDefault
 
+genClassAssociatedDataDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
+genClassAssociatedDataDeclItem params = do
+  df <- genAssociatedDataFamilyDecl params
+  pure $ ClassItemDataFamilyDecl df
+
 genAssociatedTypeFamilyDecl :: [TyVarBinder] -> Gen TypeFamilyDecl
 genAssociatedTypeFamilyDecl classParams = do
   name <- genConId
@@ -545,6 +552,19 @@ genAssociatedTypeFamilyDecl classParams = do
         typeFamilyDeclParams = params,
         typeFamilyDeclResultSig = Nothing,
         typeFamilyDeclEquations = Nothing
+      }
+
+genAssociatedDataFamilyDecl :: [TyVarBinder] -> Gen DataFamilyDecl
+genAssociatedDataFamilyDecl classParams = do
+  name <- genConUnqualifiedName
+  paramCount <- chooseInt (0, min 2 (length classParams))
+  params <- take paramCount <$> shuffle classParams
+  kind <- frequency [(3, pure Nothing), (1, Just <$> genSimpleType)]
+  pure $
+    DataFamilyDecl
+      { dataFamilyDeclName = name,
+        dataFamilyDeclParams = params,
+        dataFamilyDeclKind = kind
       }
 
 genAssociatedTypeDefaultInst :: TypeFamilyDecl -> [TyVarBinder] -> Gen (Maybe TypeFamilyInst)
