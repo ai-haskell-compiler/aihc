@@ -26,6 +26,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -33,7 +34,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.FilePath (normalise, takeDirectory, takeExtension, (</>))
 
 data ExpectedStatus
   = StatusPass
@@ -57,7 +58,8 @@ data CLICase = CLICase
     caseExpectedOutput :: !Text,
     caseExpectedExitCode :: !Int,
     caseStatus :: !ExpectedStatus,
-    caseReason :: !String
+    caseReason :: !String,
+    caseIncludes :: !(M.Map FilePath Text)
   }
   deriving (Eq, Show)
 
@@ -98,7 +100,7 @@ parseCLICaseText root path source = do
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (args, inputText, expectedOutput, exitCode, statusText, reasonText) <-
+  (includesMap, args, inputText, expectedOutput, exitCode, statusText, reasonText) <-
     parseYamlFixture path value
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
@@ -114,23 +116,25 @@ parseCLICaseText root path source = do
         caseExpectedOutput = expectedOutput,
         caseExpectedExitCode = exitCode,
         caseStatus = status,
-        caseReason = reason
+        caseReason = reason,
+        caseIncludes = M.fromList [(normalise (T.unpack k), v) | (k, v) <- M.toList includesMap]
       }
 
 parseYamlFixture ::
   FilePath ->
   Y.Value ->
-  Either String ([Text], Text, Text, Int, Text, Text)
+  Either String (M.Map Text Text, [Text], Text, Text, Int, Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "cli fixture" $ \obj -> do
+        includesMap <- obj .:? "includes" .!= M.empty
         args <- obj .:? "args" .!= []
         inputText <- obj .: "input"
         expectedOutput <- obj .: "output"
         exitCode <- obj .:? "exit_code" .!= 0
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (args, inputText, expectedOutput, exitCode, statusText, reasonText)
+        pure (includesMap, args, inputText, expectedOutput, exitCode, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid CLI fixture schema in " <> path <> ": " <> err)
@@ -142,7 +146,7 @@ parseYamlFixture path value =
 -- All tests use the unified aihc-parser CLI. Lexer tests pass @--lex@ in their args.
 evaluateCLICase :: CLICase -> IO (Outcome, String)
 evaluateCLICase meta = do
-  let result = runCLIInProcess (caseArgs meta) (caseInput meta)
+  let result = runCLIInProcess (caseIncludes meta) (caseArgs meta) (caseInput meta)
       -- Combine stdout and stderr for output comparison
       actualOutput = T.stripEnd (cliStdout result <> cliStderr result)
       expectedOutput = T.stripEnd (caseExpectedOutput meta)
@@ -175,9 +179,9 @@ data CLIResult = CLIResult
 
 -- | Run the unified aihc-parser CLI in-process with full argument parsing.
 -- This calls the pure CLI functions directly without IO.
-runCLIInProcess :: [String] -> Text -> CLIResult
-runCLIInProcess args input =
-  let r = Run.runCLI args input
+runCLIInProcess :: M.Map FilePath Text -> [String] -> Text -> CLIResult
+runCLIInProcess includeMap args input =
+  let r = Run.runCLI includeMap args input
    in CLIResult (Run.cliExitCode r) (Run.cliStdout r) (Run.cliStderr r)
 
 exitCodeToInt :: ExitCode -> Int

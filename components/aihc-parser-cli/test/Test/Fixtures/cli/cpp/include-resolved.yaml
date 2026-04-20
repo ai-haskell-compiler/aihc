@@ -1,0 +1,14 @@
+input: |
+  #include "header.h"
+  main = FOO
+args: ["--cpp"]
+includes:
+  header.h: |
+    #define FOO 42
+output: |
+  #line 1 "<stdin>"
+  #line 1 "header.h"
+
+  #line 2 "<stdin>"
+  main = 42
+status: pass

@@ -1,0 +1,9 @@
+input: |
+  #define FOO 42
+  The answer is FOO
+args: ["--cpp"]
+output: |
+  #line 1 "<stdin>"
+
+  The answer is 42
+status: pass

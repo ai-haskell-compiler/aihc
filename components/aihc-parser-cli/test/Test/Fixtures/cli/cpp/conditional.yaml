@@ -1,0 +1,10 @@
+input: "#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif"
+args: ["--cpp"]
+output: |
+  #line 1 "<stdin>"
+
+
+  debug mode
+
+
+status: pass
