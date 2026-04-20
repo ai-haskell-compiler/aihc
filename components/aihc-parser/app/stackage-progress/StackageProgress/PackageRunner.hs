@@ -11,6 +11,7 @@ where
 
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Control.Exception (IOException, SomeException, displayException, try)
+import Data.Maybe (isJust)
 import HackageSupport
   ( FileInfo (..),
     downloadPackageQuietWithNetwork,
@@ -18,7 +19,8 @@ import HackageSupport
   )
 import StackageProgress.CLI (Options (..))
 import StackageProgress.FileChecker
-  ( PackageFileSummary (..),
+  ( FileCheckOptions (..),
+    PackageFileSummary (..),
     emptyFileSummary,
     firstFailureMessage,
     foldFilesForPackage,
@@ -82,6 +84,12 @@ runPackageOrThrow opts spec = do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
       files <- findTargetFilesFromCabal srcDir
       totalSize <- if optPrintFailedTable opts then totalSourceSize files else pure 0
+      let checkOpts =
+            FileCheckOptions
+              { fileCheckKeepFirstFailure = optPrompt opts || isJust (optGhcErrorsFile opts),
+                fileCheckKeepFileErrors = optPrintFailedTable opts,
+                fileCheckKeepGhcError = isJust (optGhcErrorsFile opts)
+              }
       if null files
         then
           pure
@@ -96,12 +104,15 @@ runPackageOrThrow opts spec = do
                 packageFileErrors = []
               }
         else do
-          fileSummary <- foldFilesForPackage (optParsers opts) (optVerbose opts) srcDir emptyFileSummary files
+          fileSummary <- foldFilesForPackage checkOpts (optParsers opts) (optVerbose opts) srcDir emptyFileSummary files
           let hseOk = packageFileHseOk fileSummary
               ghcOk = packageFileGhcOk fileSummary
               ghcError = packageFileGhcError fileSummary
               oursOk = packageFileOursOk fileSummary
               errors = getPackageFileErrors fileSummary
+              reason
+                | fileCheckKeepFirstFailure checkOpts = firstFailureMessage fileSummary
+                | otherwise = ""
           if oursOk
             then
               pure
@@ -122,7 +133,7 @@ runPackageOrThrow opts spec = do
                     packageOursOk = False,
                     packageHseOk = hseOk,
                     packageGhcOk = ghcOk,
-                    packageReason = firstFailureMessage fileSummary,
+                    packageReason = reason,
                     packageGhcError = ghcError,
                     packageSourceSize = totalSize,
                     packageFileErrors = errors

@@ -30,42 +30,42 @@ import Data.Char (isSpace)
 import Data.List qualified as List
 
 data PackageResult = PackageResult
-  { package :: PackageSpec,
-    packageOursOk :: Bool,
-    packageHseOk :: Bool,
-    packageGhcOk :: Bool,
-    packageReason :: String,
-    packageGhcError :: Maybe String,
-    packageSourceSize :: Integer,
-    packageFileErrors :: [(String, String)] -- [(filePath, errorMessage)]
+  { package :: !PackageSpec,
+    packageOursOk :: !Bool,
+    packageHseOk :: !Bool,
+    packageGhcOk :: !Bool,
+    packageReason :: !String,
+    packageGhcError :: !(Maybe String),
+    packageSourceSize :: !Integer,
+    packageFileErrors :: ![(String, String)] -- [(filePath, errorMessage)]
   }
 
 data FailedPackage = FailedPackage
-  { failedPackageName :: String,
-    failedPackageSourceSize :: Integer,
-    failedPackageErrors :: [(String, String)] -- [(filePath, errorMessage)]
+  { failedPackageName :: !String,
+    failedPackageSourceSize :: !Integer,
+    failedPackageErrors :: ![(String, String)] -- [(filePath, errorMessage)]
   }
   deriving (Eq, Show)
 
 data PromptCandidate = PromptCandidate
-  { promptPackageName :: String,
-    promptErrorMessage :: String
+  { promptPackageName :: !String,
+    promptErrorMessage :: !String
   }
   deriving (Eq, Show)
 
 data SummaryOptions = SummaryOptions
-  { summaryKeepSucceeded :: Bool,
-    summaryKeepFailedPackages :: Bool,
-    summaryGhcErrorLimit :: Int
+  { summaryKeepSucceeded :: !Bool,
+    summaryKeepFailedPackages :: !Bool,
+    summaryGhcErrorLimit :: !Int
   }
 
 data RunSummary = RunSummary
   { summarySuccessOursN :: !Int,
     summarySuccessHseN :: !Int,
     summarySuccessGhcN :: !Int,
-    summarySucceededPackagesAcc :: [String],
-    summaryFailedPackagesAcc :: [FailedPackage],
-    summaryGhcErrorsAcc :: [(String, String)],
+    summarySucceededPackagesAcc :: ![String],
+    summaryFailedPackagesAcc :: ![FailedPackage],
+    summaryGhcErrorsAcc :: ![(String, String)],
     summaryGhcErrorsStored :: !Int
   }
 
