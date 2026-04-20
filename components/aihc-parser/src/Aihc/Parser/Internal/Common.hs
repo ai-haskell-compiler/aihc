@@ -495,7 +495,17 @@ contextItemParserWith typeParser typeAtomParser =
       expectedTok TkSpecialLParen
       item <- contextItemParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
+      guardNotFollowedByConstraintInfixOp
       pure (TParen item)
+      where
+        guardNotFollowedByConstraintInfixOp = do
+          isFollowed <-
+            fmap (either (const False) (const True))
+              . MP.observing
+              . MP.try
+              . MP.lookAhead
+              $ constraintTypeInfixOperatorParser
+          guard (not isFollowed)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.
@@ -595,14 +605,31 @@ contextItemsParserWith typeParser typeAtomParser =
   where
     parenthesizedContextItemsParser = do
       items <- parens (contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
-      -- Fail if no items were parsed: empty parens () in a constraint context should be
-      -- handled by contextItemParserWith (which parses () as a tuple type), not treated
-      -- as an empty constraint list. This allows constraints like () ~ () => a to parse
-      -- correctly, where () ~ () is a single type-equality constraint.
+      guardNotFollowedByConstraintInfixOp
       case items of
         [] -> fail "empty constraint list in parens"
         [item] -> pure [typeAnnSpan (getTypeSourceSpan item) (TParen item)]
         _ -> pure items
+    guardNotFollowedByConstraintInfixOp = do
+      isFollowed <-
+        fmap (either (const False) (const True))
+          . MP.observing
+          . MP.try
+          . MP.lookAhead
+          $ constraintInfixOpStartParser
+      guard (not isFollowed)
+    constraintInfixOpStartParser =
+      tokenSatisfy "constraint infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op
+            | op /= "."
+                && op /= "!" ->
+                Just ()
+          TkConSym _ -> Just ()
+          TkQVarSym _ _ -> Just ()
+          TkQConSym _ _ -> Just ()
+          TkSpecialBacktick -> Just ()
+          _ -> Nothing
 
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
