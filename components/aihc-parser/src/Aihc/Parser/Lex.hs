@@ -728,17 +728,15 @@ lexSymbol env st =
             else firstJust rest
 
 lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
-lexPromotedQuote env st
-  | not (hasExt DataKinds env) = Nothing
-  | otherwise =
-      case lexerInput st of
-        '\'' :< rest
-          | isValidCharLiteral rest -> Nothing
-          | isPromotionStart rest ->
-              let st' = advanceChars "'" st
-               in Just (mkToken st st' "'" (TkVarSym "'"), st')
-          | otherwise -> Nothing
-        _ -> Nothing
+lexPromotedQuote _env st =
+  case lexerInput st of
+    '\'' :< rest
+      | isValidCharLiteral rest -> Nothing
+      | isPromotionStart rest ->
+          let st' = advanceChars "'" st
+           in Just (mkToken st st' "'" (TkVarSym "'"), st')
+      | otherwise -> Nothing
+    _ -> Nothing
   where
     isValidCharLiteral chars =
       case scanQuoted '\'' chars of
@@ -746,7 +744,7 @@ lexPromotedQuote env st
         Left _ -> False
 
     isPromotionStart chars =
-      case chars of
+      case skipHorizontalWhitespace chars of
         c :< _
           | c == '[' -> True
           | c == '(' -> True
@@ -754,6 +752,11 @@ lexPromotedQuote env st
           | isConIdStart c -> True
           | isSymbolicOpChar c -> True
         _ -> False
+
+    skipHorizontalWhitespace chars =
+      case chars of
+        c :< rest | c == ' ' || c == '\t' -> skipHorizontalWhitespace rest
+        _ -> chars
 
 lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexChar env st =

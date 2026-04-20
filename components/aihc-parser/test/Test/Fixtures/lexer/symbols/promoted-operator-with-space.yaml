@@ -1,0 +1,8 @@
+extensions:
+  - DataKinds
+input: "' :<>:"
+tokens:
+  - "TkVarSym \"'\""
+  - "TkConSym \":<>:\""
+  - "TkEOF"
+status: pass

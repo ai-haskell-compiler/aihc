@@ -1,0 +1,7 @@
+extensions: []
+input: "'True"
+tokens:
+  - "TkVarSym \"'\""
+  - "TkConId \"True\""
+  - "TkEOF"
+status: pass
