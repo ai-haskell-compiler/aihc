@@ -160,6 +160,7 @@ require_cmd limactl
 require_cmd python3
 
 gh auth status >/dev/null
+RUNNER_ADMIN_TOKEN="$(gh auth token)"
 
 if [ -z "$REPO" ]; then
 	REPO="$(gh_repo)"
@@ -239,14 +240,13 @@ for entry in json.load(sys.stdin):
 raise SystemExit(1)
 ' "$runner_arch")"
 
-registration_token="$(gh api --method POST "repos/${REPO}/actions/runners/registration-token" --jq '.token')"
-
 echo "Configuring runner '${RUNNER_NAME}' with label '${RUNNER_LABEL}'..."
 limactl shell "$INSTANCE_NAME" env \
 	DOWNLOAD_URL="$download_url" \
+	REPO="$REPO" \
 	RUNNER_LABEL="$RUNNER_LABEL" \
 	RUNNER_NAME="$RUNNER_NAME" \
-	RUNNER_TOKEN="$registration_token" \
+	RUNNER_ADMIN_TOKEN="$RUNNER_ADMIN_TOKEN" \
 	RUNNER_URL="$RUNNER_URL" \
 	bash -lc '
 set -euo pipefail
@@ -256,9 +256,10 @@ export NEEDRESTART_MODE=a
 
 runner_user="$(id -un)"
 runner_home="$HOME"
+runner_env_file="/etc/aihc-github-runner.env"
 
 sudo apt-get update
-sudo apt-get install -y awscli curl git tar locales
+sudo apt-get install -y awscli curl git tar locales python3
 
 # Configure UTF-8 locale for proper Unicode handling
 sudo sed -i "s/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
@@ -280,14 +281,87 @@ rm -f runner.tar.gz
 
 sudo ./bin/installdependencies.sh
 
-./config.sh \
-	--unattended \
-	--replace \
-	--url "$RUNNER_URL" \
-	--token "$RUNNER_TOKEN" \
-	--name "$RUNNER_NAME" \
-	--labels "$RUNNER_LABEL" \
-	--work "_work"
+mkdir -p "$runner_home/actions-runner-hooks"
+cat >"$runner_home/actions-runner-hooks/prepare-runner.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+runner_dir="${runner_home}/actions-runner"
+
+# Clear per-job state before the runner accepts another assignment.
+rm -rf "$runner_dir/_work" "$runner_dir/_diag/pages"
+mkdir -p "$runner_dir/_work" "$runner_dir/_diag/pages"
+EOF
+chmod +x "$runner_home/actions-runner-hooks/prepare-runner.sh"
+
+cat >"$runner_home/actions-runner-hooks/register-and-run.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "${runner_env_file}"
+
+api_token() {
+	local endpoint="\$1"
+	curl -fsSL --request POST \
+		-H "Accept: application/vnd.github+json" \
+		-H "Authorization: Bearer \${RUNNER_ADMIN_TOKEN}" \
+		-H "X-GitHub-Api-Version: 2022-11-28" \
+		"https://api.github.com/repos/\${REPO}/actions/runners/\${endpoint}"
+}
+
+extract_token() {
+	python3 -c "import json, sys; print(json.load(sys.stdin)['token'])"
+}
+
+cleanup_registration() {
+	if [ -f "${runner_home}/actions-runner/.runner" ]; then
+		remove_token="\$(api_token remove-token | extract_token)"
+		sudo -u "\${RUNNER_USER}" env HOME="\${RUNNER_HOME}" \
+			"\${RUNNER_HOME}/actions-runner/config.sh" remove --token "\${remove_token}" >/dev/null 2>&1 || true
+	fi
+	rm -f \
+		"${runner_home}/actions-runner/.runner" \
+		"${runner_home}/actions-runner/.credentials" \
+		"${runner_home}/actions-runner/.credentials_rsaparams"
+}
+
+trap cleanup_registration EXIT
+
+"${runner_home}/actions-runner-hooks/prepare-runner.sh"
+registration_token="\$(api_token registration-token | extract_token)"
+
+cleanup_registration
+
+sudo -u "\${RUNNER_USER}" env HOME="\${RUNNER_HOME}" \
+	"\${RUNNER_HOME}/actions-runner/config.sh" \
+		--unattended \
+		--ephemeral \
+		--replace \
+		--url "\${RUNNER_URL}" \
+		--token "\${registration_token}" \
+		--name "\${RUNNER_NAME}" \
+		--labels "\${RUNNER_LABEL}" \
+		--work "_work"
+
+sudo -u "\${RUNNER_USER}" env HOME="\${RUNNER_HOME}" \
+	"\${RUNNER_HOME}/actions-runner/run.sh" --once
+EOF
+chmod +x "$runner_home/actions-runner-hooks/register-and-run.sh"
+
+cat >"$runner_home/actions-runner/.env" <<EOF
+ACTIONS_RUNNER_HOOK_JOB_STARTED=${runner_home}/actions-runner-hooks/prepare-runner.sh
+EOF
+
+sudo tee "$runner_env_file" >/dev/null <<EOF
+REPO=${REPO}
+RUNNER_ADMIN_TOKEN=${RUNNER_ADMIN_TOKEN}
+RUNNER_HOME=${runner_home}
+RUNNER_LABEL=${RUNNER_LABEL}
+RUNNER_NAME=${RUNNER_NAME}
+RUNNER_URL=${RUNNER_URL}
+RUNNER_USER=${runner_user}
+EOF
+sudo chmod 600 "$runner_env_file"
 
 sudo tee /etc/systemd/system/aihc-github-runner.service >/dev/null <<EOF
 [Unit]
@@ -296,9 +370,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=${runner_user}
 WorkingDirectory=${runner_home}/actions-runner
-ExecStart=${runner_home}/actions-runner/run.sh
+ExecStart=${runner_home}/actions-runner-hooks/register-and-run.sh
 Restart=always
 RestartSec=5
 KillMode=process
