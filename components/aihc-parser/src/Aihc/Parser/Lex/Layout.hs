@@ -69,7 +69,7 @@ openPendingLayout st tok =
         PendingMaybeMultiWayIf ->
           case lexTokenKind tok of
             TkReservedPipe -> openImplicitLayout LayoutMultiWayIf st tok
-            _ -> ([], st {layoutPendingLayout = Nothing}, False)
+            _ -> ([], noteClassicIfInAfterThenElse (st {layoutPendingLayout = Nothing}), False)
         PendingMaybeLambdaCases ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
@@ -134,7 +134,8 @@ closeBeforeToken st tok =
           go ctxs =
             case ctxs of
               LayoutImplicit indent kind : rest
-                | kind == LayoutAfterThenElse,
+                | LayoutAfterThenElse nestedIfs <- kind,
+                  nestedIfs == 0,
                   col <= indent ->
                     ([closeTok], rest)
                 | col < indent ->
@@ -200,7 +201,7 @@ stepTokenContext st tok =
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutAfterThenElse)}
+          st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
@@ -215,6 +216,7 @@ stepTokenContext st tok =
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
     TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordElse -> decrementAfterThenElseClassicIfDepth st
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     TkTHDeclQuoteOpen ->
       st
@@ -230,6 +232,26 @@ stepTokenContext st tok =
     TkSpecialLBrace -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSpecialRBrace -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
+
+noteClassicIfInAfterThenElse :: LayoutState -> LayoutState
+noteClassicIfInAfterThenElse st = st {layoutContexts = go (layoutContexts st)}
+  where
+    go contexts =
+      case contexts of
+        LayoutImplicit indent (LayoutAfterThenElse nestedIfs) : rest ->
+          LayoutImplicit indent (LayoutAfterThenElse (nestedIfs + 1)) : rest
+        ctx : rest -> ctx : go rest
+        [] -> []
+
+decrementAfterThenElseClassicIfDepth :: LayoutState -> LayoutState
+decrementAfterThenElseClassicIfDepth st = st {layoutContexts = go (layoutContexts st)}
+  where
+    go contexts =
+      case contexts of
+        LayoutImplicit indent (LayoutAfterThenElse nestedIfs) : rest ->
+          LayoutImplicit indent (LayoutAfterThenElse (max 0 (nestedIfs - 1))) : rest
+        ctx : rest -> ctx : go rest
+        [] -> []
 
 popToDelimiter :: [LayoutContext] -> [LayoutContext]
 popToDelimiter contexts =
