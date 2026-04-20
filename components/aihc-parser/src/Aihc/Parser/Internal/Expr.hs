@@ -653,7 +653,7 @@ caseExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordCase
   scrutinee <- region "while parsing case expression" exprParser
   expectedTok TkKeywordOf
-  alts <- bracedAlts <|> plainAlts
+  alts <- bracedAlts <|> plainAlts <|> pure []
   pure (ECase scrutinee alts)
   where
     plainAlts = plainSemiSep1 caseAltParser
