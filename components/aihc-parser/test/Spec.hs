@@ -232,6 +232,7 @@ buildTests = do
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
+            testCase "parses multiline if as first stmt in else-do block" test_elseDoMultilineInnerIfParses,
             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
             testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
@@ -1018,6 +1019,24 @@ test_tabIndentedWhereAfterElseParses =
             ]
    in let (errs, _) = parseModule defaultConfig source
        in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+
+test_elseDoMultilineInnerIfParses :: Assertion
+test_elseDoMultilineInnerIfParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE DoAndIfThenElse #-}",
+            "module M where",
+            "fn =",
+            "  if False then",
+            "    return True",
+            "  else do",
+            "      if hidden /= 0 then",
+            "        return True",
+            "      else",
+            "        return False"
+          ]
+      (errs, _) = parseModule defaultConfig source
+   in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
 
 test_nonAlignedMultiWayIfGuardsParse :: Assertion
 test_nonAlignedMultiWayIfGuardsParse =
