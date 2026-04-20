@@ -622,7 +622,8 @@ addForeignDeclParens decl =
 addTypeFamilyDeclParens :: TypeFamilyDecl -> TypeFamilyDecl
 addTypeFamilyDeclParens tf =
   tf
-    { typeFamilyDeclHead = addTypeParens (typeFamilyDeclHead tf),
+    { typeFamilyDeclExplicitFamilyKeyword = typeFamilyDeclExplicitFamilyKeyword tf,
+      typeFamilyDeclHead = addTypeParens (typeFamilyDeclHead tf),
       typeFamilyDeclResultSig = fmap addTypeFamilyResultSigParens (typeFamilyDeclResultSig tf),
       typeFamilyDeclEquations = fmap (map addTypeFamilyEqParens) (typeFamilyDeclEquations tf)
     }

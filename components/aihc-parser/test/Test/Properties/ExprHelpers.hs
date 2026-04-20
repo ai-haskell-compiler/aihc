@@ -567,6 +567,7 @@ normalizeTypeFamilyDecl :: TypeFamilyDecl -> TypeFamilyDecl
 normalizeTypeFamilyDecl tf =
   TypeFamilyDecl
     { typeFamilyDeclHeadForm = typeFamilyDeclHeadForm tf,
+      typeFamilyDeclExplicitFamilyKeyword = typeFamilyDeclExplicitFamilyKeyword tf,
       typeFamilyDeclHead = normalizeType (typeFamilyDeclHead tf),
       typeFamilyDeclParams = map normalizeTyVarBinder (typeFamilyDeclParams tf),
       typeFamilyDeclResultSig = fmap normalizeTypeFamilyResultSig (typeFamilyDeclResultSig tf),

@@ -18,7 +18,7 @@ import Aihc.Parser.Syntax
 import Control.Monad (when)
 import Data.Char (isLower)
 import Data.Functor (($>))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
@@ -285,21 +285,9 @@ typeFamilyInjectivityParser = withSpan $ do
 -- | Parse @type family Name params [:: Kind] [where { equations }]@
 typeFamilyDeclParser :: TokParser Decl
 typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  expectedTok TkKeywordType
-  expectedTok TkVarFamily
-  (headForm, headType, params) <- typeFamilyHeadParser
-  resultSig <- typeFamilyResultSigParser
-  -- A closed type family has a `where` clause with equations.
-  equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
+  tf <- typeFamilyDeclBodyParser FamilyKeywordRequired
   pure $
-    DeclTypeFamilyDecl
-      TypeFamilyDecl
-        { typeFamilyDeclHeadForm = headForm,
-          typeFamilyDeclHead = headType,
-          typeFamilyDeclParams = params,
-          typeFamilyDeclResultSig = resultSig,
-          typeFamilyDeclEquations = equations
-        }
+    DeclTypeFamilyDecl tf
 
 -- | Parse the @where { eq; ... }@ block of a closed type family.
 closedTypeFamilyWhereParser :: TokParser [TypeFamilyEq]
@@ -418,24 +406,12 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: class body items (associated type/data families + defaults)
 
--- | Parse @type Name params [:: Kind]@ as an associated type family in a class.
--- Note: no @family@ keyword inside class bodies.
+-- | Parse @type [family] Name params [:: Kind]@ as an associated type family in a class.
 -- Callers must ensure the next token after @type@ is not @instance@
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
-  expectedTok TkKeywordType
-  (headForm, headType, params) <- typeFamilyHeadParser
-  resultSig <- typeFamilyResultSigParser
-  pure $
-    ClassItemTypeFamilyDecl
-      TypeFamilyDecl
-        { typeFamilyDeclHeadForm = headForm,
-          typeFamilyDeclHead = headType,
-          typeFamilyDeclParams = params,
-          typeFamilyDeclResultSig = resultSig,
-          typeFamilyDeclEquations = Nothing
-        }
+  ClassItemTypeFamilyDecl <$> typeFamilyDeclBodyParser FamilyKeywordOptional
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -1395,6 +1371,32 @@ dataConQualifiersParser = do
   mForall <- forallPrefixDispatch forallBindersParser
   mContext <- contextPrefixDispatchList
   pure (mForall, mContext)
+
+data FamilyKeywordMode
+  = FamilyKeywordRequired
+  | FamilyKeywordOptional
+
+typeFamilyDeclBodyParser :: FamilyKeywordMode -> TokParser TypeFamilyDecl
+typeFamilyDeclBodyParser familyKeywordMode = do
+  expectedTok TkKeywordType
+  explicitFamilyKeyword <- case familyKeywordMode of
+    FamilyKeywordRequired -> expectedTok TkVarFamily $> True
+    FamilyKeywordOptional -> isJust <$> MP.optional (expectedTok TkVarFamily)
+  (headForm, headType, params) <- typeFamilyHeadParser
+  resultSig <- typeFamilyResultSigParser
+  equations <-
+    case familyKeywordMode of
+      FamilyKeywordRequired -> MP.optional (MP.try closedTypeFamilyWhereParser)
+      FamilyKeywordOptional -> pure Nothing
+  pure
+    TypeFamilyDecl
+      { typeFamilyDeclHeadForm = headForm,
+        typeFamilyDeclExplicitFamilyKeyword = explicitFamilyKeyword,
+        typeFamilyDeclHead = headType,
+        typeFamilyDeclParams = params,
+        typeFamilyDeclResultSig = resultSig,
+        typeFamilyDeclEquations = equations
+      }
 
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do
