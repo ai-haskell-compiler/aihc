@@ -7,17 +7,6 @@
 
 module GenericKAssociatedTypeDefaultSignaturesXFail where
 
-import Data.Kind (Type)
-
-class Generic a where
-  type Rep a :: Type
-  from :: a -> Rep a
-  to :: Rep a -> a
-
-class Conv rep repK x where
-  toKindGenerics :: rep -> repK x
-  toGhcGenerics :: repK x -> rep
-
 class GenericK (f :: k) where
   type family RepK f :: LoT k -> Type
 
@@ -32,8 +21,3 @@ class GenericK (f :: k) where
     toK :: (Generic (f :@@: x), Conv (Rep (f :@@: x)) (RepK f) x)
         => RepK f x -> f :@@: x
   toK = to . toGhcGenerics
-
-data LoT k
-
-infixr 0 :@@:
-data (:@@:) (f :: k) (x :: LoT k)
