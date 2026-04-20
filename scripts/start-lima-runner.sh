@@ -282,11 +282,11 @@ rm -f runner.tar.gz
 sudo ./bin/installdependencies.sh
 
 mkdir -p "$runner_home/actions-runner-hooks"
-cat >"$runner_home/actions-runner-hooks/prepare-runner.sh" <<EOF
+cat >"$runner_home/actions-runner-hooks/prepare-runner.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-runner_dir="${runner_home}/actions-runner"
+runner_dir="$HOME/actions-runner"
 
 # Clear per-job state before the runner accepts another assignment.
 rm -rf "$runner_dir/_work" "$runner_dir/_diag/pages"
