@@ -1056,7 +1056,7 @@ docDataFamilyDecl df =
   "DataFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docUnqualifiedName (dataFamilyDeclName df))]
+      [field "headForm" (docTypeHeadForm (dataFamilyDeclHeadForm df)), field "name" (docUnqualifiedName (dataFamilyDeclName df))]
         <> listField "params" docTyVarBinder (dataFamilyDeclParams df)
         <> optionalField "kind" docType (dataFamilyDeclKind df)
 

@@ -13,6 +13,7 @@ import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (ord)
 import Data.List (isInfixOf)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Numeric (showHex, showOct)
@@ -26,7 +27,7 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
-import Test.Properties.Arb.Decl (genDeclDataFamilyInst, genDeclTypeFamilyInst)
+import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, stripTypeAnnotations)
@@ -212,6 +213,10 @@ buildTests = do
             testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
             testCase "lexes overloaded labels as single tokens" test_overloadedLabelLexesAsSingleToken,
             testCase "preserves bundled export wildcard position" test_bundledExportWildcardPosition,
+            testCase "parses associated data family operator names" test_associatedDataFamilyOperatorName,
+            testCase "parses infix associated data family operator names" test_associatedDataFamilyInfixOperatorName,
+            testCase "pretty-prints associated data family operator names" test_prettyAssocDataFamilyOperatorName,
+            testCase "pretty-prints infix associated data family operator names" test_prettyAssocDataFamilyInfixOperatorName,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
@@ -395,6 +400,7 @@ buildTests = do
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
+              QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
@@ -1773,6 +1779,89 @@ test_dataFamilyInstanceKindSignatureRoundTrip = do
     ParseErr err ->
       assertFailure ("expected data family instance kind signature to parse, got:\n" <> MPE.errorBundlePretty err)
 
+test_associatedDataFamilyOperatorName :: Assertion
+test_associatedDataFamilyOperatorName = do
+  let source = T.unlines ["{-# LANGUAGE TypeFamilies #-}", "{-# LANGUAGE TypeOperators #-}", "class C a where", "  data (:*:) a"]
+      expectedName = mkUnqualifiedName NameConSym ":*:"
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      case map peelDeclAnn (moduleDecls modu) of
+        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclName, dataFamilyDeclParams, dataFamilyDeclKind})]}
+          ]
+            | dataFamilyDeclName == expectedName,
+              map tyVarBinderName dataFamilyDeclParams == ["a"],
+              isNothing dataFamilyDeclKind ->
+                pure ()
+        other ->
+          assertFailure ("expected associated data family operator declaration, got: " <> show other)
+    (errs, _) ->
+      assertFailure ("expected associated data family operator declaration to parse, got: " <> show errs)
+
+test_associatedDataFamilyInfixOperatorName :: Assertion
+test_associatedDataFamilyInfixOperatorName = do
+  let source = T.unlines ["{-# LANGUAGE TypeFamilies #-}", "{-# LANGUAGE TypeOperators #-}", "class C a where", "  data a :*: b"]
+      expectedName = mkUnqualifiedName NameConSym ":*:"
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      case map peelDeclAnn (moduleDecls modu) of
+        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm, dataFamilyDeclName, dataFamilyDeclParams, dataFamilyDeclKind})]}
+          ]
+            | dataFamilyDeclHeadForm == TypeHeadInfix,
+              dataFamilyDeclName == expectedName,
+              map tyVarBinderName dataFamilyDeclParams == ["a", "b"],
+              isNothing dataFamilyDeclKind ->
+                pure ()
+        other ->
+          assertFailure ("expected infix associated data family operator declaration, got: " <> show other)
+    (errs, _) ->
+      assertFailure ("expected infix associated data family operator declaration to parse, got: " <> show errs)
+
+test_prettyAssocDataFamilyOperatorName :: Assertion
+test_prettyAssocDataFamilyOperatorName = do
+  let decl =
+        DeclClass
+          ClassDecl
+            { classDeclContext = Nothing,
+              classDeclHeadForm = TypeHeadPrefix,
+              classDeclName = mkUnqualifiedName NameConId "C",
+              classDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
+              classDeclFundeps = [],
+              classDeclItems =
+                [ ClassItemDataFamilyDecl
+                    DataFamilyDecl
+                      { dataFamilyDeclHeadForm = TypeHeadPrefix,
+                        dataFamilyDeclName = mkUnqualifiedName NameConSym ":*:",
+                        dataFamilyDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
+                        dataFamilyDeclKind = Nothing
+                      }
+                ]
+            }
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "class C a where {data (:*:) a}"
+
+test_prettyAssocDataFamilyInfixOperatorName :: Assertion
+test_prettyAssocDataFamilyInfixOperatorName = do
+  let decl =
+        DeclClass
+          ClassDecl
+            { classDeclContext = Nothing,
+              classDeclHeadForm = TypeHeadPrefix,
+              classDeclName = mkUnqualifiedName NameConId "C",
+              classDeclParams = [TyVarBinder [] "x" Nothing TyVarBSpecified TyVarBVisible],
+              classDeclFundeps = [],
+              classDeclItems =
+                [ ClassItemDataFamilyDecl
+                    DataFamilyDecl
+                      { dataFamilyDeclHeadForm = TypeHeadInfix,
+                        dataFamilyDeclName = mkUnqualifiedName NameConSym ":*:",
+                        dataFamilyDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder [] "b" Nothing TyVarBSpecified TyVarBVisible],
+                        dataFamilyDeclKind = Just TStar
+                      }
+                ]
+            }
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "class C x where {data a :*: b :: *}"
+
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip :: Assertion
 test_typeFamilyInstanceInfixAppliedOperandsRoundTrip = do
   let lhs =
@@ -1838,6 +1927,32 @@ prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels =
             <> show (length matching)
         )
         (not (null matching) && all ((== NameVarId) . unqualifiedNameType) matching)
+
+prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators :: Property
+prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators =
+  let samples = sampleGen 6000 genDeclClass
+      prefixMatches =
+        [ decl
+        | decl@(DeclClass ClassDecl {classDeclItems}) <- samples,
+          ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm = TypeHeadPrefix, dataFamilyDeclName = name} <- map peelClassDeclItemAnn classDeclItems,
+          unqualifiedNameType name == NameConSym
+        ]
+      infixMatches =
+        [ decl
+        | decl@(DeclClass ClassDecl {classDeclItems}) <- samples,
+          ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm = TypeHeadInfix, dataFamilyDeclName = name, dataFamilyDeclParams = params} <- map peelClassDeclItemAnn classDeclItems,
+          unqualifiedNameType name == NameConSym
+            && length params == 2
+        ]
+   in counterexample
+        ( "expected generated class declarations to include prefix and infix associated data family operators; sampled "
+            <> show (length samples)
+            <> ", prefix matches="
+            <> show (length prefixMatches)
+            <> ", infix matches="
+            <> show (length infixMatches)
+        )
+        (not (null prefixMatches) && not (null infixMatches))
 
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications :: Property
 prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =

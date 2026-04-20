@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module MemoTrieAssociatedDataFamilyOperator where
+module AssociatedDataInfixOperator where
 
 class C a where
-  data (:*:) a :: * -> *
+  data x :*: y :: *
