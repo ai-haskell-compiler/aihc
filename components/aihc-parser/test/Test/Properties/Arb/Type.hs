@@ -278,6 +278,10 @@ shrinkType ty =
       [fn, arg]
         <> [TApp fn' arg | fn' <- shrinkType fn]
         <> [TApp fn arg' | arg' <- shrinkType arg]
+    TTypeApp fn arg ->
+      [fn, arg]
+        <> [TTypeApp fn' arg | fn' <- shrinkType fn]
+        <> [TTypeApp fn arg' | arg' <- shrinkType arg]
     TFun lhs rhs ->
       [lhs, rhs]
         <> [TFun lhs' rhs | lhs' <- shrinkType lhs]

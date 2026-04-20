@@ -283,6 +283,7 @@ buildTests = do
             testCase "parses lambda type binders" test_lambdaTypeBinderParses,
             testCase "parses function head type binders" test_functionHeadTypeBinderParses,
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
+            testCase "parses invisible type applications in type synonym rhs" test_typeSynonymRhsInvisibleTypeAppParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             localOption (QC.QuickCheckTests 2000) $
@@ -906,6 +907,16 @@ test_invisibleTypeDeclBinderParses =
         TVar "a" <- stripTypeAnnotations body ->
           pure ()
     other -> assertFailure ("expected invisible type declaration binder, got: " <> show other)
+
+test_typeSynonymRhsInvisibleTypeAppParses :: Assertion
+test_typeSynonymRhsInvisibleTypeAppParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "type Witnessed @k = PairType @k IOWitness" of
+    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "Witnessed", typeSynParams = [kBinder], typeSynBody = body})
+      | tyVarBinderName kBinder == "k",
+        tyVarBinderVisibility kBinder == TyVarBInvisible,
+        TApp (TTypeApp (TCon "PairType" Unpromoted) (TVar "k")) (TCon "IOWitness" Unpromoted) <- stripTypeAnnotations body ->
+          pure ()
+    other -> assertFailure ("expected invisible type application in type synonym rhs, got: " <> show other)
 
 test_constructorPatternWithTypeArgParses :: Assertion
 test_constructorPatternWithTypeArgParses =
@@ -1865,6 +1876,7 @@ prop_generatedTypeFamilyInstancesCanUseBareInfixApplications =
     isBareTypeApp ty =
       case ty of
         TApp {} -> True
+        TTypeApp {} -> True
         _ -> False
 
 prop_generatedModulesCanIncludeEmptyBundledImports :: Property

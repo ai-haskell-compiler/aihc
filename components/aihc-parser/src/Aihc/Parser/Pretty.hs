@@ -422,6 +422,8 @@ prettyType ty =
         <+> prettyType rhs
     TApp f x ->
       prettyType f <+> prettyType x
+    TTypeApp f x ->
+      prettyType f <+> "@" <> prettyType x
     TFun a b ->
       prettyType a <+> "->" <+> prettyType b
     TTuple tupleFlavor promoted elems ->

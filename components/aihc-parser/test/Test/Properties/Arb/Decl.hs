@@ -686,6 +686,7 @@ isValidInstanceHeadType ty =
     TForall {} -> False
     TContext {} -> False
     TImplicitParam {} -> False
+    TTypeApp {} -> False
     TAnn _ inner -> isValidInstanceHeadType inner
     _ -> True
 
@@ -698,6 +699,7 @@ isInfixInstanceHeadType ty =
     TStar -> True
     TTuple {} -> True
     TList {} -> True
+    TTypeApp inner _ -> isInfixInstanceHeadType inner
     TParen inner -> isInfixInstanceHeadType inner
     _ -> False
 

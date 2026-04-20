@@ -281,6 +281,7 @@ needsTypeParens ctx ty =
       case ty of
         TQuasiQuote {} -> False
         TApp {} -> True
+        TTypeApp {} -> True
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
@@ -944,6 +945,8 @@ addTypeParensShared ctx prec ty =
           wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
         TApp f x ->
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
+        TTypeApp f x ->
+          wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAtom x))
         TFun a b ->
           wrapTy (prec > 0) (TFun (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->

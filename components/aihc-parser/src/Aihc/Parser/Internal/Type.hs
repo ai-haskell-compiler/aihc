@@ -193,11 +193,23 @@ typeInfixOperatorParser =
 typeAppParser :: TokParser Type
 typeAppParser = do
   first <- typeAtomParser
-  rest <- MP.many typeAtomParser
-  pure (foldl buildTypeApp first rest)
+  rest <- MP.many typeAppArgParser
+  pure (foldl applyTypeAppArg first rest)
 
 buildTypeApp :: Type -> Type -> Type
 buildTypeApp = TApp
+
+typeAppArgParser :: TokParser (Either Type Type)
+typeAppArgParser = (Left <$> MP.try invisibleTypeAppParser) <|> (Right <$> typeAtomParser)
+
+invisibleTypeAppParser :: TokParser Type
+invisibleTypeAppParser = do
+  expectedTok TkTypeApp
+  typeAtomParser
+
+applyTypeAppArg :: Type -> Either Type Type -> Type
+applyTypeAppArg fn (Left ty) = TTypeApp fn ty
+applyTypeAppArg fn (Right ty) = TApp fn ty
 
 typeAtomParser :: TokParser Type
 typeAtomParser = do
@@ -402,4 +414,5 @@ markTypePromoted ty =
     TCon name _ -> Just (TCon name Promoted)
     TList _ elems -> Just (TList Promoted elems)
     TTuple tupleFlavor _ elems -> Just (TTuple tupleFlavor Promoted elems)
+    TTypeApp fn arg -> TTypeApp <$> markTypePromoted fn <*> pure arg
     _ -> Nothing

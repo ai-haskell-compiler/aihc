@@ -1151,6 +1151,7 @@ data Type
   | TQuasiQuote Text Text
   | TForall ForallTelescope Type
   | TApp Type Type
+  | TTypeApp Type Type
   | TInfix Type Name TypePromotion Type
   | TFun Type Type
   | TTuple TupleFlavor TypePromotion [Type]
