@@ -3,14 +3,12 @@
 module Main (main) where
 
 import Aihc.Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
-import qualified Control.Exception as E
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
-import Test.Tasty.Providers (IsTest (..), singleTest, testFailed, testPassed)
 import qualified Test.Tasty.QuickCheck as QC
 
 main :: IO ()
@@ -21,7 +19,7 @@ main = do
     ( testGroup
         "cpp-oracle"
         ( checks
-            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, ccallMacroConcatTest]
+            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, tokenPastingTests]
             <> [QC.testProperty "dummy quickcheck property" prop_dummy]
         )
     )
@@ -124,13 +122,39 @@ definedConditionSpacingTest =
           else assertFailure ("expected ok branch to be active, output was: " <> show (resultOutput result))
       _ -> assertFailure "expected Done"
 
-ccallMacroConcatTest :: TestTree
-ccallMacroConcatTest =
-  knownFailureTest "CCALL macro expands stringizing and token pasting" "token pasting with ## is not supported yet" $
-    case preprocess defaultConfig (TE.encodeUtf8 ccallMacroInput) of
-      Done result ->
-        resultOutput result @?= ccallMacroExpectedOutput
-      _ -> assertFailure "expected Done"
+tokenPastingTests :: TestTree
+tokenPastingTests =
+  testGroup
+    "token pasting"
+    [ testCase "CCALL macro expands stringizing and token pasting" $
+        case preprocess defaultConfig (TE.encodeUtf8 ccallMacroInput) of
+          Done result ->
+            if "foreign import ccall unsafe \"foo\"" `T.isInfixOf` resultOutput result
+              && "c_foo :: Int -> IO Int" `T.isInfixOf` resultOutput result
+              then pure ()
+              else assertFailure ("expected CCALL expansion in output, got: " <> show (resultOutput result))
+          _ -> assertFailure "expected Done",
+      testCase "token pasting joins both sides without expanding arguments first" $
+        case preprocess defaultConfig (TE.encodeUtf8 tokenPasteRawArgInput) of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\n\nXY\n"
+          _ -> assertFailure "expected Done",
+      testCase "token pasting result is rescanned for further macro expansion" $
+        case preprocess defaultConfig (TE.encodeUtf8 tokenPasteRescanInput) of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\n\n42\n"
+          _ -> assertFailure "expected Done",
+      testCase "token pasting supports prefix and suffix forms" $
+        case preprocess defaultConfig (TE.encodeUtf8 tokenPasteAffixInput) of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\n\nleft right\n"
+          _ -> assertFailure "expected Done",
+      testCase "token pasting supports chained concatenation" $
+        case preprocess defaultConfig (TE.encodeUtf8 tokenPasteChainedInput) of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\nfoobar\n"
+          _ -> assertFailure "expected Done"
+    ]
 
 ccallMacroInput :: T.Text
 ccallMacroInput =
@@ -142,24 +166,33 @@ ccallMacroInput =
       "CCALL(foo, Int -> IO Int)"
     ]
 
-ccallMacroExpectedOutput :: T.Text
-ccallMacroExpectedOutput =
+tokenPasteRawArgInput :: T.Text
+tokenPasteRawArgInput =
   T.unlines
-    [ "#line 1 \"<input>\"",
-      "",
-      "foreign import ccall unsafe \"foo\"",
-      "    c_foo :: Int -> IO Int"
+    [ "#define X Y",
+      "#define JOIN(a,b) a##b",
+      "JOIN(X,Y)"
     ]
 
-knownFailureTest :: String -> String -> Assertion -> TestTree
-knownFailureTest name reason assertion = singleTest name (KnownFailureTest reason assertion)
+tokenPasteRescanInput :: T.Text
+tokenPasteRescanInput =
+  T.unlines
+    [ "#define VALUE 42",
+      "#define JOIN(a,b) a##b",
+      "JOIN(VAL,UE)"
+    ]
 
-data KnownFailureTest = KnownFailureTest String Assertion
+tokenPasteAffixInput :: T.Text
+tokenPasteAffixInput =
+  T.unlines
+    [ "#define PREFIX(name) left##name",
+      "#define SUFFIX(name) name##right",
+      "PREFIX() SUFFIX()"
+    ]
 
-instance IsTest KnownFailureTest where
-  run _ (KnownFailureTest reason assertion) _ = do
-    result <- E.try assertion :: IO (Either E.SomeException ())
-    case result of
-      Left err -> pure (testPassed ("known failure: " <> reason <> "\n" <> E.displayException err))
-      Right () -> pure (testFailed ("unexpected pass for known failure: " <> reason))
-  testOptions = pure []
+tokenPasteChainedInput :: T.Text
+tokenPasteChainedInput =
+  T.unlines
+    [ "#define CHAIN(a,b,c) a##b##c",
+      "CHAIN(foo,bar,)"
+    ]

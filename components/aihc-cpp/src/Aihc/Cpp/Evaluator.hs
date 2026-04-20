@@ -198,7 +198,7 @@ parseArgs depth argsRev current remaining =
           let arg = trimSpacesText (builderToText current)
               argsRev' =
                 if T.null arg && null argsRev
-                  then argsRev
+                  then [""]
                   else arg : argsRev
            in Just (reverse argsRev', rest)
       | ch == ',' && depth == 0 ->
@@ -207,54 +207,124 @@ parseArgs depth argsRev current remaining =
       | otherwise ->
           parseArgs depth argsRev (current <> TB.singleton ch) rest
 
+data Piece
+  = PieceWhitespace !Text
+  | PiecePaste
+  | PieceRaw !Text
+  | PieceParam !Text
+
 substituteParams :: Map Text Text -> Text -> Text
 substituteParams = substituteParamsBuilder
 
 -- | Builder-based parameter substitution. Replaces identifiers found
 -- in the substitution map, respecting string and char literals.
 substituteParamsBuilder :: Map Text Text -> Text -> Text
-substituteParamsBuilder subs = go False False False
+substituteParamsBuilder subs = renderPieces . collapseTokenPastes . collapseStringizing . tokenizeReplacementList
   where
-    go :: Bool -> Bool -> Bool -> Text -> Text
-    go _ _ _ txt
-      | T.null txt = ""
-    go inDouble inSingle escaped txt =
+    tokenizeReplacementList :: Text -> [Piece]
+    tokenizeReplacementList txt =
       case T.uncons txt of
-        Nothing -> ""
+        Nothing -> []
         Just (c, rest)
-          | inDouble ->
-              T.cons c $
-                case c of
-                  '\\' ->
-                    if escaped
-                      then go True inSingle False rest
-                      else go True inSingle True rest
-                  '"' ->
-                    if escaped
-                      then go True inSingle False rest
-                      else go False inSingle False rest
-                  _ -> go True inSingle False rest
-          | inSingle ->
-              T.cons c $
-                case c of
-                  '\\' ->
-                    if escaped
-                      then go inDouble True False rest
-                      else go inDouble True True rest
-                  '\'' ->
-                    if escaped
-                      then go inDouble True False rest
-                      else go inDouble False False rest
-                  _ -> go inDouble True False rest
+          | isSpace c ->
+              let (spaces, remaining) = T.span isSpace txt
+               in PieceWhitespace spaces : tokenizeReplacementList remaining
           | c == '"' ->
-              T.cons c (go True False False rest)
+              let (literal, remaining) = scanQuoted '"' txt
+               in PieceRaw literal : tokenizeReplacementList remaining
           | c == '\'' ->
-              T.cons c (go False True False rest)
+              let (literal, remaining) = scanQuoted '\'' txt
+               in PieceRaw literal : tokenizeReplacementList remaining
+          | "##" `T.isPrefixOf` txt ->
+              PiecePaste : tokenizeReplacementList (T.drop 2 txt)
           | isIdentStart c ->
-              let (ident, rest') = T.span isIdentChar txt
-               in M.findWithDefault ident ident subs <> go False False False rest'
+              let (ident, remaining) = T.span isIdentChar txt
+                  piece = if M.member ident subs then PieceParam ident else PieceRaw ident
+               in piece : tokenizeReplacementList remaining
           | otherwise ->
-              T.cons c (go False False False rest)
+              PieceRaw (T.singleton c) : tokenizeReplacementList rest
+
+    scanQuoted :: Char -> Text -> (Text, Text)
+    scanQuoted quote = go False mempty
+      where
+        go escaped acc remaining =
+          case T.uncons remaining of
+            Nothing -> (builderToText acc, "")
+            Just (c, rest)
+              | c == quote && not escaped ->
+                  (builderToText (acc <> TB.singleton c), rest)
+              | c == '\\' ->
+                  go (not escaped) (acc <> TB.singleton c) rest
+              | otherwise ->
+                  go False (acc <> TB.singleton c) rest
+
+    collapseStringizing :: [Piece] -> [Piece]
+    collapseStringizing [] = []
+    collapseStringizing (PieceRaw "#" : rest) =
+      case span isWhitespacePiece rest of
+        (_, PieceParam name : remaining) ->
+          PieceRaw (stringizeArgument (lookupParam name)) : collapseStringizing remaining
+        _ -> PieceRaw "#" : collapseStringizing rest
+    collapseStringizing (piece : rest) = piece : collapseStringizing rest
+
+    collapseTokenPastes :: [Piece] -> [Piece]
+    collapseTokenPastes = go []
+      where
+        go acc [] = acc
+        go acc (piece : rest) =
+          case piece of
+            PiecePaste ->
+              let (accNoSpace, _) = trimTrailingWhitespace acc
+                  (leadingSpace, restAfterSpace) = span isWhitespacePiece rest
+               in case (unsnoc accNoSpace, restAfterSpace) of
+                    (Just (accInit, leftPiece), rightPiece : remaining) ->
+                      go (accInit <> [PieceRaw (renderPiece leftPiece <> renderPiece rightPiece)]) remaining
+                    _ -> go (acc <> [PieceRaw "##"] <> leadingSpace) restAfterSpace
+            _ -> go (acc <> [piece]) rest
+
+    trimTrailingWhitespace :: [Piece] -> ([Piece], [Piece])
+    trimTrailingWhitespace pieces =
+      let (trailingRev, restRev) = span isWhitespacePiece (reverse pieces)
+       in (reverse restRev, reverse trailingRev)
+
+    unsnoc :: [a] -> Maybe ([a], a)
+    unsnoc [] = Nothing
+    unsnoc [x] = Just ([], x)
+    unsnoc (x : xs) = do
+      (init', last') <- unsnoc xs
+      pure (x : init', last')
+
+    isWhitespacePiece :: Piece -> Bool
+    isWhitespacePiece (PieceWhitespace _) = True
+    isWhitespacePiece _ = False
+
+    lookupParam :: Text -> Text
+    lookupParam name = M.findWithDefault name name subs
+
+    renderPieces :: [Piece] -> Text
+    renderPieces = T.concat . map renderPiece
+
+    renderPiece :: Piece -> Text
+    renderPiece piece =
+      case piece of
+        PieceWhitespace txt -> txt
+        PiecePaste -> "##"
+        PieceRaw txt -> txt
+        PieceParam name -> lookupParam name
+
+    stringizeArgument :: Text -> Text
+    stringizeArgument arg =
+      let normalized = normalizeWhitespace arg
+          escaped = T.concatMap escapeStringChar normalized
+       in T.cons '"' (T.snoc escaped '"')
+
+    normalizeWhitespace :: Text -> Text
+    normalizeWhitespace = T.unwords . T.words
+
+    escapeStringChar :: Char -> Text
+    escapeStringChar '"' = "\\\""
+    escapeStringChar '\\' = "\\\\"
+    escapeStringChar c = T.singleton c
 
 evalCondition :: EngineState -> Text -> Bool
 evalCondition st expr = eval expr /= 0
