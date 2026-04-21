@@ -74,7 +74,7 @@ openPendingLayout st tok =
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
             TkReservedRightArrow -> ([], st {layoutPendingLayout = Nothing}, False)
-            _ -> openImplicitLayout LayoutOrdinary st tok
+            _ -> openImplicitLayout LayoutCaseAlternative st tok
         PendingImplicitLayout kind ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
@@ -121,7 +121,7 @@ closeBeforeToken st tok =
       TkKeywordThen -> closeBeforeThenElse
       TkKeywordElse -> closeBeforeThenElse
       TkKeywordWhere ->
-        closeImplicitLayouts (lexTokenSpan tok) (\indent _ -> tokenStartCol tok <= indent)
+        closeImplicitLayouts (lexTokenSpan tok) (\indent kind -> tokenStartCol tok <= indent && kind /= LayoutCaseAlternative)
       _ -> noLayoutClosures
   where
     closeBeforeThenElse =
@@ -161,7 +161,9 @@ bolLayout st tok
           eqSemi =
             case currentLayoutIndentMaybe contexts' of
               Just indent
-                | col == indent && currentLayoutAllowsSemicolon contexts' ->
+                | col == indent,
+                  currentLayoutAllowsSemicolon contexts',
+                  lexTokenKind tok /= TkKeywordWhere ->
                     [virtualSymbolToken ";" semiAnchor]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
@@ -204,10 +206,10 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
       | otherwise -> st
     TkVarId "cases"
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
