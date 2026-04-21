@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects multi-parameter constraint operator in class head -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ConstraintKinds #-}
 

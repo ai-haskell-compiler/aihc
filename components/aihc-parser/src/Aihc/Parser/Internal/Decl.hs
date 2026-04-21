@@ -1285,7 +1285,7 @@ classHeadParser =
   MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
-      name <- constructorUnqualifiedNameParser
+      name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
       params <- MP.many declTypeParamParser
       pure (TypeHeadPrefix, name, params)
 
