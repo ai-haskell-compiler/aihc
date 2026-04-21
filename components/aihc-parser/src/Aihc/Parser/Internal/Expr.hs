@@ -934,7 +934,7 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       ELambdaCases <$> (bracedLambdaCaseAlts <|> plainLambdaCaseAlts)
 
     lambdaPatsParser = do
-      pats <- MP.some patternParser
+      pats <- MP.some simplePatternParser
       expectedTok TkReservedRightArrow
       body <- region "while parsing lambda body" exprParser
       pure (ELambdaPats pats body)

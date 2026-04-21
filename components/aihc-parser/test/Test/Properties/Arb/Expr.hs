@@ -54,10 +54,10 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         genExprLeaf,
         -- Recursive expressions (reduce size for subexpressions)
         EApp <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
-        EInfix <$> genExprWith allowTHQuotes <*> genOperatorName <*> genExprWith allowTHQuotes,
+        EInfix <$> genExprWith allowTHQuotes <*> genVarName <*> genExprWith allowTHQuotes,
         ENegate <$> genExprWith allowTHQuotes,
-        ESectionL <$> genExprWith allowTHQuotes <*> genOperatorName,
-        ESectionR <$> genOperatorName <*> genExprWith allowTHQuotes,
+        ESectionL <$> genExprWith allowTHQuotes <*> genVarName,
+        ESectionR <$> genVarName <*> genExprWith allowTHQuotes,
         EIf <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
         EMultiWayIf <$> genGuardedRhsListWith allowTHQuotes,
         ECase <$> genExprWith allowTHQuotes <*> genCaseAltsWith allowTHQuotes,
@@ -203,12 +203,6 @@ genTypeNameQuote =
       -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
       qualifyName Nothing . mkUnqualifiedName NameVarSym <$> suchThat genVarSym (/= "*")
     ]
-
-genOperatorName :: Gen Name
-genOperatorName = do
-  qual <- genOptionalQualifier
-  op <- mkUnqualifiedName NameVarSym <$> genVarSym
-  pure (qualifyName qual op)
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Gen [Pattern]
@@ -594,11 +588,11 @@ shrinkExpr expr =
     ESectionL inner op ->
       inner
         : [ESectionL inner' op | inner' <- shrinkExpr inner]
-        <> [ESectionL inner op' | op' <- shrinkName op]
+          <> [ESectionL inner op' | op' <- shrinkName op]
     ESectionR op inner ->
       inner
         : [ESectionR op inner' | inner' <- shrinkExpr inner]
-        <> [ESectionR op' inner | op' <- shrinkName op]
+          <> [ESectionR op' inner | op' <- shrinkName op]
     EIf cond thenE elseE ->
       [thenE, elseE]
         <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
