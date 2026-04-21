@@ -19,12 +19,12 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Resolve Stackage   | `0/3390` (`0.00%`)                                                                                                                   |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3317/3427` (`96.79%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3353/3427` (`97.84%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `9/28` (`32.14%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `15/17` (`88.23%`) <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `888/901` (`98.56%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
-| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `92/92` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
-| CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `901/926` (`97.30%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `94/94` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `39/39` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
 
@@ -32,12 +32,12 @@ Find more information here:
 ```
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
-| aihc-cpp        |   1580 |     642 |    2222 |
-| aihc-parser     |  11734 |   16390 |   28124 |
-| aihc-parser-cli |   1804 |     385 |    2189 |
+| aihc-cpp        |   1607 |     664 |    2271 |
+| aihc-parser     |  11821 |   16826 |   28647 |
+| aihc-parser-cli |   1964 |     430 |    2394 |
 | aihc-resolve    |   1193 |    1001 |    2194 |
 | aihc-tc         |   1555 |     976 |    2531 |
-| **Total**       |  17866 |   19394 |   37260 |
+| **Total**       |  18140 |   19897 |   38037 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

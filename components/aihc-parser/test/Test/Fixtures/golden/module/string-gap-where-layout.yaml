@@ -1,0 +1,17 @@
+extensions: []
+input: |
+  module StringGapWhere where
+  f = header ++ footer
+    where
+      header = "hello\
+               \world"
+      footer = "bye"
+ast: 'Module {name = "StringGapWhere", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EInfix (EVar "header") "++" (EVar "footer")) where [DeclValue (FunctionBind "header" [Match {headForm = Prefix, rhs = UnguardedRhs (EString "helloworld")}]), DeclValue (FunctionBind "footer" [Match {headForm = Prefix, rhs = UnguardedRhs (EString "bye")}])]}])]}'
+status: pass
+comment: |
+  String gap inside a where block must not trigger premature layout
+  closure. When a string literal with gaps spans multiple lines, the
+  next token after the closing quote may appear on the same line as
+  the string end but a different line from the string start. The
+  layout engine must use the end line of the previous token for BOL
+  detection, not the start line.

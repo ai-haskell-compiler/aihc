@@ -222,6 +222,7 @@ prettyMemberNamespacePrefix namespace =
 prettyMemberNamespace :: IEBundledNamespace -> Doc ann
 prettyMemberNamespace namespace =
   case namespace of
+    IEBundledNamespaceType -> "type"
     IEBundledNamespaceData -> "data"
 
 prettyDeclLines :: Decl -> [Doc ann]

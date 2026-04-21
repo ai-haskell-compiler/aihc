@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects type family instance with Function class syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 
 module TypeFamilyFunctionInstance where

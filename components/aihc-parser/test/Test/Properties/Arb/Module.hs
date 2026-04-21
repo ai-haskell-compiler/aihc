@@ -199,11 +199,12 @@ instance Arbitrary IEEntityNamespace where
       IEEntityNamespaceData -> [IEEntityNamespaceType]
 
 instance Arbitrary IEBundledNamespace where
-  arbitrary = pure IEBundledNamespaceData
+  arbitrary = elements [IEBundledNamespaceType, IEBundledNamespaceData]
 
   shrink namespace =
     case namespace of
-      IEBundledNamespaceData -> []
+      IEBundledNamespaceType -> []
+      IEBundledNamespaceData -> [IEBundledNamespaceType]
 
 instance Arbitrary ImportSpec where
   arbitrary =
@@ -431,7 +432,8 @@ genMemberNamespace :: Gen (Maybe IEBundledNamespace)
 genMemberNamespace =
   frequency
     [ (4, pure Nothing),
-      (1, pure (Just IEBundledNamespaceData))
+      (1, pure (Just IEBundledNamespaceData)),
+      (1, pure (Just IEBundledNamespaceType))
     ]
 
 genUnqualifiedVarName :: Gen UnqualifiedName
