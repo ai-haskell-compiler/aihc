@@ -22,7 +22,6 @@ import Test.Properties.Arb.Identifiers
   ( genConId,
     genConSym,
     genConUnqualifiedName,
-    genFieldName,
     genVarId,
     genVarSym,
     genVarUnqualifiedName,
@@ -154,31 +153,30 @@ genDeclData :: Gen Decl
 genDeclData =
   oneof
     [ DeclData <$> genSimpleDataDecl,
-      genDeclDataGadt,
-      genDeclDataInfix
+      DeclData <$> genDeclDataGadt,
+      DeclData <$> genDeclDataInfix
     ]
 
-genDeclDataGadt :: Gen Decl
+genDeclDataGadt :: Gen DataDecl
 genDeclDataGadt = do
   name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctors <- genGadtDataCons
   pure $
-    DeclData $
-      DataDecl
-        { dataDeclHeadForm = TypeHeadPrefix,
-          dataDeclContext = [],
-          dataDeclName = name,
-          dataDeclParams = params,
-          dataDeclKind = Nothing,
-          dataDeclConstructors = ctors,
-          dataDeclDeriving = []
-        }
+    DataDecl
+      { dataDeclHeadForm = TypeHeadPrefix,
+        dataDeclContext = [],
+        dataDeclName = name,
+        dataDeclParams = params,
+        dataDeclKind = Nothing,
+        dataDeclConstructors = ctors,
+        dataDeclDeriving = []
+      }
 
 -- | Generate an infix data declaration with 2-4 type parameters,
 -- covering both symbolic operators (e.g. @data (f :+: g) x = ...@)
 -- and backtick-wrapped identifiers (e.g. @data (f \`Dot\` g) x = ...@).
-genDeclDataInfix :: Gen Decl
+genDeclDataInfix :: Gen DataDecl
 genDeclDataInfix = do
   name <- genConUnqualifiedName
   params <- smallList2 genSimpleTyVarBinder
@@ -186,16 +184,15 @@ genDeclDataInfix = do
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
-    DeclData $
-      DataDecl
-        { dataDeclHeadForm = TypeHeadInfix,
-          dataDeclContext = [],
-          dataDeclName = name,
-          dataDeclParams = params,
-          dataDeclKind = kind,
-          dataDeclConstructors = ctors,
-          dataDeclDeriving = deriving'
-        }
+    DataDecl
+      { dataDeclHeadForm = TypeHeadInfix,
+        dataDeclContext = [],
+        dataDeclName = name,
+        dataDeclParams = params,
+        dataDeclKind = kind,
+        dataDeclConstructors = ctors,
+        dataDeclDeriving = deriving'
+      }
 
 genDeclTypeData :: Gen Decl
 genDeclTypeData = genDeclTypeDataPrefix
@@ -218,16 +215,7 @@ genDeclTypeDataPrefix = do
         }
 
 genTypeDataCons :: Gen [DataConDecl]
-genTypeDataCons = do
-  n <- chooseInt (0, 3)
-  vectorOf n genTypeDataCon
-  where
-    genTypeDataCon = do
-      conName <- genConUnqualifiedName
-      n <- chooseInt (0, 3)
-      -- Type data constructors don't support strictness annotations
-      fields <- vectorOf n genNonStrictBangType
-      pure (PrefixCon [] [] conName fields)
+genTypeDataCons = smallList0 $ PrefixCon [] [] <$> genConUnqualifiedName <*> smallList0 genNonStrictBangType
 
 -- | Generate a BangType that is never strict (for type data constructors).
 -- Type data constructors don't support strictness or lazy annotations.
@@ -245,7 +233,7 @@ genNonStrictBangType = do
 
 genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
-  name <- mkUnqualifiedName NameConId <$> genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   kind <- optional genSimpleType
   ctors <- genSimpleDataCons
@@ -287,26 +275,18 @@ genInfixCon = do
   InfixCon [] [] lhs opName <$> genSimpleBangType
 
 genRecordCon :: Gen DataConDecl
-genRecordCon = do
-  conName <- mkUnqualifiedName NameConId <$> genConId
-  n <- chooseInt (0, 3)
-  fields <- vectorOf n genFieldDecl
-  pure (RecordCon [] [] conName fields)
+genRecordCon = RecordCon [] [] <$> genConUnqualifiedName <*> smallList0 genFieldDecl
 
 genFieldDecl :: Gen FieldDecl
-genFieldDecl = do
-  fieldCount <- chooseInt (1, 3)
-  fieldNames <- vectorOf fieldCount genRecordFieldName
-  FieldDecl [] fieldNames <$> genSimpleBangType
+genFieldDecl = FieldDecl [] <$> smallList1 genRecordFieldName <*> genSimpleBangType
 
 genRecordFieldName :: Gen UnqualifiedName
-genRecordFieldName =
-  mkUnqualifiedName NameVarId <$> genFieldName
+genRecordFieldName = genVarUnqualifiedName
+
+-- mkUnqualifiedName NameVarId <$> genFieldName
 
 genGadtDataCons :: Gen [DataConDecl]
-genGadtDataCons = do
-  n <- chooseInt (1, 3)
-  vectorOf n genGadtCon
+genGadtDataCons = smallList1 genGadtCon
 
 genGadtCon :: Gen DataConDecl
 genGadtCon = do

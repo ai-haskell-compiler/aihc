@@ -407,7 +407,6 @@ buildTests = do
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
-              QC.testProperty "generated data family instance record fields use identifier labels" prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels,
               QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
               QC.testProperty "generated instance declarations can include infix associated data family instances" prop_generatedInstanceDeclsCanIncludeInfixAssociatedDataFamilyInstances,
               QC.testProperty "generated type family instances can use bare infix applications" prop_generatedTypeFamilyInstancesCanUseBareInfixApplications,
@@ -2026,26 +2025,6 @@ prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
         | decl@(DeclDataFamilyInst DataFamilyInst {dataFamilyInstKind = Just _}) <- samples
         ]
    in counterexample ("expected at least one generated data family instance with inline result kind; sampled " <> show (length samples)) (not (null matching))
-
-prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels :: Property
-prop_generatedDataFamilyInstanceRecordFieldsUseIdentifierLabels =
-  let samples = sampleGen 6000 genDeclDataFamilyInst
-      matching =
-        [ fieldName
-        | DeclDataFamilyInst DataFamilyInst {dataFamilyInstConstructors} <- samples,
-          ctor <- dataFamilyInstConstructors,
-          RecordCon {} <- [peelDataConAnn ctor],
-          RecordCon _ _ _ fields <- [peelDataConAnn ctor],
-          field <- fields,
-          fieldName <- fieldNames field
-        ]
-   in counterexample
-        ( "expected generated data family instances to include record fields with identifier labels only; sampled "
-            <> show (length samples)
-            <> ", record field labels="
-            <> show (length matching)
-        )
-        (not (null matching) && all ((== NameVarId) . unqualifiedNameType) matching)
 
 prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators :: Property
 prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators =
