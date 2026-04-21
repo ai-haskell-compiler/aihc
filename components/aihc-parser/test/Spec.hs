@@ -244,7 +244,6 @@ buildTests = do
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
-            testCase "shrinking identifiers preserves the first character" test_shrunkIdentifiersPreserveFirstCharacter,
             testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
             testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
@@ -1432,11 +1431,6 @@ test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
     isValidConIdent "T#"
   assertBool "MagicHash should allow repeated trailing hashes on constructor identifiers" $
     isValidConIdent "T####"
-
-test_shrunkIdentifiersPreserveFirstCharacter :: Assertion
-test_shrunkIdentifiersPreserveFirstCharacter =
-  assertBool "identifier shrinking must preserve the first character" $
-    all ((== Just '\x03bb') . fmap fst . T.uncons) (shrinkIdent "\x03bbAlpha9")
 
 test_shrunkConstructorIdentifiersPreserveFirstCharacter :: Assertion
 test_shrunkConstructorIdentifiersPreserveFirstCharacter =

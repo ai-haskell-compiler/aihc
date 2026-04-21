@@ -144,7 +144,8 @@ genVarName = do
   qualifyName qual <$> genVarUnqualifiedName
 
 shrinkIdent :: Text -> [Text]
-shrinkIdent = shrinkWithPreservedFirstChar isValidGeneratedIdent
+shrinkIdent "a" = []
+shrinkIdent ident = "a" : shrinkWithPreservedFirstChar isValidGeneratedIdent ident
 
 isValidGeneratedIdent :: Text -> Bool
 isValidGeneratedIdent ident =

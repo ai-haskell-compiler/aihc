@@ -1473,11 +1473,11 @@ prettyInstTypeFamilyInst tfi =
 prettyNamedTypeHead :: TypeHeadForm -> UnqualifiedName -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
-    (TypeHeadInfix, [lhs, rhs]) ->
-      [ prettyTyVarBinder lhs,
-        prettyTypeHeadInfixName name,
-        prettyTyVarBinder rhs
-      ]
+    (TypeHeadInfix, lhs : rhs : tailPrms) ->
+      let infixHead = prettyTyVarBinder lhs <+> prettyTypeHeadInfixName name <+> prettyTyVarBinder rhs
+       in case tailPrms of
+            [] -> [infixHead]
+            _ -> parens infixHead : map prettyTyVarBinder tailPrms
     _ -> [prettyConstructorUName name] <> map prettyTyVarBinder params
 
 prettyTypeHeadInfixName :: UnqualifiedName -> Doc ann

@@ -1291,7 +1291,7 @@ typeFamilyLhsParser = do
 
 classHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 classHeadParser =
-  MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
@@ -1303,6 +1303,15 @@ classHeadParser =
       op <- constructorOperatorParser
       rhs <- declTypeParamParser
       pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
+
+    parenthesizedInfixDeclHeadParser = do
+      expectedTok TkSpecialLParen
+      lhs <- declTypeParamParser
+      op <- constructorOperatorParser
+      rhs <- declTypeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many declTypeParamParser
+      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs] <> tailParams)
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)

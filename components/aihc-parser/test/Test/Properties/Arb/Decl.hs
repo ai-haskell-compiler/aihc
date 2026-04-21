@@ -26,7 +26,6 @@ import Test.Properties.Arb.Identifiers
     genVarSym,
     genVarUnqualifiedName,
     isValidGeneratedVarSym,
-    shrinkConIdent,
     shrinkIdent,
     shrinkUnqualifiedName,
   )
@@ -268,22 +267,13 @@ genPrefixCon = do
   pure (PrefixCon [] [] name fields)
 
 genInfixCon :: Gen DataConDecl
-genInfixCon = do
-  -- Infix constructors can be symbolic (:+) or alphabetic (`Cons`)
-  opName <- genConUnqualifiedName
-  lhs <- genSimpleBangType
-  InfixCon [] [] lhs opName <$> genSimpleBangType
+genInfixCon = InfixCon [] [] <$> genSimpleBangType <*> genConUnqualifiedName <*> genSimpleBangType
 
 genRecordCon :: Gen DataConDecl
 genRecordCon = RecordCon [] [] <$> genConUnqualifiedName <*> smallList0 genFieldDecl
 
 genFieldDecl :: Gen FieldDecl
-genFieldDecl = FieldDecl [] <$> smallList1 genRecordFieldName <*> genSimpleBangType
-
-genRecordFieldName :: Gen UnqualifiedName
-genRecordFieldName = genVarUnqualifiedName
-
--- mkUnqualifiedName NameVarId <$> genFieldName
+genFieldDecl = FieldDecl [] <$> smallList1 genVarUnqualifiedName <*> genSimpleBangType
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = smallList1 genGadtCon
@@ -302,11 +292,7 @@ genGadtBody =
     ]
 
 genGadtPrefixBody :: Gen GadtBody
-genGadtPrefixBody = do
-  n <- chooseInt (0, 2)
-  args <- vectorOf n genGadtBangType
-  result <- scale (min 6) genType
-  pure $ GadtPrefixBody args result
+genGadtPrefixBody = GadtPrefixBody <$> smallList0 genGadtBangType <*> genType
 
 -- | Generate a BangType for GADT prefix body arg position.
 -- Does not generate lazy/strict annotations on types that start with symbolic
@@ -338,19 +324,14 @@ genSimpleTypeWithoutFun =
     ]
 
 genGadtRecordBody :: Gen GadtBody
-genGadtRecordBody = do
-  n <- chooseInt (1, 3)
-  fields <- vectorOf n genGadtFieldDecl
-  result <- scale (min 6) genType
-  pure $ GadtRecordBody fields result
+genGadtRecordBody = GadtRecordBody <$> smallList1 genGadtFieldDecl <*> genType
 
 -- | Generate a field declaration for GADT record body position.
 -- Uses the full type generator since record field types are parsed by typeParser.
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
-  fieldName <- mkUnqualifiedName NameVarId <$> genVarId
-  ty <- scale (min 6) genType
-  pure $ FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)
+  fieldNames <- smallList1 genVarUnqualifiedName
+  FieldDecl [] fieldNames . BangType [] NoSourceUnpackedness False False <$> genType
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
@@ -388,7 +369,7 @@ genSimpleBangType = do
 
 genDeclNewtype :: Gen Decl
 genDeclNewtype = do
-  name <- mkUnqualifiedName NameConId <$> genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctor <- genNewtypeCon
   deriving' <- genDerivingClauses
@@ -413,14 +394,14 @@ genNewtypeCon =
 
 genNewtypePrefixCon :: Gen DataConDecl
 genNewtypePrefixCon = do
-  conName <- mkUnqualifiedName NameConId <$> genConId
+  conName <- genConUnqualifiedName
   ty <- genSimpleType
   pure (PrefixCon [] [] conName [BangType [] NoSourceUnpackedness False False ty])
 
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
-  conName <- mkUnqualifiedName NameConId <$> genConId
-  fieldName <- genRecordFieldName
+  conName <- genConUnqualifiedName
+  fieldName <- genVarUnqualifiedName
   ty <- genSimpleType
   pure (RecordCon [] [] conName [FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)])
 
@@ -429,7 +410,7 @@ genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
 
 genDeclClassPrefix :: Gen Decl
 genDeclClassPrefix = do
-  name <- genConId
+  name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctx <- genOptionalSimpleContext
   items <- genClassDeclItems params
@@ -438,7 +419,7 @@ genDeclClassPrefix = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadPrefix,
-          classDeclName = mkUnqualifiedName NameConId name,
+          classDeclName = name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -538,20 +519,16 @@ genAssociatedTypeDefaultInst tf classParams =
 
 genDeclClassInfix :: Gen Decl
 genDeclClassInfix = do
-  name <- genConId
-  lhsName <- genVarId
-  rhsName <- genVarId
+  name <- genConUnqualifiedName
+  params <- smallList2 genSimpleTyVarBinder
   ctx <- genOptionalSimpleContext
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
-      params = [lhs, rhs]
   items <- genClassDeclItems params
   pure $
     DeclClass $
       ClassDecl
         { classDeclContext = ctx,
           classDeclHeadForm = TypeHeadInfix,
-          classDeclName = mkUnqualifiedName NameConId name,
+          classDeclName = name,
           classDeclParams = params,
           classDeclFundeps = [],
           classDeclItems = items
@@ -1232,7 +1209,8 @@ shrinkDerivingClause dc =
 
 shrinkClassDecl :: ClassDecl -> [ClassDecl]
 shrinkClassDecl cd =
-  [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
+  [cd {classDeclName = name'} | name' <- shrinkConName (classDeclName cd)]
+    <> [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
     <> [cd {classDeclParams = ps'} | ps' <- shrinkTypeHeadParams (classDeclHeadForm cd) (classDeclParams cd)]
     <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
 
@@ -1309,10 +1287,7 @@ shrinkRoleAnnotation ra =
 -- ---------------------------------------------------------------------------
 
 shrinkConName :: UnqualifiedName -> [UnqualifiedName]
-shrinkConName name =
-  case unqualifiedNameType name of
-    NameConId -> [mkUnqualifiedName NameConId n' | n' <- shrinkConIdent (renderUnqualifiedName name)]
-    _ -> []
+shrinkConName = shrinkUnqualifiedName
 
 shrinkBinderName :: BinderName -> [BinderName]
 shrinkBinderName = shrinkUnqualifiedVarName
