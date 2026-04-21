@@ -244,9 +244,12 @@ prettyDeclLines decl =
     DeclRoleAnnotation ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn synDecl ->
       let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
-            (TypeHeadInfix, [lhs, rhs]) ->
+            (TypeHeadInfix, lhs : rhs : tailPrms) ->
               let name = typeSynName synDecl
-               in [pretty (tyVarBinderName lhs), prettyInfixOp name, pretty (tyVarBinderName rhs)]
+                  infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp name <+> pretty (tyVarBinderName rhs)
+               in case tailPrms of
+                    [] -> [infixHead]
+                    _ -> parens infixHead : map prettyTyVarBinder tailPrms
             _ -> [prettyDeclHead TypeHeadPrefix [] (typeSynName synDecl) (typeSynParams synDecl)]
        in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
     DeclData dataDecl -> [prettyDataDecl dataDecl]

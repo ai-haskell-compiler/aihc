@@ -27,6 +27,7 @@ module Test.Properties.Arb.Identifiers
 
     -- * Name shrinkers
     shrinkName,
+    shrinkUnqualifiedName,
 
     -- * Module qualifiers
     genOptionalQualifier,
@@ -53,7 +54,7 @@ module Test.Properties.Arb.Identifiers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax (Extension, Name (..), NameType (..), UnqualifiedName, allKnownExtensions, mkUnqualifiedName, qualifyName)
+import Aihc.Parser.Syntax (Extension, Name (..), NameType (..), UnqualifiedName (..), allKnownExtensions, mkUnqualifiedName, qualifyName)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
@@ -447,3 +448,7 @@ shrinkName name =
   [name {nameQualifier = Nothing} | isJust (nameQualifier name)]
     <> [name {nameQualifier = Just q'} | Just q <- [nameQualifier name], q' <- shrinkQualifier q]
     <> [name {nameText = t} | t <- shrinkNameText (nameType name) (nameText name)]
+
+shrinkUnqualifiedName :: UnqualifiedName -> [UnqualifiedName]
+shrinkUnqualifiedName name =
+  [name {unqualifiedNameText = t} | t <- shrinkNameText (unqualifiedNameType name) (unqualifiedNameText name)]

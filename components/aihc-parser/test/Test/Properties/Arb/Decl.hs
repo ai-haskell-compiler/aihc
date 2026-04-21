@@ -29,9 +29,11 @@ import Test.Properties.Arb.Identifiers
     isValidGeneratedVarSym,
     shrinkConIdent,
     shrinkIdent,
+    shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkType)
+import Test.Properties.Arb.Utils (optional, smallList0, smallList1, smallList2)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -49,9 +51,9 @@ genDecl =
       [ genDeclValue,
         genDeclTypeSig,
         genDeclFixity,
-        genDeclRoleAnnotation,
-        genDeclTypeSyn,
-        genDeclTypeSynInfix,
+        DeclRoleAnnotation <$> genDeclRoleAnnotation,
+        DeclTypeSyn <$> genDeclTypeSyn,
+        DeclTypeSyn <$> genDeclTypeSynInfix,
         genDeclData,
         genDeclTypeData,
         genDeclNewtype,
@@ -86,8 +88,7 @@ genFunctionValueDecl = do
   rhs <- genRhsWith False
   oneof
     [ do
-        patCount <- chooseInt (1, 3)
-        pats <- vectorOf patCount (scale (min 3) genPattern)
+        pats <- smallList1 genPattern
         pure
           ( FunctionBind
               name
@@ -122,70 +123,32 @@ genPatternValueDecl =
   PatternBind <$> genPattern <*> genRhsWith False
 
 genWhereDecls :: Gen (Maybe [Decl])
-genWhereDecls = do
-  n <- getSize
-  missing <- arbitrary
-  if missing || n <= 0 then pure Nothing else Just <$> scale (`div` 2) (listOf genDeclValue)
+genWhereDecls = optional $ scale (`div` 2) $ listOf genDeclValue
 
 genDeclTypeSig :: Gen Decl
-genDeclTypeSig = do
-  nameCount <- chooseInt (1, 3)
-  names <- vectorOf nameCount genVarUnqualifiedName
-  DeclTypeSig names <$> genType
+genDeclTypeSig = DeclTypeSig <$> smallList1 genVarUnqualifiedName <*> genType
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
   assoc <- elements [Infix, InfixL, InfixR]
   prec <- elements [Nothing, Just 0, Just 6, Just 9]
-  n <- chooseInt (1, 2)
-  ops <- vectorOf n genVarUnqualifiedName
+  ops <- smallList1 genVarUnqualifiedName
   pure $ DeclFixity assoc Nothing prec ops
 
-genDeclRoleAnnotation :: Gen Decl
-genDeclRoleAnnotation = do
-  name <- genConUnqualifiedName
-  n <- chooseInt (0, 3)
-  roles <- vectorOf n (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
-  pure $
-    DeclRoleAnnotation
-      RoleAnnotation
-        { roleAnnotationName = name,
-          roleAnnotationRoles = roles
-        }
+genDeclRoleAnnotation :: Gen RoleAnnotation
+genDeclRoleAnnotation =
+  RoleAnnotation
+    <$> genConUnqualifiedName
+    <*> smallList0 (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
 
-genDeclTypeSyn :: Gen Decl
-genDeclTypeSyn = do
-  name <- genConUnqualifiedName
-  params <- genSimpleTyVarBinders
-  body <- genType
-  pure $
-    DeclTypeSyn
-      TypeSynDecl
-        { typeSynHeadForm = TypeHeadPrefix,
-          typeSynName = name,
-          typeSynParams = params,
-          typeSynBody = body
-        }
+genDeclTypeSyn :: Gen TypeSynDecl
+genDeclTypeSyn = TypeSynDecl TypeHeadPrefix <$> genConUnqualifiedName <*> genSimpleTyVarBinders <*> genType
 
 -- | Generate an infix type synonym, covering both symbolic operators
 -- (e.g. @type a :+: b = (a, b)@) and backtick-wrapped identifiers
 -- (e.g. @type a \`Plus\` b = (a, b)@).
-genDeclTypeSynInfix :: Gen Decl
-genDeclTypeSynInfix = do
-  name <- genConUnqualifiedName
-  lhsName <- genVarId
-  rhsName <- genVarId
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
-  body <- genType
-  pure $
-    DeclTypeSyn
-      TypeSynDecl
-        { typeSynHeadForm = TypeHeadInfix,
-          typeSynName = name,
-          typeSynParams = [lhs, rhs],
-          typeSynBody = body
-        }
+genDeclTypeSynInfix :: Gen TypeSynDecl
+genDeclTypeSynInfix = TypeSynDecl TypeHeadInfix <$> genConUnqualifiedName <*> smallList2 genSimpleTyVarBinder <*> genType
 
 genDeclData :: Gen Decl
 genDeclData =
@@ -1018,11 +981,13 @@ genDeclStandaloneKindSig = do
   kind <- scale (min 6) genType
   pure $ DeclStandaloneKindSig name kind
 
+genSimpleTyVarBinder :: Gen TyVarBinder
+genSimpleTyVarBinder = TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
+
 -- | Generate simple type variable binders (0-2 params).
 genSimpleTyVarBinders :: Gen [TyVarBinder]
-genSimpleTyVarBinders = do
-  n <- chooseInt (0, 2)
-  vectorOf n (TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible)
+genSimpleTyVarBinders =
+  smallList0 genSimpleTyVarBinder
 
 -- | Generate a simple type for use in declaration contexts.
 genSimpleType :: Gen Type
@@ -1217,7 +1182,8 @@ shrinkPatSynDecl ps =
 
 shrinkTypeSynDecl :: TypeSynDecl -> [TypeSynDecl]
 shrinkTypeSynDecl ts =
-  [ts {typeSynBody = ty'} | ty' <- shrinkType (typeSynBody ts)]
+  [ts {typeSynName = name'} | name' <- shrinkUnqualifiedName (typeSynName ts)]
+    <> [ts {typeSynBody = ty'} | ty' <- shrinkType (typeSynBody ts)]
     <> [ts {typeSynParams = ps'} | ps' <- shrinkTypeHeadParams (typeSynHeadForm ts) (typeSynParams ts)]
 
 -- ---------------------------------------------------------------------------
