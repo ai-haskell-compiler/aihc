@@ -392,14 +392,14 @@ atomOrRecordExprParser = do
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
 
-    normalizeField :: (Text, Maybe Expr, SourceSpan) -> (Text, Expr)
+    normalizeField :: (Name, Maybe Expr, SourceSpan) -> (Name, Expr)
     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
         Just expr' -> (fieldName, expr')
-        Nothing -> (fieldName, EAnn (mkAnnotation sp) (EVar (qualifiedVarName fieldName)))
+        Nothing -> (fieldName, EAnn (mkAnnotation sp) (EVar fieldName))
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
-recordBracesParser :: TokParser ([(Text, Maybe Expr, SourceSpan)], Bool)
+recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)
 recordBracesParser =
   braces recordFieldListParser
   where
@@ -416,13 +416,9 @@ recordBracesParser =
               pure (fields, True)
         else pure (fields, False)
 
-recordFieldBindingParser :: TokParser (Text, Maybe Expr, SourceSpan)
+recordFieldBindingParser :: TokParser (Name, Maybe Expr, SourceSpan)
 recordFieldBindingParser = withSpan $ do
-  fieldName <- tokenSatisfy "field name" $ \tok ->
-    case lexTokenKind tok of
-      TkVarId name -> Just name
-      TkQVarId modName name -> Just (modName <> "." <> name)
-      _ -> Nothing
+  fieldName <- identifierNameParser
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
 

@@ -1191,10 +1191,10 @@ prettyTupleBody tupleFlavor inner =
     Boxed -> parens inner
     Unboxed -> hsep ["(#", inner, "#)"]
 
-prettyBinding :: (Text, Expr) -> Doc ann
+prettyBinding :: (Name, Expr) -> Doc ann
 prettyBinding (name, value) =
   case peelExprAnn value of
-    EVar varName | renderName varName == name -> pretty name
+    EVar varName | varName == name -> prettyName name
     _ -> pretty name <+> "=" <+> prettyExpr value
 
 prettyCaseAlt :: CaseAlt -> Doc ann

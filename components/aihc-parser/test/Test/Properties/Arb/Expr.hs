@@ -20,20 +20,20 @@ import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConId,
     genConName,
-    genFieldName,
     genModuleQualifier,
-    genOptionalQualifier,
     genStringValue,
     genTenths,
     genVarId,
     genVarName,
     genVarSym,
+    genVarUnqualifiedName,
     showHex,
     shrinkFloat,
     shrinkName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (shrinkType)
+import Test.Properties.Arb.Utils
 import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
@@ -245,26 +245,15 @@ genLambdaCaseAltWith allowTHQuotes = scale (`div` 2) $ do
 genRhsWith :: Bool -> Gen Rhs
 genRhsWith allowTHQuotes =
   oneof
-    [ UnguardedRhs [] <$> genBindingExprWith allowTHQuotes <*> genWhereDecls,
+    [ UnguardedRhs [] <$> genExprWith allowTHQuotes <*> genWhereDecls,
       GuardedRhss [] <$> genGuardedRhsListWith allowTHQuotes <*> genWhereDecls
     ]
 
 genGuardedRhsListWith :: Bool -> Gen [GuardedRhs]
-genGuardedRhsListWith allowTHQuotes = do
-  count <- chooseInt (1, 3)
-  scale (`div` count) $ vectorOf count (genGuardedRhsWith allowTHQuotes)
+genGuardedRhsListWith allowTHQuotes = smallList1 (genGuardedRhsWith allowTHQuotes)
 
 genGuardedRhsWith :: Bool -> Gen GuardedRhs
-genGuardedRhsWith allowTHQuotes = scale (`div` 2) $ do
-  guardCount <- chooseInt (1, 2)
-  guards <- vectorOf guardCount (genGuardQualifierWith allowTHQuotes)
-  body <- genBindingExprWith allowTHQuotes
-  pure $
-    GuardedRhs
-      { guardedRhsAnns = [],
-        guardedRhsGuards = guards,
-        guardedRhsBody = body
-      }
+genGuardedRhsWith allowTHQuotes = GuardedRhs [] <$> smallList1 (genGuardQualifierWith allowTHQuotes) <*> genExprWith allowTHQuotes
 
 -- | Generate a guard qualifier.
 genGuardQualifierWith :: Bool -> Gen GuardQualifier
@@ -286,62 +275,50 @@ genGuardQualifierWith allowTHQuotes =
 -- which creates each equation as a separate 'FunctionBind' with a single
 -- 'Match'.
 genValueDeclsWith :: Bool -> Gen [Decl]
-genValueDeclsWith allowTHQuotes = do
-  count <- chooseInt (0, 3)
-  scale (`div` max 1 count) $ vectorOf count (genValueDeclWith allowTHQuotes)
+genValueDeclsWith allowTHQuotes = smallList0 (genValueDeclWith allowTHQuotes)
 
 -- | Generate a single value declaration: either a simple pattern binding or a
 -- function binding with argument patterns and optional guards.
 genValueDeclWith :: Bool -> Gen Decl
 genValueDeclWith allowTHQuotes =
-  oneof
-    [ genPatternBindDecl allowTHQuotes,
-      genFunctionBindDecl allowTHQuotes
-    ]
+  DeclValue
+    <$> oneof
+      [ genPatternBindDecl allowTHQuotes,
+        genFunctionBindDecl allowTHQuotes
+      ]
 
 -- | Generate a pattern binding: @pat = expr@ or @pat | guard = expr@.
 -- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
 -- can be guarded, matching what GHC accepts.
-genPatternBindDecl :: Bool -> Gen Decl
-genPatternBindDecl allowTHQuotes = scale (`div` 2) $ do
-  pat <- genPattern
-  rhs <- genRhsWith allowTHQuotes
-  pure $ DeclValue (PatternBind pat rhs)
+genPatternBindDecl :: Bool -> Gen ValueDecl
+genPatternBindDecl allowTHQuotes = PatternBind <$> genPattern <*> genRhsWith allowTHQuotes
 
 -- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
 -- Produces a single 'Match', consistent with the parser which creates one
 -- 'FunctionBind' per equation.
-genFunctionBindDecl :: Bool -> Gen Decl
+genFunctionBindDecl :: Bool -> Gen ValueDecl
 genFunctionBindDecl allowTHQuotes = do
-  name <- mkUnqualifiedName NameVarId <$> genVarId
-  patCount <- chooseInt (1, 3)
-  scale (`div` (patCount + 1)) $ do
-    pats <- vectorOf patCount genPattern
-    rhs <- genRhsWith allowTHQuotes
-    pure $
-      DeclValue
-        ( FunctionBind
-            name
-            [ Match
-                { matchAnns = [],
-                  matchHeadForm = MatchHeadPrefix,
-                  matchPats = pats,
-                  matchRhs = rhs
-                }
-            ]
-        )
-
-genBindingExprWith :: Bool -> Gen Expr
-genBindingExprWith = genExprWith
+  name <- genVarUnqualifiedName
+  pats <- smallList1 genPattern
+  rhs <- genRhsWith allowTHQuotes
+  pure $
+    ( FunctionBind
+        name
+        [ Match
+            { matchAnns = [],
+              matchHeadForm = MatchHeadPrefix,
+              matchPats = pats,
+              matchRhs = rhs
+            }
+        ]
+    )
 
 genDoStmtsWith :: Bool -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes = do
-  count <- chooseInt (1, 3)
-  scale (`div` count) $ do
-    stmts <- vectorOf (count - 1) (genDoStmtWith allowTHQuotes)
-    -- Last statement must be DoExpr
-    lastExpr <- genExprWith allowTHQuotes
-    pure (stmts <> [DoExpr lastExpr])
+  stmts <- smallList0 (genDoStmtWith allowTHQuotes)
+  -- Last statement must be DoExpr
+  lastExpr <- genExprWith allowTHQuotes
+  pure (stmts <> [DoExpr lastExpr])
 
 genDoStmtWith :: Bool -> Gen (DoStmt Expr)
 genDoStmtWith allowTHQuotes =
@@ -356,20 +333,16 @@ genDoStmtWith allowTHQuotes =
 -- | Generate statements for a @rec@ block inside @mdo@/@do@.
 -- At least one statement is required.
 genRecDoStmtsWith :: Bool -> Gen [DoStmt Expr]
-genRecDoStmtsWith allowTHQuotes = do
-  count <- chooseInt (1, 3)
-  scale (`div` count) $
-    vectorOf count $
-      oneof
-        [ scale (`div` 2) (DoBind <$> genPattern <*> genExprWith allowTHQuotes),
-          DoLetDecls <$> genValueDeclsWith allowTHQuotes,
-          DoExpr <$> genExprWith allowTHQuotes
-        ]
+genRecDoStmtsWith allowTHQuotes =
+  smallList1 $
+    oneof
+      [ scale (`div` 2) (DoBind <$> genPattern <*> genExprWith allowTHQuotes),
+        DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+        DoExpr <$> genExprWith allowTHQuotes
+      ]
 
 genCompStmtsWith :: Bool -> Gen [CompStmt]
-genCompStmtsWith allowTHQuotes = do
-  count <- chooseInt (1, 3)
-  scale (`div` count) $ vectorOf count (genCompStmtWith allowTHQuotes)
+genCompStmtsWith allowTHQuotes = smallList1 (genCompStmtWith allowTHQuotes)
 
 genCompStmtWith :: Bool -> Gen CompStmt
 genCompStmtWith allowTHQuotes =
@@ -386,9 +359,7 @@ genParallelCompStmtsWith allowTHQuotes = do
   scale (`div` count) $ vectorOf count (genCompStmtsWith allowTHQuotes)
 
 genListElemsWith :: Bool -> Gen [Expr]
-genListElemsWith allowTHQuotes = do
-  count <- chooseInt (0, 4)
-  scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
+genListElemsWith allowTHQuotes = smallList0 (genExprWith allowTHQuotes)
 
 -- | Generate tuple elements
 genTupleElemsWith :: Bool -> Gen [Expr]
@@ -403,9 +374,7 @@ genTupleElemsWith allowTHQuotes =
 -- | Generate elements for an unboxed tuple (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
 genUnboxedTupleElemsWith :: Bool -> Gen [Expr]
-genUnboxedTupleElemsWith allowTHQuotes = do
-  count <- chooseInt (0, 4)
-  scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
+genUnboxedTupleElemsWith allowTHQuotes = smallList0 (genExprWith allowTHQuotes)
 
 genUnboxedSumExprWith :: Bool -> Gen Expr
 genUnboxedSumExprWith allowTHQuotes = do
@@ -441,14 +410,10 @@ genArithSeqWith allowTHQuotes =
       scale (`div` 3) (ArithSeqFromThenTo <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes)
     ]
 
-genRecordFieldsWith :: Bool -> Gen [(Text, Expr)]
-genRecordFieldsWith allowTHQuotes = do
-  count <- chooseInt (0, 3)
-  names <- vectorOf count genFieldName
-  exprs <- scale (`div` max 1 count) $ vectorOf count (genExprWith allowTHQuotes)
-  quals <- vectorOf count genOptionalQualifier
-  let qualifiedNames = zipWith (\q name -> maybe name (<> "." <> name) q) quals names
-  pure (zip qualifiedNames exprs)
+genRecordFieldsWith :: Bool -> Gen [(Name, Expr)]
+genRecordFieldsWith allowTHQuotes =
+  smallList0 $
+    (,) <$> genVarName <*> genExprWith allowTHQuotes
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Gen Type
@@ -635,7 +600,8 @@ shrinkExpr expr =
     EArithSeq seq' ->
       [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
     ERecordCon con fields _ ->
-      [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
+      [ERecordCon con' fields False | con' <- shrinkName con]
+        <> [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
     ERecordUpd target fields ->
       target
         : [ERecordUpd target' fields | target' <- shrinkExpr target]
@@ -821,11 +787,11 @@ shrinkArithSeq seq' =
           <> [ArithSeqFromThenTo from thenE to' | to' <- shrinkExpr to]
     ArithSeqAnn _ _ -> []
 
-shrinkRecordFields :: [(Text, Expr)] -> [[(Text, Expr)]]
+shrinkRecordFields :: [(Name, Expr)] -> [[(Name, Expr)]]
 shrinkRecordFields = shrinkList shrinkRecordField
 
-shrinkRecordField :: (Text, Expr) -> [(Text, Expr)]
-shrinkRecordField (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
+shrinkRecordField :: (Name, Expr) -> [(Name, Expr)]
+shrinkRecordField (name, expr) = [(name', expr) | name' <- shrinkName name] <> [(name, expr') | expr' <- shrinkExpr expr]
 
 instance Arbitrary Expr where
   arbitrary = resize 5 genExpr
