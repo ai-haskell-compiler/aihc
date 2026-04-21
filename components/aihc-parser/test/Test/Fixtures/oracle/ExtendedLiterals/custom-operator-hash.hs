@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail ExtendedLiterals with custom operator -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ExtendedLiterals #-}
 

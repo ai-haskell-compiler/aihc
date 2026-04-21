@@ -4,6 +4,7 @@
 
 module Aihc.Parser.Internal.Decl
   ( declParser,
+    fixityDeclParser,
     pragmaDeclParser,
   )
 where
@@ -815,17 +816,18 @@ instanceDeclItemParser = do
   maybe ordinaryInstanceDeclItemParser pure mPragmaItem
 
 ordinaryInstanceDeclItemParser :: TokParser InstanceDeclItem
-ordinaryInstanceDeclItemParser =
-  instanceFixityItemParser
-    <|> instanceFixityItemParser
-    <|> instanceFixityItemParser
-    <|> instanceTypeFamilyInstParser
-    <|> instanceDataFamilyInstParser
-    <|> instanceNewtypeFamilyInstParser
-    <|> ( do
-            isSig <- startsWithTypeSig
-            if isSig then instanceTypeSigItemParser else instanceValueItemParser
-        )
+ordinaryInstanceDeclItemParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordInfix -> instanceFixityItemParser
+    TkKeywordInfixl -> instanceFixityItemParser
+    TkKeywordInfixr -> instanceFixityItemParser
+    TkKeywordData -> instanceDataFamilyInstParser
+    TkKeywordNewtype -> instanceNewtypeFamilyInstParser
+    TkKeywordType -> instanceTypeFamilyInstParser
+    _ -> do
+      isSig <- startsWithTypeSig
+      if isSig then instanceTypeSigItemParser else instanceValueItemParser
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
