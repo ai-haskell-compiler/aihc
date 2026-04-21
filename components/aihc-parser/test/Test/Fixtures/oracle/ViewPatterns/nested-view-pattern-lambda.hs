@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects deeply nested view patterns in lambda expression -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ViewPatterns #-}
 
 module NestedViewPatternLambda where
