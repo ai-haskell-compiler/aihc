@@ -418,7 +418,7 @@ recordBracesParser =
 
 recordFieldBindingParser :: TokParser (Name, Maybe Expr, SourceSpan)
 recordFieldBindingParser = withSpan $ do
-  fieldName <- identifierNameParser
+  fieldName <- identifierNameParser <|> parens operatorNameParser
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
 

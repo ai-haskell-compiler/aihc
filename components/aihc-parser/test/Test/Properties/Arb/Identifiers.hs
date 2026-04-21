@@ -413,8 +413,8 @@ shrinkConSym sym =
   filter (\s -> s /= sym && isValidGeneratedConSym s) $
     [":+"]
       <> [ T.cons ':' (T.map (\c -> if c > '\x7f' then '+' else c) rest)
-         | Just (':', rest) <- [T.uncons sym]
-         , T.any (> '\x7f') rest
+         | Just (':', rest) <- [T.uncons sym],
+           T.any (> '\x7f') rest
          ]
       <> [T.take n sym | n <- [1 .. T.length sym - 1]]
 

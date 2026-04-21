@@ -257,13 +257,15 @@ shrinkTyVarBinder tvb =
 shrinkPatternTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkPatternTupleElems tupleFlavor elems =
   -- For a unit boxed tuple (), try a simple variable as a simpler outer pattern
-  (case (tupleFlavor, elems) of
-    (Boxed, []) -> [PVar (mkUnqualifiedName NameVarId "x")]
-    _ -> [])
+  ( case (tupleFlavor, elems) of
+      (Boxed, []) -> [PVar (mkUnqualifiedName NameVarId "x")]
+      _ -> []
+  )
     -- For a single-element unboxed tuple, try extracting the element directly
-    <> (case (tupleFlavor, elems) of
-          (Unboxed, [e]) -> [e]
-          _ -> [])
+    <> ( case (tupleFlavor, elems) of
+           (Unboxed, [e]) -> [e]
+           _ -> []
+       )
     <> [ candidate
        | shrunk <- shrinkList shrinkPattern elems,
          candidate <- case shrunk of

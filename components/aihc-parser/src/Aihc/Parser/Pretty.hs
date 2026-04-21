@@ -1195,7 +1195,7 @@ prettyBinding :: (Name, Expr) -> Doc ann
 prettyBinding (name, value) =
   case peelExprAnn value of
     EVar varName | varName == name -> prettyName name
-    _ -> pretty name <+> "=" <+> prettyExpr value
+    _ -> prettyName name <+> "=" <+> prettyExpr value
 
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
