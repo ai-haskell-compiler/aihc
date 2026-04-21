@@ -1347,6 +1347,7 @@ prettyTypeFamilyDecl tf =
     familyKeywordPart False = []
     resultSigPart Nothing = []
     resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
+    resultSigPart (Just (TypeFamilyTyVarSig result)) = ["=", prettyTyVarBinder result]
     resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
       ["=", prettyTyVarBinder result, "|", prettyTypeFamilyInjectivity injectivity]
     eqsPart Nothing = []
@@ -1416,6 +1417,7 @@ prettyAssocTypeFamilyDecl tf =
     familyKeywordPart False = []
     resultSigPart Nothing = []
     resultSigPart (Just (TypeFamilyKindSig k)) = ["::", prettyType k]
+    resultSigPart (Just (TypeFamilyTyVarSig result)) = ["=", prettyTyVarBinder result]
     resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
       ["=", prettyTyVarBinder result, "|", prettyTypeFamilyInjectivity injectivity]
 

@@ -447,6 +447,8 @@ docTypeFamilyResultSig :: TypeFamilyResultSig -> Doc ann
 docTypeFamilyResultSig sig =
   case sig of
     TypeFamilyKindSig kind -> "TypeFamilyKindSig" <+> parens (docType kind)
+    TypeFamilyTyVarSig result ->
+      "TypeFamilyTyVarSig" <+> braces (hsep (punctuate comma [field "result" (docTyVarBinder result)]))
     TypeFamilyInjectiveSig result injectivity ->
       "TypeFamilyInjectiveSig" <+> braces (hsep (punctuate comma [field "result" (docTyVarBinder result), field "injectivity" (docTypeFamilyInjectivity injectivity)]))
 

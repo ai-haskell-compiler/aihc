@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Unicode quote in type family RHS -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}

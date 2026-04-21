@@ -638,6 +638,7 @@ addTypeFamilyResultSigParens :: TypeFamilyResultSig -> TypeFamilyResultSig
 addTypeFamilyResultSigParens sig =
   case sig of
     TypeFamilyKindSig kind -> TypeFamilyKindSig (addTypeParens kind)
+    TypeFamilyTyVarSig result -> TypeFamilyTyVarSig (addTyVarBinderParens result)
     TypeFamilyInjectiveSig result injectivity -> TypeFamilyInjectiveSig (addTyVarBinderParens result) injectivity
 
 addTypeFamilyEqParens :: TypeFamilyEq -> TypeFamilyEq

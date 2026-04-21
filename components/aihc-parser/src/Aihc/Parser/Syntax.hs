@@ -1293,6 +1293,7 @@ data TypeFamilyDecl = TypeFamilyDecl
 
 data TypeFamilyResultSig
   = TypeFamilyKindSig Type
+  | TypeFamilyTyVarSig TyVarBinder
   | TypeFamilyInjectiveSig TyVarBinder TypeFamilyInjectivity
   deriving (Data, Eq, Show, Generic, NFData)
 
