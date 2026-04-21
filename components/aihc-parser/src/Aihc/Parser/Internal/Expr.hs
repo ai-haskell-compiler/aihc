@@ -29,7 +29,7 @@ where
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Decl (declParser, pragmaDeclParser)
+import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser)
 import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
@@ -967,6 +967,9 @@ localDeclsParser = do
           tok <- lookAhead anySingle
           case lexTokenKind tok of
             TkImplicitParam {} -> pure <$> implicitParamDeclParser
+            TkKeywordInfix -> pure <$> fixityDeclParser Infix
+            TkKeywordInfixl -> pure <$> fixityDeclParser InfixL
+            TkKeywordInfixr -> pure <$> fixityDeclParser InfixR
             _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
 
 localTypeSigDeclsParser :: TokParser [Decl]

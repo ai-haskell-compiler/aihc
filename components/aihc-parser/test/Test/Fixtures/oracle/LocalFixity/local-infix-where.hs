@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Local infix operator in where clause -}
+{- ORACLE_TEST pass -}
 instance FromHttpApiData (BackendKey DB.MongoContext) where
     parseUrlPiece input = do
       MongoKey <$> readTextData s
