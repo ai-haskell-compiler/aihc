@@ -355,6 +355,22 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         Just mkView -> pure mkView
         Nothing -> tupleOrParenPatternParser tupleFlavor closeTok
   where
+    -- Symbolic constructor names like (:+) use parens as prefix notation, not
+    -- grouping: prettyPrefixName already adds parens when printing them, so
+    -- wrapping with PParen here would produce double parens like ((:+)).
+    -- Stripping PParen also lets isPatternAppHead recognise (:+) as an app head
+    -- so that (:+) x y and (:+) {} (record pattern) parse correctly.
+    parenOrSymConParser inner = do
+      case peelPatternAnn inner of
+        PCon con [] [] | nameType con == NameConSym -> do
+          mBrace <- MP.optional . lookAhead $ anySingle
+          case fmap lexTokenKind mBrace of
+            Just TkSpecialLBrace -> do
+              (fields, hasWildcard) <- braces recordPatternFieldListParser
+              pure (PRecord con fields hasWildcard)
+            _ -> pure inner
+        _ -> pure (PParen inner)
+
     unitPatternParser tupleFlavor closeTok = do
       expectedTok closeTok
       pure (PTuple tupleFlavor [])
@@ -391,6 +407,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         -- We detect this by checking if an operator is followed by a closing delimiter.
         TkVarSym {} -> operatorOrExprPatternParser
         TkConSym {} -> operatorOrExprPatternParser
+        TkQConSym {} -> operatorOrExprPatternParser
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
@@ -421,6 +438,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           case lexTokenKind tok' of
             TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
             TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
+            TkQConSym modName op -> pure (PCon (mkName (Just modName) NameConSym op) [] [])
             _ -> fail "expected operator token"
 
     -- Try to parse as expression, then reclassify via checkPattern.
@@ -473,7 +491,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             Nothing -> do
               expectedTok closeTok
               if tupleFlavor == Boxed
-                then pure (PParen first)
+                then parenOrSymConParser first
                 else pure (PTuple Unboxed [first])
         Just () -> do
           second <- parenPatElementParser

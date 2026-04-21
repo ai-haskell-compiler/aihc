@@ -1640,7 +1640,7 @@ data Expr
   | EListComp Expr [CompStmt]
   | EListCompParallel Expr [[CompStmt]]
   | EArithSeq ArithSeq
-  | ERecordCon Text [(Text, Expr)] Bool -- Bool: wildcard present
+  | ERecordCon Name [(Text, Expr)] Bool -- Bool: wildcard present
   | ERecordUpd Expr [(Text, Expr)]
   | ETypeSig Expr Type
   | EParen Expr

@@ -17,7 +17,7 @@ import Data.Char (isAlpha)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr, shrinkGuardQualifier)
 import Test.Properties.Arb.Identifiers
   ( genConId,
     genConSym,
@@ -1181,8 +1181,9 @@ shrinkRhs rhs =
         -- Shrink the where clause
         <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
     GuardedRhss _ grhss mWhere ->
-      -- Collapse to unguarded using the first guard's body
-      [UnguardedRhs [] (guardedRhsBody firstGrhs) Nothing | firstGrhs : _ <- [grhss]]
+      -- Collapse to unguarded keeping the where clause (try both with and without)
+      [UnguardedRhs [] (guardedRhsBody firstGrhs) mWhere | firstGrhs : _ <- [grhss]]
+        <> [UnguardedRhs [] (guardedRhsBody firstGrhs) Nothing | firstGrhs : _ <- [grhss]]
         -- Drop the where clause
         <> [GuardedRhss [] grhss Nothing | isJust mWhere]
         -- Shrink the guard list (keep at least one)
@@ -1199,7 +1200,7 @@ shrinkWhereDecls ds =
 shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
 shrinkGuardedRhs grhs =
   [grhs {guardedRhsBody = body'} | body' <- shrinkExpr (guardedRhsBody grhs)]
-    <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList (const []) (guardedRhsGuards grhs), not (null gs')]
+    <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList shrinkGuardQualifier (guardedRhsGuards grhs), not (null gs')]
 
 -- ---------------------------------------------------------------------------
 -- Pattern synonyms

@@ -781,7 +781,7 @@ docExpr expr =
     EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
-    ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
+    ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
     ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
     ETypeSig inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen inner -> "EParen" <+> parens (docExpr inner)

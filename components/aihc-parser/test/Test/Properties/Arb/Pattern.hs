@@ -13,7 +13,6 @@ import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConId,
     genConName,
     genFieldName,
     genOptionalQualifier,
@@ -27,6 +26,7 @@ import Test.Properties.Arb.Identifiers
     showHex,
     shrinkFloat,
     shrinkIdent,
+    shrinkName,
   )
 import Test.Properties.Arb.Type (shrinkType)
 import Test.QuickCheck
@@ -52,7 +52,7 @@ genPattern = scale (`div` 2) $ do
         PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         PTuple Unboxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x")], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
         pure (PList []),
-        (\name -> PCon name [] []) <$> genPatternConAstName
+        PCon <$> genConName <*> pure [] <*> pure []
       ]
     recursiveGenerators =
       [ PTuple Boxed <$> genTupleElemsWith,
@@ -72,7 +72,7 @@ genPattern = scale (`div` 2) $ do
 
 genPatternConWith :: Gen Pattern
 genPatternConWith = do
-  con <- genPatternConAstName
+  con <- genConName
   argCount <- chooseInt (0, 3)
   args <- vectorOf argCount genPattern
   pure (PCon con [] args)
@@ -95,7 +95,7 @@ genPatternType :: Gen Type
 genPatternType =
   oneof
     [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
-      (`TCon` Unpromoted) <$> genPatternConAstName
+      (`TCon` Unpromoted) <$> genConName
     ]
 
 genPatternInfixWith :: Gen Pattern
@@ -133,7 +133,7 @@ genListElemsWith = do
 
 genRecordPatternWith :: Gen Pattern
 genRecordPatternWith = do
-  con <- genPatternConAstName
+  con <- genConName
   fields <- genRecordFieldsWith
   pure (PRecord con fields False)
 
@@ -175,9 +175,6 @@ genPatSpliceBody =
 genPatternUnqualVarName :: Gen UnqualifiedName
 genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
 
-genPatternConAstName :: Gen Name
-genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
-
 mkIntLiteral :: Integer -> Literal
 mkIntLiteral value = LitInt value TInteger (T.pack (show value))
 
@@ -215,7 +212,8 @@ shrinkPattern pat =
     PList elems ->
       [PList elems' | elems' <- shrinkList shrinkPattern elems]
     PCon con typeArgs args ->
-      [PCon con typeArgs [] | not (null args)]
+      [PCon con' typeArgs args | con' <- shrinkName con]
+        <> [PCon con typeArgs [] | not (null args)]
         <> [PCon con typeArgs args' | args' <- shrinkList shrinkPattern args]
     PInfix lhs op rhs ->
       [lhs, rhs]
@@ -243,7 +241,8 @@ shrinkPattern pat =
     PUnboxedSum altIdx arity inner ->
       [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
     PRecord con fields _ ->
-      [PRecord con [] False | not (null fields)]
+      [PRecord con' fields False | con' <- shrinkName con]
+        <> [PRecord con [] False | not (null fields)]
         <> [PRecord con fields' False | fields' <- shrinkList shrinkField fields]
     PTypeSig inner ty ->
       [inner]
@@ -257,17 +256,26 @@ shrinkTyVarBinder tvb =
 
 shrinkPatternTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkPatternTupleElems tupleFlavor elems =
-  [ candidate
-  | shrunk <- shrinkList shrinkPattern elems,
-    candidate <- case shrunk of
-      [] -> [PTuple tupleFlavor []]
-      [_] -> [PTuple tupleFlavor shrunk | tupleFlavor == Unboxed]
-      _ -> [PTuple tupleFlavor shrunk]
-  ]
+  -- For a unit boxed tuple (), try a simple variable as a simpler outer pattern
+  (case (tupleFlavor, elems) of
+    (Boxed, []) -> [PVar (mkUnqualifiedName NameVarId "x")]
+    _ -> [])
+    -- For a single-element unboxed tuple, try extracting the element directly
+    <> (case (tupleFlavor, elems) of
+          (Unboxed, [e]) -> [e]
+          _ -> [])
+    <> [ candidate
+       | shrunk <- shrinkList shrinkPattern elems,
+         candidate <- case shrunk of
+           [] -> [PTuple tupleFlavor []]
+           [_] -> [PTuple tupleFlavor shrunk | tupleFlavor == Unboxed]
+           _ -> [PTuple tupleFlavor shrunk]
+       ]
 
 shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
 shrinkField (fieldName, fieldPat) =
-  [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
+  [(fieldName', fieldPat) | fieldName' <- shrinkName fieldName]
+    <> [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
 
 shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =

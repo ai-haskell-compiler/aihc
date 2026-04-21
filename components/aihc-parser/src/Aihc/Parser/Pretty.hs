@@ -1157,7 +1157,7 @@ prettyExpr expr =
         )
     EArithSeq seqInfo -> prettyArithSeq seqInfo
     ERecordCon name fields hasWildcard ->
-      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
+      prettyPrefixName name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd base fields ->
       prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty

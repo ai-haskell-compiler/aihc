@@ -387,7 +387,7 @@ atomOrRecordExprParser = do
           let result = case peelExprAnn e of
                 EVar name
                   | isConLikeName name ->
-                      ERecordCon (renderName name) (map normalizeField fields) hasWildcard
+                      ERecordCon name (map normalizeField fields) hasWildcard
                 _ ->
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result

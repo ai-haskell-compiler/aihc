@@ -6,6 +6,7 @@ module Test.Properties.Arb.Expr
     genRhsWith,
     mkIntExpr,
     shrinkExpr,
+    shrinkGuardQualifier,
   )
 where
 
@@ -18,6 +19,7 @@ import Test.Properties.Arb.Decl (genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConId,
+    genConName,
     genFieldName,
     genModuleQualifier,
     genOptionalQualifier,
@@ -28,7 +30,7 @@ import Test.Properties.Arb.Identifiers
     genVarSym,
     showHex,
     shrinkFloat,
-    shrinkIdent,
+    shrinkName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (shrinkType)
@@ -73,7 +75,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes,
         genUnboxedSumExprWith allowTHQuotes,
         EArithSeq <$> genArithSeqWith allowTHQuotes,
-        (\name fields -> ERecordCon name fields False) <$> genConId <*> genRecordFieldsWith allowTHQuotes,
+        (\name fields -> ERecordCon name fields False) <$> genConName <*> genRecordFieldsWith allowTHQuotes,
         ERecordUpd <$> genExprWith allowTHQuotes <*> genRecordFieldsWith allowTHQuotes,
         ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         ETypeApp . canonicalTypeAppExpr <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
@@ -207,9 +209,6 @@ genOperatorName = do
   qual <- genOptionalQualifier
   op <- mkUnqualifiedName NameVarSym <$> genVarSym
   pure (qualifyName qual op)
-
-genConAstName :: Gen Name
-genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConId)
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Gen [Pattern]
@@ -478,7 +477,7 @@ genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
     [ TVar <$> genTypeVarName,
-      (`TCon` Unpromoted) <$> genConAstName
+      (`TCon` Unpromoted) <$> genConName
     ]
 
 genTypeTupleElemsWith :: Bool -> Gen [Type]
@@ -570,7 +569,7 @@ shrinkOverloadedLabel value raw
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
-    EVar name -> [EVar (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
+    EVar name -> [EVar name' | name' <- shrinkName name]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
     EInt value _ _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EFloat value _ _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
@@ -590,22 +589,32 @@ shrinkExpr expr =
       [lhs, rhs]
         <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
         <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
+        <> [EInfix lhs op' rhs | op' <- shrinkName op]
     ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
-    ESectionL inner op -> inner : [ESectionL inner' op | inner' <- shrinkExpr inner]
-    ESectionR op inner -> inner : [ESectionR op inner' | inner' <- shrinkExpr inner]
+    ESectionL inner op ->
+      inner
+        : [ESectionL inner' op | inner' <- shrinkExpr inner]
+        <> [ESectionL inner op' | op' <- shrinkName op]
+    ESectionR op inner ->
+      inner
+        : [ESectionR op inner' | inner' <- shrinkExpr inner]
+        <> [ESectionR op' inner | op' <- shrinkName op]
     EIf cond thenE elseE ->
       [thenE, elseE]
         <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
         <> [EIf cond thenE' elseE | thenE' <- shrinkExpr thenE]
         <> [EIf cond thenE elseE' | elseE' <- shrinkExpr elseE]
     EMultiWayIf rhss ->
-      [EMultiWayIf rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+      [guardedRhsBody grhs | grhs : _ <- [rhss]]
+        <> [EMultiWayIf rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
     ECase scrutinee alts ->
       scrutinee
         : [ECase scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
           <> [ECase scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
     ELambdaPats pats body ->
-      body : [ELambdaPats pats body' | body' <- shrinkExpr body]
+      body
+        : [ELambdaPats pats body' | body' <- shrinkExpr body]
+          <> [ELambdaPats pats' body | pats' <- shrinkList shrinkPattern pats, not (null pats')]
     ELambdaCase alts ->
       [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
     ELambdaCases alts ->

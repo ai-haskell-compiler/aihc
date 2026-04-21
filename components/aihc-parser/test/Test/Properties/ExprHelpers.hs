@@ -129,7 +129,11 @@ normalizePattern pat =
     PStrict inner -> PStrict (normalizeUnaryPatInner inner)
     PIrrefutable inner -> PIrrefutable (normalizeUnaryPatInner inner)
     PNegLit lit -> PNegLit (normalizeLiteral lit)
-    PParen inner -> PParen (normalizePattern inner)
+    PParen inner ->
+      let normInner = normalizePattern inner
+       in case normInner of
+            PCon con [] [] | nameType con == NameConSym -> normInner
+            _ -> PParen normInner
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
     PRecord con fields rwc -> PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc
     PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeType ty)

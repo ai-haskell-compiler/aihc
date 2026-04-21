@@ -11,6 +11,7 @@ module Test.Properties.Arb.Identifiers
     isValidGeneratedIdent,
     genVarSym,
     isValidGeneratedVarSym,
+    shrinkVarSym,
 
     -- * Constructor identifiers
     genConId,
@@ -22,6 +23,10 @@ module Test.Properties.Arb.Identifiers
     -- * Constructor operator symbols
     genConSym,
     isValidGeneratedConSym,
+    shrinkConSym,
+
+    -- * Name shrinkers
+    shrinkName,
 
     -- * Module qualifiers
     genOptionalQualifier,
@@ -48,12 +53,13 @@ module Test.Properties.Arb.Identifiers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax (Extension, Name, NameType (..), UnqualifiedName, allKnownExtensions, mkUnqualifiedName, qualifyName)
+import Aihc.Parser.Syntax (Extension, Name (..), NameType (..), UnqualifiedName, allKnownExtensions, mkUnqualifiedName, qualifyName)
 import Data.Char (GeneralCategory (..), generalCategory)
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, oneof, shrink, shrinkIntegral, vectorOf)
+import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, oneof, shrink, shrinkIntegral, shrinkList, vectorOf)
 
 -- | All extensions enabled for maximum keyword coverage in testing.
 allExtensions :: Set.Set Extension
@@ -386,3 +392,58 @@ shrinkWithPreservedFirstChar isValid name =
         isValid candidate
       ]
     Nothing -> []
+
+-- | Shrink a variable symbol, preferring shorter and ASCII-only operators.
+-- Always tries @+@ as the minimal candidate, replaces unicode chars with @+@,
+-- and tries shorter prefixes.
+shrinkVarSym :: Text -> [Text]
+shrinkVarSym sym =
+  filter (\s -> s /= sym && isValidGeneratedVarSym s) $
+    ["+"]
+      <> [T.map replaceUnicode sym | T.any (> '\x7f') sym]
+      <> [T.take n sym | n <- [1 .. T.length sym - 1]]
+  where
+    replaceUnicode c = if c > '\x7f' then '+' else c
+
+-- | Shrink a constructor symbol, preferring shorter and ASCII-only operators.
+-- Always tries @:+@ as the minimal candidate, replaces unicode chars in the
+-- tail with @+@, and tries shorter prefixes.
+shrinkConSym :: Text -> [Text]
+shrinkConSym sym =
+  filter (\s -> s /= sym && isValidGeneratedConSym s) $
+    [":+"]
+      <> [ T.cons ':' (T.map (\c -> if c > '\x7f' then '+' else c) rest)
+         | Just (':', rest) <- [T.uncons sym]
+         , T.any (> '\x7f') rest
+         ]
+      <> [T.take n sym | n <- [1 .. T.length sym - 1]]
+
+shrinkNameText :: NameType -> Text -> [Text]
+shrinkNameText nt txt = case nt of
+  NameVarId -> shrinkIdent txt
+  NameConId -> shrinkConIdent txt
+  NameVarSym -> shrinkVarSym txt
+  NameConSym -> shrinkConSym txt
+
+-- | Shrink a module segment: try "A" as the minimal, replace unicode with
+-- ASCII where possible, then try dropping tail characters.
+shrinkModuleSegment :: Text -> [Text]
+shrinkModuleSegment seg =
+  filter (\s -> s /= seg && isValidConIdent s) $
+    ["A"]
+      <> [T.map (\c -> if c > '\x7f' then 'A' else c) seg | T.any (> '\x7f') seg]
+      <> shrinkConIdent seg
+
+-- | Shrink a module qualifier by trying fewer or shorter segments.
+shrinkQualifier :: Text -> [Text]
+shrinkQualifier q =
+  let segs = T.splitOn "." q
+   in [T.intercalate "." segs' | segs' <- shrinkList shrinkModuleSegment segs, not (null segs')]
+
+-- | Shrink a 'Name': try removing the module qualifier, shrink the qualifier
+-- itself, then shrink the local name text (replacing unicode symbols with ASCII where possible).
+shrinkName :: Name -> [Name]
+shrinkName name =
+  [name {nameQualifier = Nothing} | isJust (nameQualifier name)]
+    <> [name {nameQualifier = Just q'} | Just q <- [nameQualifier name], q' <- shrinkQualifier q]
+    <> [name {nameText = t} | t <- shrinkNameText (nameType name) (nameText name)]
