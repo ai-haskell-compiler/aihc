@@ -3,7 +3,7 @@
 
 # Run all tests with hidden successes (1000 QuickCheck tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000'
+  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000 --quickcheck-timeout 20s --quickcheck-shrinks 10000'
 
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"

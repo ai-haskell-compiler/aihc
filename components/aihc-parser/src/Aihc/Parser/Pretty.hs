@@ -245,9 +245,12 @@ prettyDeclLines decl =
     DeclRoleAnnotation ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn synDecl ->
       let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
-            (TypeHeadInfix, [lhs, rhs]) ->
+            (TypeHeadInfix, lhs : rhs : tailPrms) ->
               let name = typeSynName synDecl
-               in [pretty (tyVarBinderName lhs), prettyInfixOp name, pretty (tyVarBinderName rhs)]
+                  infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp name <+> pretty (tyVarBinderName rhs)
+               in case tailPrms of
+                    [] -> [infixHead]
+                    _ -> parens infixHead : map prettyTyVarBinder tailPrms
             _ -> [prettyDeclHead TypeHeadPrefix [] (typeSynName synDecl) (typeSynParams synDecl)]
        in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
     DeclData dataDecl -> [prettyDataDecl dataDecl]
@@ -945,7 +948,7 @@ prettyForeignDecl decl =
       Just (prettyCallConv (foreignCallConv decl)),
       prettySafety <$> foreignSafety decl,
       prettyForeignEntity (foreignEntity decl),
-      Just (pretty (foreignName decl)),
+      Just (prettyBinderName (foreignName decl)),
       Just "::",
       Just (prettyType (foreignType decl))
     ]
@@ -1158,7 +1161,7 @@ prettyExpr expr =
         )
     EArithSeq seqInfo -> prettyArithSeq seqInfo
     ERecordCon name fields hasWildcard ->
-      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
+      prettyPrefixName name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd base fields ->
       prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
@@ -1192,11 +1195,11 @@ prettyTupleBody tupleFlavor inner =
     Boxed -> parens inner
     Unboxed -> hsep ["(#", inner, "#)"]
 
-prettyBinding :: (Text, Expr) -> Doc ann
+prettyBinding :: (Name, Expr) -> Doc ann
 prettyBinding (name, value) =
   case peelExprAnn value of
-    EVar varName | renderName varName == name -> pretty name
-    _ -> pretty name <+> "=" <+> prettyExpr value
+    EVar varName | varName == name -> prettyName name
+    _ -> prettyName name <+> "=" <+> prettyExpr value
 
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
@@ -1470,11 +1473,11 @@ prettyInstTypeFamilyInst tfi =
 prettyNamedTypeHead :: TypeHeadForm -> UnqualifiedName -> [TyVarBinder] -> [Doc ann]
 prettyNamedTypeHead headForm name params =
   case (headForm, params) of
-    (TypeHeadInfix, [lhs, rhs]) ->
-      [ prettyTyVarBinder lhs,
-        prettyTypeHeadInfixName name,
-        prettyTyVarBinder rhs
-      ]
+    (TypeHeadInfix, lhs : rhs : tailPrms) ->
+      let infixHead = prettyTyVarBinder lhs <+> prettyTypeHeadInfixName name <+> prettyTyVarBinder rhs
+       in case tailPrms of
+            [] -> [infixHead]
+            _ -> parens infixHead : map prettyTyVarBinder tailPrms
     _ -> [prettyConstructorUName name] <> map prettyTyVarBinder params
 
 prettyTypeHeadInfixName :: UnqualifiedName -> Doc ann

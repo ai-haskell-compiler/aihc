@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects type operator applied to type arguments in class context -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators #-}
 
 module TypeComposeConstraint where

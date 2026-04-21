@@ -121,15 +121,7 @@ pragmaDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ DeclPragma <$> anyPrag
 spliceDeclParser :: TokParser Decl
 spliceDeclParser = do
   expectedTok TkTHSplice
-  body <-
-    parenSpliceBody <|> bareSpliceBody
-  pure (DeclSplice body)
-  where
-    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens exprParser
-      pure (EParen body)
-    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      EVar <$> identifierNameParser
+  DeclSplice <$> exprParser
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
@@ -867,7 +859,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       ForeignImport -> MP.optional foreignSafetyParser
       ForeignExport -> pure Nothing
   entity <- MP.optional foreignEntityParser
-  name <- identifierTextParser
+  name <- binderNameParser
   expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure $
@@ -1291,7 +1283,7 @@ typeFamilyLhsParser = do
 
 classHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 classHeadParser =
-  MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
@@ -1303,6 +1295,15 @@ classHeadParser =
       op <- constructorOperatorParser
       rhs <- declTypeParamParser
       pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
+
+    parenthesizedInfixDeclHeadParser = do
+      expectedTok TkSpecialLParen
+      lhs <- declTypeParamParser
+      op <- constructorOperatorParser
+      rhs <- declTypeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many declTypeParamParser
+      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs] <> tailParams)
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)

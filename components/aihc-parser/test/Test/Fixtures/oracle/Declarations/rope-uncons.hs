@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Rope with Unicode quote -}
+{- ORACLE_TEST pass -}
 unconsRope :: Rope -> Maybe (Char, Rope)
 unconsRope text =
     let x = unRope text

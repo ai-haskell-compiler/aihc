@@ -105,6 +105,7 @@ test-suite spec
     , Test.Lexer.Suite
     , Test.Properties.Arb.Decl
     , Test.Properties.Arb.Expr
+    , Test.Properties.Arb.Utils
     , Test.Properties.Arb.Identifiers
     , Test.Properties.Arb.Module
     , Test.Properties.Arb.Pattern
