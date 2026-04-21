@@ -19,6 +19,7 @@ import Test.Properties.Arb.Identifiers
     shrinkConIdent,
     shrinkIdent,
   )
+import Test.Properties.Arb.Utils (smallList0)
 import Test.QuickCheck
 
 instance Arbitrary Type where
@@ -178,7 +179,7 @@ genSimpleTypeAtom =
       pure TWildcard,
       TQuasiQuote <$> genQuoterName <*> genQuasiBody,
       TTuple Boxed Unpromoted <$> genTypeTupleElems,
-      TTuple Unboxed Unpromoted <$> genTypeTupleElems,
+      TTuple Unboxed Unpromoted <$> smallList0 genType,
       TUnboxedSum <$> genUnboxedSumElems,
       TList Unpromoted <$> genTypeListElems,
       TParen <$> genType
@@ -340,7 +341,7 @@ shrinkTypeTupleElems tupleFlavor elems =
   | shrunk <- shrinkList shrinkType elems,
     candidate <- case shrunk of
       [] -> [TTuple tupleFlavor Unpromoted []]
-      [_] -> []
+      [_] | tupleFlavor == Boxed -> []
       _ -> [TTuple tupleFlavor Unpromoted shrunk]
   ]
 

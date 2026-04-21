@@ -398,9 +398,9 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
                   pure (TUnboxedSum (first : rest))
                 Nothing -> do
                   expectedTok closeTok
-                  if tupleFlavor == Boxed
-                    then pure (TParen first)
-                    else fail "not an unboxed tuple type"
+                  case tupleFlavor of
+                    Boxed -> pure (TParen first)
+                    Unboxed -> pure (TTuple Unboxed Unpromoted [first])
             Just () -> do
               second <- typeParser
               more <- MP.many (expectedTok TkSpecialComma *> typeParser)
