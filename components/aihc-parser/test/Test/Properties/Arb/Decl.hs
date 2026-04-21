@@ -181,13 +181,8 @@ genDeclDataGadt = do
 genDeclDataInfix :: Gen Decl
 genDeclDataInfix = do
   name <- genConUnqualifiedName
-  lhsName <- genVarId
-  rhsName <- genVarId
-  extraCount <- chooseInt (0, 2)
-  extraNames <- vectorOf extraCount genVarId
-  let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
-      rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
-      extraParams = [TyVarBinder [] n Nothing TyVarBSpecified TyVarBVisible | n <- extraNames]
+  params <- smallList2 genSimpleTyVarBinder
+  kind <- optional genSimpleType
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
@@ -196,8 +191,8 @@ genDeclDataInfix = do
         { dataDeclHeadForm = TypeHeadInfix,
           dataDeclContext = [],
           dataDeclName = name,
-          dataDeclParams = [lhs, rhs] <> extraParams,
-          dataDeclKind = Nothing,
+          dataDeclParams = params,
+          dataDeclKind = kind,
           dataDeclConstructors = ctors,
           dataDeclDeriving = deriving'
         }
@@ -252,6 +247,7 @@ genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
   name <- mkUnqualifiedName NameConId <$> genConId
   params <- genSimpleTyVarBinders
+  kind <- optional genSimpleType
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
@@ -260,15 +256,13 @@ genSimpleDataDecl = do
         dataDeclContext = [],
         dataDeclName = name,
         dataDeclParams = params,
-        dataDeclKind = Nothing,
+        dataDeclKind = kind,
         dataDeclConstructors = ctors,
         dataDeclDeriving = deriving'
       }
 
 genSimpleDataCons :: Gen [DataConDecl]
-genSimpleDataCons = do
-  n <- chooseInt (0, 3)
-  vectorOf n genMixedDataCon
+genSimpleDataCons = smallList0 genMixedDataCon
 
 genMixedDataCon :: Gen DataConDecl
 genMixedDataCon =
@@ -282,8 +276,7 @@ genPrefixCon :: Gen DataConDecl
 genPrefixCon = do
   -- Prefix constructors can be alphabetic (Cons) or symbolic ((:+))
   name <- genConUnqualifiedName
-  n <- chooseInt (0, 2)
-  fields <- vectorOf n genSimpleBangType
+  fields <- smallList0 genSimpleBangType
   pure (PrefixCon [] [] name fields)
 
 genInfixCon :: Gen DataConDecl

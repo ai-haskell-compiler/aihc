@@ -107,6 +107,7 @@ isGreedyExpr = \case
   EDo {} -> True
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> isOpenEnded arg
+  EApp _ arg -> isGreedyExpr arg
   _ -> False
 
 -- | Check if an expression is "braced" - i.e., the pretty-printer always
@@ -178,6 +179,7 @@ data ExprCtx
   | CtxAppFun
   | CtxAppArg
   | CtxAppArgNoParens
+  | CtxAppArgGreedy
   | CtxTypeSigBody
   | CtxGuarded
 
@@ -207,6 +209,8 @@ needsExprParens ctx expr =
         _ -> False
     CtxAppArgNoParens ->
       False
+    CtxAppArgGreedy ->
+      isGreedyExpr expr
     CtxTypeSigBody ->
       case expr of
         ENegate {} -> True
@@ -228,6 +232,7 @@ exprCtxPrec ctx expr =
     CtxAppFun -> 2
     CtxAppArg -> 3
     CtxAppArgNoParens -> 0
+    CtxAppArgGreedy -> 3
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
@@ -707,7 +712,8 @@ addExprParensPrec prec expr =
   case expr of
     EApp {} -> addAppsChainPrec prec expr
     ETypeApp fn ty ->
-      wrapExpr (prec > 2) (ETypeApp (addExprParensIn CtxAppFun fn) (addTypeIn CtxTypeAtom ty))
+      let fn' = wrapExpr (isGreedyExpr fn) (addExprParensIn CtxAppFun fn)
+       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAtom ty))
     ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
@@ -816,6 +822,7 @@ addAppsChainPrec prec expr =
               ctx
                 | isLast, isBlockExpr a = CtxAppArgNoParens
                 | isLast = CtxAppArg
+                | isGreedyExpr a = CtxAppArgGreedy
                 | otherwise = CtxAppArg
            in addExprParensIn ctx a
         | (i, a) <- Prelude.zip [0 :: Int ..] args
