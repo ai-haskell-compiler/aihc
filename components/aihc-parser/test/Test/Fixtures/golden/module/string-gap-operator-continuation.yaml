@@ -1,0 +1,13 @@
+extensions: []
+input: |
+  module StringGapLayout where
+  f = "hello\
+      \world" ++ "!"
+ast: 'Module {name = "StringGapLayout", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EInfix (EString "helloworld") "++" (EString "!"))}])]}'
+status: pass
+comment: |
+  Operator continuation after a string gap must not trigger
+  premature layout closure. The string ends on the same line as
+  the operator, so no BOL processing should occur between them.
+  This tests that layout uses the end line (not start line) of
+  multi-line tokens for BOL detection.

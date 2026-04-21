@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail String with Unicode quote -}
+{- ORACLE_TEST pass -}
 helpMessage :: Bool -- ^ 'True' when showing in a terminal.
             -> String -- ^ Executable program name.
             -> String
