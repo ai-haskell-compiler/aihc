@@ -1,0 +1,5 @@
+extensions: [ViewPatterns]
+input: |
+  (a -> b -> c)
+ast: PParen (PView (EVar "a") (PView (EVar "b") (PVar "c")))
+status: pass

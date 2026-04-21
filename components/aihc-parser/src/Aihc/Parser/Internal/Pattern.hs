@@ -325,12 +325,16 @@ listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 -- This is needed in delimited pattern contexts like list elements and record
 -- fields, where there is no surrounding pair of parens to disambiguate the
 -- view-pattern arrow from the enclosing syntax.
+--
+-- This parser is recursive so that deeply nested view patterns such as
+-- @expr1 -> expr2 -> pat@ are accepted without requiring explicit parentheses
+-- around each intermediate view pattern.
 subpatternWithBareViewParser :: TokParser Pattern
 subpatternWithBareViewParser = do
   mView <- MP.optional . MP.try $ do
     expr <- exprParser
     expectedTok TkReservedRightArrow
-    PView expr <$> patternParser
+    PView expr <$> subpatternWithBareViewParser
   maybe patternParser pure mView
 
 parenOrTuplePatternParser :: TokParser Pattern
@@ -382,7 +386,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     viewPatternParser closeTok = MP.optional . MP.try $ do
       expr <- exprParser
       expectedTok TkReservedRightArrow
-      inner <- patternParser
+      inner <- subpatternWithBareViewParser
       expectedTok closeTok
       pure (PParen (PView expr inner))
 
@@ -468,7 +472,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         Just (Left expr) -> do
           -- View pattern: expr -> pattern
           expectedTok TkReservedRightArrow
-          PView expr <$> patternParser
+          PView expr <$> subpatternWithBareViewParser
         Just (Right pat) ->
           pure pat
         Nothing ->

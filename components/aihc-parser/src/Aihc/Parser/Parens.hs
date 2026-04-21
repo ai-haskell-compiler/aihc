@@ -1066,7 +1066,7 @@ addPatternParens pat =
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
     PInfix lhs op rhs -> PInfix (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
     PView viewExpr inner ->
-      wrapPat True (PView (addViewExprParens viewExpr) (addPatternParens inner))
+      wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
     PStrict inner -> PStrict (addPatternAtomStrictParens inner)
     PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
@@ -1082,10 +1082,20 @@ addPatternParens pat =
 addPatternInDelimited :: Pattern -> Pattern
 addPatternInDelimited pat =
   case peelPatternAnn pat of
-    PView viewExpr inner -> PView (addViewExprParens viewExpr) (addPatternParens inner)
+    PView viewExpr inner -> PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner)
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
     PStrict inner -> PStrict (addPatternAtomStrictParens inner)
     PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
+    _ -> addPatternParens pat
+
+-- | Add parens for a pattern nested inside a view pattern.
+-- Nested view patterns do not need extra parens.
+addPatternViewInnerParens :: Pattern -> Pattern
+addPatternViewInnerParens pat =
+  case pat of
+    PAnn sp sub -> PAnn sp (addPatternViewInnerParens sub)
+    PView viewExpr inner ->
+      PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner)
     _ -> addPatternParens pat
 
 addViewExprParens :: Expr -> Expr
