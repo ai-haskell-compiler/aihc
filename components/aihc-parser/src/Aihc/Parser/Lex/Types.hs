@@ -35,6 +35,7 @@ module Aihc.Parser.Lex.Types
     advanceN,
     consumeWhile,
     tokenStartLine,
+    tokenEndLine,
     tokenStartCol,
     virtualSymbolToken,
   )
@@ -356,6 +357,12 @@ tokenStartLine :: LexToken -> Int
 tokenStartLine tok =
   case lexTokenSpan tok of
     SourceSpan {sourceSpanStartLine = line} -> line
+    NoSourceSpan -> 1
+
+tokenEndLine :: LexToken -> Int
+tokenEndLine tok =
+  case lexTokenSpan tok of
+    SourceSpan {sourceSpanEndLine = line} -> line
     NoSourceSpan -> 1
 
 tokenStartCol :: LexToken -> Int
