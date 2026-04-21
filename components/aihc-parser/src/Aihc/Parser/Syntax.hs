@@ -1556,7 +1556,7 @@ data ForeignDecl = ForeignDecl
     foreignCallConv :: CallConv,
     foreignSafety :: Maybe ForeignSafety,
     foreignEntity :: ForeignEntitySpec,
-    foreignName :: Text,
+    foreignName :: UnqualifiedName,
     foreignType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)

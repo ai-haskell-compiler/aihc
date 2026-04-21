@@ -121,15 +121,7 @@ pragmaDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ DeclPragma <$> anyPrag
 spliceDeclParser :: TokParser Decl
 spliceDeclParser = do
   expectedTok TkTHSplice
-  body <-
-    parenSpliceBody <|> bareSpliceBody
-  pure (DeclSplice body)
-  where
-    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      body <- parens exprParser
-      pure (EParen body)
-    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
-      EVar <$> identifierNameParser
+  DeclSplice <$> exprParser
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
@@ -867,7 +859,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       ForeignImport -> MP.optional foreignSafetyParser
       ForeignExport -> pure Nothing
   entity <- MP.optional foreignEntityParser
-  name <- identifierTextParser
+  name <- binderNameParser
   expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure $

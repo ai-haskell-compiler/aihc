@@ -948,7 +948,7 @@ prettyForeignDecl decl =
       Just (prettyCallConv (foreignCallConv decl)),
       prettySafety <$> foreignSafety decl,
       prettyForeignEntity (foreignEntity decl),
-      Just (pretty (foreignName decl)),
+      Just (prettyBinderName (foreignName decl)),
       Just "::",
       Just (prettyType (foreignType decl))
     ]

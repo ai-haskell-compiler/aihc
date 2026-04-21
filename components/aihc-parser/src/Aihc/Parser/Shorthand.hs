@@ -539,7 +539,7 @@ docForeignDecl fd =
         <> [field "callConv" (docCallConv (foreignCallConv fd))]
         <> optionalField "safety" docForeignSafety (foreignSafety fd)
         <> [field "entity" (docForeignEntitySpec (foreignEntity fd))]
-        <> [field "name" (docText (foreignName fd))]
+        <> [field "name" (docUnqualifiedName (foreignName fd))]
         <> [field "type" (docType (foreignType fd))]
 
 docForeignDirection :: ForeignDirection -> Doc ann

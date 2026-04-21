@@ -172,6 +172,8 @@ typeInfixOperatorParser =
         case lexTokenKind tok of
           TkVarId name -> Just (qualifyName Nothing (mkUnqualifiedName NameVarId name))
           TkConId name -> Just (qualifyName Nothing (mkUnqualifiedName NameConId name))
+          TkQVarId modName name -> Just (mkName (Just modName) NameVarId name)
+          TkQConId modName name -> Just (mkName (Just modName) NameConId name)
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do

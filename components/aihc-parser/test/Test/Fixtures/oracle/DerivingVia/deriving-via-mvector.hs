@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects deriving via with GM.MVector and G.Vector constraints -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 

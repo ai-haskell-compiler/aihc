@@ -29,6 +29,7 @@ import Test.Properties.Arb.Identifiers
     genVarUnqualifiedName,
     isValidGeneratedVarSym,
     shrinkIdent,
+    shrinkName,
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
@@ -282,8 +283,7 @@ genGadtDataCons = smallList1 genGadtCon
 
 genGadtCon :: Gen DataConDecl
 genGadtCon = do
-  n <- chooseInt (1, 2)
-  names <- vectorOf n (mkUnqualifiedName NameConId <$> genConId)
+  names <- smallList1 genConUnqualifiedName
   GadtCon [] [] names <$> genGadtBody
 
 genGadtBody :: Gen GadtBody
@@ -322,7 +322,7 @@ genSimpleTypeWithoutFun :: Gen Type
 genSimpleTypeWithoutFun =
   oneof
     [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
-      (\n -> TCon (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genConId
+      TCon <$> genConName <*> pure Unpromoted
     ]
 
 genGadtRecordBody :: Gen GadtBody
@@ -445,8 +445,7 @@ genClassTypeSigItem = do
 
 genClassAssociatedTypeDeclItem :: Gen ClassDeclItem
 genClassAssociatedTypeDeclItem = do
-  tf <- genAssociatedTypeFamilyDecl
-  pure $ ClassItemTypeFamilyDecl tf
+  ClassItemTypeFamilyDecl <$> genAssociatedTypeFamilyDecl
 
 -- genClassAssociatedTypeItems :: [TyVarBinder] -> Gen [ClassDeclItem]
 -- genClassAssociatedTypeItems params = do
@@ -503,7 +502,7 @@ genAssociatedDataFamilyDecl classParams = do
 
 genAssociatedTypeDefaultInst :: Gen TypeFamilyInst
 genAssociatedTypeDefaultInst = do
-  lhs <- genSimpleTypeWithoutFun
+  lhs <- TCon <$> genConName <*> pure Unpromoted
   rhs <- genSimpleType
   pure $
     TypeFamilyInst
@@ -663,8 +662,7 @@ genDeclDefault = DeclDefault <$> smallList0 genSimpleType
 
 genDeclSplice :: Gen Decl
 genDeclSplice = do
-  name <- genVarName
-  pure $ DeclSplice (EVar name)
+  DeclSplice . EVar <$> genVarName
 
 genDeclForeign :: Gen Decl
 genDeclForeign = do
@@ -674,7 +672,7 @@ genDeclForeign = do
   safety <- case direction of
     ForeignImport -> elements [Nothing, Just Safe, Just Unsafe]
     ForeignExport -> pure Nothing
-  name <- genVarId
+  name <- genVarUnqualifiedName
   ty <- genSimpleType
   pure $
     DeclForeign $
@@ -735,9 +733,8 @@ genDeclDataFamilyDecl = do
     if infixHead
       then do
         name <- mkUnqualifiedName NameConSym <$> genConSym
-        lhs <- TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
-        rhs <- TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
-        pure (TypeHeadInfix, name, [lhs, rhs])
+        params <- smallList2 genSimpleTyVarBinder
+        pure (TypeHeadInfix, name, params)
       else do
         name <- mkUnqualifiedName NameConId <$> genConId
         params <- genSimpleTyVarBinders
@@ -913,10 +910,7 @@ genDeclPatSynSig = do
   DeclPatSynSig [name] <$> genSimpleType
 
 genDeclStandaloneKindSig :: Gen Decl
-genDeclStandaloneKindSig = do
-  name <- mkUnqualifiedName NameConId <$> genConId
-  kind <- scale (min 6) genType
-  pure $ DeclStandaloneKindSig name kind
+genDeclStandaloneKindSig = DeclStandaloneKindSig <$> genConUnqualifiedName <*> genType
 
 genSimpleTyVarBinder :: Gen TyVarBinder
 genSimpleTyVarBinder = TyVarBinder [] <$> genVarId <*> pure Nothing <*> pure TyVarBSpecified <*> pure TyVarBVisible
@@ -1213,7 +1207,8 @@ shrinkInstanceDecl inst =
 
 shrinkStandaloneDerivingDecl :: StandaloneDerivingDecl -> [StandaloneDerivingDecl]
 shrinkStandaloneDerivingDecl sd =
-  [sd {standaloneDerivingTypes = ts'} | ts' <- shrinkList shrinkType (standaloneDerivingTypes sd)]
+  [sd {standaloneDerivingClassName = name'} | name' <- shrinkName (standaloneDerivingClassName sd)]
+    <> [sd {standaloneDerivingTypes = ts'} | ts' <- shrinkList shrinkType (standaloneDerivingTypes sd), standaloneDerivingHeadForm sd /= TypeHeadInfix || length ts' >= 2]
     <> [sd {standaloneDerivingContext = ctx'} | ctx' <- shrinkList shrinkType (standaloneDerivingContext sd)]
 
 -- ---------------------------------------------------------------------------
@@ -1223,7 +1218,7 @@ shrinkStandaloneDerivingDecl sd =
 shrinkForeignDecl :: ForeignDecl -> [ForeignDecl]
 shrinkForeignDecl fd =
   [fd {foreignType = ty'} | ty' <- shrinkType (foreignType fd)]
-    <> [fd {foreignName = n'} | n' <- shrinkIdent (foreignName fd)]
+    <> [fd {foreignName = n'} | n' <- shrinkUnqualifiedName (foreignName fd)]
 
 -- ---------------------------------------------------------------------------
 -- Type/data families
