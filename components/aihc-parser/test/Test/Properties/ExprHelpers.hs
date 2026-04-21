@@ -584,6 +584,7 @@ normalizeTypeFamilyResultSig :: TypeFamilyResultSig -> TypeFamilyResultSig
 normalizeTypeFamilyResultSig sig =
   case sig of
     TypeFamilyKindSig kind -> TypeFamilyKindSig (normalizeType kind)
+    TypeFamilyTyVarSig result -> TypeFamilyTyVarSig (normalizeTyVarBinder result)
     TypeFamilyInjectiveSig result injectivity ->
       TypeFamilyInjectiveSig (normalizeTyVarBinder result) injectivity
 

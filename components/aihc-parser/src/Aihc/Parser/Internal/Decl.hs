@@ -230,21 +230,24 @@ familyResultKindParser =
   MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
 
 -- | Parse an optional type family result signature. GHC admits either an unnamed
--- @:: Kind@ annotation or a named result variable with injectivity annotation,
--- such as @= r | r -> a@ or @= (r :: Type) | r -> a where ...@.
+-- @:: Kind@ annotation or a named result variable with optional injectivity annotation,
+-- such as @= r@, @= r | r -> a@, or @= (r :: Type) | r -> a where ...@.
 typeFamilyResultSigParser :: TokParser (Maybe TypeFamilyResultSig)
 typeFamilyResultSigParser =
-  MP.optional (kindSigParser <|> injectiveSigParser)
+  MP.optional (kindSigParser <|> namedSigParser)
   where
     kindSigParser =
       TypeFamilyKindSig <$> (expectedTok TkReservedDoubleColon *> typeParser)
 
-    injectiveSigParser = do
+    namedSigParser = do
       expectedTok TkReservedEquals
-      result <- injectiveResultBinderParser
-      TypeFamilyInjectiveSig result <$> typeFamilyInjectivityParser
+      result <- namedResultBinderParser
+      mInjectivity <- MP.optional typeFamilyInjectivityParser
+      pure $ case mInjectivity of
+        Just injectivity -> TypeFamilyInjectiveSig result injectivity
+        Nothing -> TypeFamilyTyVarSig result
 
-    injectiveResultBinderParser =
+    namedResultBinderParser =
       withSpan $
         ( do
             ident <- lowerIdentifierParser
