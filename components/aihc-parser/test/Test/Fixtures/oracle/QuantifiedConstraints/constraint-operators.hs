@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects multi-constraint class with (|-) and (&) operators -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QuantifiedConstraints #-}
 
 module QuantifiedConstraintOperators where
