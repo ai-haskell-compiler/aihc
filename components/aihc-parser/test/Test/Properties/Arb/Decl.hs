@@ -20,9 +20,11 @@ import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr, shrinkGuardQualifier)
 import Test.Properties.Arb.Identifiers
   ( genConId,
+    genConName,
     genConSym,
     genConUnqualifiedName,
     genVarId,
+    genVarName,
     genVarSym,
     genVarUnqualifiedName,
     isValidGeneratedVarSym,
@@ -427,42 +429,42 @@ genDeclClassPrefix = do
 
 genClassDeclItems :: [TyVarBinder] -> Gen [ClassDeclItem]
 genClassDeclItems params =
-  frequency
-    [ (3, pure []),
-      (2, (: []) <$> genClassTypeSigItem),
-      (2, (: []) <$> genClassAssociatedTypeDeclItem params),
-      (2, (: []) <$> genClassAssociatedDataDeclItem params),
-      (1, genClassAssociatedTypeItems params)
-    ]
+  smallList0 $
+    oneof
+      [ genClassTypeSigItem,
+        genClassAssociatedTypeDeclItem,
+        genClassAssociatedDataDeclItem params,
+        ClassItemTypeFamilyDecl <$> genAssociatedTypeFamilyDecl,
+        ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst
+      ]
 
 genClassTypeSigItem :: Gen ClassDeclItem
 genClassTypeSigItem = do
   name <- genVarUnqualifiedName
   ClassItemTypeSig [name] <$> genSimpleType
 
-genClassAssociatedTypeDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
-genClassAssociatedTypeDeclItem params = do
-  tf <- genAssociatedTypeFamilyDecl params
+genClassAssociatedTypeDeclItem :: Gen ClassDeclItem
+genClassAssociatedTypeDeclItem = do
+  tf <- genAssociatedTypeFamilyDecl
   pure $ ClassItemTypeFamilyDecl tf
 
-genClassAssociatedTypeItems :: [TyVarBinder] -> Gen [ClassDeclItem]
-genClassAssociatedTypeItems params = do
-  tf <- genAssociatedTypeFamilyDecl params
-  mDefault <- genAssociatedTypeDefaultInst tf params
-  pure $ ClassItemTypeFamilyDecl tf : maybe [] (pure . ClassItemDefaultTypeInst) mDefault
+-- genClassAssociatedTypeItems :: [TyVarBinder] -> Gen [ClassDeclItem]
+-- genClassAssociatedTypeItems params = do
+--   tf <- genAssociatedTypeFamilyDecl
+--   mDefault <- genAssociatedTypeDefaultInst tf params
+--   pure $ ClassItemTypeFamilyDecl tf : maybe [] (pure . ClassItemDefaultTypeInst) mDefault
 
 genClassAssociatedDataDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
 genClassAssociatedDataDeclItem params = do
   df <- genAssociatedDataFamilyDecl params
   pure $ ClassItemDataFamilyDecl df
 
-genAssociatedTypeFamilyDecl :: [TyVarBinder] -> Gen TypeFamilyDecl
-genAssociatedTypeFamilyDecl classParams = do
-  name <- genConId
-  paramCount <- chooseInt (0, min 2 (length classParams))
-  params <- take paramCount <$> shuffle classParams
+genAssociatedTypeFamilyDecl :: Gen TypeFamilyDecl
+genAssociatedTypeFamilyDecl = do
+  name <- genConUnqualifiedName
+  params <- smallList0 genSimpleTyVarBinder
   explicitFamilyKeyword <- arbitrary
-  let headType = TCon (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
+  let headType = TCon (qualifyName Nothing name) Unpromoted
   pure $
     TypeFamilyDecl
       { typeFamilyDeclHeadForm = TypeHeadPrefix,
@@ -499,23 +501,17 @@ genAssociatedDataFamilyDecl classParams = do
         dataFamilyDeclKind = kind
       }
 
-genAssociatedTypeDefaultInst :: TypeFamilyDecl -> [TyVarBinder] -> Gen (Maybe TypeFamilyInst)
-genAssociatedTypeDefaultInst tf classParams =
-  if null classParams || null (typeFamilyDeclParams tf)
-    then pure Nothing
-    else frequency [(1, pure Nothing), (3, Just <$> mkDefaultInst)]
-  where
-    mkDefaultInst = do
-      rhs <- genSimpleType
-      let argTypes = [TVar (mkUnqualifiedName NameVarId (tyVarBinderName param)) | param <- typeFamilyDeclParams tf]
-          lhs = foldl TApp (typeFamilyDeclHead tf) argTypes
-      pure $
-        TypeFamilyInst
-          { typeFamilyInstForall = [],
-            typeFamilyInstHeadForm = typeFamilyDeclHeadForm tf,
-            typeFamilyInstLhs = lhs,
-            typeFamilyInstRhs = rhs
-          }
+genAssociatedTypeDefaultInst :: Gen TypeFamilyInst
+genAssociatedTypeDefaultInst = do
+  lhs <- genSimpleTypeWithoutFun
+  rhs <- genSimpleType
+  pure $
+    TypeFamilyInst
+      { typeFamilyInstForall = [],
+        typeFamilyInstHeadForm = TypeHeadPrefix,
+        typeFamilyInstLhs = lhs,
+        typeFamilyInstRhs = rhs
+      }
 
 genDeclClassInfix :: Gen Decl
 genDeclClassInfix = do
@@ -538,11 +534,7 @@ genDeclInstance :: Gen Decl
 genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix]
 
 genInstanceDeclItems :: Gen [InstanceDeclItem]
-genInstanceDeclItems =
-  frequency
-    [ (4, pure []),
-      (1, (: []) <$> genInstanceAssociatedDataFamilyInstItem)
-    ]
+genInstanceDeclItems = smallList0 genInstanceAssociatedDataFamilyInstItem
 
 genInstanceAssociatedDataFamilyInstItem :: Gen InstanceDeclItem
 genInstanceAssociatedDataFamilyInstItem = do
@@ -551,9 +543,8 @@ genInstanceAssociatedDataFamilyInstItem = do
 
 genDeclInstancePrefix :: Gen Decl
 genDeclInstancePrefix = do
-  className <- genConId
-  n <- chooseInt (0, 2)
-  types <- vectorOf n genInstanceHeadType
+  className <- genConUnqualifiedName
+  types <- smallList0 genInstanceHeadType
   ctx <- genSimpleContext
   items <- if null types then pure [] else genInstanceDeclItems
   pure $
@@ -565,14 +556,14 @@ genDeclInstancePrefix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadPrefix,
-          instanceDeclClassName = mkUnqualifiedName NameConId className,
+          instanceDeclClassName = className,
           instanceDeclTypes = types,
           instanceDeclItems = items
         }
 
 genDeclInstanceInfix :: Gen Decl
 genDeclInstanceInfix = do
-  className <- genConId
+  className <- genConUnqualifiedName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   ctx <- genSimpleContext
@@ -586,7 +577,7 @@ genDeclInstanceInfix = do
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclHeadForm = TypeHeadInfix,
-          instanceDeclClassName = mkUnqualifiedName NameConId className,
+          instanceDeclClassName = className,
           instanceDeclTypes = [lhs, rhs],
           instanceDeclItems = items
         }
@@ -596,9 +587,8 @@ genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStand
 
 genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
-  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
-  n <- chooseInt (0, 2)
-  types <- vectorOf n genInstanceHeadType
+  className <- genConName
+  types <- smallList0 genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
   ctx <- genSimpleContext
   pure $
@@ -618,7 +608,7 @@ genDeclStandaloneDerivingPrefix = do
 
 genDeclStandaloneDerivingInfix :: Gen Decl
 genDeclStandaloneDerivingInfix = do
-  className <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
+  className <- genConName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
@@ -669,14 +659,11 @@ genInfixInstanceHeadType :: Gen Type
 genInfixInstanceHeadType = suchThat genInstanceHeadType isInfixInstanceHeadType
 
 genDeclDefault :: Gen Decl
-genDeclDefault = do
-  n <- chooseInt (0, 3)
-  types <- vectorOf n genSimpleType
-  pure $ DeclDefault types
+genDeclDefault = DeclDefault <$> smallList0 genSimpleType
 
 genDeclSplice :: Gen Decl
 genDeclSplice = do
-  name <- qualifyName Nothing . mkUnqualifiedName NameVarId <$> genVarId
+  name <- genVarName
   pure $ DeclSplice (EVar name)
 
 genDeclForeign :: Gen Decl
