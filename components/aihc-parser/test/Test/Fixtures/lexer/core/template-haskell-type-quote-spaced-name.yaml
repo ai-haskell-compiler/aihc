@@ -1,0 +1,10 @@
+extensions:
+  - TemplateHaskell
+input: "x = '' name"
+tokens:
+  - 'TkVarId "x"'
+  - 'TkReservedEquals'
+  - 'TkTHTypeQuoteTick'
+  - 'TkVarId "name"'
+  - 'TkEOF'
+status: pass
