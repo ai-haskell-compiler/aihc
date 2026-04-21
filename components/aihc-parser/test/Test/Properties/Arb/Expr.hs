@@ -301,7 +301,7 @@ genFunctionBindDecl allowTHQuotes = do
   name <- genVarUnqualifiedName
   pats <- smallList1 genPattern
   rhs <- genRhsWith allowTHQuotes
-  pure $
+  pure
     ( FunctionBind
         name
         [ Match
