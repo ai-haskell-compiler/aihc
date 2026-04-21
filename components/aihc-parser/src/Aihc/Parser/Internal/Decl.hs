@@ -470,10 +470,13 @@ classDefaultTypeInstShorthandParser = withSpanAnn (ClassItemAnn . mkAnnotation) 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: instance body items
 
--- | Parse @type LhsType = RhsType@ inside an instance body (no @instance@ keyword here).
+-- | Parse @type [instance] LhsType = RhsType@ inside an instance body.
+-- The @instance@ keyword is accepted but optional (GHC normalizes both forms
+-- to the same AST, so we treat them identically).
 instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
+  _ <- MP.optional (expectedTok TkKeywordInstance)
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
@@ -487,10 +490,12 @@ instanceTypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
           typeFamilyInstRhs = rhs
         }
 
--- | Parse @data HeadType = Cons | ...@ (or GADT style) inside an instance body.
+-- | Parse @data [instance] HeadType = Cons | ...@ (or GADT style) inside an instance body.
+-- The @instance@ keyword is accepted but optional.
 instanceDataFamilyInstParser :: TokParser InstanceDeclItem
 instanceDataFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
+  _ <- MP.optional (expectedTok TkKeywordInstance)
   (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
@@ -514,10 +519,12 @@ instanceDataFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
       derivingClauses <- MP.many derivingClauseParser
       pure (constructors, derivingClauses)
 
--- | Parse @newtype HeadType = Constructor@ inside an instance body.
+-- | Parse @newtype [instance] HeadType = Constructor@ inside an instance body.
+-- The @instance@ keyword is accepted but optional.
 instanceNewtypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceNewtypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
+  _ <- MP.optional (expectedTok TkKeywordInstance)
   (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   expectedTok TkReservedEquals
