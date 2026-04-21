@@ -225,6 +225,7 @@ data ImplicitLayoutKind
   | LayoutLetBlock
   | LayoutMultiWayIf
   | LayoutAfterThenElse !Int -- do-block opened directly by a preceding 'then'/'else'; tracks nested classic ifs inside the block
+  | LayoutCaseAlternative
   deriving (Eq, Show)
 
 data PendingLayout

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects duplicate where clauses -}
+{- ORACLE_TEST pass -}
 module DuplicateWhere where
 
 selectByEntity :: [Int] -> (String, String) -> Maybe String
