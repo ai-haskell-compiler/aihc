@@ -203,6 +203,7 @@ docIENamespace namespace =
 docIEBundledNamespace :: IEBundledNamespace -> Doc ann
 docIEBundledNamespace namespace =
   case namespace of
+    IEBundledNamespaceType -> docText "type"
     IEBundledNamespaceData -> docText "data"
 
 docExportMember :: IEBundledMember -> Doc ann

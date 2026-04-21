@@ -867,7 +867,8 @@ data IEEntityNamespace
   deriving (Data, Eq, Show, Generic, NFData)
 
 data IEBundledNamespace
-  = IEBundledNamespaceData
+  = IEBundledNamespaceType
+  | IEBundledNamespaceData
   deriving (Data, Eq, Show, Generic, NFData)
 
 data IEBundledMember = IEBundledMember

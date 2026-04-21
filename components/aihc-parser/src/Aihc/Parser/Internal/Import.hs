@@ -241,4 +241,5 @@ exportImportNamespaceParser =
 
 bundledNamespaceParser :: TokParser IEBundledNamespace
 bundledNamespaceParser =
-  expectedTok TkKeywordData >> pure IEBundledNamespaceData
+  (expectedTok TkKeywordType >> pure IEBundledNamespaceType)
+    <|> (expectedTok TkKeywordData >> pure IEBundledNamespaceData)

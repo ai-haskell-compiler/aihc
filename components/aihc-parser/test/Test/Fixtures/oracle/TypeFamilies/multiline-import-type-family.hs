@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Multi-line import with TypeFamilies -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 import Generic.Data.Function.FoldMap.Constructor
   ( GFoldMapC(gFoldMapC)
