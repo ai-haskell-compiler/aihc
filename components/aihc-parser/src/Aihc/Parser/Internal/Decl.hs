@@ -764,7 +764,7 @@ standaloneDerivingHeadParser =
     bareStandaloneDerivingHeadParser = MP.try infixStandaloneDerivingHeadParser <|> prefixStandaloneDerivingHeadParser
 
     prefixStandaloneDerivingHeadParser = do
-      className <- constructorNameParser <|> parens constructorOperatorParser
+      className <- constructorNameParser <|> parens operatorNameParser
       instanceTypes <- MP.many typeAtomParser
       pure (TypeHeadPrefix, className, instanceTypes)
 
@@ -792,7 +792,7 @@ instanceHeadParser =
     bareInstanceHeadParser = MP.try infixInstanceHeadParser <|> prefixInstanceHeadParser
 
     prefixInstanceHeadParser = do
-      className <- nameToUnqualified <$> (constructorNameParser <|> parens constructorOperatorParser)
+      className <- nameToUnqualified <$> (constructorNameParser <|> parens operatorNameParser)
       instanceTypes <- MP.many typeAtomParser
       pure (TypeHeadPrefix, className, instanceTypes)
 
@@ -1295,14 +1295,14 @@ classHeadParser =
 
     infixDeclHeadParser = do
       lhs <- declTypeParamParser
-      op <- constructorOperatorParser
+      op <- typeFamilyOperatorParser
       rhs <- declTypeParamParser
       pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
 
     parenthesizedInfixDeclHeadParser = do
       expectedTok TkSpecialLParen
       lhs <- declTypeParamParser
-      op <- constructorOperatorParser
+      op <- typeFamilyOperatorParser
       rhs <- declTypeParamParser
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser

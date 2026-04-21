@@ -272,6 +272,7 @@ buildTests = do
             testCase "roundtrips abstract import items written as T()" test_emptyBundledImportRoundtrip,
             testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
             testCase "parses infix class heads" test_infixClassHeadParses,
+            testCase "parses infix class heads with variable-symbol operators" test_infixClassHeadVarSymParses,
             testCase "parses class operator type signatures in where blocks" test_classOperatorTypeSigParses,
             testCase "parses explicit associated type family declarations" test_explicitAssociatedTypeFamilyDeclParses,
             testCase "roundtrips explicit associated type family declarations with default signatures" test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip,
@@ -729,6 +730,24 @@ test_infixClassHeadParses =
         case map normalizeDecl (moduleDecls modu) of
           [ DeclFixity {},
             DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
+            ] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_infixClassHeadVarSymParses :: Assertion
+test_infixClassHeadVarSymParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE QuantifiedConstraints #-}",
+            "module M where",
+            "class (p => q) => p |- q",
+            "class (p, q) => p & q"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [ DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "|-", classDeclParams = [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible]},
+            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "&", classDeclParams = [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
