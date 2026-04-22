@@ -32,7 +32,6 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Data.ByteString qualified as BS
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
@@ -168,7 +167,7 @@ runLexMode extensionSettings stdin =
 
 -- | Resolve all include requests in a CPP step, returning the final result.
 resolveCppStep :: Map FilePath Text -> Step -> Result
-resolveCppStep includeMap (Done result) = result
+resolveCppStep _ (Done result) = result
 resolveCppStep includeMap (NeedInclude req k) =
   let resolved = resolveInclude includeMap req
    in resolveCppStep includeMap (k (fmap TE.encodeUtf8 resolved))
