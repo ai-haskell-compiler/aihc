@@ -44,6 +44,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
