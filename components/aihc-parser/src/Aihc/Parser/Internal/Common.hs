@@ -25,6 +25,7 @@ module Aihc.Parser.Internal.Common
     operatorUnqualifiedNameParser,
     operatorTextParser,
     infixOperatorNameParser,
+    constructorInfixOperatorNameParser,
     stringTextParser,
     withSpan,
     withSpanAnn,
@@ -381,6 +382,32 @@ infixOperatorNameParser =
           TkVarId name -> Just name
           _ -> Nothing
 
+-- | Parse an infix constructor operator name (conop) for pattern synonym where clauses.
+-- Per Haskell Report, pattern synonym where-clause equations use the constructor
+-- name in infix position: @pat ConOp pat = expr@.
+-- This is the constructor counterpart of 'infixOperatorNameParser'.
+--   conop → consym | ` conid `
+constructorInfixOperatorNameParser :: TokParser UnqualifiedName
+constructorInfixOperatorNameParser =
+  symbolicConstructorOperatorParser <|> backtickConstructorIdentifierParser
+  where
+    symbolicConstructorOperatorParser =
+      tokenSatisfy "constructor operator" $ \tok ->
+        case lexTokenKind tok of
+          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+          _ -> Nothing
+    backtickConstructorIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- constructorIdentifierTextParser
+      expectedTok TkSpecialBacktick
+      pure (mkUnqualifiedName NameConId op)
+    constructorIdentifierTextParser =
+      tokenSatisfy "constructor identifier" $ \tok ->
+        case lexTokenKind tok of
+          TkConId name -> Just name
+          _ -> Nothing
+
 stringTextParser :: TokParser Text
 stringTextParser =
   tokenSatisfy "string literal" $ \tok ->
@@ -647,10 +674,10 @@ contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
-functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser
+functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser infixOperatorNameParser
 
-functionHeadParserWithBinder :: TokParser UnqualifiedName -> TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
-functionHeadParserWithBinder binderParser fullPatternParser prefixPatternParser =
+functionHeadParserWithBinder :: TokParser UnqualifiedName -> TokParser UnqualifiedName -> TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
+functionHeadParserWithBinder binderParser infixOpParser fullPatternParser prefixPatternParser =
   MP.try parenthesizedInfixHeadParser
     <|> MP.try infixHeadParser
     <|> prefixHeadParser
@@ -662,14 +689,14 @@ functionHeadParserWithBinder binderParser fullPatternParser prefixPatternParser 
 
     infixHeadParser = do
       lhsPat <- fullPatternParser
-      op <- infixOperatorNameParser
+      op <- infixOpParser
       rhsPat <- fullPatternParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat])
 
     parenthesizedInfixHeadParser = do
       expectedTok TkSpecialLParen
       lhsPat <- fullPatternParser
-      op <- infixOperatorNameParser
+      op <- infixOpParser
       rhsPat <- fullPatternParser
       expectedTok TkSpecialRParen
       tailPats <- MP.many prefixPatternParser
