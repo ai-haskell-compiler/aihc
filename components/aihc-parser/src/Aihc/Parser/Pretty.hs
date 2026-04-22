@@ -1303,6 +1303,10 @@ prettyCompStmt stmt =
     CompGen pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     CompGuard expr -> prettyExpr expr
     CompLetDecls decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
+    CompThen f -> "then" <+> prettyExpr f
+    CompThenBy f e -> "then" <+> prettyExpr f <+> "by" <+> prettyExpr e
+    CompGroupUsing f -> "then" <+> "group" <+> "using" <+> prettyExpr f
+    CompGroupByUsing e f -> "then" <+> "group" <+> "by" <+> prettyExpr e <+> "using" <+> prettyExpr f
 
 prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =

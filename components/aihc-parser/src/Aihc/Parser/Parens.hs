@@ -947,6 +947,10 @@ addCompStmtParens stmt =
     CompGen pat e -> CompGen (addPatternParens pat) (addExprParens e)
     CompGuard e -> CompGuard (addExprParens e)
     CompLetDecls decls -> CompLetDecls (map addDeclParens decls)
+    CompThen f -> CompThen (addExprParens f)
+    CompThenBy f e -> CompThenBy (addExprParens f) (addExprParens e)
+    CompGroupUsing f -> CompGroupUsing (addExprParens f)
+    CompGroupByUsing e f -> CompGroupByUsing (addExprParens e) (addExprParens f)
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =

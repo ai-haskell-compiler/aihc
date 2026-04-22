@@ -828,6 +828,10 @@ docCompStmt stmt =
     CompGen pat expr -> "CompGen" <+> parens (docPattern pat) <+> parens (docExpr expr)
     CompGuard expr -> "CompGuard" <+> parens (docExpr expr)
     CompLetDecls decls -> "CompLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    CompThen f -> "CompThen" <+> parens (docExpr f)
+    CompThenBy f e -> "CompThenBy" <+> parens (docExpr f) <+> parens (docExpr e)
+    CompGroupUsing f -> "CompGroupUsing" <+> parens (docExpr f)
+    CompGroupByUsing e f -> "CompGroupByUsing" <+> parens (docExpr e) <+> parens (docExpr f)
 
 docCmd :: Cmd -> Doc ann
 docCmd cmd =

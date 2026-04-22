@@ -149,6 +149,18 @@ pattern CompGuard_ e <- (peelCompStmtAnn -> CompGuard e)
 pattern CompLetDecls_ :: [Decl] -> CompStmt
 pattern CompLetDecls_ decls <- (peelCompStmtAnn -> CompLetDecls decls)
 
+pattern CompThen_ :: Expr -> CompStmt
+pattern CompThen_ f <- (peelCompStmtAnn -> CompThen f)
+
+pattern CompThenBy_ :: Expr -> Expr -> CompStmt
+pattern CompThenBy_ f e <- (peelCompStmtAnn -> CompThenBy f e)
+
+pattern CompGroupUsing_ :: Expr -> CompStmt
+pattern CompGroupUsing_ f <- (peelCompStmtAnn -> CompGroupUsing f)
+
+pattern CompGroupByUsing_ :: Expr -> Expr -> CompStmt
+pattern CompGroupByUsing_ e f <- (peelCompStmtAnn -> CompGroupByUsing e f)
+
 pattern GuardExpr_ :: Expr -> GuardQualifier
 pattern GuardExpr_ e <- (peelGuardQualifierAnn -> GuardExpr e)
 
@@ -358,6 +370,18 @@ buildTests = do
             testCase "comp as gen: [y | y@(Just _) <- xs]" test_compAsGen,
             testCase "comp infix gen: [a | a : as <- xs]" test_compInfixGen,
             testCase "comp nested prefix gen: [y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]" test_compNestedPrefixGen
+          ],
+        testGroup
+          "TransformListComp"
+          [ testCase "then f: [x | x <- xs, then take 5]" test_compThen,
+            testCase "then f (single arg): [x | x <- xs, then reverse]" test_compThenSingleArg,
+            testCase "then f by e: [x | x <- xs, then sortWith by x]" test_compThenBy,
+            testCase "then group by e using f" test_compGroupByUsing,
+            testCase "then group using f" test_compGroupUsing,
+            testCase "multiple transform stmts" test_compTransformMultiple,
+            testCase "transform with let" test_compTransformWithLet,
+            testCase "by/using as vars without ext" test_compByUsingAsVarsWithoutExt,
+            testCase "then f by (paren expr)" test_compThenByParenExpr
           ],
         testGroup
           "localDeclParser dispatch"
@@ -2389,6 +2413,63 @@ test_compInfixGen =
   case parseCompStmts "[a | a : as <- xs]" of
     Right [CompGen_ (PInfix_ (PVar_ "a") ":" (PVar_ "as")) _] -> pure ()
     other -> assertFailure ("expected comp infix gen, got: " <> show other)
+
+-- TransformListComp tests
+
+test_compThen :: Assertion
+test_compThen =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then take 5]" of
+    Right [CompGen_ _ _, CompThen_ _] -> pure ()
+    other -> assertFailure ("expected comp then, got: " <> show other)
+
+test_compThenSingleArg :: Assertion
+test_compThenSingleArg =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then reverse]" of
+    Right [CompGen_ _ _, CompThen_ (EVar_ "reverse")] -> pure ()
+    other -> assertFailure ("expected comp then reverse, got: " <> show other)
+
+test_compThenBy :: Assertion
+test_compThenBy =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then sortWith by x]" of
+    Right [CompGen_ _ _, CompThenBy_ _ _] -> pure ()
+    other -> assertFailure ("expected comp then-by, got: " <> show other)
+
+test_compGroupByUsing :: Assertion
+test_compGroupByUsing =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then group by x using groupWith]" of
+    Right [CompGen_ _ _, CompGroupByUsing_ _ _] -> pure ()
+    other -> assertFailure ("expected comp group-by-using, got: " <> show other)
+
+test_compGroupUsing :: Assertion
+test_compGroupUsing =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then group using inits]" of
+    Right [CompGen_ _ _, CompGroupUsing_ _] -> pure ()
+    other -> assertFailure ("expected comp group-using, got: " <> show other)
+
+test_compTransformMultiple :: Assertion
+test_compTransformMultiple =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then group by x using groupWith, then sortWith by x, then take 5]" of
+    Right [CompGen_ _ _, CompGroupByUsing_ _ _, CompThenBy_ _ _, CompThen_ _] -> pure ()
+    other -> assertFailure ("expected multiple transform stmts, got: " <> show other)
+
+test_compTransformWithLet :: Assertion
+test_compTransformWithLet =
+  case parseCompStmtsExt [TransformListComp] "[y | x <- xs, let { y = x }, then group by y using groupWith]" of
+    Right [CompGen_ _ _, CompLetDecls_ _, CompGroupByUsing_ _ _] -> pure ()
+    other -> assertFailure ("expected transform with let, got: " <> show other)
+
+test_compByUsingAsVarsWithoutExt :: Assertion
+test_compByUsingAsVarsWithoutExt =
+  -- Without TransformListComp, 'by' and 'using' should be parsed as regular variables
+  case parseCompStmts "[by | using <- xs]" of
+    Right [CompGen_ (PVar_ "using") _] -> pure ()
+    other -> assertFailure ("expected by/using as regular vars, got: " <> show other)
+
+test_compThenByParenExpr :: Assertion
+test_compThenByParenExpr =
+  case parseCompStmtsExt [TransformListComp] "[x | x <- xs, then sortWith by (sum salary)]" of
+    Right [CompGen_ _ _, CompThenBy_ _ _] -> pure ()
+    other -> assertFailure ("expected comp then-by with paren expr, got: " <> show other)
 
 -- Helper: parse a let-expression and extract the local declarations.
 -- Input: "let { decl1; decl2 } in body"

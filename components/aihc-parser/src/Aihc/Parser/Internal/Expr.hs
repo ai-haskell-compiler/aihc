@@ -943,11 +943,126 @@ compStmtParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordLet -> MP.try compLetStmtParser <|> compGenOrGuardParser
+    TkKeywordThen -> compTransformStmtParser <|> compGenOrGuardParser
     _ -> do
       isPatternBind <- startsWithPatternBind
       if isPatternBind
         then compPatGenParser
         else compGenOrGuardParser
+
+-- | Parse a TransformListComp qualifier: @then f@, @then f by e@,
+-- @then group by e using f@, or @then group using f@.
+-- Only attempted when the 'TransformListComp' extension is enabled.
+compTransformStmtParser :: TokParser CompStmt
+compTransformStmtParser = MP.try $ withSpanAnn (CompAnn . mkAnnotation) $ do
+  enabled <- isExtensionEnabled TransformListComp
+  guard enabled
+  expectedTok TkKeywordThen
+  -- Check for 'group' forms first
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarId "group" -> compGroupStmtParser
+    _ -> compThenStmtParser
+
+-- | Parse @group by e using f@ or @group using f@ (after 'then' has been consumed).
+compGroupStmtParser :: TokParser CompStmt
+compGroupStmtParser = do
+  varIdTok "group"
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarId "by" -> do
+      varIdTok "by"
+      e <- compTransformExprParser
+      varIdTok "using"
+      CompGroupByUsing e <$> exprParser
+    TkVarId "using" -> do
+      varIdTok "using"
+      CompGroupUsing <$> exprParser
+    _ -> fail "expected 'by' or 'using' after 'group'"
+
+-- | Parse @f@ or @f by e@ (after 'then' has been consumed).
+-- Uses a restricted expression parser that excludes 'by' and 'using'
+-- from being consumed as variable identifiers at the top level.
+compThenStmtParser :: TokParser CompStmt
+compThenStmtParser = do
+  f <- compTransformExprParser
+  mBy <- MP.optional (varIdTok "by")
+  case mBy of
+    Just () -> CompThenBy f <$> exprParser
+    Nothing -> pure (CompThen f)
+
+-- | Expression parser for TransformListComp context.
+-- Parses an expression but treats bare 'by' and 'using' as terminators
+-- (they are not consumed as variable identifiers at the application level).
+compTransformExprParser :: TokParser Expr
+compTransformExprParser =
+  label "expression" $ do
+    tok <- lookAhead anySingle
+    base <- case lexTokenKind tok of
+      TkKeywordDo -> doExprParser
+      TkKeywordMdo -> mdoExprParser
+      TkKeywordIf -> ifExprParser
+      TkKeywordLet -> letExprParser
+      TkKeywordProc -> procExprParser
+      TkReservedBackslash -> lambdaExprParser
+      _ -> compTransformInfixExprParser
+    rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
+    pure (foldl buildInfix base rest)
+
+compTransformLexpParser :: TokParser Expr
+compTransformLexpParser =
+  doExprParser
+    <|> mdoExprParser
+    <|> ifExprParser
+    <|> caseExprParser
+    <|> letExprParser
+    <|> procExprParser
+    <|> lambdaExprParser
+    <|> MP.try negateExprParser
+    <|> compTransformAppExprParser
+
+compTransformInfixExprParser :: TokParser Expr
+compTransformInfixExprParser = do
+  lhs <- MP.try negateExprParser <|> compTransformLexpParser
+  rest <-
+    MP.many
+      ( (,)
+          <$> infixOperatorParserExcept []
+          <*> region "after infix operator" compTransformLexpParser
+      )
+  pure (foldl buildInfix lhs rest)
+
+compTransformAppExprParser :: TokParser Expr
+compTransformAppExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  typeAppsEnabled <- isExtensionEnabled TypeApplications
+  first <- compTransformAtomExprParser
+  rest <- MP.many (compTransformAppArg typeAppsEnabled)
+  pure $
+    foldl applyArg first rest
+  where
+    compTransformAppArg :: Bool -> TokParser (Either Type Expr)
+    compTransformAppArg typeAppsEnabled
+      | typeAppsEnabled = (Left <$> compTransformTypeAppArg) <|> (Right <$> compTransformAtomExprParser)
+      | otherwise = Right <$> compTransformAtomExprParser
+
+    compTransformTypeAppArg :: TokParser Type
+    compTransformTypeAppArg = MP.try $ do
+      expectedTok TkTypeApp
+      typeAtomParser
+
+    applyArg :: Expr -> Either Type Expr -> Expr
+    applyArg fn (Left ty) = ETypeApp fn ty
+    applyArg fn (Right arg) = EApp fn arg
+
+-- | Like 'atomExprParser' but rejects bare 'by' and 'using' identifiers.
+-- These are treated as contextual keywords in TransformListComp context.
+compTransformAtomExprParser :: TokParser Expr
+compTransformAtomExprParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarId "by" -> MP.empty
+    TkVarId "using" -> MP.empty
+    _ -> atomExprParser
 
 compGenOrGuardParser :: TokParser CompStmt
 compGenOrGuardParser =
