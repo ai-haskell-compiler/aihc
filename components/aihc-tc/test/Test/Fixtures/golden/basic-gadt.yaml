@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    data GADT a where
+      IsBool :: GADT Bool
+    not True = False
+    not False = True
+
+    fn :: a -> GADT a -> a
+    fn x IsBool = not x
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "GADT :: *"
+  - "IsBool :: GADT Bool"
+  - "not :: Bool -> Bool"
+  - "fn :: forall a. a -> GADT a -> a"
+status: pass

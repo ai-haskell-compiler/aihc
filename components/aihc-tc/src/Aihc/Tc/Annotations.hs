@@ -71,37 +71,42 @@ annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 -- | Render a 'TcType' as a human-readable string.
+--
+-- Uses a precedence level to decide when to insert parentheses:
+--   0 = no parens needed (top level or right of ->)
+--   1 = parens needed for function types (left of ->)
+--   2 = parens needed for function types and type applications (inside type con args)
 renderTcType :: TcType -> String
-renderTcType = go False
+renderTcType = go 0
   where
-    go :: Bool -> TcType -> String
+    go :: Int -> TcType -> String
     go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
     go _ (TcTyCon tc []) = T.unpack (tyConName tc)
-    go parens (TcTyCon tc args) =
-      paren parens $
-        unwords (T.unpack (tyConName tc) : map (go True) args)
-    go parens (TcFunTy a b) =
-      paren parens $
-        go True a ++ " -> " ++ go False b
-    go parens (TcForAllTy tv body) =
+    go p (TcTyCon tc args) =
+      parenIf (p >= 2) $
+        unwords (T.unpack (tyConName tc) : map (go 2) args)
+    go p (TcFunTy a b) =
+      parenIf (p >= 1) $
+        go 1 a ++ " -> " ++ go 0 b
+    go p (TcForAllTy tv body) =
       let (tvs, inner) = collectForAlls body
-       in paren parens $
-            "forall " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go False inner
-    go parens (TcQualTy preds body) =
-      paren parens $
-        "(" ++ unwords (map showPred preds) ++ ") => " ++ go False body
-    go parens (TcAppTy f a) =
-      paren parens $
-        go True f ++ " " ++ go True a
+       in parenIf (p >= 1) $
+            "forall " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
+    go p (TcQualTy preds body) =
+      parenIf (p >= 1) $
+        "(" ++ unwords (map showPred preds) ++ ") => " ++ go 0 body
+    go p (TcAppTy f a) =
+      parenIf (p >= 2) $
+        go 1 f ++ " " ++ go 2 a
 
     showPred (ClassPred cls args) =
-      T.unpack cls ++ " " ++ unwords (map (go True) args)
+      T.unpack cls ++ " " ++ unwords (map (go 2) args)
     showPred (EqPred t1 t2) =
-      go True t1 ++ " ~ " ++ go True t2
+      go 2 t1 ++ " ~ " ++ go 2 t2
 
-    paren False s = s
-    paren True s = "(" ++ s ++ ")"
+    parenIf False s = s
+    parenIf True s = "(" ++ s ++ ")"
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

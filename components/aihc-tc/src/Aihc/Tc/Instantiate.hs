@@ -5,6 +5,7 @@
 -- predicates.
 module Aihc.Tc.Instantiate
   ( instantiate,
+    applySubst,
   )
 where
 
