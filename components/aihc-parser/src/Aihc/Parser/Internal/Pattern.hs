@@ -14,6 +14,7 @@ import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
 import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Data.Functor (($>))
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
@@ -441,7 +442,13 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
             TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
             TkQConSym modName op -> pure (PCon (mkName (Just modName) NameConSym op) [] [])
-            _ -> fail "expected operator token"
+            _ ->
+              MP.customFailure
+                UnexpectedTokenExpecting
+                  { unexpectedFound = Just (mkFoundToken tok'),
+                    unexpectedExpecting = "operator token",
+                    unexpectedContext = []
+                  }
 
     -- Try to parse as expression, then reclassify via checkPattern.
     -- When exprParser fails, does not consume the full element (e.g.,
