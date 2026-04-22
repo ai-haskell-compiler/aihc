@@ -14,6 +14,7 @@ module Aihc.Parser.Syntax
     ArrAppType (..),
     BangType (..),
     BinderName,
+    BinderHead (..),
     CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
@@ -65,6 +66,7 @@ module Aihc.Parser.Syntax
     Name (..),
     NameType (..),
     UnqualifiedName (..),
+    InstanceHead (..),
     WarningText (..),
     Annotation,
     NewtypeDecl (..),
@@ -103,6 +105,9 @@ module Aihc.Parser.Syntax
     allKnownExtensions,
     applyExtensionSetting,
     applyImpliedExtensions,
+    binderHeadForm,
+    binderHeadName,
+    binderHeadParams,
     effectiveExtensions,
     extensionName,
     extensionSettingName,
@@ -125,6 +130,9 @@ module Aihc.Parser.Syntax
     moduleName,
     moduleWarningText,
     moduleExports,
+    instanceHeadForm,
+    instanceHeadName,
+    instanceHeadTypes,
     mkAnnotation,
     fromAnnotation,
     peelArithSeqAnn,
@@ -1253,6 +1261,52 @@ data TypeHeadForm
   | TypeHeadInfix
   deriving (Data, Eq, Show, Generic, NFData)
 
+data BinderHead name
+  = PrefixBinderHead name [TyVarBinder]
+  | InfixBinderHead TyVarBinder name TyVarBinder [TyVarBinder]
+  deriving (Data, Eq, Show, Generic, NFData)
+
+binderHeadForm :: BinderHead name -> TypeHeadForm
+binderHeadForm head' =
+  case head' of
+    PrefixBinderHead {} -> TypeHeadPrefix
+    InfixBinderHead {} -> TypeHeadInfix
+
+binderHeadName :: BinderHead name -> name
+binderHeadName head' =
+  case head' of
+    PrefixBinderHead name _ -> name
+    InfixBinderHead _ name _ _ -> name
+
+binderHeadParams :: BinderHead name -> [TyVarBinder]
+binderHeadParams head' =
+  case head' of
+    PrefixBinderHead _ params -> params
+    InfixBinderHead lhs _ rhs tailParams -> lhs : rhs : tailParams
+
+data InstanceHead name
+  = PrefixInstanceHead name [Type]
+  | InfixInstanceHead Type name Type
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instanceHeadForm :: InstanceHead name -> TypeHeadForm
+instanceHeadForm head' =
+  case head' of
+    PrefixInstanceHead {} -> TypeHeadPrefix
+    InfixInstanceHead {} -> TypeHeadInfix
+
+instanceHeadName :: InstanceHead name -> name
+instanceHeadName head' =
+  case head' of
+    PrefixInstanceHead name _ -> name
+    InfixInstanceHead _ name _ -> name
+
+instanceHeadTypes :: InstanceHead name -> [Type]
+instanceHeadTypes head' =
+  case head' of
+    PrefixInstanceHead _ tys -> tys
+    InfixInstanceHead lhs _ rhs -> [lhs, rhs]
+
 data Role
   = RoleNominal
   | RoleRepresentational
@@ -1267,9 +1321,7 @@ data RoleAnnotation = RoleAnnotation
   deriving (Data, Eq, Show, Generic, NFData)
 
 data TypeSynDecl = TypeSynDecl
-  { typeSynHeadForm :: TypeHeadForm,
-    typeSynName :: UnqualifiedName,
-    typeSynParams :: [TyVarBinder],
+  { typeSynHead :: BinderHead UnqualifiedName,
     typeSynBody :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1316,9 +1368,7 @@ data TypeFamilyEq = TypeFamilyEq
 
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
-  { dataFamilyDeclHeadForm :: TypeHeadForm,
-    dataFamilyDeclName :: UnqualifiedName,
-    dataFamilyDeclParams :: [TyVarBinder],
+  { dataFamilyDeclHead :: BinderHead UnqualifiedName,
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type
   }
@@ -1348,10 +1398,8 @@ data DataFamilyInst = DataFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 data DataDecl = DataDecl
-  { dataDeclHeadForm :: TypeHeadForm,
+  { dataDeclHead :: BinderHead UnqualifiedName,
     dataDeclContext :: [Type],
-    dataDeclName :: UnqualifiedName,
-    dataDeclParams :: [TyVarBinder],
     -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
     dataDeclKind :: Maybe Type,
     dataDeclConstructors :: [DataConDecl],
@@ -1360,10 +1408,8 @@ data DataDecl = DataDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
 data NewtypeDecl = NewtypeDecl
-  { newtypeDeclHeadForm :: TypeHeadForm,
+  { newtypeDeclHead :: BinderHead UnqualifiedName,
     newtypeDeclContext :: [Type],
-    newtypeDeclName :: UnqualifiedName,
-    newtypeDeclParams :: [TyVarBinder],
     -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
     newtypeDeclKind :: Maybe Type,
     newtypeDeclConstructor :: Maybe DataConDecl,
@@ -1454,17 +1500,13 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
-    standaloneDerivingHeadForm :: TypeHeadForm,
-    standaloneDerivingClassName :: Name,
-    standaloneDerivingTypes :: [Type]
+    standaloneDerivingHead :: InstanceHead Name
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
-    classDeclHeadForm :: TypeHeadForm,
-    classDeclName :: UnqualifiedName,
-    classDeclParams :: [TyVarBinder],
+    classDeclHead :: BinderHead UnqualifiedName,
     classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
   }
@@ -1508,9 +1550,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
-    instanceDeclHeadForm :: TypeHeadForm,
-    instanceDeclClassName :: UnqualifiedName,
-    instanceDeclTypes :: [Type],
+    instanceDeclHead :: InstanceHead UnqualifiedName,
     instanceDeclItems :: [InstanceDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)

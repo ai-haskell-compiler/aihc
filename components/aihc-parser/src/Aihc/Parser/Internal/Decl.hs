@@ -136,14 +136,14 @@ implicitSpliceDeclParser = DeclSplice <$> exprParser
 typeDeclarationParser :: TokParser Decl
 typeDeclarationParser = do
   expectedTok TkKeywordType
-  (headForm, typeName, typeParams) <- typeDeclHeadParser
+  typeHead <- typeDeclHeadParser
   nextTok <- anySingle
   case lexTokenKind nextTok of
     TkReservedDoubleColon -> do
       -- Standalone kind signature: cannot have type parameters
-      if null typeParams
+      if null (binderHeadParams typeHead)
         then
-          DeclStandaloneKindSig typeName <$> typeParser
+          DeclStandaloneKindSig (binderHeadName typeHead) <$> typeParser
         else
           fail "Standalone kind signatures cannot have type parameters."
     TkReservedEquals -> do
@@ -151,9 +151,7 @@ typeDeclarationParser = do
       pure $
         DeclTypeSyn
           TypeSynDecl
-            { typeSynHeadForm = headForm,
-              typeSynName = typeName,
-              typeSynParams = typeParams,
+            { typeSynHead = typeHead,
               typeSynBody = body
             }
     _ ->
@@ -299,14 +297,12 @@ dataFamilyDeclParser :: TokParser Decl
 dataFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   varIdTok "family"
-  (headForm, name, params) <- typeDeclHeadParser
+  head' <- typeDeclHeadParser
   kind <- familyResultKindParser
   pure $
     DeclDataFamilyDecl
       DataFamilyDecl
-        { dataFamilyDeclHeadForm = headForm,
-          dataFamilyDeclName = name,
-          dataFamilyDeclParams = params,
+        { dataFamilyDeclHead = head',
           dataFamilyDeclKind = kind
         }
 
@@ -387,14 +383,12 @@ classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
 classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
-  (headForm, name, params) <- typeDeclHeadParser
+  head' <- typeDeclHeadParser
   kind <- familyResultKindParser
   pure
     ( ClassItemDataFamilyDecl
         DataFamilyDecl
-          { dataFamilyDeclHeadForm = headForm,
-            dataFamilyDeclName = name,
-            dataFamilyDeclParams = params,
+          { dataFamilyDeclHead = head',
             dataFamilyDeclKind = kind
           }
     )
@@ -558,16 +552,14 @@ classDeclParser :: TokParser Decl
 classDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordClass
   context <- contextPrefixDispatch
-  (headForm, className, classParams) <- classHeadParser
+  classHead <- classHeadParser
   classFundeps <- MP.option [] (MP.try classFundepsParser)
   items <- MP.option [] classWhereClauseParser
   pure $
     DeclClass
       ClassDecl
         { classDeclContext = context,
-          classDeclHeadForm = headForm,
-          classDeclName = className,
-          classDeclParams = classParams,
+          classDeclHead = classHead,
           classDeclFundeps = classFundeps,
           classDeclItems = items
         }
@@ -646,7 +638,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, headForm, className, instanceTypes) <- instanceHeadParser
+  (parenthesizedHead, instanceHead) <- instanceHeadParser
   items <- MP.option [] instanceWhereClauseParser
   pure $
     DeclInstance
@@ -656,9 +648,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclParenthesizedHead = parenthesizedHead,
-          instanceDeclHeadForm = headForm,
-          instanceDeclClassName = className,
-          instanceDeclTypes = instanceTypes,
+          instanceDeclHead = instanceHead,
           instanceDeclItems = items
         }
 
@@ -672,7 +662,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, headForm, className, instanceTypes) <- standaloneDerivingHeadParser
+  (parenthesizedHead, derivingHead) <- standaloneDerivingHeadParser
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
@@ -683,47 +673,56 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
           standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingParenthesizedHead = parenthesizedHead,
-          standaloneDerivingHeadForm = headForm,
-          standaloneDerivingClassName = className,
-          standaloneDerivingTypes = instanceTypes
+          standaloneDerivingHead = derivingHead
         }
 
 -- | Shared helper for parsing instance / standalone deriving heads.
--- Returns the parenthesized flag, head form, class name (as 'Name'), and argument types.
-bareInstanceHeadParser :: TokParser (TypeHeadForm, Name, [Type])
+bareInstanceHeadParser :: TokParser (InstanceHead Name)
 bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
   where
     prefixHeadParser = do
       className <- constructorNameParser <|> parens operatorNameParser
       instanceTypes <- MP.many typeAtomParser
-      pure (TypeHeadPrefix, className, instanceTypes)
+      pure (PrefixInstanceHead className instanceTypes)
 
     infixHeadParser = do
       lhs <- typeAtomParser
       _ <- lookAhead typeInfixOperatorParser
       op <- typeFamilyOperatorParser
-      rhs <- typeAtomParser
-      pure (TypeHeadInfix, op, [lhs, rhs])
+      InfixInstanceHead lhs op <$> typeAtomParser
 
-standaloneDerivingHeadParser :: TokParser (Bool, TypeHeadForm, Name, [Type])
+standaloneDerivingHeadParser :: TokParser (Bool, InstanceHead Name)
 standaloneDerivingHeadParser =
   MP.try
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        let (headForm, className, instanceTypes) = parsed
-        pure (True, headForm, className, instanceTypes)
+        pure (True, parsed)
     )
     <|> ( do
-            (headForm, className, instanceTypes) <- bareInstanceHeadParser
-            pure (False, headForm, className, instanceTypes)
+            instanceHead <- bareInstanceHeadParser
+            pure (False, instanceHead)
         )
 
-instanceHeadParser :: TokParser (Bool, TypeHeadForm, UnqualifiedName, [Type])
-instanceHeadParser = fmap mapName standaloneDerivingHeadParser
+instanceHeadParser :: TokParser (Bool, InstanceHead UnqualifiedName)
+instanceHeadParser =
+  MP.try
+    ( do
+        parsed <- parens bareInstanceHeadParser
+        _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
+        pure (True, mapName parsed)
+    )
+    <|> ( do
+            instanceHead <- bareInstanceHeadParser
+            pure (False, mapName instanceHead)
+        )
   where
-    mapName (parenthesized, headForm, className, instanceTypes) =
-      (parenthesized, headForm, nameToUnqualified className, instanceTypes)
+    mapName head' =
+      case head' of
+        PrefixInstanceHead className instanceTypes ->
+          PrefixInstanceHead (nameToUnqualified className) instanceTypes
+        InfixInstanceHead lhs op rhs ->
+          InfixInstanceHead lhs (nameToUnqualified op) rhs
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceDeclItemParser
@@ -850,7 +849,7 @@ dataDeclParser :: TokParser Decl
 dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   context <- contextPrefixDispatch
-  (headForm, typeName, typeParams) <- typeDeclHeadParser
+  typeHead <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -858,10 +857,8 @@ dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclData
       DataDecl
-        { dataDeclHeadForm = headForm,
+        { dataDeclHead = typeHead,
           dataDeclContext = fromMaybe [] context,
-          dataDeclName = typeName,
-          dataDeclParams = typeParams,
           dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
           dataDeclDeriving = derivingClauses
@@ -878,7 +875,7 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   expectedTok TkKeywordData
   -- type data may not have a datatype context
-  (headForm, typeName, typeParams) <- typeDeclHeadParser
+  typeHead <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -887,10 +884,8 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeData
       DataDecl
-        { dataDeclHeadForm = headForm,
+        { dataDeclHead = typeHead,
           dataDeclContext = [],
-          dataDeclName = typeName,
-          dataDeclParams = typeParams,
           dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
           dataDeclDeriving = []
@@ -983,7 +978,7 @@ newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
-  (headForm, typeName, typeParams) <- typeDeclHeadParser
+  typeHead <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -991,10 +986,8 @@ newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclNewtype
       NewtypeDecl
-        { newtypeDeclHeadForm = headForm,
+        { newtypeDeclHead = typeHead,
           newtypeDeclContext = fromMaybe [] context,
-          newtypeDeclName = typeName,
-          newtypeDeclParams = typeParams,
           newtypeDeclKind = inlineKind,
           newtypeDeclConstructor = constructor,
           newtypeDeclDeriving = derivingClauses
@@ -1106,20 +1099,20 @@ gadtResultTypeParser = typeParser
 declContextParser :: TokParser [Type]
 declContextParser = contextParserWith typeParser typeAtomParser
 
-typeDeclHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
+typeDeclHeadParser :: TokParser (BinderHead UnqualifiedName)
 typeDeclHeadParser =
   MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
       params <- MP.many declTypeParamParser
-      pure (TypeHeadPrefix, name, params)
+      pure (PrefixBinderHead name params)
 
     infixDeclHeadParser = do
       lhs <- declTypeParamParser
       op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
       rhs <- declTypeParamParser
-      pure (TypeHeadInfix, op, [lhs, rhs])
+      pure (InfixBinderHead lhs op rhs [])
 
     parenthesizedInfixDeclHeadParser = do
       expectedTok TkSpecialLParen
@@ -1128,7 +1121,7 @@ typeDeclHeadParser =
       rhs <- declTypeParamParser
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
-      pure (TypeHeadInfix, op, [lhs, rhs] <> tailParams)
+      pure (InfixBinderHead lhs op rhs tailParams)
 
 typeSynonymOperatorParser :: TokParser Text
 typeSynonymOperatorParser =
@@ -1197,20 +1190,20 @@ typeFamilyLhsParser = do
 
     buildInfixType left ((op, promoted), right) = TInfix left op promoted right
 
-classHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
+classHeadParser :: TokParser (BinderHead UnqualifiedName)
 classHeadParser =
   MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
       params <- MP.many declTypeParamParser
-      pure (TypeHeadPrefix, name, params)
+      pure (PrefixBinderHead name params)
 
     infixDeclHeadParser = do
       lhs <- declTypeParamParser
       op <- typeFamilyOperatorParser
       rhs <- declTypeParamParser
-      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs])
+      pure (InfixBinderHead lhs (nameToUnqualified op) rhs [])
 
     parenthesizedInfixDeclHeadParser = do
       expectedTok TkSpecialLParen
@@ -1219,7 +1212,7 @@ classHeadParser =
       rhs <- declTypeParamParser
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
-      pure (TypeHeadInfix, nameToUnqualified op, [lhs, rhs] <> tailParams)
+      pure (InfixBinderHead lhs (nameToUnqualified op) rhs tailParams)
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
