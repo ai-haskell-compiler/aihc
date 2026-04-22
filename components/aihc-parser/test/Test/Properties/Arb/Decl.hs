@@ -397,7 +397,7 @@ genNewtypeCon =
 genNewtypePrefixCon :: Gen DataConDecl
 genNewtypePrefixCon = do
   conName <- genConUnqualifiedName
-  ty <- genSimpleType
+  ty <- genType
   pure (PrefixCon [] [] conName [BangType [] NoSourceUnpackedness False False ty])
 
 genNewtypeRecordCon :: Gen DataConDecl
