@@ -411,6 +411,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         TkVarSym {} -> operatorOrExprPatternParser
         TkConSym {} -> operatorOrExprPatternParser
         TkQConSym {} -> operatorOrExprPatternParser
+        TkReservedColon -> operatorOrExprPatternParser
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
@@ -442,6 +443,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
             TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
             TkQConSym modName op -> pure (PCon (mkName (Just modName) NameConSym op) [] [])
+            TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":")) [] [])
             _ ->
               MP.customFailure
                 UnexpectedTokenExpecting
