@@ -695,7 +695,8 @@ bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
       lhs <- typeAppParser
       _ <- lookAhead typeInfixOperatorParser
       op <- typeFamilyOperatorParser
-      InfixInstanceHead lhs op <$> typeAppParser
+      rhs <- typeAppParser
+      pure (InfixInstanceHead lhs op rhs [])
 
 standaloneDerivingHeadParser :: TokParser (Bool, InstanceHead Name)
 standaloneDerivingHeadParser =
@@ -703,7 +704,8 @@ standaloneDerivingHeadParser =
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        pure (True, parsed)
+        tailTypes <- MP.many typeAtomParser
+        pure (True, addTailTypes tailTypes parsed)
     )
     <|> ( do
             instanceHead <- bareInstanceHeadParser
@@ -716,7 +718,8 @@ instanceHeadParser =
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        pure (True, mapName parsed)
+        tailTypes <- MP.many typeAtomParser
+        pure (True, mapName (addTailTypes tailTypes parsed))
     )
     <|> ( do
             instanceHead <- bareInstanceHeadParser
@@ -727,8 +730,17 @@ instanceHeadParser =
       case head' of
         PrefixInstanceHead className instanceTypes ->
           PrefixInstanceHead (nameToUnqualified className) instanceTypes
-        InfixInstanceHead lhs op rhs ->
-          InfixInstanceHead lhs (nameToUnqualified op) rhs
+        InfixInstanceHead lhs op rhs tailTypes ->
+          InfixInstanceHead lhs (nameToUnqualified op) rhs tailTypes
+
+-- | Append trailing type arguments to an instance head.
+-- For prefix heads, the types are appended to the existing type list.
+-- For infix heads, the types are appended to the trailing types list.
+addTailTypes :: [Type] -> InstanceHead name -> InstanceHead name
+addTailTypes types head' =
+  case head' of
+    PrefixInstanceHead name tys -> PrefixInstanceHead name (tys <> types)
+    InfixInstanceHead lhs op rhs tailTypes -> InfixInstanceHead lhs op rhs (tailTypes <> types)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceDeclItemParser

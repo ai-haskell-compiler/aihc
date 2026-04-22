@@ -846,19 +846,34 @@ prettyStandaloneDeriving decl =
 
 instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
-  maybeParenthesize (instanceDeclParenthesizedHead decl) $
-    prettyInstanceHead prettyConstructorUName prettyInfixOp (instanceDeclHead decl)
+  prettyInstanceHeadDoc
+    (instanceDeclParenthesizedHead decl)
+    prettyConstructorUName
+    prettyInfixOp
+    (instanceDeclHead decl)
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
-  maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    prettyInstanceHead prettyPrefixName prettyNameInfixOp (standaloneDerivingHead decl)
+  prettyInstanceHeadDoc
+    (standaloneDerivingParenthesizedHead decl)
+    prettyPrefixName
+    prettyNameInfixOp
+    (standaloneDerivingHead decl)
 
-prettyInstanceHead :: (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
-prettyInstanceHead prettyPrefix prettyInfix head' =
+-- | Pretty-print an instance head, handling parenthesization of infix heads
+-- with trailing type arguments.
+--
+-- For @instance (f \`C\` g) x@, the infix part @f \`C\` g@ is parenthesized
+-- and the trailing @x@ appears outside the parens.
+prettyInstanceHeadDoc :: Bool -> (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
+prettyInstanceHeadDoc isParenthesized prettyPrefix prettyInfix head' =
   case head' of
-    PrefixInstanceHead name tys -> hsep (prettyPrefix name : map prettyType tys)
-    InfixInstanceHead lhs name rhs -> prettyType lhs <+> prettyInfix name <+> prettyType rhs
+    PrefixInstanceHead name tys ->
+      maybeParenthesize isParenthesized $
+        hsep (prettyPrefix name : map prettyType tys)
+    InfixInstanceHead lhs name rhs tailTypes ->
+      let infixPart = prettyType lhs <+> prettyInfix name <+> prettyType rhs
+       in hsep (maybeParenthesize isParenthesized infixPart : map prettyType tailTypes)
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc

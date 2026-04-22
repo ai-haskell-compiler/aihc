@@ -504,7 +504,7 @@ genDeclClassInfix = do
         }
 
 genDeclInstance :: Gen Decl
-genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix]
+genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix, genDeclInstanceParenInfix]
 
 genInstanceDeclItems :: Gen [InstanceDeclItem]
 genInstanceDeclItems = smallList0 genInstanceAssociatedDataFamilyInstItem
@@ -547,12 +547,34 @@ genDeclInstanceInfix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
-          instanceDeclHead = InfixInstanceHead lhs className rhs,
+          instanceDeclHead = InfixInstanceHead lhs className rhs [],
+          instanceDeclItems = items
+        }
+
+-- | Generate a parenthesized infix instance head with trailing type arguments.
+-- Covers syntax like @instance (f \`C\` g) x@ and @instance (c & d) a@.
+genDeclInstanceParenInfix :: Gen Decl
+genDeclInstanceParenInfix = do
+  className <- genConUnqualifiedName
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  tailTypes <- smallList1 genInstanceHeadType
+  ctx <- genSimpleContext
+  items <- genInstanceDeclItems
+  pure $
+    DeclInstance $
+      InstanceDecl
+        { instanceDeclOverlapPragma = Nothing,
+          instanceDeclWarning = Nothing,
+          instanceDeclForall = [],
+          instanceDeclContext = ctx,
+          instanceDeclParenthesizedHead = True,
+          instanceDeclHead = InfixInstanceHead lhs className rhs tailTypes,
           instanceDeclItems = items
         }
 
 genDeclStandaloneDeriving :: Gen Decl
-genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStandaloneDerivingInfix]
+genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStandaloneDerivingInfix, genDeclStandaloneDerivingParenInfix]
 
 genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
@@ -590,7 +612,30 @@ genDeclStandaloneDerivingInfix = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHead = InfixInstanceHead lhs className rhs
+          standaloneDerivingHead = InfixInstanceHead lhs className rhs []
+        }
+
+-- | Generate a parenthesized infix standalone deriving head with trailing type arguments.
+-- Covers syntax like @deriving instance (f \`C\` g) x@.
+genDeclStandaloneDerivingParenInfix :: Gen Decl
+genDeclStandaloneDerivingParenInfix = do
+  className <- genConName
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  tailTypes <- smallList1 genInstanceHeadType
+  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  ctx <- genSimpleContext
+  pure $
+    DeclStandaloneDeriving $
+      StandaloneDerivingDecl
+        { standaloneDerivingStrategy = strategy,
+          standaloneDerivingViaType = Nothing,
+          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingWarning = Nothing,
+          standaloneDerivingForall = [],
+          standaloneDerivingContext = ctx,
+          standaloneDerivingParenthesizedHead = True,
+          standaloneDerivingHead = InfixInstanceHead lhs className rhs tailTypes
         }
 
 genInstanceHeadType :: Gen Type
@@ -1314,16 +1359,17 @@ shrinkInstanceHeadName :: (name -> [name]) -> InstanceHead name -> [InstanceHead
 shrinkInstanceHeadName shrinkNameFn head' =
   case head' of
     PrefixInstanceHead name tys -> [PrefixInstanceHead name' tys | name' <- shrinkNameFn name]
-    InfixInstanceHead lhs name rhs -> [InfixInstanceHead lhs name' rhs | name' <- shrinkNameFn name]
+    InfixInstanceHead lhs name rhs tailTypes -> [InfixInstanceHead lhs name' rhs tailTypes | name' <- shrinkNameFn name]
 
 shrinkInstanceHeadTypes :: InstanceHead name -> [InstanceHead name]
 shrinkInstanceHeadTypes head' =
   case head' of
     PrefixInstanceHead name tys ->
       [PrefixInstanceHead name tys' | tys' <- shrinkTypeHeadTypes TypeHeadPrefix tys]
-    InfixInstanceHead lhs name rhs ->
-      [InfixInstanceHead lhs' name rhs | lhs' <- shrinkType lhs]
-        <> [InfixInstanceHead lhs name rhs' | rhs' <- shrinkType rhs]
+    InfixInstanceHead lhs name rhs tailTypes ->
+      [InfixInstanceHead lhs' name rhs tailTypes | lhs' <- shrinkType lhs]
+        <> [InfixInstanceHead lhs name rhs' tailTypes | rhs' <- shrinkType rhs]
+        <> [InfixInstanceHead lhs name rhs tailTypes' | tailTypes' <- shrinkList shrinkType tailTypes]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

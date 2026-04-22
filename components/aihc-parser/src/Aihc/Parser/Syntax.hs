@@ -1286,7 +1286,7 @@ binderHeadParams head' =
 
 data InstanceHead name
   = PrefixInstanceHead name [Type]
-  | InfixInstanceHead Type name Type
+  | InfixInstanceHead Type name Type [Type]
   deriving (Data, Eq, Show, Generic, NFData)
 
 instanceHeadForm :: InstanceHead name -> TypeHeadForm
@@ -1299,13 +1299,13 @@ instanceHeadName :: InstanceHead name -> name
 instanceHeadName head' =
   case head' of
     PrefixInstanceHead name _ -> name
-    InfixInstanceHead _ name _ -> name
+    InfixInstanceHead _ name _ _ -> name
 
 instanceHeadTypes :: InstanceHead name -> [Type]
 instanceHeadTypes head' =
   case head' of
     PrefixInstanceHead _ tys -> tys
-    InfixInstanceHead lhs _ rhs -> [lhs, rhs]
+    InfixInstanceHead lhs _ rhs tailTypes -> lhs : rhs : tailTypes
 
 data Role
   = RoleNominal

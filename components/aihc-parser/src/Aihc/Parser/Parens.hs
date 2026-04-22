@@ -623,7 +623,7 @@ addInstanceHeadParens :: InstanceHead name -> InstanceHead name
 addInstanceHeadParens head' =
   case head' of
     PrefixInstanceHead name tys -> PrefixInstanceHead name (map (addTypeIn CtxTypeAtom) tys)
-    InfixInstanceHead lhs name rhs -> InfixInstanceHead (addTypeIn CtxTypeFamilyOperand lhs) name (addTypeIn CtxTypeFamilyOperand rhs)
+    InfixInstanceHead lhs name rhs tailTypes -> InfixInstanceHead (addTypeIn CtxTypeFamilyOperand lhs) name (addTypeIn CtxTypeFamilyOperand rhs) (map (addTypeIn CtxTypeAtom) tailTypes)
 
 addForeignDeclParens :: ForeignDecl -> ForeignDecl
 addForeignDeclParens decl =
