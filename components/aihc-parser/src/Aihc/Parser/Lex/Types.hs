@@ -193,7 +193,8 @@ data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
     lexTokenSpan :: !SourceSpan,
-    lexTokenOrigin :: !TokenOrigin
+    lexTokenOrigin :: !TokenOrigin,
+    lexTokenAtLineStart :: !Bool
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
@@ -310,7 +311,8 @@ mkToken start end tokTxt kind =
     { lexTokenKind = kind,
       lexTokenText = tokTxt,
       lexTokenSpan = mkSpan start end,
-      lexTokenOrigin = FromSource
+      lexTokenOrigin = FromSource,
+      lexTokenAtLineStart = lexerAtLineStart start
     }
 
 mkErrorToken :: LexerState -> LexerState -> Text -> Text -> LexToken
@@ -382,10 +384,11 @@ virtualSymbolToken sym span' =
         "{" -> TkSpecialLBrace
         "}" -> TkSpecialRBrace
         ";" -> TkSpecialSemicolon
-        _ -> error ("virtualSymbolToken: unexpected symbol " ++ T.unpack sym),
+        _ -> error ("virtualSymbolToken: unknown symbol: " ++ show sym),
       lexTokenText = sym,
       lexTokenSpan = span',
-      lexTokenOrigin = InsertedLayout
+      lexTokenOrigin = InsertedLayout,
+      lexTokenAtLineStart = False
     }
 
 utf8CharWidth :: Char -> Int

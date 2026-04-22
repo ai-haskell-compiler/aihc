@@ -401,7 +401,8 @@ negateToken stBefore numTok =
     { lexTokenKind = negateKind (lexTokenKind numTok),
       lexTokenText = "-" <> lexTokenText numTok,
       lexTokenSpan = extendSpanLeft (lexTokenSpan numTok),
-      lexTokenOrigin = lexTokenOrigin numTok
+      lexTokenOrigin = lexTokenOrigin numTok,
+      lexTokenAtLineStart = lexerAtLineStart stBefore
     }
   where
     negateKind k =
@@ -898,7 +899,8 @@ eofToken st =
         { lexTokenKind = TkEOF,
           lexTokenText = "",
           lexTokenSpan = eofSpan,
-          lexTokenOrigin = FromSource
+          lexTokenOrigin = FromSource,
+          lexTokenAtLineStart = lexerAtLineStart st
         }
 
 takeQuoter :: Text -> (Text, Text)

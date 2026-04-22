@@ -311,10 +311,7 @@ closesImplicitBeforeDelimiter kind =
     _ -> False
 
 isBOL :: LayoutState -> LexToken -> Bool
-isBOL st tok =
-  case layoutPrevLine st of
-    Just prevLine -> tokenStartLine tok > prevLine
-    Nothing -> False
+isBOL _ = lexTokenAtLineStart
 
 layoutTransition :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 layoutTransition st tok =
