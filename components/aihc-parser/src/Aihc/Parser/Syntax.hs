@@ -1551,7 +1551,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
-    instanceDeclHead :: InstanceHead UnqualifiedName,
+    instanceDeclHead :: InstanceHead Name,
     instanceDeclItems :: [InstanceDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)

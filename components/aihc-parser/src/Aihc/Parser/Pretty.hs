@@ -848,8 +848,8 @@ instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
   prettyInstanceHeadDoc
     (instanceDeclParenthesizedHead decl)
-    prettyConstructorUName
-    prettyInfixOp
+    prettyPrefixName
+    prettyNameInfixOp
     (instanceDeclHead decl)
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann

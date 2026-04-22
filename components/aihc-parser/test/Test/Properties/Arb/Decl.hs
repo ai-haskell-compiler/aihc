@@ -516,7 +516,7 @@ genInstanceAssociatedDataFamilyInstItem = do
 
 genDeclInstancePrefix :: Gen Decl
 genDeclInstancePrefix = do
-  className <- genConUnqualifiedName
+  className <- genConName
   types <- smallList0 genInstanceHeadType
   ctx <- genSimpleContext
   items <- if null types then pure [] else genInstanceDeclItems
@@ -534,7 +534,7 @@ genDeclInstancePrefix = do
 
 genDeclInstanceInfix :: Gen Decl
 genDeclInstanceInfix = do
-  className <- genConUnqualifiedName
+  className <- genConName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   ctx <- genSimpleContext
@@ -555,7 +555,7 @@ genDeclInstanceInfix = do
 -- Covers syntax like @instance (f \`C\` g) x@ and @instance (c & d) a@.
 genDeclInstanceParenInfix :: Gen Decl
 genDeclInstanceParenInfix = do
-  className <- genConUnqualifiedName
+  className <- genConName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   tailTypes <- smallList1 genInstanceHeadType
@@ -1209,6 +1209,7 @@ shrinkClassDecl cd =
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =
   [inst {instanceDeclItems = is'} | is' <- shrinkList (const []) (instanceDeclItems inst)]
+    <> [inst {instanceDeclHead = head'} | head' <- shrinkInstanceHeadName shrinkName (instanceDeclHead inst)]
     <> [inst {instanceDeclHead = head'} | head' <- shrinkInstanceHeadTypes (instanceDeclHead inst)]
     <> [inst {instanceDeclContext = ctx'} | ctx' <- shrinkList shrinkType (instanceDeclContext inst)]
 

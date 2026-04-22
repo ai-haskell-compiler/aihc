@@ -755,26 +755,19 @@ standaloneDerivingHeadParser =
             pure (False, instanceHead)
         )
 
-instanceHeadParser :: TokParser (Bool, InstanceHead UnqualifiedName)
+instanceHeadParser :: TokParser (Bool, InstanceHead Name)
 instanceHeadParser =
   MP.try
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
         tailTypes <- MP.many typeAtomParser
-        pure (True, mapName (addTailTypes tailTypes parsed))
+        pure (True, addTailTypes tailTypes parsed)
     )
     <|> ( do
             instanceHead <- bareInstanceHeadParser
-            pure (False, mapName instanceHead)
+            pure (False, instanceHead)
         )
-  where
-    mapName head' =
-      case head' of
-        PrefixInstanceHead className instanceTypes ->
-          PrefixInstanceHead (nameToUnqualified className) instanceTypes
-        InfixInstanceHead lhs op rhs tailTypes ->
-          InfixInstanceHead lhs (nameToUnqualified op) rhs tailTypes
 
 -- | Append trailing type arguments to an instance head.
 -- For prefix heads, the types are appended to the existing type list.
