@@ -110,48 +110,43 @@ openImplicitLayout kind st tok =
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
   case lexTokenKind tok of
-    TkKeywordWhere -> closeBeforeWhere st tok
-    _ ->
-      closeWith $
-        case lexTokenKind tok of
-          TkKeywordIn -> closeLeadingImplicitLet (lexTokenSpan tok)
-          kind
-            | closesImplicitBeforeDelimiter kind ->
-                closeImplicitLayouts (lexTokenSpan tok) (\_ _ -> True)
-          TkKeywordThen -> closeBeforeThenElse
-          TkKeywordElse -> closeBeforeThenElse
-          _ -> noLayoutClosures
+    TkKeywordWhere -> closeBeforeWhere
+    TkKeywordIn ->
+      let (inserted, ctxs') = closeLeadingImplicitLet anchor (layoutContexts st)
+       in (inserted, st {layoutContexts = ctxs'})
+    kind
+      | closesImplicitBeforeDelimiter kind ->
+          let (inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -> True) (layoutContexts st)
+           in (inserted, st {layoutContexts = ctxs'})
+    TkKeywordThen -> closeBeforeThenElse
+    TkKeywordElse -> closeBeforeThenElse
+    _ -> ([], st)
   where
-    closeBeforeWhere st' tok' =
-      let col = tokenStartCol tok'
-          anchor = lexTokenSpan tok'
-          closeTok = virtualSymbolToken "}" anchor
-          openTok = virtualSymbolToken "{" anchor
-          go ctxs =
-            case ctxs of
-              LayoutImplicit indent LayoutCaseAlternative : rest
-                | col <= indent ->
-                    let (pendingInserted, clearPending) =
-                          case layoutPendingLayout st' of
-                            Just (PendingImplicitLayout _) -> ([openTok, closeTok], True)
-                            _ -> ([], False)
-                        st'' =
-                          if clearPending
-                            then st' {layoutPendingLayout = Nothing}
-                            else st'
-                     in (pendingInserted <> [closeTok], st'' {layoutContexts = rest})
-                | otherwise ->
-                    ([], st')
-              _ -> ([], st')
-       in go (layoutContexts st')
+    anchor = lexTokenSpan tok
+    closeTok = virtualSymbolToken "}" anchor
 
+    -- Close an immediately enclosing LayoutCaseAlternative when 'where'
+    -- appears at or to the left of its indent column.  This is a single-step
+    -- check on the top of the context stack (not a loop).
+    closeBeforeWhere =
+      case layoutContexts st of
+        LayoutImplicit indent LayoutCaseAlternative : rest
+          | tokenStartCol tok <= indent ->
+              let openTok = virtualSymbolToken "{" anchor
+                  (pendingInserted, st') =
+                    case layoutPendingLayout st of
+                      Just (PendingImplicitLayout _) ->
+                        ([openTok, closeTok], st {layoutPendingLayout = Nothing})
+                      _ -> ([], st)
+               in (pendingInserted <> [closeTok], st' {layoutContexts = rest})
+        _ -> ([], st)
+
+    -- Close implicit layouts before 'then'/'else'.
+    -- A `then do`/`else do` block stays open across nested conditionals inside
+    -- the block. Only a `then`/`else` at or to the left of the block's own
+    -- layout column can terminate it.
     closeBeforeThenElse =
       let col = tokenStartCol tok
-          anchor = lexTokenSpan tok
-          closeTok = virtualSymbolToken "}" anchor
-          -- A `then do`/`else do` block stays open across nested conditionals inside
-          -- the block. Only a `then`/`else` at or to the left of the block's own
-          -- layout column can terminate it.
           go ctxs =
             case ctxs of
               LayoutImplicit indent kind : rest
@@ -160,16 +155,11 @@ closeBeforeToken st tok =
                   col <= indent ->
                     ([closeTok], rest)
                 | col < indent ->
-                    let (inserted, rest') = go rest
-                     in (closeTok : inserted, rest')
+                    let (inner, rest') = go rest
+                     in (closeTok : inner, rest')
               _ -> ([], ctxs)
-       in go
-
-    closeWith closeContexts =
-      let (inserted, contexts') = closeContexts (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-
-    noLayoutClosures contexts = ([], contexts)
+          (closed, ctxs') = go (layoutContexts st)
+       in (closed, st {layoutContexts = ctxs'})
 
 {-# INLINE bolLayout #-}
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
@@ -301,6 +291,13 @@ isImplicitLayoutContext ctx =
     LayoutExplicit -> False
     LayoutDelimiter -> False
 
+-- | Tokens that open a delimiter context (parens, brackets, TH quotes,
+-- unboxed parens).  These push 'LayoutDelimiter' to suppress implicit-layout
+-- closures inside the delimited group.
+--
+-- Note: 'TkTHDeclQuoteOpen' is intentionally absent here because it is handled
+-- explicitly in 'stepTokenContext', where it both pushes 'LayoutDelimiter' and
+-- sets up a pending implicit layout for the declaration splice body.
 opensDelimiter :: LexTokenKind -> Bool
 opensDelimiter kind =
   case kind of
@@ -308,12 +305,21 @@ opensDelimiter kind =
     TkSpecialLBracket -> True
     TkTHExpQuoteOpen -> True
     TkTHTypedQuoteOpen -> True
-    TkTHDeclQuoteOpen -> True
     TkTHTypeQuoteOpen -> True
     TkTHPatQuoteOpen -> True
     TkSpecialUnboxedLParen -> True
     _ -> False
 
+-- | Tokens that close a delimiter context (parens, brackets, TH quotes,
+-- unboxed parens).  These pop the context stack back to the matching
+-- 'LayoutDelimiter' via 'popToDelimiter' in 'stepTokenContext'.
+--
+-- Related: 'closesImplicitBeforeDelimiter' determines which closing tokens
+-- also force all intervening implicit layouts to emit virtual @}@ tokens
+-- before the delimiter is popped.  'TkSpecialUnboxedRParen' is absent from
+-- that predicate because BOL rules and the parse-error rule handle its
+-- implicit-layout closure; 'TkSpecialRBrace' is present there (but absent
+-- here) because it closes 'LayoutExplicit', not 'LayoutDelimiter'.
 closesDelimiter :: LexTokenKind -> Bool
 closesDelimiter kind =
   case kind of
@@ -324,6 +330,9 @@ closesDelimiter kind =
     TkTHTypedQuoteClose -> True
     _ -> False
 
+-- | Tokens before which all intervening implicit layouts must be closed
+-- (emitting virtual @}@ tokens).  See 'closesDelimiter' for the relationship
+-- between these two predicates.
 closesImplicitBeforeDelimiter :: LexTokenKind -> Bool
 closesImplicitBeforeDelimiter kind =
   case kind of
