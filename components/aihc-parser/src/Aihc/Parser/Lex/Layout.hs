@@ -109,18 +109,42 @@ openImplicitLayout kind st tok =
 {-# INLINE closeBeforeToken #-}
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
-  closeWith $
-    case lexTokenKind tok of
-      TkKeywordIn -> closeLeadingImplicitLet (lexTokenSpan tok)
-      kind
-        | closesImplicitBeforeDelimiter kind ->
-            closeImplicitLayouts (lexTokenSpan tok) (\_ _ -> True)
-      TkKeywordThen -> closeBeforeThenElse
-      TkKeywordElse -> closeBeforeThenElse
-      TkKeywordWhere ->
-        closeImplicitLayouts (lexTokenSpan tok) (\indent kind -> tokenStartCol tok <= indent && kind /= LayoutCaseAlternative)
-      _ -> noLayoutClosures
+  case lexTokenKind tok of
+    TkKeywordWhere -> closeBeforeWhere st tok
+    _ ->
+      closeWith $
+        case lexTokenKind tok of
+          TkKeywordIn -> closeLeadingImplicitLet (lexTokenSpan tok)
+          kind
+            | closesImplicitBeforeDelimiter kind ->
+                closeImplicitLayouts (lexTokenSpan tok) (\_ _ -> True)
+          TkKeywordThen -> closeBeforeThenElse
+          TkKeywordElse -> closeBeforeThenElse
+          _ -> noLayoutClosures
   where
+    closeBeforeWhere st' tok' =
+      let col = tokenStartCol tok'
+          anchor = lexTokenSpan tok'
+          closeTok = virtualSymbolToken "}" anchor
+          openTok = virtualSymbolToken "{" anchor
+          go ctxs =
+            case ctxs of
+              LayoutImplicit indent LayoutCaseAlternative : rest
+                | col <= indent ->
+                    let (pendingInserted, clearPending) =
+                          case layoutPendingLayout st' of
+                            Just (PendingImplicitLayout _) -> ([openTok, closeTok], True)
+                            _ -> ([], False)
+                        st'' =
+                          if clearPending
+                            then st' {layoutPendingLayout = Nothing}
+                            else st'
+                     in (pendingInserted <> [closeTok], st'' {layoutContexts = rest})
+                | otherwise ->
+                    ([], st')
+              _ -> ([], st')
+       in go (layoutContexts st')
+
     closeBeforeThenElse =
       let col = tokenStartCol tok
           anchor = lexTokenSpan tok
