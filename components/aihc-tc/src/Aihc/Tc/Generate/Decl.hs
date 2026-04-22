@@ -321,10 +321,13 @@ registerDataCon tc paramMap paramVarIds con = case con of
         -- (the data type's params are handled via given equalities on match).
         scheme = ForAll [] [] conTy
      in do
-          mapM_ (\n -> do
-            let nm = unqualifiedNameText n
-            extendTermEnvPermanent nm (TcIdBinder nm scheme)
-            markGadtCon nm) names
+          mapM_
+            ( \n -> do
+                let nm = unqualifiedNameText n
+                extendTermEnvPermanent nm (TcIdBinder nm scheme)
+                markGadtCon nm
+            )
+            names
           case names of
             (n : _) -> do
               zonkedTy <- zonkType conTy
@@ -462,12 +465,12 @@ inferPatConstraints sp pat scrutTy = case pat of
             -- Regular constructor: emit as a WANTED constraint.
             let wantedCt = mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp
             pure [([wantedCt], [])]
-      _ -> pure [([],[])]
+      _ -> pure [([], [])]
   PAnn _ann inner -> inferPatConstraints sp inner scrutTy
   PParen inner -> inferPatConstraints sp inner scrutTy
   PStrict inner -> inferPatConstraints sp inner scrutTy
   PIrrefutable inner -> inferPatConstraints sp inner scrutTy
-  _ -> pure [([],[])]
+  _ -> pure [([], [])]
 
 -- | Unify an additional match equation's RHS with the expected type.
 unifyMatchRhs :: TcType -> Match -> TcM [Ct]
