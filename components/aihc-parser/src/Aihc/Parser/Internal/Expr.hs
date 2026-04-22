@@ -29,7 +29,7 @@ where
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser)
+import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
 import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
@@ -40,6 +40,24 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
+
+-- | Parse an expression, then optionally consume @<-@ and a right-hand side.
+-- If the arrow is present, the expression is converted to a pattern via
+-- 'checkPattern' and the result is a bind; otherwise it is an expression.
+exprOrPatternBindParser ::
+  TokParser Expr ->
+  TokParser Expr ->
+  (Pattern -> Expr -> a) ->
+  (Expr -> a) ->
+  TokParser a
+exprOrPatternBindParser exprP rhsP bindCtor exprCtor = do
+  expr <- exprP
+  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+  case mArrow of
+    Just () -> do
+      pat <- liftCheck (checkPattern expr)
+      bindCtor pat <$> rhsP
+    Nothing -> pure (exprCtor expr)
 
 exprParser :: TokParser Expr
 exprParser =
@@ -325,30 +343,27 @@ tokenExprParser expected matchToken =
   withSpanAnn (EAnn . mkAnnotation) (tokenSatisfy expected matchToken)
 
 charExprParser :: TokParser Expr
-charExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (ctor, c, repr) <- tokenSatisfy "character literal" $ \tok ->
+charExprParser =
+  tokenExprParser "character literal" $ \tok ->
     case lexTokenKind tok of
-      TkChar x -> Just (EChar, x, lexTokenText tok)
-      TkCharHash x txt -> Just (ECharHash, x, txt)
+      TkChar x -> Just (EChar x (lexTokenText tok))
+      TkCharHash x txt -> Just (ECharHash x txt)
       _ -> Nothing
-  pure (ctor c repr)
 
 stringExprParser :: TokParser Expr
-stringExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (ctor, s, repr) <- tokenSatisfy "string literal" $ \tok ->
+stringExprParser =
+  tokenExprParser "string literal" $ \tok ->
     case lexTokenKind tok of
-      TkString x -> Just (EString, x, lexTokenText tok)
-      TkStringHash x txt -> Just (EStringHash, x, txt)
+      TkString x -> Just (EString x (lexTokenText tok))
+      TkStringHash x txt -> Just (EStringHash x txt)
       _ -> Nothing
-  pure (ctor s repr)
 
 overloadedLabelExprParser :: TokParser Expr
-overloadedLabelExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (labelName, raw) <- tokenSatisfy "overloaded label" $ \tok ->
+overloadedLabelExprParser =
+  tokenExprParser "overloaded label" $ \tok ->
     case lexTokenKind tok of
-      TkOverloadedLabel lbl repr -> Just (lbl, repr)
+      TkOverloadedLabel lbl repr -> Just (EOverloadedLabel lbl repr)
       _ -> Nothing
-  pure (EOverloadedLabel labelName raw)
 
 appExprParser :: TokParser Expr
 appExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -425,11 +440,9 @@ recordFieldBindingParser = withSpan $ do
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
-  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
-  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
-  let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
@@ -593,15 +606,13 @@ guardQualifierParser arrowKind = do
 -- (which includes @->@), while 'RhsArrowCase' uses 'typeInfixParser' (which
 -- does not), matching GHC's behaviour.
 guardBindOrExprParser :: RhsArrowKind -> TokParser GuardQualifier
-guardBindOrExprParser arrowKind = withSpanAnn (GuardAnn . mkAnnotation) $ do
-  expr <- exprParserWithTypeSigParser (guardTypeSigParser arrowKind)
-  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
-  case mArrow of
-    Just () -> do
-      pat <- liftCheck (checkPattern expr)
-      GuardPat pat <$> exprParser
-    Nothing ->
-      pure (GuardExpr expr)
+guardBindOrExprParser arrowKind =
+  withSpanAnn (GuardAnn . mkAnnotation) $
+    exprOrPatternBindParser
+      (exprParserWithTypeSigParser (guardTypeSigParser arrowKind))
+      exprParser
+      GuardPat
+      GuardExpr
 
 guardPatBindParser :: TokParser GuardQualifier
 guardPatBindParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
@@ -894,16 +905,9 @@ compStmtParser = do
         else compGenOrGuardParser
 
 compGenOrGuardParser :: TokParser CompStmt
-compGenOrGuardParser = withSpanAnn (CompAnn . mkAnnotation) $ do
-  expr <- exprParser
-  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
-  case mArrow of
-    Just () -> do
-      pat <- liftCheck (checkPattern expr)
-      rhs <- region "while parsing '<-' generator" exprParser
-      pure (CompGen pat rhs)
-    Nothing ->
-      pure (CompGuard expr)
+compGenOrGuardParser =
+  withSpanAnn (CompAnn . mkAnnotation) $
+    exprOrPatternBindParser exprParser (region "while parsing '<-' generator" exprParser) CompGen CompGuard
 
 compPatGenParser :: TokParser CompStmt
 compPatGenParser = withSpanAnn (CompAnn . mkAnnotation) $ do
@@ -970,11 +974,11 @@ localDeclsParser = do
 
 localTypeSigDeclsParser :: TokParser [Decl]
 localTypeSigDeclsParser = do
-  sig <- localTypeSigDeclParser
+  sig <- typeSigDeclParser
   let (names, ty) =
         case peelDeclAnn sig of
           DeclTypeSig sigNames sigTy -> (sigNames, sigTy)
-          _ -> error "localTypeSigDeclParser must produce DeclTypeSig"
+          _ -> error "typeSigDeclParser must produce DeclTypeSig"
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Nothing -> pure [sig]
@@ -989,12 +993,6 @@ localTypeSigDeclsParser = do
           pure [DeclValue (PatternBind pat rhs)]
         _ ->
           fail "local typed bindings with '=' require exactly one binder"
-
-localTypeSigDeclParser :: TokParser Decl
-localTypeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
-  expectedTok TkReservedDoubleColon
-  DeclTypeSig names <$> typeParser
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
@@ -1042,39 +1040,19 @@ thQuoteExprParser =
     <|> thPatQuoteParser
 
 thExpQuoteParser :: TokParser Expr
-thExpQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkTHExpQuoteOpen
-  body <- exprParser
-  expectedTok TkTHExpQuoteClose
-  pure (ETHExpQuote body)
+thExpQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHExpQuoteOpen TkTHExpQuoteClose exprParser ETHExpQuote
 
 thTypedQuoteParser :: TokParser Expr
-thTypedQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkTHTypedQuoteOpen
-  body <- exprParser
-  expectedTok TkTHTypedQuoteClose
-  pure (ETHTypedQuote body)
+thTypedQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHTypedQuoteOpen TkTHTypedQuoteClose exprParser ETHTypedQuote
 
 thDeclQuoteParser :: TokParser Expr
-thDeclQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkTHDeclQuoteOpen
-  decls <- bracedSemiSep declParser <|> plainSemiSep declParser
-  expectedTok TkTHExpQuoteClose
-  pure (ETHDeclQuote decls)
+thDeclQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHDeclQuoteOpen TkTHExpQuoteClose (bracedSemiSep declParser <|> plainSemiSep declParser) ETHDeclQuote
 
 thTypeQuoteParser :: TokParser Expr
-thTypeQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkTHTypeQuoteOpen
-  ty <- typeParser
-  expectedTok TkTHExpQuoteClose
-  pure (ETHTypeQuote ty)
+thTypeQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHTypeQuoteOpen TkTHExpQuoteClose typeParser ETHTypeQuote
 
 thPatQuoteParser :: TokParser Expr
-thPatQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkTHPatQuoteOpen
-  pat <- patternParser
-  expectedTok TkTHExpQuoteClose
-  pure (ETHPatQuote pat)
+thPatQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHPatQuoteOpen TkTHExpQuoteClose patternParser ETHPatQuote
 
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
