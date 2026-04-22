@@ -1155,7 +1155,10 @@ declContextParser = contextParserWith typeParser typeAtomParser
 
 typeDeclHeadParser :: TokParser (BinderHead UnqualifiedName)
 typeDeclHeadParser =
-  MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  MP.try parenthesizedInfixDeclHeadParser
+    <|> MP.try parenthesizedPrefixDeclHeadParser
+    <|> MP.try infixDeclHeadParser
+    <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
@@ -1176,6 +1179,14 @@ typeDeclHeadParser =
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
       pure (InfixBinderHead lhs op rhs tailParams)
+
+    parenthesizedPrefixDeclHeadParser = do
+      expectedTok TkSpecialLParen
+      name <- constructorUnqualifiedNameParser
+      params <- MP.some declTypeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many declTypeParamParser
+      pure (PrefixBinderHead name (params <> tailParams))
 
 typeSynonymOperatorParser :: TokParser Text
 typeSynonymOperatorParser =
@@ -1246,7 +1257,10 @@ typeFamilyLhsParser = do
 
 classHeadParser :: TokParser (BinderHead UnqualifiedName)
 classHeadParser =
-  MP.try parenthesizedInfixDeclHeadParser <|> MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  MP.try parenthesizedInfixDeclHeadParser
+    <|> MP.try parenthesizedPrefixDeclHeadParser
+    <|> MP.try infixDeclHeadParser
+    <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
@@ -1267,6 +1281,14 @@ classHeadParser =
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
       pure (InfixBinderHead lhs (nameToUnqualified op) rhs tailParams)
+
+    parenthesizedPrefixDeclHeadParser = do
+      expectedTok TkSpecialLParen
+      name <- constructorUnqualifiedNameParser
+      params <- MP.some declTypeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many declTypeParamParser
+      pure (PrefixBinderHead name (params <> tailParams))
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
