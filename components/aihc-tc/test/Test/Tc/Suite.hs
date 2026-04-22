@@ -20,6 +20,7 @@ tcTests =
     "tc-unit"
     [ testGroup "literals" literalTests,
       testGroup "application" applicationTests,
+      testGroup "case" caseTests,
       testGroup "if-then-else" ifTests,
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
@@ -112,6 +113,15 @@ ifTests =
       let result = tc "if True then 1 else 2"
       let ty = tcResultType result
       assertBool "should produce a type" (ty /= TcMetaTv (Unique (-1)))
+  ]
+
+-- | Tests for case expressions.
+caseTests :: [TestTree]
+caseTests =
+  [ testCase "case expression threads scrutinee type into branches" $ do
+      let result = tc "\\x -> case x of { y -> y }"
+      assertBool "should succeed" (tcResultSuccess result)
+      assertBool "should be function type" (isFunTy (tcResultType result))
   ]
 
 -- | Tests for lambda expressions.

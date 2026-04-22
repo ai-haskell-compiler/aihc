@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for expressions.
 --
@@ -15,7 +16,8 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Parser.Syntax
-  ( CaseAlt (..),
+  ( Annotation,
+    CaseAlt (..),
     Expr (..),
     LambdaCaseAlt (..),
     Name (..),
@@ -23,6 +25,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     UnqualifiedName (..),
+    fromAnnotation,
     getExprSourceSpan,
   )
 import Aihc.Tc.Constraint
@@ -30,6 +33,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -59,6 +63,8 @@ inferExpr expr = case expr of
   EApp fun arg -> inferApp (getExprSourceSpan expr) fun arg
   -- If-then-else
   EIf cond thenE elseE -> inferIf (getExprSourceSpan expr) cond thenE elseE
+  -- Case expression
+  ECase scrutinee alts -> inferCase (getExprSourceSpan expr) scrutinee alts
   -- Let expression
   ELetDecls _decls body -> do
     -- MVP: infer body only (let bindings not yet processed).
@@ -136,6 +142,18 @@ inferLambdaCase sp alts = do
   cts <- inferCaseAlts sp argTy resTy alts
   pure (TcFunTy argTy resTy, cts)
 
+-- | Infer the type of a case expression.
+--
+-- @case scrutinee of { pat1 -> e1; pat2 -> e2; ... }@ is inferred by
+-- checking each alternative against the scrutinee type and unifying all
+-- branch result types with a fresh result type.
+inferCase :: SourceSpan -> Expr -> [CaseAlt] -> TcM (TcType, [Ct])
+inferCase sp scrutinee alts = do
+  (scrutTy, scrutCts) <- inferExpr scrutinee
+  resTy <- freshMetaTv
+  altCts <- inferCaseAlts sp scrutTy resTy alts
+  pure (resTy, scrutCts ++ altCts)
+
 inferLambdaCases :: SourceSpan -> [LambdaCaseAlt] -> TcM (TcType, [Ct])
 inferLambdaCases sp alts = do
   let arity = maximum (0 : map (length . lambdaCaseAltPats) alts)
@@ -151,15 +169,17 @@ inferLambdaCases sp alts = do
 inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt] -> TcM [Ct]
 inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
   where
-    inferAlt (CaseAlt _altSp pat rhs) = do
+    inferAlt (CaseAlt altAnns pat rhs) = do
+      let altSp = sourceSpanFromAnns altAnns
+          branchSp = combineSourceSpan altSp sp
       let bindings = extractPatternBindings (pat, scrutTy)
       -- Emit constraint: pattern's constructor result type ~ scrutinee type.
-      patCts <- inferPatternConstraints sp scrutTy pat
+      patCts <- inferPatternConstraints branchSp scrutTy pat
       -- Infer the RHS under the pattern bindings.
       (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
       -- RHS must match the expected result type.
       ev <- freshEvVar
-      let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+      let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (CaseBranchOrigin branchSp) branchSp
       pure (patCts ++ rhsCts ++ [rhsCt])
 
 inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM [Ct]
@@ -204,6 +224,16 @@ inferPatternConstraints sp scrutTy pat = case pat of
 resultType :: TcType -> TcType
 resultType (TcFunTy _ res) = resultType res
 resultType ty = ty
+
+sourceSpanFromAnns :: [Annotation] -> SourceSpan
+sourceSpanFromAnns anns =
+  case mapMaybe (fromAnnotation @SourceSpan) anns of
+    [] -> NoSourceSpan
+    sp : _ -> sp
+
+combineSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+combineSourceSpan NoSourceSpan fallback = fallback
+combineSourceSpan span' _ = span'
 
 -- | Infer the type of a right-hand side (for case alternatives).
 inferRhs :: Rhs -> TcM (TcType, [Ct])
