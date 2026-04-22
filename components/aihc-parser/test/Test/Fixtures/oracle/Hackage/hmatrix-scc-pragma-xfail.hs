@@ -1,3 +1,3 @@
-{- ORACLE_TEST xfail SCC pragma in expression silently dropped during parse -}
+{- ORACLE_TEST pass -}
 module A where
 f x = {-# SCC "name" #-} x

@@ -830,6 +830,7 @@ data Pragma
   | PragmaInline Text Text
   | PragmaUnpack PragmaUnpackKind
   | PragmaSource Text Text
+  | PragmaSCC Text
   | PragmaUnknown Text
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
@@ -1705,6 +1706,7 @@ data Expr
     ETHTypedSplice Expr -- \$$expr or $$(expr)
   | -- Arrow notation (Arrows extension)
     EProc Pattern Cmd -- proc pat -> cmd
+  | EPragma Pragma Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
 getExprSourceSpan :: Expr -> SourceSpan

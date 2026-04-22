@@ -79,6 +79,13 @@ exprParserNoTopLevelTypeSig =
 
 exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
+  mSCC <- optionalHiddenPragma getSCCLabel
+  case mSCC of
+    Just label -> EPragma (PragmaSCC label) <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
+    Nothing -> exprCoreParserWithoutTypeSigBody forbiddenInfix
+
+exprCoreParserWithoutTypeSigBody :: [Text] -> TokParser Expr
+exprCoreParserWithoutTypeSigBody forbiddenInfix = do
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
@@ -317,8 +324,15 @@ infixExprParserExcept forbidden = do
 
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 lexpParser :: TokParser Expr
-lexpParser =
-  doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
+lexpParser = do
+  mSCC <- optionalHiddenPragma getSCCLabel
+  case mSCC of
+    Just label -> EPragma (PragmaSCC label) <$> lexpParser
+    Nothing -> doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
+
+getSCCLabel :: Pragma -> Maybe Text
+getSCCLabel (PragmaSCC label) = Just label
+getSCCLabel _ = Nothing
 
 buildInfix :: Expr -> (Name, Expr) -> Expr
 buildInfix lhs (op, rhs) =
