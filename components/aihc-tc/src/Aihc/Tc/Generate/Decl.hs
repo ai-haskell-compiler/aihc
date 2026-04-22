@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    binderHeadName,
     fromAnnotation,
     getDeclSourceSpan,
     getPatternSourceSpan,
@@ -131,7 +132,7 @@ registerDecl _ = pure []
 --   - @False :: Bool@
 registerDataDecl :: DataDecl -> TcM [TcBindingResult]
 registerDataDecl dd = do
-  let tyName = unqualifiedNameText (dataDeclName dd)
+  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       resTy = TcTyCon (TyCon tyName 0) []
       starKind = TcTyCon (TyCon "*" 0) []
       tyConResult = TcBindingResult tyName starKind

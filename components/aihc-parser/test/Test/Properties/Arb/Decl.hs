@@ -143,13 +143,16 @@ genDeclRoleAnnotation =
     <*> smallList0 (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
 
 genDeclTypeSyn :: Gen TypeSynDecl
-genDeclTypeSyn = TypeSynDecl TypeHeadPrefix <$> genConUnqualifiedName <*> genSimpleTyVarBinders <*> genType
+genDeclTypeSyn = TypeSynDecl <$> (PrefixBinderHead <$> genConUnqualifiedName <*> genSimpleTyVarBinders) <*> genType
 
 -- | Generate an infix type synonym, covering both symbolic operators
 -- (e.g. @type a :+: b = (a, b)@) and backtick-wrapped identifiers
 -- (e.g. @type a \`Plus\` b = (a, b)@).
 genDeclTypeSynInfix :: Gen TypeSynDecl
-genDeclTypeSynInfix = TypeSynDecl TypeHeadInfix <$> genConUnqualifiedName <*> smallList2 genSimpleTyVarBinder <*> genType
+genDeclTypeSynInfix =
+  TypeSynDecl
+    <$> (InfixBinderHead <$> genSimpleTyVarBinder <*> genConUnqualifiedName <*> genSimpleTyVarBinder <*> smallList0 genSimpleTyVarBinder)
+    <*> genType
 
 genDeclData :: Gen Decl
 genDeclData =
@@ -166,10 +169,8 @@ genDeclDataGadt = do
   ctors <- genGadtDataCons
   pure $
     DataDecl
-      { dataDeclHeadForm = TypeHeadPrefix,
+      { dataDeclHead = PrefixBinderHead name params,
         dataDeclContext = [],
-        dataDeclName = name,
-        dataDeclParams = params,
         dataDeclKind = Nothing,
         dataDeclConstructors = ctors,
         dataDeclDeriving = []
@@ -187,10 +188,11 @@ genDeclDataInfix = do
   deriving' <- genDerivingClauses
   pure $
     DataDecl
-      { dataDeclHeadForm = TypeHeadInfix,
+      { dataDeclHead =
+          case params of
+            lhs : rhs : tailParams -> InfixBinderHead lhs name rhs tailParams
+            _ -> error "genDeclDataInfix: expected at least two parameters",
         dataDeclContext = [],
-        dataDeclName = name,
-        dataDeclParams = params,
         dataDeclKind = kind,
         dataDeclConstructors = ctors,
         dataDeclDeriving = deriving'
@@ -207,10 +209,8 @@ genDeclTypeDataPrefix = do
   pure $
     DeclTypeData $
       DataDecl
-        { dataDeclHeadForm = TypeHeadPrefix,
+        { dataDeclHead = PrefixBinderHead name params,
           dataDeclContext = [],
-          dataDeclName = name,
-          dataDeclParams = params,
           dataDeclKind = Nothing,
           dataDeclConstructors = ctors,
           dataDeclDeriving = []
@@ -242,10 +242,8 @@ genSimpleDataDecl = do
   deriving' <- genDerivingClauses
   pure $
     DataDecl
-      { dataDeclHeadForm = TypeHeadPrefix,
+      { dataDeclHead = PrefixBinderHead name params,
         dataDeclContext = [],
-        dataDeclName = name,
-        dataDeclParams = params,
         dataDeclKind = kind,
         dataDeclConstructors = ctors,
         dataDeclDeriving = deriving'
@@ -378,10 +376,8 @@ genDeclNewtype = do
   pure $
     DeclNewtype $
       NewtypeDecl
-        { newtypeDeclHeadForm = TypeHeadPrefix,
+        { newtypeDeclHead = PrefixBinderHead name params,
           newtypeDeclContext = [],
-          newtypeDeclName = name,
-          newtypeDeclParams = params,
           newtypeDeclKind = Nothing,
           newtypeDeclConstructor = Just ctor,
           newtypeDeclDeriving = deriving'
@@ -420,9 +416,7 @@ genDeclClassPrefix = do
     DeclClass $
       ClassDecl
         { classDeclContext = ctx,
-          classDeclHeadForm = TypeHeadPrefix,
-          classDeclName = name,
-          classDeclParams = params,
+          classDeclHead = PrefixBinderHead name params,
           classDeclFundeps = [],
           classDeclItems = items
         }
@@ -478,25 +472,23 @@ genAssociatedDataFamilyDecl :: [TyVarBinder] -> Gen DataFamilyDecl
 genAssociatedDataFamilyDecl classParams = do
   let canUseInfixHead = length classParams >= 2
   infixHead <- if canUseInfixHead then elements [False, True] else pure False
-  (headForm, name, params) <-
+  head' <-
     if infixHead
       then do
         name <- mkUnqualifiedName NameConSym <$> genConSym
         shuffled <- shuffle classParams
         case shuffled of
-          lhs : rhs : _ -> pure (TypeHeadInfix, name, [lhs, rhs])
+          lhs : rhs : _ -> pure (InfixBinderHead lhs name rhs [])
           _ -> error "genAssociatedDataFamilyDecl: expected at least two class params"
       else do
         name <- genConUnqualifiedName
         paramCount <- chooseInt (0, min 2 (length classParams))
         params <- take paramCount <$> shuffle classParams
-        pure (TypeHeadPrefix, name, params)
+        pure (PrefixBinderHead name params)
   kind <- frequency [(3, pure Nothing), (1, Just <$> genSimpleType)]
   pure $
     DataFamilyDecl
-      { dataFamilyDeclHeadForm = headForm,
-        dataFamilyDeclName = name,
-        dataFamilyDeclParams = params,
+      { dataFamilyDeclHead = head',
         dataFamilyDeclKind = kind
       }
 
@@ -522,9 +514,10 @@ genDeclClassInfix = do
     DeclClass $
       ClassDecl
         { classDeclContext = ctx,
-          classDeclHeadForm = TypeHeadInfix,
-          classDeclName = name,
-          classDeclParams = params,
+          classDeclHead =
+            case params of
+              lhs : rhs : tailParams -> InfixBinderHead lhs name rhs tailParams
+              _ -> error "genDeclClassInfix: expected at least two parameters",
           classDeclFundeps = [],
           classDeclItems = items
         }
@@ -554,9 +547,7 @@ genDeclInstancePrefix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
-          instanceDeclHeadForm = TypeHeadPrefix,
-          instanceDeclClassName = className,
-          instanceDeclTypes = types,
+          instanceDeclHead = PrefixInstanceHead className types,
           instanceDeclItems = items
         }
 
@@ -575,9 +566,7 @@ genDeclInstanceInfix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
-          instanceDeclHeadForm = TypeHeadInfix,
-          instanceDeclClassName = className,
-          instanceDeclTypes = [lhs, rhs],
+          instanceDeclHead = InfixInstanceHead lhs className rhs,
           instanceDeclItems = items
         }
 
@@ -600,9 +589,7 @@ genDeclStandaloneDerivingPrefix = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHeadForm = TypeHeadPrefix,
-          standaloneDerivingClassName = className,
-          standaloneDerivingTypes = types
+          standaloneDerivingHead = PrefixInstanceHead className types
         }
 
 genDeclStandaloneDerivingInfix :: Gen Decl
@@ -622,9 +609,7 @@ genDeclStandaloneDerivingInfix = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHeadForm = TypeHeadInfix,
-          standaloneDerivingClassName = className,
-          standaloneDerivingTypes = [lhs, rhs]
+          standaloneDerivingHead = InfixInstanceHead lhs className rhs
         }
 
 genInstanceHeadType :: Gen Type
@@ -729,22 +714,21 @@ genDeclTypeFamilyDeclInfix = do
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
   infixHead <- elements [False, True]
-  (headForm, name, params) <-
+  head' <-
     if infixHead
       then do
         name <- mkUnqualifiedName NameConSym <$> genConSym
         params <- smallList2 genSimpleTyVarBinder
-        pure (TypeHeadInfix, name, params)
+        case params of
+          lhs : rhs : tailParams -> pure (InfixBinderHead lhs name rhs tailParams)
+          _ -> error "genDeclDataFamilyDecl: expected at least two parameters"
       else do
         name <- mkUnqualifiedName NameConId <$> genConId
-        params <- genSimpleTyVarBinders
-        pure (TypeHeadPrefix, name, params)
+        PrefixBinderHead name <$> genSimpleTyVarBinders
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
-        { dataFamilyDeclHeadForm = headForm,
-          dataFamilyDeclName = name,
-          dataFamilyDeclParams = params,
+        { dataFamilyDeclHead = head',
           dataFamilyDeclKind = Nothing
         }
 
@@ -1113,9 +1097,9 @@ shrinkPatSynDecl ps =
 
 shrinkTypeSynDecl :: TypeSynDecl -> [TypeSynDecl]
 shrinkTypeSynDecl ts =
-  [ts {typeSynName = name'} | name' <- shrinkUnqualifiedName (typeSynName ts)]
+  [ts {typeSynHead = head'} | head' <- shrinkBinderHeadName shrinkUnqualifiedName (typeSynHead ts)]
     <> [ts {typeSynBody = ty'} | ty' <- shrinkType (typeSynBody ts)]
-    <> [ts {typeSynParams = ps'} | ps' <- shrinkTypeHeadParams (typeSynHeadForm ts) (typeSynParams ts)]
+    <> [ts {typeSynHead = head'} | head' <- shrinkBinderHeadParams (typeSynHead ts)]
 
 -- ---------------------------------------------------------------------------
 -- Data declarations
@@ -1128,7 +1112,7 @@ shrinkDataDecl dd =
     -- Shrink deriving clauses
     <> [dd {dataDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (dataDeclDeriving dd)]
     -- Shrink type parameters
-    <> [dd {dataDeclParams = ps'} | ps' <- shrinkTypeHeadParams (dataDeclHeadForm dd) (dataDeclParams dd)]
+    <> [dd {dataDeclHead = head'} | head' <- shrinkBinderHeadParams (dataDeclHead dd)]
     -- Shrink context
     <> [dd {dataDeclContext = ctx'} | ctx' <- shrinkList shrinkType (dataDeclContext dd)]
 
@@ -1137,7 +1121,7 @@ shrinkNewtypeDecl nd =
   -- Shrink deriving
   [nd {newtypeDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (newtypeDeclDeriving nd)]
     -- Shrink type parameters
-    <> [nd {newtypeDeclParams = ps'} | ps' <- shrinkTyVarBinders (newtypeDeclParams nd)]
+    <> [nd {newtypeDeclHead = head'} | head' <- shrinkBinderHeadParams (newtypeDeclHead nd)]
     -- Shrink context
     <> [nd {newtypeDeclContext = ctx'} | ctx' <- shrinkList shrinkType (newtypeDeclContext nd)]
 
@@ -1190,15 +1174,15 @@ shrinkDerivingClause dc =
 
 shrinkClassDecl :: ClassDecl -> [ClassDecl]
 shrinkClassDecl cd =
-  [cd {classDeclName = name'} | name' <- shrinkConName (classDeclName cd)]
+  [cd {classDeclHead = head'} | head' <- shrinkBinderHeadName shrinkConName (classDeclHead cd)]
     <> [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
-    <> [cd {classDeclParams = ps'} | ps' <- shrinkTypeHeadParams (classDeclHeadForm cd) (classDeclParams cd)]
+    <> [cd {classDeclHead = head'} | head' <- shrinkBinderHeadParams (classDeclHead cd)]
     <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
 
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =
   [inst {instanceDeclItems = is'} | is' <- shrinkList (const []) (instanceDeclItems inst)]
-    <> [inst {instanceDeclTypes = ts'} | ts' <- shrinkTypeHeadTypes (instanceDeclHeadForm inst) (instanceDeclTypes inst)]
+    <> [inst {instanceDeclHead = head'} | head' <- shrinkInstanceHeadTypes (instanceDeclHead inst)]
     <> [inst {instanceDeclContext = ctx'} | ctx' <- shrinkList shrinkType (instanceDeclContext inst)]
 
 -- ---------------------------------------------------------------------------
@@ -1207,8 +1191,8 @@ shrinkInstanceDecl inst =
 
 shrinkStandaloneDerivingDecl :: StandaloneDerivingDecl -> [StandaloneDerivingDecl]
 shrinkStandaloneDerivingDecl sd =
-  [sd {standaloneDerivingClassName = name'} | name' <- shrinkName (standaloneDerivingClassName sd)]
-    <> [sd {standaloneDerivingTypes = ts'} | ts' <- shrinkList shrinkType (standaloneDerivingTypes sd), standaloneDerivingHeadForm sd /= TypeHeadInfix || length ts' >= 2]
+  [sd {standaloneDerivingHead = head'} | head' <- shrinkInstanceHeadName shrinkName (standaloneDerivingHead sd)]
+    <> [sd {standaloneDerivingHead = head'} | head' <- shrinkInstanceHeadTypes (standaloneDerivingHead sd)]
     <> [sd {standaloneDerivingContext = ctx'} | ctx' <- shrinkList shrinkType (standaloneDerivingContext sd)]
 
 -- ---------------------------------------------------------------------------
@@ -1231,7 +1215,7 @@ shrinkTypeFamilyDecl tf =
 
 shrinkDataFamilyDecl :: DataFamilyDecl -> [DataFamilyDecl]
 shrinkDataFamilyDecl df =
-  [df {dataFamilyDeclParams = ps'} | ps' <- shrinkTypeHeadParams (dataFamilyDeclHeadForm df) (dataFamilyDeclParams df)]
+  [df {dataFamilyDeclHead = head'} | head' <- shrinkBinderHeadParams (dataFamilyDeclHead df)]
 
 shrinkTypeFamilyInst :: TypeFamilyInst -> [TypeFamilyInst]
 shrinkTypeFamilyInst tfi =
@@ -1323,6 +1307,41 @@ shrinkTypeHeadTypes headForm tys =
   case headForm of
     TypeHeadPrefix -> shrinkList shrinkType tys
     TypeHeadInfix -> [tys' | tys' <- shrinkList shrinkType tys, length tys' >= 2]
+
+shrinkBinderHeadName :: (name -> [name]) -> BinderHead name -> [BinderHead name]
+shrinkBinderHeadName shrinkNameFn head' =
+  case head' of
+    PrefixBinderHead name params -> [PrefixBinderHead name' params | name' <- shrinkNameFn name]
+    InfixBinderHead lhs name rhs tailParams ->
+      [InfixBinderHead lhs name' rhs tailParams | name' <- shrinkNameFn name]
+
+shrinkBinderHeadParams :: BinderHead name -> [BinderHead name]
+shrinkBinderHeadParams head' =
+  case head' of
+    PrefixBinderHead name params ->
+      [PrefixBinderHead name params' | params' <- shrinkTyVarBinders params]
+    InfixBinderHead lhs name rhs tailParams ->
+      [ head''
+      | params' <- shrinkTypeHeadParams TypeHeadInfix (lhs : rhs : tailParams),
+        head'' <- case params' of
+          lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
+          _ -> []
+      ]
+
+shrinkInstanceHeadName :: (name -> [name]) -> InstanceHead name -> [InstanceHead name]
+shrinkInstanceHeadName shrinkNameFn head' =
+  case head' of
+    PrefixInstanceHead name tys -> [PrefixInstanceHead name' tys | name' <- shrinkNameFn name]
+    InfixInstanceHead lhs name rhs -> [InfixInstanceHead lhs name' rhs | name' <- shrinkNameFn name]
+
+shrinkInstanceHeadTypes :: InstanceHead name -> [InstanceHead name]
+shrinkInstanceHeadTypes head' =
+  case head' of
+    PrefixInstanceHead name tys ->
+      [PrefixInstanceHead name tys' | tys' <- shrinkTypeHeadTypes TypeHeadPrefix tys]
+    InfixInstanceHead lhs name rhs ->
+      [InfixInstanceHead lhs' name rhs | lhs' <- shrinkType lhs]
+        <> [InfixInstanceHead lhs name rhs' | rhs' <- shrinkType rhs]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

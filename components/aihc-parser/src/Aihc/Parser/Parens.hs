@@ -596,7 +596,7 @@ addInstanceDeclParens :: InstanceDecl -> InstanceDecl
 addInstanceDeclParens decl =
   decl
     { instanceDeclContext = addContextConstraints (instanceDeclContext decl),
-      instanceDeclTypes = map (addTypeIn CtxTypeAtom) (instanceDeclTypes decl),
+      instanceDeclHead = addInstanceHeadParens (instanceDeclHead decl),
       instanceDeclItems = map addInstanceItemParens (instanceDeclItems decl)
     }
 
@@ -616,8 +616,14 @@ addStandaloneDerivingParens decl =
   decl
     { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
-      standaloneDerivingTypes = map (addTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
+      standaloneDerivingHead = addInstanceHeadParens (standaloneDerivingHead decl)
     }
+
+addInstanceHeadParens :: InstanceHead name -> InstanceHead name
+addInstanceHeadParens head' =
+  case head' of
+    PrefixInstanceHead name tys -> PrefixInstanceHead name (map (addTypeIn CtxTypeAtom) tys)
+    InfixInstanceHead lhs name rhs -> InfixInstanceHead (addTypeIn CtxTypeAtom lhs) name (addTypeIn CtxTypeAtom rhs)
 
 addForeignDeclParens :: ForeignDecl -> ForeignDecl
 addForeignDeclParens decl =

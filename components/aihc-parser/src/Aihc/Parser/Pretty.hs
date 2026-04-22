@@ -244,15 +244,7 @@ prettyDeclLines decl =
       ]
     DeclRoleAnnotation ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn synDecl ->
-      let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
-            (TypeHeadInfix, lhs : rhs : tailPrms) ->
-              let name = typeSynName synDecl
-                  infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp name <+> pretty (tyVarBinderName rhs)
-               in case tailPrms of
-                    [] -> [infixHead]
-                    _ -> parens infixHead : map prettyTyVarBinder tailPrms
-            _ -> [prettyDeclHead TypeHeadPrefix [] (typeSynName synDecl) (typeSynParams synDecl)]
-       in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
+      [hsep (["type"] <> prettyDeclBinderHead [] (typeSynHead synDecl) <> ["=", prettyType (typeSynBody synDecl)])]
     DeclData dataDecl -> [prettyDataDecl dataDecl]
     DeclTypeData dataDecl -> [prettyTypeDataDecl dataDecl]
     DeclNewtype newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
@@ -522,9 +514,8 @@ prettyLiteral lit =
 prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
   hsep
-    ( [ "data",
-        prettyDeclHead (dataDeclHeadForm decl) (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
-      ]
+    ( ["data"]
+        <> prettyDeclBinderHead (dataDeclContext decl) (dataDeclHead decl)
         <> kindPart
         <> ctorPart
         <> derivingParts (dataDeclDeriving decl)
@@ -541,9 +532,8 @@ prettyDataDecl decl =
 prettyTypeDataDecl :: DataDecl -> Doc ann
 prettyTypeDataDecl decl =
   hsep
-    ( [ "type data",
-        prettyDeclHead (dataDeclHeadForm decl) (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
-      ]
+    ( ["type data"]
+        <> prettyDeclBinderHead (dataDeclContext decl) (dataDeclHead decl)
         <> kindPart
         <> ctorPart
     )
@@ -564,9 +554,8 @@ isGadtCon _ = False
 prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
   hsep
-    ( [ "newtype",
-        prettyDeclHead (newtypeDeclHeadForm decl) (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
-      ]
+    ( ["newtype"]
+        <> prettyDeclBinderHead (newtypeDeclContext decl) (newtypeDeclHead decl)
         <> kindPart
         <> ctorPart
         <> derivingParts (newtypeDeclDeriving decl)
@@ -601,21 +590,20 @@ derivingPart (DerivingClause strategy classes viaTy parenthesized) =
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
 
-prettyDeclHead :: TypeHeadForm -> [Type] -> UnqualifiedName -> [TyVarBinder] -> Doc ann
-prettyDeclHead headForm constraints name params =
-  hsep
-    ( contextPrefix constraints
-        <> prettyDeclHeadNameAndParams name params
-    )
+prettyDeclBinderHead :: [Type] -> BinderHead UnqualifiedName -> [Doc ann]
+prettyDeclBinderHead constraints head' =
+  contextPrefix constraints
+    <> prettyDeclHeadNameAndParams head'
   where
-    prettyDeclHeadNameAndParams nm prms = case (headForm, prms) of
-      (TypeHeadInfix, lhs : rhs : tailPrms) ->
-        let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp nm <+> pretty (tyVarBinderName rhs)
-         in case tailPrms of
-              [] -> [infixHead]
-              _ -> parens infixHead : map prettyTyVarBinder tailPrms
-      _ ->
-        [prettyConstructorUName nm] <> map prettyTyVarBinder prms
+    prettyDeclHeadNameAndParams binderHead =
+      case binderHead of
+        PrefixBinderHead name params ->
+          [prettyConstructorUName name] <> map prettyTyVarBinder params
+        InfixBinderHead lhs name rhs tailPrms ->
+          let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp name <+> pretty (tyVarBinderName rhs)
+           in case tailPrms of
+                [] -> [infixHead]
+                _ -> parens infixHead : map prettyTyVarBinder tailPrms
 
 prettyTyVarBinder :: TyVarBinder -> Doc ann
 prettyTyVarBinder binder =
@@ -768,7 +756,7 @@ prettyClassDecl decl =
         hsep
           ( ["class"]
               <> maybeContextPrefix (classDeclContext decl)
-              <> prettyNamedTypeHead (classDeclHeadForm decl) (classDeclName decl) (classDeclParams decl)
+              <> prettyNamedBinderHead (classDeclHead decl)
               <> prettyClassFundeps (classDeclFundeps decl)
           )
    in case classDeclItems decl of
@@ -859,27 +847,18 @@ prettyStandaloneDeriving decl =
 instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
   maybeParenthesize (instanceDeclParenthesizedHead decl) $
-    prettyInstanceLikeHead (instanceDeclHeadForm decl) (instanceDeclClassName decl) (instanceDeclTypes decl)
+    prettyInstanceHead prettyConstructorUName prettyInfixOp (instanceDeclHead decl)
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
   maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    prettyStandaloneDerivingHead
-      (standaloneDerivingHeadForm decl)
-      (standaloneDerivingClassName decl)
-      (standaloneDerivingTypes decl)
+    prettyInstanceHead prettyPrefixName prettyNameInfixOp (standaloneDerivingHead decl)
 
-prettyInstanceLikeHead :: TypeHeadForm -> UnqualifiedName -> [Type] -> Doc ann
-prettyInstanceLikeHead headForm className tys =
-  case (headForm, tys) of
-    (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyInfixOp className <+> prettyType rhs
-    _ -> hsep (prettyConstructorUName className : map prettyType tys)
-
-prettyStandaloneDerivingHead :: TypeHeadForm -> Name -> [Type] -> Doc ann
-prettyStandaloneDerivingHead headForm className tys =
-  case (headForm, tys) of
-    (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyNameInfixOp className <+> prettyType rhs
-    _ -> hsep (prettyPrefixName className : map prettyType tys)
+prettyInstanceHead :: (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
+prettyInstanceHead prettyPrefix prettyInfix head' =
+  case head' of
+    PrefixInstanceHead name tys -> hsep (prettyPrefix name : map prettyType tys)
+    InfixInstanceHead lhs name rhs -> prettyType lhs <+> prettyInfix name <+> prettyType rhs
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
@@ -1367,7 +1346,7 @@ prettyDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyDataFamilyDecl df =
   hsep $
     ["data", "family"]
-      <> prettyNamedTypeHead (dataFamilyDeclHeadForm df) (dataFamilyDeclName df) (dataFamilyDeclParams df)
+      <> prettyNamedBinderHead (dataFamilyDeclHead df)
       <> kindPart (dataFamilyDeclKind df)
   where
     kindPart Nothing = []
@@ -1444,7 +1423,7 @@ prettyAssocDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyAssocDataFamilyDecl df =
   hsep $
     ["data"]
-      <> prettyNamedTypeHead (dataFamilyDeclHeadForm df) (dataFamilyDeclName df) (dataFamilyDeclParams df)
+      <> prettyNamedBinderHead (dataFamilyDeclHead df)
       <> kindPart (dataFamilyDeclKind df)
   where
     kindPart Nothing = []
@@ -1472,15 +1451,16 @@ prettyInstTypeFamilyInst tfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
 
-prettyNamedTypeHead :: TypeHeadForm -> UnqualifiedName -> [TyVarBinder] -> [Doc ann]
-prettyNamedTypeHead headForm name params =
-  case (headForm, params) of
-    (TypeHeadInfix, lhs : rhs : tailPrms) ->
+prettyNamedBinderHead :: BinderHead UnqualifiedName -> [Doc ann]
+prettyNamedBinderHead head' =
+  case head' of
+    PrefixBinderHead name params ->
+      [prettyConstructorUName name] <> map prettyTyVarBinder params
+    InfixBinderHead lhs name rhs tailPrms ->
       let infixHead = prettyTyVarBinder lhs <+> prettyTypeHeadInfixName name <+> prettyTyVarBinder rhs
        in case tailPrms of
             [] -> [infixHead]
             _ -> parens infixHead : map prettyTyVarBinder tailPrms
-    _ -> [prettyConstructorUName name] <> map prettyTyVarBinder params
 
 prettyTypeHeadInfixName :: UnqualifiedName -> Doc ann
 prettyTypeHeadInfixName = prettyInfixOp

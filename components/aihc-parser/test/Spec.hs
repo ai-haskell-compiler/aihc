@@ -444,8 +444,10 @@ test_moduleParsesNullaryClassDecl =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclClass ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = []}] ->
-            pure ()
+          [DeclClass classDecl@ClassDecl {classDeclItems = []}]
+            | binderHeadName (classDeclHead classDecl) == "C",
+              null (binderHeadParams (classDeclHead classDecl)) ->
+                pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -456,8 +458,10 @@ test_moduleParsesNullaryClassDeclWithWhere =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclClass ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = [ClassItemTypeSig_ ["method"] ty]}]
-            | TCon "Int" Unpromoted <- stripTypeAnnotations ty ->
+          [DeclClass classDecl@ClassDecl {classDeclItems = [ClassItemTypeSig_ ["method"] ty]}]
+            | binderHeadName (classDeclHead classDecl) == "C",
+              null (binderHeadParams (classDeclHead classDecl)),
+              TCon "Int" Unpromoted <- stripTypeAnnotations ty ->
                 pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
@@ -492,8 +496,11 @@ test_typeSynonymRhsParsesTopLevelKindSignature =
   case parseDecl
     defaultConfig {parserExtensions = [DataKinds, KindSignatures]}
     "type UTF8 = \"UTF8\" :: NameStyle" of
-    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "UTF8", typeSynBody = body})
-      | TKindSig (TTypeLit (TypeLitSymbol "UTF8" "\"UTF8\"")) (TCon "NameStyle" Unpromoted) <- stripTypeAnnotations body ->
+    ParseOk (DeclTypeSyn typeSyn)
+      | binderHeadName (typeSynHead typeSyn) == "UTF8",
+        null (binderHeadParams (typeSynHead typeSyn)),
+        let body = typeSynBody typeSyn,
+        TKindSig (TTypeLit (TypeLitSymbol "UTF8" "\"UTF8\"")) (TCon "NameStyle" Unpromoted) <- stripTypeAnnotations body ->
           pure ()
     other -> assertFailure ("expected type synonym rhs kind signature, got: " <> show other)
 
@@ -522,10 +529,11 @@ test_symbolicTypeDataConstructorParses =
 test_symbolicTypeDataHeadAndConstructorParses :: Assertion
 test_symbolicTypeDataHeadAndConstructorParses =
   case parseDecl defaultConfig {parserExtensions = [TemplateHaskell, TypeData]} "type data (:*) = (:**)" of
-    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclHeadForm = TypeHeadPrefix, dataDeclName, dataDeclConstructors = [ctor]})) -> do
+    ParseOk decl@(DeclAnn _ (DeclTypeData dataDecl@DataDecl {dataDeclConstructors = [ctor]})) -> do
       let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
       assertEqual "pretty-printed declaration" "type data (:*) = (:**)" source
-      assertEqual "type data head" (mkUnqualifiedName NameConSym ":*") dataDeclName
+      assertEqual "type data head form" TypeHeadPrefix (binderHeadForm (dataDeclHead dataDecl))
+      assertEqual "type data head" (mkUnqualifiedName NameConSym ":*") (binderHeadName (dataDeclHead dataDecl))
       case peelDataConAnn ctor of
         PrefixCon [] [] name []
           | name == mkUnqualifiedName NameConSym ":**" -> pure ()
@@ -576,11 +584,11 @@ test_instanceParsesParenthesizedEmptyListType =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclClass ClassDecl {classDeclName = "C", classDeclParams = [_]},
+          [ DeclClass classDecl,
             DeclInstance inst
             ]
-              | instanceDeclClassName inst == "C",
-                [ity] <- instanceDeclTypes inst,
+              | binderHeadName (classDeclHead classDecl) == "C",
+                [ity] <- instanceHeadTypes (instanceDeclHead inst),
                 TParen (TCon "[]" Unpromoted) <- stripTypeAnnotations ity ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
@@ -729,8 +737,12 @@ test_infixClassHeadParses =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [ DeclFixity {},
-            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible], classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
-            ] -> pure ()
+            DeclClass classDecl@ClassDecl {classDeclItems = [ClassItemTypeSig_ ["proof"] _]}
+            ]
+              | binderHeadForm (classDeclHead classDecl) == TypeHeadInfix,
+                binderHeadName (classDeclHead classDecl) == ":=:",
+                [TyVarBinder _ "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "b" Nothing TyVarBSpecified TyVarBVisible] <- binderHeadParams (classDeclHead classDecl) ->
+                  pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixClassHeadVarSymParses :: Assertion
@@ -746,9 +758,16 @@ test_infixClassHeadVarSymParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [ DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "|-", classDeclParams = [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible]},
-            DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "&", classDeclParams = [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible]}
-            ] -> pure ()
+          [ DeclClass classDecl1,
+            DeclClass classDecl2
+            ]
+              | binderHeadForm (classDeclHead classDecl1) == TypeHeadInfix,
+                binderHeadName (classDeclHead classDecl1) == "|-",
+                [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible] <- binderHeadParams (classDeclHead classDecl1),
+                binderHeadForm (classDeclHead classDecl2) == TypeHeadInfix,
+                binderHeadName (classDeclHead classDecl2) == "&",
+                [TyVarBinder _ "p" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder _ "q" Nothing TyVarBSpecified TyVarBVisible] <- binderHeadParams (classDeclHead classDecl2) ->
+                  pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_classOperatorTypeSigParses :: Assertion
@@ -764,7 +783,10 @@ test_classOperatorTypeSigParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclClass ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = "C#", classDeclItems = [ClassItemTypeSig_ [UnqualifiedName NameVarSym "##"] _]}] -> pure ()
+          [DeclClass classDecl@ClassDecl {classDeclItems = [ClassItemTypeSig_ [UnqualifiedName NameVarSym "##"] _]}]
+            | binderHeadForm (classDeclHead classDecl) == TypeHeadInfix,
+              binderHeadName (classDeclHead classDecl) == "C#" ->
+                pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_explicitAssociatedTypeFamilyDeclParses :: Assertion
@@ -974,22 +996,26 @@ test_functionHeadTypeBinderParses =
 test_invisibleTypeDeclBinderParses :: Assertion
 test_invisibleTypeDeclBinderParses =
   case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "type T @k a = a" of
-    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "T", typeSynParams = [kBinder, aBinder], typeSynBody = body})
-      | tyVarBinderName kBinder == "k",
+    ParseOk (DeclTypeSyn typeSyn)
+      | binderHeadName (typeSynHead typeSyn) == "T",
+        [kBinder, aBinder] <- binderHeadParams (typeSynHead typeSyn),
+        tyVarBinderName kBinder == "k",
         tyVarBinderVisibility kBinder == TyVarBInvisible,
         tyVarBinderName aBinder == "a",
         tyVarBinderVisibility aBinder == TyVarBVisible,
-        TVar "a" <- stripTypeAnnotations body ->
+        TVar "a" <- stripTypeAnnotations (typeSynBody typeSyn) ->
           pure ()
     other -> assertFailure ("expected invisible type declaration binder, got: " <> show other)
 
 test_typeSynonymRhsInvisibleTypeAppParses :: Assertion
 test_typeSynonymRhsInvisibleTypeAppParses =
   case parseDecl defaultConfig {parserExtensions = [TypeAbstractions]} "type Witnessed @k = PairType @k IOWitness" of
-    ParseOk (DeclTypeSyn TypeSynDecl {typeSynName = "Witnessed", typeSynParams = [kBinder], typeSynBody = body})
-      | tyVarBinderName kBinder == "k",
+    ParseOk (DeclTypeSyn typeSyn)
+      | binderHeadName (typeSynHead typeSyn) == "Witnessed",
+        [kBinder] <- binderHeadParams (typeSynHead typeSyn),
+        tyVarBinderName kBinder == "k",
         tyVarBinderVisibility kBinder == TyVarBInvisible,
-        TApp (TTypeApp (TCon "PairType" Unpromoted) (TVar "k")) (TCon "IOWitness" Unpromoted) <- stripTypeAnnotations body ->
+        TApp (TTypeApp (TCon "PairType" Unpromoted) (TVar "k")) (TCon "IOWitness" Unpromoted) <- stripTypeAnnotations (typeSynBody typeSyn) ->
           pure ()
     other -> assertFailure ("expected invisible type application in type synonym rhs, got: " <> show other)
 
@@ -1877,11 +1903,11 @@ test_associatedDataFamilyOperatorName = do
   case parseModule defaultConfig source of
     ([], modu) ->
       case map peelDeclAnn (moduleDecls modu) of
-        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclName, dataFamilyDeclParams, dataFamilyDeclKind})]}
+        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl dataFamilyDecl)]}
           ]
-            | dataFamilyDeclName == expectedName,
-              map tyVarBinderName dataFamilyDeclParams == ["a"],
-              isNothing dataFamilyDeclKind ->
+            | binderHeadName (dataFamilyDeclHead dataFamilyDecl) == expectedName,
+              map tyVarBinderName (binderHeadParams (dataFamilyDeclHead dataFamilyDecl)) == ["a"],
+              isNothing (dataFamilyDeclKind dataFamilyDecl) ->
                 pure ()
         other ->
           assertFailure ("expected associated data family operator declaration, got: " <> show other)
@@ -1895,12 +1921,12 @@ test_associatedDataFamilyInfixOperatorName = do
   case parseModule defaultConfig source of
     ([], modu) ->
       case map peelDeclAnn (moduleDecls modu) of
-        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm, dataFamilyDeclName, dataFamilyDeclParams, dataFamilyDeclKind})]}
+        [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl dataFamilyDecl)]}
           ]
-            | dataFamilyDeclHeadForm == TypeHeadInfix,
-              dataFamilyDeclName == expectedName,
-              map tyVarBinderName dataFamilyDeclParams == ["a", "b"],
-              isNothing dataFamilyDeclKind ->
+            | binderHeadForm (dataFamilyDeclHead dataFamilyDecl) == TypeHeadInfix,
+              binderHeadName (dataFamilyDeclHead dataFamilyDecl) == expectedName,
+              map tyVarBinderName (binderHeadParams (dataFamilyDeclHead dataFamilyDecl)) == ["a", "b"],
+              isNothing (dataFamilyDeclKind dataFamilyDecl) ->
                 pure ()
         other ->
           assertFailure ("expected infix associated data family operator declaration, got: " <> show other)
@@ -1953,16 +1979,12 @@ test_prettyAssocDataFamilyOperatorName = do
         DeclClass
           ClassDecl
             { classDeclContext = Nothing,
-              classDeclHeadForm = TypeHeadPrefix,
-              classDeclName = mkUnqualifiedName NameConId "C",
-              classDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
+              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
               classDeclFundeps = [],
               classDeclItems =
                 [ ClassItemDataFamilyDecl
                     DataFamilyDecl
-                      { dataFamilyDeclHeadForm = TypeHeadPrefix,
-                        dataFamilyDeclName = mkUnqualifiedName NameConSym ":*:",
-                        dataFamilyDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
+                      { dataFamilyDeclHead = PrefixBinderHead (mkUnqualifiedName NameConSym ":*:") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
                         dataFamilyDeclKind = Nothing
                       }
                 ]
@@ -1976,16 +1998,17 @@ test_prettyAssocDataFamilyInfixOperatorName = do
         DeclClass
           ClassDecl
             { classDeclContext = Nothing,
-              classDeclHeadForm = TypeHeadPrefix,
-              classDeclName = mkUnqualifiedName NameConId "C",
-              classDeclParams = [TyVarBinder [] "x" Nothing TyVarBSpecified TyVarBVisible],
+              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "x" Nothing TyVarBSpecified TyVarBVisible],
               classDeclFundeps = [],
               classDeclItems =
                 [ ClassItemDataFamilyDecl
                     DataFamilyDecl
-                      { dataFamilyDeclHeadForm = TypeHeadInfix,
-                        dataFamilyDeclName = mkUnqualifiedName NameConSym ":*:",
-                        dataFamilyDeclParams = [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible, TyVarBinder [] "b" Nothing TyVarBSpecified TyVarBVisible],
+                      { dataFamilyDeclHead =
+                          InfixBinderHead
+                            (TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible)
+                            (mkUnqualifiedName NameConSym ":*:")
+                            (TyVarBinder [] "b" Nothing TyVarBSpecified TyVarBVisible)
+                            [],
                         dataFamilyDeclKind = Just TStar
                       }
                 ]
@@ -2045,13 +2068,18 @@ prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators =
       prefixMatches =
         [ decl
         | decl@(DeclClass ClassDecl {classDeclItems}) <- samples,
-          ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm = TypeHeadPrefix, dataFamilyDeclName = name} <- map peelClassDeclItemAnn classDeclItems,
+          ClassItemDataFamilyDecl dataFamilyDecl <- map peelClassDeclItemAnn classDeclItems,
+          binderHeadForm (dataFamilyDeclHead dataFamilyDecl) == TypeHeadPrefix,
+          let name = binderHeadName (dataFamilyDeclHead dataFamilyDecl),
           unqualifiedNameType name == NameConSym
         ]
       infixMatches =
         [ decl
         | decl@(DeclClass ClassDecl {classDeclItems}) <- samples,
-          ClassItemDataFamilyDecl DataFamilyDecl {dataFamilyDeclHeadForm = TypeHeadInfix, dataFamilyDeclName = name, dataFamilyDeclParams = params} <- map peelClassDeclItemAnn classDeclItems,
+          ClassItemDataFamilyDecl dataFamilyDecl <- map peelClassDeclItemAnn classDeclItems,
+          binderHeadForm (dataFamilyDeclHead dataFamilyDecl) == TypeHeadInfix,
+          let name = binderHeadName (dataFamilyDeclHead dataFamilyDecl),
+          let params = binderHeadParams (dataFamilyDeclHead dataFamilyDecl),
           unqualifiedNameType name == NameConSym
             && length params == 2
         ]

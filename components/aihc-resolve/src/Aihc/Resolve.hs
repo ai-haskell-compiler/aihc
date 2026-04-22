@@ -47,6 +47,7 @@ import Aihc.Parser.Syntax
     Type (..),
     UnqualifiedName,
     ValueDecl (..),
+    binderHeadName,
     fromAnnotation,
     mkAnnotation,
     mkQualifiedName,
@@ -671,12 +672,13 @@ topLevelDeclAnnotations decl scope =
     (declSpan, DeclData dataDecl) -> dataDeclAnnotations declSpan "data " dataDecl
     (declSpan, DeclNewtype newtypeDecl) ->
       let span' = declSpan
+          typeName = binderHeadName (newtypeDeclHead newtypeDecl)
           typeAnnotation =
             ResolutionAnnotation
-              (declKeywordNameSpan "newtype " span' (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
-              (renderUnqualifiedName (newtypeDeclName newtypeDecl))
+              (declKeywordNameSpan "newtype " span' (renderUnqualifiedName typeName))
+              (renderUnqualifiedName typeName)
               ResolutionNamespaceType
-              (resolveTopLevelType scope (newtypeDeclName newtypeDecl))
+              (resolveTopLevelType scope typeName)
           constructorAnnotations =
             maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
        in typeAnnotation : constructorAnnotations
@@ -684,17 +686,18 @@ topLevelDeclAnnotations decl scope =
   where
     dataDeclAnnotations declSpan keyword dataDecl =
       let span' = declSpan
+          typeName = binderHeadName (dataDeclHead dataDecl)
           typeAnnotation =
             ResolutionAnnotation
-              (declKeywordNameSpan keyword span' (renderUnqualifiedName (dataDeclName dataDecl)))
-              (renderUnqualifiedName (dataDeclName dataDecl))
+              (declKeywordNameSpan keyword span' (renderUnqualifiedName typeName))
+              (renderUnqualifiedName typeName)
               ResolutionNamespaceType
-              (resolveTopLevelType scope (dataDeclName dataDecl))
+              (resolveTopLevelType scope typeName)
        in typeAnnotation : map (dataConAnnotation scope) (dataDeclConstructors dataDecl)
 
 classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
 classAnnotation scope declSpan classDecl =
-  let className = classDeclName classDecl
+  let className = binderHeadName (classDeclHead classDecl)
       span' = declSpan
    in ResolutionAnnotation
         (declKeywordNameSpan "class " span' (renderUnqualifiedName className))
@@ -764,12 +767,12 @@ declExportedNames decl =
             PVar name -> ([name], [])
             _ -> ([], [])
     DeclTypeSig names _ -> (names, [])
-    DeclClass classDecl -> ([], [classDeclName classDecl])
-    DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
-    DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
+    DeclClass classDecl -> ([], [binderHeadName (classDeclHead classDecl)])
+    DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
+    DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
     DeclNewtype newtypeDecl ->
       ( maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl),
-        [newtypeDeclName newtypeDecl]
+        [binderHeadName (newtypeDeclHead newtypeDecl)]
       )
     _ -> ([], [])
 

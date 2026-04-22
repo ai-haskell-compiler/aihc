@@ -413,19 +413,15 @@ normalizePatSynDir dir =
 normalizeTypeSynDecl :: TypeSynDecl -> TypeSynDecl
 normalizeTypeSynDecl decl =
   TypeSynDecl
-    { typeSynHeadForm = typeSynHeadForm decl,
-      typeSynName = typeSynName decl,
-      typeSynParams = map normalizeTyVarBinder (typeSynParams decl),
+    { typeSynHead = normalizeBinderHead (typeSynHead decl),
       typeSynBody = normalizeType (typeSynBody decl)
     }
 
 normalizeDataDecl :: DataDecl -> DataDecl
 normalizeDataDecl decl =
   DataDecl
-    { dataDeclHeadForm = dataDeclHeadForm decl,
+    { dataDeclHead = normalizeBinderHead (dataDeclHead decl),
       dataDeclContext = map normalizeType (dataDeclContext decl),
-      dataDeclName = dataDeclName decl,
-      dataDeclParams = map normalizeTyVarBinder (dataDeclParams decl),
       dataDeclKind = fmap normalizeType (dataDeclKind decl),
       dataDeclConstructors = map normalizeDataConDecl (dataDeclConstructors decl),
       dataDeclDeriving = map normalizeDerivingClause (dataDeclDeriving decl)
@@ -434,10 +430,8 @@ normalizeDataDecl decl =
 normalizeNewtypeDecl :: NewtypeDecl -> NewtypeDecl
 normalizeNewtypeDecl decl =
   NewtypeDecl
-    { newtypeDeclHeadForm = newtypeDeclHeadForm decl,
+    { newtypeDeclHead = normalizeBinderHead (newtypeDeclHead decl),
       newtypeDeclContext = map normalizeType (newtypeDeclContext decl),
-      newtypeDeclName = newtypeDeclName decl,
-      newtypeDeclParams = map normalizeTyVarBinder (newtypeDeclParams decl),
       newtypeDeclKind = fmap normalizeType (newtypeDeclKind decl),
       newtypeDeclConstructor = fmap normalizeDataConDecl (newtypeDeclConstructor decl),
       newtypeDeclDeriving = map normalizeDerivingClause (newtypeDeclDeriving decl)
@@ -496,9 +490,7 @@ normalizeClassDecl :: ClassDecl -> ClassDecl
 normalizeClassDecl decl =
   ClassDecl
     { classDeclContext = fmap (map normalizeType) (classDeclContext decl),
-      classDeclHeadForm = classDeclHeadForm decl,
-      classDeclName = classDeclName decl,
-      classDeclParams = map normalizeTyVarBinder (classDeclParams decl),
+      classDeclHead = normalizeBinderHead (classDeclHead decl),
       classDeclFundeps = classDeclFundeps decl,
       classDeclItems = map normalizeClassDeclItem (classDeclItems decl)
     }
@@ -524,9 +516,7 @@ normalizeInstanceDecl decl =
       instanceDeclForall = map normalizeTyVarBinder (instanceDeclForall decl),
       instanceDeclContext = map normalizeType (instanceDeclContext decl),
       instanceDeclParenthesizedHead = instanceDeclParenthesizedHead decl,
-      instanceDeclHeadForm = instanceDeclHeadForm decl,
-      instanceDeclClassName = instanceDeclClassName decl,
-      instanceDeclTypes = map normalizeType (instanceDeclTypes decl),
+      instanceDeclHead = normalizeInstanceHead (instanceDeclHead decl),
       instanceDeclItems = map normalizeInstanceDeclItem (instanceDeclItems decl)
     }
 
@@ -553,9 +543,7 @@ normalizeStandaloneDerivingDecl decl =
       standaloneDerivingForall = map normalizeTyVarBinder (standaloneDerivingForall decl),
       standaloneDerivingContext = map normalizeType (standaloneDerivingContext decl),
       standaloneDerivingParenthesizedHead = standaloneDerivingParenthesizedHead decl,
-      standaloneDerivingHeadForm = standaloneDerivingHeadForm decl,
-      standaloneDerivingClassName = standaloneDerivingClassName decl,
-      standaloneDerivingTypes = map normalizeType (standaloneDerivingTypes decl)
+      standaloneDerivingHead = normalizeInstanceHead (standaloneDerivingHead decl)
     }
 
 normalizeForeignDecl :: ForeignDecl -> ForeignDecl
@@ -601,11 +589,26 @@ normalizeTypeFamilyEq eq =
 normalizeDataFamilyDecl :: DataFamilyDecl -> DataFamilyDecl
 normalizeDataFamilyDecl df =
   DataFamilyDecl
-    { dataFamilyDeclHeadForm = dataFamilyDeclHeadForm df,
-      dataFamilyDeclName = dataFamilyDeclName df,
-      dataFamilyDeclParams = map normalizeTyVarBinder (dataFamilyDeclParams df),
+    { dataFamilyDeclHead = normalizeBinderHead (dataFamilyDeclHead df),
       dataFamilyDeclKind = fmap normalizeType (dataFamilyDeclKind df)
     }
+
+normalizeBinderHead :: BinderHead name -> BinderHead name
+normalizeBinderHead head' =
+  case head' of
+    PrefixBinderHead name params -> PrefixBinderHead name (map normalizeTyVarBinder params)
+    InfixBinderHead lhs name rhs tailParams ->
+      InfixBinderHead
+        (normalizeTyVarBinder lhs)
+        name
+        (normalizeTyVarBinder rhs)
+        (map normalizeTyVarBinder tailParams)
+
+normalizeInstanceHead :: InstanceHead name -> InstanceHead name
+normalizeInstanceHead head' =
+  case head' of
+    PrefixInstanceHead name tys -> PrefixInstanceHead name (map normalizeType tys)
+    InfixInstanceHead lhs name rhs -> InfixInstanceHead (normalizeType lhs) name (normalizeType rhs)
 
 normalizeTypeFamilyInst :: TypeFamilyInst -> TypeFamilyInst
 normalizeTypeFamilyInst tfi =
