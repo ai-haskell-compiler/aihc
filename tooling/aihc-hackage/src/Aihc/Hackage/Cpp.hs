@@ -29,7 +29,9 @@ builtinCppMacros =
     [ ("__GLASGOW_HASKELL__", "906"),
       ("__GLASGOW_HASKELL_FULL_VERSION__", "\"9.6.7\""),
       ("__GLASGOW_HASKELL_PATCHLEVEL1__", "7"),
-      ("__GLASGOW_HASKELL_PATCHLEVEL2__", "0")
+      ("__GLASGOW_HASKELL_PATCHLEVEL2__", "0"),
+      ("WORD_SIZE_IN_BITS", "64"),
+      ("WORD_SIZE_IN_BITS_FLOAT", "64.0")
     ]
 
 -- | Build the macro map for the CPP config from a list of @cpp-options@ strings.
