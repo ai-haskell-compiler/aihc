@@ -228,6 +228,9 @@ buildTests = do
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
+            testCase "sets lexTokenAtLineStart correctly" test_tokenAtLineStartWithoutDirective,
+            testCase "hash line directive sets lexTokenAtLineStart" test_hashLineDirectiveSetsAtLineStart,
+            testCase "hash line directive preserves layout" test_hashLineDirectivePreservesLayout,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
@@ -1410,6 +1413,28 @@ test_inlineColumnPragmaUpdatesSpan =
         assertSourceSpan "<input>" 1 1 1 2 0 1 xSpan
         assertSourceSpan "<input>" 1 7 1 8 17 18 ySpan
     other -> assertFailure ("expected inline COLUMN pragma to update same-line column, got: " <> show other)
+
+test_tokenAtLineStartWithoutDirective :: Assertion
+test_tokenAtLineStartWithoutDirective =
+  case lexTokens "x y" of
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenAtLineStart = True}, LexToken {lexTokenKind = TkVarId "y", lexTokenAtLineStart = False}, LexToken {lexTokenKind = TkEOF}] ->
+      pure ()
+    other -> assertFailure ("expected x at line start and y not at line start, got: " <> show other)
+
+test_hashLineDirectiveSetsAtLineStart :: Assertion
+test_hashLineDirectiveSetsAtLineStart =
+  case lexTokens "x\n#line 1 \"foo.hs\"\ny" of
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenAtLineStart = True}, LexToken {lexTokenKind = TkVarId "y", lexTokenAtLineStart = True}, LexToken {lexTokenKind = TkEOF}] ->
+      pure ()
+    other -> assertFailure ("expected x and y both at line start, got: " <> show other)
+
+test_hashLineDirectivePreservesLayout :: Assertion
+test_hashLineDirectivePreservesLayout =
+  let source = T.unlines ["module Test where", "x = 1", "#line 1 \"foo.hs\"", "y = 2"]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        assertEqual "expected two declarations" 2 (length (moduleDecls modu))
 
 assertSourceSpan :: FilePath -> Int -> Int -> Int -> Int -> Int -> Int -> SourceSpan -> Assertion
 assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine expectedEndCol expectedStartOffset expectedEndOffset span' =

@@ -116,7 +116,8 @@ genLexToken = do
   tokenText <- genTokenText
   span' <- genSourceSpan
   tokenOrigin <- elements [FromSource, InsertedLayout]
-  pure LexToken {lexTokenKind = kind, lexTokenText = tokenText, lexTokenSpan = span', lexTokenOrigin = tokenOrigin}
+  atLineStart <- arbitrary
+  pure LexToken {lexTokenKind = kind, lexTokenText = tokenText, lexTokenSpan = span', lexTokenOrigin = tokenOrigin, lexTokenAtLineStart = atLineStart}
 
 shrinkLexToken :: LexToken -> [LexToken]
 shrinkLexToken token =
