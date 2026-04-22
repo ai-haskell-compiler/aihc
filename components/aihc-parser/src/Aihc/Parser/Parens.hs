@@ -635,10 +635,33 @@ addInstanceHeadParens head' =
           -- Example: @deriving instance (C) '() :+ D@ is misparsed because
           -- @(C)@ is consumed as the full parenthesized head.  Emitting
           -- @deriving instance ((C) '()) :+ D@ is unambiguous.
-          needsWrap = case peelTypeAnn lhs' of
-            TApp {} -> typeStartsWithParen lhs'
-            _ -> False
+          needsWrap = infixLhsNeedsOuterParen lhs'
        in InfixInstanceHead (wrapTy needsWrap lhs') name (addTypeIn CtxTypeFamilyOperand rhs)
+
+-- | Determine whether the LHS of an infix instance head needs to be
+-- wrapped in an outer TParen to prevent the parser from greedily
+-- consuming an initial @(...)@ as a parenthesized prefix instance head.
+--
+-- The parser's @standaloneDerivingHeadParser@ / @instanceHeadParser@ first
+-- tries @parens bareInstanceHeadParser@.  When the LHS pretty-prints as
+-- @(C) '() :+ D@, the parser matches @(C)@ as the full parenthesized
+-- head and orphans everything else.
+--
+-- We detect this by checking two conditions:
+--
+-- 1. The LHS is a multi-atom type application (@TApp@).
+-- 2. The leftmost atom of the application starts with @(@.
+--
+-- When both hold, we wrap the entire LHS in TParen so it prints as
+-- @((C) '()) :+ D@, which is unambiguous.
+--
+-- A bare @TParen@ at the top level (without @TApp@) is safe: the parser's
+-- @notFollowedBy typeInfixOperatorParser@ guard fails because the infix
+-- operator follows immediately.
+infixLhsNeedsOuterParen :: Type -> Bool
+infixLhsNeedsOuterParen (TAnn _ sub) = infixLhsNeedsOuterParen sub
+infixLhsNeedsOuterParen (TApp f _) = typeStartsWithParen f
+infixLhsNeedsOuterParen _ = False
 
 -- | Check whether a type's pretty-printed form starts with @(@, which
 -- would be consumed as a parenthesized instance head by the parser.
