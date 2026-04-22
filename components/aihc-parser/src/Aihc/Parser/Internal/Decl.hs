@@ -17,6 +17,7 @@ import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
 import Data.Char (isLower)
 import Data.Functor (($>))
@@ -155,7 +156,12 @@ typeDeclarationParser = do
               typeSynBody = body
             }
     _ ->
-      fail "expected '::' or '=' after type declaration head"
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Just (mkFoundToken nextTok),
+            unexpectedExpecting = "'::' or '=' after type declaration head",
+            unexpectedContext = []
+          }
 
 roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
@@ -1560,7 +1566,14 @@ patSynDirAndPatParser name =
               Nothing -> pure (PatSynUnidirectional, pat)
               Just matches -> pure (PatSynExplicitBidirectional matches, pat)
         )
-    <|> fail "expected '=' or '<-' in pattern synonym declaration"
+    <|> do
+      mTok <- MP.optional (lookAhead anySingle)
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = mkFoundToken <$> mTok,
+            unexpectedExpecting = "'=' or '<-' in pattern synonym declaration",
+            unexpectedContext = []
+          }
 
 -- | Parse the where clause of an explicitly bidirectional pattern synonym.
 -- @where { Name pats = expr; ... }@

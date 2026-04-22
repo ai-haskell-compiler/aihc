@@ -11,6 +11,7 @@ import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser, exprParserNoArrowTa
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -45,8 +46,14 @@ cmdParser = do
       case mArrowTail of
         Just (appType, rhs) ->
           cmdInfixChain (CmdArrApp expr appType rhs)
-        Nothing ->
-          fail "expected arrow command (-< or -<<)"
+        Nothing -> do
+          mTok <- MP.optional (lookAhead anySingle)
+          MP.customFailure
+            UnexpectedTokenExpecting
+              { unexpectedFound = mkFoundToken <$> mTok,
+                unexpectedExpecting = "arrow command (-< or -<<)",
+                unexpectedContext = []
+              }
 
 -- | Parse a cmd10 operand, then check for command-level infix.
 cmdOperandThenInfix :: TokParser Cmd -> TokParser Cmd
@@ -175,8 +182,14 @@ cmdBindOrBodyStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
       case mArrTail of
         Just (appType, rhs) ->
           pure (DoExpr (CmdArrApp expr appType rhs))
-        Nothing ->
-          fail "expected arrow command (-< or -<<) in do statement"
+        Nothing -> do
+          mTok <- MP.optional (lookAhead anySingle)
+          MP.customFailure
+            UnexpectedTokenExpecting
+              { unexpectedFound = mkFoundToken <$> mTok,
+                unexpectedExpecting = "arrow command (-< or -<<) in do statement",
+                unexpectedContext = []
+              }
 
 -- | Parse a command bind statement where the pattern is unambiguously a
 -- pattern (starts with !, ~, or x@).
