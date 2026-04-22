@@ -14,7 +14,7 @@ where
 
 import Aihc.Parser.Lex.Pragmas (parseControlPragma)
 import Aihc.Parser.Lex.Types
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isDigit, isSpace)
+import Data.Char (isDigit, isSpace)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text, pattern (:<))
 import Data.Text qualified as T
@@ -191,37 +191,6 @@ isLineComment rest =
       | isSymbolicOpChar c -> False
       | otherwise -> True
     _ -> True
-
-isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
-
-isUnicodeSymbol :: Char -> Bool
-isUnicodeSymbol c =
-  isUnicodeSymbolCategory c
-    || c == '∷'
-    || c == '⇒'
-    || c == '→'
-    || c == '←'
-    || c == '∀'
-    || c == '⤙'
-    || c == '⤚'
-    || c == '⤛'
-    || c == '⤜'
-    || c == '⦇'
-    || c == '⦈'
-    || c == '⟦'
-    || c == '⟧'
-    || c == '⊸'
-
-isUnicodeSymbolCategory :: Char -> Bool
-isUnicodeSymbolCategory c =
-  case generalCategory c of
-    MathSymbol -> True
-    CurrencySymbol -> True
-    ModifierSymbol -> not (isAscii c)
-    OtherSymbol -> True
-    OtherPunctuation -> not (isAscii c)
-    _ -> False
 
 readBoundedInt :: Text -> Maybe Int
 readBoundedInt txt = do
