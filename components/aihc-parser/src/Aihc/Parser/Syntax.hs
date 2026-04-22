@@ -1286,7 +1286,7 @@ binderHeadParams head' =
     InfixBinderHead lhs _ rhs tailParams -> lhs : rhs : tailParams
 
 data InstanceHead name
-  = PrefixInstanceHead name Bool [Type] [Type]
+  = PrefixInstanceHead name Int [Type] [Type]
   | InfixInstanceHead Type name Type [Type]
   deriving (Data, Eq, Show, Generic, NFData)
 

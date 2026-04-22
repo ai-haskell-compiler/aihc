@@ -528,7 +528,7 @@ genDeclInstancePrefix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
-          instanceDeclHead = PrefixInstanceHead className False types [],
+          instanceDeclHead = PrefixInstanceHead className 0 types [],
           instanceDeclItems = items
         }
 
@@ -590,7 +590,7 @@ genDeclInstanceParenPrefix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = True,
-          instanceDeclHead = PrefixInstanceHead className False innerTypes tailTypes,
+          instanceDeclHead = PrefixInstanceHead className 0 innerTypes tailTypes,
           instanceDeclItems = items
         }
 
@@ -613,7 +613,7 @@ genDeclStandaloneDerivingPrefix = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHead = PrefixInstanceHead className False types []
+          standaloneDerivingHead = PrefixInstanceHead className 0 types []
         }
 
 genDeclStandaloneDerivingInfix :: Gen Decl

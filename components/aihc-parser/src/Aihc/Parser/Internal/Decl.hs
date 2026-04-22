@@ -730,12 +730,18 @@ bareInstanceHeadParser :: TokParser (InstanceHead Name)
 bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
   where
     prefixHeadParser = do
-      (className, nameParenthesized) <-
-        (,False) <$> constructorNameParser
-          <|> MP.try ((,True) <$> parens constructorNameParser)
-          <|> (,False) <$> parens operatorNameParser
+      (className, nameParens) <- classNameParser
       instanceTypes <- MP.many typeAtomParser
-      pure (PrefixInstanceHead className nameParenthesized instanceTypes [])
+      pure (PrefixInstanceHead className nameParens instanceTypes [])
+
+    -- Parses the class name, counting how many explicit constructor-paren
+    -- layers wrap it (e.g. 0 for C, 1 for (C), 2 for ((C))).
+    -- Operator names like (:+:) keep depth 0 since their parens are required.
+    classNameParser :: TokParser (Name, Int)
+    classNameParser =
+      (,0) <$> constructorNameParser
+        <|> MP.try (parens (classNameParser >>= \(n, d) -> pure (n, d + 1)))
+        <|> (,0) <$> parens operatorNameParser
 
     infixHeadParser = do
       lhs <- typeAppParser
@@ -774,8 +780,8 @@ instanceHeadParser =
   where
     mapName head' =
       case head' of
-        PrefixInstanceHead className nameParenthesized instanceTypes tailTypes ->
-          PrefixInstanceHead (nameToUnqualified className) nameParenthesized instanceTypes tailTypes
+        PrefixInstanceHead className nameParens instanceTypes tailTypes ->
+          PrefixInstanceHead (nameToUnqualified className) nameParens instanceTypes tailTypes
         InfixInstanceHead lhs op rhs tailTypes ->
           InfixInstanceHead lhs (nameToUnqualified op) rhs tailTypes
 
@@ -785,7 +791,7 @@ instanceHeadParser =
 addTailTypes :: [Type] -> InstanceHead name -> InstanceHead name
 addTailTypes types head' =
   case head' of
-    PrefixInstanceHead name nameParenthesized tys tailTypes -> PrefixInstanceHead name nameParenthesized tys (tailTypes <> types)
+    PrefixInstanceHead name nameParens tys tailTypes -> PrefixInstanceHead name nameParens tys (tailTypes <> types)
     InfixInstanceHead lhs op rhs tailTypes -> InfixInstanceHead lhs op rhs (tailTypes <> types)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]

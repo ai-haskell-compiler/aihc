@@ -868,8 +868,8 @@ standaloneDerivingHeadDoc decl =
 prettyInstanceHeadDoc :: Bool -> (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
 prettyInstanceHeadDoc isParenthesized prettyPrefix prettyInfix head' =
   case head' of
-    PrefixInstanceHead name nameParenthesized tys tailTypes ->
-      let prettyName = maybeParenthesize nameParenthesized (prettyPrefix name)
+    PrefixInstanceHead name nameParens tys tailTypes ->
+      let prettyName = applyParens nameParens (prettyPrefix name)
           prefixPart = maybeParenthesize isParenthesized $ hsep (prettyName : map prettyType tys)
        in hsep (prefixPart : map prettyType tailTypes)
     InfixInstanceHead lhs name rhs tailTypes ->
@@ -880,6 +880,9 @@ maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
   | shouldParen = parens doc
   | otherwise = doc
+
+applyParens :: Int -> Doc ann -> Doc ann
+applyParens n doc = iterate parens doc !! n
 
 prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
 prettyInstanceOverlapPragma pragma' =
