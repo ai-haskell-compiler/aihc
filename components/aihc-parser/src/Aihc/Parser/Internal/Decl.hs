@@ -13,7 +13,7 @@ where
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
-import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
@@ -1629,9 +1629,13 @@ patSynWhereClauseParser :: Text -> TokParser [Match]
 patSynWhereClauseParser _name = whereClauseItemsParser patSynWhereMatch
 
 -- | Parse one equation in a pattern synonym where clause.
+-- Uses 'appPatternParser' (not 'patternParser') for the infix head patterns
+-- because 'patternParser' would greedily consume the constructor operator
+-- that serves as the function head — both 'infixPatternParser' and the infix
+-- head parser compete for the same constructor operators.
 patSynWhereMatch :: TokParser Match
 patSynWhereMatch = withSpan $ do
-  (headForm, _name, pats) <- functionHeadParserWithBinder patSynNameParser patternParser simplePatternParser
+  (headForm, _name, pats) <- functionHeadParserWithBinder patSynNameParser constructorInfixOperatorNameParser appPatternParser simplePatternParser
   rhs <- equationRhsParser
   pure $ \span' ->
     Match
