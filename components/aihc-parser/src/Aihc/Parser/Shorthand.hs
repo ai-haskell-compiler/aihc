@@ -478,7 +478,7 @@ docInstanceDecl inst =
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
         <> [field "headForm" (docTypeHeadForm (instanceHeadForm (instanceDeclHead inst)))]
-        <> [field "className" (docUnqualifiedName (instanceHeadName (instanceDeclHead inst)))]
+        <> [field "className" (docName (instanceHeadName (instanceDeclHead inst)))]
         <> listField "context" docType (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceHeadTypes (instanceDeclHead inst))))))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
