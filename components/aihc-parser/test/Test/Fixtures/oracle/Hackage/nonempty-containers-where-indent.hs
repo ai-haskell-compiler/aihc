@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail where clause under case alt with operator continuation attaches at wrong indentation level -}
+{- ORACLE_TEST pass -}
 module A where
 f k m0
   = case compare k 0 of

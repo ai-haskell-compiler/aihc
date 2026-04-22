@@ -125,21 +125,34 @@ closeBeforeToken st tok =
     anchor = lexTokenSpan tok
     closeTok = virtualSymbolToken "}" anchor
 
-    -- Close an immediately enclosing LayoutCaseAlternative when 'where'
-    -- appears at or to the left of its indent column.  This is a single-step
-    -- check on the top of the context stack (not a loop).
+    -- Close enclosing LayoutCaseAlternative contexts when 'where' appears
+    -- at or to the left of their indent column.  This loops through the
+    -- stack to handle nested case expressions (inner case inside outer
+    -- case alternative) where multiple LayoutCaseAlternative contexts
+    -- need closing.
     closeBeforeWhere =
-      case layoutContexts st of
-        LayoutImplicit indent LayoutCaseAlternative : rest
-          | tokenStartCol tok <= indent ->
-              let openTok = virtualSymbolToken "{" anchor
-                  (pendingInserted, st') =
-                    case layoutPendingLayout st of
-                      Just (PendingImplicitLayout _) ->
-                        ([openTok, closeTok], st {layoutPendingLayout = Nothing})
-                      _ -> ([], st)
-               in (pendingInserted <> [closeTok], st' {layoutContexts = rest})
-        _ -> ([], st)
+      let col = tokenStartCol tok
+          openTok = virtualSymbolToken "{" anchor
+          -- Flush any pending implicit layout as an empty block before
+          -- closing contexts.
+          (pendingInserted, st0) =
+            case layoutPendingLayout st of
+              Just (PendingImplicitLayout _) ->
+                ([openTok, closeTok], st {layoutPendingLayout = Nothing})
+              _ -> ([], st)
+          go ctxs =
+            case ctxs of
+              LayoutImplicit indent LayoutCaseAlternative : rest
+                | col <= indent ->
+                    let (inner, rest') = go rest
+                     in (closeTok : inner, rest')
+              LayoutImplicit indent _ : rest
+                | col < indent ->
+                    let (inner, rest') = go rest
+                     in (closeTok : inner, rest')
+              _ -> ([], ctxs)
+          (closed, ctxs') = go (layoutContexts st0)
+       in (pendingInserted <> closed, st0 {layoutContexts = ctxs'})
 
     -- Close implicit layouts before 'then'/'else'.
     -- A `then do`/`else do` block stays open across nested conditionals inside
