@@ -197,7 +197,6 @@ needsExprParens ctx expr =
     CtxInfixLhs ->
       case expr of
         ETypeSig {} -> True
-        ENegate {} -> True
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of

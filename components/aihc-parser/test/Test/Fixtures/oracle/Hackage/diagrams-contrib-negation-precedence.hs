@@ -1,3 +1,3 @@
 {- ORACLE_TEST pass -}
 module A where
-f l = (-l - 1)
+f = - 1 / 2

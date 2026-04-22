@@ -703,12 +703,37 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       minusTok <- minusTokenValueParser
       nextTok <- lookAhead anySingle
       guard (parenNegateAllowed minusTok nextTok)
-      inner <- exprParser
+      -- Parse only the application-level expression as the negation's
+      -- immediate operand.  This matches GHC, where negation binds tighter
+      -- than any infix operator, so @(-l - 1)@ is @((negate l) - 1)@, not
+      -- @(negate (l - 1))@.
+      negOperand <- appExprParser
+      let negBase = ENegate negOperand
+      -- Continue with any infix operator chain, type signature, and view
+      -- pattern that may follow the negated expression inside the parens.
+      rest <-
+        MP.many
+          ( MP.try
+              ( (,)
+                  <$> infixOperatorParserExcept []
+                  <*> region "after infix operator" lexpParser
+              )
+          )
+      let withInfix = foldl buildInfix negBase rest
+      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+      let typed = case mTypeSig of
+            Just ty -> ETypeSig withInfix ty
+            Nothing -> withInfix
+      finalExpr <- maybeViewPattern typed
       expectedTok closeTok
+      -- The negation is already embedded in finalExpr (as negBase).
+      -- With TkPrefixMinus (LexicalNegation), the surrounding parens are
+      -- just grouping — no EParen wrapper.  Otherwise the parens are part
+      -- of the negation-section syntax and need an EParen wrapper.
       pure $
         case lexTokenKind minusTok of
-          TkPrefixMinus -> ENegate inner
-          _ -> EParen (ENegate inner)
+          TkPrefixMinus -> finalExpr
+          _ -> EParen finalExpr
 
     parenNegateAllowed minusTok nextTok =
       case lexTokenKind minusTok of
