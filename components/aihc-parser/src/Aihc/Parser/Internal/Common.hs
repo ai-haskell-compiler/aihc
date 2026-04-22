@@ -31,6 +31,7 @@ module Aihc.Parser.Internal.Common
     sourceSpanFromPositions,
     parens,
     braces,
+    thQuoteParser,
     skipSemicolons,
     bracedSemiSep,
     bracedSemiSep1,
@@ -44,6 +45,7 @@ module Aihc.Parser.Internal.Common
     functionBindValue,
     functionBindDecl,
     isExtensionEnabled,
+    thAnyEnabled,
     closeImplicitLayout,
     layoutSepEndBy,
     layoutSepBy1,
@@ -441,6 +443,16 @@ braces parser = do
   closeAndExpectRBrace
   pure res
 
+-- | Parse a delimited construct with an annotation wrapper.
+-- Used for Template Haskell quotes: @open body close@.
+thQuoteParser :: (SourceSpan -> c -> c) -> LexTokenKind -> LexTokenKind -> TokParser a -> (a -> c) -> TokParser c
+thQuoteParser ann openTok closeTok bodyParser ctor =
+  withSpanAnn ann $ do
+    expectedTok openTok
+    body <- bodyParser
+    expectedTok closeTok
+    pure (ctor body)
+
 -- | Expect a @}@ token, closing implicit layout contexts if needed.
 -- This implements the parse-error rule for closing braces: if @}@ is not found
 -- but there is an implicit layout context, close it (which buffers a virtual @}@)
@@ -710,6 +722,13 @@ isExtensionEnabled :: Extension -> TokParser Bool
 isExtensionEnabled ext = do
   pst <- MP.getParserState
   pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
+
+-- | Check whether any Template Haskell extension is enabled (quotes or full TH).
+thAnyEnabled :: TokParser Bool
+thAnyEnabled = do
+  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  pure (thEnabled || thFullEnabled)
 
 -- | Signal to the layout engine that a virtual close brace should be inserted.
 -- This implements the parse-error rule: when the parser encounters a token that
