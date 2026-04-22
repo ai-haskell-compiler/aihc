@@ -161,13 +161,10 @@ prettyImportLevel level =
     ImportLevelSplice -> "splice"
 
 -- | Pretty-print a top-level declaration splice.
--- EVar and EParen get a @$@ prefix; other expressions are bare.
+-- The expression is printed as-is; explicit TH splices appear as @$expr@ or
+-- @$(expr)@ through the normal 'ETHSplice' pretty-printer.
 prettyDeclSpliceExpr :: Expr -> Doc ann
-prettyDeclSpliceExpr body =
-  case peelExprAnn body of
-    EVar {} -> "$" <> prettyExpr body
-    EParen {} -> "$" <> prettyExpr body
-    _ -> prettyExpr body
+prettyDeclSpliceExpr = prettyExpr
 
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""

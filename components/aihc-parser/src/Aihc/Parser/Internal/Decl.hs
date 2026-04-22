@@ -44,25 +44,29 @@ declParser = do
 ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
-  thAny <- thAnyEnabled
+  exprFallback <- exprDeclEnabled
   let tokKind = lexTokenKind tok
       nextTokKind = lexTokenKind nextTok
-      valueOrSpliceParser =
-        if thAny
-          then MP.try valueDeclParser <|> implicitSpliceDeclParser
+      -- When TemplateHaskell, TemplateHaskellQuotes, or QuasiQuotes is
+      -- enabled, GHC allows top-level expressions as declaration splices.
+      -- The expression parser itself handles extension-specific constructs
+      -- (e.g. @$expr@ via TH, @[qq|...|]@ via QuasiQuotes).
+      valueOrExprParser =
+        if exprFallback
+          then MP.try valueDeclParser <|> exprDeclParser
           else valueDeclParser
-      patternOrValueOrSpliceParser =
-        if thAny
-          then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
+      patternOrValueOrExprParser =
+        if exprFallback
+          then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> exprDeclParser
           else MP.try patternBindDeclParser <|> valueDeclParser
-      nonBareVarPatternOrValueOrSpliceParser =
-        if thAny
-          then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
+      nonBareVarPatternOrValueOrExprParser =
+        if exprFallback
+          then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> exprDeclParser
           else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
-      typeSigOrValueOrSpliceParser =
-        MP.try typeSigOrPatternTypeSigDeclParser <|> valueOrSpliceParser
-      typeSigOrPatternOrValueOrSpliceParser =
-        MP.try typeSigOrPatternTypeSigDeclParser <|> patternOrValueOrSpliceParser
+      typeSigOrValueOrExprParser =
+        MP.try typeSigOrPatternTypeSigDeclParser <|> valueOrExprParser
+      typeSigOrPatternOrValueOrExprParser =
+        MP.try typeSigOrPatternTypeSigDeclParser <|> patternOrValueOrExprParser
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -90,15 +94,11 @@ ordinaryDeclParser = do
     TkKeywordPattern -> patternSynonymParser
     TkVarId {} ->
       case nextTokKind of
-        TkReservedDoubleColon -> typeSigOrValueOrSpliceParser
-        TkSpecialComma -> typeSigOrValueOrSpliceParser
-        TkReservedEquals -> valueOrSpliceParser
-        _ -> nonBareVarPatternOrValueOrSpliceParser
-    TkTHSplice ->
-      if thAny
-        then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> spliceDeclParser
-        else spliceDeclParser
-    _ -> typeSigOrPatternOrValueOrSpliceParser
+        TkReservedDoubleColon -> typeSigOrValueOrExprParser
+        TkSpecialComma -> typeSigOrValueOrExprParser
+        TkReservedEquals -> valueOrExprParser
+        _ -> nonBareVarPatternOrValueOrExprParser
+    _ -> typeSigOrPatternOrValueOrExprParser
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.
 -- When the leading token is a variable identifier, a bare @x = 5@ must be
@@ -117,17 +117,25 @@ nonBareVarPatternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) 
 pragmaDeclParser :: TokParser Decl
 pragmaDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ DeclPragma <$> anyPragmaParser "pragma declaration"
 
--- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
-spliceDeclParser :: TokParser Decl
-spliceDeclParser = do
-  expectedTok TkTHSplice
-  DeclSplice <$> exprParser
+-- | Check whether the expression-as-declaration fallback is enabled.
+-- GHC allows top-level expressions under TemplateHaskell (bare splices),
+-- TemplateHaskellQuotes, and QuasiQuotes (e.g. @[qq|...|]@ at the top level).
+exprDeclEnabled :: TokParser Bool
+exprDeclEnabled = do
+  th <- isExtensionEnabled TemplateHaskell
+  thq <- isExtensionEnabled TemplateHaskellQuotes
+  qq <- isExtensionEnabled QuasiQuotes
+  pure (th || thq || qq)
 
--- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
--- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
--- them as explicit @$...@ splices, so we parse the expression body directly here.
-implicitSpliceDeclParser :: TokParser Decl
-implicitSpliceDeclParser = DeclSplice <$> exprParser
+-- | Parse a top-level expression as a declaration.
+--
+-- GHC allows arbitrary expressions at the top level under TemplateHaskell
+-- (interpreted as declaration splices). This parser wraps the expression in
+-- 'DeclSplice'. The expression parser itself handles extension-specific
+-- constructs (e.g. @$expr@, @$(expr)@ via TH, @[qq|...|]@ via QuasiQuotes),
+-- so no special dispatch is needed here.
+exprDeclParser :: TokParser Decl
+exprDeclParser = DeclSplice <$> exprParser
 
 -- | Parse a @type@ declaration after the @type@ keyword has been consumed.
 -- Uses 'typeDeclHeadParser' to handle both prefix and infix type heads,
