@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  if x then y :: T -> U else z
+ast: EIf (EVar "x") (ETypeSig (EVar "y") (TFun (TCon "T") (TCon "U"))) (EVar "z")
+status: pass

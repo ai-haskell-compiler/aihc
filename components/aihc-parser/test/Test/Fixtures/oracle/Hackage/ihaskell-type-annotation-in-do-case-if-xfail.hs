@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser fails on type annotation in then-branch of if inside do-case alternative -}
+{- ORACLE_TEST pass -}
 module IHaskellTypeAnnotationInDoCaseIf where
 
 f flag y = do
