@@ -125,12 +125,28 @@ lexInt env st =
                 lexIntSuffix env st digitsRaw n
            in Just (mkToken st st' tokTxt tokKind, st')
 
+-- | Parse optional MagicHash suffix (# or ##) and return the hash text and new state.
+magicHashSuffix :: LexerEnv -> LexerState -> Maybe (Text, LexerState)
+magicHashSuffix env st =
+  case lexerInput st of
+    '#' :< rest
+      | hasExt MagicHash env ->
+          case rest of
+            '#' :< _ -> Just ("##", advanceN 2 st)
+            _ -> Just ("#", advanceN 1 st)
+    _ -> Nothing
+
 -- | Parse optional MagicHash and ExtendedLiterals suffix for integers.
 -- Handles: (nothing), #, ##, #Int8, #Int16, #Int32, #Int64, #Int, #Word8, #Word16, #Word32, #Word64, #Word
 lexIntSuffix :: LexerEnv -> LexerState -> Text -> Integer -> (Text, LexTokenKind, LexerState)
 lexIntSuffix env st raw n =
   let st' = advanceChars raw st
       input = lexerInput st'
+      withMagicHash =
+        case magicHashSuffix env st' of
+          Just ("##", st'') -> (raw <> "##", TkInteger n TWordHash, st'')
+          Just ("#", st'') -> (raw <> "#", TkInteger n TIntHash, st'')
+          _ -> (raw, TkInteger n TInteger, st')
    in case input of
         '#' :< rest
           | hasExt ExtendedLiterals env ->
@@ -139,29 +155,8 @@ lexIntSuffix env st raw n =
                   let fullRaw = raw <> T.take (1 + suffixLen) input
                       st'' = advanceN (1 + suffixLen) st'
                    in (fullRaw, TkInteger n typeName, st'')
-                Nothing
-                  | hasExt MagicHash env ->
-                      case rest of
-                        '#' :< _ ->
-                          let fullRaw = raw <> "##"
-                              st'' = advanceN 2 st'
-                           in (fullRaw, TkInteger n TWordHash, st'')
-                        _ ->
-                          let fullRaw = raw <> "#"
-                              st'' = advanceN 1 st'
-                           in (fullRaw, TkInteger n TIntHash, st'')
-                  | otherwise ->
-                      (raw, TkInteger n TInteger, st')
-          | hasExt MagicHash env ->
-              case rest of
-                '#' :< _ ->
-                  let fullRaw = raw <> "##"
-                      st'' = advanceN 2 st'
-                   in (fullRaw, TkInteger n TWordHash, st'')
-                _ ->
-                  let fullRaw = raw <> "#"
-                      st'' = advanceN 1 st'
-                   in (fullRaw, TkInteger n TIntHash, st'')
+                Nothing -> withMagicHash
+          | otherwise -> withMagicHash
         _ -> (raw, TkInteger n TInteger, st')
 
 -- | Parse optional MagicHash and ExtendedLiterals suffix for floats.
@@ -169,19 +164,9 @@ lexIntSuffix env st raw n =
 lexFloatSuffix :: LexerEnv -> LexerState -> Text -> Rational -> (Text, LexTokenKind, LexerState)
 lexFloatSuffix env st raw value =
   let st' = advanceChars raw st
-      input = lexerInput st'
-   in case input of
-        '#' :< rest
-          | hasExt MagicHash env ->
-              case rest of
-                '#' :< _ ->
-                  let fullRaw = raw <> "##"
-                      st'' = advanceN 2 st'
-                   in (fullRaw, TkFloat value TDoubleHash, st'')
-                _ ->
-                  let fullRaw = raw <> "#"
-                      st'' = advanceN 1 st'
-                   in (fullRaw, TkFloat value TFloatHash, st'')
+   in case magicHashSuffix env st' of
+        Just ("##", st'') -> (raw <> "##", TkFloat value TDoubleHash, st'')
+        Just ("#", st'') -> (raw <> "#", TkFloat value TFloatHash, st'')
         _ -> (raw, TkFloat value TFractional, st')
 
 -- | Parse an ExtendedLiterals type suffix after the initial '#'.
@@ -285,23 +270,20 @@ takeHexExponent chars =
            in if T.null digits then Nothing else Just (T.take (T.length chars - T.length rest1 + T.length digits) chars)
     _ -> Nothing
 
-readHexLiteral :: Text -> Integer
-readHexLiteral txt =
-  case readHex (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
+readBaseLiteral :: String -> (String -> [(Integer, String)]) -> Text -> Integer
+readBaseLiteral label parser txt =
+  case parser (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
-    _ -> error ("invalid hex literal: " ++ T.unpack txt)
+    _ -> error ("invalid " ++ label ++ " literal: " ++ T.unpack txt)
+
+readHexLiteral :: Text -> Integer
+readHexLiteral = readBaseLiteral "hex" readHex
 
 readOctLiteral :: Text -> Integer
-readOctLiteral txt =
-  case readOct (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
-    [(n, "")] -> n
-    _ -> error ("invalid octal literal: " ++ T.unpack txt)
+readOctLiteral = readBaseLiteral "octal" readOct
 
 readBinLiteral :: Text -> Integer
-readBinLiteral txt =
-  case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
-    [(n, "")] -> n
-    _ -> error ("invalid binary literal: " ++ T.unpack txt)
+readBinLiteral = readBaseLiteral "binary" (readInt 2 (`elem` ("01" :: String)) digitToInt)
 
 parseDecimalFloatLiteral :: Text -> Rational
 parseDecimalFloatLiteral txt =

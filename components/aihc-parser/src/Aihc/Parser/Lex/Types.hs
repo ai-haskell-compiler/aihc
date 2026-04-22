@@ -38,13 +38,16 @@ module Aihc.Parser.Lex.Types
     tokenEndLine,
     tokenStartCol,
     virtualSymbolToken,
+    isSymbolicOpChar,
+    isUnicodeSymbol,
+    isUnicodeSymbolCategory,
   )
 where
 
 import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (ord)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, ord)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -393,3 +396,34 @@ utf8CharWidth ch =
       | code <= 0x7FF -> 2
       | code <= 0xFFFF -> 3
       | otherwise -> 4
+
+isSymbolicOpChar :: Char -> Bool
+isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
+
+isUnicodeSymbol :: Char -> Bool
+isUnicodeSymbol c =
+  isUnicodeSymbolCategory c
+    || c == '∷'
+    || c == '⇒'
+    || c == '→'
+    || c == '←'
+    || c == '∀'
+    || c == '⤙'
+    || c == '⤚'
+    || c == '⤛'
+    || c == '⤜'
+    || c == '⦇'
+    || c == '⦈'
+    || c == '⟦'
+    || c == '⟧'
+    || c == '⊸'
+
+isUnicodeSymbolCategory :: Char -> Bool
+isUnicodeSymbolCategory c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> not (isAscii c)
+    OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
+    _ -> False

@@ -28,14 +28,11 @@ applyLayoutTokens enableModuleLayout exts =
 finalizeModuleLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
 finalizeModuleLayoutAtEOF st anchor =
   case layoutModuleMode st of
-    ModuleLayoutSeekStart ->
-      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
-        st {layoutModuleMode = ModuleLayoutDone}
-      )
-    ModuleLayoutAwaitBody ->
-      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
-        st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Nothing}
-      )
+    mode
+      | mode == ModuleLayoutSeekStart || mode == ModuleLayoutAwaitBody ->
+          ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+            st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Nothing}
+          )
     _ -> ([], st)
 
 {-# INLINE noteModuleLayoutBeforeToken #-}
@@ -235,25 +232,21 @@ stepTokenContext st tok =
     TkSpecialRBrace -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
 
-noteClassicIfInAfterThenElse :: LayoutState -> LayoutState
-noteClassicIfInAfterThenElse st = st {layoutContexts = go (layoutContexts st)}
+mapAfterThenElse :: (Int -> Int) -> [LayoutContext] -> [LayoutContext]
+mapAfterThenElse f = go
   where
     go contexts =
       case contexts of
         LayoutImplicit indent (LayoutAfterThenElse nestedIfs) : rest ->
-          LayoutImplicit indent (LayoutAfterThenElse (nestedIfs + 1)) : rest
+          LayoutImplicit indent (LayoutAfterThenElse (f nestedIfs)) : rest
         ctx : rest -> ctx : go rest
         [] -> []
 
+noteClassicIfInAfterThenElse :: LayoutState -> LayoutState
+noteClassicIfInAfterThenElse st = st {layoutContexts = mapAfterThenElse (+ 1) (layoutContexts st)}
+
 decrementAfterThenElseClassicIfDepth :: LayoutState -> LayoutState
-decrementAfterThenElseClassicIfDepth st = st {layoutContexts = go (layoutContexts st)}
-  where
-    go contexts =
-      case contexts of
-        LayoutImplicit indent (LayoutAfterThenElse nestedIfs) : rest ->
-          LayoutImplicit indent (LayoutAfterThenElse (max 0 (nestedIfs - 1))) : rest
-        ctx : rest -> ctx : go rest
-        [] -> []
+decrementAfterThenElseClassicIfDepth st = st {layoutContexts = mapAfterThenElse (max 0 . subtract 1) (layoutContexts st)}
 
 popToDelimiter :: [LayoutContext] -> [LayoutContext]
 popToDelimiter contexts =

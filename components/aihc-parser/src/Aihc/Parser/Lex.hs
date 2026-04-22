@@ -388,16 +388,12 @@ isStandaloneMinus input =
 tryLexNumberAfterMinus :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 tryLexNumberAfterMinus env st = do
   let stAfterMinus = advanceChars "-" st
-  (numTok, stFinal) <- firstJust numberLexers stAfterMinus
+  (numTok, stFinal) <-
+    lexHexFloat env stAfterMinus
+      <|> lexFloat env stAfterMinus
+      <|> lexIntBase env stAfterMinus
+      <|> lexInt env stAfterMinus
   Just (negateToken st numTok, stFinal)
-  where
-    numberLexers = [lexHexFloat env, lexFloat env, lexIntBase env, lexInt env]
-
-    firstJust [] _ = Nothing
-    firstJust (f : fs) s =
-      case f s of
-        Just result -> Just result
-        Nothing -> firstJust fs s
 
 negateToken :: LexerState -> LexToken -> LexToken
 negateToken stBefore numTok =
@@ -502,14 +498,11 @@ lexTypeApplication env st
               -- With whitespace, it can be a type application (TkTypeApp).
               if lexerHadTrivia st
                 then
-                  let st' = advanceChars "@" st
-                      kind
+                  let kind
                         | canStartTypeAtomT rest = TkTypeApp
                         | otherwise = TkVarSym "@"
-                   in Just (mkToken st st' "@" kind, st')
-                else
-                  let st' = advanceChars "@" st
-                   in Just (mkToken st st' "@" TkReservedAt, st')
+                   in Just (emitToken st "@" kind)
+                else Just (emitToken st "@" TkReservedAt)
         _ -> Nothing
   where
     canStartTypeAtomT t =
@@ -578,9 +571,17 @@ lexOverloadedLabel env st
 lexBangOrTildeOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexBangOrTildeOperator st =
   case lexerInput st of
-    '!' :< rest -> lexPrefixSensitiveOp st '!' "!" TkPrefixBang rest
-    '~' :< rest -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
+    '!' :< rest -> lexPrefixSensitiveOp st '!' TkPrefixBang rest
+    '~' :< rest -> lexPrefixSensitiveOp st '~' TkPrefixTilde rest
     _ -> Nothing
+
+isPrefixPosition :: LexerState -> Bool
+isPrefixPosition st =
+  case lexerPrevTokenKind st of
+    Nothing -> True
+    Just prevKind
+      | lexerHadTrivia st -> True
+      | otherwise -> prevTokenAllowsTightPrefix prevKind
 
 lexPrefixDollar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPrefixDollar env st
@@ -589,44 +590,27 @@ lexPrefixDollar env st
       case lexerInput st of
         '$' :< ('$' :< rest)
           | not (startsWithSymOp rest),
-            isPrefixPosition,
+            isPrefixPosition st,
             canStartSpliceAtomT rest ->
-              let st' = advanceChars "$$" st
-               in Just (mkToken st st' "$$" TkTHTypedSplice, st')
+              Just (emitToken st "$$" TkTHTypedSplice)
         '$' :< rest
           | not (startsWithSymOp rest),
-            isPrefixPosition,
+            isPrefixPosition st,
             canStartSpliceAtomT rest ->
-              let st' = advanceChars "$" st
-               in Just (mkToken st st' "$" TkTHSplice, st')
+              Just (emitToken st "$" TkTHSplice)
         _ -> Nothing
   where
-    isPrefixPosition =
-      case lexerPrevTokenKind st of
-        Nothing -> True
-        Just prevKind
-          | lexerHadTrivia st -> True
-          | otherwise -> prevTokenAllowsTightPrefix prevKind
-
     canStartSpliceAtomT t =
       case t of
         c :< _ -> isIdentStart c || c == '('
         _ -> False
 
-lexPrefixSensitiveOp :: LexerState -> Char -> Text -> LexTokenKind -> Text -> Maybe (LexToken, LexerState)
-lexPrefixSensitiveOp st opChar opStr prefixKind rest
+lexPrefixSensitiveOp :: LexerState -> Char -> LexTokenKind -> Text -> Maybe (LexToken, LexerState)
+lexPrefixSensitiveOp st opChar prefixKind rest
   | startsWithSymOp rest = Nothing
-  | isPrefixPosition && canStartPrefixPatternAtom rest =
-      let st' = advanceChars opStr st
-       in Just (mkToken st st' (T.singleton opChar) prefixKind, st')
+  | isPrefixPosition st && canStartPrefixPatternAtom rest =
+      Just (emitToken st (T.singleton opChar) prefixKind)
   | otherwise = Nothing
-  where
-    isPrefixPosition =
-      case lexerPrevTokenKind st of
-        Nothing -> True
-        Just prevKind
-          | lexerHadTrivia st -> True
-          | otherwise -> prevTokenAllowsTightPrefix prevKind
 
 canStartPrefixPatternAtom :: Text -> Bool
 canStartPrefixPatternAtom rest =
@@ -693,7 +677,7 @@ unicodeOpTokenKind hasArrows txt firstChar
 
 lexSymbol :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexSymbol env st =
-  firstJust symbols
+  firstTextKind st symbols
   where
     symbols =
       ( if hasExt UnboxedTuples env || hasExt UnboxedSums env
@@ -717,15 +701,11 @@ lexSymbol env st =
         c :< _ -> not (isSymbolicOpChar c)
         _ -> True
 
-    firstJust xs =
-      case xs of
-        [] -> Nothing
-        (sym, kind) : rest ->
-          if sym `T.isPrefixOf` lexerInput st
-            then
-              let st' = advanceChars sym st
-               in Just (mkToken st st' sym kind, st')
-            else firstJust rest
+isValidCharLiteral :: Text -> Bool
+isValidCharLiteral chars =
+  case scanQuoted '\'' chars of
+    Right (body, _) -> isJust (readMaybeChar ("'" <> body <> "'"))
+    Left _ -> False
 
 lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPromotedQuote _env st =
@@ -738,11 +718,6 @@ lexPromotedQuote _env st =
       | otherwise -> Nothing
     _ -> Nothing
   where
-    isValidCharLiteral chars =
-      case scanQuoted '\'' chars of
-        Right (body, _) -> isJust (readMaybeChar ("'" <> body <> "'"))
-        Left _ -> False
-
     isPromotionStart chars =
       case skipHorizontalWhitespace chars of
         c :< _
@@ -753,10 +728,7 @@ lexPromotedQuote _env st =
           | isSymbolicOpChar c -> True
         _ -> False
 
-    skipHorizontalWhitespace chars =
-      case chars of
-        c :< rest | c == ' ' || c == '\t' -> skipHorizontalWhitespace rest
-        _ -> chars
+    skipHorizontalWhitespace = T.dropWhile (\c -> c == ' ' || c == '\t')
 
 lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexChar env st =
@@ -835,12 +807,23 @@ lexQuasiQuote st =
                       else Just (quoter, body)
               _ -> Nothing
 
+emitToken :: LexerState -> Text -> LexTokenKind -> (LexToken, LexerState)
+emitToken st raw kind =
+  let st' = advanceChars raw st
+   in (mkToken st st' raw kind, st')
+
+firstTextKind :: LexerState -> [(Text, LexTokenKind)] -> Maybe (LexToken, LexerState)
+firstTextKind _ [] = Nothing
+firstTextKind st ((sym, kind) : rest)
+  | sym `T.isPrefixOf` lexerInput st = Just (emitToken st sym kind)
+  | otherwise = firstTextKind st rest
+
 lexTHQuoteBracket :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHQuoteBracket env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
-        '[' :< _ -> firstJust brackets
+        '[' :< _ -> firstTextKind st brackets
         _ -> Nothing
   where
     brackets =
@@ -853,24 +836,11 @@ lexTHQuoteBracket env st
         ("[p|", TkTHPatQuoteOpen)
       ]
 
-    firstJust [] = Nothing
-    firstJust ((sym, kind) : rest)
-      | sym `T.isPrefixOf` lexerInput st =
-          let st' = advanceChars sym st
-           in Just (mkToken st st' sym kind, st')
-      | otherwise = firstJust rest
-
 lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHCloseQuote env st
   | not (thQuotesEnabled env st) = Nothing
-  | "||]" `T.isPrefixOf` lexerInput st =
-      let raw = "||]"
-          st' = advanceChars raw st
-       in Just (mkToken st st' raw TkTHTypedQuoteClose, st')
-  | "|]" `T.isPrefixOf` lexerInput st =
-      let raw = "|]"
-          st' = advanceChars raw st
-       in Just (mkToken st st' raw TkTHExpQuoteClose, st')
+  | "||]" `T.isPrefixOf` lexerInput st = Just (emitToken st "||]" TkTHTypedQuoteClose)
+  | "|]" `T.isPrefixOf` lexerInput st = Just (emitToken st "|]" TkTHExpQuoteClose)
   | otherwise = Nothing
 
 lexTHNameQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
@@ -881,21 +851,12 @@ lexTHNameQuote env st
         '\'' :< ('\'' :< rest)
           | Just c <- nextNonTriviaChar rest,
             isIdentStart c || c == '(' || c == '[' ->
-              let raw = "''"
-                  st' = advanceChars raw st
-               in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
+              Just (emitToken st "''" TkTHTypeQuoteTick)
         '\'' :< rest0
           | not (isValidCharLiteral rest0) ->
-              let raw = "'"
-                  st' = advanceChars raw st
-               in Just (mkToken st st' raw TkTHQuoteTick, st')
+              Just (emitToken st "'" TkTHQuoteTick)
         _ -> Nothing
   where
-    isValidCharLiteral chars =
-      case scanQuoted '\'' chars of
-        Right (body, _) -> isJust (readMaybeChar ("'" <> body <> "'"))
-        Left _ -> False
-
     nextNonTriviaChar chars =
       case skipTrivia (st {lexerInput = chars}) of
         SkipDone st' ->
@@ -945,7 +906,7 @@ takeQuoter input =
   case input of
     c :< rest
       | isIdentStart c ->
-          let tailChars = T.takeWhile isIdentTailOrStart rest
+          let tailChars = T.takeWhile isIdentTail rest
               firstSeg = T.take (1 + T.length tailChars) input
               rest0 = T.drop (T.length tailChars) rest
            in go (T.length firstSeg) rest0
@@ -955,7 +916,7 @@ takeQuoter input =
       case chars of
         '.' :< (c' :< more)
           | isIdentStart c' ->
-              let tailChars = T.takeWhile isIdentTailOrStart more
+              let tailChars = T.takeWhile isIdentTail more
                   segLen = 1 + 1 + T.length tailChars
                in go (n + segLen) (T.drop (T.length tailChars) more)
         _ -> (T.take n input, chars)
@@ -984,45 +945,11 @@ isIdentNumber c =
     || generalCategory c == DecimalNumber
     || generalCategory c == OtherNumber
 
-isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
-
 startsWithSymOp :: Text -> Bool
 startsWithSymOp t =
   case t of
     c :< _ -> isSymbolicOpChar c
     _ -> False
-
-isUnicodeSymbol :: Char -> Bool
-isUnicodeSymbol c =
-  isUnicodeSymbolCategory c
-    || c == '∷'
-    || c == '⇒'
-    || c == '→'
-    || c == '←'
-    || c == '∀'
-    || c == '⤙'
-    || c == '⤚'
-    || c == '⤛'
-    || c == '⤜'
-    || c == '⦇'
-    || c == '⦈'
-    || c == '⟦'
-    || c == '⟧'
-    || c == '⊸'
-
-isUnicodeSymbolCategory :: Char -> Bool
-isUnicodeSymbolCategory c =
-  case generalCategory c of
-    MathSymbol -> True
-    CurrencySymbol -> True
-    ModifierSymbol -> not (isAscii c)
-    OtherSymbol -> True
-    OtherPunctuation -> not (isAscii c)
-    _ -> False
-
-isIdentTailOrStart :: Char -> Bool
-isIdentTailOrStart = isIdentTail
 
 -- | Check if an identifier is reserved given a set of enabled extensions.
 -- This includes both base keywords and extension-specific keywords.
