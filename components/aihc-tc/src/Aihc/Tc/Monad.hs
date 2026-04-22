@@ -32,6 +32,10 @@ module Aihc.Tc.Monad
     getTcLevel,
     withTcLevel,
 
+    -- * GADT constructor registry
+    markGadtCon,
+    isGadtCon,
+
     -- * Diagnostics
     emitDiagnostic,
     emitError,
@@ -48,6 +52,8 @@ import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- | The type checker monad.
@@ -105,7 +111,9 @@ data TcState = TcState
     -- | Diagnostics (errors and warnings) collected.
     tcsDiagnostics :: ![TcDiagnostic],
     -- | Global term bindings (accumulated by top-level declarations).
-    tcsGlobalTerms :: !(Map Text TcBinder)
+    tcsGlobalTerms :: !(Map Text TcBinder),
+    -- | Names of GADT constructors (have non-trivial result types).
+    tcsGadtCons :: !(Set Text)
   }
   deriving (Show)
 
@@ -117,7 +125,8 @@ initTcState =
       tcsMetaSolutions = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
-      tcsGlobalTerms = Map.empty
+      tcsGlobalTerms = Map.empty,
+      tcsGadtCons = Set.empty
     }
 
 -- | Allocate a fresh 'Unique'.
@@ -211,3 +220,13 @@ emitError loc kind =
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]
 getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
+
+-- | Record that a constructor is a GADT constructor.
+markGadtCon :: Text -> TcM ()
+markGadtCon name = lift $ modify' $ \s ->
+  s {tcsGadtCons = Set.insert name (tcsGadtCons s)}
+
+-- | Check whether a constructor is a GADT constructor.
+isGadtCon :: Text -> TcM Bool
+isGadtCon name = lift $ gets $ \s ->
+  Set.member name (tcsGadtCons s)
