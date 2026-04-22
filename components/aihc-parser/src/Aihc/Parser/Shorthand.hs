@@ -311,8 +311,7 @@ docTypeSynDecl syn =
   "TypeSynDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docUnqualifiedName (binderHeadName (typeSynHead syn)))]
-        <> listField "params" docTyVarBinder (binderHeadParams (typeSynHead syn))
+      docBinderHead (typeSynHead syn)
         <> [field "body" (docType (typeSynBody syn))]
 
 docRoleAnnotation :: RoleAnnotation -> Doc ann
@@ -336,24 +335,26 @@ docDataDecl dd =
   "DataDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docUnqualifiedName (binderHeadName (dataDeclHead dd)))]
+      take 1 binderFields
         <> listField "context" docType (dataDeclContext dd)
-        <> listField "params" docTyVarBinder (binderHeadParams (dataDeclHead dd))
+        <> drop 1 binderFields
         <> optionalField "kind" docType (dataDeclKind dd)
         <> listField "constructors" docDataConDecl (dataDeclConstructors dd)
         <> listField "deriving" docDerivingClause (dataDeclDeriving dd)
+    binderFields = docBinderHead (dataDeclHead dd)
 
 docNewtypeDecl :: NewtypeDecl -> Doc ann
 docNewtypeDecl nd =
   "NewtypeDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docUnqualifiedName (binderHeadName (newtypeDeclHead nd)))]
+      take 1 binderFields
         <> listField "context" docType (newtypeDeclContext nd)
-        <> listField "params" docTyVarBinder (binderHeadParams (newtypeDeclHead nd))
+        <> drop 1 binderFields
         <> optionalField "kind" docType (newtypeDeclKind nd)
         <> optionalField "constructor" docDataConDecl (newtypeDeclConstructor nd)
         <> listField "deriving" docDerivingClause (newtypeDeclDeriving nd)
+    binderFields = docBinderHead (newtypeDeclHead nd)
 
 docDataConDecl :: DataConDecl -> Doc ann
 docDataConDecl dcd =
@@ -420,11 +421,13 @@ docClassDecl cd =
   "ClassDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (binderHeadForm (classDeclHead cd))), field "name" (docUnqualifiedName (binderHeadName (classDeclHead cd)))]
+      [field "headForm" (docTypeHeadForm (binderHeadForm (classDeclHead cd)))]
+        <> take 1 binderFields
         <> optionalField "context" (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)
-        <> listField "params" docTyVarBinder (binderHeadParams (classDeclHead cd))
+        <> drop 1 binderFields
         <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
         <> listField "items" docClassDeclItem (classDeclItems cd)
+    binderFields = docBinderHead (classDeclHead cd)
 
 docFunctionalDependency :: FunctionalDependency -> Doc ann
 docFunctionalDependency dep =
@@ -1063,9 +1066,14 @@ docDataFamilyDecl df =
   "DataFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (binderHeadForm (dataFamilyDeclHead df))), field "name" (docUnqualifiedName (binderHeadName (dataFamilyDeclHead df)))]
-        <> listField "params" docTyVarBinder (binderHeadParams (dataFamilyDeclHead df))
+      [field "headForm" (docTypeHeadForm (binderHeadForm (dataFamilyDeclHead df)))]
+        <> docBinderHead (dataFamilyDeclHead df)
         <> optionalField "kind" docType (dataFamilyDeclKind df)
+
+docBinderHead :: BinderHead UnqualifiedName -> [Doc ann]
+docBinderHead head' =
+  [field "name" (docUnqualifiedName (binderHeadName head'))]
+    <> listField "params" docTyVarBinder (binderHeadParams head')
 
 docTypeFamilyInst :: TypeFamilyInst -> Doc ann
 docTypeFamilyInst tfi =

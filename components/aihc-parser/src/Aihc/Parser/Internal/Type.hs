@@ -215,10 +215,8 @@ applyTypeAppArg fn (Right ty) = TApp fn ty
 
 typeAtomParser :: TokParser Type
 typeAtomParser = do
-  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
-  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  thAny <- thAnyEnabled
   ipEnabled <- isExtensionEnabled ImplicitParams
-  let thAny = thEnabled || thFullEnabled
   MP.try promotedTypeParser
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser

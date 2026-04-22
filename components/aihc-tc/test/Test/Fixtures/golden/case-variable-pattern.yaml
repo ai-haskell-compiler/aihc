@@ -10,5 +10,5 @@ expected:
   - "True :: Bool"
   - "False :: Bool"
   - "f :: forall a. a -> a"
-status: xfail
-reason: "case with variable pattern not yet supported"
+status: pass
+reason: ""

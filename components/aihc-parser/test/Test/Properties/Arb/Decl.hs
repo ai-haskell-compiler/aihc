@@ -54,7 +54,6 @@ genDecl =
         genDeclFixity,
         DeclRoleAnnotation <$> genDeclRoleAnnotation,
         DeclTypeSyn <$> genDeclTypeSyn,
-        DeclTypeSyn <$> genDeclTypeSynInfix,
         genDeclData,
         genDeclTypeData,
         genDeclNewtype,
@@ -142,24 +141,29 @@ genDeclRoleAnnotation =
     <$> genConUnqualifiedName
     <*> smallList0 (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
 
-genDeclTypeSyn :: Gen TypeSynDecl
-genDeclTypeSyn = TypeSynDecl <$> (PrefixBinderHead <$> genConUnqualifiedName <*> genSimpleTyVarBinders) <*> genType
+genBinderHead :: Gen UnqualifiedName -> Gen UnqualifiedName -> Gen [TyVarBinder] -> Gen (BinderHead UnqualifiedName)
+genBinderHead genPrefixName genInfixName genParams = do
+  params <- genParams
+  useInfix <- if length params >= 2 then arbitrary else pure False
+  if useInfix
+    then do
+      name <- genInfixName
+      case params of
+        lhs : rhs : tailParams -> pure (InfixBinderHead lhs name rhs tailParams)
+        _ -> error "genBinderHead: expected at least two parameters"
+    else PrefixBinderHead <$> genPrefixName <*> pure params
 
--- | Generate an infix type synonym, covering both symbolic operators
--- (e.g. @type a :+: b = (a, b)@) and backtick-wrapped identifiers
--- (e.g. @type a \`Plus\` b = (a, b)@).
-genDeclTypeSynInfix :: Gen TypeSynDecl
-genDeclTypeSynInfix =
+genDeclTypeSyn :: Gen TypeSynDecl
+genDeclTypeSyn =
   TypeSynDecl
-    <$> (InfixBinderHead <$> genSimpleTyVarBinder <*> genConUnqualifiedName <*> genSimpleTyVarBinder <*> smallList0 genSimpleTyVarBinder)
+    <$> genBinderHead genConUnqualifiedName genConUnqualifiedName genSimpleTyVarBinders
     <*> genType
 
 genDeclData :: Gen Decl
 genDeclData =
   oneof
     [ DeclData <$> genSimpleDataDecl,
-      DeclData <$> genDeclDataGadt,
-      DeclData <$> genDeclDataInfix
+      DeclData <$> genDeclDataGadt
     ]
 
 genDeclDataGadt :: Gen DataDecl
@@ -174,28 +178,6 @@ genDeclDataGadt = do
         dataDeclKind = Nothing,
         dataDeclConstructors = ctors,
         dataDeclDeriving = []
-      }
-
--- | Generate an infix data declaration with 2-4 type parameters,
--- covering both symbolic operators (e.g. @data (f :+: g) x = ...@)
--- and backtick-wrapped identifiers (e.g. @data (f \`Dot\` g) x = ...@).
-genDeclDataInfix :: Gen DataDecl
-genDeclDataInfix = do
-  name <- genConUnqualifiedName
-  params <- smallList2 genSimpleTyVarBinder
-  kind <- optional genSimpleType
-  ctors <- genSimpleDataCons
-  deriving' <- genDerivingClauses
-  pure $
-    DataDecl
-      { dataDeclHead =
-          case params of
-            lhs : rhs : tailParams -> InfixBinderHead lhs name rhs tailParams
-            _ -> error "genDeclDataInfix: expected at least two parameters",
-        dataDeclContext = [],
-        dataDeclKind = kind,
-        dataDeclConstructors = ctors,
-        dataDeclDeriving = deriving'
       }
 
 genDeclTypeData :: Gen Decl
@@ -235,14 +217,13 @@ genNonStrictBangType = do
 
 genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
-  name <- genConUnqualifiedName
-  params <- genSimpleTyVarBinders
+  head' <- genBinderHead genConUnqualifiedName genConUnqualifiedName genSimpleTyVarBinders
   kind <- optional genSimpleType
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
     DataDecl
-      { dataDeclHead = PrefixBinderHead name params,
+      { dataDeclHead = head',
         dataDeclContext = [],
         dataDeclKind = kind,
         dataDeclConstructors = ctors,

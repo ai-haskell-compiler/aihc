@@ -106,12 +106,10 @@ buildPatternApp lhs rhs =
 -- which belong to the @lpat@ level ('appPatternParser').
 patternAtomParser :: TokParser Pattern
 patternAtomParser = do
-  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
-  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
   typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
-  let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkTypeApp
