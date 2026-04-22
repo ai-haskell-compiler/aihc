@@ -402,7 +402,7 @@ tcMatchEquation argTys resTy match = do
   let bindings = concatMap extractPatternBindings (zip pats argTys)
   -- Collect pattern constraints, separating GADT givens from regular wanteds.
   (wantedPatCts, givenCts) <-
-    (unzipPair . concat) <$> mapM (\(pat, argTy) -> inferPatConstraints sp pat argTy) (zip pats argTys)
+    unzipPair . concat <$> mapM (uncurry (inferPatConstraints sp)) (zip pats argTys)
   -- Infer the RHS under the extended environment.
   (rhsTy, rhsCts) <- withPatBindings bindings (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.
