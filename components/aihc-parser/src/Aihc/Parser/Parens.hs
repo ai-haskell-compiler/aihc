@@ -811,6 +811,8 @@ addExprParensPrec prec expr =
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addPatternParens pat) (addCmdParens body))
+    EPragma pragma inner ->
+      wrapExpr (prec > 0) (EPragma pragma (addExprParens inner))
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
   where
     isTypeSig :: Expr -> Bool

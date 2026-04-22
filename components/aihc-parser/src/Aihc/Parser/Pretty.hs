@@ -886,6 +886,7 @@ prettyPragma pragma =
         UnpackPragma -> "{-# UNPACK #-}"
         NoUnpackPragma -> "{-# NOUNPACK #-}"
     PragmaSource sourceText _ -> "{-# SOURCE " <> pretty sourceText <> " #-}"
+    PragmaSCC label -> "{-# SCC " <> pretty label <> " #-}"
     PragmaUnknown text -> pretty text
 
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
@@ -1166,6 +1167,8 @@ prettyExpr expr =
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc pat body ->
       "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
+    EPragma pragma inner ->
+      prettyPragma pragma <+> prettyExpr inner
     EAnn _ sub -> prettyExpr sub
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann

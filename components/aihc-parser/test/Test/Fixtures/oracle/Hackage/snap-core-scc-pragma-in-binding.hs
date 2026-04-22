@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SCC pragma dropped during roundtrip causing fingerprint mismatch -}
+{- ORACLE_TEST pass -}
 module A where
 f = g
   where

@@ -65,6 +65,7 @@ tryParseNamedPragma body upperBody
   | Just pragma <- parseInlinePragma body upperBody = Just pragma
   | Just pragma <- parseUnpackPragma body upperBody = Just pragma
   | Just pragma <- parseSourcePragma body upperBody = Just pragma
+  | Just pragma <- parseSCCPragma body upperBody = Just pragma
   | otherwise = Nothing
 
 parseLanguagePragma :: Text -> Text -> Maybe Pragma
@@ -171,6 +172,14 @@ parseSourcePragma body upperBody
     isPragmaBodyEnd rest =
       let fullBody = T.strip (dropPragmaName "SOURCE" body)
        in Just (PragmaSource fullBody fullBody)
+  | otherwise = Nothing
+
+parseSCCPragma :: Text -> Text -> Maybe Pragma
+parseSCCPragma body upperBody
+  | Just rest <- T.stripPrefix "SCC" upperBody,
+    isPragmaBodyEnd rest =
+      let label = T.strip (dropPragmaName "SCC" body)
+       in Just (PragmaSCC label)
   | otherwise = Nothing
 
 dropPragmaName :: Text -> Text -> Text

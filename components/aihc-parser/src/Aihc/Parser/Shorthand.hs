@@ -533,6 +533,7 @@ docPragma pragma =
     PragmaInline kind body -> "PragmaInline" <+> docText kind <+> docText body
     PragmaUnpack unpackKind -> "PragmaUnpack" <+> docPragmaUnpackKind unpackKind
     PragmaSource sourceText _ -> "PragmaSource" <+> docText sourceText
+    PragmaSCC label -> "PragmaSCC" <+> docText label
     PragmaUnknown text -> "PragmaUnknown" <+> docText text
 
 docForeignDecl :: ForeignDecl -> Doc ann
@@ -800,6 +801,7 @@ docExpr expr =
     ETypeApp inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
     EProc pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
+    EPragma pragma inner -> "EPragma" <+> parens (docPragma pragma) <+> parens (docExpr inner)
     EAnn _ sub -> docExpr sub
 
 docCaseAlt :: CaseAlt -> Doc ann
@@ -957,6 +959,7 @@ docTokenKind kind =
         PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
         PragmaUnpack unpackKind -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind)
         PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
+        PragmaSCC label -> "TkPragma" <+> ("PragmaSCC" <+> docText label)
         PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
