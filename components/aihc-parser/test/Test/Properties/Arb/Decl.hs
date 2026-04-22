@@ -616,6 +616,7 @@ isInfixInstanceHeadType ty =
     TStar -> True
     TTuple {} -> True
     TList {} -> True
+    TApp fn arg -> isInfixInstanceHeadType fn && isInfixInstanceHeadType arg
     TTypeApp inner _ -> isInfixInstanceHeadType inner
     TParen inner -> isInfixInstanceHeadType inner
     _ -> False

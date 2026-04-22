@@ -692,10 +692,10 @@ bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
       pure (PrefixInstanceHead className instanceTypes)
 
     infixHeadParser = do
-      lhs <- typeAtomParser
+      lhs <- typeAppParser
       _ <- lookAhead typeInfixOperatorParser
       op <- typeFamilyOperatorParser
-      InfixInstanceHead lhs op <$> typeAtomParser
+      InfixInstanceHead lhs op <$> typeAppParser
 
 standaloneDerivingHeadParser :: TokParser (Bool, InstanceHead Name)
 standaloneDerivingHeadParser =
