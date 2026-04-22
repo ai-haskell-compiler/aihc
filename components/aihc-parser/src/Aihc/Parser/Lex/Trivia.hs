@@ -30,11 +30,22 @@ tryConsumeLineDirective st
   | otherwise =
       let inp = lexerInput st
           (spaces, rest) = T.span (\c -> c == ' ' || c == '\t') inp
+          -- CPP #line directives require '#' at column 1 (no leading
+          -- whitespace).  GHC enforces the same rule: an indented '#' is
+          -- never a line directive.  Shebangs, however, are allowed with
+          -- optional leading whitespace.
+          --
+          -- Note: skipTrivia may have already consumed leading whitespace
+          -- before calling us, so we check lexerCol rather than whether
+          -- 'spaces' is empty.  The column after consuming 'spaces' is
+          -- where '#' would sit.
+          hashCol = lexerCol st + T.length spaces
+          atColumn1 = hashCol == 1
        in case rest of
             '#' :< more ->
               let lineText = "#" <> takeLineRemainder more
                   consumed = spaces <> lineText
-               in case classifyHashLineTrivia lineText of
+               in case classifyHashLineTrivia atColumn1 lineText of
                     Just (HashLineDirective update) ->
                       Just (Nothing, applyDirectiveAdvance consumed update st)
                     Just HashLineShebang ->
@@ -126,9 +137,17 @@ applyDirectiveAdvance consumed update st =
           lexerAtLineStart = hasTrailingNewline || (Just 1 == directiveCol update)
         }
 
-classifyHashLineTrivia :: Text -> Maybe HashLineTrivia
-classifyHashLineTrivia raw
+-- | Classify a line beginning with @#@.
+--
+-- @atColumn1@ is 'True' when @#@ sits at column 1 of the physical source
+-- line (no leading whitespace).  CPP @#line@ directives are only
+-- recognised at column 1, matching GHC behaviour.  Shebangs (@#!@) are
+-- accepted regardless of column.
+classifyHashLineTrivia :: Bool -> Text -> Maybe HashLineTrivia
+classifyHashLineTrivia _atColumn1 raw
   | isHashBangLine raw = Just HashLineShebang
+classifyHashLineTrivia atColumn1 raw
+  | not atColumn1 = Nothing
   | looksLikeHashLineDirective raw =
       case parseHashLineDirective raw of
         Just update -> Just (HashLineDirective update)
