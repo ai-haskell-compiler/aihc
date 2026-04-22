@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  deriving instance ((C) '()) :+ ()
+ast: |
+  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {headForm = TypeHeadInfix, className = ":+", types = [TParen (TApp (TParen (TCon "C")) (TTuplePromoted [])), TTuple []]})]}
+status: pass
