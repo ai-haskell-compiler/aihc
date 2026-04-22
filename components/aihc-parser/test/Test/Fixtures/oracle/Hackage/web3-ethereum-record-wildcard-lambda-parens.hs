@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail record wildcard pattern gets spurious parens in lambda -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
 module Web3EthereumRecordWildcardLambdaParens where
 data T = T {x :: Int}

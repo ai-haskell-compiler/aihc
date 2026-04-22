@@ -1072,7 +1072,7 @@ addPatternParens pat =
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
     PList elems -> PList (map addPatternInDelimited elems)
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
-    PInfix lhs op rhs -> PInfix (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
+    PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixOperandParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
@@ -1137,6 +1137,7 @@ addPatternAtomParens pat =
     PView {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
+    PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
     PInfix _ op _
       | isConsOperator op ->
@@ -1144,6 +1145,18 @@ addPatternAtomParens pat =
           -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
           addPatternParens pat
     _ -> wrapPat True (addPatternParens pat)
+
+-- | Add parens for a pattern in infix-pattern operand position.
+-- In Haskell's grammar, infix patterns have the form @pat10 conop pat10@,
+-- where @pat10@ allows constructor application patterns. Non-nullary 'PCon'
+-- does not need wrapping here because constructor application binds tighter
+-- than infix operators.
+addPatternInfixOperandParens :: Pattern -> Pattern
+addPatternInfixOperandParens pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
+    PCon {} -> addPatternParens pat
+    _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in lambda argument position.
 addLambdaPatternAtomParens :: Pattern -> Pattern
