@@ -60,9 +60,9 @@ ordinaryDeclParser = do
           then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
           else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
       typeSigOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> valueOrSpliceParser
+        MP.try typeSigOrPatternTypeSigDeclParser <|> valueOrSpliceParser
       typeSigOrPatternOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> patternOrValueOrSpliceParser
+        MP.try typeSigOrPatternTypeSigDeclParser <|> patternOrValueOrSpliceParser
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -514,6 +514,33 @@ typeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   DeclTypeSig names <$> typeParser
+
+-- | Parse a type signature or a pattern-typed equation.
+--
+-- With @ScopedTypeVariables@, @f :: Int = 0@ is valid Haskell meaning the same
+-- as @(f :: Int) = 0@: a pattern bind whose LHS carries a type annotation.
+-- GHC parses @name :: Type@ and then, if @=@ (or a guard @|@) follows,
+-- reinterprets the construct as a 'PatternBind' with a 'PTypeSig' pattern.
+--
+-- This parser mirrors that behaviour at the top level.  It first parses
+-- @name(s) :: Type@ (the type-signature prefix), then peeks at the next
+-- token.  If the next token begins an equation RHS (@=@ or @|@), the result is
+-- reinterpreted as a pattern-typed equation; otherwise a plain type signature
+-- is returned.
+typeSigOrPatternTypeSigDeclParser :: TokParser Decl
+typeSigOrPatternTypeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  nextKind <- lexTokenKind <$> lookAhead anySingle
+  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
+    then case names of
+      [name] -> do
+        rhs <- equationRhsParser
+        let pat = PTypeSig (PVar name) ty
+        pure (DeclValue (PatternBind pat rhs))
+      _ -> fail "typed pattern bindings with '=' require exactly one binder"
+    else pure (DeclTypeSig names ty)
 
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = do
