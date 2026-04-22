@@ -623,7 +623,33 @@ addInstanceHeadParens :: InstanceHead name -> InstanceHead name
 addInstanceHeadParens head' =
   case head' of
     PrefixInstanceHead name tys -> PrefixInstanceHead name (map (addTypeIn CtxTypeAtom) tys)
-    InfixInstanceHead lhs name rhs -> InfixInstanceHead (addTypeIn CtxTypeFamilyOperand lhs) name (addTypeIn CtxTypeFamilyOperand rhs)
+    InfixInstanceHead lhs name rhs ->
+      let lhs' = addTypeIn CtxTypeFamilyOperand lhs
+          -- When the LHS of an infix instance head is a TApp whose leftmost
+          -- atom is a TParen, the parser's standaloneDerivingHeadParser /
+          -- instanceHeadParser would greedily consume the initial (...) as a
+          -- parenthesized prefix instance head, leaving the remaining tokens
+          -- orphaned.  Wrapping the entire LHS in parens prevents this
+          -- ambiguity.
+          --
+          -- Example: @deriving instance (C) '() :+ D@ is misparsed because
+          -- @(C)@ is consumed as the full parenthesized head.  Emitting
+          -- @deriving instance ((C) '()) :+ D@ is unambiguous.
+          needsWrap = case peelTypeAnn lhs' of
+            TApp {} -> typeStartsWithParen lhs'
+            _ -> False
+       in InfixInstanceHead (wrapTy needsWrap lhs') name (addTypeIn CtxTypeFamilyOperand rhs)
+
+-- | Check whether a type's pretty-printed form starts with @(@, which
+-- would be consumed as a parenthesized instance head by the parser.
+typeStartsWithParen :: Type -> Bool
+typeStartsWithParen (TAnn _ sub) = typeStartsWithParen sub
+typeStartsWithParen (TApp f _) = typeStartsWithParen f
+typeStartsWithParen (TTypeApp f _) = typeStartsWithParen f
+typeStartsWithParen (TParen _) = True
+typeStartsWithParen (TTuple Boxed Unpromoted _) = True
+typeStartsWithParen (TKindSig {}) = True
+typeStartsWithParen _ = False
 
 addForeignDeclParens :: ForeignDecl -> ForeignDecl
 addForeignDeclParens decl =
