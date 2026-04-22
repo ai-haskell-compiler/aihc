@@ -4,6 +4,7 @@ packages:
   components/aihc-parser-cli
   components/aihc-resolve
   components/aihc-tc
+  components/aihc-fc
   tooling/aihc-hackage
 
 tests: True
