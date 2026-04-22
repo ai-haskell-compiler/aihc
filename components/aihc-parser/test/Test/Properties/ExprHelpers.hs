@@ -608,7 +608,7 @@ normalizeInstanceHead :: InstanceHead name -> InstanceHead name
 normalizeInstanceHead head' =
   case head' of
     PrefixInstanceHead name tys -> PrefixInstanceHead name (map normalizeType tys)
-    InfixInstanceHead lhs name rhs -> InfixInstanceHead (normalizeType lhs) name (normalizeType rhs)
+    InfixInstanceHead lhs name rhs tailTypes -> InfixInstanceHead (normalizeType lhs) name (normalizeType rhs) (map normalizeType tailTypes)
 
 normalizeTypeFamilyInst :: TypeFamilyInst -> TypeFamilyInst
 normalizeTypeFamilyInst tfi =
