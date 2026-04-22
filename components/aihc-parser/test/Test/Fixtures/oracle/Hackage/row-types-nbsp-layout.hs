@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail non-breaking space (U+00A0) indentation breaks layout in where block -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module RowTypesNbspLayout where
 

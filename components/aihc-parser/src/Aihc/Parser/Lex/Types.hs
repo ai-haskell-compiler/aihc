@@ -47,7 +47,7 @@ where
 import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, ord)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace, ord)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -340,7 +340,9 @@ advanceChars consumed st =
             let nextTabStop = 8 - ((col - 1) `mod` 8)
              in (line, col + nextTabStop, byteOff + 1, atLineStart)
           ' ' -> (line, col + 1, byteOff + 1, atLineStart)
-          _ -> (line, col + 1, byteOff + utf8CharWidth ch, False)
+          _
+            | isSpace ch -> (line, col + 1, byteOff + utf8CharWidth ch, atLineStart)
+            | otherwise -> (line, col + 1, byteOff + utf8CharWidth ch, False)
       (!finalLine, !finalCol, !finalByteOff, !finalAtLineStart) =
         T.foldl' go (lexerLine st, lexerCol st, lexerByteOffset st, lexerAtLineStart st) consumed
    in st

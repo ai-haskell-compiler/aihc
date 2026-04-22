@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pretty-printer wraps Con{..} lambda patterns in extra parens causing roundtrip mismatch -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
 module ThymeLambdaRecordWildcard where
 

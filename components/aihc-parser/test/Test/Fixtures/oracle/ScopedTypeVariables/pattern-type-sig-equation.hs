@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pattern type signature in equation not parsed -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ScopedTypeVariables #-}
 module PatternTypeSigEquation where
 

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects type family default with compound right-hand side -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module VinylTypeFamilyDefaultCompoundRhs where
 

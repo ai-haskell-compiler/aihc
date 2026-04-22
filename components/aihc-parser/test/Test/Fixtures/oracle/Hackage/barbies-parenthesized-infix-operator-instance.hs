@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects parenthesized infix type operator applied to argument in instance head -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators #-}
 module BarbiesParenthesizedInfixOperatorInstance where
 

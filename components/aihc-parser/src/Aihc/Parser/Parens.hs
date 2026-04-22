@@ -623,7 +623,7 @@ addInstanceHeadParens :: InstanceHead name -> InstanceHead name
 addInstanceHeadParens head' =
   case head' of
     PrefixInstanceHead name tys -> PrefixInstanceHead name (map (addTypeIn CtxTypeAtom) tys)
-    InfixInstanceHead lhs name rhs ->
+    InfixInstanceHead lhs name rhs tailTypes ->
       let lhs' = addTypeIn CtxTypeFamilyOperand lhs
           -- When the LHS of an infix instance head is a TApp whose leftmost
           -- atom is a TParen, the parser's standaloneDerivingHeadParser /
@@ -636,7 +636,7 @@ addInstanceHeadParens head' =
           -- @(C)@ is consumed as the full parenthesized head.  Emitting
           -- @deriving instance ((C) '()) :+ D@ is unambiguous.
           needsWrap = infixLhsNeedsOuterParen lhs'
-       in InfixInstanceHead (wrapTy needsWrap lhs') name (addTypeIn CtxTypeFamilyOperand rhs)
+       in InfixInstanceHead (wrapTy needsWrap lhs') name (addTypeIn CtxTypeFamilyOperand rhs) (map (addTypeIn CtxTypeAtom) tailTypes)
 
 -- | Determine whether the LHS of an infix instance head needs to be
 -- wrapped in an outer TParen to prevent the parser from greedily
@@ -1121,7 +1121,7 @@ addPatternParens pat =
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
     PList elems -> PList (map addPatternInDelimited elems)
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
-    PInfix lhs op rhs -> PInfix (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
+    PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixOperandParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
@@ -1186,6 +1186,7 @@ addPatternAtomParens pat =
     PView {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
+    PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
     PInfix _ op _
       | isConsOperator op ->
@@ -1193,6 +1194,18 @@ addPatternAtomParens pat =
           -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
           addPatternParens pat
     _ -> wrapPat True (addPatternParens pat)
+
+-- | Add parens for a pattern in infix-pattern operand position.
+-- In Haskell's grammar, infix patterns have the form @pat10 conop pat10@,
+-- where @pat10@ allows constructor application patterns. Non-nullary 'PCon'
+-- does not need wrapping here because constructor application binds tighter
+-- than infix operators.
+addPatternInfixOperandParens :: Pattern -> Pattern
+addPatternInfixOperandParens pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
+    PCon {} -> addPatternParens pat
+    _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in lambda argument position.
 addLambdaPatternAtomParens :: Pattern -> Pattern
@@ -1223,12 +1236,17 @@ addInfixFunctionHeadPatternAtomParens pat =
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
+--
+-- A nullary constructor without type arguments (e.g., @EQ@) is an atom and
+-- needs no wrapping: @!EQ@, @~EQ@, @y\@EQ@ are all valid Haskell. However,
+-- a constructor with type arguments (e.g., @Nothing \@Int@) must be wrapped
+-- because @!Nothing \@Int@ is a parse error in GHC — it needs @!(Nothing \@Int)@.
 addPatternAtomStrictParens :: Pattern -> Pattern
 addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat

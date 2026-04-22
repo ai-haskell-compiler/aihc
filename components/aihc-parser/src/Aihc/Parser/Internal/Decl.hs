@@ -60,9 +60,9 @@ ordinaryDeclParser = do
           then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
           else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
       typeSigOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> valueOrSpliceParser
+        MP.try typeSigOrPatternTypeSigDeclParser <|> valueOrSpliceParser
       typeSigOrPatternOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> patternOrValueOrSpliceParser
+        MP.try typeSigOrPatternTypeSigDeclParser <|> patternOrValueOrSpliceParser
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -222,8 +222,17 @@ familyResultKindParser =
 -- | Parse an optional type family result signature. GHC admits either an unnamed
 -- @:: Kind@ annotation or a named result variable with optional injectivity annotation,
 -- such as @= r@, @= r | r -> a@, or @= (r :: Type) | r -> a where ...@.
-typeFamilyResultSigParser :: TokParser (Maybe TypeFamilyResultSig)
-typeFamilyResultSigParser =
+--
+-- The 'Bool' parameter indicates whether the @family@ keyword was explicitly
+-- present.  When it was /not/ present (i.e. the shorthand @type T a …@ form
+-- inside a class body), @= r@ is syntactically ambiguous with a default type
+-- instance (@type T a = r@).  GHC resolves this by treating @= binder |@ as a
+-- named result signature with injectivity, while @= expr@ without @|@ is
+-- always a default type instance.  We mirror that behaviour: without an
+-- explicit @family@ keyword, @namedSigParser@ requires the @|@ injectivity
+-- annotation that follows the binder.
+typeFamilyResultSigParser :: Bool -> TokParser (Maybe TypeFamilyResultSig)
+typeFamilyResultSigParser explicitFamily =
   MP.optional (kindSigParser <|> namedSigParser)
   where
     kindSigParser =
@@ -233,9 +242,16 @@ typeFamilyResultSigParser =
       expectedTok TkReservedEquals
       result <- namedResultBinderParser
       mInjectivity <- MP.optional typeFamilyInjectivityParser
-      pure $ case mInjectivity of
-        Just injectivity -> TypeFamilyInjectiveSig result injectivity
-        Nothing -> TypeFamilyTyVarSig result
+      case mInjectivity of
+        Just injectivity -> pure $ TypeFamilyInjectiveSig result injectivity
+        Nothing
+          -- With an explicit @family@ keyword, @= r@ on its own is
+          -- unambiguously a named result signature.
+          | explicitFamily -> pure $ TypeFamilyTyVarSig result
+          -- Without @family@, @= r@ (no injectivity @|@) is ambiguous with a
+          -- default type instance.  Fail so the caller can backtrack and try
+          -- the default-instance parser instead.
+          | otherwise -> fail "named result sig without injectivity requires explicit 'family' keyword"
 
     namedResultBinderParser =
       withSpan $
@@ -499,6 +515,33 @@ typeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkReservedDoubleColon
   DeclTypeSig names <$> typeParser
 
+-- | Parse a type signature or a pattern-typed equation.
+--
+-- With @ScopedTypeVariables@, @f :: Int = 0@ is valid Haskell meaning the same
+-- as @(f :: Int) = 0@: a pattern bind whose LHS carries a type annotation.
+-- GHC parses @name :: Type@ and then, if @=@ (or a guard @|@) follows,
+-- reinterprets the construct as a 'PatternBind' with a 'PTypeSig' pattern.
+--
+-- This parser mirrors that behaviour at the top level.  It first parses
+-- @name(s) :: Type@ (the type-signature prefix), then peeks at the next
+-- token.  If the next token begins an equation RHS (@=@ or @|@), the result is
+-- reinterpreted as a pattern-typed equation; otherwise a plain type signature
+-- is returned.
+typeSigOrPatternTypeSigDeclParser :: TokParser Decl
+typeSigOrPatternTypeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  nextKind <- lexTokenKind <$> lookAhead anySingle
+  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
+    then case names of
+      [name] -> do
+        rhs <- equationRhsParser
+        let pat = PTypeSig (PVar name) ty
+        pure (DeclValue (PatternBind pat rhs))
+      _ -> fail "typed pattern bindings with '=' require exactly one binder"
+    else pure (DeclTypeSig names ty)
+
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = do
   expectedTok TkKeywordDefault
@@ -695,7 +738,8 @@ bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
       lhs <- typeAppParser
       _ <- lookAhead typeInfixOperatorParser
       op <- typeFamilyOperatorParser
-      InfixInstanceHead lhs op <$> typeAppParser
+      rhs <- typeAppParser
+      pure (InfixInstanceHead lhs op rhs [])
 
 standaloneDerivingHeadParser :: TokParser (Bool, InstanceHead Name)
 standaloneDerivingHeadParser =
@@ -703,7 +747,8 @@ standaloneDerivingHeadParser =
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        pure (True, parsed)
+        tailTypes <- MP.many typeAtomParser
+        pure (True, addTailTypes tailTypes parsed)
     )
     <|> ( do
             instanceHead <- bareInstanceHeadParser
@@ -716,7 +761,8 @@ instanceHeadParser =
     ( do
         parsed <- parens bareInstanceHeadParser
         _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        pure (True, mapName parsed)
+        tailTypes <- MP.many typeAtomParser
+        pure (True, mapName (addTailTypes tailTypes parsed))
     )
     <|> ( do
             instanceHead <- bareInstanceHeadParser
@@ -727,8 +773,17 @@ instanceHeadParser =
       case head' of
         PrefixInstanceHead className instanceTypes ->
           PrefixInstanceHead (nameToUnqualified className) instanceTypes
-        InfixInstanceHead lhs op rhs ->
-          InfixInstanceHead lhs (nameToUnqualified op) rhs
+        InfixInstanceHead lhs op rhs tailTypes ->
+          InfixInstanceHead lhs (nameToUnqualified op) rhs tailTypes
+
+-- | Append trailing type arguments to an instance head.
+-- For prefix heads, the types are appended to the existing type list.
+-- For infix heads, the types are appended to the trailing types list.
+addTailTypes :: [Type] -> InstanceHead name -> InstanceHead name
+addTailTypes types head' =
+  case head' of
+    PrefixInstanceHead name tys -> PrefixInstanceHead name (tys <> types)
+    InfixInstanceHead lhs op rhs tailTypes -> InfixInstanceHead lhs op rhs (tailTypes <> types)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceDeclItemParser
@@ -1308,7 +1363,7 @@ typeFamilyDeclBodyParser familyKeywordMode = do
     FamilyKeywordRequired -> expectedTok TkVarFamily $> True
     FamilyKeywordOptional -> isJust <$> MP.optional (expectedTok TkVarFamily)
   (headForm, headType, params) <- typeFamilyHeadParser
-  resultSig <- typeFamilyResultSigParser
+  resultSig <- typeFamilyResultSigParser explicitFamilyKeyword
   equations <-
     case familyKeywordMode of
       FamilyKeywordRequired -> MP.optional (MP.try closedTypeFamilyWhereParser)
