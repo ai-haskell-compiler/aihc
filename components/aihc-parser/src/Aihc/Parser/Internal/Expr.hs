@@ -34,10 +34,10 @@ import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatt
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (guard)
 import Data.Functor (($>))
 import Data.Text (Text)
-import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -553,7 +553,13 @@ rhsParserWithArrow arrowKind = do
     TkReservedPipe -> guardedRhssParser arrowKind
     TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParser arrowKind
     TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParser arrowKind
-    _ -> fail ("expected " <> T.unpack (rhsArrowText arrowKind) <> " or guarded right-hand side")
+    _ ->
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Just (mkFoundToken tok),
+            unexpectedExpecting = rhsArrowText arrowKind <> " or guarded right-hand side",
+            unexpectedContext = []
+          }
 
 unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
 unguardedRhsParser arrowKind = withSpan $ do
