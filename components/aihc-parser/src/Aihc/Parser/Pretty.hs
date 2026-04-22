@@ -868,8 +868,9 @@ standaloneDerivingHeadDoc decl =
 prettyInstanceHeadDoc :: Bool -> (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
 prettyInstanceHeadDoc isParenthesized prettyPrefix prettyInfix head' =
   case head' of
-    PrefixInstanceHead name tys tailTypes ->
-      let prefixPart = maybeParenthesize isParenthesized $ hsep (prettyPrefix name : map prettyType tys)
+    PrefixInstanceHead name nameParenthesized tys tailTypes ->
+      let prettyName = maybeParenthesize nameParenthesized (prettyPrefix name)
+          prefixPart = maybeParenthesize isParenthesized $ hsep (prettyName : map prettyType tys)
        in hsep (prefixPart : map prettyType tailTypes)
     InfixInstanceHead lhs name rhs tailTypes ->
       let infixPart = prettyType lhs <+> prettyInfix name <+> prettyType rhs

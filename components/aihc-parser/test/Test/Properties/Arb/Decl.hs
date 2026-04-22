@@ -528,7 +528,7 @@ genDeclInstancePrefix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
-          instanceDeclHead = PrefixInstanceHead className types [],
+          instanceDeclHead = PrefixInstanceHead className False types [],
           instanceDeclItems = items
         }
 
@@ -590,7 +590,7 @@ genDeclInstanceParenPrefix = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = True,
-          instanceDeclHead = PrefixInstanceHead className innerTypes tailTypes,
+          instanceDeclHead = PrefixInstanceHead className False innerTypes tailTypes,
           instanceDeclItems = items
         }
 
@@ -613,7 +613,7 @@ genDeclStandaloneDerivingPrefix = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHead = PrefixInstanceHead className types []
+          standaloneDerivingHead = PrefixInstanceHead className False types []
         }
 
 genDeclStandaloneDerivingInfix :: Gen Decl
@@ -1379,15 +1379,15 @@ shrinkBinderHeadParams head' =
 shrinkInstanceHeadName :: (name -> [name]) -> InstanceHead name -> [InstanceHead name]
 shrinkInstanceHeadName shrinkNameFn head' =
   case head' of
-    PrefixInstanceHead name tys tailTypes -> [PrefixInstanceHead name' tys tailTypes | name' <- shrinkNameFn name]
+    PrefixInstanceHead name nameParenthesized tys tailTypes -> [PrefixInstanceHead name' nameParenthesized tys tailTypes | name' <- shrinkNameFn name]
     InfixInstanceHead lhs name rhs tailTypes -> [InfixInstanceHead lhs name' rhs tailTypes | name' <- shrinkNameFn name]
 
 shrinkInstanceHeadTypes :: InstanceHead name -> [InstanceHead name]
 shrinkInstanceHeadTypes head' =
   case head' of
-    PrefixInstanceHead name tys tailTypes ->
-      [PrefixInstanceHead name tys' tailTypes | tys' <- shrinkTypeHeadTypes TypeHeadPrefix tys]
-        <> [PrefixInstanceHead name tys tailTypes' | tailTypes' <- shrinkList shrinkType tailTypes]
+    PrefixInstanceHead name nameParenthesized tys tailTypes ->
+      [PrefixInstanceHead name nameParenthesized tys' tailTypes | tys' <- shrinkTypeHeadTypes TypeHeadPrefix tys]
+        <> [PrefixInstanceHead name nameParenthesized tys tailTypes' | tailTypes' <- shrinkList shrinkType tailTypes]
     InfixInstanceHead lhs name rhs tailTypes ->
       [InfixInstanceHead lhs' name rhs tailTypes | lhs' <- shrinkType lhs]
         <> [InfixInstanceHead lhs name rhs' tailTypes | rhs' <- shrinkType rhs]
