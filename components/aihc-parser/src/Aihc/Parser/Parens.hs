@@ -1187,12 +1187,17 @@ addInfixFunctionHeadPatternAtomParens pat =
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
+--
+-- A nullary constructor without type arguments (e.g., @EQ@) is an atom and
+-- needs no wrapping: @!EQ@, @~EQ@, @y\@EQ@ are all valid Haskell. However,
+-- a constructor with type arguments (e.g., @Nothing \@Int@) must be wrapped
+-- because @!Nothing \@Int@ is a parse error in GHC — it needs @!(Nothing \@Int)@.
 addPatternAtomStrictParens :: Pattern -> Pattern
 addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
