@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail case expression not accepted as unboxed tuple element -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedTuples #-}
 module CaseInUnboxedTuple where
 

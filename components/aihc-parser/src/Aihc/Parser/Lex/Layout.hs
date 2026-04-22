@@ -316,10 +316,8 @@ opensDelimiter kind =
 --
 -- Related: 'closesImplicitBeforeDelimiter' determines which closing tokens
 -- also force all intervening implicit layouts to emit virtual @}@ tokens
--- before the delimiter is popped.  'TkSpecialUnboxedRParen' is absent from
--- that predicate because BOL rules and the parse-error rule handle its
--- implicit-layout closure; 'TkSpecialRBrace' is present there (but absent
--- here) because it closes 'LayoutExplicit', not 'LayoutDelimiter'.
+-- before the delimiter is popped.  'TkSpecialRBrace' is present there (but
+-- absent here) because it closes 'LayoutExplicit', not 'LayoutDelimiter'.
 closesDelimiter :: LexTokenKind -> Bool
 closesDelimiter kind =
   case kind of
@@ -337,6 +335,7 @@ closesImplicitBeforeDelimiter :: LexTokenKind -> Bool
 closesImplicitBeforeDelimiter kind =
   case kind of
     TkSpecialRParen -> True
+    TkSpecialUnboxedRParen -> True
     TkSpecialRBracket -> True
     TkTHExpQuoteClose -> True
     TkTHTypedQuoteClose -> True

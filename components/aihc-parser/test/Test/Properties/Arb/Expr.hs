@@ -317,8 +317,29 @@ genTupleElemsWith allowTHQuotes =
 
 -- | Generate elements for an unboxed tuple (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
+-- Sometimes generates layout-sensitive expressions (case, do, if, let, lambda)
+-- to ensure proper implicit layout handling with unboxed tuple delimiters.
 genUnboxedTupleElemsWith :: Bool -> Gen [Expr]
-genUnboxedTupleElemsWith allowTHQuotes = smallList0 (genExprWith allowTHQuotes)
+genUnboxedTupleElemsWith allowTHQuotes =
+  oneof
+    [ smallList0 (genExprWith allowTHQuotes),
+      smallList0 (genLayoutExprWith allowTHQuotes)
+    ]
+
+-- | Generate expressions that trigger implicit layout (case, do, if, let, lambda).
+-- These require special handling when nested inside delimiters like @(# ... #)@.
+genLayoutExprWith :: Bool -> Gen Expr
+genLayoutExprWith allowTHQuotes =
+  scale (`div` 2) $
+    oneof
+      [ ECase <$> genExprWith allowTHQuotes <*> genCaseAltsWith allowTHQuotes,
+        EDo <$> genDoStmtsWith allowTHQuotes <*> arbitrary,
+        EIf <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        ELambdaPats <$> genPatterns <*> genExprWith allowTHQuotes,
+        ELambdaCase <$> genCaseAltsWith allowTHQuotes,
+        ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes
+      ]
 
 genUnboxedSumExprWith :: Bool -> Gen Expr
 genUnboxedSumExprWith allowTHQuotes = do
