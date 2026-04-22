@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parenthesized prefix instance head merges trailing types losing paren boundary in roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module A where
 class C a b

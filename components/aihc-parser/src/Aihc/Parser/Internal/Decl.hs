@@ -732,7 +732,7 @@ bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
     prefixHeadParser = do
       className <- constructorNameParser <|> parens operatorNameParser
       instanceTypes <- MP.many typeAtomParser
-      pure (PrefixInstanceHead className instanceTypes)
+      pure (PrefixInstanceHead className instanceTypes [])
 
     infixHeadParser = do
       lhs <- typeAppParser
@@ -771,8 +771,8 @@ instanceHeadParser =
   where
     mapName head' =
       case head' of
-        PrefixInstanceHead className instanceTypes ->
-          PrefixInstanceHead (nameToUnqualified className) instanceTypes
+        PrefixInstanceHead className instanceTypes tailTypes ->
+          PrefixInstanceHead (nameToUnqualified className) instanceTypes tailTypes
         InfixInstanceHead lhs op rhs tailTypes ->
           InfixInstanceHead lhs (nameToUnqualified op) rhs tailTypes
 
@@ -782,7 +782,7 @@ instanceHeadParser =
 addTailTypes :: [Type] -> InstanceHead name -> InstanceHead name
 addTailTypes types head' =
   case head' of
-    PrefixInstanceHead name tys -> PrefixInstanceHead name (tys <> types)
+    PrefixInstanceHead name tys tailTypes -> PrefixInstanceHead name tys (tailTypes <> types)
     InfixInstanceHead lhs op rhs tailTypes -> InfixInstanceHead lhs op rhs (tailTypes <> types)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
