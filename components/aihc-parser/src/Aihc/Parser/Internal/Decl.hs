@@ -222,8 +222,17 @@ familyResultKindParser =
 -- | Parse an optional type family result signature. GHC admits either an unnamed
 -- @:: Kind@ annotation or a named result variable with optional injectivity annotation,
 -- such as @= r@, @= r | r -> a@, or @= (r :: Type) | r -> a where ...@.
-typeFamilyResultSigParser :: TokParser (Maybe TypeFamilyResultSig)
-typeFamilyResultSigParser =
+--
+-- The 'Bool' parameter indicates whether the @family@ keyword was explicitly
+-- present.  When it was /not/ present (i.e. the shorthand @type T a …@ form
+-- inside a class body), @= r@ is syntactically ambiguous with a default type
+-- instance (@type T a = r@).  GHC resolves this by treating @= binder |@ as a
+-- named result signature with injectivity, while @= expr@ without @|@ is
+-- always a default type instance.  We mirror that behaviour: without an
+-- explicit @family@ keyword, @namedSigParser@ requires the @|@ injectivity
+-- annotation that follows the binder.
+typeFamilyResultSigParser :: Bool -> TokParser (Maybe TypeFamilyResultSig)
+typeFamilyResultSigParser explicitFamily =
   MP.optional (kindSigParser <|> namedSigParser)
   where
     kindSigParser =
@@ -233,9 +242,16 @@ typeFamilyResultSigParser =
       expectedTok TkReservedEquals
       result <- namedResultBinderParser
       mInjectivity <- MP.optional typeFamilyInjectivityParser
-      pure $ case mInjectivity of
-        Just injectivity -> TypeFamilyInjectiveSig result injectivity
-        Nothing -> TypeFamilyTyVarSig result
+      case mInjectivity of
+        Just injectivity -> pure $ TypeFamilyInjectiveSig result injectivity
+        Nothing
+          -- With an explicit @family@ keyword, @= r@ on its own is
+          -- unambiguously a named result signature.
+          | explicitFamily -> pure $ TypeFamilyTyVarSig result
+          -- Without @family@, @= r@ (no injectivity @|@) is ambiguous with a
+          -- default type instance.  Fail so the caller can backtrack and try
+          -- the default-instance parser instead.
+          | otherwise -> fail "named result sig without injectivity requires explicit 'family' keyword"
 
     namedResultBinderParser =
       withSpan $
@@ -1308,7 +1324,7 @@ typeFamilyDeclBodyParser familyKeywordMode = do
     FamilyKeywordRequired -> expectedTok TkVarFamily $> True
     FamilyKeywordOptional -> isJust <$> MP.optional (expectedTok TkVarFamily)
   (headForm, headType, params) <- typeFamilyHeadParser
-  resultSig <- typeFamilyResultSigParser
+  resultSig <- typeFamilyResultSigParser explicitFamilyKeyword
   equations <-
     case familyKeywordMode of
       FamilyKeywordRequired -> MP.optional (MP.try closedTypeFamilyWhereParser)
