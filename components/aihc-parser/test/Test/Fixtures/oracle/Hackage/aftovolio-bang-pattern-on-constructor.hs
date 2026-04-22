@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pretty-printer wraps banged constructor pattern in extra parens causing roundtrip mismatch -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BangPatterns #-}
 module A where
 f x = case x of
