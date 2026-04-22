@@ -402,8 +402,7 @@ tcMatchEquation argTys resTy match = do
   let bindings = concatMap extractPatternBindings (zip pats argTys)
   -- Collect pattern constraints, separating GADT givens from regular wanteds.
   (wantedPatCts, givenCts) <-
-    fmap (unzipPair . concat) $
-      mapM (\(pat, argTy) -> inferPatConstraints sp pat argTy) (zip pats argTys)
+    (unzipPair . concat) <$> mapM (\(pat, argTy) -> inferPatConstraints sp pat argTy) (zip pats argTys)
   -- Infer the RHS under the extended environment.
   (rhsTy, rhsCts) <- withPatBindings bindings (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.
@@ -438,7 +437,7 @@ unzipPair pairs =
 -- constructors that refine the scrutinee's type parameters).
 --
 -- Returns @(wantedCts, givenCts)@.
-inferPatConstraints :: SourceSpan -> Pattern -> TcType -> TcM ([([Ct], [Ct])])
+inferPatConstraints :: SourceSpan -> Pattern -> TcType -> TcM [([Ct], [Ct])]
 inferPatConstraints sp pat scrutTy = case pat of
   PCon name _typeArgs _subPats -> do
     let conName = patNameToText name

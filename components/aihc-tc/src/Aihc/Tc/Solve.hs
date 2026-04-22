@@ -116,7 +116,7 @@ solveImplication impl = withTcLevel $ do
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl
   -- Canonicalize the given equalities by structural decomposition.
-  givenEqs <- concat <$> mapM (canonicalizeGiven) rawGivens
+  givenEqs <- concat <$> mapM canonicalizeGiven rawGivens
   -- Solve each wanted using the given equalities as rewrite rules.
   mapM_ (solveWantedWithGivens givenEqs) wanteds
 
