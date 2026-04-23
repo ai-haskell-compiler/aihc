@@ -61,6 +61,9 @@ dsDataConPure (InfixCon _docs _ctx _lhs conName _rhs) =
 dsDataConPure (RecordCon _docs _ctx conName _fields) =
   (unqualifiedNameText conName, 0)
 dsDataConPure (GadtCon {}) = ("<gadt>", 0)
+dsDataConPure (TupleCon _docs _ctx _flavor args) = ("<tuple>", length args)
+dsDataConPure (UnboxedSumCon _docs _ctx _pos _arity _field) = ("<unboxed-sum>", 1)
+dsDataConPure (ListCon _docs _ctx) = ("[]", 0)
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

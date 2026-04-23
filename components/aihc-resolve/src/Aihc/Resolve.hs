@@ -503,6 +503,12 @@ resolveDataConDecl scope dataConDecl =
       RecordCon forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
     GadtCon forallVars context names body ->
       GadtCon forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
+    TupleCon forallVars context flavor bangTypes ->
+      TupleCon forallVars (map (resolveType scope) context) flavor (map resolveBangType bangTypes)
+    UnboxedSumCon forallVars context pos arity field ->
+      UnboxedSumCon forallVars (map (resolveType scope) context) pos arity (resolveBangType field)
+    ListCon forallVars context ->
+      ListCon forallVars (map (resolveType scope) context)
   where
     resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
     resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
@@ -727,6 +733,9 @@ dataConAnnotation scope dataConDecl =
             case names of
               name : _ -> topLevelNameAnnotation scope span' name
               [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
+          TupleCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "tuple constructors are not top-level binders")
+          UnboxedSumCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "unboxed sum constructors are not top-level binders")
+          ListCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "list constructors are not top-level binders")
    in go dataConDecl
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
@@ -788,6 +797,9 @@ dataConDeclNames dataConDecl =
           InfixCon _ _ _ name _ -> [name]
           RecordCon _ _ name _ -> [name]
           GadtCon _ _ names _ -> names
+          TupleCon {} -> []
+          UnboxedSumCon {} -> []
+          ListCon {} -> []
    in go dataConDecl
 
 moduleScope :: ModuleExports -> Module -> Scope

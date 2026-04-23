@@ -334,6 +334,12 @@ registerDataCon tc paramMap paramVarIds con = case con of
               zonkedTy <- zonkType conTy
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
+  TupleCon {} ->
+    pure (TcBindingResult "<tuple-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
+  UnboxedSumCon {} ->
+    pure (TcBindingResult "<unboxed-sum-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
+  ListCon {} ->
+    pure (TcBindingResult "<list-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]
