@@ -31,7 +31,7 @@ infixPatternParser :: TokParser Pattern
 infixPatternParser = do
   lhs <- asOrAppPatternParser
   rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
-  pure (foldl buildInfixPattern lhs rest)
+  pure (resolvePatternFixity lhs rest)
 
 -- | Parse either an as-pattern (name@atom) or an application pattern.
 -- As-patterns bind tighter than infix but looser than application,
@@ -46,9 +46,48 @@ asOrAppPatternParser = do
       PAs name <$> patternAtomParser
     else appPatternParser
 
-buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
-buildInfixPattern lhs (op, rhs) =
-  PInfix lhs op rhs
+-- | Returns (precedence, isRightAssociative) for a constructor operator.
+-- Handles well-known Haskell operators; defaults to infixl 9 for unknown operators.
+patternOpFixity :: Name -> (Int, Bool)
+patternOpFixity name = case nameText name of
+  ":" -> (5, True) -- infixr 5, Prelude
+  ":|" -> (5, True) -- infixr 5, Data.List.NonEmpty
+  _ -> (9, False) -- default: infixl 9
+
+-- | Build a right-associative infix chain using Pratt parsing to respect
+-- operator precedence and associativity. Without this, a left-fold would
+-- incorrectly parse @x :| y : ys@ as @(x :| y) : ys@ instead of @x :| (y : ys)@.
+resolvePatternFixity :: Pattern -> [(Name, Pattern)] -> Pattern
+resolvePatternFixity lhs rest = fst (go lhs rest 0)
+  where
+    go l [] _ = (l, [])
+    go l ((op, r) : more) minPrec
+      | prec < minPrec = (l, (op, r) : more)
+      | otherwise =
+          let nextMin = if isRight then prec else prec + 1
+              (r', remaining) = go r more nextMin
+              l' = PInfix l op r'
+           in go l' remaining minPrec
+      where
+        (prec, isRight) = patternOpFixity op
+
+-- | Fix associativity of @PInfix@ nodes produced by the expression-to-pattern
+-- conversion path (@exprThenReclassify@), which uses a left-fold and ignores
+-- constructor operator fixity. Flattens any left-folded @PInfix@ chain and
+-- re-associates it via 'resolvePatternFixity'.
+rebalancePatternInfix :: Pattern -> Pattern
+rebalancePatternInfix pat = case pat of
+  PAnn ann sub -> PAnn ann (rebalancePatternInfix sub)
+  PInfix _ _ _ ->
+    let (first, pairs) = flattenLeft pat
+     in resolvePatternFixity (rebalancePatternInfix first) [(op, rebalancePatternInfix r) | (op, r) <- pairs]
+  _ -> pat
+  where
+    flattenLeft (PInfix lhs op rhs) =
+      let (first, pairs) = flattenLeft lhs
+       in (first, pairs ++ [(op, rhs)])
+    flattenLeft (PAnn _ sub) = flattenLeft sub
+    flattenLeft other = (other, [])
 
 conOperatorParser :: TokParser Name
 conOperatorParser =
@@ -470,10 +509,10 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         tok <- lookAhead anySingle
         case lexTokenKind tok of
           TkReservedRightArrow -> pure (Left expr) -- view pattern: defer arrow handling
-          TkSpecialComma -> Right <$> liftCheck (checkPattern expr)
-          TkSpecialRParen -> Right <$> liftCheck (checkPattern expr)
-          TkSpecialUnboxedRParen -> Right <$> liftCheck (checkPattern expr)
-          TkReservedPipe -> Right <$> liftCheck (checkPattern expr)
+          TkSpecialComma -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
+          TkSpecialRParen -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
+          TkSpecialUnboxedRParen -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
+          TkReservedPipe -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
           _ -> fail "incomplete element parse"
       case mResult of
         Just (Left expr) -> do

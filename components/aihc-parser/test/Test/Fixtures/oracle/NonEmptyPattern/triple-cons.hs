@@ -4,5 +4,6 @@ module NonEmptyPattern where
 
 import Data.List.NonEmpty (NonEmpty(..))
 
-f (x :| y : ys) = undefined
+-- Three right-associative operators at the same precedence level
+f (x :| y : z : ws) = undefined
 f _ = undefined
