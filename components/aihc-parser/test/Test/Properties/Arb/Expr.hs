@@ -518,6 +518,9 @@ shrinkExpr expr =
           <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
     EDo stmts isMdo ->
       [EDo stmts' isMdo | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EQualifiedDo qualifier stmts isMdo ->
+      [EQualifiedDo qualifier' stmts isMdo | qualifier' <- shrinkName qualifier]
+        <> [EQualifiedDo qualifier stmts' isMdo | stmts' <- shrinkDoStmts stmts, not (null stmts')]
     EListComp body stmts ->
       body
         : [EListComp body' stmts | body' <- shrinkExpr body]

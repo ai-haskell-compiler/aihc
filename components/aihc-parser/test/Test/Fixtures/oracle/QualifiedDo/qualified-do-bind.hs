@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail aihc-parser does not support QualifiedDo bind syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QualifiedDo #-}
 module QualifiedDoBind where
 

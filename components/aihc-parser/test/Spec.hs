@@ -128,6 +128,9 @@ pattern EIf_ cond thenE elseE <- (peelExprAnn -> EIf cond thenE elseE)
 pattern EDo_ :: [DoStmt Expr] -> Bool -> Expr
 pattern EDo_ stmts isMdo <- (peelExprAnn -> EDo stmts isMdo)
 
+pattern EQualifiedDo_ :: Name -> [DoStmt Expr] -> Bool -> Expr
+pattern EQualifiedDo_ qualifier stmts isMdo <- (peelExprAnn -> EQualifiedDo qualifier stmts isMdo)
+
 pattern DoBind_ :: Pattern -> Expr -> DoStmt Expr
 pattern DoBind_ pat e <- (peelDoStmtAnn -> DoBind pat e)
 
@@ -295,6 +298,8 @@ buildTests = do
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
+            testCase "parses qualified do bind statements" test_qualifiedDoBindParses,
+            testCase "parses qualified mdo expressions" test_qualifiedMdoExprParses,
             testCase "TemplateHaskellQuotes parses top-level typed splices" test_templateHaskellQuotesParsesTopLevelTypedSpliceExpr,
             testCase "TemplateHaskellQuotes lexes typed splice tokens" test_templateHaskellQuotesLexesTypedSplice,
             testCase "TemplateHaskell expression splices parse negative bodies" test_templateHaskellParsesNegativeSpliceBodyExpr,
@@ -912,6 +917,33 @@ test_mdoViewPatternParses =
         case map normalizeDecl (moduleDecls modu) of
           [DeclValue (FunctionBind "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_qualifiedDoBindParses :: Assertion
+test_qualifiedDoBindParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE QualifiedDo #-}",
+            "module M where",
+            "f = M.do",
+            "  x <- action",
+            "  pure x"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [DeclValue (PatternBind (PVar_ "f") (UnguardedRhs _ (EQualifiedDo_ qualifier [DoBind_ (PVar_ "x") (EVar_ "action"), DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] False) _))]
+            | qualifier == mkName (Just "M") NameVarId "do" -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_qualifiedMdoExprParses :: Assertion
+test_qualifiedMdoExprParses =
+  case parseExpr defaultConfig {parserExtensions = [QualifiedDo, RecursiveDo]} "M.mdo { pure x }" of
+    ParseOk parsed
+      | EQualifiedDo_ qualifier [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True <- normalizeExpr parsed,
+        qualifier == mkName (Just "M") NameVarId "mdo" ->
+          pure ()
+    other -> assertFailure ("expected qualified mdo expression, got: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
 test_infixTypeFamilyHeadRoundtrip =
@@ -1588,6 +1620,7 @@ test_generatedExpressionsCanIncludeMdo =
         any isMdo samples
   where
     isMdo (EDo_ _ True) = True
+    isMdo (EQualifiedDo_ _ _ True) = True
     isMdo _ = False
 
 test_alternateCharLiteralSpellingsLexLikeGhc :: Assertion

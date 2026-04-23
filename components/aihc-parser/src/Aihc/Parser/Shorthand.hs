@@ -560,6 +560,7 @@ docCallConv cc =
     CCall -> "CCall"
     StdCall -> "StdCall"
     CApi -> "CApi"
+    CPrim -> "CPrim"
 
 docForeignSafety :: ForeignSafety -> Doc ann
 docForeignSafety fs =
@@ -785,6 +786,10 @@ docExpr expr =
     ELetDecls decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
     EDo stmts isMdo -> (if isMdo then "EMdo" else "EDo") <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    EQualifiedDo qualifier stmts isMdo ->
+      (if isMdo then "EQualifiedMdo" else "EQualifiedDo")
+        <+> docName qualifier
+        <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
     EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)

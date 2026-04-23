@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
+    TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -50,6 +51,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Merge concrete source spans embedded in a list of annotations.
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -310,6 +312,25 @@ registerDataCon tc paramMap paramVarIds con = case con of
           extendTermEnvPermanent name (TcIdBinder name scheme)
           zonkedTy <- zonkType resTy
           pure (TcBindingResult name zonkedTy)
+  TupleCon _docs _ctx flavor fields ->
+    let name = tupleConstructorText flavor (length fields)
+        resTy = TcTyCon tc (map TcTyVar paramVarIds)
+        scheme = ForAll paramVarIds [] resTy
+     in do
+          extendTermEnvPermanent name (TcIdBinder name scheme)
+          zonkedTy <- zonkType resTy
+          pure (TcBindingResult name zonkedTy)
+  ListCon _docs _ctx ->
+    let name = "[]"
+        resTy = TcTyCon tc (map TcTyVar paramVarIds)
+        scheme = ForAll paramVarIds [] resTy
+     in do
+          extendTermEnvPermanent name (TcIdBinder name scheme)
+          zonkedTy <- zonkType resTy
+          pure (TcBindingResult name zonkedTy)
+  UnboxedSumCon {} -> do
+    zonkedTy <- zonkType (TcTyCon tc (map TcTyVar paramVarIds))
+    pure (TcBindingResult "<#sum#>" zonkedTy)
   GadtCon _forallBinders _ctx names body ->
     -- Parse the GADT constructor's declared result type.
     let resultSurfTy = gadtBodyResultType body
@@ -334,6 +355,12 @@ registerDataCon tc paramMap paramVarIds con = case con of
               zonkedTy <- zonkType conTy
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
+
+tupleConstructorText :: TupleFlavor -> Int -> Text
+tupleConstructorText flavor arity =
+  case flavor of
+    Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]

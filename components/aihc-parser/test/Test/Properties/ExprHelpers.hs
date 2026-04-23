@@ -60,6 +60,7 @@ normalizeExpr expr =
     ELambdaCases alts -> ELambdaCases (map normalizeLambdaCaseAlt alts)
     ELetDecls decls body -> ELetDecls (map normalizeDecl decls) (normalizeExpr body)
     EDo stmts isMdo -> EDo (map normalizeDoStmt stmts) isMdo
+    EQualifiedDo qualifier stmts isMdo -> EQualifiedDo qualifier (map normalizeDoStmt stmts) isMdo
     EListComp body stmts -> EListComp (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel body stmtss -> EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
     EList elems -> EList (map normalizeExpr elems)

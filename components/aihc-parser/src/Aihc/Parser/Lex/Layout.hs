@@ -224,6 +224,16 @@ closeLeadingImplicitLet anchor contexts =
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
+    TkQVarId _ kw
+      | layoutQualifiedDoEnabled st,
+        kw == "do" ->
+          case layoutPrevTokenKind st of
+            Just TkKeywordThen -> st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
+            Just TkKeywordElse -> st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
+            _ -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+      | layoutQualifiedDoEnabled st,
+        kw == "mdo" ->
+          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->

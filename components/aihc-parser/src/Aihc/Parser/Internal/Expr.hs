@@ -76,13 +76,17 @@ exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
-    Just label -> EPragma (PragmaSCC label) <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
+    Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
     Nothing -> exprCoreParserWithoutTypeSigBody forbiddenInfix
 
 exprCoreParserWithoutTypeSigBody :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigBody forbiddenInfix = do
+  qualifiedDoEnabled <- isExtensionEnabled QualifiedDo
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
+    TkQVarId modName kw
+      | qualifiedDoEnabled && kw == "do" -> qualifiedDoExprParser modName False
+      | qualifiedDoEnabled && kw == "mdo" -> qualifiedDoExprParser modName True
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
@@ -188,6 +192,20 @@ mdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   stmts <- bracedSemiSep1 doStmtParser
   pure (EDo stmts True)
 
+qualifiedDoExprParser :: Text -> Bool -> TokParser Expr
+qualifiedDoExprParser modName isMdo = withSpanAnn (EAnn . mkAnnotation) $ do
+  kw <- tokenSatisfy expectedQualifiedKeyword $ \tok ->
+    case lexTokenKind tok of
+      TkQVarId modName' kw
+        | modName' == modName && kw == keywordText ->
+            Just (mkName (Just modName') NameVarId kw)
+      _ -> Nothing
+  stmts <- bracedSemiSep1 doStmtParser
+  pure (EQualifiedDo kw stmts isMdo)
+  where
+    keywordText = if isMdo then "mdo" else "do"
+    expectedQualifiedKeyword = show (modName <> "." <> keywordText)
+
 -- | Parse a proc expression: @proc pat -> cmd@
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -206,8 +224,12 @@ exprParserNoArrowTail =
 
 exprCoreParserNoArrowTail :: TokParser Expr
 exprCoreParserNoArrowTail = do
+  qualifiedDoEnabled <- isExtensionEnabled QualifiedDo
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
+    TkQVarId modName kw
+      | qualifiedDoEnabled && kw == "do" -> qualifiedDoExprParser modName False
+      | qualifiedDoEnabled && kw == "mdo" -> qualifiedDoExprParser modName True
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
@@ -322,11 +344,11 @@ lexpParser :: TokParser Expr
 lexpParser = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
-    Just label -> EPragma (PragmaSCC label) <$> lexpParser
+    Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> lexpParser
     Nothing -> doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
 
 getSCCLabel :: Pragma -> Maybe Text
-getSCCLabel (PragmaSCC label) = Just label
+getSCCLabel (PragmaSCC sccLabel) = Just sccLabel
 getSCCLabel _ = Nothing
 
 buildInfix :: Expr -> (Name, Expr) -> Expr
@@ -449,6 +471,7 @@ recordFieldBindingParser = withSpan $ do
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
+  qualifiedDoEnabled <- isExtensionEnabled QualifiedDo
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
@@ -462,6 +485,7 @@ atomExprParser = do
         <|> MP.try parenOperatorExprParser
         <|> lambdaExprParser
         <|> letExprParser
+        <|> (if qualifiedDoEnabled then MP.try qualifiedDoAtomExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try mdoExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
@@ -481,6 +505,15 @@ atomExprParser = do
         <|> overloadedLabelExprParser
         <|> wildcardExprParser
         <|> varExprParser
+
+qualifiedDoAtomExprParser :: TokParser Expr
+qualifiedDoAtomExprParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkQVarId modName kw
+      | kw == "do" -> qualifiedDoExprParser modName False
+      | kw == "mdo" -> qualifiedDoExprParser modName True
+    _ -> MP.empty
 
 explicitTypeExprParser :: TokParser Expr
 explicitTypeExprParser = withSpanAnn (EAnn . mkAnnotation) $ do

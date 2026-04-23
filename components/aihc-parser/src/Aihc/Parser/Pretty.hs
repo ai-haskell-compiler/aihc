@@ -1115,6 +1115,11 @@ prettyExpr expr =
         <+> "{"
         <+> hsep (punctuate semi (map prettyDoStmt stmts))
         <+> "}"
+    EQualifiedDo qualifier stmts _ ->
+      prettyPrefixName qualifier
+        <+> "{"
+        <+> hsep (punctuate semi (map prettyDoStmt stmts))
+        <+> "}"
     EListComp body quals ->
       brackets
         ( prettyExpr body

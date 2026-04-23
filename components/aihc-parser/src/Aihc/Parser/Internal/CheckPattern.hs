@@ -31,6 +31,7 @@ import Data.Text (Text)
 checkPattern :: Expr -> Either Text Pattern
 checkPattern expr = case expr of
   EAnn ann sub -> fmap (PAnn ann) (checkPattern sub)
+  EPragma {} -> Left "unexpected pragma in pattern"
   -- Variables and constructors
   EVar name
     | nameText name == "_" -> Right PWildcard
@@ -98,6 +99,7 @@ checkPattern expr = case expr of
   EMultiWayIf {} -> Left "unexpected multi-way if in pattern"
   ECase {} -> Left "unexpected case expression in pattern"
   EDo {} -> Left "unexpected do expression in pattern"
+  EQualifiedDo {} -> Left "unexpected qualified do expression in pattern"
   ELambdaPats {} -> Left "unexpected lambda in pattern"
   ELambdaCase {} -> Left "unexpected lambda-case in pattern"
   ELambdaCases {} -> Left "unexpected lambda-cases in pattern"

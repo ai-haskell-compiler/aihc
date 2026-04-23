@@ -88,6 +88,7 @@ isBlockExpr = \case
   EMultiWayIf {} -> True
   ECase {} -> True
   EDo {} -> True
+  EQualifiedDo {} -> True
   ELambdaPats {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
@@ -105,6 +106,7 @@ isGreedyExpr = \case
   ELambdaCases {} -> True
   ELetDecls {} -> True
   EDo {} -> True
+  EQualifiedDo {} -> True
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> isOpenEnded arg
   EApp _ arg -> isGreedyExpr arg
@@ -121,6 +123,7 @@ isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub
   ECase {} -> True
   EDo {} -> True
+  EQualifiedDo {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
   _ -> False
@@ -134,6 +137,7 @@ isOpenEnded = \case
   ELambdaPats {} -> True
   ELambdaCases {} -> True
   ELetDecls {} -> True
+  EQualifiedDo {} -> True
   EProc {} -> True
   EInfix _ _ rhs -> isOpenEnded rhs
   EApp _ arg | isBlockExpr arg -> isOpenEnded arg
@@ -807,6 +811,8 @@ addExprParensPrec prec expr =
       wrapExpr (prec > 0) (ECase (addExprParens scrutinee) (map addCaseAltParens alts))
     EDo stmts isMdo ->
       wrapExpr (prec > 0) (EDo (map addDoStmtParens stmts) isMdo)
+    EQualifiedDo qualifier stmts isMdo ->
+      wrapExpr (prec > 0) (EQualifiedDo qualifier (map addDoStmtParens stmts) isMdo)
     EListComp body quals ->
       EListComp (addExprParens body) (map addCompStmtParens quals)
     EListCompParallel body qualifierGroups ->

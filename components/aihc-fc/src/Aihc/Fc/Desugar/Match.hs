@@ -18,9 +18,11 @@ import Aihc.Parser.Syntax
   ( DataConDecl (..),
     Name (..),
     Pattern (..),
+    TupleFlavor (..),
     UnqualifiedName (..),
   )
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Desugar a surface pattern into a Core alt constructor, pure version.
 --
@@ -60,7 +62,25 @@ dsDataConPure (InfixCon _docs _ctx _lhs conName _rhs) =
   (unqualifiedNameText conName, 2)
 dsDataConPure (RecordCon _docs _ctx conName _fields) =
   (unqualifiedNameText conName, 0)
+dsDataConPure (TupleCon _docs _ctx flavor fields) =
+  (tupleConstructorText flavor (length fields), length fields)
+dsDataConPure (ListCon {}) =
+  ("[]", 0)
+dsDataConPure (UnboxedSumCon _docs _ctx pos arity _field) =
+  (unboxedSumConstructorText pos arity, 1)
 dsDataConPure (GadtCon {}) = ("<gadt>", 0)
+
+tupleConstructorText :: TupleFlavor -> Int -> Text
+tupleConstructorText flavor arity =
+  case flavor of
+    Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+
+unboxedSumConstructorText :: Int -> Int -> Text
+unboxedSumConstructorText pos arity =
+  "(#"
+    <> T.intercalate " " [if i == pos then "x" else "|" | i <- [1 .. arity]]
+    <> "#)"
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

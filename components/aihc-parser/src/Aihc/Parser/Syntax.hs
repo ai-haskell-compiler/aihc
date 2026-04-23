@@ -1703,6 +1703,7 @@ data Expr
   | ELetDecls [Decl] Expr
   | ECase Expr [CaseAlt]
   | EDo [DoStmt Expr] Bool -- Bool: True = mdo, False = do
+  | EQualifiedDo Name [DoStmt Expr] Bool -- Bool: True = mdo, False = do
   | EListComp Expr [CompStmt]
   | EListCompParallel Expr [[CompStmt]]
   | EArithSeq ArithSeq

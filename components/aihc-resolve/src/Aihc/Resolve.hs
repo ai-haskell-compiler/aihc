@@ -43,6 +43,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
+    TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
     UnqualifiedName,
@@ -503,6 +504,12 @@ resolveDataConDecl scope dataConDecl =
       RecordCon forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
     GadtCon forallVars context names body ->
       GadtCon forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
+    TupleCon forallVars context flavor bangTypes ->
+      TupleCon forallVars (map (resolveType scope) context) flavor (map resolveBangType bangTypes)
+    UnboxedSumCon forallVars context pos arity field ->
+      UnboxedSumCon forallVars (map (resolveType scope) context) pos arity (resolveBangType field)
+    ListCon forallVars context ->
+      ListCon forallVars (map (resolveType scope) context)
   where
     resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
     resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
@@ -727,7 +734,19 @@ dataConAnnotation scope dataConDecl =
             case names of
               name : _ -> topLevelNameAnnotation scope span' name
               [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
+          TupleCon _ _ flavor fields ->
+            topLevelNameAnnotation scope span' (tupleConstructorName flavor (length fields))
+          ListCon {} ->
+            topLevelNameAnnotation scope span' (mkUnqualifiedName NameConId "[]")
+          UnboxedSumCon {} ->
+            ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "unboxed sum constructors do not have stable top-level names")
    in go dataConDecl
+
+tupleConstructorName :: TupleFlavor -> Int -> UnqualifiedName
+tupleConstructorName flavor arity =
+  case flavor of
+    Boxed -> mkUnqualifiedName NameConId ("(" <> T.replicate (max 0 (arity - 1)) "," <> ")")
+    Unboxed -> mkUnqualifiedName NameConId ("(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)")
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
 topLevelNameAnnotation scope span' name =
@@ -788,6 +807,9 @@ dataConDeclNames dataConDecl =
           InfixCon _ _ _ name _ -> [name]
           RecordCon _ _ name _ -> [name]
           GadtCon _ _ names _ -> names
+          TupleCon _ _ flavor fields -> [tupleConstructorName flavor (length fields)]
+          ListCon {} -> [mkUnqualifiedName NameConId "[]"]
+          UnboxedSumCon {} -> []
    in go dataConDecl
 
 moduleScope :: ModuleExports -> Module -> Scope

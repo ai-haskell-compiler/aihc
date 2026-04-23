@@ -254,7 +254,8 @@ data LayoutState = LayoutState
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
     layoutBuffer :: [LexToken],
-    layoutNondecreasingIndent :: !Bool
+    layoutNondecreasingIndent :: !Bool,
+    layoutQualifiedDoEnabled :: !Bool
   }
   deriving (Eq, Show)
 
@@ -302,7 +303,8 @@ mkInitialLayoutState enableModuleLayout exts =
           else ModuleLayoutOff,
       layoutPrevTokenEndSpan = Nothing,
       layoutBuffer = [],
-      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts
+      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,
+      layoutQualifiedDoEnabled = Syntax.QualifiedDo `elem` exts
     }
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken
