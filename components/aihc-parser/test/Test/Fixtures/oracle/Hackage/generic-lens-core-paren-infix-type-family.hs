@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects parenthesised infix type family head -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module GenericLensCoreParenInfixTypeFamily where

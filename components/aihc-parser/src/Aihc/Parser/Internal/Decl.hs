@@ -1208,7 +1208,9 @@ typeSynonymOperatorParser =
 
 typeFamilyHeadParser :: TokParser (TypeHeadForm, Type, [TyVarBinder])
 typeFamilyHeadParser =
-  MP.try infixHeadParser <|> prefixHeadParser
+  MP.try parenthesizedInfixHeadParser
+    <|> MP.try infixHeadParser
+    <|> prefixHeadParser
   where
     prefixHeadParser = do
       headType <- withSpan $ do
@@ -1230,6 +1232,21 @@ typeFamilyHeadParser =
       headType <- withSpan $ do
         pure $ \span' -> typeAnnSpan span' (TInfix lhsType op Unpromoted rhsType)
       pure (TypeHeadInfix, headType, [lhs, rhs])
+
+    parenthesizedInfixHeadParser = do
+      expectedTok TkSpecialLParen
+      lhs <- declTypeParamParser
+      op <- typeFamilyOperatorParser
+      rhs <- declTypeParamParser
+      expectedTok TkSpecialRParen
+      tailParams <- MP.many declTypeParamParser
+      let lhsType =
+            TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
+          rhsType =
+            TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
+      headType <- withSpan $ do
+        pure $ \span' -> typeAnnSpan span' (TInfix lhsType op Unpromoted rhsType)
+      pure (TypeHeadInfix, headType, [lhs, rhs] <> tailParams)
 
 -- | Parse an operator for type family declarations.
 -- Unlike 'constructorOperatorParser', this accepts both constructor symbols (@:+:@)
