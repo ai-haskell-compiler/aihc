@@ -8,7 +8,6 @@ module Aihc.Parser.Internal.Pattern
   )
 where
 
-import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
 import Aihc.Parser.Internal.Type (typeParser)
@@ -31,7 +30,7 @@ infixPatternParser :: TokParser Pattern
 infixPatternParser = do
   lhs <- asOrAppPatternParser
   rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
-  pure (resolvePatternFixity lhs rest)
+  pure (buildRightPatternInfix lhs rest)
 
 -- | Parse either an as-pattern (name@atom) or an application pattern.
 -- As-patterns bind tighter than infix but looser than application,
@@ -46,48 +45,14 @@ asOrAppPatternParser = do
       PAs name <$> patternAtomParser
     else appPatternParser
 
--- | Returns (precedence, isRightAssociative) for a constructor operator.
--- Handles well-known Haskell operators; defaults to infixl 9 for unknown operators.
-patternOpFixity :: Name -> (Int, Bool)
-patternOpFixity name = case nameText name of
-  ":" -> (5, True) -- infixr 5, Prelude
-  ":|" -> (5, True) -- infixr 5, Data.List.NonEmpty
-  _ -> (9, False) -- default: infixl 9
+-- | Build a right-associative infix chain. All constructor operators are
+-- treated uniformly as right-associative with no precedence distinctions.
+-- The pretty-printer makes the same assumption, so the round-trip is faithful.
+buildRightPatternInfix :: Pattern -> [(Name, Pattern)] -> Pattern
+buildRightPatternInfix lhs [] = lhs
+buildRightPatternInfix lhs ((op, rhs) : rest) =
+  PInfix lhs op (buildRightPatternInfix rhs rest)
 
--- | Build a right-associative infix chain using Pratt parsing to respect
--- operator precedence and associativity. Without this, a left-fold would
--- incorrectly parse @x :| y : ys@ as @(x :| y) : ys@ instead of @x :| (y : ys)@.
-resolvePatternFixity :: Pattern -> [(Name, Pattern)] -> Pattern
-resolvePatternFixity lhs rest = fst (go lhs rest 0)
-  where
-    go l [] _ = (l, [])
-    go l ((op, r) : more) minPrec
-      | prec < minPrec = (l, (op, r) : more)
-      | otherwise =
-          let nextMin = if isRight then prec else prec + 1
-              (r', remaining) = go r more nextMin
-              l' = PInfix l op r'
-           in go l' remaining minPrec
-      where
-        (prec, isRight) = patternOpFixity op
-
--- | Fix associativity of @PInfix@ nodes produced by the expression-to-pattern
--- conversion path (@exprThenReclassify@), which uses a left-fold and ignores
--- constructor operator fixity. Flattens any left-folded @PInfix@ chain and
--- re-associates it via 'resolvePatternFixity'.
-rebalancePatternInfix :: Pattern -> Pattern
-rebalancePatternInfix pat = case pat of
-  PAnn ann sub -> PAnn ann (rebalancePatternInfix sub)
-  PInfix _ _ _ ->
-    let (first, pairs) = flattenLeft pat
-     in resolvePatternFixity (rebalancePatternInfix first) [(op, rebalancePatternInfix r) | (op, r) <- pairs]
-  _ -> pat
-  where
-    flattenLeft (PInfix lhs op rhs) =
-      let (first, pairs) = flattenLeft lhs
-       in (first, pairs ++ [(op, rhs)])
-    flattenLeft (PAnn _ sub) = flattenLeft sub
-    flattenLeft other = (other, [])
 
 conOperatorParser :: TokParser Name
 conOperatorParser =
@@ -429,15 +394,10 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
       pure (PParen (PView expr inner))
 
     -- Parse a single element inside a paren/tuple/unboxed-sum pattern.
-    -- Uses "parse as expression, then reclassify" to avoid backtracking
-    -- for the common case. Pattern-only prefixes (!, ~, @) are dispatched
-    -- to patternParser directly. When exprParser fails (e.g., nested parens
-    -- containing pattern-only syntax like as-patterns or view patterns),
-    -- we fall back to patternParser.
-    --
-    -- Operator tokens (TkVarSym, TkConSym, etc.) are handled directly here
-    -- because they are valid patterns (binding the operator as a variable or
-    -- constructor) but may not parse as expressions on their own.
+    -- Pattern-only prefixes (!, ~, @) are dispatched to patternParser directly.
+    -- Operator tokens that appear alone are parsed as operator patterns.
+    -- Everything else delegates to subpatternWithBareViewParser, which tries
+    -- a view pattern (expr -> pat) first and falls back to patternParser.
     parenPatElementParser :: TokParser Pattern
     parenPatElementParser = do
       tok <- lookAhead anySingle
@@ -447,32 +407,29 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         -- Operator tokens can be valid patterns when they appear alone in parentheses.
         -- Examples: (+) in "f (+) = ...", (??) in "foldl' (??) z xs = ..."
         -- We detect this by checking if an operator is followed by a closing delimiter.
-        TkVarSym {} -> operatorOrExprPatternParser
-        TkConSym {} -> operatorOrExprPatternParser
-        TkQConSym {} -> operatorOrExprPatternParser
-        TkReservedColon -> operatorOrExprPatternParser
+        TkVarSym {} -> operatorOrPatternParser
+        TkConSym {} -> operatorOrPatternParser
+        TkQConSym {} -> operatorOrPatternParser
+        TkReservedColon -> operatorOrPatternParser
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
             then patternParser
-            else exprThenReclassify
+            else subpatternWithBareViewParser
       where
         -- Try to parse an operator as a pattern if it's alone (followed by closing delim),
-        -- otherwise fall back to parsing as an expression.
-        operatorOrExprPatternParser :: TokParser Pattern
-        operatorOrExprPatternParser = do
-          -- Look ahead to check what comes after the operator
+        -- otherwise fall back to subpatternWithBareViewParser.
+        operatorOrPatternParser :: TokParser Pattern
+        operatorOrPatternParser = do
           mNext <- MP.optional . lookAhead . MP.try $ do
             _ <- anySingle -- skip the operator token itself
             lookAhead anySingle
           case fmap lexTokenKind mNext of
-            -- If followed by closing delimiters, parse as operator pattern
             Just TkSpecialRParen -> operatorPatternParser
             Just TkSpecialUnboxedRParen -> operatorPatternParser
             Just TkSpecialComma -> operatorPatternParser
             Just TkReservedPipe -> operatorPatternParser
-            -- Otherwise, try parsing as expression (for cases like (x + y))
-            _ -> exprThenReclassify
+            _ -> subpatternWithBareViewParser
 
         -- Parse an operator token as a variable or constructor pattern.
         operatorPatternParser :: TokParser Pattern
@@ -490,39 +447,6 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
                     unexpectedExpecting = "operator token",
                     unexpectedContext = []
                   }
-
-    -- Try to parse as expression, then reclassify via checkPattern.
-    -- When exprParser fails, does not consume the full element (e.g.,
-    -- '@' from an as-pattern), or checkPattern rejects it (e.g., variable
-    -- operator in infix position), fall back to patternParser.
-    --
-    -- View patterns within tuple elements are also handled here: if '->'
-    -- follows the parsed expression, it is a view pattern.
-    exprThenReclassify :: TokParser Pattern
-    exprThenReclassify = do
-      mResult <- MP.optional . MP.try $ do
-        expr <- exprParser
-        -- Verify the expression consumed the full element: the next token
-        -- must be a valid delimiter in paren/tuple/sum context. If not
-        -- (e.g., '@' from an as-pattern), the expression parser stopped
-        -- too early and we should backtrack to patternParser.
-        tok <- lookAhead anySingle
-        case lexTokenKind tok of
-          TkReservedRightArrow -> pure (Left expr) -- view pattern: defer arrow handling
-          TkSpecialComma -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
-          TkSpecialRParen -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
-          TkSpecialUnboxedRParen -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
-          TkReservedPipe -> Right . rebalancePatternInfix <$> liftCheck (checkPattern expr)
-          _ -> fail "incomplete element parse"
-      case mResult of
-        Just (Left expr) -> do
-          -- View pattern: expr -> pattern
-          expectedTok TkReservedRightArrow
-          PView expr <$> subpatternWithBareViewParser
-        Just (Right pat) ->
-          pure pat
-        Nothing ->
-          patternParser
 
     tupleOrParenPatternParser tupleFlavor closeTok = do
       first <- parenPatElementParser

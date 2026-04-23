@@ -1089,7 +1089,7 @@ addPatternParens pat =
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
     PList elems -> PList (map addPatternInDelimited elems)
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
-    PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixOperandParens rhs)
+    PInfix lhs op rhs -> PInfix (addPatternInfixLhsParens lhs) op (addPatternInfixRhsParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
@@ -1129,11 +1129,6 @@ addViewExprParens expr =
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
 
--- | Check if an operator is the cons operator ':'.
-isConsOperator :: Name -> Bool
-isConsOperator name =
-  renderName name == ":"
-
 addPatternAtomParens :: Pattern -> Pattern
 addPatternAtomParens pat =
   case pat of
@@ -1156,23 +1151,28 @@ addPatternAtomParens pat =
     PSplice {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
-    PInfix _ op _
-      | isConsOperator op ->
-          -- Cons operator (:) is right-associative, so nested cons patterns
-          -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
-          addPatternParens pat
     _ -> wrapPat True (addPatternParens pat)
 
--- | Add parens for a pattern in infix-pattern operand position.
--- In Haskell's grammar, infix patterns have the form @pat10 conop pat10@,
--- where @pat10@ allows constructor application patterns. Non-nullary 'PCon'
--- does not need wrapping here because constructor application binds tighter
--- than infix operators.
-addPatternInfixOperandParens :: Pattern -> Pattern
-addPatternInfixOperandParens pat =
+-- | Add parens for the left operand of an infix pattern.
+-- Infix patterns are parsed right-associatively, so a left-nested 'PInfix'
+-- must be parenthesised to preserve the intended grouping.
+addPatternInfixLhsParens :: Pattern -> Pattern
+addPatternInfixLhsParens pat =
   case pat of
-    PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
+    PAnn ann sub -> PAnn ann (addPatternInfixLhsParens sub)
     PCon {} -> addPatternParens pat
+    PInfix {} -> wrapPat True (addPatternParens pat)
+    _ -> addPatternAtomParens pat
+
+-- | Add parens for the right operand of an infix pattern.
+-- Infix patterns are parsed right-associatively, so a right-nested 'PInfix'
+-- never needs extra parentheses — the printer and parser agree on the grouping.
+addPatternInfixRhsParens :: Pattern -> Pattern
+addPatternInfixRhsParens pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternInfixRhsParens sub)
+    PCon {} -> addPatternParens pat
+    PInfix {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in lambda argument position.
