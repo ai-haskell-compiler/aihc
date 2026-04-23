@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TransformListComp syntax not supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TransformListComp #-}
 module A where
 import GHC.Exts (the, groupWith)

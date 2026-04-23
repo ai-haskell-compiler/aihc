@@ -310,6 +310,10 @@ normalizeCompStmtInner (CompAnn _ inner) = normalizeCompStmtInner inner
 normalizeCompStmtInner (CompGen pat e) = CompGen (normalizePattern pat) (normalizeExpr e)
 normalizeCompStmtInner (CompGuard e) = CompGuard (normalizeExpr e)
 normalizeCompStmtInner (CompLetDecls decls) = CompLetDecls (map normalizeDecl decls)
+normalizeCompStmtInner (CompThen f) = CompThen (normalizeExpr f)
+normalizeCompStmtInner (CompThenBy f e) = CompThenBy (normalizeExpr f) (normalizeExpr e)
+normalizeCompStmtInner (CompGroupUsing f) = CompGroupUsing (normalizeExpr f)
+normalizeCompStmtInner (CompGroupByUsing e f) = CompGroupByUsing (normalizeExpr e) (normalizeExpr f)
 
 normalizeArithSeq :: ArithSeq -> ArithSeq
 normalizeArithSeq seq' =

@@ -1813,6 +1813,14 @@ data CompStmt
   | CompGen Pattern Expr
   | CompGuard Expr
   | CompLetDecls [Decl]
+  | -- | @then f@ (TransformListComp)
+    CompThen Expr
+  | -- | @then f by e@ (TransformListComp)
+    CompThenBy Expr Expr
+  | -- | @then group using f@ (TransformListComp)
+    CompGroupUsing Expr
+  | -- | @then group by e using f@ (TransformListComp)
+    CompGroupByUsing Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
 peelCompStmtAnn :: CompStmt -> CompStmt

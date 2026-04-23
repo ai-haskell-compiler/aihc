@@ -686,6 +686,10 @@ shrinkCompStmt stmt =
     CompGen pat expr -> [CompGen pat expr' | expr' <- shrinkExpr expr]
     CompGuard expr -> [CompGuard expr' | expr' <- shrinkExpr expr]
     CompLetDecls decls -> [CompLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
+    CompThen f -> [CompThen f' | f' <- shrinkExpr f]
+    CompThenBy f e -> [CompThenBy f' e | f' <- shrinkExpr f] <> [CompThenBy f e' | e' <- shrinkExpr e]
+    CompGroupUsing f -> [CompGroupUsing f' | f' <- shrinkExpr f]
+    CompGroupByUsing e f -> [CompGroupByUsing e' f | e' <- shrinkExpr e] <> [CompGroupByUsing e f' | f' <- shrinkExpr f]
     CompAnn _ _ -> []
 
 shrinkTupleMaybeElems :: (a -> [a]) -> [a] -> [[a]]
