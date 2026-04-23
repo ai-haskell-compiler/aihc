@@ -53,7 +53,6 @@ buildRightPatternInfix lhs [] = lhs
 buildRightPatternInfix lhs ((op, rhs) : rest) =
   PInfix lhs op (buildRightPatternInfix rhs rest)
 
-
 conOperatorParser :: TokParser Name
 conOperatorParser =
   symbolicConOp <|> backtickConOp
