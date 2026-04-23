@@ -560,6 +560,7 @@ docCallConv cc =
     CCall -> "CCall"
     StdCall -> "StdCall"
     CApi -> "CApi"
+    CPrim -> "CPrim"
 
 docForeignSafety :: ForeignSafety -> Doc ann
 docForeignSafety fs =

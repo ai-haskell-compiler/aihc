@@ -287,29 +287,11 @@ registerDataCon :: TyCon -> Map Text TyVarId -> [TyVarId] -> DataConDecl -> TcM 
 registerDataCon tc paramMap paramVarIds con = case con of
   DataConAnn _ inner -> registerDataCon tc paramMap paramVarIds inner
   PrefixCon _docs _ctx conName _args ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
+    registerNamedDataCon (unqualifiedNameText conName)
   InfixCon _docs _ctx _lhs conName _rhs ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
+    registerNamedDataCon (unqualifiedNameText conName)
   RecordCon _docs _ctx conName _fields ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
+    registerNamedDataCon (unqualifiedNameText conName)
   GadtCon _forallBinders _ctx names body ->
     -- Parse the GADT constructor's declared result type.
     let resultSurfTy = gadtBodyResultType body
@@ -320,12 +302,12 @@ registerDataCon tc paramMap paramVarIds con = case con of
         conTy = foldr TcFunTy gadtResTy gadtArgTys
         -- GADT constructors are universally quantified over no extra vars
         -- (the data type's params are handled via given equalities on match).
-        scheme = ForAll [] [] conTy
+        gadtScheme = ForAll [] [] conTy
      in do
           mapM_
             ( \n -> do
                 let nm = unqualifiedNameText n
-                extendTermEnvPermanent nm (TcIdBinder nm scheme)
+                extendTermEnvPermanent nm (TcIdBinder nm gadtScheme)
                 markGadtCon nm
             )
             names
@@ -334,6 +316,21 @@ registerDataCon tc paramMap paramVarIds con = case con of
               zonkedTy <- zonkType conTy
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
+  TupleCon _docs _ctx _flavor _fields -> registerAnonymousDataCon "<tuple-con>"
+  UnboxedSumCon _docs _ctx _pos _arity _field -> registerAnonymousDataCon "<unboxed-sum-con>"
+  ListCon _docs _ctx -> registerAnonymousDataCon "[]"
+  where
+    resTy = TcTyCon tc (map TcTyVar paramVarIds)
+    scheme = ForAll paramVarIds [] resTy
+
+    registerNamedDataCon name = do
+      extendTermEnvPermanent name (TcIdBinder name scheme)
+      zonkedTy <- zonkType resTy
+      pure (TcBindingResult name zonkedTy)
+
+    registerAnonymousDataCon displayName = do
+      zonkedTy <- zonkType resTy
+      pure (TcBindingResult displayName zonkedTy)
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]

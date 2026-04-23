@@ -76,7 +76,7 @@ exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
-    Just label -> EPragma (PragmaSCC label) <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
+    Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
     Nothing -> exprCoreParserWithoutTypeSigBody forbiddenInfix
 
 exprCoreParserWithoutTypeSigBody :: [Text] -> TokParser Expr
@@ -322,11 +322,11 @@ lexpParser :: TokParser Expr
 lexpParser = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
-    Just label -> EPragma (PragmaSCC label) <$> lexpParser
+    Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> lexpParser
     Nothing -> doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
 
 getSCCLabel :: Pragma -> Maybe Text
-getSCCLabel (PragmaSCC label) = Just label
+getSCCLabel (PragmaSCC sccLabel) = Just sccLabel
 getSCCLabel _ = Nothing
 
 buildInfix :: Expr -> (Name, Expr) -> Expr
