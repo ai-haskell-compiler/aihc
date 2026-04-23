@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail tuple constructor pattern in list comprehension generator -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 module TuplePatterns where
 

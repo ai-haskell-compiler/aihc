@@ -22,7 +22,7 @@ where
 
 import Aihc.Parser.Internal.Common (isConLikeName)
 import Aihc.Parser.Syntax
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 
 -- | Convert an expression tree into a pattern.
@@ -31,7 +31,7 @@ import Data.Text (Text)
 checkPattern :: Expr -> Either Text Pattern
 checkPattern expr = case expr of
   EAnn ann sub -> fmap (PAnn ann) (checkPattern sub)
-  EPragma {} -> Left "unexpected pragma in pattern"
+  EPragma pragma _ -> checkPragmaPattern pragma
   -- Variables and constructors
   EVar name
     | nameText name == "_" -> Right PWildcard
@@ -47,9 +47,11 @@ checkPattern expr = case expr of
     | Just vp <- asViewPat inner -> Right (PParen vp)
     | otherwise -> PParen <$> checkPattern inner
   -- Tuple
-  ETuple fl elems -> do
-    pats <- traverse checkTupleElement elems
-    Right (PTuple fl pats)
+  ETuple fl elems
+    | Just tupleCon <- tupleConstructorPattern fl elems -> Right tupleCon
+    | otherwise -> do
+        pats <- traverse checkTupleElement elems
+        Right (PTuple fl pats)
   -- List
   EList elems -> PList <$> traverse checkPattern elems
   -- Unboxed sum
@@ -125,6 +127,12 @@ checkPattern expr = case expr of
   ETHTypedSplice {} -> Left "unexpected typed Template Haskell splice in pattern"
   EProc {} -> Left "unexpected proc expression in pattern"
 
+checkPragmaPattern :: Pragma -> Either Text Pattern
+checkPragmaPattern pragma =
+  case pragma of
+    PragmaSCC {} -> Left "unexpected SCC pragma in pattern"
+    _ -> Left "unexpected pragma in pattern"
+
 -- | Convert a list of expressions into patterns.
 checkPatterns :: [Expr] -> Either Text [Pattern]
 checkPatterns = traverse checkPattern
@@ -133,6 +141,23 @@ checkPatterns = traverse checkPattern
 checkTupleElement :: Maybe Expr -> Either Text Pattern
 checkTupleElement Nothing = Left "unexpected tuple section in pattern"
 checkTupleElement (Just e) = checkPattern e
+
+tupleConstructorPattern :: TupleFlavor -> [Maybe Expr] -> Maybe Pattern
+tupleConstructorPattern fl elems
+  | null elems = Nothing
+  | all isNothing elems = Just (PCon (tupleConstructorName fl (length elems)) [] [])
+  | otherwise = Nothing
+
+tupleConstructorName :: TupleFlavor -> Int -> Name
+tupleConstructorName fl arity =
+  qualifyName Nothing (mkUnqualifiedName NameConSym symbol)
+  where
+    symbol = case fl of
+      Boxed -> tupleCommas
+      Unboxed -> "#" <> tupleCommas <> "#"
+    tupleCommas
+      | arity == 1 = ""
+      | otherwise = mconcat (replicate (arity - 1) ",")
 
 -- | Check that a negated expression is a literal (for PNegLit patterns).
 checkNegLitPattern :: Expr -> Either Text Pattern
