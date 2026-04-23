@@ -1110,8 +1110,8 @@ prettyExpr expr =
         <+> "{"
         <+> hsep (punctuate semi (map prettyCaseAlt alts))
         <+> "}"
-    EDo stmts isMdo ->
-      (if isMdo then "mdo" else "do")
+    EDo stmts flavor ->
+      prettyDoFlavor flavor
         <+> "{"
         <+> hsep (punctuate semi (map prettyDoStmt stmts))
         <+> "}"
@@ -1224,6 +1224,12 @@ prettyGuardQualifier qualifier =
     GuardExpr expr -> prettyExpr expr
     GuardPat pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     GuardLet decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
+
+prettyDoFlavor :: DoFlavor -> Doc ann
+prettyDoFlavor DoPlain = "do"
+prettyDoFlavor DoMdo = "mdo"
+prettyDoFlavor (DoQualified m) = pretty m <> ".do"
+prettyDoFlavor (DoQualifiedMdo m) = pretty m <> ".mdo"
 
 prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =

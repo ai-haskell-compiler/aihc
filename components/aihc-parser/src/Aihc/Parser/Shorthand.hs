@@ -785,7 +785,7 @@ docExpr expr =
     ESectionR op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
     ELetDecls decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EDo stmts isMdo -> (if isMdo then "EMdo" else "EDo") <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    EDo stmts flavor -> docDoFlavorTag flavor <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
     EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
@@ -812,6 +812,12 @@ docCaseAlt (CaseAlt _ pat rhs) =
 docLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 docLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
   "LambdaCaseAlt" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docRhs rhs)
+
+docDoFlavorTag :: DoFlavor -> Doc ann
+docDoFlavorTag DoPlain = "EDo"
+docDoFlavorTag DoMdo = "EMdo"
+docDoFlavorTag (DoQualified m) = "EQualifiedDo" <+> pretty m
+docDoFlavorTag (DoQualifiedMdo m) = "EQualifiedMdo" <+> pretty m
 
 docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =

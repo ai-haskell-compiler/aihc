@@ -59,7 +59,7 @@ normalizeExpr expr =
     ELambdaCase alts -> ELambdaCase (map normalizeCaseAlt alts)
     ELambdaCases alts -> ELambdaCases (map normalizeLambdaCaseAlt alts)
     ELetDecls decls body -> ELetDecls (map normalizeDecl decls) (normalizeExpr body)
-    EDo stmts isMdo -> EDo (map normalizeDoStmt stmts) isMdo
+    EDo stmts flavor -> EDo (map normalizeDoStmt stmts) flavor
     EListComp body stmts -> EListComp (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel body stmtss -> EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
     EList elems -> EList (map normalizeExpr elems)

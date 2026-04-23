@@ -1,7 +1,7 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE QualifiedDo #-}
-module QualifiedDoBind where
+module QualifiedDoLet where
 
 f = M.do
-  x <- action
+  let x = 1
   return x

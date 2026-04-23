@@ -31,6 +31,7 @@ module Aihc.Parser.Syntax
     Decl (..),
     DerivingClause (..),
     DerivingStrategy (..),
+    DoFlavor (..),
     DoStmt (..),
     Expr (..),
     Extension (..),
@@ -1702,7 +1703,7 @@ data Expr
   | ESectionR Name Expr
   | ELetDecls [Decl] Expr
   | ECase Expr [CaseAlt]
-  | EDo [DoStmt Expr] Bool -- Bool: True = mdo, False = do
+  | EDo [DoStmt Expr] DoFlavor
   | EListComp Expr [CompStmt]
   | EListCompParallel Expr [[CompStmt]]
   | EArithSeq ArithSeq
@@ -1757,6 +1758,17 @@ data LambdaCaseAlt = LambdaCaseAlt
     lambdaCaseAltPats :: [Pattern],
     lambdaCaseAltRhs :: Rhs
   }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data DoFlavor
+  = -- | @do { stmts }@
+    DoPlain
+  | -- | @mdo { stmts }@
+    DoMdo
+  | -- | @M.do { stmts }@ (QualifiedDo)
+    DoQualified Text
+  | -- | @M.mdo { stmts }@ (QualifiedDo + RecursiveDo)
+    DoQualifiedMdo Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 data DoStmt body

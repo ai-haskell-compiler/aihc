@@ -85,6 +85,12 @@ data LexTokenKind
   | TkKeywordRec
   | TkKeywordMdo
   | TkKeywordPattern
+  | -- QualifiedDo tokens (extension-conditional)
+
+    -- | @M.do@ — carries the module qualifier
+    TkQualifiedDo Text
+  | -- | @M.mdo@ — carries the module qualifier
+    TkQualifiedMdo Text
   | -- Reserved operators (per Haskell Report Section 2.4)
     TkReservedDotDot
   | TkReservedColon

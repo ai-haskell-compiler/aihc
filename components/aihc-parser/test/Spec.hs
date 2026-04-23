@@ -125,8 +125,8 @@ pattern EOverloadedLabel_ value repr <- (peelExprAnn -> EOverloadedLabel value r
 pattern EIf_ :: Expr -> Expr -> Expr -> Expr
 pattern EIf_ cond thenE elseE <- (peelExprAnn -> EIf cond thenE elseE)
 
-pattern EDo_ :: [DoStmt Expr] -> Bool -> Expr
-pattern EDo_ stmts isMdo <- (peelExprAnn -> EDo stmts isMdo)
+pattern EDo_ :: [DoStmt Expr] -> DoFlavor -> Expr
+pattern EDo_ stmts flavor <- (peelExprAnn -> EDo stmts flavor)
 
 pattern DoBind_ :: Pattern -> Expr -> DoStmt Expr
 pattern DoBind_ pat e <- (peelDoStmtAnn -> DoBind pat e)
@@ -898,7 +898,7 @@ test_standaloneMdoExprParses :: Assertion
 test_standaloneMdoExprParses =
   case parseExpr defaultConfig {parserExtensions = [RecursiveDo]} "mdo { pure x }" of
     ParseOk parsed
-      | EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True <- normalizeExpr parsed -> pure ()
+      | EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] DoMdo <- normalizeExpr parsed -> pure ()
     other -> assertFailure ("expected standalone mdo expression, got: " <> show other)
 
 test_mdoViewPatternParses :: Assertion
@@ -914,7 +914,7 @@ test_mdoViewPatternParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
-          [DeclValue (FunctionBind "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] True) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
+          [DeclValue (FunctionBind "f" [Match {matchPats = [PView_ (EDo_ [DoExpr_ (EApp_ (EVar_ "pure") (EVar_ "x"))] DoMdo) (PVar_ "y")], matchRhs = UnguardedRhs _ (EVar_ "y") _}])] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
@@ -1615,7 +1615,7 @@ test_generatedExpressionsCanIncludeMdo =
    in assertBool "expected expression generator to include at least one mdo expression" $
         any isMdo samples
   where
-    isMdo (EDo_ _ True) = True
+    isMdo (EDo_ _ DoMdo) = True
     isMdo _ = False
 
 test_alternateCharLiteralSpellingsLexLikeGhc :: Assertion

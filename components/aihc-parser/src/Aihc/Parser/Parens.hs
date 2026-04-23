@@ -807,8 +807,8 @@ addExprParensPrec prec expr =
       wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
       wrapExpr (prec > 0) (ECase (addExprParens scrutinee) (map addCaseAltParens alts))
-    EDo stmts isMdo ->
-      wrapExpr (prec > 0) (EDo (map addDoStmtParens stmts) isMdo)
+    EDo stmts flavor ->
+      wrapExpr (prec > 0) (EDo (map addDoStmtParens stmts) flavor)
     EListComp body quals ->
       EListComp (addExprParens body) (map addCompStmtParens quals)
     EListCompParallel body qualifierGroups ->
