@@ -72,11 +72,6 @@ exprParserExcept :: [Text] -> TokParser Expr
 exprParserExcept =
   exprCoreParserWithTypeSigParserExcept typeParser
 
-exprParserNoTopLevelTypeSig :: TokParser Expr
-exprParserNoTopLevelTypeSig =
-  label "expression" $
-    exprCoreParserWithoutTypeSigExcept []
-
 exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
   mSCC <- optionalHiddenPragma getSCCLabel
@@ -156,10 +151,10 @@ classicIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   cond <- region "while parsing if condition" exprParser
   skipSemicolons
   expectedTok TkKeywordThen
-  yes <- region "while parsing then branch" exprParserNoTopLevelTypeSig
+  yes <- region "while parsing then branch" exprParser
   skipSemicolons
   expectedTok TkKeywordElse
-  no <- region "while parsing else branch" exprParserNoTopLevelTypeSig
+  no <- region "while parsing else branch" exprParser
   pure (EIf cond yes no)
 
 multiWayIfExprParser :: TokParser Expr

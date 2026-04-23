@@ -791,7 +791,7 @@ addExprParensPrec prec expr =
     EIf cond yes no ->
       wrapExpr
         (prec > 0)
-        (EIf (addExprParens cond) (addIfBranchParens yes) (addIfBranchParens no))
+        (EIf (addExprParens cond) (addExprParens yes) (addExprParens no))
     EMultiWayIf rhss ->
       wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
     ELambdaPats pats body ->
@@ -904,12 +904,6 @@ addNegateParens inner =
   if startsWithDollar inner || startsWithOverloadedLabel inner
     then wrapExpr True (addExprParens inner)
     else addExprParensPrec 3 inner
-
-addIfBranchParens :: Expr -> Expr
-addIfBranchParens expr =
-  if endsWithTypeSig expr
-    then wrapExpr True (addExprParens expr)
-    else addExprParens expr
 
 addCaseAltParens :: CaseAlt -> CaseAlt
 addCaseAltParens (CaseAlt sp pat rhs) =

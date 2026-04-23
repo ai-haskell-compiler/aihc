@@ -1,3 +1,3 @@
-{- ORACLE_TEST xfail type signature in if-then branch rejected -}
+{- ORACLE_TEST pass -}
 module A where
 f = if True then x :: Int else x
