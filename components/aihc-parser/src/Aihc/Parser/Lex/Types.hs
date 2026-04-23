@@ -430,5 +430,7 @@ isUnicodeSymbolCategory c =
     CurrencySymbol -> True
     ModifierSymbol -> not (isAscii c)
     OtherSymbol -> True
+    ConnectorPunctuation -> not (isAscii c)
+    DashPunctuation -> not (isAscii c)
     OtherPunctuation -> not (isAscii c)
     _ -> False

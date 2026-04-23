@@ -804,6 +804,8 @@ isUnicodeOperatorChar c =
     CurrencySymbol -> True
     ModifierSymbol -> True
     OtherSymbol -> True
+    ConnectorPunctuation -> c > '\x7f'
+    DashPunctuation -> c > '\x7f'
     OtherPunctuation -> c > '\x7f'
     _ -> False
 

@@ -1,0 +1,6 @@
+extensions: []
+input: "–"
+tokens:
+  - 'TkVarSym "–"'
+  - 'TkEOF'
+status: pass
