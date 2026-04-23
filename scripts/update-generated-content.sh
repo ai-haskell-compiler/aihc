@@ -119,33 +119,50 @@ parse_extension_summary() {
 parse_extension_progress() {
 	local infile="$1"
 	awk '
+    /^SUPPORTED[[:space:]]+[0-9]+$/ { supported = $2 + 0 }
+    /^IN_PROGRESS[[:space:]]+[0-9]+$/ { in_progress = $2 + 0 }
+    /^TOTAL[[:space:]]+[0-9]+$/ { declared_total = $2 + 0 }
     {
-      if ($0 ~ /PASS=[0-9]+/ && $0 ~ /XFAIL=[0-9]+/ && $0 ~ /XPASS=[0-9]+/ && $0 ~ /FAIL=[0-9]+/) {
-        passS = $0
-        sub(/.*PASS=/, "", passS)
-        sub(/[^0-9].*/, "", passS)
+      line_has_counts = 0
+      line_pass = 0
+      line_xfail = 0
+      line_xpass = 0
+      line_fail = 0
 
-        xfailS = $0
-        sub(/.*XFAIL=/, "", xfailS)
-        sub(/[^0-9].*/, "", xfailS)
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^PASS=[0-9]+$/) {
+          value = $i
+          sub(/^PASS=/, "", value)
+          line_pass = value + 0
+          line_has_counts = 1
+        } else if ($i ~ /^XFAIL=[0-9]+$/) {
+          value = $i
+          sub(/^XFAIL=/, "", value)
+          line_xfail = value + 0
+          line_has_counts = 1
+        } else if ($i ~ /^XPASS=[0-9]+$/) {
+          value = $i
+          sub(/^XPASS=/, "", value)
+          line_xpass = value + 0
+          line_has_counts = 1
+        } else if ($i ~ /^FAIL=[0-9]+$/) {
+          value = $i
+          sub(/^FAIL=/, "", value)
+          line_fail = value + 0
+          line_has_counts = 1
+        }
+      }
 
-        xpassS = $0
-        sub(/.*XPASS=/, "", xpassS)
-        sub(/[^0-9].*/, "", xpassS)
-
-        failS = $0
-        sub(/.*FAIL=/, "", failS)
-        sub(/[^0-9].*/, "", failS)
-
-        pass += passS + 0
-        xfail += xfailS + 0
-        xpass += xpassS + 0
-        fail += failS + 0
+      if (line_has_counts) {
+        pass += line_pass
+        xfail += line_xfail
+        xpass += line_xpass
+        fail += line_fail
       }
     }
     END {
       total = pass + xfail + xpass + fail
-      if (total <= 0) {
+      if (total <= 0 || declared_total == "") {
         exit 2
       }
       complete = ((pass + xpass) * 100.0) / total

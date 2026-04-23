@@ -1,5 +1,4 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE OverloadedRecordDot #-}
 
 data Node = Node {as :: Int}
 

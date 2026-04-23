@@ -1,5 +1,5 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE PolyKinds, TypeApplications, AllowAmbiguousTypes, ExplicitForAll #-}
+{-# LANGUAGE PolyKinds, TypeApplications, ExplicitForAll #-}
 
 module ParenKindForall where
 

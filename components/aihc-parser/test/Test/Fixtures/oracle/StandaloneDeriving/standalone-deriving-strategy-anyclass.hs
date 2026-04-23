@@ -1,5 +1,4 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
