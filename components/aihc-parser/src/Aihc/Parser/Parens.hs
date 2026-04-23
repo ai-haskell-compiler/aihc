@@ -169,6 +169,25 @@ startsWithOverloadedLabel = \case
   ETypeApp fn _ -> startsWithOverloadedLabel fn
   _ -> False
 
+-- | Check whether an expression is a compound form (not a bare literal)
+-- whose pretty-printed output starts with a primitive (unboxed) numeric
+-- literal.  When such an expression appears under 'ENegate', the preceding
+-- @-@ merges with the literal at the lexer level, changing the parse.
+-- Bare literals (e.g., @EInt 42 TIntHash@) are excluded because
+-- @ENegate (EInt n hash)@ → @-n#@ is correctly normalised by the roundtrip
+-- test infrastructure.
+startsWithPrimitiveLiteral :: Expr -> Bool
+startsWithPrimitiveLiteral = go False
+  where
+    go _ (EAnn _ sub) = go False sub
+    go compound (EInt _ nt _) = compound && nt /= TInteger
+    go compound (EFloat _ ft _) = compound && ft /= TFractional
+    go _ (EApp fn _) = go True fn
+    go _ (ERecordUpd base _) = go True base
+    go _ (ETypeApp fn _) = go True fn
+    go _ (ETypeSig inner _) = go True inner
+    go _ _ = False
+
 -- ---------------------------------------------------------------------------
 -- Expression contexts
 -- ---------------------------------------------------------------------------
@@ -897,7 +916,7 @@ addSpliceBodyParens body =
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =
-  if startsWithDollar inner || startsWithOverloadedLabel inner
+  if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
     else addExprParensPrec 3 inner
 

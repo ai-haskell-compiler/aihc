@@ -363,7 +363,7 @@ lexImplicitParam env st
 
 lexNegativeLiteralOrMinus :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexNegativeLiteralOrMinus env st
-  | not hasNegExt = Nothing
+  | not hasNegExt && not hasMH = Nothing
   | not (isStandaloneMinus (lexerInput st)) = Nothing
   | otherwise =
       let prevAllows = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
@@ -372,11 +372,29 @@ lexNegativeLiteralOrMinus env st
             then case tryLexNumberAfterMinus env st of
               Just result -> Just result
               Nothing -> lexMinusOperator env st rest prevAllows
-            else lexMinusOperator env st rest prevAllows
+            else
+              -- GHC merges minus into primitive unboxed literals (Int#, Word#,
+              -- Float#, Double#, and ExtendedLiterals types) even without
+              -- NegativeLiterals.  When only MagicHash is active, speculatively
+              -- lex the number after the minus and keep the merged token only
+              -- when the result carries a primitive suffix.
+              if hasMH && prevAllows
+                then case tryLexNumberAfterMinus env st of
+                  Just (tok, st')
+                    | isPrimitiveNumericToken (lexTokenKind tok) -> Just (tok, st')
+                  _ ->
+                    if hasNegExt
+                      then lexMinusOperator env st rest prevAllows
+                      else Nothing
+                else
+                  if hasNegExt
+                    then lexMinusOperator env st rest prevAllows
+                    else Nothing
   where
     hasNegExt =
       hasExt NegativeLiterals env
         || hasExt LexicalNegation env
+    hasMH = hasExt MagicHash env
 
 isStandaloneMinus :: Text -> Bool
 isStandaloneMinus input =
@@ -424,6 +442,17 @@ negateToken stBefore numTok =
               sourceSpanEndOffset = sourceSpanEndOffset
             }
         NoSourceSpan -> NoSourceSpan
+
+-- | Does the token kind represent a primitive (unboxed) numeric literal?
+-- These are MagicHash types (Int#, Word#, Float#, Double#) and ExtendedLiterals
+-- types (Int8#, Int16#, etc.).  Plain boxed types (TInteger, TFractional) return
+-- False.
+isPrimitiveNumericToken :: LexTokenKind -> Bool
+isPrimitiveNumericToken k =
+  case k of
+    TkInteger _ nt -> nt /= TInteger
+    TkFloat _ ft -> ft /= TFractional
+    _ -> False
 
 lexMinusOperator :: LexerEnv -> LexerState -> Text -> Bool -> Maybe (LexToken, LexerState)
 lexMinusOperator env st rest prevAllows

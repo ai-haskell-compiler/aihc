@@ -1,0 +1,7 @@
+extensions:
+  - MagicHash
+input: "-2.5##"
+tokens:
+  - 'TkFloat (-5 % 2) TDoubleHash'
+  - 'TkEOF'
+status: pass
