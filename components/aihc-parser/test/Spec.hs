@@ -231,6 +231,7 @@ buildTests = do
             testCase "sets lexTokenAtLineStart correctly" test_tokenAtLineStartWithoutDirective,
             testCase "hash line directive sets lexTokenAtLineStart" test_hashLineDirectiveSetsAtLineStart,
             testCase "hash line directive preserves layout" test_hashLineDirectivePreservesLayout,
+            testCase "indented hash-line is operator, not directive" test_indentedHashLineIsOperator,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
@@ -1435,6 +1436,18 @@ test_hashLineDirectivePreservesLayout =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         assertEqual "expected two declarations" 2 (length (moduleDecls modu))
+
+test_indentedHashLineIsOperator :: Assertion
+test_indentedHashLineIsOperator =
+  -- '# line' on an indented continuation line must lex as operator '#'
+  -- plus identifier 'line', not as a CPP #line directive.
+  case lexTokens "x\n  # line" of
+    [ LexToken {lexTokenKind = TkVarId "x"},
+      LexToken {lexTokenKind = TkVarSym "#"},
+      LexToken {lexTokenKind = TkVarId "line"},
+      LexToken {lexTokenKind = TkEOF}
+      ] -> pure ()
+    other -> assertFailure ("expected indented '# line' to lex as operator + identifier, got: " <> show other)
 
 assertSourceSpan :: FilePath -> Int -> Int -> Int -> Int -> Int -> Int -> SourceSpan -> Assertion
 assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine expectedEndCol expectedStartOffset expectedEndOffset span' =
