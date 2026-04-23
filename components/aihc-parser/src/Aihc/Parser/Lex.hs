@@ -327,7 +327,10 @@ lexIdentifier env st =
               modName = T.reverse (T.drop 1 revRest)
               name = T.reverse revName
            in case T.uncons name of
-                Just (c', _) | isConIdStart c' -> TkQConId modName name
+                Just (c', _)
+                  | isConIdStart c' -> TkQConId modName name
+                  | name == "do" && hasExt QualifiedDo env -> TkQualifiedDo modName
+                  | name == "mdo" && hasExt QualifiedDo env && hasExt RecursiveDo env -> TkQualifiedMdo modName
                 Just _ -> TkQVarId modName name
                 Nothing -> TkQVarId modName name
       | otherwise =

@@ -62,7 +62,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ELambdaCase <$> genCaseAltsWith allowTHQuotes,
         ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes,
         ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
-        EDo <$> genDoStmtsWith allowTHQuotes <*> arbitrary,
+        EDo <$> genDoStmtsWith allowTHQuotes <*> genDoFlavor,
         EListComp <$> genExprWith allowTHQuotes <*> genCompStmtsWith allowTHQuotes,
         EListCompParallel <$> genExprWith allowTHQuotes <*> genParallelCompStmtsWith allowTHQuotes,
         EList <$> genListElemsWith allowTHQuotes,
@@ -256,6 +256,9 @@ genFunctionBindDecl allowTHQuotes = do
         ]
     )
 
+genDoFlavor :: Gen DoFlavor
+genDoFlavor = elements [DoPlain, DoMdo]
+
 genDoStmtsWith :: Bool -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes = do
   stmts <- smallList0 (genDoStmtWith allowTHQuotes)
@@ -333,7 +336,7 @@ genLayoutExprWith allowTHQuotes =
   scale (`div` 2) $
     oneof
       [ ECase <$> genExprWith allowTHQuotes <*> genCaseAltsWith allowTHQuotes,
-        EDo <$> genDoStmtsWith allowTHQuotes <*> arbitrary,
+        EDo <$> genDoStmtsWith allowTHQuotes <*> genDoFlavor,
         EIf <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
         ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
         ELambdaPats <$> genPatterns <*> genExprWith allowTHQuotes,
@@ -517,8 +520,8 @@ shrinkExpr expr =
       body
         : [ELetDecls decls body' | body' <- shrinkExpr body]
           <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
-    EDo stmts isMdo ->
-      [EDo stmts' isMdo | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EDo stmts flavor ->
+      [EDo stmts' flavor | stmts' <- shrinkDoStmts stmts, not (null stmts')]
     EListComp body stmts ->
       body
         : [EListComp body' stmts | body' <- shrinkExpr body]

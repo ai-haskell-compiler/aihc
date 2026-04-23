@@ -85,6 +85,8 @@ exprCoreParserWithoutTypeSigBody forbiddenInfix = do
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
+    TkQualifiedDo {} -> qualifiedDoExprParser
+    TkQualifiedMdo {} -> qualifiedMdoExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
@@ -180,13 +182,31 @@ doExprParser :: TokParser Expr
 doExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordDo
   stmts <- bracedSemiSep1 doStmtParser
-  pure (EDo stmts False)
+  pure (EDo stmts DoPlain)
 
 mdoExprParser :: TokParser Expr
 mdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordMdo
   stmts <- bracedSemiSep1 doStmtParser
-  pure (EDo stmts True)
+  pure (EDo stmts DoMdo)
+
+qualifiedDoExprParser :: TokParser Expr
+qualifiedDoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  modName <- tokenSatisfy "qualified do" $ \tok ->
+    case lexTokenKind tok of
+      TkQualifiedDo m -> Just m
+      _ -> Nothing
+  stmts <- bracedSemiSep1 doStmtParser
+  pure (EDo stmts (DoQualified modName))
+
+qualifiedMdoExprParser :: TokParser Expr
+qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  modName <- tokenSatisfy "qualified mdo" $ \tok ->
+    case lexTokenKind tok of
+      TkQualifiedMdo m -> Just m
+      _ -> Nothing
+  stmts <- bracedSemiSep1 doStmtParser
+  pure (EDo stmts (DoQualifiedMdo modName))
 
 -- | Parse a proc expression: @proc pat -> cmd@
 procExprParser :: TokParser Expr
@@ -210,6 +230,8 @@ exprCoreParserNoArrowTail = do
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
+    TkQualifiedDo {} -> qualifiedDoExprParser
+    TkQualifiedMdo {} -> qualifiedMdoExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
@@ -323,7 +345,7 @@ lexpParser = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
     Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> lexpParser
-    Nothing -> doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
+    Nothing -> doExprParser <|> mdoExprParser <|> qualifiedDoExprParser <|> qualifiedMdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
 
 getSCCLabel :: Pragma -> Maybe Text
 getSCCLabel (PragmaSCC sccLabel) = Just sccLabel
@@ -464,6 +486,8 @@ atomExprParser = do
         <|> letExprParser
         <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try mdoExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try qualifiedDoExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try qualifiedMdoExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
@@ -996,6 +1020,8 @@ compTransformExprParser =
     base <- case lexTokenKind tok of
       TkKeywordDo -> doExprParser
       TkKeywordMdo -> mdoExprParser
+      TkQualifiedDo {} -> qualifiedDoExprParser
+      TkQualifiedMdo {} -> qualifiedMdoExprParser
       TkKeywordIf -> ifExprParser
       TkKeywordLet -> letExprParser
       TkKeywordProc -> procExprParser
@@ -1008,6 +1034,8 @@ compTransformLexpParser :: TokParser Expr
 compTransformLexpParser =
   doExprParser
     <|> mdoExprParser
+    <|> qualifiedDoExprParser
+    <|> qualifiedMdoExprParser
     <|> ifExprParser
     <|> caseExprParser
     <|> letExprParser

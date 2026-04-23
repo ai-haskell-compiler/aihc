@@ -230,6 +230,12 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkQualifiedDo {}
+      | layoutPrevTokenKind st == Just TkKeywordThen
+          || layoutPrevTokenKind st == Just TkKeywordElse ->
+          st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkQualifiedMdo {} -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
