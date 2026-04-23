@@ -676,7 +676,9 @@ prettyDataCon ctor =
         <+> parens (hsep (punctuate comma (map prettyBangType fields)))
     TupleCon forallVars constraints Unboxed fields ->
       hsep (dataConQualifierPrefix forallVars constraints)
-        <+> "(#" <+> hsep (punctuate comma (map prettyBangType fields)) <+> "#)"
+        <+> "(#"
+        <+> hsep (punctuate comma (map prettyBangType fields))
+        <+> "#)"
     UnboxedSumCon forallVars constraints pos arity field ->
       hsep (dataConQualifierPrefix forallVars constraints)
         <+> "(#"
