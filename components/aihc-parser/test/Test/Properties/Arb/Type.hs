@@ -252,7 +252,7 @@ shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
     TVar name ->
-      [TVar $ unqualifiedNameFromText "a"]
+      [TVar $ unqualifiedNameFromText "a" | renderUnqualifiedName name /= "a"]
         <> [TVar (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon name promoted ->
       [TCon (nameFromText "C") promoted | renderName name /= "C"]
