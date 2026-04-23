@@ -122,6 +122,7 @@ isBracedExpr :: Expr -> Bool
 isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub
   ECase {} -> True
+  EMultiWayIf {} -> True
   EDo {} -> True
   EQualifiedDo {} -> True
   ELambdaCase {} -> True
@@ -252,6 +253,7 @@ exprCtxPrec ctx expr =
   case ctx of
     CtxInfixRhs _
       | isGreedyExpr expr -> 0
+      | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxInfixLhs
       | isBracedExpr expr -> 0

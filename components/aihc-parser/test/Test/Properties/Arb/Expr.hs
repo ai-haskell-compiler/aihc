@@ -472,6 +472,7 @@ shrinkExpr expr =
     EStringHash value _ -> [EStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
     EOverloadedLabel value raw ->
       [EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
+    EPragma pragma inner -> inner : [EPragma pragma inner' | inner' <- shrinkExpr inner]
     EQuasiQuote quoter body ->
       [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
     EApp fn arg ->

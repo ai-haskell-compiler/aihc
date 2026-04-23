@@ -318,7 +318,9 @@ buildTests = do
             testCase "parses function head type binders" test_functionHeadTypeBinderParses,
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses invisible type applications in type synonym rhs" test_typeSynonymRhsInvisibleTypeAppParses,
+            testCase "parses expression type applications with string literals" test_exprStringTypeApplicationParses,
             testCase "parses constructor patterns with type arguments" test_constructorPatternWithTypeArgParses,
+            testCase "parses constructor patterns with string type arguments" test_constructorPatternWithStringTypeArgParses,
             testCase "parses infix type family equations with application operands" test_infixTypeFamilyEquationWithApplicationOperands,
             localOption (QC.QuickCheckTests 2000) $
               QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
@@ -1079,6 +1081,15 @@ test_typeSynonymRhsInvisibleTypeAppParses =
           pure ()
     other -> assertFailure ("expected invisible type application in type synonym rhs, got: " <> show other)
 
+test_exprStringTypeApplicationParses :: Assertion
+test_exprStringTypeApplicationParses =
+  case parseExpr defaultConfig {parserExtensions = [TypeApplications, DataKinds]} "id @\"xs\" ()" of
+    ParseOk parsed
+      | EApp (ETypeApp (EVar "id") typeArg) (ETuple Boxed []) <- normalizeExpr parsed,
+        TTypeLit (TypeLitSymbol "xs" "\"xs\"") <- stripTypeAnnotations typeArg ->
+          pure ()
+    other -> assertFailure ("expected expression string type application, got: " <> show other)
+
 test_constructorPatternWithTypeArgParses :: Assertion
 test_constructorPatternWithTypeArgParses =
   case parseDecl defaultConfig {parserExtensions = [TypeApplications, TypeAbstractions]} "f (Just @Int x) = x" of
@@ -1092,6 +1103,21 @@ test_constructorPatternWithTypeArgParses =
             [PVar_ "x"] <- args ->
               pure ()
         other -> assertFailure ("expected constructor pattern with type arg, got: " <> show other)
+    other -> assertFailure ("expected parse success, got: " <> show other)
+
+test_constructorPatternWithStringTypeArgParses :: Assertion
+test_constructorPatternWithStringTypeArgParses =
+  case parseDecl defaultConfig {parserExtensions = [TypeApplications, TypeAbstractions, DataKinds]} "f (Forall @\"xs\" x) = x" of
+    ParseOk parsed ->
+      case normalizeDecl parsed of
+        DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [outerPat], matchRhs = UnguardedRhs _ (EVar_ "x") _}])
+          | PCon con typeArgs args <- peelPatternAnn outerPat,
+            nameText con == "Forall",
+            [typeArg] <- typeArgs,
+            TTypeLit (TypeLitSymbol "xs" "\"xs\"") <- stripTypeAnnotations typeArg,
+            [PVar_ "x"] <- args ->
+              pure ()
+        other -> assertFailure ("expected constructor pattern with string type arg, got: " <> show other)
     other -> assertFailure ("expected parse success, got: " <> show other)
 
 test_parserConfigSetsSourceName :: Assertion

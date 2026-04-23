@@ -471,6 +471,12 @@ normalizeDataConInner (RecordCon forallVars constraints name fields) =
   RecordCon forallVars (map normalizeType constraints) name (map normalizeFieldDecl fields)
 normalizeDataConInner (GadtCon forallBinders constraints names body) =
   GadtCon (map normalizeForallTelescope forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
+normalizeDataConInner (TupleCon forallVars constraints flavor fields) =
+  TupleCon forallVars (map normalizeType constraints) flavor (map normalizeBangType fields)
+normalizeDataConInner (UnboxedSumCon forallVars constraints pos arity field) =
+  UnboxedSumCon forallVars (map normalizeType constraints) pos arity (normalizeBangType field)
+normalizeDataConInner (ListCon forallVars constraints) =
+  ListCon forallVars (map normalizeType constraints)
 
 normalizeBangType :: BangType -> BangType
 normalizeBangType bt =
