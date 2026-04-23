@@ -476,11 +476,8 @@ docInstanceDecl inst =
       optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
         <> optionalField "warning" docWarningText (instanceDeclWarning inst)
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
-        <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
-        <> [field "headForm" (docTypeHeadForm (instanceHeadForm (instanceDeclHead inst)))]
-        <> [field "className" (docName (instanceHeadName (instanceDeclHead inst)))]
         <> listField "context" docType (instanceDeclContext inst)
-        <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceHeadTypes (instanceDeclHead inst))))))]
+        <> [field "head" (docType (instanceDeclHead inst))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
 
 docInstanceDeclItem :: InstanceDeclItem -> Doc ann
@@ -501,12 +498,9 @@ docStandaloneDerivingDecl sd =
     fields =
       optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
         <> optionalField "warning" docWarningText (standaloneDerivingWarning sd)
-        <> boolField "parenthesizedHead" (standaloneDerivingParenthesizedHead sd)
-        <> [field "headForm" (docTypeHeadForm (instanceHeadForm (standaloneDerivingHead sd)))]
-        <> [field "className" (docName (instanceHeadName (standaloneDerivingHead sd)))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docType (standaloneDerivingContext sd)
-        <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceHeadTypes (standaloneDerivingHead sd))))))]
+        <> [field "head" (docType (standaloneDerivingHead sd))]
         <> optionalField "viaType" docType (standaloneDerivingViaType sd)
 
 docInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann

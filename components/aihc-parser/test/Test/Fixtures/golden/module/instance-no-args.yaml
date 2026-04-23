@@ -4,5 +4,5 @@ input: |
   class Foo
   instance Foo
 ast: |
-  Module {name = "Inst", decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo"}), DeclInstance (InstanceDecl {headForm = TypeHeadPrefix, className = "Foo", types = []})]}
+  Module {name = "Inst", decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo"}), DeclInstance (InstanceDecl {head = TCon "Foo"})]}
 status: pass
