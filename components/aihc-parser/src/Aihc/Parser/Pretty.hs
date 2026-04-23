@@ -671,6 +671,21 @@ prettyDataCon ctor =
           | otherwise = pretty fieldName
     GadtCon foralls constraints names body ->
       prettyGadtCon foralls constraints names body
+    TupleCon forallVars constraints Boxed fields ->
+      hsep (dataConQualifierPrefix forallVars constraints)
+        <+> parens (hsep (punctuate comma (map prettyBangType fields)))
+    TupleCon forallVars constraints Unboxed fields ->
+      hsep (dataConQualifierPrefix forallVars constraints)
+        <+> "(#"
+        <+> hsep (punctuate comma (map prettyBangType fields))
+        <+> "#)"
+    UnboxedSumCon forallVars constraints pos arity field ->
+      hsep (dataConQualifierPrefix forallVars constraints)
+        <+> "(#"
+        <+> hsep (replicate (pos - 1) "|" <> [prettyBangType field] <> replicate (arity - pos) "|")
+        <+> "#)"
+    ListCon forallVars constraints ->
+      hsep (dataConQualifierPrefix forallVars constraints <> ["[]"])
 
 prettyGadtCon :: [ForallTelescope] -> [Type] -> [UnqualifiedName] -> GadtBody -> Doc ann
 prettyGadtCon forallBinders constraints names body =
@@ -921,6 +936,7 @@ prettyCallConv cc =
     CCall -> "ccall"
     StdCall -> "stdcall"
     CApi -> "capi"
+    CPrim -> "prim"
 
 prettySafety :: ForeignSafety -> Doc ann
 prettySafety safety =

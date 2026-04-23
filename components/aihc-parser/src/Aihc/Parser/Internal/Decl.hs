@@ -586,7 +586,7 @@ fixityPrecedenceParser =
   tokenSatisfy "fixity precedence" $ \tok ->
     case lexTokenKind tok of
       TkInteger n _
-        | n >= 0 && n <= 9 -> Just (fromInteger n)
+        | n <= 9 -> Just (fromInteger n)
       _ -> Nothing
 
 fixityOperatorParser :: TokParser UnqualifiedName
@@ -598,6 +598,8 @@ fixityOperatorParser =
         case lexTokenKind tok of
           TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
           TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+          TkReservedRightArrow -> Just (mkUnqualifiedName NameVarSym "->")
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick
@@ -820,6 +822,7 @@ callConvParser =
   (varIdTok "ccall" >> pure CCall)
     <|> (varIdTok "stdcall" >> pure StdCall)
     <|> (varIdTok "capi" >> pure CApi)
+    <|> (varIdTok "prim" >> pure CPrim)
 
 foreignSafetyParser :: TokParser ForeignSafety
 foreignSafetyParser =
@@ -979,7 +982,70 @@ gadtTypeDataBodyParser = do
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
   (forallVars, context) <- dataConQualifiersParser
-  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
+  MP.try (boxedTupleConDeclParser forallVars context)
+    <|> MP.try (unboxedConDeclParser forallVars context)
+    <|> MP.try (listConDeclParser forallVars context)
+    <|> MP.try (dataConRecordOrPrefixParser forallVars context)
+    <|> dataConInfixParser forallVars context
+
+listConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+listConDeclParser forallVars context = do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure $ \span' -> DataConAnn (mkAnnotation span') (ListCon forallVars context)
+
+boxedTupleConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+boxedTupleConDeclParser forallVars context = do
+  expectedTok TkSpecialLParen
+  mClose <- MP.optional (expectedTok TkSpecialRParen)
+  case mClose of
+    Just () ->
+      pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed [])
+    Nothing -> do
+      firstField <- constructorArgParser
+      mComma <- MP.optional (expectedTok TkSpecialComma)
+      case mComma of
+        Nothing -> do
+          expectedTok TkSpecialRParen
+          pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed [firstField])
+        Just () -> do
+          rest <- constructorArgParser `MP.sepBy1` expectedTok TkSpecialComma
+          expectedTok TkSpecialRParen
+          pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed (firstField : rest))
+
+unboxedConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+unboxedConDeclParser forallVars context = do
+  expectedTok TkSpecialUnboxedLParen
+  mClose <- MP.optional (expectedTok TkSpecialUnboxedRParen)
+  case mClose of
+    Just () ->
+      pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Unboxed [])
+    Nothing -> do
+      leadingPipes <- MP.many (MP.try (expectedTok TkReservedPipe))
+      if not (null leadingPipes)
+        then do
+          field <- constructorArgParser
+          trailingPipes <- MP.many (expectedTok TkReservedPipe)
+          expectedTok TkSpecialUnboxedRParen
+          let pos = length leadingPipes + 1
+              arity = length leadingPipes + 1 + length trailingPipes
+          pure $ \span' -> DataConAnn (mkAnnotation span') (UnboxedSumCon forallVars context pos arity field)
+        else do
+          firstField <- constructorArgParser
+          mSep <- MP.optional (MP.try ((Left () <$ expectedTok TkSpecialComma) <|> (Right () <$ expectedTok TkReservedPipe)))
+          case mSep of
+            Nothing -> do
+              expectedTok TkSpecialUnboxedRParen
+              pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Unboxed [firstField])
+            Just (Left ()) -> do
+              rest <- constructorArgParser `MP.sepBy1` expectedTok TkSpecialComma
+              expectedTok TkSpecialUnboxedRParen
+              pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Unboxed (firstField : rest))
+            Just (Right ()) -> do
+              trailingPipes <- MP.many (expectedTok TkReservedPipe)
+              expectedTok TkSpecialUnboxedRParen
+              let arity = 1 + 1 + length trailingPipes
+              pure $ \span' -> DataConAnn (mkAnnotation span') (UnboxedSumCon forallVars context 1 arity firstField)
 
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
