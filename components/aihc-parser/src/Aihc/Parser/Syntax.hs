@@ -1294,9 +1294,9 @@ type InstanceHeadType = Type
 -- application spine down to the leftmost atom, peeling through 'TParen'
 -- and 'TAnn' nodes.
 --
--- >>> instanceHeadName (TApp (TCon "C") (TVar "a"))
+-- >>> fmap renderName $ instanceHeadName (TApp (TCon "C" Unpromoted) (TVar "a"))
 -- Just "C"
--- >>> instanceHeadName (TInfix (TVar "a") ":=>" (TVar "b"))
+-- >>> fmap renderName $ instanceHeadName (TInfix (TVar "a") ":=>" Unpromoted (TVar "b"))
 -- Just ":=>"
 instanceHeadName :: Type -> Maybe Name
 instanceHeadName = go
