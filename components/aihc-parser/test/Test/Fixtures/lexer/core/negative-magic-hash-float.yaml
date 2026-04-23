@@ -1,0 +1,7 @@
+extensions:
+  - MagicHash
+input: "-3.14#"
+tokens:
+  - 'TkFloat (-157 % 50) TFloatHash'
+  - 'TkEOF'
+status: pass

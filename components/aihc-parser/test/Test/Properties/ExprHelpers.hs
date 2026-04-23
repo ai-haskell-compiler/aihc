@@ -36,7 +36,20 @@ normalizeExpr expr =
     EQuasiQuote quoter body -> EQuasiQuote quoter body
     EApp fn arg -> EApp (normalizeExpr fn) (normalizeExpr arg)
     EInfix lhs op rhs -> EInfix (normalizeExpr lhs) op (normalizeExpr rhs)
-    ENegate inner -> ENegate (normalizeExpr inner)
+    ENegate inner ->
+      let normInner = normalizeExpr inner
+          -- Strip parentheses added by the parenthesization pass around
+          -- primitive-literal-starting compound expressions.
+          stripped = case normInner of
+            EParen e -> e
+            _ -> normInner
+       in case stripped of
+            -- The lexer merges minus into primitive (MagicHash) numeric
+            -- literals, so ENegate around a numeric literal normalizes
+            -- to a single negative literal.
+            EInt n _ _ -> EInt (negate n) TInteger (T.pack (show (negate n)))
+            EFloat r _ _ -> EFloat (negate r) TFractional (renderFloat (negate r))
+            _ -> ENegate stripped
     ESectionL inner op -> ESectionL (normalizeExpr inner) op
     ESectionR op inner -> ESectionR op (normalizeExpr inner)
     EIf cond thenE elseE -> EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
@@ -68,6 +81,7 @@ normalizeExpr expr =
     ETHSplice body -> ETHSplice (normalizeExpr body)
     ETHTypedSplice body -> ETHTypedSplice (normalizeExpr body)
     EProc pat body -> EProc (normalizePattern pat) (normalizeCmd body)
+    EPragma pragma body -> EPragma pragma (normalizeExpr body)
     EAnn _ sub -> normalizeExpr sub
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt

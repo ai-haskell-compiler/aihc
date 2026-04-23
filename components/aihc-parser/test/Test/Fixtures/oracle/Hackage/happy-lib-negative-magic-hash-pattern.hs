@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail negative MagicHash literal in function equation pattern misparses as infix minus -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 module A where
 

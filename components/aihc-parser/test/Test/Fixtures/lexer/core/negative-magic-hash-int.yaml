@@ -1,0 +1,7 @@
+extensions:
+  - MagicHash
+input: "-1#"
+tokens:
+  - 'TkInteger (-1) TIntHash'
+  - 'TkEOF'
+status: pass
