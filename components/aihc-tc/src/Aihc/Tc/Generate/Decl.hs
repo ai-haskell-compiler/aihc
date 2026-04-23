@@ -25,6 +25,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
+    TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -293,6 +294,12 @@ registerDataCon tc paramMap paramVarIds con = case con of
     registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType) [lhs, rhs])
   RecordCon _docs _ctx conName fields ->
     registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType . fieldType) fields)
+  TupleCon _docs _ctx flavor fields ->
+    registerNamedDataCon (tupleConText flavor (length fields)) (map (convertSurfaceType paramMap . bangType) fields)
+  UnboxedSumCon _docs _ctx pos arity field ->
+    registerNamedDataCon (unboxedSumConText pos arity) [convertSurfaceType paramMap (bangType field)]
+  ListCon {} ->
+    registerNamedDataCon "[]" []
   GadtCon _forallBinders _ctx names body ->
     -- Parse the GADT constructor's declared result type.
     let resultSurfTy = gadtBodyResultType body
@@ -317,11 +324,6 @@ registerDataCon tc paramMap paramVarIds con = case con of
               zonkedTy <- zonkType conTy
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
-  TupleCon _docs _ctx _flavor fields ->
-    registerAnonymousDataCon "<tuple-constructor>" (map (convertSurfaceType paramMap . bangType) fields)
-  UnboxedSumCon _docs _ctx _pos _arity field ->
-    registerAnonymousDataCon "<unboxed-sum-constructor>" [convertSurfaceType paramMap (bangType field)]
-  ListCon _docs _ctx -> registerAnonymousDataCon "<list-constructor>" []
   where
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
     conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
@@ -333,10 +335,24 @@ registerDataCon tc paramMap paramVarIds con = case con of
       zonkedTy <- zonkType conTy
       pure (TcBindingResult name zonkedTy)
 
-    registerAnonymousDataCon displayName argTys = do
-      let conTy = foldr TcFunTy resTy argTys
-      zonkedTy <- zonkType conTy
-      pure (TcBindingResult displayName zonkedTy)
+tupleConText :: TupleFlavor -> Int -> Text
+tupleConText flavor arity =
+  case flavor of
+    Boxed -> "(" <> commas arity <> ")"
+    Unboxed -> "(#" <> commas arity <> "#)"
+
+unboxedSumConText :: Int -> Int -> Text
+unboxedSumConText pos arity = "(#" <> bars (pos - 1) <> "_" <> bars (arity - pos) <> "#)"
+
+commas :: Int -> Text
+commas n
+  | n <= 1 = ""
+  | otherwise = mconcat (replicate (n - 1) ",")
+
+bars :: Int -> Text
+bars n
+  | n <= 0 = ""
+  | otherwise = mconcat (replicate n "|")
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]

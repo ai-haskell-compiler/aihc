@@ -329,6 +329,7 @@ buildTests = do
           "checkPattern (do-bind)"
           [ testCase "variable pattern: x <- expr" test_doBindVarPattern,
             testCase "constructor pattern: Just x <- expr" test_doBindConPattern,
+            testCase "tuple constructor pattern: (,) x () <- expr" test_doBindTupleConstructorPattern,
             testCase "wildcard pattern: _ <- expr" test_doBindWildcardPattern,
             testCase "tuple pattern: (a, b) <- expr" test_doBindTuplePattern,
             testCase "list pattern: [a, b] <- expr" test_doBindListPattern,
@@ -368,6 +369,7 @@ buildTests = do
             testCase "comp wildcard gen: [1 | _ <- xs]" test_compWildcardGen,
             testCase "comp tuple gen: [a | (a, b) <- xs]" test_compTupleGen,
             testCase "comp constructor gen: [y | Just y <- xs]" test_compConGen,
+            testCase "comp tuple-constructor gen: [(x, ()) | (,) x () <- xs]" test_compTupleConstructorGen,
             testCase "comp bang gen: [y | !y <- xs]" test_compBangGen,
             testCase "comp irrefutable gen: [a | ~(a, b) <- xs]" test_compIrrefutableGen,
             testCase "comp as gen: [y | y@(Just _) <- xs]" test_compAsGen,
@@ -1811,6 +1813,12 @@ test_doBindConPattern =
     Right [DoBind_ (PCon_ "Just" [PVar_ "x"]) _, DoExpr_ _] -> pure ()
     other -> assertFailure ("expected constructor bind, got: " <> show other)
 
+test_doBindTupleConstructorPattern :: Assertion
+test_doBindTupleConstructorPattern =
+  case parseDoStmts "do { (,) x () <- return (1, ()); return x }" of
+    Right [DoBind_ (PCon_ tupleCon [PVar_ "x", PTuple_ Boxed []]) _, DoExpr_ _] | tupleCon == qualifyName Nothing (mkUnqualifiedName NameConSym ",") -> pure ()
+    other -> assertFailure ("expected tuple constructor bind, got: " <> show other)
+
 test_doBindWildcardPattern :: Assertion
 test_doBindWildcardPattern =
   case parseDoStmts "do { _ <- return 1; return 2 }" of
@@ -2422,6 +2430,12 @@ test_compConGen =
   case parseCompStmts "[y | Just y <- xs]" of
     Right [CompGen_ (PCon_ "Just" [PVar_ "y"]) _] -> pure ()
     other -> assertFailure ("expected comp constructor gen, got: " <> show other)
+
+test_compTupleConstructorGen :: Assertion
+test_compTupleConstructorGen =
+  case parseCompStmts "[(x, ()) | (,) x () <- xs]" of
+    Right [CompGen_ (PCon_ tupleCon [PVar_ "x", PTuple_ Boxed []]) _] | tupleCon == qualifyName Nothing (mkUnqualifiedName NameConSym ",") -> pure ()
+    other -> assertFailure ("expected comp tuple-constructor gen, got: " <> show other)
 
 test_compBangGen :: Assertion
 test_compBangGen =
