@@ -43,7 +43,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
-    TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
     UnqualifiedName,
@@ -506,8 +505,8 @@ resolveDataConDecl scope dataConDecl =
       GadtCon forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
     TupleCon forallVars context flavor bangTypes ->
       TupleCon forallVars (map (resolveType scope) context) flavor (map resolveBangType bangTypes)
-    UnboxedSumCon forallVars context pos arity bangType ->
-      UnboxedSumCon forallVars (map (resolveType scope) context) pos arity (resolveBangType bangType)
+    UnboxedSumCon forallVars context pos arity field ->
+      UnboxedSumCon forallVars (map (resolveType scope) context) pos arity (resolveBangType field)
     ListCon forallVars context ->
       ListCon forallVars (map (resolveType scope) context)
   where
@@ -731,9 +730,9 @@ dataConAnnotation scope dataConDecl =
             case names of
               name : _ -> topLevelNameAnnotation scope span' name
               [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
-          TupleCon _ _ flavor fields -> topLevelNameAnnotation scope span' (tupleConName flavor (length fields))
-          UnboxedSumCon _ _ pos arity _ -> topLevelNameAnnotation scope span' (unboxedSumConName pos arity)
-          ListCon {} -> topLevelNameAnnotation scope span' (mkUnqualifiedName NameConId "[]")
+          TupleCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "tuple constructors are not top-level binders")
+          UnboxedSumCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "unboxed sum constructors are not top-level binders")
+          ListCon {} -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "list constructors are not top-level binders")
    in go dataConDecl
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
@@ -795,25 +794,10 @@ dataConDeclNames dataConDecl =
           InfixCon _ _ _ name _ -> [name]
           RecordCon _ _ name _ -> [name]
           GadtCon _ _ names _ -> names
-          TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
-          UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
-          ListCon {} -> [mkUnqualifiedName NameConId "[]"]
+          TupleCon {} -> []
+          UnboxedSumCon {} -> []
+          ListCon {} -> []
    in go dataConDecl
-
-tupleConName :: TupleFlavor -> Int -> UnqualifiedName
-tupleConName flavor fieldCount =
-  let arity = max 0 fieldCount
-      tupleText =
-        case flavor of
-          Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
-          Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
-   in mkUnqualifiedName NameConId tupleText
-
-unboxedSumConName :: Int -> Int -> UnqualifiedName
-unboxedSumConName pos arity =
-  let leftBars = T.replicate (max 0 (pos - 1)) "| "
-      rightBars = T.replicate (max 0 (arity - pos)) " |"
-   in mkUnqualifiedName NameConId ("(# " <> leftBars <> "_" <> rightBars <> " #)")
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =

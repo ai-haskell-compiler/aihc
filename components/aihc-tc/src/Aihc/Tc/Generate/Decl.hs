@@ -318,10 +318,10 @@ registerDataCon tc paramMap paramVarIds con = case con of
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
   TupleCon _docs _ctx _flavor fields ->
-    registerAnonymousDataCon "<tuple-con>" (map (convertSurfaceType paramMap . bangType) fields)
+    registerAnonymousDataCon "<tuple-constructor>" (map (convertSurfaceType paramMap . bangType) fields)
   UnboxedSumCon _docs _ctx _pos _arity field ->
-    registerAnonymousDataCon "<unboxed-sum-con>" [convertSurfaceType paramMap (bangType field)]
-  ListCon _docs _ctx -> registerAnonymousDataCon "[]" []
+    registerAnonymousDataCon "<unboxed-sum-constructor>" [convertSurfaceType paramMap (bangType field)]
+  ListCon _docs _ctx -> registerAnonymousDataCon "<list-constructor>" []
   where
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
     conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)

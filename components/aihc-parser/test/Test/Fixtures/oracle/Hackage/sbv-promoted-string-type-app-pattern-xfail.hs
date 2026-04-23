@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail promoted string literal in pattern type application not supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE DataKinds #-}
