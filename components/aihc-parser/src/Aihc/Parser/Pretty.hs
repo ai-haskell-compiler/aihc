@@ -1430,6 +1430,13 @@ prettyTypeFamilyHead headForm headType params =
             (if promoted == Promoted then "'" else mempty) <> prettyNameInfixOp op,
             prettyTyVarBinder rhs
           ]
+        (lhs : rhs : tailPrms, Just (op, promoted, _, _)) ->
+          let infixHead =
+                prettyTyVarBinder lhs
+                  <+> (if promoted == Promoted then "'" else mempty)
+                  <> prettyNameInfixOp op
+                  <+> prettyTyVarBinder rhs
+           in parens infixHead : map prettyTyVarBinder tailPrms
         _ -> [prettyTypeFamilyInfix headType]
 
 prettyTypeFamilyLhs :: TypeHeadForm -> Type -> [Doc ann]
