@@ -92,7 +92,7 @@ exprCoreParserWithoutTypeSigBody forbiddenInfix = do
     _ -> infixExprParserExcept forbiddenInfix
   rest <- MP.many ((,) <$> infixOperatorParserExcept forbiddenInfix <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
-  let withInfix = foldl buildInfix base rest
+  let withInfix = foldInfixR buildInfix base rest
   pure $ case afterArrow of
     Just (op, rhs) -> EInfix withInfix op rhs
     Nothing -> withInfix
@@ -315,7 +315,7 @@ infixExprParserExcept forbidden = do
           <$> infixOperatorParserExcept forbidden
           <*> region "after infix operator" lexpParser
       )
-  pure (foldl buildInfix lhs rest)
+  pure (foldInfixR buildInfix lhs rest)
 
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 lexpParser :: TokParser Expr
@@ -714,7 +714,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                   <*> region "after infix operator" lexpParser
               )
           )
-      let withInfix = foldl buildInfix negBase rest
+      let withInfix = foldInfixR buildInfix negBase rest
       mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
       let typed = case mTypeSig of
             Just ty -> ETypeSig withInfix ty
@@ -787,7 +787,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                                   <*> region "after infix operator" lexpParser
                               )
                           )
-                      let fullInfix = foldl buildInfix base ((op, rhs) : more)
+                      let fullInfix = foldInfixR buildInfix base ((op, rhs) : more)
                       mTrailingOp <- MP.optional (infixOperatorParserExcept [])
                       case mTrailingOp of
                         Just trailOp -> do
@@ -1002,7 +1002,7 @@ compTransformExprParser =
       TkReservedBackslash -> lambdaExprParser
       _ -> compTransformInfixExprParser
     rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
-    pure (foldl buildInfix base rest)
+    pure (foldInfixR buildInfix base rest)
 
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser =
@@ -1025,7 +1025,7 @@ compTransformInfixExprParser = do
           <$> infixOperatorParserExcept []
           <*> region "after infix operator" compTransformLexpParser
       )
-  pure (foldl buildInfix lhs rest)
+  pure (foldInfixR buildInfix lhs rest)
 
 compTransformAppExprParser :: TokParser Expr
 compTransformAppExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
