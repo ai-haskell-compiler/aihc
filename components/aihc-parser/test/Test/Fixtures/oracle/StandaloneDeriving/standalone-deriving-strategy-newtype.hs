@@ -1,6 +1,5 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingStrategyNewtype where

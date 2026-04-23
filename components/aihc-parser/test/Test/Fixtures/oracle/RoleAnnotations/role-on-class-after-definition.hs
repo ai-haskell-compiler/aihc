@@ -1,5 +1,4 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE RoleAnnotations #-}
 
 module RoleOnClassAfterDefinition where
