@@ -913,6 +913,8 @@ docTokenKind kind =
     TkKeywordPattern -> "TkKeywordPattern"
     TkKeywordRec -> "TkKeywordRec"
     TkKeywordMdo -> "TkKeywordMdo"
+    TkQualifiedDo modName -> "TkQualifiedDo" <+> docText modName
+    TkQualifiedMdo modName -> "TkQualifiedMdo" <+> docText modName
     TkArrowTail -> "TkArrowTail"
     TkArrowTailReverse -> "TkArrowTailReverse"
     TkDoubleArrowTail -> "TkDoubleArrowTail"
