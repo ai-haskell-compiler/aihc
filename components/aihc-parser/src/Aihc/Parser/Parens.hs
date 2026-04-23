@@ -380,11 +380,7 @@ addDeclParens decl =
     DeclPragma {} -> decl
 
 addDeclSpliceParens :: Expr -> Expr
-addDeclSpliceParens body =
-  case body of
-    EVar {} -> body
-    EParen inner -> EParen (addExprParens inner)
-    _ -> addExprParens body
+addDeclSpliceParens = addExprParens
 
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =

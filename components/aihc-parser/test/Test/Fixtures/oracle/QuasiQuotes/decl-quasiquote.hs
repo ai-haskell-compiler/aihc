@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail top-level quasiquote splice not supported as declaration -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QuasiQuotes #-}
 module DeclQuasiQuote where
 [qq||]
