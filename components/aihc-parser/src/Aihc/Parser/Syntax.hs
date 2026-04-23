@@ -66,7 +66,7 @@ module Aihc.Parser.Syntax
     Name (..),
     NameType (..),
     UnqualifiedName (..),
-    InstanceHead (..),
+    InstanceHeadType,
     WarningText (..),
     Annotation,
     NewtypeDecl (..),
@@ -130,7 +130,6 @@ module Aihc.Parser.Syntax
     moduleName,
     moduleWarningText,
     moduleExports,
-    instanceHeadForm,
     instanceHeadName,
     instanceHeadTypes,
     mkAnnotation,
@@ -1287,28 +1286,44 @@ binderHeadParams head' =
     PrefixBinderHead _ params -> params
     InfixBinderHead lhs _ rhs tailParams -> lhs : rhs : tailParams
 
-data InstanceHead name
-  = PrefixInstanceHead name [Type]
-  | InfixInstanceHead Type name Type [Type]
-  deriving (Data, Eq, Show, Generic, NFData)
+-- | Instance heads are stored as ordinary types.  Parenthesisation is
+-- captured naturally via 'TParen' nodes, so a separate 'Bool' flag is
+-- unnecessary.  The class name and type arguments can be extracted from
+-- the spine when needed (see 'instanceHeadName', 'instanceHeadTypes').
+type InstanceHeadType = Type
 
-instanceHeadForm :: InstanceHead name -> TypeHeadForm
-instanceHeadForm head' =
-  case head' of
-    PrefixInstanceHead {} -> TypeHeadPrefix
-    InfixInstanceHead {} -> TypeHeadInfix
+-- | Extract the class name from an instance head type by walking the
+-- application spine down to the leftmost atom, peeling through 'TParen'
+-- and 'TAnn' nodes.
+--
+-- >>> fmap renderName $ instanceHeadName (TApp (TCon "C" Unpromoted) (TVar "a"))
+-- Just "C"
+-- >>> fmap renderName $ instanceHeadName (TInfix (TVar "a") ":=>" Unpromoted (TVar "b"))
+-- Just ":=>"
+instanceHeadName :: Type -> Maybe Name
+instanceHeadName = go
+  where
+    go (TAnn _ t) = go t
+    go (TApp f _) = go f
+    go (TTypeApp f _) = go f
+    go (TParen t) = go t
+    go (TCon name _) = Just name
+    go (TInfix _ name _ _) = Just name
+    go _ = Nothing
 
-instanceHeadName :: InstanceHead name -> name
-instanceHeadName head' =
-  case head' of
-    PrefixInstanceHead name _ -> name
-    InfixInstanceHead _ name _ _ -> name
-
-instanceHeadTypes :: InstanceHead name -> [Type]
-instanceHeadTypes head' =
-  case head' of
-    PrefixInstanceHead _ tys -> tys
-    InfixInstanceHead lhs _ rhs tailTypes -> lhs : rhs : tailTypes
+-- | Extract the type arguments from an instance head type.
+--
+-- For prefix application spines like @TApp (TApp (TCon C) a) b@, returns
+-- @[a, b]@.  For infix heads like @TInfix a op b@, returns @[a, b]@.
+instanceHeadTypes :: Type -> [Type]
+instanceHeadTypes = go []
+  where
+    go acc (TAnn _ t) = go acc t
+    go acc (TApp f arg) = go (arg : acc) f
+    go acc (TTypeApp f _) = go acc f
+    go acc (TParen t) = go acc t
+    go _ (TInfix lhs _ _ rhs) = [lhs, rhs]
+    go acc _ = acc
 
 data Role
   = RoleNominal
@@ -1502,8 +1517,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingWarning :: Maybe WarningText,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
-    standaloneDerivingParenthesizedHead :: Bool,
-    standaloneDerivingHead :: InstanceHead Name
+    standaloneDerivingHead :: InstanceHeadType
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1552,8 +1566,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclWarning :: Maybe WarningText,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
-    instanceDeclParenthesizedHead :: Bool,
-    instanceDeclHead :: InstanceHead Name,
+    instanceDeclHead :: InstanceHeadType,
     instanceDeclItems :: [InstanceDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)

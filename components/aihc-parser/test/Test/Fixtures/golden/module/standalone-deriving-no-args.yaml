@@ -2,5 +2,5 @@ extensions: []
 input: |
   deriving instance Foo
 ast: |
-  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {headForm = TypeHeadPrefix, className = "Foo", types = []})]}
+  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {head = TCon "Foo"})]}
 status: pass

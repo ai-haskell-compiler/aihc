@@ -533,8 +533,7 @@ normalizeInstanceDecl decl =
       instanceDeclWarning = fmap normalizeWarningText (instanceDeclWarning decl),
       instanceDeclForall = map normalizeTyVarBinder (instanceDeclForall decl),
       instanceDeclContext = map normalizeType (instanceDeclContext decl),
-      instanceDeclParenthesizedHead = instanceDeclParenthesizedHead decl,
-      instanceDeclHead = normalizeInstanceHead (instanceDeclHead decl),
+      instanceDeclHead = normalizeType (instanceDeclHead decl),
       instanceDeclItems = map normalizeInstanceDeclItem (instanceDeclItems decl)
     }
 
@@ -560,8 +559,7 @@ normalizeStandaloneDerivingDecl decl =
       standaloneDerivingWarning = fmap normalizeWarningText (standaloneDerivingWarning decl),
       standaloneDerivingForall = map normalizeTyVarBinder (standaloneDerivingForall decl),
       standaloneDerivingContext = map normalizeType (standaloneDerivingContext decl),
-      standaloneDerivingParenthesizedHead = standaloneDerivingParenthesizedHead decl,
-      standaloneDerivingHead = normalizeInstanceHead (standaloneDerivingHead decl)
+      standaloneDerivingHead = normalizeType (standaloneDerivingHead decl)
     }
 
 normalizeForeignDecl :: ForeignDecl -> ForeignDecl
@@ -621,12 +619,6 @@ normalizeBinderHead head' =
         name
         (normalizeTyVarBinder rhs)
         (map normalizeTyVarBinder tailParams)
-
-normalizeInstanceHead :: InstanceHead name -> InstanceHead name
-normalizeInstanceHead head' =
-  case head' of
-    PrefixInstanceHead name tys -> PrefixInstanceHead name (map normalizeType tys)
-    InfixInstanceHead lhs name rhs tailTypes -> InfixInstanceHead (normalizeType lhs) name (normalizeType rhs) (map normalizeType tailTypes)
 
 normalizeTypeFamilyInst :: TypeFamilyInst -> TypeFamilyInst
 normalizeTypeFamilyInst tfi =

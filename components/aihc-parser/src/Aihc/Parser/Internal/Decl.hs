@@ -695,7 +695,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, instanceHead) <- instanceHeadParser
+  instanceHead <- typeInfixParser
   items <- MP.option [] instanceWhereClauseParser
   pure $
     DeclInstance
@@ -704,7 +704,6 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
           instanceDeclWarning = warningText,
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
-          instanceDeclParenthesizedHead = parenthesizedHead,
           instanceDeclHead = instanceHead,
           instanceDeclItems = items
         }
@@ -719,7 +718,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
   context <- contextPrefixDispatch
-  (parenthesizedHead, derivingHead) <- standaloneDerivingHeadParser
+  derivingHead <- typeInfixParser
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
@@ -729,62 +728,8 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
           standaloneDerivingWarning = warningText,
           standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
-          standaloneDerivingParenthesizedHead = parenthesizedHead,
           standaloneDerivingHead = derivingHead
         }
-
--- | Shared helper for parsing instance / standalone deriving heads.
-bareInstanceHeadParser :: TokParser (InstanceHead Name)
-bareInstanceHeadParser = MP.try infixHeadParser <|> prefixHeadParser
-  where
-    prefixHeadParser = do
-      className <- constructorNameParser <|> parens operatorNameParser
-      instanceTypes <- MP.many typeAtomParser
-      pure (PrefixInstanceHead className instanceTypes)
-
-    infixHeadParser = do
-      lhs <- typeAppParser
-      _ <- lookAhead typeInfixOperatorParser
-      op <- typeFamilyOperatorParser
-      rhs <- typeAppParser
-      pure (InfixInstanceHead lhs op rhs [])
-
-standaloneDerivingHeadParser :: TokParser (Bool, InstanceHead Name)
-standaloneDerivingHeadParser =
-  MP.try
-    ( do
-        parsed <- parens bareInstanceHeadParser
-        _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        tailTypes <- MP.many typeAtomParser
-        pure (True, addTailTypes tailTypes parsed)
-    )
-    <|> ( do
-            instanceHead <- bareInstanceHeadParser
-            pure (False, instanceHead)
-        )
-
-instanceHeadParser :: TokParser (Bool, InstanceHead Name)
-instanceHeadParser =
-  MP.try
-    ( do
-        parsed <- parens bareInstanceHeadParser
-        _ <- MP.notFollowedBy (lookAhead typeInfixOperatorParser)
-        tailTypes <- MP.many typeAtomParser
-        pure (True, addTailTypes tailTypes parsed)
-    )
-    <|> ( do
-            instanceHead <- bareInstanceHeadParser
-            pure (False, instanceHead)
-        )
-
--- | Append trailing type arguments to an instance head.
--- For prefix heads, the types are appended to the existing type list.
--- For infix heads, the types are appended to the trailing types list.
-addTailTypes :: [Type] -> InstanceHead name -> InstanceHead name
-addTailTypes types head' =
-  case head' of
-    PrefixInstanceHead name tys -> PrefixInstanceHead name (tys <> types)
-    InfixInstanceHead lhs op rhs tailTypes -> InfixInstanceHead lhs op rhs (tailTypes <> types)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceDeclItemParser

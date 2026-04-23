@@ -4,4 +4,4 @@ input: |
   instance Unit a
 status: pass
 ast: |
-  Module {decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Unit", params = [TyVarBinder {name = "x"}]}), DeclInstance (InstanceDecl {headForm = TypeHeadPrefix, className = "Unit", types = [TVar "a"]})]}
+  Module {decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Unit", params = [TyVarBinder {name = "x"}]}), DeclInstance (InstanceDecl {head = TApp (TCon "Unit") (TVar "a")})]}

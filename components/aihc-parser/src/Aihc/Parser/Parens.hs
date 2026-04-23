@@ -615,7 +615,7 @@ addInstanceDeclParens :: InstanceDecl -> InstanceDecl
 addInstanceDeclParens decl =
   decl
     { instanceDeclContext = addContextConstraints (instanceDeclContext decl),
-      instanceDeclHead = addInstanceHeadParens (instanceDeclHead decl),
+      instanceDeclHead = addTypeParens (instanceDeclHead decl),
       instanceDeclItems = map addInstanceItemParens (instanceDeclItems decl)
     }
 
@@ -635,63 +635,8 @@ addStandaloneDerivingParens decl =
   decl
     { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
-      standaloneDerivingHead = addInstanceHeadParens (standaloneDerivingHead decl)
+      standaloneDerivingHead = addTypeParens (standaloneDerivingHead decl)
     }
-
-addInstanceHeadParens :: InstanceHead name -> InstanceHead name
-addInstanceHeadParens head' =
-  case head' of
-    PrefixInstanceHead name tys -> PrefixInstanceHead name (map (addTypeIn CtxTypeAtom) tys)
-    InfixInstanceHead lhs name rhs tailTypes ->
-      let lhs' = addTypeIn CtxTypeFamilyOperand lhs
-          -- When the LHS of an infix instance head is a TApp whose leftmost
-          -- atom is a TParen, the parser's standaloneDerivingHeadParser /
-          -- instanceHeadParser would greedily consume the initial (...) as a
-          -- parenthesized prefix instance head, leaving the remaining tokens
-          -- orphaned.  Wrapping the entire LHS in parens prevents this
-          -- ambiguity.
-          --
-          -- Example: @deriving instance (C) '() :+ D@ is misparsed because
-          -- @(C)@ is consumed as the full parenthesized head.  Emitting
-          -- @deriving instance ((C) '()) :+ D@ is unambiguous.
-          needsWrap = infixLhsNeedsOuterParen lhs'
-       in InfixInstanceHead (wrapTy needsWrap lhs') name (addTypeIn CtxTypeFamilyOperand rhs) (map (addTypeIn CtxTypeAtom) tailTypes)
-
--- | Determine whether the LHS of an infix instance head needs to be
--- wrapped in an outer TParen to prevent the parser from greedily
--- consuming an initial @(...)@ as a parenthesized prefix instance head.
---
--- The parser's @standaloneDerivingHeadParser@ / @instanceHeadParser@ first
--- tries @parens bareInstanceHeadParser@.  When the LHS pretty-prints as
--- @(C) '() :+ D@, the parser matches @(C)@ as the full parenthesized
--- head and orphans everything else.
---
--- We detect this by checking two conditions:
---
--- 1. The LHS is a multi-atom type application (@TApp@).
--- 2. The leftmost atom of the application starts with @(@.
---
--- When both hold, we wrap the entire LHS in TParen so it prints as
--- @((C) '()) :+ D@, which is unambiguous.
---
--- A bare @TParen@ at the top level (without @TApp@) is safe: the parser's
--- @notFollowedBy typeInfixOperatorParser@ guard fails because the infix
--- operator follows immediately.
-infixLhsNeedsOuterParen :: Type -> Bool
-infixLhsNeedsOuterParen (TAnn _ sub) = infixLhsNeedsOuterParen sub
-infixLhsNeedsOuterParen (TApp f _) = typeStartsWithParen f
-infixLhsNeedsOuterParen _ = False
-
--- | Check whether a type's pretty-printed form starts with @(@, which
--- would be consumed as a parenthesized instance head by the parser.
-typeStartsWithParen :: Type -> Bool
-typeStartsWithParen (TAnn _ sub) = typeStartsWithParen sub
-typeStartsWithParen (TApp f _) = typeStartsWithParen f
-typeStartsWithParen (TTypeApp f _) = typeStartsWithParen f
-typeStartsWithParen (TParen _) = True
-typeStartsWithParen (TTuple Boxed Unpromoted _) = True
-typeStartsWithParen (TKindSig {}) = True
-typeStartsWithParen _ = False
 
 addForeignDeclParens :: ForeignDecl -> ForeignDecl
 addForeignDeclParens decl =

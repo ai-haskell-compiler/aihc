@@ -1,5 +1,5 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses #-}
 module A where
-class C a b
-instance (C Int) Bool where
+class C a b c
+instance (C Int Bool) Char where

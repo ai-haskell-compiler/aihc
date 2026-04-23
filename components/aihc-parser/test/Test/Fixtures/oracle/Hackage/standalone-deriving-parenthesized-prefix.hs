@@ -1,5 +1,6 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module A where
 class C a b
-instance (C Int) Bool where
+deriving instance (C Int) Bool

@@ -527,8 +527,7 @@ genDeclInstancePrefix = do
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
-          instanceDeclParenthesizedHead = False,
-          instanceDeclHead = PrefixInstanceHead className types,
+          instanceDeclHead = foldl TApp (TCon className Unpromoted) types,
           instanceDeclItems = items
         }
 
@@ -546,8 +545,7 @@ genDeclInstanceInfix = do
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
-          instanceDeclParenthesizedHead = False,
-          instanceDeclHead = InfixInstanceHead lhs className rhs [],
+          instanceDeclHead = TInfix lhs className Unpromoted rhs,
           instanceDeclItems = items
         }
 
@@ -568,8 +566,7 @@ genDeclInstanceParenInfix = do
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
-          instanceDeclParenthesizedHead = True,
-          instanceDeclHead = InfixInstanceHead lhs className rhs tailTypes,
+          instanceDeclHead = foldl TApp (TParen (TInfix lhs className Unpromoted rhs)) tailTypes,
           instanceDeclItems = items
         }
 
@@ -591,8 +588,7 @@ genDeclStandaloneDerivingPrefix = do
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
-          standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHead = PrefixInstanceHead className types
+          standaloneDerivingHead = foldl TApp (TCon className Unpromoted) types
         }
 
 genDeclStandaloneDerivingInfix :: Gen Decl
@@ -611,8 +607,7 @@ genDeclStandaloneDerivingInfix = do
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
-          standaloneDerivingParenthesizedHead = False,
-          standaloneDerivingHead = InfixInstanceHead lhs className rhs []
+          standaloneDerivingHead = TInfix lhs className Unpromoted rhs
         }
 
 -- | Generate a parenthesized infix standalone deriving head with trailing type arguments.
@@ -634,8 +629,7 @@ genDeclStandaloneDerivingParenInfix = do
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
-          standaloneDerivingParenthesizedHead = True,
-          standaloneDerivingHead = InfixInstanceHead lhs className rhs tailTypes
+          standaloneDerivingHead = foldl TApp (TParen (TInfix lhs className Unpromoted rhs)) tailTypes
         }
 
 genInstanceHeadType :: Gen Type
@@ -1209,8 +1203,7 @@ shrinkClassDecl cd =
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =
   [inst {instanceDeclItems = is'} | is' <- shrinkList (const []) (instanceDeclItems inst)]
-    <> [inst {instanceDeclHead = head'} | head' <- shrinkInstanceHeadName shrinkName (instanceDeclHead inst)]
-    <> [inst {instanceDeclHead = head'} | head' <- shrinkInstanceHeadTypes (instanceDeclHead inst)]
+    <> [inst {instanceDeclHead = head'} | head' <- shrinkType (instanceDeclHead inst)]
     <> [inst {instanceDeclContext = ctx'} | ctx' <- shrinkList shrinkType (instanceDeclContext inst)]
 
 -- ---------------------------------------------------------------------------
@@ -1219,8 +1212,7 @@ shrinkInstanceDecl inst =
 
 shrinkStandaloneDerivingDecl :: StandaloneDerivingDecl -> [StandaloneDerivingDecl]
 shrinkStandaloneDerivingDecl sd =
-  [sd {standaloneDerivingHead = head'} | head' <- shrinkInstanceHeadName shrinkName (standaloneDerivingHead sd)]
-    <> [sd {standaloneDerivingHead = head'} | head' <- shrinkInstanceHeadTypes (standaloneDerivingHead sd)]
+  [sd {standaloneDerivingHead = head'} | head' <- shrinkType (standaloneDerivingHead sd)]
     <> [sd {standaloneDerivingContext = ctx'} | ctx' <- shrinkList shrinkType (standaloneDerivingContext sd)]
 
 -- ---------------------------------------------------------------------------
@@ -1355,22 +1347,6 @@ shrinkBinderHeadParams head' =
           lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
           _ -> []
       ]
-
-shrinkInstanceHeadName :: (name -> [name]) -> InstanceHead name -> [InstanceHead name]
-shrinkInstanceHeadName shrinkNameFn head' =
-  case head' of
-    PrefixInstanceHead name tys -> [PrefixInstanceHead name' tys | name' <- shrinkNameFn name]
-    InfixInstanceHead lhs name rhs tailTypes -> [InfixInstanceHead lhs name' rhs tailTypes | name' <- shrinkNameFn name]
-
-shrinkInstanceHeadTypes :: InstanceHead name -> [InstanceHead name]
-shrinkInstanceHeadTypes head' =
-  case head' of
-    PrefixInstanceHead name tys ->
-      [PrefixInstanceHead name tys' | tys' <- shrinkTypeHeadTypes TypeHeadPrefix tys]
-    InfixInstanceHead lhs name rhs tailTypes ->
-      [InfixInstanceHead lhs' name rhs tailTypes | lhs' <- shrinkType lhs]
-        <> [InfixInstanceHead lhs name rhs' tailTypes | rhs' <- shrinkType rhs]
-        <> [InfixInstanceHead lhs name rhs tailTypes' | tailTypes' <- shrinkList shrinkType tailTypes]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

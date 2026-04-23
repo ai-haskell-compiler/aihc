@@ -816,7 +816,7 @@ prettyInstanceDecl decl =
               <> maybe [] (\w -> [prettyInstanceWarning w]) (instanceDeclWarning decl)
               <> forallTyVarBinderPrefix (instanceDeclForall decl)
               <> contextPrefix (instanceDeclContext decl)
-              <> [instanceHeadDoc decl]
+              <> [prettyType (instanceDeclHead decl)]
           )
    in case instanceDeclItems decl of
         [] -> headDoc
@@ -838,44 +838,8 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\w -> [prettyInstanceWarning w]) (standaloneDerivingWarning decl)
         <> forallTyVarBinderPrefix (standaloneDerivingForall decl)
         <> contextPrefix (standaloneDerivingContext decl)
-        <> [standaloneDerivingHeadDoc decl]
+        <> [prettyType (standaloneDerivingHead decl)]
     )
-
-instanceHeadDoc :: InstanceDecl -> Doc ann
-instanceHeadDoc decl =
-  prettyInstanceHeadDoc
-    (instanceDeclParenthesizedHead decl)
-    prettyPrefixName
-    prettyNameInfixOp
-    (instanceDeclHead decl)
-
-standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
-standaloneDerivingHeadDoc decl =
-  prettyInstanceHeadDoc
-    (standaloneDerivingParenthesizedHead decl)
-    prettyPrefixName
-    prettyNameInfixOp
-    (standaloneDerivingHead decl)
-
--- | Pretty-print an instance head, handling parenthesization of infix heads
--- with trailing type arguments.
---
--- For @instance (f \`C\` g) x@, the infix part @f \`C\` g@ is parenthesized
--- and the trailing @x@ appears outside the parens.
-prettyInstanceHeadDoc :: Bool -> (name -> Doc ann) -> (name -> Doc ann) -> InstanceHead name -> Doc ann
-prettyInstanceHeadDoc isParenthesized prettyPrefix prettyInfix head' =
-  case head' of
-    PrefixInstanceHead name tys ->
-      maybeParenthesize isParenthesized $
-        hsep (prettyPrefix name : map prettyType tys)
-    InfixInstanceHead lhs name rhs tailTypes ->
-      let infixPart = prettyType lhs <+> prettyInfix name <+> prettyType rhs
-       in hsep (maybeParenthesize isParenthesized infixPart : map prettyType tailTypes)
-
-maybeParenthesize :: Bool -> Doc ann -> Doc ann
-maybeParenthesize shouldParen doc
-  | shouldParen = parens doc
-  | otherwise = doc
 
 prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
 prettyInstanceOverlapPragma pragma' =
