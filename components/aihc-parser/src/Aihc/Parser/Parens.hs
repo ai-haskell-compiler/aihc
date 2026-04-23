@@ -210,7 +210,12 @@ needsExprParens ctx expr =
       case expr of
         EInfix {} -> True
         ETypeSig {} -> True
-        ENegate {} -> True
+        -- ENegate does NOT need parenthesization in infix RHS position.
+        -- GHC already rejects `x + - 1` (precedence >= 6) at parse time,
+        -- so any ENegate appearing as the RHS of an infix operator in a
+        -- successfully parsed module is guaranteed to be valid without
+        -- parentheses. Wrapping in EParen would introduce a spurious HsPar
+        -- in the GHC AST, causing roundtrip fingerprint mismatches.
         _ | protectOpenEnded && isOpenEnded expr -> True
         _ -> False
     CtxInfixLhs ->
