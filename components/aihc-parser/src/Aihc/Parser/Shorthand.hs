@@ -368,6 +368,12 @@ docDataConDecl dcd =
       "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
     GadtCon forallBinders constraints names body ->
       "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
+    TupleCon forallVars constraints flavor fields' ->
+      "TupleCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> [field "flavor" (pretty (show flavor))] <> listField "fields" docBangType fields')))
+    UnboxedSumCon forallVars constraints pos arity field' ->
+      "UnboxedSumCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> [field "pos" (pretty (show pos)), field "arity" (pretty (show arity)), field "field" (docBangType field')])))
+    ListCon forallVars constraints ->
+      "ListCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints)))
 
 -- | Document a GADT body
 docGadtBody :: GadtBody -> Doc ann

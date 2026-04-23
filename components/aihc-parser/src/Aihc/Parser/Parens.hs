@@ -513,6 +513,12 @@ addDataConDeclParens con =
       RecordCon forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
     GadtCon forallBinders constraints names body ->
       GadtCon forallBinders (addContextConstraints constraints) names (addGadtBodyParens body)
+    TupleCon forallVars constraints flavor fields ->
+      TupleCon forallVars (addContextConstraints constraints) flavor (map addPrefixConBangTypeParens fields)
+    UnboxedSumCon forallVars constraints pos arity field ->
+      UnboxedSumCon forallVars (addContextConstraints constraints) pos arity (addPrefixConBangTypeParens field)
+    ListCon forallVars constraints ->
+      ListCon forallVars (addContextConstraints constraints)
 
 addBangTypeParens :: BangType -> BangType
 addBangTypeParens bt =

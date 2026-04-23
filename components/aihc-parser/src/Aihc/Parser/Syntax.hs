@@ -1444,6 +1444,13 @@ data DataConDecl
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
     GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
+  | -- | Tuple-style constructor: @()@, @(a,b)@, @(# #)@, @(# a,b #)@
+    TupleCon [Text] [Type] TupleFlavor [BangType]
+  | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
+    -- Fields: forall vars, context, position (1-based), total arity, field type
+    UnboxedSumCon [Text] [Type] Int Int BangType
+  | -- | List constructor: @[]@
+    ListCon [Text] [Type]
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Strip nested 'DataConAnn' wrappers.
@@ -1636,6 +1643,7 @@ data CallConv
   = CCall
   | StdCall
   | CApi
+  | CPrim
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignSafety
