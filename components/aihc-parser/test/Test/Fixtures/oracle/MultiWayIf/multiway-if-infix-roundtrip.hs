@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail roundtrip mismatch: aihc-parser over-parenthesizes MultiWayIf in infix context -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiWayIf #-}
 module MultiWayIfInfixRoundtrip where
 
