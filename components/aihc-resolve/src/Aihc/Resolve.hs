@@ -723,12 +723,9 @@ dataConAnnotation scope dataConDecl =
       go d =
         case d of
           DataConAnn _ inner -> go inner
-          PrefixCon _ _ name _ ->
-            topLevelNameAnnotation scope span' name
-          RecordCon _ _ name _ ->
-            topLevelNameAnnotation scope span' name
-          InfixCon _ _ _ name _ ->
-            topLevelNameAnnotation scope span' name
+          PrefixCon _ _ name _ -> topLevelNameAnnotation scope span' name
+          RecordCon _ _ name _ -> topLevelNameAnnotation scope span' name
+          InfixCon _ _ _ name _ -> topLevelNameAnnotation scope span' name
           GadtCon _ _ names _ ->
             case names of
               name : _ -> topLevelNameAnnotation scope span' name

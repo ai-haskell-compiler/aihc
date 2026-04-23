@@ -30,6 +30,13 @@ in rec {
     ".inc"
   ];
 
+  fcSrc = mkComponentSrc "/components/aihc-fc" [
+    ".hs"
+    ".cabal"
+    ".yaml"
+    ".yml"
+  ];
+
   parserCliSrc = mkComponentSrc "/components/aihc-parser-cli" [
     ".hs"
     ".cabal"

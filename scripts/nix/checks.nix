@@ -30,6 +30,7 @@
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   parserCliTests = mkPackageTest hsPkgs.aihc-parser-cli;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
+  fcTests = mkPackageTest hsPkgs.aihc-fc;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
 
@@ -95,6 +96,7 @@ in {
   parser-tests = parserTests;
   parser-cli-tests = parserCliTests;
   cpp-tests = cppTests;
+  fc-tests = fcTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
   cpp-doctest = cppDoctest;
@@ -120,6 +122,10 @@ in {
     {
       name = "cpp-tests";
       path = cppTests;
+    }
+    {
+      name = "fc-tests";
+      path = fcTests;
     }
     {
       name = "resolve-tests";

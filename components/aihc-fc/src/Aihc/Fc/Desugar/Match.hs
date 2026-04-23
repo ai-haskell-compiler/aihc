@@ -18,9 +18,11 @@ import Aihc.Parser.Syntax
   ( DataConDecl (..),
     Name (..),
     Pattern (..),
+    TupleFlavor (..),
     UnqualifiedName (..),
   )
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Desugar a surface pattern into a Core alt constructor, pure version.
 --
@@ -61,9 +63,23 @@ dsDataConPure (InfixCon _docs _ctx _lhs conName _rhs) =
 dsDataConPure (RecordCon _docs _ctx conName _fields) =
   (unqualifiedNameText conName, 0)
 dsDataConPure (GadtCon {}) = ("<gadt>", 0)
-dsDataConPure (TupleCon _docs _ctx _flavor args) = ("<tuple>", length args)
-dsDataConPure (UnboxedSumCon _docs _ctx _pos _arity _field) = ("<unboxed-sum>", 1)
-dsDataConPure (ListCon _docs _ctx) = ("[]", 0)
+dsDataConPure (TupleCon _docs _ctx flavor fields) =
+  (tupleConText flavor (length fields), length fields)
+dsDataConPure (UnboxedSumCon _docs _ctx pos arity _field) =
+  (unboxedSumConText pos arity, 1)
+dsDataConPure (ListCon {}) = ("[]", 0)
+
+tupleConText :: TupleFlavor -> Int -> Text
+tupleConText flavor fieldCount =
+  case flavor of
+    Boxed -> "(" <> T.replicate (max 0 (fieldCount - 1)) "," <> ")"
+    Unboxed -> "(#" <> T.replicate (max 0 (fieldCount - 1)) "," <> "#)"
+
+unboxedSumConText :: Int -> Int -> Text
+unboxedSumConText pos arity =
+  let leftBars = T.replicate (max 0 (pos - 1)) "| "
+      rightBars = T.replicate (max 0 (arity - pos)) " |"
+   in "(# " <> leftBars <> "_" <> rightBars <> " #)"
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

@@ -29,7 +29,6 @@ import Test.Properties.Arb.Identifiers
     genVarUnqualifiedName,
     isValidGeneratedVarSym,
     shrinkIdent,
-    shrinkName,
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
@@ -1165,6 +1164,14 @@ shrinkDataConDecl con =
         <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
         <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
         <> [GadtCon forall'' ctx names body | forall'' <- shrinkForallTelescopes forall']
+    TupleCon forall' ctx flavor fields ->
+      [TupleCon forall' ctx flavor fields' | fields' <- shrinkList shrinkBangType fields]
+        <> [TupleCon forall' ctx' flavor fields | ctx' <- shrinkList shrinkType ctx]
+    UnboxedSumCon forall' ctx pos arity field ->
+      [UnboxedSumCon forall' ctx pos arity field' | field' <- shrinkBangType field]
+        <> [UnboxedSumCon forall' ctx' pos arity field | ctx' <- shrinkList shrinkType ctx]
+    ListCon forall' ctx ->
+      [ListCon forall' ctx' | ctx' <- shrinkList shrinkType ctx]
 
 shrinkGadtBody :: GadtBody -> [GadtBody]
 shrinkGadtBody body =
@@ -1321,12 +1328,6 @@ shrinkTypeHeadParams headForm params =
   case headForm of
     TypeHeadPrefix -> shrinkTyVarBinders params
     TypeHeadInfix -> [ps' | ps' <- shrinkTyVarBinders params, length ps' >= 2]
-
-shrinkTypeHeadTypes :: TypeHeadForm -> [Type] -> [[Type]]
-shrinkTypeHeadTypes headForm tys =
-  case headForm of
-    TypeHeadPrefix -> shrinkList shrinkType tys
-    TypeHeadInfix -> [tys' | tys' <- shrinkList shrinkType tys, length tys' >= 2]
 
 shrinkBinderHeadName :: (name -> [name]) -> BinderHead name -> [BinderHead name]
 shrinkBinderHeadName shrinkNameFn head' =

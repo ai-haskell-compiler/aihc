@@ -16,6 +16,7 @@ import Aihc.Parser.Syntax
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    FieldDecl (..),
     GadtBody (..),
     Match (..),
     Module (..),
@@ -286,30 +287,12 @@ registerDataDecl dd = do
 registerDataCon :: TyCon -> Map Text TyVarId -> [TyVarId] -> DataConDecl -> TcM TcBindingResult
 registerDataCon tc paramMap paramVarIds con = case con of
   DataConAnn _ inner -> registerDataCon tc paramMap paramVarIds inner
-  PrefixCon _docs _ctx conName _args ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
-  InfixCon _docs _ctx _lhs conName _rhs ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
-  RecordCon _docs _ctx conName _fields ->
-    let name = unqualifiedNameText conName
-        resTy = TcTyCon tc (map TcTyVar paramVarIds)
-        scheme = ForAll paramVarIds [] resTy
-     in do
-          extendTermEnvPermanent name (TcIdBinder name scheme)
-          zonkedTy <- zonkType resTy
-          pure (TcBindingResult name zonkedTy)
+  PrefixCon _docs _ctx conName args ->
+    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType) args)
+  InfixCon _docs _ctx lhs conName rhs ->
+    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType) [lhs, rhs])
+  RecordCon _docs _ctx conName fields ->
+    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType . fieldType) fields)
   GadtCon _forallBinders _ctx names body ->
     -- Parse the GADT constructor's declared result type.
     let resultSurfTy = gadtBodyResultType body
@@ -320,12 +303,12 @@ registerDataCon tc paramMap paramVarIds con = case con of
         conTy = foldr TcFunTy gadtResTy gadtArgTys
         -- GADT constructors are universally quantified over no extra vars
         -- (the data type's params are handled via given equalities on match).
-        scheme = ForAll [] [] conTy
+        gadtScheme = ForAll [] [] conTy
      in do
           mapM_
             ( \n -> do
                 let nm = unqualifiedNameText n
-                extendTermEnvPermanent nm (TcIdBinder nm scheme)
+                extendTermEnvPermanent nm (TcIdBinder nm gadtScheme)
                 markGadtCon nm
             )
             names
@@ -334,12 +317,26 @@ registerDataCon tc paramMap paramVarIds con = case con of
               zonkedTy <- zonkType conTy
               pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
             [] -> pure (TcBindingResult "<gadt>" gadtResTy)
-  TupleCon {} ->
-    pure (TcBindingResult "<tuple-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
-  UnboxedSumCon {} ->
-    pure (TcBindingResult "<unboxed-sum-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
-  ListCon {} ->
-    pure (TcBindingResult "<list-constructor>" (TcTyCon tc (map TcTyVar paramVarIds)))
+  TupleCon _docs _ctx _flavor fields ->
+    registerAnonymousDataCon "<tuple-constructor>" (map (convertSurfaceType paramMap . bangType) fields)
+  UnboxedSumCon _docs _ctx _pos _arity field ->
+    registerAnonymousDataCon "<unboxed-sum-constructor>" [convertSurfaceType paramMap (bangType field)]
+  ListCon _docs _ctx -> registerAnonymousDataCon "<list-constructor>" []
+  where
+    resTy = TcTyCon tc (map TcTyVar paramVarIds)
+    conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
+
+    registerNamedDataCon name argTys = do
+      let conTy = foldr TcFunTy resTy argTys
+          scheme = conScheme argTys
+      extendTermEnvPermanent name (TcIdBinder name scheme)
+      zonkedTy <- zonkType conTy
+      pure (TcBindingResult name zonkedTy)
+
+    registerAnonymousDataCon displayName argTys = do
+      let conTy = foldr TcFunTy resTy argTys
+      zonkedTy <- zonkType conTy
+      pure (TcBindingResult displayName zonkedTy)
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]
