@@ -1279,7 +1279,7 @@ typeFamilyLhsParser = do
   case hasInfixTail of
     Just _ -> do
       rest <- typeHeadInfixTailParser
-      pure (TypeHeadInfix, foldl buildInfixType lhs rest)
+      pure (TypeHeadInfix, foldInfixR buildInfixType lhs rest)
     Nothing ->
       pure (TypeHeadPrefix, lhs)
   where

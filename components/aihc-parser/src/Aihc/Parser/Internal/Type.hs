@@ -122,7 +122,7 @@ typeInfixParser :: TokParser Type
 typeInfixParser = do
   lhs <- typeAppParser
   rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
-  pure (foldl buildInfixType lhs rest)
+  pure (foldInfixR buildInfixType lhs rest)
 
 -- | Parse a type head that may contain infix operators but NOT type applications.
 -- Used for type family heads like @type family l `And` r@ where the head is
@@ -130,7 +130,7 @@ typeInfixParser = do
 typeHeadInfixParser :: TokParser Type
 typeHeadInfixParser = do
   lhs <- typeAtomParser
-  foldl buildInfixType lhs <$> typeHeadInfixLoopParser
+  foldInfixR buildInfixType lhs <$> typeHeadInfixLoopParser
 
 typeHeadInfixLoopParser :: TokParser [((Name, TypePromotion), Type)]
 typeHeadInfixLoopParser = MP.many $ MP.try $ do

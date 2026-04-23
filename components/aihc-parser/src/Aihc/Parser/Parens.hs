@@ -209,7 +209,10 @@ needsExprParens ctx expr =
   case ctx of
     CtxInfixRhs protectOpenEnded ->
       case expr of
-        EInfix {} -> True
+        -- EInfix on the RHS does NOT need parenthesization: the parser
+        -- builds right-associated chains, so nested infix on the RHS is
+        -- the natural nesting direction.  Printing without parens
+        -- produces the same text as the original source.
         ETypeSig {} -> True
         -- ENegate does NOT need parenthesization in infix RHS position.
         -- GHC already rejects `x + - 1` (precedence >= 6) at parse time,
@@ -221,6 +224,11 @@ needsExprParens ctx expr =
         _ -> False
     CtxInfixLhs ->
       case expr of
+        -- EInfix on the LHS needs parenthesization: the parser builds
+        -- right-associated chains, so a nested EInfix on the LHS can only
+        -- appear when the source had explicit parentheses.  Without the
+        -- wrapping, the re-parsed tree would right-associate differently.
+        EInfix {} -> True
         ETypeSig {} -> True
         _ -> isOpenEnded expr
     CtxAppFun ->

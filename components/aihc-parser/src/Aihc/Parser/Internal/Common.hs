@@ -60,6 +60,7 @@ module Aihc.Parser.Internal.Common
     qualifiedVarName,
     liftCheck,
     infixOperatorParserExcept,
+    foldInfixR,
   )
 where
 
@@ -588,7 +589,7 @@ contextItemParserWith typeParser typeAtomParser =
     constraintTypeParser = do
       first <- constraintTypeAppParser
       rest <- MP.many ((,) <$> constraintTypeInfixOperatorParser <*> constraintTypeAppParser)
-      pure (foldl buildInfixType first rest)
+      pure (foldInfixR buildInfixType first rest)
     constraintTypeAppParser = do
       first <- typeAtomParser
       rest <- MP.many typeAtomParser
@@ -600,7 +601,7 @@ contextItemParserWith typeParser typeAtomParser =
     kindTypeParser = do
       first <- constraintTypeAppParser
       rest <- MP.many ((,) <$> constraintTypeInfixOperatorParser <*> constraintTypeAppParser)
-      let baseType = foldl buildInfixType first rest
+      let baseType = foldInfixR buildInfixType first rest
       mRhs <- MP.optional (expectedTok TkReservedRightArrow *> kindTypeParser)
       case mRhs of
         Just rhs ->
@@ -973,3 +974,16 @@ infixOperatorParserExcept forbidden =
       op <- identifierNameParser
       expectedTok TkSpecialBacktick
       if allowed op then pure op else fail "forbidden infix operator"
+
+-- | Build a right-associated infix chain from a left operand and a list
+-- of @(operator, operand)@ pairs.  Given @lhs@ and
+-- @[(op1, a), (op2, b), (op3, c)]@ this produces
+-- @lhs \`op1\` (a \`op2\` (b \`op3\` c))@.
+--
+-- Right-association is the correct default when no fixity information is
+-- available: the end-user of the library is responsible for
+-- re-associating the tree according to operator precedence.
+foldInfixR :: (a -> (op, a) -> a) -> a -> [(op, a)] -> a
+foldInfixR _ lhs [] = lhs
+foldInfixR build lhs ((op, rhs) : rest) =
+  build lhs (op, foldInfixR build rhs rest)
