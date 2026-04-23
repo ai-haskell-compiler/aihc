@@ -24,6 +24,13 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-fc = {
+      src = sources.fcSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-resolve = {
       src = sources.resolveSrc;
       disableProfiling = true;
@@ -98,9 +105,17 @@ in rec {
     disableOptimization ? false,
     enableDocs ? false,
     enableCoverage ? false,
+    warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
     localPackageNames = (builtins.attrNames componentSpecs) ++ ["aihc-hackage"];
+    enableWarningsAsErrors = drv:
+      if warningsAsErrors
+      then
+        hsLib.overrideCabal drv (old: {
+          configureFlags = (old.configureFlags or []) ++ ["--ghc-options=-Werror"];
+        })
+      else drv;
 
     mkComponent = final: name: spec: let
       baseDrv = final.callCabal2nix name (spec.src pkgs) {};
@@ -116,7 +131,8 @@ in rec {
         if enableCoverage && spec.supportsCoverage
         then enableCoverageWithExport hsLib optimizationAdjusted
         else optimizationAdjusted;
-      checksAdjusted = hsLib.dontCheck coverageAdjusted;
+      warningsAdjusted = enableWarningsAsErrors coverageAdjusted;
+      checksAdjusted = hsLib.dontCheck warningsAdjusted;
       haddockMode =
         if enableDocs
         then
@@ -145,6 +161,7 @@ in rec {
   mkHsPkgsForChecks = pkgs:
     mkHsPkgsVariant pkgs {
       disableOptimization = true;
+      warningsAsErrors = true;
     };
 
   mkHsPkgsWithHaddock = pkgs:

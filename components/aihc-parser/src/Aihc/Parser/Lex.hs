@@ -539,10 +539,12 @@ lexTypeApplication env st
       case t of
         c :< _
           | isIdentStart c -> True
+          | isDigit c -> True
           | c == '(' -> True
           | c == '[' -> True
           | c == '_' -> True
           | c == '\'' -> True
+          | c == '"' -> True
         _ -> False
 
 lexOverloadedLabel :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
