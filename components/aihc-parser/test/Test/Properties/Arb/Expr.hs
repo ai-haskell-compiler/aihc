@@ -463,7 +463,10 @@ shrinkOverloadedLabel value raw
 
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
-shrinkExpr expr =
+shrinkExpr expr = filter (/= expr) (shrinkExprCandidates expr)
+
+shrinkExprCandidates :: Expr -> [Expr]
+shrinkExprCandidates expr =
   case expr of
     EVar name -> [EVar name' | name' <- shrinkName name]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]

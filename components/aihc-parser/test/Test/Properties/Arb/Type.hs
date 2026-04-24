@@ -249,7 +249,10 @@ genSymbolText = do
   pure (T.pack chars)
 
 shrinkType :: Type -> [Type]
-shrinkType ty =
+shrinkType ty = filter (/= ty) (shrinkTypeCandidates ty)
+
+shrinkTypeCandidates :: Type -> [Type]
+shrinkTypeCandidates ty =
   case ty of
     TVar name ->
       [TVar $ unqualifiedNameFromText "a"]

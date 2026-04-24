@@ -989,7 +989,10 @@ genSimpleConstraint =
 -- ---------------------------------------------------------------------------
 
 shrinkDecl :: Decl -> [Decl]
-shrinkDecl decl =
+shrinkDecl decl = filter (/= decl) (shrinkDeclCandidates decl)
+
+shrinkDeclCandidates :: Decl -> [Decl]
+shrinkDeclCandidates decl =
   case decl of
     DeclAnn _ inner -> inner : shrinkDecl inner
     DeclValue vd -> map DeclValue (shrinkValueDecl vd)

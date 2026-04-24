@@ -147,6 +147,11 @@ endsWithTypeSig = \case
   ETypeSig {} -> True
   ELetDecls _ body -> endsWithTypeSig body
   ELambdaPats _ body -> endsWithTypeSig body
+  EIf _ _ elseBranch -> endsWithTypeSig elseBranch
+  EMultiWayIf guardedRhss ->
+    case guardedRhss of
+      [] -> False
+      _ -> endsWithTypeSig (guardedRhsBody (last guardedRhss))
   EInfix _ _ rhs -> endsWithTypeSig rhs
   _ -> False
 
@@ -1211,6 +1216,8 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PInfix {} -> wrapPat True (addPatternParens pat)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.

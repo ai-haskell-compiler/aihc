@@ -29,6 +29,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
+import Test.Properties.Arb.Type (shrinkType)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
@@ -256,6 +257,7 @@ buildTests = do
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "shrinking minimal type variables does not reproduce the original type" test_shrunkMinimalTypeVariablesDoNotReproduceOriginalType,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
@@ -311,6 +313,7 @@ buildTests = do
             testCase "parses explicit type syntax patterns" test_explicitTypeSyntaxPatternParses,
             testCase "parses lambda type binders" test_lambdaTypeBinderParses,
             testCase "parses function head type binders" test_functionHeadTypeBinderParses,
+            testCase "parses backquoted variable infix function heads" test_backquotedVariableInfixFunctionHeadParses,
             testCase "parses invisible type declaration binders" test_invisibleTypeDeclBinderParses,
             testCase "parses invisible type applications in type synonym rhs" test_typeSynonymRhsInvisibleTypeAppParses,
             testCase "parses expression type applications with string literals" test_exprStringTypeApplicationParses,
@@ -820,6 +823,18 @@ test_classOperatorTypeSigParses =
               binderHeadName (classDeclHead classDecl) == "C#" ->
                 pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_backquotedVariableInfixFunctionHeadParses :: Assertion
+test_backquotedVariableInfixFunctionHeadParses =
+  case parseDecl defaultConfig "[] `a` (:+) = ()" of
+    ParseOk decl ->
+      case normalizeDecl decl of
+        DeclValue (FunctionBind name [Match {matchHeadForm = MatchHeadInfix, matchPats = [PList [], PCon con [] []]}])
+          | name == mkUnqualifiedName NameVarId "a",
+            con == mkName Nothing NameConSym ":+" ->
+              pure ()
+        other -> assertFailure ("unexpected parsed declaration: " <> show other)
+    other -> assertFailure ("expected parse success, got: " <> show other)
 
 test_explicitAssociatedTypeFamilyDeclParses :: Assertion
 test_explicitAssociatedTypeFamilyDeclParses =
@@ -1538,6 +1553,12 @@ test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
 test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
+
+test_shrunkMinimalTypeVariablesDoNotReproduceOriginalType :: Assertion
+test_shrunkMinimalTypeVariablesDoNotReproduceOriginalType =
+  let ty = TVar (mkUnqualifiedName NameVarId "a")
+   in assertBool "type shrinking must not return the original input" $
+        ty `notElem` shrinkType ty
 
 test_generatedIdentifiersAcceptUnicodeVariableCharacters :: Assertion
 test_generatedIdentifiersAcceptUnicodeVariableCharacters = do

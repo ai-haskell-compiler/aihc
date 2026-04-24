@@ -194,7 +194,10 @@ renderFloat :: Rational -> T.Text
 renderFloat value = T.pack (show (fromRational value :: Double))
 
 shrinkPattern :: Pattern -> [Pattern]
-shrinkPattern pat =
+shrinkPattern pat = filter (/= pat) (shrinkPatternCandidates pat)
+
+shrinkPatternCandidates :: Pattern -> [Pattern]
+shrinkPatternCandidates pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar name ->

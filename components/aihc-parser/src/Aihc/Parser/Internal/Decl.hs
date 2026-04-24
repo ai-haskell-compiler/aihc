@@ -785,7 +785,7 @@ fixityItemParser ann ctor = withSpanAnn ann $ do
 
 valueItemParser :: (SourceSpan -> a -> a) -> (ValueDecl -> a) -> TokParser a
 valueItemParser ann ctor = withSpanAnn ann $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith appPatternParser simplePatternParser
   ctor . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
@@ -1581,7 +1581,7 @@ patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith appPatternParser simplePatternParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 -- ---------------------------------------------------------------------------

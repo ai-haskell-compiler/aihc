@@ -1179,7 +1179,7 @@ localTypeSigDeclsParser = do
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith appPatternParser simplePatternParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 localPatternDeclParser :: TokParser Decl

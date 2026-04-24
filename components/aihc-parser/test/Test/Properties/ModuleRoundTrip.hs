@@ -18,14 +18,15 @@ import Test.QuickCheck
 
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+  let parenthesized = addModuleParens modu
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
       (errs, reparsed) = parseModule moduleConfig source
       reparsedSource = renderStrict (layoutPretty defaultLayoutOptions (pretty reparsed))
    in counterexample ("Original source:\n" <> T.unpack source) $
         counterexample ("Reparsed source:\n" <> T.unpack reparsedSource) $
           case errs of
             [] ->
-              let expected = normalizeModule (addModuleParens modu)
+              let expected = normalizeModule parenthesized
                   actual = normalizeModule reparsed
                in counterexample ("Original AST:\n" <> show (shorthand expected) <> "\nActual AST:\n" <> show (shorthand actual)) (expected == actual)
             _ ->
