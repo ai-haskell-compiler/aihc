@@ -148,6 +148,7 @@ endsWithTypeSig = \case
   ELetDecls _ body -> endsWithTypeSig body
   ELambdaPats _ body -> endsWithTypeSig body
   EInfix _ _ rhs -> endsWithTypeSig rhs
+  EIf _ _ no -> endsWithTypeSig no
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
