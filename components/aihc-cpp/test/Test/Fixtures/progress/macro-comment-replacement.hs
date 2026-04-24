@@ -1,2 +1,3 @@
 #  define DEBUG_TRACE(s)    {- nothing -}
-DEBUG_TRACE(id)
+DEBUG_TRACE
+  (id)
