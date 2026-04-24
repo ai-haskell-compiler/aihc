@@ -354,22 +354,25 @@ prettyFunctionHead name headForm pats =
         _ ->
           hsep (prettyBinderUName name : map prettyPattern pats)
 
-prettyRhs :: Rhs -> Doc ann
-prettyRhs rhs =
+prettyRhsWith :: (body -> Doc ann) -> Text -> Rhs body -> Doc ann
+prettyRhsWith prettyBody arrow rhs =
   case rhs of
-    UnguardedRhs _ expr whereDecls ->
-      "="
-        <+> prettyExpr expr
+    UnguardedRhs _ body whereDecls ->
+      pretty arrow
+        <+> prettyBody body
         <> prettyWhereClause whereDecls
     GuardedRhss _ guards whereDecls ->
       hsep
         [ "|"
             <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
-            <+> "="
-            <+> prettyExpr (guardedRhsBody grhs)
+            <+> pretty arrow
+            <+> prettyBody (guardedRhsBody grhs)
         | grhs <- guards
         ]
         <> prettyWhereClause whereDecls
+
+prettyRhs :: Rhs Expr -> Doc ann
+prettyRhs = prettyRhsWith prettyExpr "="
 
 prettyWhereClause :: Maybe [Decl] -> Doc ann
 prettyWhereClause Nothing = mempty
@@ -462,6 +465,7 @@ prettyPattern pat =
     PWildcard -> "_"
     PLit lit -> prettyLiteral lit
     PQuasiQuote quoter body -> prettyQuasiQuote quoter body
+    PTuple Unboxed [] -> "(# #)"
     PTuple tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
     PUnboxedSum altIdx arity inner ->
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
@@ -482,7 +486,7 @@ prettyPattern pat =
           ( hsep
               ( punctuate
                   comma
-                  ( [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                  ( [prettyPatternFieldBinding field | field <- fields]
                       ++ [".." | hasWildcard]
                   )
               )
@@ -491,11 +495,11 @@ prettyPattern pat =
     PSplice body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
-prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
-prettyPatternFieldBinding fieldName fieldPat =
-  case peelPatternAnn fieldPat of
-    PVar varName | renderUnqualifiedName varName == renderName fieldName -> pretty fieldName
-    _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
+prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
+prettyPatternFieldBinding field =
+  if recordFieldPun field
+    then pretty (recordFieldName field)
+    else pretty (recordFieldName field) <+> "=" <+> prettyPattern (recordFieldValue field)
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
@@ -1139,6 +1143,7 @@ prettyExpr expr =
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
     EParen inner -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
+    ETuple Unboxed [] -> "(# #)"
     ETuple tupleFlavor values ->
       prettyTupleBody
         tupleFlavor
@@ -1169,19 +1174,19 @@ prettyTupleBody tupleFlavor inner =
     Boxed -> parens inner
     Unboxed -> hsep ["(#", inner, "#)"]
 
-prettyBinding :: (Name, Expr) -> Doc ann
-prettyBinding (name, value) =
-  case peelExprAnn value of
-    EVar varName | varName == name -> prettyName name
-    _ -> prettyName name <+> "=" <+> prettyExpr value
+prettyBinding :: RecordField Expr -> Doc ann
+prettyBinding field =
+  if recordFieldPun field
+    then prettyName (recordFieldName field)
+    else prettyName (recordFieldName field) <+> "=" <+> prettyExpr (recordFieldValue field)
 
-prettyCaseAlt :: CaseAlt -> Doc ann
-prettyCaseAlt (CaseAlt _ pat rhs) =
+prettyCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
+prettyCaseAltWith prettyBody (CaseAlt _ pat rhs) =
   case rhs of
     UnguardedRhs _ body whereDecls ->
       prettyPattern pat
         <+> "->"
-        <+> prettyExpr body
+        <+> prettyBody body
         <> prettyWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       hsep
@@ -1190,11 +1195,14 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
             [ "|"
                 <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
                 <+> "->"
-                <+> prettyExpr (guardedRhsBody grhs)
+                <+> prettyBody (guardedRhsBody grhs)
             | grhs <- grhss
             ]
         ]
         <> prettyWhereClause whereDecls
+
+prettyCaseAlt :: CaseAlt Expr -> Doc ann
+prettyCaseAlt = prettyCaseAltWith prettyExpr
 
 prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
@@ -1275,9 +1283,8 @@ prettyCmdStmt stmt =
     DoExpr cmd' -> prettyCmd cmd'
     DoRecStmt stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
 
-prettyCmdCaseAlt :: CmdCaseAlt -> Doc ann
-prettyCmdCaseAlt alt =
-  prettyPattern (cmdCaseAltPat alt) <+> "->" <+> prettyCmd (cmdCaseAltBody alt)
+prettyCmdCaseAlt :: CaseAlt Cmd -> Doc ann
+prettyCmdCaseAlt = prettyCaseAltWith prettyCmd
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =

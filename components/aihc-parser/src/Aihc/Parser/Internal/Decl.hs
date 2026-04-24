@@ -1693,7 +1693,7 @@ patSynWhereClauseParser _name = whereClauseItemsParser patSynWhereMatch
 -- head parser compete for the same constructor operators.
 patSynWhereMatch :: TokParser Match
 patSynWhereMatch = withSpan $ do
-  (headForm, _name, pats) <- functionHeadParserWithBinder patSynNameParser constructorInfixOperatorNameParser appPatternParser simplePatternParser
+  (headForm, _name, pats) <- patSynWhereHeadParser
   rhs <- equationRhsParser
   pure $ \span' ->
     Match
@@ -1702,3 +1702,32 @@ patSynWhereMatch = withSpan $ do
         matchPats = pats,
         matchRhs = rhs
       }
+
+patSynWhereHeadParser :: TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
+patSynWhereHeadParser =
+  MP.try infixHeadParser
+    <|> MP.try parenthesizedInfixHeadParser
+    <|> prefixHeadParser
+  where
+    prefixHeadParser = do
+      name <- patSynNameParser
+      pats <- MP.many simplePatternParser
+      pure (MatchHeadPrefix, name, pats)
+
+    infixHeadParser = do
+      lhsPat <- appPatternParser
+      op <- constructorInfixOperatorNameParser
+      rhsPat <- appPatternParser
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
+
+    -- Prefer the plain infix form above so a parenthesized infix sub-pattern on
+    -- the left-hand side, e.g. @(a :<| b) :> c = ...@, is not mistaken for the
+    -- entire function head.
+    parenthesizedInfixHeadParser = do
+      expectedTok TkSpecialLParen
+      lhsPat <- appPatternParser
+      op <- constructorInfixOperatorNameParser
+      rhsPat <- appPatternParser
+      expectedTok TkSpecialRParen
+      tailPats <- MP.many simplePatternParser
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)

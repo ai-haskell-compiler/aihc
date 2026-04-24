@@ -79,16 +79,7 @@ genPatternConWith = do
 
 genPatternTypeSigWith :: Gen Pattern
 genPatternTypeSigWith = do
-  -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
-  -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
-  -- prints as (-66 :: T) which the parser interprets as negation applied to
-  -- (66 :: T) rather than a type signature on -66.
-  inner <- wrapNegLit <$> genPattern
-  PParen . PTypeSig inner <$> genPatternType
-  where
-    -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
-    wrapNegLit p@(PNegLit {}) = PParen p
-    wrapNegLit p = p
+  PTypeSig <$> genPattern <*> genPatternType
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type
@@ -137,14 +128,14 @@ genRecordPatternWith = do
   fields <- genRecordFieldsWith
   pure (PRecord con fields False)
 
-genRecordFieldsWith :: Gen [(Name, Pattern)]
+genRecordFieldsWith :: Gen [RecordField Pattern]
 genRecordFieldsWith = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
   pats <- vectorOf n genPattern
   quals <- vectorOf n genOptionalQualifier
   let qualifiedNames = zipWith (\q name -> qualifyName q (mkUnqualifiedName NameVarId name)) quals names
-  pure (zip qualifiedNames pats)
+  pure [RecordField fieldName fieldPat False | (fieldName, fieldPat) <- zip qualifiedNames pats]
 
 genLiteral :: Gen Literal
 genLiteral =
@@ -274,10 +265,10 @@ shrinkPatternTupleElems tupleFlavor elems =
            _ -> [PTuple tupleFlavor shrunk]
        ]
 
-shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
-shrinkField (fieldName, fieldPat) =
-  [(fieldName', fieldPat) | fieldName' <- shrinkName fieldName]
-    <> [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
+shrinkField :: RecordField Pattern -> [RecordField Pattern]
+shrinkField field =
+  [field {recordFieldName = fieldName'} | fieldName' <- shrinkName (recordFieldName field)]
+    <> [field {recordFieldValue = shrunk} | shrunk <- shrinkPattern (recordFieldValue field)]
 
 shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =

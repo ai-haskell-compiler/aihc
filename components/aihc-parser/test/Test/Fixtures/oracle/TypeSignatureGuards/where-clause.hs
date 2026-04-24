@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type signature followed by guards in where clause -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 module TypeSignatureGuards where
 

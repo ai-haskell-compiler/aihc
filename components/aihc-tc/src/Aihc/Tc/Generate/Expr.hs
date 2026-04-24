@@ -135,7 +135,7 @@ inferLambda _sp pats body = do
 -- @\\case { pat1 -> e1; pat2 -> e2; ... }@ is treated as a function
 -- from a fresh argument type to the result type of the case
 -- alternatives.
-inferLambdaCase :: SourceSpan -> [CaseAlt] -> TcM (TcType, [Ct])
+inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (TcType, [Ct])
 inferLambdaCase sp alts = do
   argTy <- freshMetaTv
   resTy <- freshMetaTv
@@ -147,7 +147,7 @@ inferLambdaCase sp alts = do
 -- @case scrutinee of { pat1 -> e1; pat2 -> e2; ... }@ is inferred by
 -- checking each alternative against the scrutinee type and unifying all
 -- branch result types with a fresh result type.
-inferCase :: SourceSpan -> Expr -> [CaseAlt] -> TcM (TcType, [Ct])
+inferCase :: SourceSpan -> Expr -> [CaseAlt Expr] -> TcM (TcType, [Ct])
 inferCase sp scrutinee alts = do
   (scrutTy, scrutCts) <- inferExpr scrutinee
   resTy <- freshMetaTv
@@ -166,7 +166,7 @@ inferLambdaCases sp alts = do
 --
 -- Each alternative's pattern is checked against the scrutinee type,
 -- and each RHS must unify with the expected result type.
-inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt] -> TcM [Ct]
+inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM [Ct]
 inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
   where
     inferAlt (CaseAlt altAnns pat rhs) = do
@@ -236,7 +236,7 @@ combineSourceSpan NoSourceSpan fallback = fallback
 combineSourceSpan span' _ = span'
 
 -- | Infer the type of a right-hand side (for case alternatives).
-inferRhs :: Rhs -> TcM (TcType, [Ct])
+inferRhs :: Rhs Expr -> TcM (TcType, [Ct])
 inferRhs (UnguardedRhs _sp expr _decls) = inferExpr expr
 inferRhs (GuardedRhss _sp _guards _decls) = do
   ty <- freshMetaTv

@@ -718,7 +718,7 @@ functionBinderNameParser =
           TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
           _ -> Nothing
 
-functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> ValueDecl
 functionBindValue _headForm name [] rhs =
   -- Zero-argument bindings (e.g. @x = 5@, @x | g = 5@) are pattern bindings,
   -- not function bindings.  'FunctionBind' is reserved for declarations with
@@ -742,7 +742,7 @@ functionBindValue headForm name pats rhs =
         }
     ]
 
-functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
+functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> Decl
 functionBindDecl headForm name pats rhs =
   DeclValue (functionBindValue headForm name pats rhs)
 

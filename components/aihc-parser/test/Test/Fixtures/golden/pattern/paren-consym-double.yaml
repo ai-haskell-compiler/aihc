@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  ((:+))
+ast: PParen (PCon ":+" [])
+status: pass

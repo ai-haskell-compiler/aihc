@@ -2,6 +2,7 @@
 
 module Aihc.Parser.Internal.Pattern
   ( patternParser,
+    patternParserWithTypeSigParser,
     simplePatternParser,
     appPatternParser,
     literalParser,
@@ -20,9 +21,12 @@ import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
 patternParser :: TokParser Pattern
-patternParser = label "pattern" $ do
+patternParser = patternParserWithTypeSigParser typeParser
+
+patternParserWithTypeSigParser :: TokParser Type -> TokParser Pattern
+patternParserWithTypeSigParser typeSigParser = label "pattern" $ do
   pat <- infixPatternParser
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
   case mTypeSig of
     Just ty -> pure (PTypeSig pat ty)
     Nothing -> pure pat
@@ -281,20 +285,20 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           then PCon name [] []
           else PVar (mkUnqualifiedName (nameType name) (nameText name))
 
-recordFieldPatternParser :: TokParser (Name, Pattern)
+recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
-  field <- identifierNameParser
+  field <- identifierNameParser <|> parens operatorNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
       pat <- subpatternWithBareViewParser
-      pure (field, pat)
+      pure (RecordField field pat False)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure (field, PVar (mkUnqualifiedName (nameType field) (nameText field)))
+      pure (RecordField field (PVar (mkUnqualifiedName (nameType field) (nameText field))) True)
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
-recordPatternFieldListParser :: TokParser ([(Name, Pattern)], Bool)
+recordPatternFieldListParser :: TokParser ([RecordField Pattern], Bool)
 recordPatternFieldListParser = do
   rwcEnabled <- isExtensionEnabled RecordWildCards
   fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
@@ -393,7 +397,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- Returns Nothing if the content is not a view pattern.
     viewPatternParser :: LexTokenKind -> TokParser (Maybe Pattern)
     viewPatternParser closeTok = MP.optional . MP.try $ do
-      expr <- exprParser
+      expr <- exprParser <* lookAhead (expectedTok TkReservedRightArrow)
       expectedTok TkReservedRightArrow
       inner <- subpatternWithBareViewParser
       expectedTok closeTok

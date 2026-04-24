@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
@@ -420,8 +421,19 @@ addDeclSpliceParens = addExprParens
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
-    PatternBind pat rhs -> PatternBind (addPatternParens pat) (addRhsParens rhs)
+    PatternBind pat rhs -> PatternBind (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
     FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
+
+addPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
+addPatternBindLhsParens pat rhs =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
+    -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
+    -- dedicated decl parser path. Other typed patterns must stay grouped so the
+    -- parser does not reinterpret them as signatures.
+    PTypeSig inner@(PVar {}) ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
+    _ -> addPatternParens pat
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =
@@ -447,7 +459,7 @@ addFunctionHeadPats _name headForm pats =
                   lhs' : rhs' : map addFunctionHeadPatternAtomParens tailPats
         _ -> map addFunctionHeadPatternAtomParens pats
 
-addRhsParens :: Rhs -> Rhs
+addRhsParens :: Rhs Expr -> Rhs Expr
 addRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -455,7 +467,7 @@ addRhsParens rhs =
     GuardedRhss sp guards whereDecls ->
       GuardedRhss sp (map (addGuardedRhsParens GuardEquals) guards) (fmap (map addDeclParens) whereDecls)
 
-addGuardedRhsParens :: GuardArrow -> GuardedRhs -> GuardedRhs
+addGuardedRhsParens :: GuardArrow -> GuardedRhs Expr -> GuardedRhs Expr
 addGuardedRhsParens arrow grhs =
   grhs
     { guardedRhsGuards = map (addGuardQualifierParens arrow) (guardedRhsGuards grhs),
@@ -777,7 +789,7 @@ addExprParensPrec prec expr =
     EMultiWayIf rhss ->
       wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
     ELambdaPats pats body ->
-      wrapExpr (prec > 0) (ELambdaPats (map addLambdaPatternAtomParens pats) (addExprParens body))
+      wrapExpr (prec > 0) (ELambdaPats (map addArrowBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
     ELambdaCases alts ->
@@ -824,9 +836,9 @@ addExprParensPrec prec expr =
       EListCompParallel (addExprParens body) (map (map addCompStmtParens) qualifierGroups)
     EArithSeq seqInfo -> EArithSeq (addArithSeqParens seqInfo)
     ERecordCon name fields hasWildcard ->
-      ERecordCon name [(n, addExprParens e) | (n, e) <- fields] hasWildcard
+      ERecordCon name [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields] hasWildcard
     ERecordUpd base fields ->
-      ERecordUpd (addExprParensPrec 3 base) [(n, addExprParens e) | (n, e) <- fields]
+      ERecordUpd (addExprParensPrec 3 base) [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields]
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->
@@ -840,7 +852,7 @@ addExprParensPrec prec expr =
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
-      wrapExpr (prec > 0) (EProc (addPatternParens pat) (addCmdParens body))
+      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
     EPragma pragma inner ->
       wrapExpr (prec > 0) (EPragma pragma (addExprParens inner))
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
@@ -873,8 +885,10 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- Bare variable: $name is valid splice syntax without parens.
-    EVar {} -> body
+    -- Bare unqualified variables and operators use the compact splice syntax.
+    -- Qualified names require $(M.name) to remain parseable.
+    EVar name
+      | isNothing (nameQualifier name) -> body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
@@ -887,7 +901,7 @@ addNegateParens inner =
     then wrapExpr True (addExprParens inner)
     else addExprParensPrec 3 inner
 
-addCaseAltParens :: CaseAlt -> CaseAlt
+addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addPatternParens pat) (addCaseAltRhsParens rhs)
 
@@ -899,7 +913,7 @@ addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
         _ -> map addPatternAtomParens pats
    in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
 
-addCaseAltRhsParens :: Rhs -> Rhs
+addCaseAltRhsParens :: Rhs Expr -> Rhs Expr
 addCaseAltRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -1109,8 +1123,8 @@ addPatternParens pat =
     PNegLit lit -> PNegLit lit
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
-      PRecord con [(fieldName, addPatternInDelimited fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
-    PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
+      PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
+    PTypeSig inner ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
@@ -1136,9 +1150,14 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr
+  if endsWithTypeSig expr || isProcExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
+  where
+    isProcExpr e =
+      case peelExprAnn e of
+        EProc {} -> True
+        _ -> False
 
 -- | Check if an operator is the cons operator ':'.
 isConsOperator :: Name -> Bool
@@ -1186,14 +1205,16 @@ addPatternInfixOperandParens pat =
     PCon {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
--- | Add parens for a pattern in lambda argument position.
-addLambdaPatternAtomParens :: Pattern -> Pattern
-addLambdaPatternAtomParens pat =
-  case pat of
-    PAnn ann sub -> PAnn ann (addLambdaPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
-    _ -> addPatternAtomParens pat
+-- | Add parens for a pattern in arrow binder position (lambda/proc).
+-- Type-signatured, negated literal, infix, and non-nullary constructor patterns
+-- must be parenthesized to avoid ambiguity.
+addArrowBndrPatternParens :: Pattern -> Pattern
+addArrowBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PNegLit {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PInfix {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ (_ : _) _) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ [] (_ : _)) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens pat = addPatternParens pat
 
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
@@ -1201,6 +1222,7 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
@@ -1212,6 +1234,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
@@ -1225,6 +1248,7 @@ addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
@@ -1243,7 +1267,7 @@ addCmdParens cmd =
     CmdArrApp lhs appTy rhs ->
       CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
-      CmdInfix (addCmdParens l) op (addCmdParens r)
+      CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
     CmdDo stmts ->
       CmdDo (map addCmdDoStmtParens stmts)
     CmdIf cond yes no ->
@@ -1258,6 +1282,16 @@ addCmdParens cmd =
       CmdApp (addCmdParens c) (addExprParensPrec 3 e)
     CmdPar c ->
       CmdPar (addCmdParens c)
+  where
+    wrapCmdOperand inner =
+      case peelCmdAnn inner of
+        CmdArrApp {} -> CmdPar inner
+        CmdLet {} -> CmdPar inner
+        CmdIf {} -> CmdPar inner
+        CmdCase {} -> CmdPar inner
+        CmdLam {} -> CmdPar inner
+        CmdInfix {} -> CmdPar inner
+        _ -> inner
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
@@ -1268,9 +1302,21 @@ addCmdDoStmtParens stmt =
     DoExpr cmd' -> DoExpr (addCmdParens cmd')
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
 
-addCmdCaseAltParens :: CmdCaseAlt -> CmdCaseAlt
-addCmdCaseAltParens alt =
-  alt
-    { cmdCaseAltPat = addPatternParens (cmdCaseAltPat alt),
-      cmdCaseAltBody = addCmdParens (cmdCaseAltBody alt)
+addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
+addCmdCaseAltParens (CaseAlt anns pat rhs) =
+  CaseAlt anns (addPatternParens pat) (addCmdCaseAltRhsParens rhs)
+
+addCmdCaseAltRhsParens :: Rhs Cmd -> Rhs Cmd
+addCmdCaseAltRhsParens rhs =
+  case rhs of
+    UnguardedRhs sp body whereDecls ->
+      UnguardedRhs sp (addCmdParens body) (fmap (map addDeclParens) whereDecls)
+    GuardedRhss sp guards whereDecls ->
+      GuardedRhss sp (map addCmdGuardedRhsParens guards) (fmap (map addDeclParens) whereDecls)
+
+addCmdGuardedRhsParens :: GuardedRhs Cmd -> GuardedRhs Cmd
+addCmdGuardedRhsParens grhs =
+  grhs
+    { guardedRhsGuards = map (addGuardQualifierParens GuardArrow) (guardedRhsGuards grhs),
+      guardedRhsBody = addCmdParens (guardedRhsBody grhs)
     }

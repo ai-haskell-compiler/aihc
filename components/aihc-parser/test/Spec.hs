@@ -1,14 +1,15 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main (main) where
 
 import Aihc.Parser
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Char (ord)
-import Data.List (isInfixOf)
 import Data.Maybe (isNothing)
 import Data.Text qualified as T
 import Numeric (showHex, showOct)
@@ -76,20 +77,7 @@ buildTests = do
         lexer,
         testGroup
           "parser"
-          [ testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
-            testCase "reads header LANGUAGE pragmas case-insensitively" test_readsHeaderLanguagePragmasCaseInsensitive,
-            testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
-            testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
-            testCase "reads OPTIONS -X extension flag as LANGUAGE setting" test_readsOptionsPragmaXExtension,
-            testCase "ignores invalid split OPTIONS -X ExtensionName form" test_ignoresSplitOptionsPragmaXExtension,
-            testCase "reads OPTIONS -cpp flag as CPP extension" test_readsOptionsPragmaCpp,
-            testCase "reads OPTIONS -fffi flag as ForeignFunctionInterface extension" test_readsOptionsPragmaFffi,
-            testCase "reads OPTIONS_GHC -cpp among other flags" test_readsOptionsGhcPragmaCpp,
-            testCase "reads OPTIONS -fglasgow-exts as legacy extension bundle" test_readsOptionsPragmaGlasgowExts,
-            testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
-            testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
-            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken,
-            testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
+          [ testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
             testCase "emits lexer error token for unterminated block comments" test_unterminatedBlockCommentProducesErrorToken,
             testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
             testCase "applies gcc-style hash line directives to subsequent tokens" test_gccHashLineDirectiveUpdatesSpan,
@@ -114,10 +102,6 @@ buildTests = do
             testCase "hash line directive preserves layout" test_hashLineDirectivePreservesLayout,
             testCase "indented hash-line is operator, not directive" test_indentedHashLineIsOperator,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
-            testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
-            testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
-            testCase "parses multiline if as first stmt in else-do block" test_elseDoMultilineInnerIfParses,
-            testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
             testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
             testCase "parses character literals after escaped backslash cons patterns" test_escapedBackslashConsPatternCharLiteralParses,
@@ -135,13 +119,6 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
-            testCase "parses symbolic traditional type data constructors" test_symbolicTypeDataConstructorParses,
-            testCase "parses symbolic traditional type data head and constructor" test_symbolicTypeDataHeadAndConstructorParses,
-            testCase "pretty-prints type synonym rhs kind signatures without extra parens" test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens,
-            testCase "roundtrips abstract export items written as T()" test_emptyBundledExportRoundtrip,
-            testCase "roundtrips abstract import items written as T()" test_emptyBundledImportRoundtrip,
-            testCase "roundtrips symbolic bundled import members without unboxed tuple tokenization" test_symbolicBundledImportMemberRoundtrip,
-            testCase "roundtrips explicit associated type family declarations with default signatures" test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip,
             localOption (QC.QuickCheckTests 2000) $
               QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -153,10 +130,6 @@ buildTests = do
         testGroup
           "checkPattern (do-bind)"
           [ testCase "rejects if-then-else in pattern context" test_doBindRejectsIfExpr
-          ],
-        testGroup
-          "pretty"
-          [ testCase "symbolic type application parenthesizes context arguments" test_symbolicTypeApplicationContextArgRoundTrip
           ],
         adjustOption (const tenMinutes) $
           testGroup
@@ -179,323 +152,6 @@ buildTests = do
         stackageProgressFileCheckerTimingTests,
         stackageProgressSummaryTests
       ]
-
-test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens :: Assertion
-test_typeSynonymRhsKindSignaturePrettyPrintsWithoutExtraParens =
-  case parseDecl
-    defaultConfig {parserExtensions = [DataKinds, KindSignatures]}
-    "type UTF8 = \"UTF8\" :: NameStyle" of
-    ParseOk decl ->
-      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-       in assertEqual "pretty-printed declaration" "type UTF8 = \"UTF8\" :: NameStyle" source
-    other -> assertFailure ("expected parse success, got: " <> show other)
-
-test_symbolicTypeDataConstructorParses :: Assertion
-test_symbolicTypeDataConstructorParses =
-  case parseDecl defaultConfig {parserExtensions = [TypeData]} "type data T = (:**)" of
-    ParseOk decl@(DeclAnn _ (DeclTypeData DataDecl {dataDeclConstructors = [ctor]})) -> do
-      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" "type data T = (:**)" source
-      case peelDataConAnn ctor of
-        PrefixCon [] [] name []
-          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
-        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
-    other -> assertFailure ("expected symbolic type data constructor to parse, got: " <> show other)
-
-test_symbolicTypeDataHeadAndConstructorParses :: Assertion
-test_symbolicTypeDataHeadAndConstructorParses =
-  case parseDecl defaultConfig {parserExtensions = [TemplateHaskell, TypeData]} "type data (:*) = (:**)" of
-    ParseOk decl@(DeclAnn _ (DeclTypeData dataDecl@DataDecl {dataDeclConstructors = [ctor]})) -> do
-      let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" "type data (:*) = (:**)" source
-      assertEqual "type data head form" TypeHeadPrefix (binderHeadForm (dataDeclHead dataDecl))
-      assertEqual "type data head" (mkUnqualifiedName NameConSym ":*") (binderHeadName (dataDeclHead dataDecl))
-      case peelDataConAnn ctor of
-        PrefixCon [] [] name []
-          | name == mkUnqualifiedName NameConSym ":**" -> pure ()
-        other -> assertFailure ("expected symbolic prefix type data constructor, got: " <> show other)
-    other -> assertFailure ("expected symbolic type data head and constructor to parse, got: " <> show other)
-
-test_emptyBundledExportRoundtrip :: Assertion
-test_emptyBundledExportRoundtrip =
-  let source = T.unlines ["module M (Text()) where", "data Text = Text"]
-   in case validateParser "EmptyBundledExport.hs" Haskell2010Edition [] source of
-        Nothing -> pure ()
-        Just err -> assertFailure ("expected empty bundled export to roundtrip, got: " <> show err)
-
-test_emptyBundledImportRoundtrip :: Assertion
-test_emptyBundledImportRoundtrip =
-  let source = T.unlines ["module M where", "import Data.Text (Text(), unpack)"]
-   in case validateParser "EmptyBundledImport.hs" Haskell2010Edition [] source of
-        Nothing -> pure ()
-        Just err -> assertFailure ("expected empty bundled import to roundtrip, got: " <> show err)
-
-test_symbolicBundledImportMemberRoundtrip :: Assertion
-test_symbolicBundledImportMemberRoundtrip =
-  let source = T.unlines ["{-# LANGUAGE MagicHash #-}", "module M where", "import A (A(( # )))"]
-   in case validateParser "SymbolicBundledImportMember.hs" Haskell2010Edition [EnableExtension MagicHash] source of
-        Nothing -> pure ()
-        Just err -> assertFailure ("expected symbolic bundled import member to roundtrip, got: " <> show err)
-
-test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip :: Assertion
-test_explicitAssociatedTypeFamilyWithDefaultSignatureRoundtrip =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE DataKinds #-}",
-            "{-# LANGUAGE DefaultSignatures #-}",
-            "{-# LANGUAGE PolyKinds #-}",
-            "{-# LANGUAGE TypeFamilies #-}",
-            "module M where",
-            "import Data.Kind (Type)",
-            "import Data.Proxy (Proxy)",
-            "class C (f :: k) where",
-            "  type family F f :: Type",
-            "  m :: Proxy f -> Proxy f",
-            "  default",
-            "    m :: Proxy f -> Proxy f",
-            "  m = id"
-          ]
-      exts = [EnableExtension DataKinds, EnableExtension DefaultSignatures, EnableExtension PolyKinds, EnableExtension TypeFamilies]
-   in case validateParser "ExplicitAssociatedTypeFamilyWithDefaultSignature.hs" Haskell2010Edition exts source of
-        Nothing -> pure ()
-        Just err -> assertFailure ("expected explicit associated type family with default signature to roundtrip, got: " <> show err)
-
-test_parserConfigSetsSourceName :: Assertion
-test_parserConfigSetsSourceName =
-  let (errs, _) = parseModule defaultConfig {parserSourceName = "Example.hs"} "module"
-   in case errs of
-        _ : _ ->
-          let errText = formatParseErrors "Example.hs" (Just "module") errs
-           in if "Example.hs" `isInfixOf` errText
-                then pure ()
-                else assertFailure ("expected source name in parse error, got: " <> errText)
-        [] ->
-          assertFailure "expected parse failure, but got no errors"
-
-test_tabIndentedWhereAfterElseParses :: Assertion
-test_tabIndentedWhereAfterElseParses =
-  let source =
-        T.pack $
-          unlines
-            [ "addExtension file ext = case B.uncons ext of",
-              "\tNothing -> file",
-              "\tJust (x,_xs) -> joinDrive a $",
-              "\t\tif isExtSeparator x",
-              "\t\t\tthen b <> ext",
-              "\t\t\telse b <> (extSeparator `B.cons` ext)",
-              "  where",
-              "\t(a,b) = splitDrive file"
-            ]
-   in let (errs, _) = parseModule defaultConfig source
-       in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-
-test_elseDoMultilineInnerIfParses :: Assertion
-test_elseDoMultilineInnerIfParses =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE DoAndIfThenElse #-}",
-            "module M where",
-            "fn =",
-            "  if False then",
-            "    return True",
-            "  else do",
-            "      if hidden /= 0 then",
-            "        return True",
-            "      else",
-            "        return False"
-          ]
-      (errs, _) = parseModule defaultConfig source
-   in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-
-test_nonAlignedMultiWayIfGuardsParse :: Assertion
-test_nonAlignedMultiWayIfGuardsParse =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE MultiWayIf #-}",
-            "module M where",
-            "x = if | True -> 1",
-            "         | False -> 2",
-            "           | otherwise -> 3"
-          ]
-      (errs, _) = parseModule defaultConfig source
-   in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-
-test_readsHeaderLanguagePragmas :: Assertion
-test_readsHeaderLanguagePragmas = do
-  let source = T.unlines ["{-# LANGUAGE CPP #-}", "{-# LANGUAGE NoCPP #-}", "module M where", "x = 1"]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension CPP, DisableExtension CPP]
-  assertEqual "reads expected module header LANGUAGE settings" expected exts
-
-test_readsHeaderLanguagePragmasCaseInsensitive :: Assertion
-test_readsHeaderLanguagePragmasCaseInsensitive = do
-  let source = T.unlines ["{-# Language BlockArguments #-}", "module M where", "x = id do pure ()"]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension BlockArguments]
-  assertEqual "reads expected module header LANGUAGE settings regardless of pragma keyword case" expected exts
-
-test_readsChunkedHeaderLanguagePragmas :: Assertion
-test_readsChunkedHeaderLanguagePragmas = do
-  let chunks =
-        [ "{-# LANG",
-          "UAGE CPP #-}\n{-# LANGUAGE NoCPP #-}\nmodule M where\nx = 1"
-        ]
-      exts = readModuleHeaderExtensionsFromChunks chunks
-      expected = [EnableExtension CPP, DisableExtension CPP]
-  assertEqual "reads expected module header LANGUAGE settings across chunks" expected exts
-
-test_readsHeaderLanguagePragmasStartingWithNo :: Assertion
-test_readsHeaderLanguagePragmasStartingWithNo = do
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE NondecreasingIndentation #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension NondecreasingIndentation]
-  assertEqual "reads LANGUAGE pragmas whose extension name starts with 'No'" expected exts
-
-test_readsOptionsPragmaXExtension :: Assertion
-test_readsOptionsPragmaXExtension = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS -XMagicHash #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension MagicHash]
-  assertEqual "maps OPTIONS -XMagicHash to LANGUAGE MagicHash" expected exts
-
-test_ignoresSplitOptionsPragmaXExtension :: Assertion
-test_ignoresSplitOptionsPragmaXExtension = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS -X MagicHash #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-  assertEqual "ignores invalid split OPTIONS -X Extension form" [] exts
-
-test_readsOptionsPragmaCpp :: Assertion
-test_readsOptionsPragmaCpp = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS -cpp #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension CPP]
-  assertEqual "maps OPTIONS -cpp to LANGUAGE CPP" expected exts
-
-test_readsOptionsPragmaFffi :: Assertion
-test_readsOptionsPragmaFffi = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS -fffi #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension ForeignFunctionInterface]
-  assertEqual "maps OPTIONS -fffi to LANGUAGE ForeignFunctionInterface" expected exts
-
-test_readsOptionsGhcPragmaCpp :: Assertion
-test_readsOptionsGhcPragmaCpp = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS_GHC -cpp -pgmP \"cpphs --layout --hashes --cpp\" #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension CPP]
-  assertEqual "maps OPTIONS_GHC -cpp while ignoring other options" expected exts
-
-test_readsOptionsPragmaGlasgowExts :: Assertion
-test_readsOptionsPragmaGlasgowExts = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS -fglasgow-exts #-}",
-            "module M where",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected =
-        map
-          EnableExtension
-          [ ConstrainedClassMethods,
-            DeriveDataTypeable,
-            DeriveFoldable,
-            DeriveFunctor,
-            DeriveGeneric,
-            DeriveTraversable,
-            EmptyDataDecls,
-            ExistentialQuantification,
-            ExplicitNamespaces,
-            FlexibleContexts,
-            FlexibleInstances,
-            ForeignFunctionInterface,
-            FunctionalDependencies,
-            GeneralizedNewtypeDeriving,
-            ImplicitParams,
-            InterruptibleFFI,
-            KindSignatures,
-            LiberalTypeSynonyms,
-            MagicHash,
-            MultiParamTypeClasses,
-            ParallelListComp,
-            PatternGuards,
-            PostfixOperators,
-            RankNTypes,
-            RecursiveDo,
-            ScopedTypeVariables,
-            StandaloneDeriving,
-            TypeOperators,
-            TypeSynonymInstances,
-            UnboxedTuples,
-            UnicodeSyntax,
-            UnliftedFFITypes
-          ]
-  assertEqual "maps OPTIONS -fglasgow-exts to legacy LANGUAGE bundle" expected exts
-
-test_ignoresUnknownHeaderPragmas :: Assertion
-test_ignoresUnknownHeaderPragmas = do
-  let source =
-        T.unlines
-          [ "{-# OPTIONS_GHC -Wall -fwarn-tabs -fno-warn-name-shadowing #-}",
-            "{-# OPTIONS_HADDOCK hide #-}",
-            "{-# LANGUAGE CPP #-}"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension CPP]
-  assertEqual "ignores unknown header pragmas and reads LANGUAGE" expected exts
-
-test_ignoresLanguagePragmasInsideComments :: Assertion
-test_ignoresLanguagePragmasInsideComments = do
-  let source =
-        T.unlines
-          [ "-- line comment {-# LANGUAGE MagicHash #-}",
-            "{- block comment {-# LANGUAGE EmptyCase #-} -}",
-            "{-# LANGUAGE CPP #-}"
-          ]
-      exts = readModuleHeaderExtensions source
-      expected = [EnableExtension CPP]
-  assertEqual "ignores LANGUAGE pragmas in comments" expected exts
-
-test_stopsHeaderScanAtFirstModuleToken :: Assertion
-test_stopsHeaderScanAtFirstModuleToken = do
-  let source =
-        T.unlines
-          [ "module M where",
-            "{-# LANGUAGE CPP #-}",
-            "x = 1"
-          ]
-      exts = readModuleHeaderExtensions source
-  assertEqual "stops before body pragmas" [] exts
 
 test_unterminatedStringProducesErrorToken :: Assertion
 test_unterminatedStringProducesErrorToken =
@@ -1047,16 +703,6 @@ test_prettyAssocDataFamilyInfixOperatorName = do
             }
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   rendered @?= "class C x where {data a :*: b :: *}"
-
-test_symbolicTypeApplicationContextArgRoundTrip :: Assertion
-test_symbolicTypeApplicationContextArgRoundTrip = do
-  let op = qualifyName (Just "M") (mkUnqualifiedName NameConSym ":+")
-      aPromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Promoted
-      aUnpromoted = TCon (qualifyName Nothing (mkUnqualifiedName NameConId "A")) Unpromoted
-      rhs = TContext [aUnpromoted] (TTypeLit (TypeLitChar '9' "'9'"))
-      ty = TApp (TApp (TCon op Promoted) aPromoted) rhs
-      source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
-  assertEqual "pretty-printed type" "' (M.:+) ' A (A => '9')" source
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =

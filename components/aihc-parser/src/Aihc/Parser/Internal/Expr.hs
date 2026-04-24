@@ -5,6 +5,7 @@ module Aihc.Parser.Internal.Expr
   ( exprParser,
     atomExprParser,
     equationRhsParser,
+    caseRhsParserWithBodyParser,
     -- Re-exports from Pattern
     simplePatternParser,
     appPatternParser,
@@ -30,7 +31,7 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -67,10 +68,6 @@ exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprParserWithTypeSigParser typeSigParser =
   label "expression" $
     exprCoreParserWithTypeSigParserExcept typeSigParser []
-
-exprParserExcept :: [Text] -> TokParser Expr
-exprParserExcept =
-  exprCoreParserWithTypeSigParserExcept typeParser
 
 exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
@@ -165,7 +162,7 @@ multiWayIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   rhss <- braces (MP.some multiWayIfAlternative)
   pure (EMultiWayIf rhss)
 
-multiWayIfAlternative :: TokParser GuardedRhs
+multiWayIfAlternative :: TokParser (GuardedRhs Expr)
 multiWayIfAlternative = withSpan $ do
   expectedTok TkReservedPipe
   guards <- layoutSepBy1 (guardQualifierParser RhsArrowCase) (expectedTok TkSpecialComma)
@@ -212,7 +209,7 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" simplePatternParser
+  pat <- region "while parsing proc pattern" patternParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
@@ -438,11 +435,11 @@ atomOrRecordExprParser = do
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
 
-    normalizeField :: (Name, Maybe Expr, SourceSpan) -> (Name, Expr)
+    normalizeField :: (Name, Maybe Expr, SourceSpan) -> RecordField Expr
     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
-        Just expr' -> (fieldName, expr')
-        Nothing -> (fieldName, EAnn (mkAnnotation sp) (EVar fieldName))
+        Just expr' -> RecordField fieldName expr' False
+        Nothing -> RecordField fieldName (EAnn (mkAnnotation sp) (EVar fieldName)) True
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)
@@ -563,11 +560,14 @@ operatorExprNameParser =
       TkReservedDotDot -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym ".."))
       _ -> Nothing
 
-rhsParser :: TokParser Rhs
-rhsParser = label "right-hand side" (rhsParserWithArrow RhsArrowCase)
+rhsParser :: TokParser (Rhs Expr)
+rhsParser = label "right-hand side" (caseRhsParserWithBodyParser exprParser)
 
-equationRhsParser :: TokParser Rhs
-equationRhsParser = label "equation right-hand side" (rhsParserWithArrow RhsArrowEquation)
+equationRhsParser :: TokParser (Rhs Expr)
+equationRhsParser = label "equation right-hand side" (rhsParserWithBodyParser RhsArrowEquation exprParser)
+
+caseRhsParserWithBodyParser :: TokParser body -> TokParser (Rhs body)
+caseRhsParserWithBodyParser = rhsParserWithBodyParser RhsArrowCase
 
 data RhsArrowKind = RhsArrowCase | RhsArrowEquation
 
@@ -579,13 +579,13 @@ rhsArrowTok :: RhsArrowKind -> TokParser ()
 rhsArrowTok RhsArrowCase = expectedTok TkReservedRightArrow
 rhsArrowTok RhsArrowEquation = expectedTok TkReservedEquals
 
-rhsParserWithArrow :: RhsArrowKind -> TokParser Rhs
-rhsParserWithArrow arrowKind = do
+rhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+rhsParserWithBodyParser arrowKind bodyParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkReservedPipe -> guardedRhssParser arrowKind
-    TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParser arrowKind
-    TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParser arrowKind
+    TkReservedPipe -> guardedRhssParserWithBodyParser arrowKind bodyParser
+    TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParserWithBodyParser arrowKind bodyParser
+    TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParserWithBodyParser arrowKind bodyParser
     _ ->
       MP.customFailure
         UnexpectedTokenExpecting
@@ -594,10 +594,10 @@ rhsParserWithArrow arrowKind = do
             unexpectedContext = []
           }
 
-unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
-unguardedRhsParser arrowKind = withSpan $ do
+unguardedRhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+unguardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
   rhsArrowTok arrowKind
-  body <- region (rhsContextText arrowKind) exprParser
+  body <- region (rhsContextText arrowKind) bodyParser
   whereDecls <- MP.optional whereClauseParser
   pure (\span' -> UnguardedRhs [mkAnnotation span'] body whereDecls)
 
@@ -605,18 +605,18 @@ rhsContextText :: RhsArrowKind -> Text
 rhsContextText RhsArrowCase = "while parsing case alternative right-hand side"
 rhsContextText RhsArrowEquation = "while parsing equation right-hand side"
 
-guardedRhssParser :: RhsArrowKind -> TokParser Rhs
-guardedRhssParser arrowKind = withSpan $ do
-  grhss <- MP.some (guardedRhsParser arrowKind)
+guardedRhssParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+guardedRhssParserWithBodyParser arrowKind bodyParser = withSpan $ do
+  grhss <- MP.some (guardedRhsParserWithBodyParser arrowKind bodyParser)
   whereDecls <- MP.optional whereClauseParser
   pure (\span' -> GuardedRhss [mkAnnotation span'] grhss whereDecls)
 
-guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
-guardedRhsParser arrowKind = withSpan $ do
+guardedRhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (GuardedRhs body)
+guardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
   expectedTok TkReservedPipe
   guards <- layoutSepBy1 (guardQualifierParser arrowKind) (expectedTok TkSpecialComma)
   rhsArrowTok arrowKind
-  body <- exprParserExcept ["|", rhsArrowText arrowKind]
+  body <- bodyParser
   pure $ \span' ->
     GuardedRhs
       { guardedRhsAnns = [mkAnnotation span'],
@@ -672,9 +672,9 @@ guardTypeSigParser :: RhsArrowKind -> TokParser Type
 guardTypeSigParser RhsArrowEquation = typeParser
 guardTypeSigParser RhsArrowCase = typeInfixParser
 
-caseAltParser :: TokParser CaseAlt
+caseAltParser :: TokParser (CaseAlt Expr)
 caseAltParser = withSpan $ do
-  pat <- region "while parsing case alternative" patternParser
+  pat <- region "while parsing case alternative" (patternParserWithTypeSigParser typeInfixParser)
   rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
@@ -1162,20 +1162,16 @@ localTypeSigDeclsParser = do
         case peelDeclAnn sig of
           DeclTypeSig sigNames sigTy -> (sigNames, sigTy)
           _ -> error "typeSigDeclParser must produce DeclTypeSig"
-  mEq <- MP.optional (expectedTok TkReservedEquals)
-  case mEq of
-    Nothing -> pure [sig]
-    Just () ->
-      case names of
-        [name] -> do
-          rhsExpr <- exprParser
-          whereDecls <- MP.optional whereClauseParser
-          let bindAnns = []
-              pat = PTypeSig (PVar name) ty
-              rhs = UnguardedRhs bindAnns rhsExpr whereDecls
-          pure [DeclValue (PatternBind pat rhs)]
-        _ ->
-          fail "local typed bindings with '=' require exactly one binder"
+  nextKind <- lexTokenKind <$> lookAhead anySingle
+  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
+    then case names of
+      [name] -> do
+        rhs <- equationRhsParser
+        let pat = PTypeSig (PVar name) ty
+        pure [DeclValue (PatternBind pat rhs)]
+      _ ->
+        fail "local typed bindings with '=' or guards require exactly one binder"
+    else pure [sig]
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
