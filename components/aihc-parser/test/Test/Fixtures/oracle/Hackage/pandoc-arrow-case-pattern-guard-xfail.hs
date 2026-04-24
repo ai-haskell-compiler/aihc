@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pattern guard in arrow case expression not supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE PatternGuards #-}
 module PandocArrowCasePatternGuard where

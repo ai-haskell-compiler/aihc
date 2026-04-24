@@ -459,7 +459,7 @@ addFunctionHeadPats _name headForm pats =
                   lhs' : rhs' : map addFunctionHeadPatternAtomParens tailPats
         _ -> map addFunctionHeadPatternAtomParens pats
 
-addRhsParens :: Rhs -> Rhs
+addRhsParens :: Rhs Expr -> Rhs Expr
 addRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -467,7 +467,7 @@ addRhsParens rhs =
     GuardedRhss sp guards whereDecls ->
       GuardedRhss sp (map (addGuardedRhsParens GuardEquals) guards) (fmap (map addDeclParens) whereDecls)
 
-addGuardedRhsParens :: GuardArrow -> GuardedRhs -> GuardedRhs
+addGuardedRhsParens :: GuardArrow -> GuardedRhs Expr -> GuardedRhs Expr
 addGuardedRhsParens arrow grhs =
   grhs
     { guardedRhsGuards = map (addGuardQualifierParens arrow) (guardedRhsGuards grhs),
@@ -901,7 +901,7 @@ addNegateParens inner =
     then wrapExpr True (addExprParens inner)
     else addExprParensPrec 3 inner
 
-addCaseAltParens :: CaseAlt -> CaseAlt
+addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addPatternParens pat) (addCaseAltRhsParens rhs)
 
@@ -913,7 +913,7 @@ addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
         _ -> map addPatternAtomParens pats
    in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
 
-addCaseAltRhsParens :: Rhs -> Rhs
+addCaseAltRhsParens :: Rhs Expr -> Rhs Expr
 addCaseAltRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -1150,9 +1150,14 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr
+  if endsWithTypeSig expr || isProcExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
+  where
+    isProcExpr e =
+      case peelExprAnn e of
+        EProc {} -> True
+        _ -> False
 
 -- | Check if an operator is the cons operator ':'.
 isConsOperator :: Name -> Bool
@@ -1215,6 +1220,7 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
@@ -1240,6 +1246,7 @@ addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
@@ -1258,7 +1265,7 @@ addCmdParens cmd =
     CmdArrApp lhs appTy rhs ->
       CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
-      CmdInfix (addCmdParens l) op (addCmdParens r)
+      CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
     CmdDo stmts ->
       CmdDo (map addCmdDoStmtParens stmts)
     CmdIf cond yes no ->
@@ -1273,6 +1280,16 @@ addCmdParens cmd =
       CmdApp (addCmdParens c) (addExprParensPrec 3 e)
     CmdPar c ->
       CmdPar (addCmdParens c)
+  where
+    wrapCmdOperand inner =
+      case peelCmdAnn inner of
+        CmdArrApp {} -> CmdPar inner
+        CmdLet {} -> CmdPar inner
+        CmdIf {} -> CmdPar inner
+        CmdCase {} -> CmdPar inner
+        CmdLam {} -> CmdPar inner
+        CmdInfix {} -> CmdPar inner
+        _ -> inner
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
@@ -1283,9 +1300,21 @@ addCmdDoStmtParens stmt =
     DoExpr cmd' -> DoExpr (addCmdParens cmd')
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
 
-addCmdCaseAltParens :: CmdCaseAlt -> CmdCaseAlt
-addCmdCaseAltParens alt =
-  alt
-    { cmdCaseAltPat = addPatternParens (cmdCaseAltPat alt),
-      cmdCaseAltBody = addCmdParens (cmdCaseAltBody alt)
+addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
+addCmdCaseAltParens (CaseAlt anns pat rhs) =
+  CaseAlt anns (addPatternParens pat) (addCmdCaseAltRhsParens rhs)
+
+addCmdCaseAltRhsParens :: Rhs Cmd -> Rhs Cmd
+addCmdCaseAltRhsParens rhs =
+  case rhs of
+    UnguardedRhs sp body whereDecls ->
+      UnguardedRhs sp (addCmdParens body) (fmap (map addDeclParens) whereDecls)
+    GuardedRhss sp guards whereDecls ->
+      GuardedRhss sp (map addCmdGuardedRhsParens guards) (fmap (map addDeclParens) whereDecls)
+
+addCmdGuardedRhsParens :: GuardedRhs Cmd -> GuardedRhs Cmd
+addCmdGuardedRhsParens grhs =
+  grhs
+    { guardedRhsGuards = map (addGuardQualifierParens GuardArrow) (guardedRhsGuards grhs),
+      guardedRhsBody = addCmdParens (guardedRhsBody grhs)
     }

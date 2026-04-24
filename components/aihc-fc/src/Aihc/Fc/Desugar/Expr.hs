@@ -214,7 +214,7 @@ buildAlt _scrutVar restVars resTy m = case matchPats m of
     pure (FcAlt DefaultAlt [] body)
 
 -- | Desugar a right-hand side.
-dsRhs :: Rhs -> DsM FcExpr
+dsRhs :: Rhs Expr -> DsM FcExpr
 dsRhs (UnguardedRhs _sp expr _decls) = dsExpr expr
 dsRhs (GuardedRhss _sp _guards _decls) = do
   v <- freshVar "_unimplemented" (TcTyCon (TyCon "?" 0) [])
@@ -273,7 +273,7 @@ dsExpr _ = do
   pure (FcVar v)
 
 -- | Desugar a case alternative.
-dsCaseAlt :: CaseAlt -> DsM FcAlt
+dsCaseAlt :: CaseAlt Expr -> DsM FcAlt
 dsCaseAlt (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
   binders <- mapM (\nm -> freshVar nm (TcTyCon (TyCon "?" 0) [])) binderNames

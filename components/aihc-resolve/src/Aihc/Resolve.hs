@@ -106,7 +106,7 @@ peelDataConSpan :: SourceSpan -> DataConDecl -> SourceSpan
 peelDataConSpan ambient (DataConAnn ann inner) = peelDataConSpan (pushSpanFromAnn ambient ann) inner
 peelDataConSpan ambient _ = ambient
 
-rhsSpan :: Rhs -> SourceSpan
+rhsSpan :: Rhs body -> SourceSpan
 rhsSpan rhs =
   case rhs of
     UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
@@ -235,7 +235,7 @@ resolveMatch scope ambient nextLocal match =
       (nextLocal'', rhs') = resolveRhs scoped nextLocal' rhsHere (matchRhs match)
    in (nextLocal'', match {matchPats = pats', matchRhs = rhs'})
 
-resolveRhs :: Scope -> Int -> SourceSpan -> Rhs -> (Int, Rhs)
+resolveRhs :: Scope -> Int -> SourceSpan -> Rhs Expr -> (Int, Rhs Expr)
 resolveRhs scope nextLocal ambient rhs =
   case rhs of
     UnguardedRhs anns expr mDecls ->
@@ -257,7 +257,7 @@ resolveWhereDecls scope nextLocal (Just decls) =
       (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
    in (nextLocal'', Just decls')
 
-resolveGuardedRhs :: Scope -> SourceSpan -> Int -> GuardedRhs -> (Int, GuardedRhs)
+resolveGuardedRhs :: Scope -> SourceSpan -> Int -> GuardedRhs Expr -> (Int, GuardedRhs Expr)
 resolveGuardedRhs scope ambient nextLocal guardedRhs =
   let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (guardedRhsAnns guardedRhs))
       (nextLocal', scope', guards') = resolveGuardQualifiers scope nextLocal here (guardedRhsGuards guardedRhs)

@@ -20,7 +20,6 @@ module Aihc.Parser.Syntax
     ClassDecl (..),
     ClassDeclItem (..),
     Cmd (..),
-    CmdCaseAlt (..),
     CompStmt (..),
     FunctionalDependency (..),
     TypeFamilyResultSig (..),
@@ -993,14 +992,14 @@ peelDeclAnn d = d
 
 data ValueDecl
   = FunctionBind BinderName [Match]
-  | PatternBind Pattern Rhs
+  | PatternBind Pattern (Rhs Expr)
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Match = Match
   { matchAnns :: [Annotation],
     matchHeadForm :: MatchHeadForm,
     matchPats :: [Pattern],
-    matchRhs :: Rhs
+    matchRhs :: Rhs Expr
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1038,15 +1037,15 @@ data PatSynDecl = PatSynDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
-data Rhs
-  = UnguardedRhs [Annotation] Expr (Maybe [Decl])
-  | GuardedRhss [Annotation] [GuardedRhs] (Maybe [Decl])
+data Rhs body
+  = UnguardedRhs [Annotation] body (Maybe [Decl])
+  | GuardedRhss [Annotation] [GuardedRhs body] (Maybe [Decl])
   deriving (Data, Eq, Show, Generic, NFData)
 
-data GuardedRhs = GuardedRhs
+data GuardedRhs body = GuardedRhs
   { guardedRhsAnns :: [Annotation],
     guardedRhsGuards :: [GuardQualifier],
-    guardedRhsBody :: Expr
+    guardedRhsBody :: body
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1701,16 +1700,16 @@ data Expr
   | EOverloadedLabel Text Text
   | EQuasiQuote Text Text
   | EIf Expr Expr Expr
-  | EMultiWayIf [GuardedRhs]
+  | EMultiWayIf [GuardedRhs Expr]
   | ELambdaPats [Pattern] Expr
-  | ELambdaCase [CaseAlt]
+  | ELambdaCase [CaseAlt Expr]
   | ELambdaCases [LambdaCaseAlt]
   | EInfix Expr Name Expr
   | ENegate Expr
   | ESectionL Expr Name
   | ESectionR Name Expr
   | ELetDecls [Decl] Expr
-  | ECase Expr [CaseAlt]
+  | ECase Expr [CaseAlt Expr]
   | EDo [DoStmt Expr] DoFlavor
   | EListComp Expr [CompStmt]
   | EListCompParallel Expr [[CompStmt]]
@@ -1754,17 +1753,17 @@ peelExprAnn :: Expr -> Expr
 peelExprAnn (EAnn _ x) = peelExprAnn x
 peelExprAnn x = x
 
-data CaseAlt = CaseAlt
+data CaseAlt body = CaseAlt
   { caseAltAnns :: [Annotation],
     caseAltPattern :: Pattern,
-    caseAltRhs :: Rhs
+    caseAltRhs :: Rhs body
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data LambdaCaseAlt = LambdaCaseAlt
   { lambdaCaseAltAnns :: [Annotation],
     lambdaCaseAltPats :: [Pattern],
-    lambdaCaseAltRhs :: Rhs
+    lambdaCaseAltRhs :: Rhs Expr
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1815,7 +1814,7 @@ data Cmd
   | -- | @if exp then cmd else cmd@
     CmdIf Expr Cmd Cmd
   | -- | @case exp of { calts }@
-    CmdCase Expr [CmdCaseAlt]
+    CmdCase Expr [CaseAlt Cmd]
   | -- | @let decls in cmd@
     CmdLet [Decl] Cmd
   | -- | @\\pats -> cmd@
@@ -1841,14 +1840,6 @@ getCmdSourceSpan cmd =
       | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
       | otherwise -> getCmdSourceSpan sub
     _ -> NoSourceSpan
-
--- | Case alternative with a command body (used in arrow @case@ commands).
-data CmdCaseAlt = CmdCaseAlt
-  { cmdCaseAltAnns :: [Annotation],
-    cmdCaseAltPat :: Pattern,
-    cmdCaseAltBody :: Cmd
-  }
-  deriving (Data, Eq, Show, Generic, NFData)
 
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkAnnotation').
