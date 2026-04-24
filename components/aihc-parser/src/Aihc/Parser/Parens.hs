@@ -40,21 +40,30 @@ import Data.Text (Text)
 
 -- | Wrap an expression in 'EParen' if the predicate holds, unless it is
 -- already parenthesised.
+-- Parsed expressions already encode the source's parenthesization, so only
+-- spanless synthetic syntax is eligible for extra wrapping.
 wrapExpr :: Bool -> Expr -> Expr
+wrapExpr True e | getExprSourceSpan e /= NoSourceSpan = e
 wrapExpr True (EAnn ann sub) = EAnn ann (wrapExpr True sub)
 wrapExpr True e@EParen {} = e
 wrapExpr True e = EParen e
 wrapExpr False e = e
 
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
+-- Parsed patterns already encode the source's parenthesization, so only
+-- spanless synthetic syntax is eligible for extra wrapping.
 wrapPat :: Bool -> Pattern -> Pattern
+wrapPat True p | getPatternSourceSpan p /= NoSourceSpan = p
 wrapPat True (PAnn ann sub) = PAnn ann (wrapPat True sub)
 wrapPat True p@PParen {} = p
 wrapPat True p = PParen p
 wrapPat False p = p
 
 -- | Wrap a type in 'TParen' if the predicate holds, unless already wrapped.
+-- Parsed types already encode the source's parenthesization, so only
+-- spanless synthetic syntax is eligible for extra wrapping.
 wrapTy :: Bool -> Type -> Type
+wrapTy True t | getTypeSourceSpan t /= NoSourceSpan = t
 wrapTy True (TAnn ann sub) = TAnn ann (wrapTy True sub)
 wrapTy True t@TParen {} = t
 wrapTy True t = TParen t
@@ -398,6 +407,7 @@ addModuleParens modu =
 -- ---------------------------------------------------------------------------
 
 addDeclParens :: Decl -> Decl
+addDeclParens decl | getDeclSourceSpan decl /= NoSourceSpan = decl
 addDeclParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addDeclParens sub)
@@ -752,7 +762,8 @@ addDataFamilyInstParens dfi =
 
 -- | Add parentheses to an expression at all required positions.
 addExprParens :: Expr -> Expr
-addExprParens = addExprParensPrec 0
+addExprParens expr | getExprSourceSpan expr /= NoSourceSpan = expr
+addExprParens expr = addExprParensPrec 0 expr
 
 addExprParensIn :: ExprCtx -> Expr -> Expr
 addExprParensIn ctx expr =
@@ -970,7 +981,8 @@ addExprGuardedParens = addExprParensIn CtxGuarded
 
 -- | Add parentheses to a type at all required positions.
 addTypeParens :: Type -> Type
-addTypeParens = addTypeParensShared CtxTypeAtom 0
+addTypeParens ty | getTypeSourceSpan ty /= NoSourceSpan = ty
+addTypeParens ty = addTypeParensShared CtxTypeAtom 0 ty
 
 addTypeTopLevelParens :: Type -> Type
 addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
@@ -1111,6 +1123,7 @@ addContextConstraintMulti ty =
 
 -- | Add parentheses to a pattern at all required positions.
 addPatternParens :: Pattern -> Pattern
+addPatternParens pat | getPatternSourceSpan pat /= NoSourceSpan = pat
 addPatternParens pat =
   case pat of
     PAnn sp sub -> PAnn sp (addPatternParens sub)

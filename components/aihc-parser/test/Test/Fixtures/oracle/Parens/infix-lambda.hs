@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail "we add parens around lambdas when we shouldn't" -}
+{- ORACLE_TEST pass -}
 module M where
 
 warnIfNullable r = when True $ P $ \s ->

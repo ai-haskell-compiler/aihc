@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail "we add parens around if-statements when we shouldn't" -}
+{- ORACLE_TEST pass -}
 module M where
 
 x = do fn $ val ++ if True then "\n" else ""
