@@ -494,6 +494,13 @@ prettyPattern pat =
     PTypeSig inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
     PSplice body -> "$" <> prettyExpr body
 
+-- | Pretty print a pattern that appears before @->@ (in proc or lambda).
+-- Type-signatured patterns must be parenthesized to avoid ambiguity with
+-- function types.
+prettyPatternArrowBndr :: Pattern -> Doc ann
+prettyPatternArrowBndr p@(PTypeSig {}) = parens (prettyPattern p)
+prettyPatternArrowBndr pat = prettyPattern pat
+
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
 prettyPatternFieldBinding field =
@@ -1091,7 +1098,7 @@ prettyExpr expr =
           ]
         <+> "}"
     ELambdaPats pats body ->
-      "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExpr body
+      "\\" <+> hsep (map prettyPatternArrowBndr pats) <+> "->" <+> prettyExpr body
     ELambdaCase alts ->
       "\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}"
     ELambdaCases alts ->
@@ -1163,7 +1170,7 @@ prettyExpr expr =
       let slots = [if i == altIdx then prettyExpr inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc pat body ->
-      "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
+      "proc" <+> prettyPatternArrowBndr pat <+> "->" <+> prettyCmd body
     EPragma pragma inner ->
       prettyPragma pragma <+> prettyExpr inner
     EAnn _ sub -> prettyExpr sub

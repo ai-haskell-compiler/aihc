@@ -424,7 +424,7 @@ addValueDeclParens vdecl =
     PatternBind pat rhs -> PatternBind (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
     FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
 
-addPatternBindLhsParens :: Pattern -> Rhs -> Pattern
+addPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
 addPatternBindLhsParens pat rhs =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
