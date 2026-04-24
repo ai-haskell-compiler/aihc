@@ -172,24 +172,34 @@ startsWithOverloadedLabel = \case
   ETypeApp fn _ -> startsWithOverloadedLabel fn
   _ -> False
 
--- | Check whether an expression is a compound form (not a bare literal)
--- whose pretty-printed output starts with a primitive (unboxed) numeric
+startsWithBlockExpr :: Expr -> Bool
+startsWithBlockExpr = \case
+  EAnn _ sub -> startsWithBlockExpr sub
+  EInfix lhs _ _ -> startsWithBlockExpr lhs
+  EApp fn _ -> startsWithBlockExpr fn
+  ERecordUpd base _ -> startsWithBlockExpr base
+  ETypeSig inner _ -> startsWithBlockExpr inner
+  ETypeApp fn _ -> startsWithBlockExpr fn
+  expr -> isBlockExpr expr
+
+-- | Check whether an expression starts with a primitive (unboxed) numeric
 -- literal.  When such an expression appears under 'ENegate', the preceding
 -- @-@ merges with the literal at the lexer level, changing the parse.
--- Bare literals (e.g., @EInt 42 TIntHash@) are excluded because
--- @ENegate (EInt n hash)@ → @-n#@ is correctly normalised by the roundtrip
--- test infrastructure.
+-- For example, @ENegate (EInt 95 TIntHash "95#")@ pretty-prints as @-95#@
+-- which the lexer merges into a single negative literal token, losing the
+-- @ENegate@ wrapper.  Wrapping the inner expression in 'EParen' produces
+-- @-(95#)@ which round-trips correctly.
 startsWithPrimitiveLiteral :: Expr -> Bool
-startsWithPrimitiveLiteral = go False
+startsWithPrimitiveLiteral = go
   where
-    go _ (EAnn _ sub) = go False sub
-    go compound (EInt _ nt _) = compound && nt /= TInteger
-    go compound (EFloat _ ft _) = compound && ft /= TFractional
-    go _ (EApp fn _) = go True fn
-    go _ (ERecordUpd base _) = go True base
-    go _ (ETypeApp fn _) = go True fn
-    go _ (ETypeSig inner _) = go True inner
-    go _ _ = False
+    go (EAnn _ sub) = go sub
+    go (EInt _ nt _) = nt /= TInteger
+    go (EFloat _ ft _) = ft /= TFractional
+    go (EApp fn _) = go fn
+    go (ERecordUpd base _) = go base
+    go (ETypeApp fn _) = go fn
+    go (ETypeSig inner _) = go inner
+    go _ = False
 
 -- ---------------------------------------------------------------------------
 -- Expression contexts
@@ -1265,7 +1275,7 @@ addCmdParens cmd =
   case cmd of
     CmdAnn ann inner -> CmdAnn ann (addCmdParens inner)
     CmdArrApp lhs appTy rhs ->
-      CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
+      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
       CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
     CmdDo stmts ->
@@ -1292,6 +1302,10 @@ addCmdParens cmd =
         CmdLam {} -> CmdPar inner
         CmdInfix {} -> CmdPar inner
         _ -> inner
+
+addCmdArrAppLhsParens :: Expr -> Expr
+addCmdArrAppLhsParens lhs =
+  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs) (addExprParensPrec 1 lhs)
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =

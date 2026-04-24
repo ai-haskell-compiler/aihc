@@ -13,7 +13,6 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
-import Test.Properties.ExprHelpers (normalizeDecl)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
 
@@ -27,7 +26,7 @@ prop_declPrettyRoundTrip :: Decl -> Property
 prop_declPrettyRoundTrip decl =
   let parenthesized = addDeclParens decl
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-      expected = normalizeDecl parenthesized
+      expected = stripAnnotations parenthesized
       addValueDeclCoverage prop =
         case decl of
           DeclValue valueDecl -> assertCtorCoverage [] valueDecl prop
@@ -40,5 +39,5 @@ prop_declPrettyRoundTrip decl =
                 ParseErr err ->
                   counterexample (MPE.errorBundlePretty err) False
                 ParseOk parsed ->
-                  let actual = normalizeDecl parsed
+                  let actual = stripAnnotations parsed
                    in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

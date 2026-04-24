@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     FieldDecl (..),
     GadtBody (..),
     Match (..),
+    MatchHeadForm (..),
     Module (..),
     Name (..),
     NameType (..),
@@ -372,10 +373,34 @@ tcValueDecl (FunctionBind binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   tcFunctionInfer displayName name matches
-tcValueDecl (PatternBind _pat rhs) = do
-  ty <- tcRhs rhs
-  zonkedTy <- zonkType ty
-  pure [TcBindingResult "<pattern>" zonkedTy]
+tcValueDecl (PatternBind pat rhs) = case patternBinderName pat of
+  -- Bare variable pattern (e.g. @x = 5@, @(.>.) = (++)@): type-check as a
+  -- zero-argument function so that the binding gets generalized and registered
+  -- in the environment.
+  Just (displayName, name) -> do
+    let zeroArgMatch =
+          Match
+            { matchAnns = [],
+              matchHeadForm = MatchHeadPrefix,
+              matchPats = [],
+              matchRhs = rhs
+            }
+    tcFunctionInfer displayName name [zeroArgMatch]
+  -- Non-trivial pattern binding: infer the RHS type without generalization.
+  Nothing -> do
+    ty <- tcRhs rhs
+    zonkedTy <- zonkType ty
+    pure [TcBindingResult "<pattern>" zonkedTy]
+
+-- | Extract the binder name from a pattern binding's LHS, if it is a bare
+-- variable pattern.  Returns @(displayName, envName)@ for simple variable
+-- patterns (possibly wrapped in parens or annotations), 'Nothing' for
+-- non-trivial patterns like tuples or constructors.
+patternBinderName :: Pattern -> Maybe (Text, Text)
+patternBinderName (PVar n) = Just (renderBinderName n, unqualifiedNameText n)
+patternBinderName (PParen inner) = patternBinderName inner
+patternBinderName (PAnn _ inner) = patternBinderName inner
+patternBinderName _ = Nothing
 
 -- | Convert a type scheme to a displayable type.
 schemeToType :: TypeScheme -> TcType
