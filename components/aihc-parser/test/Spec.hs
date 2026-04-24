@@ -29,6 +29,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, genDeclTypeFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
+import Test.Properties.Arb.Pattern (genPatternRoundTrip, shrinkPattern)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
@@ -446,7 +447,7 @@ buildTests = do
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
-              QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
+              QC.testProperty "generated pattern AST pretty-printer round-trip" (QC.forAllShrink (QC.scale (min 3) genPatternRoundTrip) shrinkPattern prop_patternPrettyRoundTrip),
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
         oracle,
