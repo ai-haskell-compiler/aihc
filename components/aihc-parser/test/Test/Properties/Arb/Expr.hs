@@ -179,7 +179,7 @@ genCmdWith allowTHQuotes = scale (`div` 2) $ do
 
 genCmdLeafWith :: Bool -> Gen Cmd
 genCmdLeafWith allowTHQuotes =
-  CmdArrApp <$> genCmdExprWith allowTHQuotes <*> genArrAppType <*> genCmdExprWith allowTHQuotes
+  CmdArrApp <$> genExprWith allowTHQuotes <*> genArrAppType <*> genExprWith allowTHQuotes
 
 genCmdRecursiveWith :: Bool -> [Gen Cmd]
 genCmdRecursiveWith allowTHQuotes =
@@ -194,9 +194,6 @@ genCmdRecursiveWith allowTHQuotes =
 
 genArrAppType :: Gen ArrAppType
 genArrAppType = elements [HsFirstOrderApp, HsHigherOrderApp]
-
-genCmdExprWith :: Bool -> Gen Expr
-genCmdExprWith = genExprWith
 
 genCmdCaseAltsWith :: Bool -> Gen [CmdCaseAlt]
 genCmdCaseAltsWith allowTHQuotes = smallList1 (genCmdCaseAltWith allowTHQuotes)
@@ -480,21 +477,6 @@ genTypeListElemsWith allowTHQuotes = do
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
 
-mkIntLiteral :: Integer -> Literal
-mkIntLiteral value = LitInt value TInteger (T.pack (show value))
-
-mkHexLiteral :: Integer -> Literal
-mkHexLiteral value = LitInt value TInteger ("0x" <> T.pack (showHex value))
-
-mkFloatLiteral :: Rational -> Literal
-mkFloatLiteral value = LitFloat value TFractional (renderFloat value)
-
-mkCharLiteral :: Char -> Literal
-mkCharLiteral value = LitChar value (T.pack (show value))
-
-mkStringLiteral :: Text -> Literal
-mkStringLiteral value = LitString value (T.pack (show (T.unpack value)))
-
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
 mkHexExpr value = EInt value TInteger ("0x" <> T.pack (showHex value))
@@ -644,78 +626,9 @@ shrinkExpr expr =
     ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
     ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
     EProc pat body ->
-      [EProc pat' body | pat' <- shrinkSimplePattern pat]
+      [EProc pat' body | pat' <- shrinkPattern pat]
         <> [EProc pat body' | body' <- shrinkCmd body]
     EAnn _ sub -> shrinkExpr sub
-
-shrinkSimplePattern :: Pattern -> [Pattern]
-shrinkSimplePattern = filter isSimplePattern . shrinkPattern
-
-isSimplePattern :: Pattern -> Bool
-isSimplePattern pat =
-  case pat of
-    PAnn _ sub -> isSimplePattern sub
-    PVar {} -> True
-    PTypeBinder {} -> True
-    PTypeSyntax {} -> True
-    PWildcard -> True
-    PLit {} -> True
-    PQuasiQuote {} -> True
-    PTuple _ elems -> all isDelimitedSimplePattern elems
-    PList elems -> all isDelimitedSimplePattern elems
-    PCon _ [] [] -> True
-    PView {} -> False
-    PAs _ inner -> isSimplePatternAtom inner
-    PStrict inner -> isSimplePatternAtom inner
-    PIrrefutable inner -> isSimplePatternAtom inner
-    PNegLit {} -> False
-    PParen inner -> isDelimitedSimplePattern inner
-    PUnboxedSum {} -> False
-    PRecord _ fields _ -> all (isDelimitedSimplePattern . snd) fields
-    PTypeSig {} -> False
-    PSplice {} -> True
-    PCon {} -> False
-    PInfix {} -> False
-
-isSimplePatternAtom :: Pattern -> Bool
-isSimplePatternAtom pat =
-  case pat of
-    PAnn _ sub -> isSimplePatternAtom sub
-    PVar {} -> True
-    PWildcard -> True
-    PLit {} -> True
-    PQuasiQuote {} -> True
-    PTuple _ elems -> all isDelimitedSimplePattern elems
-    PList elems -> all isDelimitedSimplePattern elems
-    PCon _ [] [] -> True
-    PParen inner -> isDelimitedSimplePattern inner
-    PSplice {} -> True
-    _ -> False
-
-isDelimitedSimplePattern :: Pattern -> Bool
-isDelimitedSimplePattern pat =
-  case pat of
-    PAnn _ sub -> isDelimitedSimplePattern sub
-    PView _ inner -> isDelimitedSimplePattern inner
-    PNegLit {} -> True
-    PTypeSig inner ty -> isDelimitedSimplePattern inner && isClosedType ty
-    PUnboxedSum _ _ inner -> isDelimitedSimplePattern inner
-    PCon _ _ args -> all isDelimitedSimplePattern args
-    PInfix lhs _ rhs -> isDelimitedSimplePattern lhs && isDelimitedSimplePattern rhs
-    _ -> isSimplePattern pat
-
-isClosedType :: Type -> Bool
-isClosedType ty =
-  case ty of
-    TAnn _ sub -> isClosedType sub
-    TVar {} -> True
-    TCon {} -> True
-    TApp a b -> isClosedType a && isClosedType b
-    TFun a b -> isClosedType a && isClosedType b
-    TList _ elems -> all isClosedType elems
-    TTuple _ _ elems -> all isClosedType elems
-    TParen inner -> isClosedType inner
-    _ -> False
 
 shrinkCmd :: Cmd -> [Cmd]
 shrinkCmd cmd =
@@ -744,7 +657,7 @@ shrinkCmd cmd =
           <> [CmdLet decls body' | body' <- shrinkCmd body]
     CmdLam pats body ->
       body
-        : [CmdLam pats' body | pats' <- shrinkList shrinkSimplePattern pats, not (null pats'), all isSimplePattern pats']
+        : [CmdLam pats' body | pats' <- shrinkList shrinkPattern pats, not (null pats')]
           <> [CmdLam pats body' | body' <- shrinkCmd body]
     CmdApp cmd' expr ->
       cmd'
