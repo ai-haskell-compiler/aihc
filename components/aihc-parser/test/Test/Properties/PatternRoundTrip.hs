@@ -63,7 +63,7 @@ normalizePattern pat =
             PCon con [] [] | nameType con == NameConSym -> normInner
             _ -> PParen normInner
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
-    PRecord con fields rwc -> PRecord con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
+    PRecord con fields rwc -> PRecord con [field {recordFieldValue = normalizePattern (recordFieldValue field)} | field <- fields] rwc
     PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeTypeSpan ty)
     PSplice body -> PSplice (normalizeExpr body)
 

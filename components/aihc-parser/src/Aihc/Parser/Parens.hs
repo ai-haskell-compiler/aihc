@@ -824,9 +824,9 @@ addExprParensPrec prec expr =
       EListCompParallel (addExprParens body) (map (map addCompStmtParens) qualifierGroups)
     EArithSeq seqInfo -> EArithSeq (addArithSeqParens seqInfo)
     ERecordCon name fields hasWildcard ->
-      ERecordCon name [(n, addExprParens e) | (n, e) <- fields] hasWildcard
+      ERecordCon name [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields] hasWildcard
     ERecordUpd base fields ->
-      ERecordUpd (addExprParensPrec 3 base) [(n, addExprParens e) | (n, e) <- fields]
+      ERecordUpd (addExprParensPrec 3 base) [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields]
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->
@@ -1109,7 +1109,7 @@ addPatternParens pat =
     PNegLit lit -> PNegLit lit
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
-      PRecord con [(fieldName, addPatternInDelimited fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
+      PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
     PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 

@@ -137,14 +137,14 @@ genRecordPatternWith = do
   fields <- genRecordFieldsWith
   pure (PRecord con fields False)
 
-genRecordFieldsWith :: Gen [(Name, Pattern)]
+genRecordFieldsWith :: Gen [RecordField Pattern]
 genRecordFieldsWith = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
   pats <- vectorOf n genPattern
   quals <- vectorOf n genOptionalQualifier
   let qualifiedNames = zipWith (\q name -> qualifyName q (mkUnqualifiedName NameVarId name)) quals names
-  pure (zip qualifiedNames pats)
+  pure [RecordField fieldName fieldPat False | (fieldName, fieldPat) <- zip qualifiedNames pats]
 
 genLiteral :: Gen Literal
 genLiteral =
@@ -274,10 +274,10 @@ shrinkPatternTupleElems tupleFlavor elems =
            _ -> [PTuple tupleFlavor shrunk]
        ]
 
-shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
-shrinkField (fieldName, fieldPat) =
-  [(fieldName', fieldPat) | fieldName' <- shrinkName fieldName]
-    <> [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
+shrinkField :: RecordField Pattern -> [RecordField Pattern]
+shrinkField field =
+  [field {recordFieldName = fieldName'} | fieldName' <- shrinkName (recordFieldName field)]
+    <> [field {recordFieldValue = shrunk} | shrunk <- shrinkPattern (recordFieldValue field)]
 
 shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =

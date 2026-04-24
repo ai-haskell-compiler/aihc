@@ -56,6 +56,7 @@ import Aihc.Parser.Syntax
     moduleName,
     peelGuardQualifierAnn,
     peelPatternAnn,
+    recordFieldValue,
     renderUnqualifiedName,
   )
 import Aihc.Resolve.Types
@@ -471,9 +472,9 @@ bindPattern typeScope lastSeen nextLocal pat =
       let here = peelPatternSpan lastSeen pat
           (nextLocal', entries, fields') =
             foldl'
-              ( \(currentId, currentEntries, acc) (fieldName, fieldPat) ->
-                  let (nextId, fieldScope, fieldPat') = bindPattern typeScope here currentId fieldPat
-                   in (nextId, Map.toList (scopeTerms fieldScope) <> currentEntries, (fieldName, fieldPat') : acc)
+              ( \(currentId, currentEntries, acc) field ->
+                  let (nextId, fieldScope, fieldPat') = bindPattern typeScope here currentId (recordFieldValue field)
+                   in (nextId, Map.toList (scopeTerms fieldScope) <> currentEntries, field {recordFieldValue = fieldPat'} : acc)
               )
               (nextLocal, [], [])
               fields

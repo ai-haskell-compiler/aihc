@@ -281,20 +281,20 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           then PCon name [] []
           else PVar (mkUnqualifiedName (nameType name) (nameText name))
 
-recordFieldPatternParser :: TokParser (Name, Pattern)
+recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
   field <- identifierNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
       pat <- subpatternWithBareViewParser
-      pure (field, pat)
+      pure (RecordField field pat False)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure (field, PVar (mkUnqualifiedName (nameType field) (nameText field)))
+      pure (RecordField field (PVar (mkUnqualifiedName (nameType field) (nameText field))) True)
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
-recordPatternFieldListParser :: TokParser ([(Name, Pattern)], Bool)
+recordPatternFieldListParser :: TokParser ([RecordField Pattern], Bool)
 recordPatternFieldListParser = do
   rwcEnabled <- isExtensionEnabled RecordWildCards
   fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma

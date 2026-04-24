@@ -104,7 +104,7 @@ pattern PNegLit_ lit <- (peelPatternAnn -> PNegLit lit)
 pattern PParen_ :: Pattern -> Pattern
 pattern PParen_ pat <- (peelPatternAnn -> PParen pat)
 
-pattern PRecord_ :: Name -> [(Name, Pattern)] -> Bool -> Pattern
+pattern PRecord_ :: Name -> [RecordField Pattern] -> Bool -> Pattern
 pattern PRecord_ con fields rwc <- (peelPatternAnn -> PRecord con fields rwc)
 
 pattern PUnboxedSum_ :: Int -> Int -> Pattern -> Pattern
@@ -407,7 +407,9 @@ buildTests = do
           "pretty"
           [ testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
             testCase "symbolic type application parenthesizes context arguments" test_symbolicTypeApplicationContextArgRoundTrip,
-            testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip
+            testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip,
+            testCase "record patterns preserve explicit same-name bindings" test_recordPatternExplicitSameNameBindingRoundTrip,
+            testCase "record expressions preserve explicit same-name bindings" test_recordExprExplicitSameNameBindingRoundTrip
           ],
         testGroup
           "functionHeadParserWith dispatch"
@@ -2737,9 +2739,28 @@ test_funHeadPrefixListViewPattern =
 test_funHeadPrefixRecordFieldViewPattern :: Assertion
 test_funHeadPrefixRecordFieldViewPattern =
   case parseTopDeclWithExts [ViewPatterns] "f (Box {field = id -> x}) = x" of
-    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PRecord_ "Box" [(fieldName, PView_ (EVar_ "id") (PVar_ "x"))] False]}]))
-      | fieldName == qualifyName Nothing (mkUnqualifiedName NameVarId "field") -> pure ()
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PRecord_ "Box" [field] False]}]))
+      | recordFieldName field == qualifyName Nothing (mkUnqualifiedName NameVarId "field")
+          && not (recordFieldPun field)
+          && recordFieldValue field == PView (EVar "id") (PVar "x") ->
+          pure ()
     other -> assertFailure ("expected record-field view-pattern argument in prefix function head, got: " <> show other)
+
+test_recordPatternExplicitSameNameBindingRoundTrip :: Assertion
+test_recordPatternExplicitSameNameBindingRoundTrip =
+  let input = T.unlines ["module RecordPatternExplicit where", "data Event = Event { ref :: Int }", "f (Event {ref = ref}) = ref"]
+      (errs, modu) = parseModule defaultConfig input
+   in if not (null errs)
+        then assertFailure (show errs)
+        else renderStrict (layoutPretty defaultLayoutOptions (pretty modu)) @?= T.intercalate "\n" ["module RecordPatternExplicit where", "data Event = Event {ref :: Int}", "f (Event {ref = ref}) = ref"]
+
+test_recordExprExplicitSameNameBindingRoundTrip :: Assertion
+test_recordExprExplicitSameNameBindingRoundTrip =
+  let input = T.unlines ["module RecordExprExplicit where", "data Event = Event { ref :: Int }", "mk ref = Event {ref = ref}"]
+      (errs, modu) = parseModule defaultConfig input
+   in if not (null errs)
+        then assertFailure (show errs)
+        else renderStrict (layoutPretty defaultLayoutOptions (pretty modu)) @?= T.intercalate "\n" ["module RecordExprExplicit where", "data Event = Event {ref :: Int}", "mk ref = Event {ref = ref}"]
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =

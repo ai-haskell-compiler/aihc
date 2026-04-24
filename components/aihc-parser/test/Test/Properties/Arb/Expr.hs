@@ -379,10 +379,10 @@ genArithSeqWith allowTHQuotes =
         ArithSeqFromThenTo <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes
       ]
 
-genRecordFieldsWith :: Bool -> Gen [(Name, Expr)]
+genRecordFieldsWith :: Bool -> Gen [RecordField Expr]
 genRecordFieldsWith allowTHQuotes =
   smallList0 $
-    (,) <$> genVarName <*> genExprWith allowTHQuotes
+    RecordField <$> genVarName <*> genExprWith allowTHQuotes <*> pure False
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Gen Type
@@ -729,11 +729,13 @@ shrinkArithSeq seq' =
           <> [ArithSeqFromThenTo from thenE to' | to' <- shrinkExpr to]
     ArithSeqAnn _ _ -> []
 
-shrinkRecordFields :: [(Name, Expr)] -> [[(Name, Expr)]]
+shrinkRecordFields :: [RecordField Expr] -> [[RecordField Expr]]
 shrinkRecordFields = shrinkList shrinkRecordField
 
-shrinkRecordField :: (Name, Expr) -> [(Name, Expr)]
-shrinkRecordField (name, expr) = [(name', expr) | name' <- shrinkName name] <> [(name, expr') | expr' <- shrinkExpr expr]
+shrinkRecordField :: RecordField Expr -> [RecordField Expr]
+shrinkRecordField field =
+  [field {recordFieldName = name'} | name' <- shrinkName (recordFieldName field)]
+    <> [field {recordFieldValue = expr'} | expr' <- shrinkExpr (recordFieldValue field)]
 
 instance Arbitrary Expr where
   arbitrary = resize 5 genExpr

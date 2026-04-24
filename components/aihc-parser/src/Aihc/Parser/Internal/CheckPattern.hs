@@ -82,7 +82,13 @@ checkPattern expr = case expr of
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
   ERecordCon name fields wc -> do
-    patFields <- traverse (\(n, e) -> (n,) <$> checkPattern e) fields
+    patFields <-
+      traverse
+        ( \field -> do
+            pat <- checkPattern (recordFieldValue field)
+            pure field {recordFieldValue = pat}
+        )
+        fields
     Right (PRecord name patFields wc)
   -- Literals
   EInt n nt repr -> Right (PLit (LitInt n nt repr))

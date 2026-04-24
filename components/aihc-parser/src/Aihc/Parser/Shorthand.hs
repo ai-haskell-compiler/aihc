@@ -735,7 +735,7 @@ docPattern pat =
     PIrrefutable inner -> "PIrrefutable" <+> parens (docPattern inner)
     PNegLit lit -> "PNegLit" <+> parens (docLiteral lit)
     PParen inner -> "PParen" <+> parens (docPattern inner)
-    PRecord name fields' hasWildcard -> "PRecord" <+> docName name <+> braces (hsep (punctuate comma ([docName fn <+> "=" <+> docPattern fp | (fn, fp) <- fields'] ++ [".." | hasWildcard])))
+    PRecord name fields' hasWildcard -> "PRecord" <+> docName name <+> braces (hsep (punctuate comma ([docPatternRecordField recordField | recordField <- fields'] ++ [".." | hasWildcard])))
     PTypeSig inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
     PSplice body -> "PSplice" <+> parens (docExpr body)
 
@@ -789,8 +789,8 @@ docExpr expr =
     EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
-    ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma ([docName fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
-    ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docName fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
+    ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma ([docExprRecordField recordField | recordField <- fields'] ++ [".." | hasWildcard])))
+    ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docExprRecordField recordField | recordField <- fields']))
     ETypeSig inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen inner -> "EParen" <+> parens (docExpr inner)
     EList elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
@@ -804,6 +804,18 @@ docExpr expr =
     EProc pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
     EPragma pragma inner -> "EPragma" <+> parens (docPragma pragma) <+> parens (docExpr inner)
     EAnn _ sub -> docExpr sub
+
+docPatternRecordField :: RecordField Pattern -> Doc ann
+docPatternRecordField recordField =
+  docName (recordFieldName recordField)
+    <+> (if recordFieldPun recordField then "~pun" else "=")
+    <+> docPattern (recordFieldValue recordField)
+
+docExprRecordField :: RecordField Expr -> Doc ann
+docExprRecordField recordField =
+  docName (recordFieldName recordField)
+    <+> (if recordFieldPun recordField then "~pun" else "=")
+    <+> docExpr (recordFieldValue recordField)
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
