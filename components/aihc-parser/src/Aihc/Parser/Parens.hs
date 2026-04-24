@@ -429,16 +429,11 @@ addPatternBindLhsParens pat rhs =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
     -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
-    -- dedicated decl parser path. Other typed patterns, and guarded typed binds,
-    -- must stay grouped so the parser does not reinterpret them as signatures.
-    PTypeSig inner@(PVar {}) ty
-      | isUnguardedRhs rhs -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    -- dedicated decl parser path. Other typed patterns must stay grouped so the
+    -- parser does not reinterpret them as signatures.
+    PTypeSig inner@(PVar {}) ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
-
-isUnguardedRhs :: Rhs -> Bool
-isUnguardedRhs UnguardedRhs {} = True
-isUnguardedRhs GuardedRhss {} = False
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =

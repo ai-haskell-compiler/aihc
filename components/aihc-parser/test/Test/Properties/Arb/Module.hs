@@ -29,7 +29,7 @@ instance Arbitrary Module where
       Module
         { moduleAnns = [],
           moduleHead = mHead,
-          moduleLanguagePragmas = [],
+          moduleLanguagePragmas = generatedModuleExtensions,
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -45,6 +45,29 @@ instance Arbitrary Module where
       <> [ modu {moduleHead = shrunk}
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
+
+generatedModuleExtensions :: [ExtensionSetting]
+generatedModuleExtensions =
+  map
+    EnableExtension
+    [ BlockArguments,
+      Arrows,
+      UnboxedTuples,
+      UnboxedSums,
+      TemplateHaskell,
+      UnicodeSyntax,
+      QuasiQuotes,
+      PatternSynonyms,
+      MagicHash,
+      OverloadedLabels,
+      MultiWayIf,
+      RecursiveDo,
+      CApiFFI,
+      ImplicitParams,
+      TypeAbstractions,
+      RequiredTypeArguments,
+      LambdaCase
+    ]
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.

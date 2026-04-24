@@ -8,7 +8,8 @@ where
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser, exprParserNoArrowTail, parseLetDeclsParser, parseLetDeclsStmtParser)
-import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
+import Aihc.Parser.Internal.Type (typeInfixParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -115,7 +116,7 @@ cmdCaseParser = withSpanAnn (CmdAnn . mkAnnotation) $ do
 
 cmdCaseAltParser :: TokParser CmdCaseAlt
 cmdCaseAltParser = withSpan $ do
-  pat <- patternParser
+  pat <- patternParserWithTypeSigParser typeInfixParser
   expectedTok TkReservedRightArrow
   body <- cmdParser
   pure (\span' -> CmdCaseAlt [mkAnnotation span'] pat body)

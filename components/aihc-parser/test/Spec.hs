@@ -408,6 +408,8 @@ buildTests = do
           [ testCase "infix type family instances keep bare applications" test_typeFamilyInstanceInfixAppliedOperandsRoundTrip,
             testCase "symbolic type application parenthesizes context arguments" test_symbolicTypeApplicationContextArgRoundTrip,
             testCase "data family instance kind signatures round-trip" test_dataFamilyInstanceKindSignatureRoundTrip,
+            testCase "case alternatives keep typed strict negative patterns" test_caseAltTypedStrictNegativePatternParses,
+            testCase "local guarded typed binds in where clauses parse and round-trip" test_localGuardedTypedBindWhereRoundTrip,
             testCase "record patterns preserve explicit same-name bindings" test_recordPatternExplicitSameNameBindingRoundTrip,
             testCase "record expressions preserve explicit same-name bindings" test_recordExprExplicitSameNameBindingRoundTrip
           ],
@@ -417,6 +419,9 @@ buildTests = do
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
             testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
+            testCase "prefix quasiquote arg: f [qq||] = ()" test_funHeadPrefixQuasiQuoteArg,
+            testCase "symbolic prefix name with quasiquote arg: (+) [qq||] = ()" test_funHeadPrefixOpQuasiQuoteArg,
+            testCase "unicode symbolic prefix name with quasiquote arg" test_funHeadPrefixUnicodeOpQuasiQuoteArg,
             testCase "prefix list view pattern arg: fn [id -> x] = x" test_funHeadPrefixListViewPattern,
             testCase "prefix record field view pattern arg: f (Box {field = id -> x}) = x" test_funHeadPrefixRecordFieldViewPattern,
             testCase "prefix singleton unboxed tuple arg: f (# x #) = x" test_funHeadPrefixUnboxedTupleSingletonArg,
@@ -428,6 +433,8 @@ buildTests = do
             testCase "infix backtick with TH splice lhs: $splice `fn` () = ()" test_funHeadInfixThSpliceLhs,
             testCase "prefix with TH operator splice pattern: x $(*) = ()" test_funHeadPrefixThOperatorSplicePattern,
             testCase "prefix with TH negative splice pattern: x $(-()) = ()" test_funHeadPrefixThNegativeSplicePattern,
+            testCase "top-level nullary symbolic constructor pattern bind" test_topLevelNullarySymConPatternBind,
+            testCase "top-level nullary symbolic constructor pattern bind with where" test_topLevelNullarySymConPatternBindWhere,
             testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
             testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
             testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
@@ -451,7 +458,9 @@ buildTests = do
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               testCase "pretty-prints negative literal pattern type signatures with inner parens" test_patternTypeSigNegativeLiteralPrettyPrints,
               testCase "pretty-prints non-variable typed pattern binds with outer parens" test_patternBindTypedConstructorPrettyPrints,
+              testCase "pretty-prints guarded variable typed pattern binds without outer parens" test_patternBindGuardedVarTypeSigPrettyPrints,
               testCase "pretty-prints infix function head typed patterns with parens" test_infixFunctionHeadTypedPatternPrettyPrints,
+              testCase "top-level unboxed sum pattern binds round-trip" test_topLevelUnboxedSumPatternBindRoundTrip,
               testCase "pretty-prints qualified TH splice pattern bodies with explicit parens" test_qualifiedSplicePatternBodyPrettyPrints,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
@@ -487,6 +496,25 @@ test_patternBindTypedConstructorPrettyPrints = do
   assertBool ("expected no parse errors, got: " <> show errs) (null errs)
   map normalizeDecl (moduleDecls modu) @?= [normalizeDecl decl]
 
+test_patternBindGuardedVarTypeSigPrettyPrints :: Assertion
+test_patternBindGuardedVarTypeSigPrettyPrints = do
+  let decl =
+        DeclValue
+          ( PatternBind
+              (PTypeSig (PVar (mkUnqualifiedName NameVarId "y")) (TVar (mkUnqualifiedName NameVarId "t")))
+              ( GuardedRhss
+                  []
+                  [ GuardedRhs [] [GuardExpr (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "cond")))] (EInt 0 TInteger "0")
+                  ]
+                  Nothing
+              )
+          )
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "y :: t | cond = 0"
+  case parseTopDecl rendered of
+    Right actual -> normalizeDecl actual @?= normalizeDecl decl
+    Left err -> assertFailure (show err)
+
 test_infixFunctionHeadTypedPatternPrettyPrints :: Assertion
 test_infixFunctionHeadTypedPatternPrettyPrints = do
   let match =
@@ -505,6 +533,20 @@ test_infixFunctionHeadTypedPatternPrettyPrints = do
   let (errs, modu) = parseModule defaultConfig {parserExtensions = [UnboxedSums]} rendered
   assertBool ("expected no parse errors, got: " <> show errs) (null errs)
   map normalizeDecl (moduleDecls modu) @?= [normalizeDecl decl]
+
+test_topLevelUnboxedSumPatternBindRoundTrip :: Assertion
+test_topLevelUnboxedSumPatternBindRoundTrip = do
+  let decl =
+        DeclValue
+          ( PatternBind
+              (PUnboxedSum 0 2 (PVar (mkUnqualifiedName NameVarId "a")))
+              (UnguardedRhs [] (EVar (qualifyName Nothing (mkUnqualifiedName NameVarSym "+"))) Nothing)
+          )
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "(# a |  #) = (+)"
+  case parseTopDeclWithExts [UnboxedSums] rendered of
+    Right actual -> normalizeDecl actual @?= normalizeDecl decl
+    Left err -> assertFailure (show err)
 
 test_qualifiedSplicePatternBodyPrettyPrints :: Assertion
 test_qualifiedSplicePatternBodyPrettyPrints = do
@@ -2794,6 +2836,24 @@ test_funHeadPrefixConstructorArg =
     Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PCon_ "Just" [PVar_ "x"], PVar_ "y"]}])) -> pure ()
     other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
 
+test_funHeadPrefixQuasiQuoteArg :: Assertion
+test_funHeadPrefixQuasiQuoteArg =
+  case parseTopDeclWithExts [QuasiQuotes] "f [qq||] = ()" of
+    Right (DeclValue (FunctionBind "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PQuasiQuote "qq" ""]}])) -> pure ()
+    other -> assertFailure ("expected quasiquote argument in prefix function head, got: " <> show other)
+
+test_funHeadPrefixOpQuasiQuoteArg :: Assertion
+test_funHeadPrefixOpQuasiQuoteArg =
+  case parseTopDeclWithExts [QuasiQuotes] "(+) [qq||] = ()" of
+    Right (DeclValue (FunctionBind "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PQuasiQuote "qq" ""]}])) -> pure ()
+    other -> assertFailure ("expected quasiquote argument after symbolic prefix name, got: " <> show other)
+
+test_funHeadPrefixUnicodeOpQuasiQuoteArg :: Assertion
+test_funHeadPrefixUnicodeOpQuasiQuoteArg =
+  case parseTopDeclWithExts [QuasiQuotes] "(꩸) [a||] = ()" of
+    Right (DeclValue (FunctionBind "꩸" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PQuasiQuote "a" ""]}])) -> pure ()
+    other -> assertFailure ("expected quasiquote argument after unicode symbolic prefix name, got: " <> show other)
+
 test_funHeadPrefixListViewPattern :: Assertion
 test_funHeadPrefixListViewPattern =
   case parseTopDeclWithExts [ViewPatterns] "fn [id -> x] = x" of
@@ -2825,6 +2885,38 @@ test_recordExprExplicitSameNameBindingRoundTrip =
    in if not (null errs)
         then assertFailure (show errs)
         else renderStrict (layoutPretty defaultLayoutOptions (pretty modu)) @?= T.intercalate "\n" ["module RecordExprExplicit where", "data Event = Event {ref :: Int}", "mk ref = Event {ref = ref}"]
+
+test_localGuardedTypedBindWhereRoundTrip :: Assertion
+test_localGuardedTypedBindWhereRoundTrip =
+  let input = T.unlines ["module TypeSignatureGuards where", "f x = y", "  where", "    y :: Int", "      | x > 0 = 1", "      | otherwise = 0"]
+      (errs, modu) = parseModule defaultConfig input
+   in if not (null errs)
+        then assertFailure (show errs)
+        else do
+          let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+              (roundtripErrs, roundtripModu) = parseModule defaultConfig rendered
+          assertBool ("expected pretty-printed module to parse, got: " <> show roundtripErrs) (null roundtripErrs)
+          map normalizeDecl (moduleDecls roundtripModu) @?= map normalizeDecl (moduleDecls modu)
+
+test_caseAltTypedStrictNegativePatternParses :: Assertion
+test_caseAltTypedStrictNegativePatternParses =
+  case parseExpr defaultConfig {parserExtensions = [UnicodeSyntax]} "case 'r' of { !(-21.8) :: (Ⱁϗẙ.:⸹) -> () }" of
+    ParseOk _ -> pure ()
+    other -> assertFailure ("expected typed strict negative case pattern to parse, got: " <> show other)
+
+test_topLevelNullarySymConPatternBind :: Assertion
+test_topLevelNullarySymConPatternBind =
+  case parseTopDecl "(:+) = []" of
+    Right (DeclValue (PatternBind (PCon_ op []) _))
+      | op == qualifyName Nothing (mkUnqualifiedName NameConSym ":+") -> pure ()
+    other -> assertFailure ("expected nullary symbolic constructor pattern bind, got: " <> show other)
+
+test_topLevelNullarySymConPatternBindWhere :: Assertion
+test_topLevelNullarySymConPatternBindWhere =
+  case parseTopDecl "(:+) = [] where { x = () }" of
+    Right (DeclValue (PatternBind (PCon_ op []) (UnguardedRhs _ _ (Just _))))
+      | op == qualifyName Nothing (mkUnqualifiedName NameConSym ":+") -> pure ()
+    other -> assertFailure ("expected nullary symbolic constructor pattern bind with where, got: " <> show other)
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
