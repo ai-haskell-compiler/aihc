@@ -148,7 +148,7 @@ parseDecl cfg input =
 -- returning the error and the successfully parsed declarations.
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]}
+-- Module {name = "Main", decls = [DeclValue (PatternBind PVar "main" UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello")))]}
 --
 -- Modules without a header are also supported:
 --
