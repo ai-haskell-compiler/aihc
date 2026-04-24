@@ -283,7 +283,7 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 
 recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
-  field <- identifierNameParser
+  field <- identifierNameParser <|> parens operatorNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do

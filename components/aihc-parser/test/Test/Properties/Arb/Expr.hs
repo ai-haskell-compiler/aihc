@@ -77,6 +77,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         ETypeApp <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         EParen <$> genExprWith allowTHQuotes,
+        EProc <$> genSimplePatternWith allowTHQuotes <*> genCmdWith allowTHQuotes,
         -- Template Haskell splices are valid inside quote bodies.
         ETHSplice <$> genSpliceBody,
         ETHTypedSplice <$> genTypedSpliceBody
@@ -170,6 +171,97 @@ genTypeNameQuoteType =
 -- | Generate simple patterns for lambdas
 genPatterns :: Gen [Pattern]
 genPatterns = smallList1 genPattern
+
+-- | Generate a subset accepted by 'simplePatternParser', used in @proc@ and
+-- command lambda binders.
+genSimplePatternWith :: Bool -> Gen Pattern
+genSimplePatternWith allowTHQuotes = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0
+    then oneof simplePatternLeafGenerators
+    else oneof (simplePatternLeafGenerators <> simplePatternRecursiveGenerators)
+  where
+    simplePatternLeafGenerators =
+      [ PVar <$> genSimplePatternUnqualVarName,
+        pure PWildcard,
+        PLit <$> genLiteral,
+        PQuasiQuote <$> genQuasiQuoteName <*> genStringValue,
+        PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
+        pure (PList []),
+        PCon <$> genConName <*> pure [] <*> pure []
+      ]
+    simplePatternRecursiveGenerators =
+      [ PAs <$> genVarId <*> genSimplePatternAtomWith allowTHQuotes,
+        PStrict <$> genSimplePatternAtomWith allowTHQuotes,
+        PIrrefutable <$> genSimplePatternAtomWith allowTHQuotes,
+        PList <$> smallList0 (genSimplePatternAtomWith allowTHQuotes),
+        PTuple Boxed <$> genSimpleTupleElemsWith allowTHQuotes,
+        genSimpleRecordPatternWith allowTHQuotes
+      ]
+
+genSimplePatternAtomWith :: Bool -> Gen Pattern
+genSimplePatternAtomWith _ =
+  oneof
+    [ PVar <$> genSimplePatternUnqualVarName,
+      pure PWildcard,
+      PLit <$> genLiteral,
+      PQuasiQuote <$> genQuasiQuoteName <*> genStringValue,
+      pure (PTuple Boxed []),
+      pure (PList []),
+      PCon <$> genConName <*> pure [] <*> pure []
+    ]
+
+genSimpleTupleElemsWith :: Bool -> Gen [Pattern]
+genSimpleTupleElemsWith allowTHQuotes =
+  oneof
+    [ pure [],
+      do
+        count <- chooseInt (2, 4)
+        scale (`div` count) $ vectorOf count (genSimplePatternAtomWith allowTHQuotes)
+    ]
+
+genSimpleRecordPatternWith :: Bool -> Gen Pattern
+genSimpleRecordPatternWith allowTHQuotes = do
+  con <- genConName
+  count <- chooseInt (0, 3)
+  names <- vectorOf count genVarName
+  pats <- vectorOf count (genSimplePatternAtomWith allowTHQuotes)
+  pure (PRecord con (zip names pats) False)
+
+genSimplePatternUnqualVarName :: Gen UnqualifiedName
+genSimplePatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
+
+genLiteral :: Gen Literal
+genLiteral =
+  oneof
+    [ mkIntLiteral <$> chooseInteger (0, 999),
+      mkHexLiteral <$> chooseInteger (0, 255),
+      mkFloatLiteral <$> genTenths,
+      mkCharLiteral <$> genCharValue,
+      mkStringLiteral <$> genStringValue
+    ]
+
+genCmdWith :: Bool -> Gen Cmd
+genCmdWith allowTHQuotes = scale (`div` 2) $ genCmdLeafWith allowTHQuotes
+
+genCmdLeafWith :: Bool -> Gen Cmd
+genCmdLeafWith allowTHQuotes =
+  CmdArrApp <$> genCmdExprWith allowTHQuotes <*> genArrAppType <*> genCmdExprWith allowTHQuotes
+
+genArrAppType :: Gen ArrAppType
+genArrAppType = elements [HsFirstOrderApp, HsHigherOrderApp]
+
+genCmdExprWith :: Bool -> Gen Expr
+genCmdExprWith _ =
+  oneof
+    [ EVar <$> genVarName,
+      mkIntExpr <$> chooseInteger (0, 999),
+      mkFloatExpr <$> genTenths,
+      mkCharExpr <$> genCharValue,
+      mkStringExpr <$> genStringValue,
+      pure (EList []),
+      pure (ETuple Boxed [])
+    ]
 
 genCaseAltsWith :: Bool -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes = smallList0 (genCaseAltWith allowTHQuotes)
@@ -425,6 +517,21 @@ genTypeListElemsWith allowTHQuotes = do
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
 
+mkIntLiteral :: Integer -> Literal
+mkIntLiteral value = LitInt value TInteger (T.pack (show value))
+
+mkHexLiteral :: Integer -> Literal
+mkHexLiteral value = LitInt value TInteger ("0x" <> T.pack (showHex value))
+
+mkFloatLiteral :: Rational -> Literal
+mkFloatLiteral value = LitFloat value TFractional (renderFloat value)
+
+mkCharLiteral :: Char -> Literal
+mkCharLiteral value = LitChar value (T.pack (show value))
+
+mkStringLiteral :: Text -> Literal
+mkStringLiteral value = LitString value (T.pack (show (T.unpack value)))
+
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
 mkHexExpr value = EInt value TInteger ("0x" <> T.pack (showHex value))
@@ -573,8 +680,136 @@ shrinkExpr expr =
     ETHTypeNameQuote ty -> [ETHTypeNameQuote ty' | ty' <- shrinkType ty]
     ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
     ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
-    EProc {} -> []
+    EProc pat body ->
+      [EProc pat' body | pat' <- shrinkSimplePattern pat]
+        <> [EProc pat body' | body' <- shrinkCmd body]
     EAnn _ sub -> shrinkExpr sub
+
+shrinkSimplePattern :: Pattern -> [Pattern]
+shrinkSimplePattern = filter isSimplePattern . shrinkPattern
+
+isSimplePattern :: Pattern -> Bool
+isSimplePattern pat =
+  case pat of
+    PAnn _ sub -> isSimplePattern sub
+    PVar {} -> True
+    PTypeBinder {} -> True
+    PTypeSyntax {} -> True
+    PWildcard -> True
+    PLit {} -> True
+    PQuasiQuote {} -> True
+    PTuple _ elems -> all isDelimitedSimplePattern elems
+    PList elems -> all isDelimitedSimplePattern elems
+    PCon _ [] [] -> True
+    PView {} -> False
+    PAs _ inner -> isSimplePatternAtom inner
+    PStrict inner -> isSimplePatternAtom inner
+    PIrrefutable inner -> isSimplePatternAtom inner
+    PNegLit {} -> False
+    PParen inner -> isDelimitedSimplePattern inner
+    PUnboxedSum {} -> False
+    PRecord _ fields _ -> all (isDelimitedSimplePattern . snd) fields
+    PTypeSig {} -> False
+    PSplice {} -> True
+    PCon {} -> False
+    PInfix {} -> False
+
+isSimplePatternAtom :: Pattern -> Bool
+isSimplePatternAtom pat =
+  case pat of
+    PAnn _ sub -> isSimplePatternAtom sub
+    PVar {} -> True
+    PWildcard -> True
+    PLit {} -> True
+    PQuasiQuote {} -> True
+    PTuple _ elems -> all isDelimitedSimplePattern elems
+    PList elems -> all isDelimitedSimplePattern elems
+    PCon _ [] [] -> True
+    PParen inner -> isDelimitedSimplePattern inner
+    PSplice {} -> True
+    _ -> False
+
+isDelimitedSimplePattern :: Pattern -> Bool
+isDelimitedSimplePattern pat =
+  case pat of
+    PAnn _ sub -> isDelimitedSimplePattern sub
+    PView _ inner -> isDelimitedSimplePattern inner
+    PNegLit {} -> True
+    PTypeSig inner ty -> isDelimitedSimplePattern inner && isClosedType ty
+    PUnboxedSum _ _ inner -> isDelimitedSimplePattern inner
+    PCon _ _ args -> all isDelimitedSimplePattern args
+    PInfix lhs _ rhs -> isDelimitedSimplePattern lhs && isDelimitedSimplePattern rhs
+    _ -> isSimplePattern pat
+
+isClosedType :: Type -> Bool
+isClosedType ty =
+  case ty of
+    TAnn _ sub -> isClosedType sub
+    TVar {} -> True
+    TCon {} -> True
+    TApp a b -> isClosedType a && isClosedType b
+    TFun a b -> isClosedType a && isClosedType b
+    TList _ elems -> all isClosedType elems
+    TTuple _ _ elems -> all isClosedType elems
+    TParen inner -> isClosedType inner
+    _ -> False
+
+shrinkCmd :: Cmd -> [Cmd]
+shrinkCmd cmd =
+  case peelCmdAnn cmd of
+    CmdAnn _ inner -> shrinkCmd inner
+    CmdArrApp lhs appTy rhs ->
+      [CmdArrApp lhs' appTy rhs | lhs' <- shrinkExpr lhs]
+        <> [CmdArrApp lhs appTy rhs' | rhs' <- shrinkExpr rhs]
+    CmdInfix lhs op rhs ->
+      [lhs, rhs]
+        <> [CmdInfix lhs' op rhs | lhs' <- shrinkCmd lhs]
+        <> [CmdInfix lhs op' rhs | op' <- shrinkName op]
+        <> [CmdInfix lhs op rhs' | rhs' <- shrinkCmd rhs]
+    CmdDo stmts -> [CmdDo stmts' | stmts' <- shrinkCmdDoStmts stmts, not (null stmts')]
+    CmdIf cond yes no ->
+      [yes, no]
+        <> [CmdIf cond' yes no | cond' <- shrinkExpr cond]
+        <> [CmdIf cond yes' no | yes' <- shrinkCmd yes]
+        <> [CmdIf cond yes no' | no' <- shrinkCmd no]
+    CmdCase scrut alts ->
+      [CmdCase scrut' alts | scrut' <- shrinkExpr scrut]
+        <> [CmdCase scrut alts' | alts' <- shrinkCmdCaseAlts alts, not (null alts')]
+    CmdLet decls body ->
+      body
+        : [CmdLet decls' body | decls' <- shrinkDecls decls, not (null decls')]
+          <> [CmdLet decls body' | body' <- shrinkCmd body]
+    CmdLam pats body ->
+      body
+        : [CmdLam pats' body | pats' <- shrinkList shrinkSimplePattern pats, not (null pats'), all isSimplePattern pats']
+          <> [CmdLam pats body' | body' <- shrinkCmd body]
+    CmdApp cmd' expr ->
+      cmd'
+        : [CmdApp cmd'' expr | cmd'' <- shrinkCmd cmd']
+          <> [CmdApp cmd' expr' | expr' <- shrinkExpr expr]
+    CmdPar inner -> inner : [CmdPar inner' | inner' <- shrinkCmd inner]
+
+shrinkCmdDoStmts :: [DoStmt Cmd] -> [[DoStmt Cmd]]
+shrinkCmdDoStmts = shrinkList shrinkCmdDoStmt
+
+shrinkCmdDoStmt :: DoStmt Cmd -> [DoStmt Cmd]
+shrinkCmdDoStmt stmt =
+  case peelDoStmtAnn stmt of
+    DoBind pat cmd ->
+      [DoBind pat' cmd | pat' <- shrinkPattern pat]
+        <> [DoBind pat cmd' | cmd' <- shrinkCmd cmd]
+    DoLetDecls decls -> [DoLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
+    DoExpr cmd -> [DoExpr cmd' | cmd' <- shrinkCmd cmd]
+    DoRecStmt stmts -> [DoRecStmt stmts' | stmts' <- shrinkCmdDoStmts stmts, not (null stmts')]
+    DoAnn _ _ -> []
+
+shrinkCmdCaseAlts :: [CmdCaseAlt] -> [[CmdCaseAlt]]
+shrinkCmdCaseAlts = shrinkList shrinkCmdCaseAlt
+
+shrinkCmdCaseAlt :: CmdCaseAlt -> [CmdCaseAlt]
+shrinkCmdCaseAlt alt =
+  [alt {cmdCaseAltPat = pat'} | pat' <- shrinkPattern (cmdCaseAltPat alt)]
+    <> [alt {cmdCaseAltBody = body'} | body' <- shrinkCmd (cmdCaseAltBody alt)]
 
 shrinkCaseAlts :: [CaseAlt] -> [[CaseAlt]]
 shrinkCaseAlts = shrinkList shrinkCaseAlt

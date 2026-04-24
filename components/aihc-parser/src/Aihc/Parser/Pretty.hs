@@ -462,6 +462,7 @@ prettyPattern pat =
     PWildcard -> "_"
     PLit lit -> prettyLiteral lit
     PQuasiQuote quoter body -> prettyQuasiQuote quoter body
+    PTuple Unboxed [] -> "(# #)"
     PTuple tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
     PUnboxedSum altIdx arity inner ->
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
@@ -491,11 +492,19 @@ prettyPattern pat =
     PSplice body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
+<<<<<<< HEAD
 prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
 prettyPatternFieldBinding field =
   if recordFieldPun field
     then pretty (recordFieldName field)
     else pretty (recordFieldName field) <+> "=" <+> prettyPattern (recordFieldValue field)
+=======
+prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
+prettyPatternFieldBinding fieldName fieldPat =
+  case peelPatternAnn fieldPat of
+    PVar varName | renderUnqualifiedName varName == renderName fieldName -> prettyPrefixName fieldName
+    _ -> prettyPrefixName fieldName <+> "=" <+> prettyPattern fieldPat
+>>>>>>> b7d5c7609 (fix(parser): cover proc roundtrip generation)
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
@@ -1139,6 +1148,7 @@ prettyExpr expr =
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
     EParen inner -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
+    ETuple Unboxed [] -> "(# #)"
     ETuple tupleFlavor values ->
       prettyTupleBody
         tupleFlavor

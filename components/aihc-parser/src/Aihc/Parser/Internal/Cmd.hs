@@ -37,23 +37,26 @@ cmdParser = do
       -- a do-block is a statement, not handled here.
       cmdOperandThenInfix cmdLetParser
     TkReservedBackslash -> cmdOperandThenInfix cmdLamParser
-    TkSpecialLParen -> cmdOperandThenInfix cmdParenParser
-    _ -> do
-      -- Not a keyword command: parse the left side as an expression while
-      -- leaving -< / -<< available for command parsing.
-      expr <- exprParserNoArrowTail
-      mArrowTail <- MP.optional cmdArrTailParser
-      case mArrowTail of
-        Just (appType, rhs) ->
-          cmdInfixChain (CmdArrApp expr appType rhs)
-        Nothing -> do
-          mTok <- MP.optional (lookAhead anySingle)
-          MP.customFailure
-            UnexpectedTokenExpecting
-              { unexpectedFound = mkFoundToken <$> mTok,
-                unexpectedExpecting = "arrow command (-< or -<<)",
-                unexpectedContext = []
-              }
+    TkSpecialLParen -> MP.try (cmdOperandThenInfix cmdParenParser) <|> exprHeadedCmdParser
+    _ -> exprHeadedCmdParser
+
+exprHeadedCmdParser :: TokParser Cmd
+exprHeadedCmdParser = do
+  -- Parse the left side as an expression while leaving -< / -<< available
+  -- for command parsing.
+  expr <- exprParserNoArrowTail
+  mArrowTail <- MP.optional cmdArrTailParser
+  case mArrowTail of
+    Just (appType, rhs) ->
+      cmdInfixChain (CmdArrApp expr appType rhs)
+    Nothing -> do
+      mTok <- MP.optional (lookAhead anySingle)
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = mkFoundToken <$> mTok,
+            unexpectedExpecting = "arrow command (-< or -<<)",
+            unexpectedContext = []
+          }
 
 -- | Parse a cmd10 operand, then check for command-level infix.
 cmdOperandThenInfix :: TokParser Cmd -> TokParser Cmd

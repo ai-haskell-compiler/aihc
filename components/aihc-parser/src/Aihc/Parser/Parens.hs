@@ -1136,9 +1136,14 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr
+  if endsWithTypeSig expr || isProcExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
+  where
+    isProcExpr e =
+      case peelExprAnn e of
+        EProc {} -> True
+        _ -> False
 
 -- | Check if an operator is the cons operator ':'.
 isConsOperator :: Name -> Bool
@@ -1201,6 +1206,7 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
@@ -1225,6 +1231,7 @@ addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
@@ -1243,7 +1250,7 @@ addCmdParens cmd =
     CmdArrApp lhs appTy rhs ->
       CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
-      CmdInfix (addCmdParens l) op (addCmdParens r)
+      CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
     CmdDo stmts ->
       CmdDo (map addCmdDoStmtParens stmts)
     CmdIf cond yes no ->
@@ -1258,6 +1265,16 @@ addCmdParens cmd =
       CmdApp (addCmdParens c) (addExprParensPrec 3 e)
     CmdPar c ->
       CmdPar (addCmdParens c)
+  where
+    wrapCmdOperand inner =
+      case peelCmdAnn inner of
+        CmdArrApp {} -> CmdPar inner
+        CmdLet {} -> CmdPar inner
+        CmdIf {} -> CmdPar inner
+        CmdCase {} -> CmdPar inner
+        CmdLam {} -> CmdPar inner
+        CmdInfix {} -> CmdPar inner
+        _ -> inner
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
