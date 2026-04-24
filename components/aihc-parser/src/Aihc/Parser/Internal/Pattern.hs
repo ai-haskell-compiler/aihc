@@ -2,6 +2,7 @@
 
 module Aihc.Parser.Internal.Pattern
   ( patternParser,
+    patternParserWithTypeSigParser,
     simplePatternParser,
     appPatternParser,
     literalParser,
@@ -20,9 +21,12 @@ import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
 patternParser :: TokParser Pattern
-patternParser = label "pattern" $ do
+patternParser = patternParserWithTypeSigParser typeParser
+
+patternParserWithTypeSigParser :: TokParser Type -> TokParser Pattern
+patternParserWithTypeSigParser typeSigParser = label "pattern" $ do
   pat <- infixPatternParser
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
   case mTypeSig of
     Just ty -> pure (PTypeSig pat ty)
     Nothing -> pure pat

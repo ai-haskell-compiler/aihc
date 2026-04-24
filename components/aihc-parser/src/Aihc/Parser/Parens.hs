@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
@@ -420,8 +421,19 @@ addDeclSpliceParens = addExprParens
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
-    PatternBind pat rhs -> PatternBind (addPatternParens pat) (addRhsParens rhs)
+    PatternBind pat rhs -> PatternBind (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
     FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
+
+addPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
+addPatternBindLhsParens pat rhs =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
+    -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
+    -- dedicated decl parser path. Other typed patterns must stay grouped so the
+    -- parser does not reinterpret them as signatures.
+    PTypeSig inner@(PVar {}) ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
+    _ -> addPatternParens pat
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =
@@ -777,7 +789,7 @@ addExprParensPrec prec expr =
     EMultiWayIf rhss ->
       wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
     ELambdaPats pats body ->
-      wrapExpr (prec > 0) (ELambdaPats (map addLambdaPatternAtomParens pats) (addExprParens body))
+      wrapExpr (prec > 0) (ELambdaPats (map addArrowBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
     ELambdaCases alts ->
@@ -840,7 +852,7 @@ addExprParensPrec prec expr =
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
-      wrapExpr (prec > 0) (EProc (addPatternParens pat) (addCmdParens body))
+      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
     EPragma pragma inner ->
       wrapExpr (prec > 0) (EPragma pragma (addExprParens inner))
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
@@ -873,8 +885,10 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- Bare variable: $name is valid splice syntax without parens.
-    EVar {} -> body
+    -- Bare unqualified variables and operators use the compact splice syntax.
+    -- Qualified names require $(M.name) to remain parseable.
+    EVar name
+      | isNothing (nameQualifier name) -> body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
@@ -1110,7 +1124,7 @@ addPatternParens pat =
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
       PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
-    PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
+    PTypeSig inner ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
@@ -1191,14 +1205,16 @@ addPatternInfixOperandParens pat =
     PCon {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
--- | Add parens for a pattern in lambda argument position.
-addLambdaPatternAtomParens :: Pattern -> Pattern
-addLambdaPatternAtomParens pat =
-  case pat of
-    PAnn ann sub -> PAnn ann (addLambdaPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
-    _ -> addPatternAtomParens pat
+-- | Add parens for a pattern in arrow binder position (lambda/proc).
+-- Type-signatured, negated literal, infix, and non-nullary constructor patterns
+-- must be parenthesized to avoid ambiguity.
+addArrowBndrPatternParens :: Pattern -> Pattern
+addArrowBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PNegLit {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PInfix {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ (_ : _) _) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ [] (_ : _)) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens pat = addPatternParens pat
 
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
@@ -1218,6 +1234,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.

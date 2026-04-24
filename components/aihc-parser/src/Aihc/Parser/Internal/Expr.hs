@@ -31,7 +31,7 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -674,7 +674,7 @@ guardTypeSigParser RhsArrowCase = typeInfixParser
 
 caseAltParser :: TokParser (CaseAlt Expr)
 caseAltParser = withSpan $ do
-  pat <- region "while parsing case alternative" patternParser
+  pat <- region "while parsing case alternative" (patternParserWithTypeSigParser typeInfixParser)
   rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
@@ -1162,20 +1162,16 @@ localTypeSigDeclsParser = do
         case peelDeclAnn sig of
           DeclTypeSig sigNames sigTy -> (sigNames, sigTy)
           _ -> error "typeSigDeclParser must produce DeclTypeSig"
-  mEq <- MP.optional (expectedTok TkReservedEquals)
-  case mEq of
-    Nothing -> pure [sig]
-    Just () ->
-      case names of
-        [name] -> do
-          rhsExpr <- exprParser
-          whereDecls <- MP.optional whereClauseParser
-          let bindAnns = []
-              pat = PTypeSig (PVar name) ty
-              rhs = UnguardedRhs bindAnns rhsExpr whereDecls
-          pure [DeclValue (PatternBind pat rhs)]
-        _ ->
-          fail "local typed bindings with '=' require exactly one binder"
+  nextKind <- lexTokenKind <$> lookAhead anySingle
+  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
+    then case names of
+      [name] -> do
+        rhs <- equationRhsParser
+        let pat = PTypeSig (PVar name) ty
+        pure [DeclValue (PatternBind pat rhs)]
+      _ ->
+        fail "local typed bindings with '=' or guards require exactly one binder"
+    else pure [sig]
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

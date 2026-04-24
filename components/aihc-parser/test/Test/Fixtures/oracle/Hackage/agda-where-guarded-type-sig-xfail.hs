@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type signature followed by guarded definition in where clause not supported -}
+{- ORACLE_TEST pass -}
 module AgdaWhereGuardedTypeSig where
 
 f x = y
