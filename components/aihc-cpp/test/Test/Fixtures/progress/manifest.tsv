@@ -38,3 +38,4 @@ hpp-file-macro-string-pattern	macro	hpp-file-macro-string-pattern.hs	pass
 rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	pass
 macro-multiline-args	macro	macro-multiline-args.hs	pass
 stringify-paste-pair	macro	stringify-paste-pair.hs	pass
+macro-comment-replacement	macro	macro-comment-replacement.hs	pass

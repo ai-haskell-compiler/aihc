@@ -93,11 +93,20 @@ countExtraLinesConsumed st txt moreLines = scanForFunctionMacro False False Fals
     -- Try to parse function call args, potentially spanning multiple lines.
     -- Returns Just n if the call spans n extra lines, Nothing if no call.
     tryMultilineCallArgs :: Text -> Maybe Int
-    tryMultilineCallArgs rest =
-      case T.uncons rest of
+    tryMultilineCallArgs rest = seekOpenParen (T.dropWhile isSpace rest) 0
+
+    seekOpenParen :: Text -> Int -> Maybe Int
+    seekOpenParen remaining extraLines =
+      case T.uncons remaining of
         Just ('(', afterOpen) ->
-          findClosingParen 0 afterOpen 0
-        _ -> Nothing
+          findClosingParen 0 afterOpen extraLines
+        Just _ ->
+          Nothing
+        Nothing ->
+          case drop extraLines moreLines of
+            [] -> Nothing
+            (nextLine : _) ->
+              seekOpenParen (T.dropWhile isSpace nextLine) (extraLines + 1)
 
     findClosingParen :: Int -> Text -> Int -> Maybe Int
     findClosingParen depth remaining extraLines =
@@ -186,7 +195,7 @@ expandIdentBlue st painted txt acc =
 -- | Parse function-like macro call arguments.
 parseCallArgs :: Text -> Maybe ([Text], Text)
 parseCallArgs input = do
-  ('(', rest) <- T.uncons input
+  ('(', rest) <- T.uncons (T.dropWhile isSpace input)
   parseArgs 0 [] mempty rest
 
 parseArgs :: Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
