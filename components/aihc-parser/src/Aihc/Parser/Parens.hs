@@ -1151,7 +1151,7 @@ addPatternAtomParens pat =
     PAnn ann sub -> PAnn ann (addPatternAtomParens sub)
     PVar {} -> addPatternParens pat
     PTypeBinder {} -> addPatternParens pat
-    PTypeSyntax {} -> wrapPat True (addPatternParens pat)
+    PTypeSyntax {} -> addPatternParens pat
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
     PQuasiQuote {} -> addPatternParens pat
@@ -1225,7 +1225,6 @@ addPatternAtomStrictParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PTypeBinder {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
