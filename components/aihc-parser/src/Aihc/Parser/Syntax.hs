@@ -135,6 +135,7 @@ module Aihc.Parser.Syntax
     instanceHeadTypes,
     mkAnnotation,
     fromAnnotation,
+    stripAnnotations,
     peelArithSeqAnn,
     peelClassDeclItemAnn,
     peelCmdAnn,
@@ -176,10 +177,11 @@ import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkData
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.List (sort)
 import Data.Map qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (cast)
 import GHC.Generics (Generic)
 
 data Extension
@@ -1890,3 +1892,105 @@ getArithSeqSourceSpan arithSeq =
       | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
       | otherwise -> getArithSeqSourceSpan sub
     _ -> NoSourceSpan
+
+-- | Recursively strip all annotations from an AST value.
+--
+-- Removes annotation wrapper constructors (e.g. 'EAnn', 'TAnn', 'PAnn',
+-- 'DeclAnn') and replaces annotation lists with @[]@.  The traversal is
+-- bottom-up: children are stripped before their parent, so nested annotation
+-- wrappers are fully removed.
+stripAnnotations :: (Data a) => a -> a
+stripAnnotations x = applyStrip (gmapT stripAnnotations x)
+  where
+    applyStrip :: (Data c) => c -> c
+    applyStrip =
+      id
+        `extT` sExpr
+        `extT` sType
+        `extT` sPattern
+        `extT` sDecl
+        `extT` sDataConDecl
+        `extT` sLiteral
+        `extT` sGuardQualifier
+        `extT` (sDoStmt :: DoStmt Expr -> DoStmt Expr)
+        `extT` (sDoStmt :: DoStmt Cmd -> DoStmt Cmd)
+        `extT` sCompStmt
+        `extT` sArithSeq
+        `extT` sClassDeclItem
+        `extT` sInstanceDeclItem
+        `extT` sCmd
+        `extT` sExportSpec
+        `extT` sImportItem
+        `extT` sWarningText
+        `extT` sAnnotations
+
+    -- \| Extend a generic transformation with a type-specific case.
+    extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
+    extT f g y = fromMaybe (f y) (cast . g =<< cast y)
+
+    sExpr :: Expr -> Expr
+    sExpr (EAnn _ e) = e
+    sExpr e = e
+
+    sType :: Type -> Type
+    sType (TAnn _ t) = t
+    sType t = t
+
+    sPattern :: Pattern -> Pattern
+    sPattern (PAnn _ p) = p
+    sPattern p = p
+
+    sDecl :: Decl -> Decl
+    sDecl (DeclAnn _ d) = d
+    sDecl d = d
+
+    sDataConDecl :: DataConDecl -> DataConDecl
+    sDataConDecl (DataConAnn _ d) = d
+    sDataConDecl d = d
+
+    sLiteral :: Literal -> Literal
+    sLiteral (LitAnn _ l) = l
+    sLiteral l = l
+
+    sGuardQualifier :: GuardQualifier -> GuardQualifier
+    sGuardQualifier (GuardAnn _ q) = q
+    sGuardQualifier q = q
+
+    sDoStmt :: DoStmt body -> DoStmt body
+    sDoStmt (DoAnn _ s) = s
+    sDoStmt s = s
+
+    sCompStmt :: CompStmt -> CompStmt
+    sCompStmt (CompAnn _ s) = s
+    sCompStmt s = s
+
+    sArithSeq :: ArithSeq -> ArithSeq
+    sArithSeq (ArithSeqAnn _ s) = s
+    sArithSeq s = s
+
+    sClassDeclItem :: ClassDeclItem -> ClassDeclItem
+    sClassDeclItem (ClassItemAnn _ i) = i
+    sClassDeclItem i = i
+
+    sInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
+    sInstanceDeclItem (InstanceItemAnn _ i) = i
+    sInstanceDeclItem i = i
+
+    sCmd :: Cmd -> Cmd
+    sCmd (CmdAnn _ c) = c
+    sCmd c = c
+
+    sExportSpec :: ExportSpec -> ExportSpec
+    sExportSpec (ExportAnn _ e) = e
+    sExportSpec e = e
+
+    sImportItem :: ImportItem -> ImportItem
+    sImportItem (ImportAnn _ i) = i
+    sImportItem i = i
+
+    sWarningText :: WarningText -> WarningText
+    sWarningText (WarningTextAnn _ w) = w
+    sWarningText w = w
+
+    sAnnotations :: [Annotation] -> [Annotation]
+    sAnnotations _ = []

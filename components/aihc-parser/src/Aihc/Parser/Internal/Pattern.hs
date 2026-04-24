@@ -358,20 +358,30 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         Just mkView -> pure mkView
         Nothing -> tupleOrParenPatternParser tupleFlavor closeTok
   where
-    -- Symbolic constructor names like (:+) use parens as prefix notation, not
-    -- grouping: prettyPrefixName already adds parens when printing them, so
-    -- wrapping with PParen here would produce double parens like ((:+)).
-    -- Stripping PParen also lets isPatternAppHead recognise (:+) as an app head
-    -- so that (:+) x y and (:+) {} (record pattern) parse correctly.
-    parenOrSymConParser inner = do
+    -- When a bare operator like :+ appears directly inside parens, the parens
+    -- serve as prefix notation (e.g. (:+)), not grouping. prettyPrefixName
+    -- already adds parens when printing symbolic names, so wrapping with PParen
+    -- would produce double parens.
+    --
+    -- However, when the inner pattern came from expression reclassification
+    -- (e.g. ((:+)) where the expression parser already consumed the inner
+    -- prefix-notation parens), the outer parens ARE grouping and must produce
+    -- PParen.
+    --
+    -- The @isBareOperator@ flag distinguishes these two cases:
+    --   True  -> parens are prefix notation, strip PParen
+    --   False -> parens are grouping, wrap with PParen
+    parenOrSymConParser isBareOperator inner = do
       case peelPatternAnn inner of
-        PCon con [] [] | nameType con == NameConSym -> do
-          mBrace <- MP.optional . lookAhead $ anySingle
-          case fmap lexTokenKind mBrace of
-            Just TkSpecialLBrace -> do
-              (fields, hasWildcard) <- braces recordPatternFieldListParser
-              pure (PRecord con fields hasWildcard)
-            _ -> pure inner
+        PCon con [] []
+          | isBareOperator,
+            nameType con == NameConSym -> do
+              mBrace <- MP.optional . lookAhead $ anySingle
+              case fmap lexTokenKind mBrace of
+                Just TkSpecialLBrace -> do
+                  (fields, hasWildcard) <- braces recordPatternFieldListParser
+                  pure (PRecord con fields hasWildcard)
+                _ -> pure inner
         _ -> pure (PParen inner)
 
     unitPatternParser tupleFlavor closeTok = do
@@ -399,12 +409,16 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- Operator tokens (TkVarSym, TkConSym, etc.) are handled directly here
     -- because they are valid patterns (binding the operator as a variable or
     -- constructor) but may not parse as expressions on their own.
-    parenPatElementParser :: TokParser Pattern
+    --
+    -- Returns (isBareOperator, pattern) where isBareOperator indicates the
+    -- pattern was parsed as a bare operator token (e.g. :+ in (:+)), meaning
+    -- the surrounding parens serve as prefix notation rather than grouping.
+    parenPatElementParser :: TokParser (Bool, Pattern)
     parenPatElementParser = do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
-        TkPrefixBang -> patternParser
-        TkPrefixTilde -> patternParser
+        TkPrefixBang -> (False,) <$> patternParser
+        TkPrefixTilde -> (False,) <$> patternParser
         -- Operator tokens can be valid patterns when they appear alone in parentheses.
         -- Examples: (+) in "f (+) = ...", (??) in "foldl' (??) z xs = ..."
         -- We detect this by checking if an operator is followed by a closing delimiter.
@@ -415,12 +429,12 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
-            then patternParser
-            else exprThenReclassify
+            then (False,) <$> patternParser
+            else (False,) <$> exprThenReclassify
       where
         -- Try to parse an operator as a pattern if it's alone (followed by closing delim),
         -- otherwise fall back to parsing as an expression.
-        operatorOrExprPatternParser :: TokParser Pattern
+        operatorOrExprPatternParser :: TokParser (Bool, Pattern)
         operatorOrExprPatternParser = do
           -- Look ahead to check what comes after the operator
           mNext <- MP.optional . lookAhead . MP.try $ do
@@ -428,12 +442,12 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             lookAhead anySingle
           case fmap lexTokenKind mNext of
             -- If followed by closing delimiters, parse as operator pattern
-            Just TkSpecialRParen -> operatorPatternParser
-            Just TkSpecialUnboxedRParen -> operatorPatternParser
-            Just TkSpecialComma -> operatorPatternParser
-            Just TkReservedPipe -> operatorPatternParser
+            Just TkSpecialRParen -> (True,) <$> operatorPatternParser
+            Just TkSpecialUnboxedRParen -> (True,) <$> operatorPatternParser
+            Just TkSpecialComma -> (True,) <$> operatorPatternParser
+            Just TkReservedPipe -> (True,) <$> operatorPatternParser
             -- Otherwise, try parsing as expression (for cases like (x + y))
-            _ -> exprThenReclassify
+            _ -> (False,) <$> exprThenReclassify
 
         -- Parse an operator token as a variable or constructor pattern.
         operatorPatternParser :: TokParser Pattern
@@ -486,7 +500,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           patternParser
 
     tupleOrParenPatternParser tupleFlavor closeTok = do
-      first <- parenPatElementParser
+      (isBareOp, first) <- parenPatElementParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
@@ -502,11 +516,11 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             Nothing -> do
               expectedTok closeTok
               if tupleFlavor == Boxed
-                then parenOrSymConParser first
+                then parenOrSymConParser isBareOp first
                 else pure (PTuple Unboxed [first])
         Just () -> do
-          second <- parenPatElementParser
-          more <- MP.many (expectedTok TkSpecialComma *> parenPatElementParser)
+          (_, second) <- parenPatElementParser
+          more <- MP.many (expectedTok TkSpecialComma *> (snd <$> parenPatElementParser))
           expectedTok closeTok
           pure (PTuple tupleFlavor (first : second : more))
 
@@ -515,7 +529,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
       _ <- expectedTok TkReservedPipe
       leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
       let altIdx = 1 + length leadingBars
-      inner <- parenPatElementParser
+      (_, inner) <- parenPatElementParser
       trailingBars <- MP.many (expectedTok TkReservedPipe)
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
