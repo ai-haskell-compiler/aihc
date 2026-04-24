@@ -16,6 +16,7 @@ import Aihc.Parser.Syntax
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    Expr,
     FieldDecl (..),
     GadtBody (..),
     Match (..),
@@ -540,14 +541,14 @@ withPatBindings ((name, ty) : rest) m =
   extendTermEnv name (TcMonoIdBinder name ty) (withPatBindings rest m)
 
 -- | Infer the type of a right-hand side expression.
-inferRhsExpr :: Rhs -> TcM (TcType, [Ct])
+inferRhsExpr :: Rhs Expr -> TcM (TcType, [Ct])
 inferRhsExpr (UnguardedRhs _sp expr _decls) = inferExpr expr
 inferRhsExpr (GuardedRhss _sp _guards _decls) = do
   ty <- freshMetaTv
   pure (ty, [])
 
 -- | Type-check a right-hand side (solving constraints immediately).
-tcRhs :: Rhs -> TcM TcType
+tcRhs :: Rhs Expr -> TcM TcType
 tcRhs (UnguardedRhs _sp expr _decls) = do
   (ty, cts) <- inferExpr expr
   _ <- solveConstraints cts

@@ -84,7 +84,7 @@ normalizeExpr expr =
     EPragma pragma body -> EPragma pragma (normalizeExpr body)
     EAnn _ sub -> normalizeExpr sub
 
-normalizeCaseAlt :: CaseAlt -> CaseAlt
+normalizeCaseAlt :: CaseAlt Expr -> CaseAlt Expr
 normalizeCaseAlt alt =
   CaseAlt
     { caseAltAnns = [],
@@ -100,13 +100,13 @@ normalizeLambdaCaseAlt alt =
       lambdaCaseAltRhs = normalizeRhs (lambdaCaseAltRhs alt)
     }
 
-normalizeRhs :: Rhs -> Rhs
+normalizeRhs :: Rhs Expr -> Rhs Expr
 normalizeRhs rhs =
   case rhs of
     UnguardedRhs _ body mDecls -> UnguardedRhs [] (normalizeExpr body) (fmap (map normalizeDecl) mDecls)
     GuardedRhss _ guards mDecls -> GuardedRhss [] (map normalizeGuardedRhs guards) (fmap (map normalizeDecl) mDecls)
 
-normalizeGuardedRhs :: GuardedRhs -> GuardedRhs
+normalizeGuardedRhs :: GuardedRhs Expr -> GuardedRhs Expr
 normalizeGuardedRhs grhs =
   GuardedRhs
     { guardedRhsAnns = [],
@@ -307,12 +307,26 @@ normalizeDoCmdStmtInner (DoLetDecls decls) = DoLetDecls (map normalizeDecl decls
 normalizeDoCmdStmtInner (DoExpr c) = DoExpr (normalizeCmd c)
 normalizeDoCmdStmtInner (DoRecStmt stmts) = DoRecStmt (map normalizeDoCmdStmt stmts)
 
-normalizeCmdCaseAlt :: CmdCaseAlt -> CmdCaseAlt
+normalizeCmdCaseAlt :: CaseAlt Cmd -> CaseAlt Cmd
 normalizeCmdCaseAlt alt =
-  alt
-    { cmdCaseAltAnns = [],
-      cmdCaseAltPat = normalizePattern (cmdCaseAltPat alt),
-      cmdCaseAltBody = normalizeCmd (cmdCaseAltBody alt)
+  CaseAlt
+    { caseAltAnns = [],
+      caseAltPattern = normalizePattern (caseAltPattern alt),
+      caseAltRhs = normalizeCmdRhs (caseAltRhs alt)
+    }
+
+normalizeCmdRhs :: Rhs Cmd -> Rhs Cmd
+normalizeCmdRhs rhs =
+  case rhs of
+    UnguardedRhs _ body mDecls -> UnguardedRhs [] (normalizeCmd body) (fmap (map normalizeDecl) mDecls)
+    GuardedRhss _ guards mDecls -> GuardedRhss [] (map normalizeCmdGuardedRhs guards) (fmap (map normalizeDecl) mDecls)
+
+normalizeCmdGuardedRhs :: GuardedRhs Cmd -> GuardedRhs Cmd
+normalizeCmdGuardedRhs grhs =
+  GuardedRhs
+    { guardedRhsAnns = [],
+      guardedRhsGuards = map normalizeGuardQualifier (guardedRhsGuards grhs),
+      guardedRhsBody = normalizeCmd (guardedRhsBody grhs)
     }
 
 normalizeCompStmt :: CompStmt -> CompStmt

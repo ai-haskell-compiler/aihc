@@ -10,6 +10,6 @@ import Aihc.Parser.Syntax (Expr, GuardQualifier, Rhs)
 import Test.QuickCheck (Gen)
 
 genExpr :: Gen Expr
-genRhsWith :: Bool -> Gen Rhs
+genRhsWith :: Bool -> Gen (Rhs Expr)
 shrinkExpr :: Expr -> [Expr]
 shrinkGuardQualifier :: GuardQualifier -> [GuardQualifier]

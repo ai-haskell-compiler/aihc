@@ -283,7 +283,7 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 
 recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
-  field <- identifierNameParser
+  field <- identifierNameParser <|> parens operatorNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
@@ -383,7 +383,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- Returns Nothing if the content is not a view pattern.
     viewPatternParser :: LexTokenKind -> TokParser (Maybe Pattern)
     viewPatternParser closeTok = MP.optional . MP.try $ do
-      expr <- exprParser
+      expr <- exprParser <* lookAhead (expectedTok TkReservedRightArrow)
       expectedTok TkReservedRightArrow
       inner <- subpatternWithBareViewParser
       expectedTok closeTok

@@ -1070,7 +1070,7 @@ shrinkMatch match =
 
 -- | Shrink an RHS: try removing the where clause, simplifying guards to
 -- unguarded, and recursively shrinking sub-expressions.
-shrinkRhs :: Rhs -> [Rhs]
+shrinkRhs :: Rhs Expr -> [Rhs Expr]
 shrinkRhs rhs =
   case rhs of
     UnguardedRhs _ expr mWhere ->
@@ -1097,7 +1097,7 @@ shrinkWhereDecls ds =
   [ds' | ds' <- shrinkList shrinkDecl ds, not (null ds')]
 
 -- | Shrink a guarded RHS: shrink the body and the guards.
-shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
+shrinkGuardedRhs :: GuardedRhs Expr -> [GuardedRhs Expr]
 shrinkGuardedRhs grhs =
   [grhs {guardedRhsBody = body'} | body' <- shrinkExpr (guardedRhsBody grhs)]
     <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList shrinkGuardQualifier (guardedRhsGuards grhs), not (null gs')]

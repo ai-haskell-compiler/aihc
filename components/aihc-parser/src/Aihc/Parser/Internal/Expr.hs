@@ -5,6 +5,7 @@ module Aihc.Parser.Internal.Expr
   ( exprParser,
     atomExprParser,
     equationRhsParser,
+    caseRhsParserWithBodyParser,
     -- Re-exports from Pattern
     simplePatternParser,
     appPatternParser,
@@ -67,10 +68,6 @@ exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprParserWithTypeSigParser typeSigParser =
   label "expression" $
     exprCoreParserWithTypeSigParserExcept typeSigParser []
-
-exprParserExcept :: [Text] -> TokParser Expr
-exprParserExcept =
-  exprCoreParserWithTypeSigParserExcept typeParser
 
 exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
@@ -165,7 +162,7 @@ multiWayIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   rhss <- braces (MP.some multiWayIfAlternative)
   pure (EMultiWayIf rhss)
 
-multiWayIfAlternative :: TokParser GuardedRhs
+multiWayIfAlternative :: TokParser (GuardedRhs Expr)
 multiWayIfAlternative = withSpan $ do
   expectedTok TkReservedPipe
   guards <- layoutSepBy1 (guardQualifierParser RhsArrowCase) (expectedTok TkSpecialComma)
@@ -212,7 +209,7 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" simplePatternParser
+  pat <- region "while parsing proc pattern" patternParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
@@ -563,11 +560,14 @@ operatorExprNameParser =
       TkReservedDotDot -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym ".."))
       _ -> Nothing
 
-rhsParser :: TokParser Rhs
-rhsParser = label "right-hand side" (rhsParserWithArrow RhsArrowCase)
+rhsParser :: TokParser (Rhs Expr)
+rhsParser = label "right-hand side" (caseRhsParserWithBodyParser exprParser)
 
-equationRhsParser :: TokParser Rhs
-equationRhsParser = label "equation right-hand side" (rhsParserWithArrow RhsArrowEquation)
+equationRhsParser :: TokParser (Rhs Expr)
+equationRhsParser = label "equation right-hand side" (rhsParserWithBodyParser RhsArrowEquation exprParser)
+
+caseRhsParserWithBodyParser :: TokParser body -> TokParser (Rhs body)
+caseRhsParserWithBodyParser = rhsParserWithBodyParser RhsArrowCase
 
 data RhsArrowKind = RhsArrowCase | RhsArrowEquation
 
@@ -579,13 +579,13 @@ rhsArrowTok :: RhsArrowKind -> TokParser ()
 rhsArrowTok RhsArrowCase = expectedTok TkReservedRightArrow
 rhsArrowTok RhsArrowEquation = expectedTok TkReservedEquals
 
-rhsParserWithArrow :: RhsArrowKind -> TokParser Rhs
-rhsParserWithArrow arrowKind = do
+rhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+rhsParserWithBodyParser arrowKind bodyParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkReservedPipe -> guardedRhssParser arrowKind
-    TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParser arrowKind
-    TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParser arrowKind
+    TkReservedPipe -> guardedRhssParserWithBodyParser arrowKind bodyParser
+    TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParserWithBodyParser arrowKind bodyParser
+    TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParserWithBodyParser arrowKind bodyParser
     _ ->
       MP.customFailure
         UnexpectedTokenExpecting
@@ -594,10 +594,10 @@ rhsParserWithArrow arrowKind = do
             unexpectedContext = []
           }
 
-unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
-unguardedRhsParser arrowKind = withSpan $ do
+unguardedRhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+unguardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
   rhsArrowTok arrowKind
-  body <- region (rhsContextText arrowKind) exprParser
+  body <- region (rhsContextText arrowKind) bodyParser
   whereDecls <- MP.optional whereClauseParser
   pure (\span' -> UnguardedRhs [mkAnnotation span'] body whereDecls)
 
@@ -605,18 +605,18 @@ rhsContextText :: RhsArrowKind -> Text
 rhsContextText RhsArrowCase = "while parsing case alternative right-hand side"
 rhsContextText RhsArrowEquation = "while parsing equation right-hand side"
 
-guardedRhssParser :: RhsArrowKind -> TokParser Rhs
-guardedRhssParser arrowKind = withSpan $ do
-  grhss <- MP.some (guardedRhsParser arrowKind)
+guardedRhssParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (Rhs body)
+guardedRhssParserWithBodyParser arrowKind bodyParser = withSpan $ do
+  grhss <- MP.some (guardedRhsParserWithBodyParser arrowKind bodyParser)
   whereDecls <- MP.optional whereClauseParser
   pure (\span' -> GuardedRhss [mkAnnotation span'] grhss whereDecls)
 
-guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
-guardedRhsParser arrowKind = withSpan $ do
+guardedRhsParserWithBodyParser :: RhsArrowKind -> TokParser body -> TokParser (GuardedRhs body)
+guardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
   expectedTok TkReservedPipe
   guards <- layoutSepBy1 (guardQualifierParser arrowKind) (expectedTok TkSpecialComma)
   rhsArrowTok arrowKind
-  body <- exprParserExcept ["|", rhsArrowText arrowKind]
+  body <- bodyParser
   pure $ \span' ->
     GuardedRhs
       { guardedRhsAnns = [mkAnnotation span'],
@@ -672,7 +672,7 @@ guardTypeSigParser :: RhsArrowKind -> TokParser Type
 guardTypeSigParser RhsArrowEquation = typeParser
 guardTypeSigParser RhsArrowCase = typeInfixParser
 
-caseAltParser :: TokParser CaseAlt
+caseAltParser :: TokParser (CaseAlt Expr)
 caseAltParser = withSpan $ do
   pat <- region "while parsing case alternative" patternParser
   rhs <- region "while parsing case alternative" rhsParser

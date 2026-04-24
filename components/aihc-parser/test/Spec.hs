@@ -31,7 +31,7 @@ import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, genDeclTyp
 import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, stripTypeAnnotations)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_procExpression, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers
   ( genConSym,
     genVarSym,
@@ -438,6 +438,7 @@ buildTests = do
           testGroup
             "properties"
             [ testCase "qualified Unicode TH name quote round-trips" test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote,
+              testCase "proc expression round-trips" test_exprPrettyRoundTrip_procExpression,
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,

@@ -286,17 +286,23 @@ docMatchHeadForm headForm =
     MatchHeadPrefix -> "Prefix"
     MatchHeadInfix -> "Infix"
 
-docRhs :: Rhs -> Doc ann
-docRhs rhs =
+docRhsWith :: (body -> Doc ann) -> Rhs body -> Doc ann
+docRhsWith docBody rhs =
   case rhs of
-    UnguardedRhs _ expr Nothing -> "UnguardedRhs" <+> parens (docExpr expr)
-    UnguardedRhs _ expr (Just decls) -> "UnguardedRhs" <+> parens (docExpr expr) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
-    GuardedRhss _ grhss Nothing -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map docGuardedRhs grhss)))
-    GuardedRhss _ grhss (Just decls) -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map docGuardedRhs grhss))) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    UnguardedRhs _ body Nothing -> "UnguardedRhs" <+> parens (docBody body)
+    UnguardedRhs _ body (Just decls) -> "UnguardedRhs" <+> parens (docBody body) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    GuardedRhss _ grhss Nothing -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss)))
+    GuardedRhss _ grhss (Just decls) -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss))) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
-docGuardedRhs :: GuardedRhs -> Doc ann
-docGuardedRhs grhs =
-  "GuardedRhs" <+> braces (hsep (punctuate comma [field "guards" (brackets (hsep (punctuate comma (map docGuardQualifier (guardedRhsGuards grhs))))), field "body" (docExpr (guardedRhsBody grhs))]))
+docRhs :: Rhs Expr -> Doc ann
+docRhs = docRhsWith docExpr
+
+docGuardedRhsWith :: (body -> Doc ann) -> GuardedRhs body -> Doc ann
+docGuardedRhsWith docBody grhs =
+  "GuardedRhs" <+> braces (hsep (punctuate comma [field "guards" (brackets (hsep (punctuate comma (map docGuardQualifier (guardedRhsGuards grhs))))), field "body" (docBody (guardedRhsBody grhs))]))
+
+docGuardedRhs :: GuardedRhs Expr -> Doc ann
+docGuardedRhs = docGuardedRhsWith docExpr
 
 docGuardQualifier :: GuardQualifier -> Doc ann
 docGuardQualifier gq =
@@ -817,9 +823,12 @@ docExprRecordField recordField =
     <+> (if recordFieldPun recordField then "~pun" else "=")
     <+> docExpr (recordFieldValue recordField)
 
-docCaseAlt :: CaseAlt -> Doc ann
-docCaseAlt (CaseAlt _ pat rhs) =
-  "CaseAlt" <+> parens (docPattern pat) <+> parens (docRhs rhs)
+docCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
+docCaseAltWith docBody (CaseAlt _ pat rhs) =
+  "CaseAlt" <+> parens (docPattern pat) <+> parens (docRhsWith docBody rhs)
+
+docCaseAlt :: CaseAlt Expr -> Doc ann
+docCaseAlt = docCaseAltWith docExpr
 
 docLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 docLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
@@ -876,9 +885,8 @@ docCmdStmt stmt =
     DoExpr cmd' -> "DoExpr" <+> parens (docCmd cmd')
     DoRecStmt stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
 
-docCmdCaseAlt :: CmdCaseAlt -> Doc ann
-docCmdCaseAlt alt =
-  "CmdCaseAlt" <+> parens (docPattern (cmdCaseAltPat alt)) <+> parens (docCmd (cmdCaseAltBody alt))
+docCmdCaseAlt :: CaseAlt Cmd -> Doc ann
+docCmdCaseAlt = docCaseAltWith docCmd
 
 docArithSeq :: ArithSeq -> Doc ann
 docArithSeq seqInfo =
