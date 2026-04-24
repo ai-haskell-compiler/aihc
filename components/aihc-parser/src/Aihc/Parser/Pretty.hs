@@ -354,22 +354,25 @@ prettyFunctionHead name headForm pats =
         _ ->
           hsep (prettyBinderUName name : map prettyPattern pats)
 
-prettyRhs :: Rhs -> Doc ann
-prettyRhs rhs =
+prettyRhsWith :: (body -> Doc ann) -> Text -> Rhs body -> Doc ann
+prettyRhsWith prettyBody arrow rhs =
   case rhs of
-    UnguardedRhs _ expr whereDecls ->
-      "="
-        <+> prettyExpr expr
+    UnguardedRhs _ body whereDecls ->
+      pretty arrow
+        <+> prettyBody body
         <> prettyWhereClause whereDecls
     GuardedRhss _ guards whereDecls ->
       hsep
         [ "|"
             <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
-            <+> "="
-            <+> prettyExpr (guardedRhsBody grhs)
+            <+> pretty arrow
+            <+> prettyBody (guardedRhsBody grhs)
         | grhs <- guards
         ]
         <> prettyWhereClause whereDecls
+
+prettyRhs :: Rhs Expr -> Doc ann
+prettyRhs = prettyRhsWith prettyExpr "="
 
 prettyWhereClause :: Maybe [Decl] -> Doc ann
 prettyWhereClause Nothing = mempty
@@ -1185,13 +1188,13 @@ prettyBinding field =
     then prettyName (recordFieldName field)
     else prettyName (recordFieldName field) <+> "=" <+> prettyExpr (recordFieldValue field)
 
-prettyCaseAlt :: CaseAlt -> Doc ann
-prettyCaseAlt (CaseAlt _ pat rhs) =
+prettyCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
+prettyCaseAltWith prettyBody (CaseAlt _ pat rhs) =
   case rhs of
     UnguardedRhs _ body whereDecls ->
       prettyPattern pat
         <+> "->"
-        <+> prettyExpr body
+        <+> prettyBody body
         <> prettyWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       hsep
@@ -1200,11 +1203,14 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
             [ "|"
                 <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
                 <+> "->"
-                <+> prettyExpr (guardedRhsBody grhs)
+                <+> prettyBody (guardedRhsBody grhs)
             | grhs <- grhss
             ]
         ]
         <> prettyWhereClause whereDecls
+
+prettyCaseAlt :: CaseAlt Expr -> Doc ann
+prettyCaseAlt = prettyCaseAltWith prettyExpr
 
 prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
@@ -1285,9 +1291,8 @@ prettyCmdStmt stmt =
     DoExpr cmd' -> prettyCmd cmd'
     DoRecStmt stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
 
-prettyCmdCaseAlt :: CmdCaseAlt -> Doc ann
-prettyCmdCaseAlt alt =
-  prettyPattern (cmdCaseAltPat alt) <+> "->" <+> prettyCmd (cmdCaseAltBody alt)
+prettyCmdCaseAlt :: CaseAlt Cmd -> Doc ann
+prettyCmdCaseAlt = prettyCaseAltWith prettyCmd
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =

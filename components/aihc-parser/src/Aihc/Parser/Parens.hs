@@ -447,7 +447,7 @@ addFunctionHeadPats _name headForm pats =
                   lhs' : rhs' : map addFunctionHeadPatternAtomParens tailPats
         _ -> map addFunctionHeadPatternAtomParens pats
 
-addRhsParens :: Rhs -> Rhs
+addRhsParens :: Rhs Expr -> Rhs Expr
 addRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -455,7 +455,7 @@ addRhsParens rhs =
     GuardedRhss sp guards whereDecls ->
       GuardedRhss sp (map (addGuardedRhsParens GuardEquals) guards) (fmap (map addDeclParens) whereDecls)
 
-addGuardedRhsParens :: GuardArrow -> GuardedRhs -> GuardedRhs
+addGuardedRhsParens :: GuardArrow -> GuardedRhs Expr -> GuardedRhs Expr
 addGuardedRhsParens arrow grhs =
   grhs
     { guardedRhsGuards = map (addGuardQualifierParens arrow) (guardedRhsGuards grhs),
@@ -887,7 +887,7 @@ addNegateParens inner =
     then wrapExpr True (addExprParens inner)
     else addExprParensPrec 3 inner
 
-addCaseAltParens :: CaseAlt -> CaseAlt
+addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addPatternParens pat) (addCaseAltRhsParens rhs)
 
@@ -899,7 +899,7 @@ addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
         _ -> map addPatternAtomParens pats
    in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
 
-addCaseAltRhsParens :: Rhs -> Rhs
+addCaseAltRhsParens :: Rhs Expr -> Rhs Expr
 addCaseAltRhsParens rhs =
   case rhs of
     UnguardedRhs sp body whereDecls ->
@@ -1285,9 +1285,21 @@ addCmdDoStmtParens stmt =
     DoExpr cmd' -> DoExpr (addCmdParens cmd')
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
 
-addCmdCaseAltParens :: CmdCaseAlt -> CmdCaseAlt
-addCmdCaseAltParens alt =
-  alt
-    { cmdCaseAltPat = addPatternParens (cmdCaseAltPat alt),
-      cmdCaseAltBody = addCmdParens (cmdCaseAltBody alt)
+addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
+addCmdCaseAltParens (CaseAlt anns pat rhs) =
+  CaseAlt anns (addPatternParens pat) (addCmdCaseAltRhsParens rhs)
+
+addCmdCaseAltRhsParens :: Rhs Cmd -> Rhs Cmd
+addCmdCaseAltRhsParens rhs =
+  case rhs of
+    UnguardedRhs sp body whereDecls ->
+      UnguardedRhs sp (addCmdParens body) (fmap (map addDeclParens) whereDecls)
+    GuardedRhss sp guards whereDecls ->
+      GuardedRhss sp (map addCmdGuardedRhsParens guards) (fmap (map addDeclParens) whereDecls)
+
+addCmdGuardedRhsParens :: GuardedRhs Cmd -> GuardedRhs Cmd
+addCmdGuardedRhsParens grhs =
+  grhs
+    { guardedRhsGuards = map (addGuardQualifierParens GuardArrow) (guardedRhsGuards grhs),
+      guardedRhsBody = addCmdParens (guardedRhsBody grhs)
     }

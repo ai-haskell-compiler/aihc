@@ -20,7 +20,10 @@ atomExprParser :: TokParser Expr
 exprParserNoArrowTail :: TokParser Expr
 
 -- | Parse the right-hand side of an equation (guarded or unguarded)
-equationRhsParser :: TokParser Rhs
+equationRhsParser :: TokParser (Rhs Expr)
+
+-- | Parse a case-style right-hand side with a custom body parser.
+caseRhsParserWithBodyParser :: TokParser body -> TokParser (Rhs body)
 
 -- | Parse let declarations (keyword 'let' followed by braced or plain decls)
 parseLetDeclsParser :: TokParser [Decl]

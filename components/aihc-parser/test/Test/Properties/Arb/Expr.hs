@@ -195,12 +195,12 @@ genCmdRecursiveWith allowTHQuotes =
 genArrAppType :: Gen ArrAppType
 genArrAppType = elements [HsFirstOrderApp, HsHigherOrderApp]
 
-genCmdCaseAltsWith :: Bool -> Gen [CmdCaseAlt]
+genCmdCaseAltsWith :: Bool -> Gen [CaseAlt Cmd]
 genCmdCaseAltsWith allowTHQuotes = smallList1 (genCmdCaseAltWith allowTHQuotes)
 
-genCmdCaseAltWith :: Bool -> Gen CmdCaseAlt
+genCmdCaseAltWith :: Bool -> Gen (CaseAlt Cmd)
 genCmdCaseAltWith allowTHQuotes = scale (`div` 2) $ do
-  CmdCaseAlt [] <$> genPattern <*> genCmdWith allowTHQuotes
+  CaseAlt [] <$> genPattern <*> genCmdRhsWith allowTHQuotes
 
 genCmdDoStmtsWith :: Bool -> Gen [DoStmt Cmd]
 genCmdDoStmtsWith allowTHQuotes = smallList1 (genCmdDoStmtWith allowTHQuotes)
@@ -223,10 +223,10 @@ genCmdRecDoStmtsWith allowTHQuotes =
         DoExpr <$> genCmdWith allowTHQuotes
       ]
 
-genCaseAltsWith :: Bool -> Gen [CaseAlt]
+genCaseAltsWith :: Bool -> Gen [CaseAlt Expr]
 genCaseAltsWith allowTHQuotes = smallList0 (genCaseAltWith allowTHQuotes)
 
-genCaseAltWith :: Bool -> Gen CaseAlt
+genCaseAltWith :: Bool -> Gen (CaseAlt Expr)
 genCaseAltWith allowTHQuotes = scale (`div` 2) $ do
   CaseAlt [] <$> genPattern <*> genRhsWith allowTHQuotes
 
@@ -237,18 +237,31 @@ genLambdaCaseAltWith :: Bool -> Gen LambdaCaseAlt
 genLambdaCaseAltWith allowTHQuotes = scale (`div` 2) $ do
   LambdaCaseAlt [] <$> genPatterns <*> genRhsWith allowTHQuotes
 
-genRhsWith :: Bool -> Gen Rhs
+genRhsWith :: Bool -> Gen (Rhs Expr)
 genRhsWith allowTHQuotes =
   oneof
     [ UnguardedRhs [] <$> genExprWith allowTHQuotes <*> genWhereDecls,
       GuardedRhss [] <$> genGuardedRhsListWith allowTHQuotes <*> genWhereDecls
     ]
 
-genGuardedRhsListWith :: Bool -> Gen [GuardedRhs]
+genCmdRhsWith :: Bool -> Gen (Rhs Cmd)
+genCmdRhsWith allowTHQuotes =
+  oneof
+    [ UnguardedRhs [] <$> genCmdWith allowTHQuotes <*> genWhereDecls,
+      GuardedRhss [] <$> genCmdGuardedRhsListWith allowTHQuotes <*> genWhereDecls
+    ]
+
+genGuardedRhsListWith :: Bool -> Gen [GuardedRhs Expr]
 genGuardedRhsListWith allowTHQuotes = smallList1 (genGuardedRhsWith allowTHQuotes)
 
-genGuardedRhsWith :: Bool -> Gen GuardedRhs
+genGuardedRhsWith :: Bool -> Gen (GuardedRhs Expr)
 genGuardedRhsWith allowTHQuotes = GuardedRhs [] <$> smallList1 (genGuardQualifierWith allowTHQuotes) <*> genExprWith allowTHQuotes
+
+genCmdGuardedRhsListWith :: Bool -> Gen [GuardedRhs Cmd]
+genCmdGuardedRhsListWith allowTHQuotes = smallList1 (genCmdGuardedRhsWith allowTHQuotes)
+
+genCmdGuardedRhsWith :: Bool -> Gen (GuardedRhs Cmd)
+genCmdGuardedRhsWith allowTHQuotes = GuardedRhs [] <$> smallList1 (genGuardQualifierWith allowTHQuotes) <*> genCmdWith allowTHQuotes
 
 -- | Generate a guard qualifier.
 genGuardQualifierWith :: Bool -> Gen GuardQualifier
@@ -679,21 +692,21 @@ shrinkCmdDoStmt stmt =
     DoRecStmt stmts -> [DoRecStmt stmts' | stmts' <- shrinkCmdDoStmts stmts, not (null stmts')]
     DoAnn _ _ -> []
 
-shrinkCmdCaseAlts :: [CmdCaseAlt] -> [[CmdCaseAlt]]
+shrinkCmdCaseAlts :: [CaseAlt Cmd] -> [[CaseAlt Cmd]]
 shrinkCmdCaseAlts = shrinkList shrinkCmdCaseAlt
 
-shrinkCmdCaseAlt :: CmdCaseAlt -> [CmdCaseAlt]
+shrinkCmdCaseAlt :: CaseAlt Cmd -> [CaseAlt Cmd]
 shrinkCmdCaseAlt alt =
-  [alt {cmdCaseAltPat = pat'} | pat' <- shrinkPattern (cmdCaseAltPat alt)]
-    <> [alt {cmdCaseAltBody = body'} | body' <- shrinkCmd (cmdCaseAltBody alt)]
+  [alt {caseAltPattern = pat'} | pat' <- shrinkPattern (caseAltPattern alt)]
+    <> [alt {caseAltRhs = rhs'} | rhs' <- shrinkCmdRhs (caseAltRhs alt)]
 
-shrinkCaseAlts :: [CaseAlt] -> [[CaseAlt]]
+shrinkCaseAlts :: [CaseAlt Expr] -> [[CaseAlt Expr]]
 shrinkCaseAlts = shrinkList shrinkCaseAlt
 
 shrinkLambdaCaseAlts :: [LambdaCaseAlt] -> [[LambdaCaseAlt]]
 shrinkLambdaCaseAlts = shrinkList shrinkLambdaCaseAlt
 
-shrinkCaseAlt :: CaseAlt -> [CaseAlt]
+shrinkCaseAlt :: CaseAlt Expr -> [CaseAlt Expr]
 shrinkCaseAlt alt =
   case caseAltRhs alt of
     UnguardedRhs _ expr _ ->
@@ -712,9 +725,14 @@ shrinkLambdaCaseAlt alt =
       [alt {lambdaCaseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
         <> [alt {lambdaCaseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
-shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
+shrinkGuardedRhs :: GuardedRhs Expr -> [GuardedRhs Expr]
 shrinkGuardedRhs grhs =
   [grhs {guardedRhsBody = body'} | body' <- shrinkExpr (guardedRhsBody grhs)]
+    <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList shrinkGuardQualifier (guardedRhsGuards grhs), not (null gs')]
+
+shrinkCmdGuardedRhs :: GuardedRhs Cmd -> [GuardedRhs Cmd]
+shrinkCmdGuardedRhs grhs =
+  [grhs {guardedRhsBody = body'} | body' <- shrinkCmd (guardedRhsBody grhs)]
     <> [grhs {guardedRhsGuards = gs'} | gs' <- shrinkList shrinkGuardQualifier (guardedRhsGuards grhs), not (null gs')]
 
 -- | Shrink a guard qualifier.
@@ -754,7 +772,7 @@ shrinkLetMatch match =
   [match {matchAnns = [], matchRhs = rhs'} | rhs' <- shrinkLetRhs (matchRhs match)]
 
 -- | Shrink an RHS within let/where/TH contexts.
-shrinkLetRhs :: Rhs -> [Rhs]
+shrinkLetRhs :: Rhs Expr -> [Rhs Expr]
 shrinkLetRhs rhs =
   case rhs of
     UnguardedRhs _ expr mWhere ->
@@ -766,6 +784,19 @@ shrinkLetRhs rhs =
       [UnguardedRhs [] (guardedRhsBody firstRhs) Nothing | firstRhs : _ <- [rhss]]
         <> [GuardedRhss [] rhss Nothing | isJust mWhere]
         <> [GuardedRhss [] rhss' mWhere | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+        <> [GuardedRhss [] rhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
+
+shrinkCmdRhs :: Rhs Cmd -> [Rhs Cmd]
+shrinkCmdRhs rhs =
+  case rhs of
+    UnguardedRhs _ body mWhere ->
+      [UnguardedRhs [] body Nothing | isJust mWhere]
+        <> [UnguardedRhs [] body' mWhere | body' <- shrinkCmd body]
+        <> [UnguardedRhs [] body (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
+    GuardedRhss _ rhss mWhere ->
+      [UnguardedRhs [] (guardedRhsBody firstRhs) Nothing | firstRhs : _ <- [rhss]]
+        <> [GuardedRhss [] rhss Nothing | isJust mWhere]
+        <> [GuardedRhss [] rhss' mWhere | rhss' <- shrinkList shrinkCmdGuardedRhs rhss, not (null rhss')]
         <> [GuardedRhss [] rhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
 
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]

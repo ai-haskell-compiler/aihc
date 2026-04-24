@@ -718,7 +718,7 @@ functionBinderNameParser =
           TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
           _ -> Nothing
 
-functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> ValueDecl
 functionBindValue headForm name pats rhs =
   FunctionBind
     name
@@ -730,7 +730,7 @@ functionBindValue headForm name pats rhs =
         }
     ]
 
-functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
+functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> Decl
 functionBindDecl headForm name pats rhs =
   DeclValue (functionBindValue headForm name pats rhs)
 
