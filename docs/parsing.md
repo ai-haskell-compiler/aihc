@@ -13,13 +13,27 @@ Prefer simple, obviously correct parsers unless there is a demonstrated
 pathological case. When performance work is necessary, optimize by reducing
 ambiguity and backtracking, not by adding clever stateful shortcuts.
 
+Applied to parser work, that means:
+
+- Preserve semantics before chasing speed.
+- Prefer local, explicit dispatch over clever global machinery.
+- Use `checkPattern` and shared helpers to delete duplicated grammar.
+- Only optimize performance after identifying a real ambiguity or benchmarked pathological case.
+- When performance matters, reduce ambiguity and backtracking first.
+
+Do not optimize by:
+
+- hiding ambiguity behind more parser state
+- adding ad hoc flags that only make sense for one call site
+- keeping two large grammars in sync when one parse-plus-reclassify path would do
+
 ## Architecture Overview
 
 At a high level, parsing is:
 
-1. Lex source text into `LexToken`s in [Aihc.Parser.Lex](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Lex.hs).
-2. Wrap those tokens in `TokStream` in [Aihc.Parser.Types](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Types.hs).
-3. Run Megaparsec parsers over `TokStream` from [Aihc.Parser](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser.hs).
+1. Lex source text into `LexToken`s in [Aihc.Parser.Lex](components/aihc-parser/src/Aihc/Parser/Lex.hs).
+2. Wrap those tokens in `TokStream` in [Aihc.Parser.Types](components/aihc-parser/src/Aihc/Parser/Types.hs).
+3. Run Megaparsec parsers over `TokStream` from [Aihc.Parser](components/aihc-parser/src/Aihc/Parser.hs).
 4. Build syntax trees from the internal parser modules.
 
 Important consequences:
@@ -42,7 +56,7 @@ results.
 
 ### `Common.hs`
 
-[Common.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Common.hs) is the shared parser toolbox. It provides:
+[Common.hs](components/aihc-parser/src/Aihc/Parser/Internal/Common.hs) is the shared parser toolbox. It provides:
 
 - `TokParser`
 - token primitives like `expectedTok` and `tokenSatisfy`
@@ -56,7 +70,7 @@ belongs here.
 
 ### `Expr.hs`
 
-[Expr.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Expr.hs) is the largest grammar surface.
+[Expr.hs](components/aihc-parser/src/Aihc/Parser/Internal/Expr.hs) is the largest grammar surface.
 
 - `exprParser` is the public expression entry point.
 - It dispatches early on obvious leading tokens such as `do`, `if`, `let`, `proc`, and `\`.
@@ -71,7 +85,7 @@ That pattern is usually preferable to `MP.try patternParser <|> exprParser`.
 
 ### `Pattern.hs`
 
-[Pattern.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Pattern.hs) handles:
+[Pattern.hs](components/aihc-parser/src/Aihc/Parser/Internal/Pattern.hs) handles:
 
 - atomic patterns
 - constructor application
@@ -84,7 +98,7 @@ so much surface syntax.
 
 ### `Decl.hs`
 
-[Decl.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Decl.hs) performs early dispatch for declarations.
+[Decl.hs](components/aihc-parser/src/Aihc/Parser/Internal/Decl.hs) performs early dispatch for declarations.
 
 Good current behavior:
 
@@ -97,9 +111,9 @@ Risk area:
 
 ### `CheckPattern.hs`
 
-[CheckPattern.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/CheckPattern.hs) is the most important simplification tool in the parser.
+[CheckPattern.hs](components/aihc-parser/src/Aihc/Parser/Internal/CheckPattern.hs) is the most important simplification tool in the parser.
 
-It implements “parse as expression, then reclassify as pattern”:
+It implements "parse as expression, then reclassify as pattern":
 
 - shared syntax is parsed once by the expression parser
 - `checkPattern` converts valid `Expr` trees into `Pattern` trees
@@ -110,14 +124,6 @@ extending this approach over reintroducing parallel expression and pattern
 grammars for shared syntax.
 
 ## How The Parts Fit Together
-
-When simplifying parsing code, keep this mental model:
-
-1. The lexer decides token shape and source spans.
-2. `Common.hs` decides the local parsing vocabulary: labels, contexts, lookahead, shared combinators.
-3. `Expr.hs`, `Pattern.hs`, and `Decl.hs` decide grammar structure and ambiguity management.
-4. `CheckPattern.hs` removes duplicated grammar by reclassifying already-parsed expression syntax.
-5. Golden, oracle, QuickCheck, and performance tests decide whether a simplification is actually correct.
 
 If you are changing ambiguous syntax, look for a way to:
 
@@ -131,36 +137,15 @@ If you are changing ambiguous syntax, look for a way to:
 `MP.try` is necessary sometimes, but broad `try` around long alternatives is one
 of the main ways this parser becomes slow and hard to reason about.
 
-### What `MP.try` actually costs here
-
 Because `TokStream` shares raw tokens, `MP.try` does not cause O(n^2) lexing.
-The cost comes from reparsing:
-
-- the parser walks the same token prefix again
-- it rebuilds the same intermediate structures again
-- nested or chained alternatives multiply that repeated work
+The cost comes from reparsing: the parser walks the same token prefix again and
+rebuilds the same intermediate structures. Nested or chained alternatives
+multiply that repeated work.
 
 So the cost model is:
 
 - one failed `MP.try` after consuming `k` tokens costs O(k)
 - doing that repeatedly at many positions costs O(n^2)
-
-### The basic failure mode
-
-Suppose the grammar is:
-
-```haskell
-MP.try longAlternativeA <|> alternativeB
-```
-
-and `longAlternativeA` consumes almost the entire input before failing at the
-last disambiguating token. Then `alternativeB` starts over from the original
-position and consumes the same prefix again.
-
-If that happens once, the cost is linear in the shared prefix.
-
-If it happens inside a loop, or recursively inside nested syntax, the total work
-can grow quadratically.
 
 ### A concrete shape
 
@@ -186,19 +171,18 @@ x1 x2 x3 x4 x5 ... xn
 
 If the first branch keeps parsing deeper before eventually failing, and the
 second branch then reparses the same prefix, each level adds another large
-prefix replay.
-
-That is how you get O(n^2) behavior from a parser that “only” backtracks.
+prefix replay. That is how you get O(n^2) behavior from a parser that "only"
+backtracks.
 
 ### Where this repo is vulnerable
 
 The current hotspots are exactly the places where alternatives share a long
 prefix:
 
-- declaration fallback chains in [Decl.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Decl.hs)
-- expression vs pattern bind decisions in [Expr.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Expr.hs)
-- parenthesized and tuple-like pattern parsing in [Pattern.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Pattern.hs)
-- context/type head ambiguity helpers in [Common.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/src/Aihc/Parser/Internal/Common.hs)
+- declaration fallback chains in [Decl.hs](components/aihc-parser/src/Aihc/Parser/Internal/Decl.hs)
+- expression vs pattern bind decisions in [Expr.hs](components/aihc-parser/src/Aihc/Parser/Internal/Expr.hs)
+- parenthesized and tuple-like pattern parsing in [Pattern.hs](components/aihc-parser/src/Aihc/Parser/Internal/Pattern.hs)
+- context/type head ambiguity helpers in [Common.hs](components/aihc-parser/src/Aihc/Parser/Internal/Common.hs)
 
 Examples of better current practice already in the tree:
 
@@ -215,17 +199,8 @@ When you see a broad `MP.try`, ask:
 3. Can a focused `lookAhead` answer the question without building AST?
 4. Can `checkPattern` remove the need for a second parser entirely?
 
-The preferred fix is almost always:
-
-- shared-prefix parse first
-- branch second
-
-not:
-
-- parse everything one way
-- fail late
-- rewind
-- parse everything another way
+The preferred fix is almost always shared-prefix parse first, branch second —
+not: parse everything one way, fail late, rewind, parse everything another way.
 
 ### How much lookahead is acceptable
 
@@ -246,28 +221,6 @@ Avoid unless there is a demonstrated need:
 `startsWithContextType` is a good example of the acceptable middle ground: it
 scans token kinds at top-level nesting depth without building types or rewinding
 large parser branches.
-
-## Simplification Policy
-
-The parser policy is:
-
-1. Correctness
-2. Readability
-3. Performance
-
-Applied to parser work, that means:
-
-- Preserve semantics before chasing speed.
-- Prefer local, explicit dispatch over clever global machinery.
-- Use `checkPattern` and shared helpers to delete duplicated grammar.
-- Only optimize performance after identifying a real ambiguity or benchmarked pathological case.
-- When performance matters, reduce ambiguity and backtracking first.
-
-Do not optimize by:
-
-- hiding ambiguity behind more parser state
-- adding ad hoc flags that only make sense for one call site
-- keeping two large grammars in sync when one parse-plus-reclassify path would do
 
 ## Error Messages
 
@@ -292,7 +245,7 @@ Add local context without burying the root cause.
 
 - Wrap subparsers in `region` when the parent construct matters.
 - Use short context strings like `while parsing case alternative`.
-- Keep the final “expecting ...” line specific.
+- Keep the final "expecting ..." line specific.
 
 Use `label` for user-facing grammar names.
 
@@ -332,12 +285,12 @@ Those messages are much better than a generic parse failure after a backtrack.
 
 Error message golden tests live under:
 
-- [error-messages fixtures](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Fixtures/error-messages)
+- [error-messages fixtures](components/aihc-parser/test/Test/Fixtures/error-messages)
 
 The harness is:
 
-- [ParserErrorGolden.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/common/ParserErrorGolden.hs)
-- [Test.ErrorMessages.Suite](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/ErrorMessages/Suite.hs)
+- [ParserErrorGolden.hs](components/aihc-parser/common/ParserErrorGolden.hs)
+- [Test.ErrorMessages.Suite](components/aihc-parser/test/Test/ErrorMessages/Suite.hs)
 
 Each fixture records:
 
@@ -350,18 +303,20 @@ If you intentionally improve diagnostics, update the relevant fixtures.
 ## Testing
 
 Parser simplifications are not done until they are covered by the right test
-layer.
+layer. A change that affects both the accepted syntax surface and a specific AST
+shape may need both oracle and golden coverage. A change that touches a whole
+class of syntax should also have a QuickCheck property.
 
 ### Golden tests
 
 Golden parser fixtures live under:
 
-- [golden fixtures](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Fixtures/golden)
+- [golden fixtures](components/aihc-parser/test/Test/Fixtures/golden)
 
 The harness is:
 
-- [ParserGolden.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/common/ParserGolden.hs)
-- [Test.Parser.Suite](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Parser/Suite.hs)
+- [ParserGolden.hs](components/aihc-parser/common/ParserGolden.hs)
+- [Test.Parser.Suite](components/aihc-parser/test/Test/Parser/Suite.hs)
 
 Golden tests are for direct parser behavior:
 
@@ -386,20 +341,20 @@ Use golden tests when:
 
 Oracle fixtures live under:
 
-- [oracle fixtures](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Fixtures/oracle)
+- [oracle fixtures](components/aihc-parser/test/Test/Fixtures/oracle)
 
 The harness is:
 
-- [ExtensionSupport.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/common/ExtensionSupport.hs)
-- [GhcOracle.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/common/GhcOracle.hs)
-- [Test.Oracle.Suite](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Oracle/Suite.hs)
+- [ExtensionSupport.hs](components/aihc-parser/common/ExtensionSupport.hs)
+- [GhcOracle.hs](components/aihc-parser/common/GhcOracle.hs)
+- [Test.Oracle.Suite](components/aihc-parser/test/Test/Oracle/Suite.hs)
 
 Oracle fixtures are module `.hs` files with an `ORACLE_TEST` block:
 
 - `pass`
 - `xfail <reason>`
 
-Important: oracle `pass` means more than “GHC accepts the file”.
+Important: oracle `pass` means more than "GHC accepts the file".
 
 For a passing oracle case:
 
@@ -413,7 +368,7 @@ For `xfail`:
 
 Use oracle tests when:
 
-- the question is “should we match GHC here?”
+- the question is "should we match GHC here?"
 - ambiguity crosses multiple parser subsystems
 - a change could alter accepted syntax without obviously changing a small golden AST
 
@@ -421,19 +376,19 @@ Use oracle tests when:
 
 QuickCheck property tests are assembled in:
 
-- [Spec.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Spec.hs)
+- [Spec.hs](components/aihc-parser/test/Spec.hs)
 
 Representative properties live in:
 
-- [ExprRoundTrip.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Properties/ExprRoundTrip.hs)
-- [PatternRoundTrip.hs](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Properties/PatternRoundTrip.hs)
+- [ExprRoundTrip.hs](components/aihc-parser/test/Test/Properties/ExprRoundTrip.hs)
+- [PatternRoundTrip.hs](components/aihc-parser/test/Test/Properties/PatternRoundTrip.hs)
 
 These mainly verify pretty-print/parse roundtrips over generated ASTs.
 
 Use QuickCheck when:
 
 - a simplification affects a whole class of syntax, not one fixture
-- the risk is “this refactor breaks an invariant in a broad way”
+- the risk is "this refactor breaks an invariant in a broad way"
 - you want coverage for nested or generated shapes that are tedious to enumerate manually
 
 Useful commands:
@@ -447,14 +402,14 @@ Useful commands:
 
 The dedicated performance harness is:
 
-- [Test.Performance.Suite](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Performance/Suite.hs)
+- [Test.Performance.Suite](components/aihc-parser/test/Test/Performance/Suite.hs)
 
 Performance fixtures live under:
 
-- [performance fixtures](/Users/lemmih/.codex/worktrees/9b4c/aihc/components/aihc-parser/test/Test/Fixtures/performance/module)
+- [performance fixtures](components/aihc-parser/test/Test/Fixtures/performance/module)
 
 This suite exists for demonstrated pathological cases. It currently enforces
-“parse under 1s” for fixture and generated stress cases.
+"parse under 1s" for fixture and generated stress cases.
 
 Use a performance regression test when:
 
@@ -466,8 +421,8 @@ Use a performance regression test when:
 
 Normal local validation:
 
-- `just fmt`
-- `just check`
+- `just fmt` — runs `alejandra` on Nix files and `ormolu --mode inplace` on Haskell sources (excluding fixtures and `dist-newstyle`)
+- `just check` — runs `ormolu --mode check` and `hlint` on the same file set, then `cabal test all --ghc-options=-Werror`
 
 Focused parser work:
 
@@ -476,10 +431,7 @@ Focused parser work:
 - `cabal test -v0 aihc-parser:spec --test-options="--pattern error-messages"`
 - `cabal test -v0 aihc-parser:spec --test-options="--pattern performance"`
 
-For commits, follow the repository rule:
-
-- always run `just fmt`
-- always run `just check`
+For commits, always run `just fmt` then `just check`.
 
 ## Good Patterns
 
@@ -574,12 +526,12 @@ Stop and reconsider if a change introduces:
 - a new broad `MP.try` around a parser that can consume an arbitrarily long prefix
 - duplicated expression and pattern grammar for the same surface syntax
 - parser state flags used only to rescue one ambiguous construct
-- a performance “fix” that depends on subtle invariants and is hard to explain
+- a performance "fix" that depends on subtle invariants and is hard to explain
 - worse source locations or less specific errors
 
 ## Preferred Review Standard
 
-The standard for parser changes is not “tests are green”.
+The standard for parser changes is not "tests are green".
 
 A good parser simplification should be:
 
@@ -595,5 +547,5 @@ is also not done yet. The target is parser code that is easy to trust.
 
 ## Related Documents
 
-- [docs/unified-expr-pattern-parsing.md](/Users/lemmih/.codex/worktrees/9b4c/aihc/docs/unified-expr-pattern-parsing.md) for the deeper design rationale behind expression-pattern unification
-- [AGENTS.md](/Users/lemmih/.codex/worktrees/9b4c/aihc/AGENTS.md) for repository workflow and required validation commands
+- [docs/unified-expr-pattern-parsing.md](docs/unified-expr-pattern-parsing.md) for the deeper design rationale behind expression-pattern unification
+- [AGENTS.md](AGENTS.md) for repository workflow and required validation commands
