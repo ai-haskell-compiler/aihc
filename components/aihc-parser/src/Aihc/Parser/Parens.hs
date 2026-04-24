@@ -562,13 +562,33 @@ addBangTypeParens bt =
           (addTypeIn CtxTypeAtom (bangType bt))
     }
 
+-- | Determine whether a type, when directly following a bang (!) or lazy (~)
+-- prefix, needs to be parenthesized to avoid lexer ambiguity. This happens
+-- when the type's rendering starts with a symbol character that would fuse
+-- with the ! or ~ to form a single operator token.
 bangTypeNeedsPrefixParens :: Type -> Bool
 bangTypeNeedsPrefixParens (TAnn _ sub) = bangTypeNeedsPrefixParens sub
 bangTypeNeedsPrefixParens (TParen _) = False
 bangTypeNeedsPrefixParens TStar = True
-bangTypeNeedsPrefixParens (TCon name promoted) = promoted /= Promoted && isSymbolicName name
+bangTypeNeedsPrefixParens (TCon name promoted)
+  | promoted == Promoted = True
+  | otherwise = isSymbolicName name
 bangTypeNeedsPrefixParens TImplicitParam {} = True
 bangTypeNeedsPrefixParens TSplice {} = True
+-- Compound types: the first rendered character comes from the head/lhs.
+bangTypeNeedsPrefixParens (TApp f _) = bangTypeNeedsPrefixParens f
+bangTypeNeedsPrefixParens (TTypeApp f _) = bangTypeNeedsPrefixParens f
+bangTypeNeedsPrefixParens (TFun a _) = bangTypeNeedsPrefixParens a
+bangTypeNeedsPrefixParens (TKindSig ty _) = bangTypeNeedsPrefixParens ty
+bangTypeNeedsPrefixParens (TContext cs _) = case cs of
+  [] -> False
+  (c : _) -> bangTypeNeedsPrefixParens c
+bangTypeNeedsPrefixParens (TForall {}) = False -- starts with "forall"
+-- Promoted tuples/lists start with a tick mark.
+bangTypeNeedsPrefixParens (TTuple _ promoted _) = promoted == Promoted
+bangTypeNeedsPrefixParens (TList promoted _) = promoted == Promoted
+-- Infix types render lhs first.
+bangTypeNeedsPrefixParens (TInfix lhs _ _ _) = bangTypeNeedsPrefixParens lhs
 bangTypeNeedsPrefixParens _ = False
 
 addPrefixConBangTypeParens :: BangType -> BangType
@@ -588,9 +608,25 @@ addInfixConBangTypeParens bt =
                 && bangTypeNeedsPrefixParens (bangType bt)
             )
               || needsTypeParens CtxTypeFunArg (bangType bt)
+              || infixConOperandNeedsParens (bangType bt)
           )
           (addTypeIn CtxTypeFunArg (bangType bt))
     }
+
+-- | Types that would be misinterpreted as data constructor declarations
+-- (tuple-con, unboxed tuple/sum-con, or list-con) when used as an infix
+-- constructor operand. The data-con parsers are tried before the infix
+-- parser, so these types must be parenthesized to prevent ambiguity.
+infixConOperandNeedsParens :: Type -> Bool
+infixConOperandNeedsParens (TAnn _ sub) = infixConOperandNeedsParens sub
+infixConOperandNeedsParens (TParen _) = False
+infixConOperandNeedsParens (TTuple {}) = True
+infixConOperandNeedsParens (TUnboxedSum {}) = True
+infixConOperandNeedsParens (TList _ []) = True
+-- Application head determines what the parser sees first.
+infixConOperandNeedsParens (TApp f _) = infixConOperandNeedsParens f
+infixConOperandNeedsParens (TTypeApp f _) = infixConOperandNeedsParens f
+infixConOperandNeedsParens _ = False
 
 prefixConBangTypeNeedsParens :: Type -> Bool
 prefixConBangTypeNeedsParens (TAnn _ sub) = prefixConBangTypeNeedsParens sub
@@ -606,7 +642,12 @@ addRecordFieldDeclParens fd =
 addRecordFieldBangTypeParens :: BangType -> BangType
 addRecordFieldBangTypeParens bt =
   bt
-    { bangType = addTypeParens (bangType bt)
+    { bangType =
+        wrapTy
+          ( (bangStrict bt || bangLazy bt)
+              && bangTypeNeedsPrefixParens (bangType bt)
+          )
+          (addTypeParens (bangType bt))
     }
 
 addGadtBodyParens :: GadtBody -> GadtBody
@@ -625,7 +666,12 @@ addGadtBodyParens body =
 addGadtBangTypeParens :: BangType -> BangType
 addGadtBangTypeParens bt =
   bt
-    { bangType = addTypeIn CtxTypeFunArg (bangType bt)
+    { bangType =
+        wrapTy
+          ( (bangStrict bt || bangLazy bt)
+              && bangTypeNeedsPrefixParens (bangType bt)
+          )
+          (addTypeIn CtxTypeFunArg (bangType bt))
     }
 
 addClassDeclParens :: ClassDecl -> ClassDecl

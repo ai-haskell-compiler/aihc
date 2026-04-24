@@ -197,21 +197,45 @@ roleParser =
 forallPrefixDispatch :: TokParser [a] -> TokParser [a]
 forallPrefixDispatch forallParser = forallParser <|> pure []
 
--- | Non-consuming lookahead dispatch for optional declaration contexts.
--- Uses 'startsWithContextType' to probe for @=>@ at top bracket depth.
--- Returns @Nothing@ when the input doesn't look like a context,
--- otherwise parses the context and the @=>@ that follows it.
--- Eliminates 'MP.try' around @declContextParser \<* expectedTok TkReservedDoubleArrow@.
+-- | Parse an optional declaration context.
+--
+-- Uses 'MP.try' so declarations like @data T :: C => ()@ can backtrack from a
+-- failed context parse and treat @::@ as the inline kind signature instead.
 contextPrefixDispatch :: TokParser (Maybe [Type])
-contextPrefixDispatch = do
-  hasContext <- startsWithContextType
-  if hasContext
-    then Just <$> (declContextParser <* expectedTok TkReservedDoubleArrow)
-    else pure Nothing
+contextPrefixDispatch = MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
 
 -- | Like 'contextPrefixDispatch' but returns @[]@ instead of @Nothing@.
 contextPrefixDispatchList :: TokParser [Type]
 contextPrefixDispatchList = fromMaybe [] <$> contextPrefixDispatch
+
+-- | Parse a declaration head with an optional leading context, but prefer an
+-- inline @::@ result kind when the head is immediately followed by @::@.
+--
+-- Without this preference, inputs like @data T :: C => K@ are ambiguous:
+-- @T :: C@ is also a valid context item. GHC resolves that form as a head with
+-- an inline result kind, so we do the same.
+declHeadPreferringInlineKind :: TokParser head -> TokParser (Maybe [Type], head, Maybe Type)
+declHeadPreferringInlineKind headParser =
+  MP.try
+    ( do
+        head' <- headParser
+        inlineKind <- expectedTok TkReservedDoubleColon *> typeParser
+        pure (Nothing, head', Just inlineKind)
+    )
+    <|> do
+      (context, head') <- declHeadWithOptionalContext headParser
+      inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+      pure (context, head', inlineKind)
+
+-- | Parse a declaration head that may be preceded by a context.
+--
+-- The @MP.try@ must cover both the context and the following head parser so
+-- inputs like @data T :: C => ()@ can backtrack and treat @::@ as an inline
+-- kind signature rather than committing to a datatype context too early.
+declHeadWithOptionalContext :: TokParser head -> TokParser (Maybe [Type], head)
+declHeadWithOptionalContext headParser =
+  MP.try ((,) . Just <$> (declContextParser <* expectedTok TkReservedDoubleArrow) <*> headParser)
+    <|> ((Nothing,) <$> headParser)
 
 -- | Parse an explicit forall telescope: @forall a (b :: Kind).@.
 -- Used for type family instances, data family instances, and instance heads.
@@ -610,8 +634,7 @@ fixityOperatorParser =
 classDeclParser :: TokParser Decl
 classDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordClass
-  context <- contextPrefixDispatch
-  classHead <- classHeadParser
+  (context, classHead) <- declHeadWithOptionalContext classHeadParser
   classFundeps <- MP.option [] (MP.try classFundepsParser)
   items <- MP.option [] classWhereClauseParser
   pure $
@@ -696,8 +719,7 @@ instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
-  context <- contextPrefixDispatch
-  instanceHead <- typeInfixParser
+  (context, instanceHead) <- declHeadWithOptionalContext typeInfixParser
   items <- MP.option [] instanceWhereClauseParser
   pure $
     DeclInstance
@@ -719,8 +741,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional explicitForallParser
-  context <- contextPrefixDispatch
-  derivingHead <- typeInfixParser
+  (context, derivingHead) <- declHeadWithOptionalContext typeInfixParser
   pure $
     DeclStandaloneDeriving
       StandaloneDerivingDecl
@@ -858,10 +879,7 @@ gadtDataDeclParser = do
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
-  context <- contextPrefixDispatch
-  typeHead <- typeDeclHeadParser
-  -- Parse optional inline kind signature: @:: Kind@
-  inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  (context, typeHead, inlineKind) <- declHeadPreferringInlineKind typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructors, derivingClauses) <- gadtDataDeclParser <|> traditionalDataDeclParser
   pure $
@@ -1003,15 +1021,14 @@ boxedTupleConDeclParser forallVars context = do
       pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed [])
     Nothing -> do
       firstField <- constructorArgParser
-      mComma <- MP.optional (expectedTok TkSpecialComma)
-      case mComma of
-        Nothing -> do
-          expectedTok TkSpecialRParen
-          pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed [firstField])
-        Just () -> do
-          rest <- constructorArgParser `MP.sepBy1` expectedTok TkSpecialComma
-          expectedTok TkSpecialRParen
-          pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed (firstField : rest))
+      -- A comma is mandatory: boxed 1-tuples don't exist in Haskell
+      -- (e.g. @data C = (Int)@ is invalid). Without this, a
+      -- parenthesized infix constructor operand like @(?a :: Int) :+ C@
+      -- would be misinterpreted as a 1-tuple constructor.
+      expectedTok TkSpecialComma
+      rest <- constructorArgParser `MP.sepBy1` expectedTok TkSpecialComma
+      expectedTok TkSpecialRParen
+      pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed (firstField : rest))
 
 unboxedConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 unboxedConDeclParser forallVars context = do
@@ -1050,10 +1067,7 @@ unboxedConDeclParser forallVars context = do
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
-  context <- contextPrefixDispatch
-  typeHead <- typeDeclHeadParser
-  -- Parse optional inline kind signature: @:: Kind@
-  inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  (context, typeHead, inlineKind) <- declHeadPreferringInlineKind typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $
