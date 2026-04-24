@@ -44,15 +44,19 @@ Important consequences:
 
 ### `TokStream`
 
-`TokStream` is the key performance boundary.
+`TokStream` is the key performance boundary. The cost model is:
+
+- one failed `MP.try` after consuming `k` tokens costs O(k)
+- doing that repeatedly at many positions costs O(n²)
+
+Internally:
 
 - `tokStreamRawTokens` is a shared lazy list of already-scanned raw tokens.
 - `tokStreamLayoutState` overlays virtual layout tokens (`{`, `;`, `}`).
 - `tokStreamPendingPragmas` keeps hidden pragmas out of the ordinary token stream.
 
-This means backtracking is cheaper than rescanning source text, but not free:
-the parser still reconsumes the same token prefix and rebuilds the same partial
-results.
+Backtracking is cheaper than rescanning source text, but not free: the parser
+still reconsumes the same token prefix and rebuilds the same partial results.
 
 ### `Common.hs`
 
@@ -123,29 +127,10 @@ This is generally the right way to remove pattern/expression ambiguity. Prefer
 extending this approach over reintroducing parallel expression and pattern
 grammars for shared syntax.
 
-## How The Parts Fit Together
-
-If you are changing ambiguous syntax, look for a way to:
-
-- dispatch on one token kind early
-- parse the shared prefix once
-- branch only after the disambiguating token appears
-- reuse `checkPattern` instead of reparsing the same prefix as both pattern and expression
-
-## `MP.try` And O(n^2) Behavior
+## `MP.try` And O(n²) Behavior
 
 `MP.try` is necessary sometimes, but broad `try` around long alternatives is one
 of the main ways this parser becomes slow and hard to reason about.
-
-Because `TokStream` shares raw tokens, `MP.try` does not cause O(n^2) lexing.
-The cost comes from reparsing: the parser walks the same token prefix again and
-rebuilds the same intermediate structures. Nested or chained alternatives
-multiply that repeated work.
-
-So the cost model is:
-
-- one failed `MP.try` after consuming `k` tokens costs O(k)
-- doing that repeatedly at many positions costs O(n^2)
 
 ### A concrete shape
 
@@ -171,7 +156,7 @@ x1 x2 x3 x4 x5 ... xn
 
 If the first branch keeps parsing deeper before eventually failing, and the
 second branch then reparses the same prefix, each level adds another large
-prefix replay. That is how you get O(n^2) behavior from a parser that "only"
+prefix replay. That is how you get O(n²) behavior from a parser that "only"
 backtracks.
 
 ### Where this repo is vulnerable
@@ -259,18 +244,8 @@ Examples already in the tree:
 - declaration head errors in `Decl.hs`
 - operator-token validation in `Pattern.hs`
 
-### Practical guidance
-
-If you are splitting a parser into:
-
-```haskell
-shared <- parseSharedPrefix
-case next token of
-  ...
-```
-
-that often improves diagnostics as well as performance, because the parser
-fails exactly at the disambiguating token instead of after speculative work.
+Refactoring to a shared-prefix parse often improves diagnostics for free:
+the parser fails exactly at the disambiguating token instead of after speculative work.
 
 If a construct is rejected by `checkPattern`, make the rejection message name
 the illegal expression form:
@@ -302,8 +277,9 @@ If you intentionally improve diagnostics, update the relevant fixtures.
 
 ## Testing
 
-Parser simplifications are not done until they are covered by the right test
-layer. A change that affects both the accepted syntax surface and a specific AST
+### Parser simplifications are not done until they are covered by the right test layer.
+
+A change that affects both the accepted syntax surface and a specific AST
 shape may need both oracle and golden coverage. A change that touches a whole
 class of syntax should also have a QuickCheck property.
 
@@ -391,13 +367,6 @@ Use QuickCheck when:
 - the risk is "this refactor breaks an invariant in a broad way"
 - you want coverage for nested or generated shapes that are tedious to enumerate manually
 
-Useful commands:
-
-- `cabal test -v0 aihc-parser:spec --test-options="--pattern properties"`
-- `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
-- `just qc`
-- `just replay "<seed>"`
-
 ### Performance tests
 
 The dedicated performance harness is:
@@ -431,103 +400,14 @@ Focused parser work:
 - `cabal test -v0 aihc-parser:spec --test-options="--pattern error-messages"`
 - `cabal test -v0 aihc-parser:spec --test-options="--pattern performance"`
 
+QuickCheck:
+
+- `cabal test -v0 aihc-parser:spec --test-options="--pattern properties"`
+- `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
+- `just qc`
+- `just replay "<seed>"`
+
 For commits, always run `just fmt` then `just check`.
-
-## Good Patterns
-
-These are the patterns to prefer when simplifying parser code.
-
-### 1. Generalize, then extract common code
-
-If two parsers share real structure, do not keep two near-copies alive.
-
-Prefer:
-
-- one helper with the varying parser passed in
-- one parse path plus a reclassification pass
-
-Examples already in the tree:
-
-- `patternParserWithTypeSigParser`
-- `exprParserWithTypeSigParser`
-- `exprOrPatternBindParser`
-
-### 2. Replace broad `MP.try` with focused lookahead
-
-Prefer:
-
-- token-kind dispatch with `lookAhead anySingle`
-- fixed-width probes on one or two tokens
-- small scanning lookahead that only tracks nesting depth
-
-Examples:
-
-- `startsWithTypeSig`
-- `startsWithAsPattern`
-- `startsWithContextType`
-- `Decl.ordinaryDeclParser` dispatch on the first two tokens
-
-The principle is:
-
-- ask the smallest question that decides the branch
-- do not speculate with a full parse if a token probe can answer it
-
-### 3. Parse the shared prefix before branching
-
-This is the main anti-backtracking technique.
-
-Prefer:
-
-```haskell
-shared <- parseShared
-next <- MP.optional (expectedTok delimiter)
-case next of
-  ...
-```
-
-over:
-
-```haskell
-MP.try parseWholeBranchA <|> parseWholeBranchB
-```
-
-Use this when two alternatives differ only at:
-
-- `::`
-- `=`
-- `<-`
-- `->`
-- a closing delimiter
-
-### 4. Let `checkPattern` do the pattern/expression disambiguation
-
-If both grammars accept the same prefix, parse once as expression and convert.
-
-This is usually better than:
-
-- a parallel pattern parser
-- a parallel expression parser
-- a large speculative `try`
-
-### 5. Keep diagnostics attached to the disambiguating token
-
-When refactoring for simplicity or performance:
-
-- preserve `label`
-- preserve `region`
-- prefer explicit `customFailure` when the grammar knows what token was wrong
-
-A performance fix that makes diagnostics vague is usually not a good fix.
-
-## Red Flags
-
-Stop and reconsider if a change introduces:
-
-- a new broad `MP.try` around a parser that can consume an arbitrarily long prefix
-- duplicated expression and pattern grammar for the same surface syntax
-- parser state flags used only to rescue one ambiguous construct
-- a performance "fix" that depends on subtle invariants and is hard to explain
-- worse source locations or less specific errors
 
 ## Preferred Review Standard
 
@@ -540,6 +420,14 @@ A good parser simplification should be:
 - backed by the right regression tests
 - explicit about ambiguity boundaries
 - precise about diagnostics
+
+Stop and reconsider if a change introduces:
+
+- a new broad `MP.try` around a parser that can consume an arbitrarily long prefix
+- duplicated expression and pattern grammar for the same surface syntax
+- parser state flags used only to rescue one ambiguous construct
+- a performance "fix" that depends on subtle invariants and is hard to explain
+- worse source locations or less specific errors
 
 If a change is faster but harder to reason about, it is probably not done yet.
 If a change is simpler but introduces a known pathological backtracking case, it
