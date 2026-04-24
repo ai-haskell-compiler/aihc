@@ -789,7 +789,7 @@ addExprParensPrec prec expr =
     EMultiWayIf rhss ->
       wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
     ELambdaPats pats body ->
-      wrapExpr (prec > 0) (ELambdaPats (map addLambdaPatternAtomParens pats) (addExprParens body))
+      wrapExpr (prec > 0) (ELambdaPats (map addArrowBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
     ELambdaCases alts ->
@@ -852,7 +852,7 @@ addExprParensPrec prec expr =
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
-      wrapExpr (prec > 0) (EProc (addPatternParens pat) (addCmdParens body))
+      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
     EPragma pragma inner ->
       wrapExpr (prec > 0) (EPragma pragma (addExprParens inner))
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
@@ -1205,14 +1205,16 @@ addPatternInfixOperandParens pat =
     PCon {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
--- | Add parens for a pattern in lambda argument position.
-addLambdaPatternAtomParens :: Pattern -> Pattern
-addLambdaPatternAtomParens pat =
-  case pat of
-    PAnn ann sub -> PAnn ann (addLambdaPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
-    _ -> addPatternAtomParens pat
+-- | Add parens for a pattern in arrow binder position (lambda/proc).
+-- Type-signatured, negated literal, infix, and non-nullary constructor patterns
+-- must be parenthesized to avoid ambiguity.
+addArrowBndrPatternParens :: Pattern -> Pattern
+addArrowBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PNegLit {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PInfix {}) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ (_ : _) _) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens p@(PCon _ [] (_ : _)) = wrapPat True (addPatternParens p)
+addArrowBndrPatternParens pat = addPatternParens pat
 
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
