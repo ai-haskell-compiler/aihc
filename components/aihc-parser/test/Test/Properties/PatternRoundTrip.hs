@@ -2,7 +2,8 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Properties.PatternRoundTrip
-  ( prop_patternPrettyRoundTrip,
+  ( normalizePattern,
+    prop_patternPrettyRoundTrip,
   )
 where
 
@@ -61,6 +62,8 @@ normalizePattern pat =
       let normInner = normalizePattern inner
        in case normInner of
             PCon con [] [] | nameType con == NameConSym -> normInner
+            PSplice {} -> normInner
+            PTypeSig {} -> normInner
             _ -> PParen normInner
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
     PRecord con fields rwc -> PRecord con [field {recordFieldValue = normalizePattern (recordFieldValue field)} | field <- fields] rwc

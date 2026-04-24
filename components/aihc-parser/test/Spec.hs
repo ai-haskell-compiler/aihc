@@ -43,7 +43,7 @@ import Test.Properties.Identifiers
     shrinkIdent,
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
-import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
+import Test.Properties.PatternRoundTrip (normalizePattern, prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
@@ -449,6 +449,10 @@ buildTests = do
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
+              testCase "pretty-prints negative literal pattern type signatures with inner parens" test_patternTypeSigNegativeLiteralPrettyPrints,
+              testCase "pretty-prints non-variable typed pattern binds with outer parens" test_patternBindTypedConstructorPrettyPrints,
+              testCase "pretty-prints infix function head typed patterns with parens" test_infixFunctionHeadTypedPatternPrettyPrints,
+              testCase "pretty-prints qualified TH splice pattern bodies with explicit parens" test_qualifiedSplicePatternBodyPrettyPrints,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
         oracle,
@@ -458,6 +462,66 @@ buildTests = do
         stackageProgressFileCheckerTimingTests,
         stackageProgressSummaryTests
       ]
+
+test_patternTypeSigNegativeLiteralPrettyPrints :: Assertion
+test_patternTypeSigNegativeLiteralPrettyPrints = do
+  let pat = PTypeSig (PNegLit (LitInt 66 TInteger "66")) (TVar (mkUnqualifiedName NameVarId "t"))
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
+  rendered @?= "(-66) :: t"
+  case parsePattern defaultConfig rendered of
+    ParseOk actual ->
+      normalizePattern actual @?= PTypeSig (PParen (PNegLit (LitInt 66 TInteger "66"))) (TVar (mkUnqualifiedName NameVarId "t"))
+    ParseErr err -> assertFailure (MPE.errorBundlePretty err)
+
+test_patternBindTypedConstructorPrettyPrints :: Assertion
+test_patternBindTypedConstructorPrettyPrints = do
+  let decl =
+        DeclValue
+          ( PatternBind
+              (PTypeSig (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "K")) [] []) (TVar (mkUnqualifiedName NameVarId "t")))
+              (UnguardedRhs [] (ETuple Boxed []) Nothing)
+          )
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "(K :: t) = ()"
+  let (errs, modu) = parseModule defaultConfig rendered
+  assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+  map normalizeDecl (moduleDecls modu) @?= [normalizeDecl decl]
+
+test_infixFunctionHeadTypedPatternPrettyPrints :: Assertion
+test_infixFunctionHeadTypedPatternPrettyPrints = do
+  let match =
+        Match
+          { matchAnns = [],
+            matchHeadForm = MatchHeadInfix,
+            matchPats =
+              [ PTypeSig (PUnboxedSum 1 3 (PVar (mkUnqualifiedName NameVarId "a"))) (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted),
+                PRecord (qualifyName Nothing (mkUnqualifiedName NameConSym ":+")) [] False
+              ],
+            matchRhs = UnguardedRhs [] (EArithSeq (ArithSeqFrom (ETuple Boxed []))) Nothing
+          }
+      decl = DeclValue (FunctionBind (mkUnqualifiedName NameVarSym "++") [match])
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "((#  | a |  #) :: T) ++ (:+) {} = [() ..]"
+  let (errs, modu) = parseModule defaultConfig {parserExtensions = [UnboxedSums]} rendered
+  assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+  map normalizeDecl (moduleDecls modu) @?= [normalizeDecl decl]
+
+test_qualifiedSplicePatternBodyPrettyPrints :: Assertion
+test_qualifiedSplicePatternBodyPrettyPrints = do
+  let spliceExpr = EVar (mkName (Just "M") NameVarId "pat")
+      match =
+        Match
+          { matchAnns = [],
+            matchHeadForm = MatchHeadPrefix,
+            matchPats = [PSplice spliceExpr],
+            matchRhs = UnguardedRhs [] (ETuple Boxed []) Nothing
+          }
+      decl = DeclValue (FunctionBind (mkUnqualifiedName NameVarId "f") [match])
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  rendered @?= "f $(M.pat) = ()"
+  let (errs, modu) = parseModule defaultConfig {parserExtensions = [TemplateHaskell]} rendered
+  assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+  map normalizeDecl (moduleDecls modu) @?= [normalizeDecl decl]
 
 test_moduleParsesDecls :: Assertion
 test_moduleParsesDecls =
@@ -2813,7 +2877,7 @@ test_funHeadPrefixThOperatorSplicePattern =
 test_funHeadPrefixThNegativeSplicePattern :: Assertion
 test_funHeadPrefixThNegativeSplicePattern =
   case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\nx $(-()) = ()" of
-    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (EParen (ENegate (ETuple Boxed [])))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
+    Right (DeclValue (FunctionBind "x" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PSplice_ (ENegate (ETuple Boxed []))], matchRhs = UnguardedRhs _ (ETuple Boxed []) _}])) -> pure ()
     other -> assertFailure ("expected TH negative splice pattern in prefix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion

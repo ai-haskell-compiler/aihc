@@ -147,11 +147,19 @@ normalizePattern pat =
       let normInner = normalizePattern inner
        in case normInner of
             PCon con [] [] | nameType con == NameConSym -> normInner
+            PSplice {} -> normInner
+            PTypeSig {} -> normInner
             _ -> PParen normInner
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
     PRecord con fields rwc -> PRecord con [field {recordFieldValue = normalizePattern (recordFieldValue field)} | field <- fields] rwc
     PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeType ty)
-    PSplice body -> PSplice (normalizeExpr body)
+    PSplice body -> PSplice (normalizeSpliceBody body)
+
+normalizeSpliceBody :: Expr -> Expr
+normalizeSpliceBody expr =
+  case normalizeExpr expr of
+    EParen inner -> inner
+    other -> other
 
 -- | Normalize a pattern in lambda argument position.
 -- The pretty-printer uses prettyLambdaPatternAtom for lambda patterns, which

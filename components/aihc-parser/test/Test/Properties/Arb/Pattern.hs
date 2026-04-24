@@ -79,16 +79,7 @@ genPatternConWith = do
 
 genPatternTypeSigWith :: Gen Pattern
 genPatternTypeSigWith = do
-  -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
-  -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
-  -- prints as (-66 :: T) which the parser interprets as negation applied to
-  -- (66 :: T) rather than a type signature on -66.
-  inner <- wrapNegLit <$> genPattern
-  PParen . PTypeSig inner <$> genPatternType
-  where
-    -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
-    wrapNegLit p@(PNegLit {}) = PParen p
-    wrapNegLit p = p
+  PTypeSig <$> genPattern <*> genPatternType
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type

@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
@@ -420,8 +421,24 @@ addDeclSpliceParens = addExprParens
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
-    PatternBind pat rhs -> PatternBind (addPatternParens pat) (addRhsParens rhs)
+    PatternBind pat rhs -> PatternBind (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
     FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
+
+addPatternBindLhsParens :: Pattern -> Rhs -> Pattern
+addPatternBindLhsParens pat rhs =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
+    -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
+    -- dedicated decl parser path. Other typed patterns, and guarded typed binds,
+    -- must stay grouped so the parser does not reinterpret them as signatures.
+    PTypeSig inner@(PVar {}) ty
+      | isUnguardedRhs rhs -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
+    _ -> addPatternParens pat
+
+isUnguardedRhs :: Rhs -> Bool
+isUnguardedRhs UnguardedRhs {} = True
+isUnguardedRhs GuardedRhss {} = False
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =
@@ -873,8 +890,10 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- Bare variable: $name is valid splice syntax without parens.
-    EVar {} -> body
+    -- Bare unqualified variables and operators use the compact splice syntax.
+    -- Qualified names require $(M.name) to remain parseable.
+    EVar name
+      | isNothing (nameQualifier name) -> body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
@@ -1110,7 +1129,7 @@ addPatternParens pat =
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
       PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
-    PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
+    PTypeSig inner ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
@@ -1212,6 +1231,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
