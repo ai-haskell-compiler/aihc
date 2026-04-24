@@ -5,6 +5,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
+import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Char (ord)
@@ -109,6 +110,7 @@ buildTests = do
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
+            testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
@@ -371,6 +373,29 @@ test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
     isValidConIdent "\x01c5tail"
   assertBool "unicode uppercase letters and unicode numbers should be accepted in constructor identifiers" $
     isValidConIdent "\x0394\x0660"
+
+test_dataDeclResultKindContextRoundTrips :: Assertion
+test_dataDeclResultKindContextRoundTrips = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "\66952") [],
+              dataDeclContext = [],
+              dataDeclKind =
+                Just
+                  ( TContext
+                      [TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted]
+                      (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted)
+                  ),
+              dataDeclConstructors = [],
+              dataDeclDeriving = []
+            }
+      expected = stripAnnotations (addDeclParens decl)
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "data 𐖈 :: C => C" rendered
+  case parseDecl defaultConfig rendered of
+    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
 
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do

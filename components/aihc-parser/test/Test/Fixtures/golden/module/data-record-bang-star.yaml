@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  data C = MkC {x :: ~(*), y :: !(*)}
+ast: |
+  Module {decls = [DeclData (DataDecl {name = "C", constructors = [RecordCon {name = "MkC", fields = [FieldDecl {names = ["x"], type = BangType {lazy = True, type = TParen (TStar)}}, FieldDecl {names = ["y"], type = BangType {strict = True, type = TParen (TStar)}}]}]})]}
+status: pass
