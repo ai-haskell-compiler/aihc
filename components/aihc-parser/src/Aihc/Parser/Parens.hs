@@ -172,6 +172,16 @@ startsWithOverloadedLabel = \case
   ETypeApp fn _ -> startsWithOverloadedLabel fn
   _ -> False
 
+startsWithBlockExpr :: Expr -> Bool
+startsWithBlockExpr = \case
+  EAnn _ sub -> startsWithBlockExpr sub
+  EInfix lhs _ _ -> startsWithBlockExpr lhs
+  EApp fn _ -> startsWithBlockExpr fn
+  ERecordUpd base _ -> startsWithBlockExpr base
+  ETypeSig inner _ -> startsWithBlockExpr inner
+  ETypeApp fn _ -> startsWithBlockExpr fn
+  expr -> isBlockExpr expr
+
 -- | Check whether an expression starts with a primitive (unboxed) numeric
 -- literal.  When such an expression appears under 'ENegate', the preceding
 -- @-@ merges with the literal at the lexer level, changing the parse.
@@ -1265,7 +1275,7 @@ addCmdParens cmd =
   case cmd of
     CmdAnn ann inner -> CmdAnn ann (addCmdParens inner)
     CmdArrApp lhs appTy rhs ->
-      CmdArrApp (addExprParensPrec 1 lhs) appTy (addExprParens rhs)
+      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
       CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
     CmdDo stmts ->
@@ -1292,6 +1302,10 @@ addCmdParens cmd =
         CmdLam {} -> CmdPar inner
         CmdInfix {} -> CmdPar inner
         _ -> inner
+
+addCmdArrAppLhsParens :: Expr -> Expr
+addCmdArrAppLhsParens lhs =
+  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs) (addExprParensPrec 1 lhs)
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
