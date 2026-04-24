@@ -482,7 +482,7 @@ prettyPattern pat =
           ( hsep
               ( punctuate
                   comma
-                  ( [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                  ( [prettyPatternFieldBinding field | field <- fields]
                       ++ [".." | hasWildcard]
                   )
               )
@@ -491,11 +491,11 @@ prettyPattern pat =
     PSplice body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
-prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
-prettyPatternFieldBinding fieldName fieldPat =
-  case peelPatternAnn fieldPat of
-    PVar varName | renderUnqualifiedName varName == renderName fieldName -> pretty fieldName
-    _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
+prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
+prettyPatternFieldBinding field =
+  if recordFieldPun field
+    then pretty (recordFieldName field)
+    else pretty (recordFieldName field) <+> "=" <+> prettyPattern (recordFieldValue field)
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
@@ -1169,11 +1169,11 @@ prettyTupleBody tupleFlavor inner =
     Boxed -> parens inner
     Unboxed -> hsep ["(#", inner, "#)"]
 
-prettyBinding :: (Name, Expr) -> Doc ann
-prettyBinding (name, value) =
-  case peelExprAnn value of
-    EVar varName | varName == name -> prettyName name
-    _ -> prettyName name <+> "=" <+> prettyExpr value
+prettyBinding :: RecordField Expr -> Doc ann
+prettyBinding field =
+  if recordFieldPun field
+    then prettyName (recordFieldName field)
+    else prettyName (recordFieldName field) <+> "=" <+> prettyExpr (recordFieldValue field)
 
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =

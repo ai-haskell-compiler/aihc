@@ -438,11 +438,11 @@ atomOrRecordExprParser = do
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
 
-    normalizeField :: (Name, Maybe Expr, SourceSpan) -> (Name, Expr)
+    normalizeField :: (Name, Maybe Expr, SourceSpan) -> RecordField Expr
     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
-        Just expr' -> (fieldName, expr')
-        Nothing -> (fieldName, EAnn (mkAnnotation sp) (EVar fieldName))
+        Just expr' -> RecordField fieldName expr' False
+        Nothing -> RecordField fieldName (EAnn (mkAnnotation sp) (EVar fieldName)) True
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)

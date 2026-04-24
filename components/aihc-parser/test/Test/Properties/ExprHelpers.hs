@@ -65,8 +65,8 @@ normalizeExpr expr =
     EList elems -> EList (map normalizeExpr elems)
     ETuple tupleFlavor elems -> ETuple tupleFlavor (map (fmap normalizeExpr) elems)
     EArithSeq seq' -> EArithSeq (normalizeArithSeq seq')
-    ERecordCon con fields rwc -> ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc
-    ERecordUpd target fields -> ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
+    ERecordCon con fields rwc -> ERecordCon con [field {recordFieldValue = normalizeExpr (recordFieldValue field)} | field <- fields] rwc
+    ERecordUpd target fields -> ERecordUpd (normalizeExpr target) [field {recordFieldValue = normalizeExpr (recordFieldValue field)} | field <- fields]
     ETypeSig inner ty -> ETypeSig (normalizeExpr inner) (normalizeType ty)
     ETypeApp inner ty -> ETypeApp (normalizeExpr inner) (normalizeType ty)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (normalizeExpr inner)
@@ -149,7 +149,7 @@ normalizePattern pat =
             PCon con [] [] | nameType con == NameConSym -> normInner
             _ -> PParen normInner
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
-    PRecord con fields rwc -> PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc
+    PRecord con fields rwc -> PRecord con [field {recordFieldValue = normalizePattern (recordFieldValue field)} | field <- fields] rwc
     PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeType ty)
     PSplice body -> PSplice (normalizeExpr body)
 

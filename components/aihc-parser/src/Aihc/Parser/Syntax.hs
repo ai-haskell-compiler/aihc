@@ -76,6 +76,7 @@ module Aihc.Parser.Syntax
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
+    RecordField (..),
     Pragma (..),
     PragmaUnpackKind (..),
     Role (..),
@@ -1099,6 +1100,13 @@ data TupleFlavor
   | Unboxed
   deriving (Data, Eq, Show, Generic, NFData)
 
+data RecordField a = RecordField
+  { recordFieldName :: Name,
+    recordFieldValue :: a,
+    recordFieldPun :: Bool
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Pattern
   = PAnn Annotation Pattern
   | PVar UnqualifiedName
@@ -1118,7 +1126,7 @@ data Pattern
   | PIrrefutable Pattern
   | PNegLit Literal
   | PParen Pattern
-  | PRecord Name [(Name, Pattern)] Bool -- Bool: wildcard present
+  | PRecord Name [RecordField Pattern] Bool -- Bool: wildcard present
   | PTypeSig Pattern Type
   | PSplice Expr
   -- \$pat or $(pat) (TH pattern splice)
@@ -1707,8 +1715,8 @@ data Expr
   | EListComp Expr [CompStmt]
   | EListCompParallel Expr [[CompStmt]]
   | EArithSeq ArithSeq
-  | ERecordCon Name [(Name, Expr)] Bool -- Bool: wildcard present
-  | ERecordUpd Expr [(Name, Expr)]
+  | ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
+  | ERecordUpd Expr [RecordField Expr]
   | ETypeSig Expr Type
   | EParen Expr
   | EList [Expr]
