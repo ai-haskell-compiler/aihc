@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pattern synonym where clause with parenthesized infix sub-pattern on LHS -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternSynonyms #-}
 module A where
 
