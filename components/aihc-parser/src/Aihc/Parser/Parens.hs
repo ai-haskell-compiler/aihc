@@ -219,7 +219,7 @@ needsExprParens :: ExprCtx -> Expr -> Bool
 needsExprParens ctx (EAnn _ sub) = needsExprParens ctx sub
 needsExprParens ctx expr =
   case ctx of
-    CtxInfixRhs protectOpenEnded ->
+    CtxInfixRhs _protectOpenEnded ->
       case expr of
         -- EInfix on the RHS does NOT need parenthesization: the parser
         -- builds right-associated chains, so nested infix on the RHS is
@@ -232,7 +232,6 @@ needsExprParens ctx expr =
         -- successfully parsed module is guaranteed to be valid without
         -- parentheses. Wrapping in EParen would introduce a spurious HsPar
         -- in the GHC AST, causing roundtrip fingerprint mismatches.
-        _ | protectOpenEnded && isOpenEnded expr -> True
         _ -> False
     CtxInfixLhs ->
       case expr of
@@ -257,7 +256,6 @@ needsExprParens ctx expr =
       isGreedyExpr expr
     CtxTypeSigBody ->
       case expr of
-        ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
         ELambdaCases {} -> True
