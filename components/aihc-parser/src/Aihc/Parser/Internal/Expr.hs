@@ -212,7 +212,7 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" simplePatternParser
+  pat <- region "while parsing proc pattern" patternParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)

@@ -77,7 +77,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         ETypeApp <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         EParen <$> genExprWith allowTHQuotes,
-        EProc <$> genSimplePatternWith allowTHQuotes <*> genCmdWith allowTHQuotes,
+        EProc <$> genPattern <*> genCmdWith allowTHQuotes,
         -- Template Haskell splices are valid inside quote bodies.
         ETHSplice <$> genSpliceBody,
         ETHTypedSplice <$> genTypedSpliceBody
@@ -172,96 +172,59 @@ genTypeNameQuoteType =
 genPatterns :: Gen [Pattern]
 genPatterns = smallList1 genPattern
 
--- | Generate a subset accepted by 'simplePatternParser', used in @proc@ and
--- command lambda binders.
-genSimplePatternWith :: Bool -> Gen Pattern
-genSimplePatternWith allowTHQuotes = scale (`div` 2) $ do
-  n <- getSize
-  if n <= 0
-    then oneof simplePatternLeafGenerators
-    else oneof (simplePatternLeafGenerators <> simplePatternRecursiveGenerators)
-  where
-    simplePatternLeafGenerators =
-      [ PVar <$> genSimplePatternUnqualVarName,
-        pure PWildcard,
-        PLit <$> genLiteral,
-        PQuasiQuote <$> genQuasiQuoteName <*> genStringValue,
-        PTuple Boxed <$> elements [[], [PVar (mkUnqualifiedName NameVarId "x"), PWildcard]],
-        pure (PList []),
-        PCon <$> genConName <*> pure [] <*> pure []
-      ]
-    simplePatternRecursiveGenerators =
-      [ PAs <$> genVarId <*> genSimplePatternAtomWith allowTHQuotes,
-        PStrict <$> genSimplePatternAtomWith allowTHQuotes,
-        PIrrefutable <$> genSimplePatternAtomWith allowTHQuotes,
-        PList <$> smallList0 (genSimplePatternAtomWith allowTHQuotes),
-        PTuple Boxed <$> genSimpleTupleElemsWith allowTHQuotes,
-        genSimpleRecordPatternWith allowTHQuotes
-      ]
-
-genSimplePatternAtomWith :: Bool -> Gen Pattern
-genSimplePatternAtomWith _ =
-  oneof
-    [ PVar <$> genSimplePatternUnqualVarName,
-      pure PWildcard,
-      PLit <$> genLiteral,
-      PQuasiQuote <$> genQuasiQuoteName <*> genStringValue,
-      pure (PTuple Boxed []),
-      pure (PList []),
-      PCon <$> genConName <*> pure [] <*> pure []
-    ]
-
-genSimpleTupleElemsWith :: Bool -> Gen [Pattern]
-genSimpleTupleElemsWith allowTHQuotes =
-  oneof
-    [ pure [],
-      do
-        count <- chooseInt (2, 4)
-        scale (`div` count) $ vectorOf count (genSimplePatternAtomWith allowTHQuotes)
-    ]
-
-genSimpleRecordPatternWith :: Bool -> Gen Pattern
-genSimpleRecordPatternWith allowTHQuotes = do
-  con <- genConName
-  count <- chooseInt (0, 3)
-  names <- vectorOf count genVarName
-  pats <- vectorOf count (genSimplePatternAtomWith allowTHQuotes)
-  pure (PRecord con (zip names pats) False)
-
-genSimplePatternUnqualVarName :: Gen UnqualifiedName
-genSimplePatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
-
-genLiteral :: Gen Literal
-genLiteral =
-  oneof
-    [ mkIntLiteral <$> chooseInteger (0, 999),
-      mkHexLiteral <$> chooseInteger (0, 255),
-      mkFloatLiteral <$> genTenths,
-      mkCharLiteral <$> genCharValue,
-      mkStringLiteral <$> genStringValue
-    ]
-
 genCmdWith :: Bool -> Gen Cmd
-genCmdWith allowTHQuotes = scale (`div` 2) $ genCmdLeafWith allowTHQuotes
+genCmdWith allowTHQuotes = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0 then genCmdLeafWith allowTHQuotes else oneof (genCmdLeafWith allowTHQuotes : genCmdRecursiveWith allowTHQuotes)
 
 genCmdLeafWith :: Bool -> Gen Cmd
 genCmdLeafWith allowTHQuotes =
   CmdArrApp <$> genCmdExprWith allowTHQuotes <*> genArrAppType <*> genCmdExprWith allowTHQuotes
 
+genCmdRecursiveWith :: Bool -> [Gen Cmd]
+genCmdRecursiveWith allowTHQuotes =
+  [ CmdInfix <$> genCmdWith allowTHQuotes <*> genVarName <*> genCmdWith allowTHQuotes,
+    CmdDo <$> genCmdDoStmtsWith allowTHQuotes,
+    CmdIf <$> genExprWith allowTHQuotes <*> genCmdWith allowTHQuotes <*> genCmdWith allowTHQuotes,
+    CmdCase <$> genExprWith allowTHQuotes <*> genCmdCaseAltsWith allowTHQuotes,
+    CmdLet <$> genValueDeclsWith allowTHQuotes <*> genCmdWith allowTHQuotes,
+    CmdLam <$> genPatterns <*> genCmdWith allowTHQuotes,
+    CmdPar <$> genCmdWith allowTHQuotes
+  ]
+
 genArrAppType :: Gen ArrAppType
 genArrAppType = elements [HsFirstOrderApp, HsHigherOrderApp]
 
 genCmdExprWith :: Bool -> Gen Expr
-genCmdExprWith _ =
-  oneof
-    [ EVar <$> genVarName,
-      mkIntExpr <$> chooseInteger (0, 999),
-      mkFloatExpr <$> genTenths,
-      mkCharExpr <$> genCharValue,
-      mkStringExpr <$> genStringValue,
-      pure (EList []),
-      pure (ETuple Boxed [])
+genCmdExprWith = genExprWith
+
+genCmdCaseAltsWith :: Bool -> Gen [CmdCaseAlt]
+genCmdCaseAltsWith allowTHQuotes = smallList1 (genCmdCaseAltWith allowTHQuotes)
+
+genCmdCaseAltWith :: Bool -> Gen CmdCaseAlt
+genCmdCaseAltWith allowTHQuotes = scale (`div` 2) $ do
+  CmdCaseAlt [] <$> genPattern <*> genCmdWith allowTHQuotes
+
+genCmdDoStmtsWith :: Bool -> Gen [DoStmt Cmd]
+genCmdDoStmtsWith allowTHQuotes = smallList1 (genCmdDoStmtWith allowTHQuotes)
+
+genCmdDoStmtWith :: Bool -> Gen (DoStmt Cmd)
+genCmdDoStmtWith allowTHQuotes =
+  scale (`div` 2) . oneof $
+    [ DoBind <$> genPattern <*> genCmdWith allowTHQuotes,
+      DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+      DoExpr <$> genCmdWith allowTHQuotes,
+      DoRecStmt <$> genCmdRecDoStmtsWith allowTHQuotes
     ]
+
+genCmdRecDoStmtsWith :: Bool -> Gen [DoStmt Cmd]
+genCmdRecDoStmtsWith allowTHQuotes =
+  scale (`div` 2) . smallList1 $
+    oneof
+      [ DoBind <$> genPattern <*> genCmdWith allowTHQuotes,
+        DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+        DoExpr <$> genCmdWith allowTHQuotes
+      ]
 
 genCaseAltsWith :: Bool -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes = smallList0 (genCaseAltWith allowTHQuotes)
