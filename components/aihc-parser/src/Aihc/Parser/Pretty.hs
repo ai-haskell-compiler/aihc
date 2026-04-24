@@ -495,19 +495,11 @@ prettyPattern pat =
     PSplice body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
-<<<<<<< HEAD
 prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
 prettyPatternFieldBinding field =
   if recordFieldPun field
     then pretty (recordFieldName field)
     else pretty (recordFieldName field) <+> "=" <+> prettyPattern (recordFieldValue field)
-=======
-prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
-prettyPatternFieldBinding fieldName fieldPat =
-  case peelPatternAnn fieldPat of
-    PVar varName | renderUnqualifiedName varName == renderName fieldName -> prettyPrefixName fieldName
-    _ -> prettyPrefixName fieldName <+> "=" <+> prettyPattern fieldPat
->>>>>>> b7d5c7609 (fix(parser): cover proc roundtrip generation)
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
