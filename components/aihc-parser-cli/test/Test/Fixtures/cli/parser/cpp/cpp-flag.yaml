@@ -4,5 +4,5 @@ input: |
   x = VALUE
 args: ["-XCPP"]
 output: |
-  Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 42 TInteger)}])]}
+  Module {name = "Demo", decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 42 TInteger))]}
 status: pass

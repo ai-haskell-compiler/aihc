@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Test.Properties.TypeRoundTrip
   ( prop_typePrettyRoundTrip,

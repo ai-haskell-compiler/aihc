@@ -1,5 +1,5 @@
 extensions: [GHC2021, BlockArguments]
 input: |
   f = g \x@(Y a) -> z
-ast: Module {decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "g") (ELambdaPats [PAs "x" (PParen (PCon "Y" [PVar "a"]))] (EVar "z")))}])]}
+ast: Module {decls = [DeclValue (PatternBind PVar "f" UnguardedRhs (EApp (EVar "g") (ELambdaPats [PAs "x" (PParen (PCon "Y" [PVar "a"]))] (EVar "z"))))]}
 status: pass
