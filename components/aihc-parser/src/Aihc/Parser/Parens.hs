@@ -40,30 +40,21 @@ import Data.Text (Text)
 
 -- | Wrap an expression in 'EParen' if the predicate holds, unless it is
 -- already parenthesised.
--- Parsed expressions already encode the source's parenthesization, so only
--- spanless synthetic syntax is eligible for extra wrapping.
 wrapExpr :: Bool -> Expr -> Expr
-wrapExpr True e | getExprSourceSpan e /= NoSourceSpan = e
 wrapExpr True (EAnn ann sub) = EAnn ann (wrapExpr True sub)
 wrapExpr True e@EParen {} = e
 wrapExpr True e = EParen e
 wrapExpr False e = e
 
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
--- Parsed patterns already encode the source's parenthesization, so only
--- spanless synthetic syntax is eligible for extra wrapping.
 wrapPat :: Bool -> Pattern -> Pattern
-wrapPat True p | getPatternSourceSpan p /= NoSourceSpan = p
 wrapPat True (PAnn ann sub) = PAnn ann (wrapPat True sub)
 wrapPat True p@PParen {} = p
 wrapPat True p = PParen p
 wrapPat False p = p
 
 -- | Wrap a type in 'TParen' if the predicate holds, unless already wrapped.
--- Parsed types already encode the source's parenthesization, so only
--- spanless synthetic syntax is eligible for extra wrapping.
 wrapTy :: Bool -> Type -> Type
-wrapTy True t | getTypeSourceSpan t /= NoSourceSpan = t
 wrapTy True (TAnn ann sub) = TAnn ann (wrapTy True sub)
 wrapTy True t@TParen {} = t
 wrapTy True t = TParen t
@@ -228,7 +219,7 @@ needsExprParens :: ExprCtx -> Expr -> Bool
 needsExprParens ctx (EAnn _ sub) = needsExprParens ctx sub
 needsExprParens ctx expr =
   case ctx of
-    CtxInfixRhs protectOpenEnded ->
+    CtxInfixRhs _protectOpenEnded ->
       case expr of
         -- EInfix on the RHS does NOT need parenthesization: the parser
         -- builds right-associated chains, so nested infix on the RHS is
@@ -241,7 +232,6 @@ needsExprParens ctx expr =
         -- successfully parsed module is guaranteed to be valid without
         -- parentheses. Wrapping in EParen would introduce a spurious HsPar
         -- in the GHC AST, causing roundtrip fingerprint mismatches.
-        _ | protectOpenEnded && isOpenEnded expr -> True
         _ -> False
     CtxInfixLhs ->
       case expr of
@@ -266,7 +256,6 @@ needsExprParens ctx expr =
       isGreedyExpr expr
     CtxTypeSigBody ->
       case expr of
-        ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
         ELambdaCases {} -> True
@@ -407,7 +396,6 @@ addModuleParens modu =
 -- ---------------------------------------------------------------------------
 
 addDeclParens :: Decl -> Decl
-addDeclParens decl | getDeclSourceSpan decl /= NoSourceSpan = decl
 addDeclParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addDeclParens sub)
@@ -762,8 +750,7 @@ addDataFamilyInstParens dfi =
 
 -- | Add parentheses to an expression at all required positions.
 addExprParens :: Expr -> Expr
-addExprParens expr | getExprSourceSpan expr /= NoSourceSpan = expr
-addExprParens expr = addExprParensPrec 0 expr
+addExprParens = addExprParensPrec 0
 
 addExprParensIn :: ExprCtx -> Expr -> Expr
 addExprParensIn ctx expr =
@@ -981,8 +968,7 @@ addExprGuardedParens = addExprParensIn CtxGuarded
 
 -- | Add parentheses to a type at all required positions.
 addTypeParens :: Type -> Type
-addTypeParens ty | getTypeSourceSpan ty /= NoSourceSpan = ty
-addTypeParens ty = addTypeParensShared CtxTypeAtom 0 ty
+addTypeParens = addTypeParensShared CtxTypeAtom 0
 
 addTypeTopLevelParens :: Type -> Type
 addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
@@ -1123,7 +1109,6 @@ addContextConstraintMulti ty =
 
 -- | Add parentheses to a pattern at all required positions.
 addPatternParens :: Pattern -> Pattern
-addPatternParens pat | getPatternSourceSpan pat /= NoSourceSpan = pat
 addPatternParens pat =
   case pat of
     PAnn sp sub -> PAnn sp (addPatternParens sub)
