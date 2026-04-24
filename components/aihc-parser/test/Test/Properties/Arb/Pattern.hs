@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Pattern
   ( genPattern,
+    genPatternRoundTrip,
     shrinkPattern,
   )
 where
@@ -70,6 +71,14 @@ genPattern = scale (`div` 2) $ do
         PIrrefutable <$> genPattern
       ]
 
+genPatternRoundTrip :: Gen Pattern
+genPatternRoundTrip =
+  frequency
+    [ (8, genPattern),
+      (1, genPatternTypeBinder),
+      (1, PTypeSyntax TypeSyntaxExplicitNamespace <$> genPatternType)
+    ]
+
 genPatternConWith :: Gen Pattern
 genPatternConWith = do
   con <- genConName
@@ -89,6 +98,20 @@ genPatternTypeSigWith = do
     -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
     wrapNegLit p@(PNegLit {}) = PParen p
     wrapNegLit p = p
+
+genPatternTypeBinder :: Gen Pattern
+genPatternTypeBinder =
+  PTypeBinder <$> genVisibleTypeBinder
+
+genVisibleTypeBinder :: Gen TyVarBinder
+genVisibleTypeBinder = do
+  name <- genVarId
+  oneof
+    [ pure (TyVarBinder [] name Nothing TyVarBSpecified TyVarBInvisible),
+      do
+        kind <- resize 0 genPatternType
+        pure (TyVarBinder [] name (Just kind) TyVarBSpecified TyVarBInvisible)
+    ]
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type

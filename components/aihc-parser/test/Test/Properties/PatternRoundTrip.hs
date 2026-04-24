@@ -12,7 +12,7 @@ import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Arb.Pattern ()
+import Test.Properties.Arb.Pattern (genPatternRoundTrip, shrinkPattern)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.QuickCheck
@@ -24,19 +24,20 @@ patternConfig =
     { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments, LambdaCase]
     }
 
-prop_patternPrettyRoundTrip :: Pattern -> Property
-prop_patternPrettyRoundTrip pat =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
-      expected = normalizePattern (addPatternParens pat)
-   in checkCoverage $
-        assertCtorCoverage ["PAnn", "PTypeBinder", "PTypeSyntax"] pat $
-          counterexample (T.unpack source) $
-            case parsePattern patternConfig source of
-              ParseErr err ->
-                counterexample (MPE.errorBundlePretty err) False
-              ParseOk parsed ->
-                let actual = normalizePattern parsed
-                 in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+prop_patternPrettyRoundTrip :: Property
+prop_patternPrettyRoundTrip =
+  forAllShrink (scale (min 3) genPatternRoundTrip) shrinkPattern $ \pat ->
+    let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
+        expected = normalizePattern (addPatternParens pat)
+     in checkCoverage $
+          assertCtorCoverage ["PAnn", "PTypeBinder", "PTypeSyntax"] pat $
+            counterexample (T.unpack source) $
+              case parsePattern patternConfig source of
+                ParseErr err ->
+                  counterexample (MPE.errorBundlePretty err) False
+                ParseOk parsed ->
+                  let actual = normalizePattern parsed
+                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
