@@ -28,7 +28,7 @@ import Test.Properties.Arb.Identifiers
     shrinkFloat,
     shrinkName,
   )
-import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
+import Test.Properties.Arb.Pattern (genPattern, genValuePattern, shrinkPattern)
 import Test.Properties.Arb.Type (shrinkType)
 import Test.Properties.Arb.Utils
 import Test.QuickCheck
@@ -169,14 +169,14 @@ genTypeNameQuoteType =
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Gen [Pattern]
-genPatterns = smallList1 genPattern
+genPatterns = smallList1 genValuePattern
 
 genCaseAltsWith :: Bool -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes = smallList0 (genCaseAltWith allowTHQuotes)
 
 genCaseAltWith :: Bool -> Gen CaseAlt
 genCaseAltWith allowTHQuotes = scale (`div` 2) $ do
-  CaseAlt [] <$> genPattern <*> genRhsWith allowTHQuotes
+  CaseAlt [] <$> genValuePattern <*> genRhsWith allowTHQuotes
 
 genLambdaCaseAltsWith :: Bool -> Gen [LambdaCaseAlt]
 genLambdaCaseAltsWith allowTHQuotes = smallList0 (genLambdaCaseAltWith allowTHQuotes)
@@ -207,7 +207,7 @@ genGuardQualifierWith allowTHQuotes =
       -- Pattern guard: | pat <- expr = ...
       -- The guarded-qualifier parser now accepts the full pattern generator,
       -- which includes parenthesized view patterns such as `(view -> pat)`.
-      scale (`div` 2) (GuardPat <$> genPattern <*> genExprWith allowTHQuotes),
+      scale (`div` 2) (GuardPat <$> genValuePattern <*> genExprWith allowTHQuotes),
       -- Let guard: | let decls = ...
       GuardLet <$> genValueDeclsWith allowTHQuotes
     ]
@@ -234,7 +234,7 @@ genValueDeclWith allowTHQuotes =
 -- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
 -- can be guarded, matching what GHC accepts.
 genPatternBindDecl :: Bool -> Gen ValueDecl
-genPatternBindDecl allowTHQuotes = PatternBind <$> genPattern <*> genRhsWith allowTHQuotes
+genPatternBindDecl allowTHQuotes = PatternBind <$> genValuePattern <*> genRhsWith allowTHQuotes
 
 -- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
 -- Produces a single 'Match', consistent with the parser which creates one
@@ -242,7 +242,7 @@ genPatternBindDecl allowTHQuotes = PatternBind <$> genPattern <*> genRhsWith all
 genFunctionBindDecl :: Bool -> Gen ValueDecl
 genFunctionBindDecl allowTHQuotes = do
   name <- genVarUnqualifiedName
-  pats <- smallList1 genPattern
+  pats <- smallList1 genValuePattern
   rhs <- genRhsWith allowTHQuotes
   pure
     ( FunctionBind
@@ -270,7 +270,7 @@ genDoStmtWith :: Bool -> Gen (DoStmt Expr)
 genDoStmtWith allowTHQuotes =
   scale (`div` 2) $
     oneof
-      [ DoBind <$> genPattern <*> genExprWith allowTHQuotes,
+      [ DoBind <$> genValuePattern <*> genExprWith allowTHQuotes,
         DoLetDecls <$> genValueDeclsWith allowTHQuotes,
         DoExpr <$> genExprWith allowTHQuotes,
         DoRecStmt <$> genRecDoStmtsWith allowTHQuotes
@@ -283,7 +283,7 @@ genRecDoStmtsWith allowTHQuotes =
   scale (`div` 2) $
     smallList1 $
       oneof
-        [ DoBind <$> genPattern <*> genExprWith allowTHQuotes,
+        [ DoBind <$> genValuePattern <*> genExprWith allowTHQuotes,
           DoLetDecls <$> genValueDeclsWith allowTHQuotes,
           DoExpr <$> genExprWith allowTHQuotes
         ]
@@ -295,7 +295,7 @@ genCompStmtWith :: Bool -> Gen CompStmt
 genCompStmtWith allowTHQuotes =
   scale (`div` 2) $
     oneof
-      [ CompGen <$> genPattern <*> genExprWith allowTHQuotes,
+      [ CompGen <$> genValuePattern <*> genExprWith allowTHQuotes,
         CompGuard <$> genExprWith allowTHQuotes,
         CompLetDecls <$> genValueDeclsWith allowTHQuotes
       ]

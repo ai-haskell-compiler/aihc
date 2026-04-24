@@ -31,7 +31,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     shrinkUnqualifiedName,
   )
-import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
+import Test.Properties.Arb.Pattern (genValuePattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkType)
 import Test.Properties.Arb.Utils (optional, smallList0, smallList1, smallList2)
 import Test.QuickCheck
@@ -87,7 +87,7 @@ genFunctionValueDecl = do
   rhs <- genRhsWith False
   oneof
     [ do
-        pats <- smallList1 genPattern
+        pats <- smallList1 genValuePattern
         pure
           ( FunctionBind
               name
@@ -100,10 +100,10 @@ genFunctionValueDecl = do
               ]
           ),
       do
-        lhsPat <- genPattern
-        rhsPat <- scale (min 3) genPattern
+        lhsPat <- genValuePattern
+        rhsPat <- scale (min 3) genValuePattern
         extraCount <- chooseInt (0, 2)
-        extraPats <- vectorOf extraCount (scale (min 3) genPattern)
+        extraPats <- vectorOf extraCount (scale (min 3) genValuePattern)
         pure
           ( FunctionBind
               name
@@ -119,7 +119,7 @@ genFunctionValueDecl = do
 
 genPatternValueDecl :: Gen ValueDecl
 genPatternValueDecl =
-  PatternBind <$> genPattern <*> genRhsWith False
+  PatternBind <$> genValuePattern <*> genRhsWith False
 
 genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = optional $ scale (`div` 2) $ listOf genDeclValue

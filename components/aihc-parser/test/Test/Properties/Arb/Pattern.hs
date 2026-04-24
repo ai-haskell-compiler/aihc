@@ -3,7 +3,7 @@
 
 module Test.Properties.Arb.Pattern
   ( genPattern,
-    genPatternRoundTrip,
+    genValuePattern,
     shrinkPattern,
   )
 where
@@ -37,7 +37,13 @@ instance Arbitrary Pattern where
   shrink = shrinkPattern
 
 genPattern :: Gen Pattern
-genPattern = scale (`div` 2) $ do
+genPattern = genPatternWith True
+
+genValuePattern :: Gen Pattern
+genValuePattern = genPatternWith False
+
+genPatternWith :: Bool -> Gen Pattern
+genPatternWith includeTypePatterns = scale (`div` 2) $ do
   n <- getSize
   if n <= 0
     then oneof leafGenerators
@@ -55,44 +61,40 @@ genPattern = scale (`div` 2) $ do
         pure (PList []),
         PCon <$> genConName <*> pure [] <*> pure []
       ]
+        <> if includeTypePatterns
+          then [genPatternTypeBinder, PTypeSyntax TypeSyntaxExplicitNamespace <$> genPatternType]
+          else []
     recursiveGenerators =
-      [ PTuple Boxed <$> genTupleElemsWith,
-        PTuple Unboxed <$> genUnboxedTupleElemsWith,
-        PList <$> genListElemsWith,
-        genPatternConWith,
-        genPatternInfixWith,
-        PParen <$> genPattern,
+      [ PTuple Boxed <$> genTupleElemsWith recurse,
+        PTuple Unboxed <$> genUnboxedTupleElemsWith recurse,
+        PList <$> genListElemsWith recurse,
+        genPatternConWith recurse,
+        genPatternInfixWith recurse,
+        PParen <$> recurse,
         genRecordPatternWith,
-        genPatternTypeSigWith,
-        genUnboxedSumPatternWith,
-        PView <$> resize 2 genExpr <*> genPattern,
-        PAs <$> genVarId <*> genPattern,
-        PStrict <$> genPattern,
-        PIrrefutable <$> genPattern
+        genPatternTypeSigWith recurse,
+        genUnboxedSumPatternWith recurse,
+        PView <$> resize 2 genExpr <*> recurse,
+        PAs <$> genVarId <*> recurse,
+        PStrict <$> recurse,
+        PIrrefutable <$> recurse
       ]
+    recurse = genValuePattern
 
-genPatternRoundTrip :: Gen Pattern
-genPatternRoundTrip =
-  frequency
-    [ (8, genPattern),
-      (1, genPatternTypeBinder),
-      (1, PTypeSyntax TypeSyntaxExplicitNamespace <$> genPatternType)
-    ]
-
-genPatternConWith :: Gen Pattern
-genPatternConWith = do
+genPatternConWith :: Gen Pattern -> Gen Pattern
+genPatternConWith genPat = do
   con <- genConName
   argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount genPattern
+  args <- vectorOf argCount genPat
   pure (PCon con [] args)
 
-genPatternTypeSigWith :: Gen Pattern
-genPatternTypeSigWith = do
+genPatternTypeSigWith :: Gen Pattern -> Gen Pattern
+genPatternTypeSigWith genPat = do
   -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
   -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
   -- prints as (-66 :: T) which the parser interprets as negation applied to
   -- (66 :: T) rather than a type signature on -66.
-  inner <- wrapNegLit <$> genPattern
+  inner <- wrapNegLit <$> genPat
   PParen . PTypeSig inner <$> genPatternType
   where
     -- FIXME: This is a hack to get the pretty-printer to correctly parenthesize PNegLit inside PTypeSig. Remove!
@@ -121,50 +123,50 @@ genPatternType =
       (`TCon` Unpromoted) <$> genConName
     ]
 
-genPatternInfixWith :: Gen Pattern
-genPatternInfixWith = do
-  lhs <- genPattern
+genPatternInfixWith :: Gen Pattern -> Gen Pattern
+genPatternInfixWith genPat = do
+  lhs <- genPat
   op <- genConName
-  PInfix lhs op <$> genPattern
+  PInfix lhs op <$> genPat
 
-genTupleElemsWith :: Gen [Pattern]
-genTupleElemsWith = do
+genTupleElemsWith :: Gen Pattern -> Gen [Pattern]
+genTupleElemsWith genPat = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n genPattern
+      vectorOf n genPat
 
 -- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
-genUnboxedTupleElemsWith :: Gen [Pattern]
-genUnboxedTupleElemsWith = do
+genUnboxedTupleElemsWith :: Gen Pattern -> Gen [Pattern]
+genUnboxedTupleElemsWith genPat = do
   n <- chooseInt (0, 4)
-  vectorOf n genPattern
+  vectorOf n genPat
 
-genUnboxedSumPatternWith :: Gen Pattern
-genUnboxedSumPatternWith = do
+genUnboxedSumPatternWith :: Gen Pattern -> Gen Pattern
+genUnboxedSumPatternWith genPat = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  PUnboxedSum altIdx arity <$> genPattern
+  PUnboxedSum altIdx arity <$> genPat
 
-genListElemsWith :: Gen [Pattern]
-genListElemsWith = do
+genListElemsWith :: Gen Pattern -> Gen [Pattern]
+genListElemsWith genPat = do
   n <- chooseInt (0, 4)
-  vectorOf n genPattern
+  vectorOf n genPat
 
 genRecordPatternWith :: Gen Pattern
 genRecordPatternWith = do
   con <- genConName
-  fields <- genRecordFieldsWith
+  fields <- genRecordFieldsWith genValuePattern
   pure (PRecord con fields False)
 
-genRecordFieldsWith :: Gen [(Name, Pattern)]
-genRecordFieldsWith = do
+genRecordFieldsWith :: Gen Pattern -> Gen [(Name, Pattern)]
+genRecordFieldsWith genPat = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n genPattern
+  pats <- vectorOf n genPat
   quals <- vectorOf n genOptionalQualifier
   let qualifiedNames = zipWith (\q name -> qualifyName q (mkUnqualifiedName NameVarId name)) quals names
   pure (zip qualifiedNames pats)
