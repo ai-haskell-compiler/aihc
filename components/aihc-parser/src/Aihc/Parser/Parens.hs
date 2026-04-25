@@ -614,13 +614,15 @@ addInfixConBangTypeParens bt =
     }
 
 -- | Types that would be misinterpreted as data constructor declarations
--- (tuple-con, unboxed tuple/sum-con, or list-con) when used as an infix
--- constructor operand. The data-con parsers are tried before the infix
--- parser, so these types must be parenthesized to prevent ambiguity.
+-- (unboxed sum-con or list-con) when used as an infix constructor operand.
+-- Tuple operands are left bare so the raw surface syntax is preserved. The
+-- data-con parsers are tried before the infix parser, so the remaining types
+-- must be parenthesized to prevent ambiguity.
 infixConOperandNeedsParens :: Type -> Bool
 infixConOperandNeedsParens (TAnn _ sub) = infixConOperandNeedsParens sub
 infixConOperandNeedsParens (TParen _) = False
-infixConOperandNeedsParens (TTuple {}) = True
+infixConOperandNeedsParens (TTuple Boxed _ _) = False
+infixConOperandNeedsParens (TTuple Unboxed _ _) = False
 infixConOperandNeedsParens (TUnboxedSum {}) = True
 infixConOperandNeedsParens (TList _ []) = True
 -- Application head determines what the parser sees first.
