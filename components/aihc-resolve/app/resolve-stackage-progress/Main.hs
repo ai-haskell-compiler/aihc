@@ -34,12 +34,14 @@ import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (SomeException, displayException, evaluate, try)
 import Control.Monad (mplus)
+import Control.Monad qualified
 import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.List (nub, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Maybe qualified
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
