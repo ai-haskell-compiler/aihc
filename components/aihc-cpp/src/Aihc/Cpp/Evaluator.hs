@@ -269,6 +269,10 @@ substituteParamsBuilder subs = renderPieces . collapseTokenPastes . collapseStri
           | c == '\'' ->
               let (literal, remaining) = scanQuoted '\'' txt
                in PieceRaw literal : tokenizeReplacementList remaining
+          | "/**/" `T.isPrefixOf` txt ->
+              -- cpphs accepts an empty C block comment as a token-pasting hack
+              -- in macro replacement lists, commonly used in Haskell CPP code.
+              PiecePaste : tokenizeReplacementList (T.drop 4 txt)
           | "##" `T.isPrefixOf` txt ->
               PiecePaste : tokenizeReplacementList (T.drop 2 txt)
           | isIdentStart c ->
