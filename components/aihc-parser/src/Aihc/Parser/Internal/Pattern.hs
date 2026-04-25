@@ -241,18 +241,16 @@ thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   PSplice <$> atomExprParser
 
 simplePatternParser :: TokParser Pattern
-simplePatternParser =
-  do
-    typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
-    let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
-    MP.try
-      ( withSpanAnn (PAnn . mkAnnotation) $ do
-          name <- identifierTextParser
-          expectedTok TkReservedAt
-          PAs name <$> patternAtomParser
-      )
-      <|> typeBinderParser
-      <|> patternAtomParser
+simplePatternParser = do
+  typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
+  let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
+  isAsPat <- startsWithAsPattern
+  if isAsPat
+    then withSpanAnn (PAnn . mkAnnotation) $ do
+      name <- identifierTextParser
+      expectedTok TkReservedAt
+      PAs name <$> patternAtomParser
+    else typeBinderParser <|> patternAtomParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =

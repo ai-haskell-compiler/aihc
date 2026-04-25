@@ -47,26 +47,9 @@ ordinaryDeclParser = do
   exprFallback <- exprDeclEnabled
   let tokKind = lexTokenKind tok
       nextTokKind = lexTokenKind nextTok
-      -- When TemplateHaskell, TemplateHaskellQuotes, or QuasiQuotes is
-      -- enabled, GHC allows top-level expressions as declaration splices.
-      -- The expression parser itself handles extension-specific constructs
-      -- (e.g. @$expr@ via TH, @[qq|...|]@ via QuasiQuotes).
-      valueOrExprParser =
-        if exprFallback
-          then MP.try valueDeclParser <|> exprDeclParser
-          else valueDeclParser
-      patternOrValueOrExprParser =
-        if exprFallback
-          then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> exprDeclParser
-          else MP.try patternBindDeclParser <|> valueDeclParser
-      nonBareVarPatternOrValueOrExprParser =
-        if exprFallback
-          then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> exprDeclParser
-          else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
-      typeSigOrValueOrExprParser =
-        MP.try typeSigOrPatternTypeSigDeclParser <|> valueOrExprParser
-      typeSigOrPatternOrValueOrExprParser =
-        MP.try typeSigOrPatternTypeSigDeclParser <|> patternOrValueOrExprParser
+      valueDecl
+        | exprFallback = MP.try valueDeclParser <|> exprDeclParser
+        | otherwise = valueDeclParser
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -94,11 +77,11 @@ ordinaryDeclParser = do
     TkKeywordPattern -> patternSynonymParser
     TkVarId {} ->
       case nextTokKind of
-        TkReservedDoubleColon -> typeSigOrValueOrExprParser
-        TkSpecialComma -> typeSigOrValueOrExprParser
-        TkReservedEquals -> valueOrExprParser
-        _ -> nonBareVarPatternOrValueOrExprParser
-    _ -> typeSigOrPatternOrValueOrExprParser
+        TkReservedDoubleColon -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
+        TkSpecialComma -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
+        TkReservedEquals -> valueDecl
+        _ -> MP.try nonBareVarPatternBindDeclParser <|> valueDecl
+    _ -> MP.try typeSigOrPatternTypeSigDeclParser <|> MP.try patternBindDeclParser <|> valueDecl
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.
 -- When the leading token is a variable identifier, a bare @x = 5@ must be
