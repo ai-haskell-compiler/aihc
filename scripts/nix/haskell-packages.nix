@@ -74,6 +74,12 @@
             mkdir -p "$out/hpc"
             cp -r dist/hpc/* "$out/hpc/"
           fi
+
+          target_mix=dist/build/extra-compilation-artifacts/hpc/vanilla/mix
+          if [ -d "$target_mix" ]; then
+            mkdir -p "$out/hpc/vanilla/mix"
+            cp -r "$target_mix"/* "$out/hpc/vanilla/mix/"
+          fi
         '';
     });
 
