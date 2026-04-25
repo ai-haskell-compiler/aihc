@@ -28,13 +28,12 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     parseLanguageEdition,
   )
-import Control.Monad (mplus)
-import Data.Text.Encoding qualified as TE
 import Aihc.Resolve (ModuleExports, ResolveResult (..), extractInterface, resolveWithDeps)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (SomeException, displayException, evaluate, try)
+import Control.Monad (mplus)
 import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.List (nub, partition, sortOn)
@@ -45,11 +44,12 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import GHC.Conc (getNumProcessors)
+import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.Directory (doesFileExist)
 import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 
@@ -58,19 +58,19 @@ import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 -- ---------------------------------------------------------------------------
 
 data Options = Options
-  { optSnapshot :: String
-  , optJobs :: Int
-  , optOffline :: Bool
-  , optTopFailures :: Int
+  { optSnapshot :: String,
+    optJobs :: Int,
+    optOffline :: Bool,
+    optTopFailures :: Int
   }
 
 defaultOptions :: Options
 defaultOptions =
   Options
-    { optSnapshot = "lts-24.33"
-    , optJobs = 0
-    , optOffline = False
-    , optTopFailures = 10
+    { optSnapshot = "lts-24.33",
+      optJobs = 0,
+      optOffline = False,
+      optTopFailures = 10
     }
 
 parseOptions :: [String] -> IO Options
@@ -100,9 +100,9 @@ data PackageStatus
 -- ---------------------------------------------------------------------------
 
 data PackageInfo = PackageInfo
-  { piSrcDir :: FilePath
-  , piFiles :: [HC.FileInfo]
-  , piSnapshotDeps :: [Text]
+  { piSrcDir :: FilePath,
+    piFiles :: [HC.FileInfo],
+    piSnapshotDeps :: [Text]
   }
 
 collectPackageInfo :: Bool -> PackageSpec -> Set Text -> IO (Text, PackageInfo)
@@ -119,8 +119,8 @@ collectPackageInfo offline spec snapshotNames = do
   srcDir <-
     downloadPackageWithOptions
       defaultDownloadOptions
-        { downloadVerbose = False
-        , downloadAllowNetwork = not offline
+        { downloadVerbose = False,
+          downloadAllowNetwork = not offline
         }
       spec'
   cabalFiles <- findCabalFiles srcDir
@@ -175,7 +175,7 @@ kahnLayers depGraph =
                           foldl'
                             ( \acc n ->
                                 foldl'
-                                  (\a dependent -> Map.adjust (subtract 1) dependent a)
+                                  (flip (Map.adjust (subtract 1)))
                                   (Map.delete n acc)
                                   (Map.findWithDefault [] n revGraph)
                             )
@@ -199,10 +199,12 @@ hasFailedDep completed depGraph pkg =
 
 gatherDepExports :: Text -> Map Text PackageStatus -> Map Text [Text] -> ModuleExports
 gatherDepExports pkg completed depGraph =
-  foldl' Map.union Map.empty
+  foldl'
+    Map.union
+    Map.empty
     [ iface
-    | dep <- Map.findWithDefault [] pkg depGraph
-    , Just (PkgSuccess iface) <- [Map.lookup dep completed]
+    | dep <- Map.findWithDefault [] pkg depGraph,
+      Just (PkgSuccess iface) <- [Map.lookup dep completed]
     ]
 
 processLayer ::
@@ -244,7 +246,7 @@ processLayers ::
   Map Text [Text] ->
   Map Text PackageStatus ->
   IO (Map Text PackageStatus)
-processLayers opts layers infos depGraph initial = go layers initial
+processLayers opts layers infos depGraph = go layers
   where
     go [] acc = pure acc
     go (layer : rest) acc = do
@@ -294,9 +296,9 @@ normalizeSource filePath src
             then T.unlines (unlitLatex False ls)
             else T.unlines (map unlitBird ls)
   where
-    stripBom t = maybe t id (T.stripPrefix "\xfeff" t)
+    stripBom t = Data.Maybe.fromMaybe t (T.stripPrefix "\xfeff" t)
     unlitBird line = case T.stripPrefix ">" line of
-      Just rest -> maybe rest id (T.stripPrefix " " rest)
+      Just rest -> Data.Maybe.fromMaybe rest (T.stripPrefix " " rest)
       Nothing -> ""
     unlitLatex _ [] = []
     unlitLatex inCode (l : ls)
@@ -323,24 +325,27 @@ parseFileInfo pkgRoot fi = do
   -- Read in-file {-# LANGUAGE ... #-} pragmas and merge with cabal-file extensions.
   let headerPragmas = readModuleHeaderPragmas src
       allExtSettings = cabalExtSettings ++ headerExtensionSettings headerPragmas
-      lang = headerLanguageEdition headerPragmas
-               `mplus` (HC.fileInfoLanguage fi >>= parseLanguageEdition . T.pack)
-      exts = effectiveExtensions (maybe Haskell98Edition id lang) allExtSettings
+      lang =
+        headerLanguageEdition headerPragmas
+          `mplus` (HC.fileInfoLanguage fi >>= parseLanguageEdition . T.pack)
+      exts = effectiveExtensions (Data.Maybe.fromMaybe Haskell98Edition lang) allExtSettings
       cfg = Parser.defaultConfig {parserSourceName = path, parserExtensions = exts}
       (parseErrs, modu) = parseModule cfg src
-  pure $ if null parseErrs
-    then Right modu
-    else Left (T.unpack (T.unwords (map snd parseErrs)))
+  pure $
+    if null parseErrs
+      then Right modu
+      else Left (T.unpack (T.unwords (map snd parseErrs)))
   where
     path = HC.fileInfoPath fi
     runCpp normalizedSrc = do
       let cppOpts = HC.fileInfoCppOptions fi
           minMacros = minVersionMacroNamesFromDeps (HC.fileInfoDependencies fi)
           injected = injectSyntheticCppMacros cppOpts minMacros normalizedSrc
-          cppCfg = Cpp.defaultConfig
-                     { configInputFile = path
-                     , configMacros = cppMacrosFromOptions cppOpts
-                     }
+          cppCfg =
+            Cpp.defaultConfig
+              { configInputFile = path,
+                configMacros = cppMacrosFromOptions cppOpts
+              }
       driveIO (preprocess cppCfg (TE.encodeUtf8 injected))
     driveIO (Done r) = pure (resultOutput r)
     driveIO (NeedInclude req k) = do
@@ -361,20 +366,20 @@ resolveInclude pkgRoot currentFile req = do
 
 includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
 includeCandidates pkgRoot currentFile req =
-  nub (map normalise [dir </> includePath req | dir <- searchDirs])
+  nub ([normalise (dir </> includePath req) | dir <- searchDirs])
   where
     includeDir = takeDirectory (includeFrom req)
     sourceRelDir = takeDirectory (makeRelative pkgRoot currentFile)
     localRoots =
-      [ takeDirectory currentFile
-      , pkgRoot </> sourceRelDir
-      , pkgRoot </> includeDir
+      [ takeDirectory currentFile,
+        pkgRoot </> sourceRelDir,
+        pkgRoot </> includeDir
       ]
     systemRoots =
-      [ pkgRoot </> "include"
-      , pkgRoot </> "includes"
-      , pkgRoot </> "cbits"
-      , pkgRoot
+      [ pkgRoot </> "include",
+        pkgRoot </> "includes",
+        pkgRoot </> "cbits",
+        pkgRoot
       ]
     searchDirs = case includeKind req of
       IncludeLocal -> localRoots ++ systemRoots
@@ -400,13 +405,11 @@ reportResults topN results = do
   putStrLn $ "  Failed:   " ++ show failedN ++ " (parse or resolver errors)"
   putStrLn $ "  Skipped:  " ++ show skippedN ++ " (dep had failure)"
   let n = min topN failedN
-  if n > 0
-    then do
-      putStrLn ""
-      putStrLn $ "Top " ++ show n ++ " failing packages:"
-      let sorted = take n (sortOn (length . snd) failed)
-      mapM_ printFailure sorted
-    else pure ()
+  Control.Monad.when (n > 0) $ do
+    putStrLn ""
+    putStrLn $ "Top " ++ show n ++ " failing packages:"
+    let sorted = take n (sortOn (length . snd) failed)
+    mapM_ printFailure sorted
   if successN == total then exitSuccess else exitFailure
   where
     printFailure (pkg, msg) = do
@@ -489,13 +492,13 @@ phase1Parallel opts packages snapshotNames showProgress total = do
             outcome <- try (collectPackageInfo (optOffline opts) spec snapshotNames)
             let (name, info) = case outcome of
                   Left (_ :: SomeException) ->
-                    ( T.pack (pkgName spec)
-                    , PackageInfo "" [] []
+                    ( T.pack (pkgName spec),
+                      PackageInfo "" [] []
                     )
                   Right r -> r
             modifyMVar_ resultVar (pure . Map.insert name info)
             done <- modifyMVar progressVar (\d -> let d' = d + 1 in pure (d', d'))
-            if showProgress then putProgressLine done total else pure ()
+            Control.Monad.when showProgress $ putProgressLine done total
             worker
   replicateConcurrently_ workerCount worker
   readMVar resultVar
