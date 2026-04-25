@@ -24,6 +24,7 @@
     };
     coverage = import ./scripts/nix/coverage.nix {
       inherit (core) projectHsPackages;
+      inherit sources;
       inherit (haskell) mkHsPkgsWithCoverage;
     };
     wasm = import ./scripts/nix/wasm.nix {
