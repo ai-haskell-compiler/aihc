@@ -91,7 +91,7 @@
     else drv;
 
   isOverridableHaskellDrv = pkgs: drv:
-    pkgs.lib.isDerivation drv && drv ? overrideScope;
+    pkgs.lib.isDerivation drv && drv.isHaskellLibrary or false;
 
   disableUpstreamChecks = pkgs: hsLib: localPackageNames: _final: prev:
     builtins.mapAttrs (
