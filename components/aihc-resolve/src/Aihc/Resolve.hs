@@ -9,6 +9,11 @@ module Aihc.Resolve
     pattern PResolution,
     pattern TResolution,
     resolve,
+    resolveWithDeps,
+    extractInterface,
+    Scope (..),
+    ModuleExports,
+    collectModuleExports,
     ResolveError (..),
     ResolveResult (..),
     ResolutionNamespace (..),
@@ -135,6 +140,26 @@ resolve modules =
     modules' = map snd resolved
     extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
     exports = collectModuleExports modules
+
+resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
+resolveWithDeps depExports modules =
+  ResolveResult
+    { resolvedModules = modules',
+      resolvedAnnotations = extraAnnotations,
+      resolveErrors = []
+    }
+  where
+    step currentNextLocal modu =
+      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
+       in (nextLocal', (annotations, modu'))
+    (_, resolved) = mapAccumL step 0 modules
+    modules' = map snd resolved
+    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
+    ownExports = collectModuleExports modules
+    exports = ownExports `Map.union` depExports
+
+extractInterface :: ResolveResult -> ModuleExports
+extractInterface = collectModuleExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
