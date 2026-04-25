@@ -1000,11 +1000,11 @@ gadtTypeDataBodyParser = do
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
   (forallVars, context) <- dataConQualifiersParser
-  MP.try (boxedTupleConDeclParser forallVars context)
+  MP.try (dataConInfixParser forallVars context)
+    <|> MP.try (boxedTupleConDeclParser forallVars context)
     <|> MP.try (unboxedConDeclParser forallVars context)
     <|> MP.try (listConDeclParser forallVars context)
-    <|> MP.try (dataConRecordOrPrefixParser forallVars context)
-    <|> dataConInfixParser forallVars context
+    <|> dataConRecordOrPrefixParser forallVars context
 
 listConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 listConDeclParser forallVars context = do

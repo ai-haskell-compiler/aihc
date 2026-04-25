@@ -111,6 +111,8 @@ buildTests = do
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
             testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
+            testCase "boxed tuple infix constructor operands stay bare" test_boxedTupleInfixConOperandStaysBare,
+            testCase "unboxed tuple infix constructor operands stay bare" test_unboxedTupleInfixConOperandStaysBare,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
@@ -396,6 +398,48 @@ test_dataDeclResultKindContextRoundTrips = do
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
     ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+
+test_boxedTupleInfixConOperandStaysBare :: Assertion
+test_boxedTupleInfixConOperandStaysBare = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
+              dataDeclContext = [],
+              dataDeclKind = Nothing,
+              dataDeclConstructors =
+                [ InfixCon
+                    []
+                    []
+                    (BangType [] NoSourceUnpackedness False False (TTuple Boxed Unpromoted []))
+                    (mkUnqualifiedName NameConSym ":.")
+                    (BangType [] NoSourceUnpackedness False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted))
+                ],
+              dataDeclDeriving = []
+            }
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "data D = () :. T" rendered
+
+test_unboxedTupleInfixConOperandStaysBare :: Assertion
+test_unboxedTupleInfixConOperandStaysBare = do
+  let decl =
+        DeclData
+          DataDecl
+            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
+              dataDeclContext = [],
+              dataDeclKind = Nothing,
+              dataDeclConstructors =
+                [ InfixCon
+                    []
+                    []
+                    (BangType [] NoSourceUnpackedness False False (TTuple Unboxed Unpromoted [TVar (mkUnqualifiedName NameVarId "a")]))
+                    (mkUnqualifiedName NameConSym ":.")
+                    (BangType [] NoSourceUnpackedness False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted))
+                ],
+              dataDeclDeriving = []
+            }
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
 
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects infix constructor syntax in data declarations -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators #-}
 module TestFunTypeOperatorContextXfail where
 
