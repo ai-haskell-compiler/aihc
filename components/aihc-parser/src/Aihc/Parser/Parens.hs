@@ -279,6 +279,24 @@ exprCtxPrec ctx expr =
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
+-- | Parenthesize a left section operand while protecting any rightmost
+-- open-ended infix RHS from absorbing the section operator.
+addSectionLhsParens :: Expr -> Expr
+addSectionLhsParens expr =
+  case peelExprAnn expr of
+    EInfix lhs op rhs ->
+      EInfix
+        (addExprParensIn CtxInfixLhs lhs)
+        op
+        (addSectionInfixRhsParens rhs)
+    _ -> addExprParensPrec 1 expr
+  where
+    addSectionInfixRhsParens rhs =
+      case peelExprAnn rhs of
+        EInfix {} -> addSectionLhsParens rhs
+        _ | isOpenEnded rhs -> wrapExpr True (addExprParens rhs)
+        _ -> addExprParensIn (CtxInfixRhs False) rhs
+
 -- ---------------------------------------------------------------------------
 -- Type contexts
 -- ---------------------------------------------------------------------------
@@ -876,7 +894,7 @@ addExprParensPrec prec expr =
       let lhs' =
             if isGreedyExpr lhs || isTypeSig lhs
               then wrapExpr True (addExprParens lhs)
-              else addExprParensPrec 1 lhs
+              else addSectionLhsParens lhs
        in EParen (ESectionL lhs' op)
     ESectionR op rhs ->
       EParen (ESectionR op (addExprParens rhs))
