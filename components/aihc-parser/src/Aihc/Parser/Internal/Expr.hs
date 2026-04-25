@@ -326,7 +326,7 @@ doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   pure (DoRecStmt stmts)
 
 infixExprParserExcept :: [Text] -> TokParser Expr
-infixExprParserExcept forbidden = infixExprParserWith lexpParser forbidden
+infixExprParserExcept = infixExprParserWith lexpParser
 
 infixExprParserWith :: TokParser Expr -> [Text] -> TokParser Expr
 infixExprParserWith lexp forbidden = do
