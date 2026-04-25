@@ -80,8 +80,8 @@ ordinaryDeclParser = do
         TkReservedDoubleColon -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
         TkSpecialComma -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
         TkReservedEquals -> valueDecl
-        _ -> MP.try nonBareVarPatternBindDeclParser <|> valueDecl
-    _ -> MP.try typeSigOrPatternTypeSigDeclParser <|> MP.try patternBindDeclParser <|> valueDecl
+        _ -> nonBareVarPatternBindDeclParser <|> valueDecl
+    _ -> MP.try typeSigOrPatternTypeSigDeclParser <|> patternBindDeclParser <|> valueDecl
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.
 -- When the leading token is a variable identifier, a bare @x = 5@ must be

@@ -326,13 +326,16 @@ doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   pure (DoRecStmt stmts)
 
 infixExprParserExcept :: [Text] -> TokParser Expr
-infixExprParserExcept forbidden = do
-  lhs <- MP.try negateExprParser <|> lexpParser
+infixExprParserExcept forbidden = infixExprParserWith lexpParser forbidden
+
+infixExprParserWith :: TokParser Expr -> [Text] -> TokParser Expr
+infixExprParserWith lexp forbidden = do
+  lhs <- MP.try negateExprParser <|> lexp
   rest <-
     MP.many
       ( (,)
           <$> infixOperatorParserExcept forbidden
-          <*> region "after infix operator" lexpParser
+          <*> region "after infix operator" lexp
       )
   pure (foldInfixR buildInfix lhs rest)
 
@@ -342,7 +345,21 @@ lexpParser = do
   mSCC <- optionalHiddenPragma getSCCLabel
   case mSCC of
     Just sccLabel -> EPragma (PragmaSCC sccLabel) <$> lexpParser
-    Nothing -> doExprParser <|> mdoExprParser <|> qualifiedDoExprParser <|> qualifiedMdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
+    Nothing -> lexpBaseParser appExprParser
+
+lexpBaseParser :: TokParser Expr -> TokParser Expr
+lexpBaseParser appParser =
+  doExprParser
+    <|> mdoExprParser
+    <|> qualifiedDoExprParser
+    <|> qualifiedMdoExprParser
+    <|> ifExprParser
+    <|> caseExprParser
+    <|> letExprParser
+    <|> procExprParser
+    <|> lambdaExprParser
+    <|> MP.try negateExprParser
+    <|> appParser
 
 getSCCLabel :: Pragma -> Maybe Text
 getSCCLabel (PragmaSCC sccLabel) = Just sccLabel
@@ -394,17 +411,20 @@ overloadedLabelExprParser =
       _ -> Nothing
 
 appExprParser :: TokParser Expr
-appExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+appExprParser = appExprParserWith atomOrRecordExprParser
+
+appExprParserWith :: TokParser Expr -> TokParser Expr
+appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
   typeAppsEnabled <- isExtensionEnabled TypeApplications
-  first <- atomOrRecordExprParser
+  first <- atomParser
   rest <- MP.many (appArg typeAppsEnabled)
   pure $
     foldl applyArg first rest
   where
     appArg :: Bool -> TokParser (Either Type Expr)
     appArg typeAppsEnabled
-      | typeAppsEnabled = (Left <$> typeAppArg) <|> (Right <$> atomOrRecordExprParser)
-      | otherwise = Right <$> atomOrRecordExprParser
+      | typeAppsEnabled = (Left <$> typeAppArg) <|> (Right <$> atomParser)
+      | otherwise = Right <$> atomParser
 
     typeAppArg :: TokParser Type
     typeAppArg = MP.try $ do
@@ -476,18 +496,18 @@ atomExprParser = do
     TkImplicitParam {} -> implicitParamExprParser
     TkKeywordType
       | explicitNamespacesEnabled || requiredTypeArgumentsEnabled -> explicitTypeExprParser
+    TkReservedBackslash -> lambdaExprParser
+    TkKeywordLet -> letExprParser
+    TkKeywordDo | blockArgsEnabled -> doExprParser
+    TkKeywordMdo | blockArgsEnabled -> mdoExprParser
+    TkQualifiedDo {} | blockArgsEnabled -> qualifiedDoExprParser
+    TkQualifiedMdo {} | blockArgsEnabled -> qualifiedMdoExprParser
+    TkKeywordCase | blockArgsEnabled -> caseExprParser
+    TkKeywordIf | blockArgsEnabled -> ifExprParser
+    TkKeywordProc | blockArgsEnabled -> procExprParser
     _ ->
       MP.try prefixNegateAtomExprParser
         <|> MP.try parenOperatorExprParser
-        <|> lambdaExprParser
-        <|> letExprParser
-        <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try mdoExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try qualifiedDoExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try qualifiedMdoExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
-        <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
         <|> (if thAny then thTypedSpliceParser else MP.empty)
@@ -1031,51 +1051,13 @@ compTransformExprParser =
     pure (foldInfixR buildInfix base rest)
 
 compTransformLexpParser :: TokParser Expr
-compTransformLexpParser =
-  doExprParser
-    <|> mdoExprParser
-    <|> qualifiedDoExprParser
-    <|> qualifiedMdoExprParser
-    <|> ifExprParser
-    <|> caseExprParser
-    <|> letExprParser
-    <|> procExprParser
-    <|> lambdaExprParser
-    <|> MP.try negateExprParser
-    <|> compTransformAppExprParser
+compTransformLexpParser = lexpBaseParser compTransformAppExprParser
 
 compTransformInfixExprParser :: TokParser Expr
-compTransformInfixExprParser = do
-  lhs <- MP.try negateExprParser <|> compTransformLexpParser
-  rest <-
-    MP.many
-      ( (,)
-          <$> infixOperatorParserExcept []
-          <*> region "after infix operator" compTransformLexpParser
-      )
-  pure (foldInfixR buildInfix lhs rest)
+compTransformInfixExprParser = infixExprParserWith compTransformLexpParser []
 
 compTransformAppExprParser :: TokParser Expr
-compTransformAppExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  typeAppsEnabled <- isExtensionEnabled TypeApplications
-  first <- compTransformAtomExprParser
-  rest <- MP.many (compTransformAppArg typeAppsEnabled)
-  pure $
-    foldl applyArg first rest
-  where
-    compTransformAppArg :: Bool -> TokParser (Either Type Expr)
-    compTransformAppArg typeAppsEnabled
-      | typeAppsEnabled = (Left <$> compTransformTypeAppArg) <|> (Right <$> compTransformAtomExprParser)
-      | otherwise = Right <$> compTransformAtomExprParser
-
-    compTransformTypeAppArg :: TokParser Type
-    compTransformTypeAppArg = MP.try $ do
-      expectedTok TkTypeApp
-      typeAtomParser
-
-    applyArg :: Expr -> Either Type Expr -> Expr
-    applyArg fn (Left ty) = ETypeApp fn ty
-    applyArg fn (Right arg) = EApp fn arg
+compTransformAppExprParser = appExprParserWith compTransformAtomExprParser
 
 -- | Like 'atomExprParser' but rejects bare 'by' and 'using' identifiers.
 -- These are treated as contextual keywords in TransformListComp context.
