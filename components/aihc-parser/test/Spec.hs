@@ -5,7 +5,7 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Char (ord)
@@ -121,6 +121,7 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             localOption (QC.QuickCheckTests 2000) $
               QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -690,6 +691,25 @@ test_bundledExportWildcardPosition = do
                 assertFailure ("unexpected reparsed export AST: " <> show other)
           other ->
             assertFailure ("unexpected export AST: " <> show other)
+
+test_prettyInfixRhsOpenEndedInsideSection :: Assertion
+test_prettyInfixRhsOpenEndedInsideSection = do
+  let config = defaultConfig {parserExtensions = [LambdaCase]}
+      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      expr =
+        ESectionL
+          ( EInfix
+              (ELambdaCase [])
+              op
+              (ELambdaPats [PLit (LitInt 0 TInteger "0")] (EChar ' ' "' '"))
+          )
+          op
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
 
 test_associatedDataFamilyOperatorName :: Assertion
 test_associatedDataFamilyOperatorName = do
