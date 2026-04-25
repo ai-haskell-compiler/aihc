@@ -175,7 +175,8 @@ expandIdentBlue st painted txt acc =
             case M.lookup ident (stMacros st) of
               Just (ObjectMacro replacement) ->
                 let painted' = S.insert ident painted
-                    expanded = builderToText (goText st painted' False False False replacement mempty)
+                    replacement' = normalizeObjectReplacement replacement
+                    expanded = builderToText (goText st painted' False False False replacement' mempty)
                  in goText st painted False False False rest (acc <> TB.fromText expanded)
               Just (FunctionMacro params body) ->
                 case parseCallArgs rest of
@@ -191,6 +192,55 @@ expandIdentBlue st painted txt acc =
                         goText st painted False False False rest (acc <> TB.fromText ident)
               Nothing ->
                 goText st painted False False False rest (acc <> TB.fromText ident)
+
+-- | Normalize comments inside object-like macro replacement text while
+-- preserving string and char literals. cpphs replaces @/* ... */@ with spaces
+-- matching the width of the comment body, but treats empty @/**/@ as a token
+-- pasting hack with zero width.
+normalizeObjectReplacement :: Text -> Text
+normalizeObjectReplacement = T.stripEnd . go False False False mempty
+  where
+    go :: Bool -> Bool -> Bool -> TB.Builder -> Text -> Text
+    go _ _ _ acc txt | T.null txt = builderToText acc
+    go inString inChar escaped acc txt =
+      case T.uncons txt of
+        Nothing -> builderToText acc
+        Just (c, rest)
+          | inString ->
+              let escaped' = c == '\\' && not escaped
+                  inString' = not (c == '"' && not escaped)
+               in go inString' False escaped' (acc <> TB.singleton c) rest
+          | inChar ->
+              let escaped' = c == '\\' && not escaped
+                  inChar' = not (c == '\'' && not escaped)
+               in go False inChar' escaped' (acc <> TB.singleton c) rest
+          | c == '"' -> go True False False (acc <> TB.singleton c) rest
+          | c == '\'' -> go False True False (acc <> TB.singleton c) rest
+          | "/*" `T.isPrefixOf` txt ->
+              let (commentText, remaining) = consumeCBlockComment txt
+                  replacement = commentReplacement commentText
+               in go False False False (acc <> TB.fromText replacement) remaining
+          | otherwise ->
+              go False False False (acc <> TB.singleton c) rest
+
+consumeCBlockComment :: Text -> (Text, Text)
+consumeCBlockComment txt =
+  let afterOpen = T.drop 2 txt
+      (inside, suffix) = T.breakOn "*/" afterOpen
+   in if T.null suffix
+        then (txt, "")
+        else ("/*" <> inside <> "*/", T.drop 2 suffix)
+
+commentReplacement :: Text -> Text
+commentReplacement commentText
+  | commentText == "/**/" = ""
+  | otherwise = T.replicate (T.length (commentBody commentText)) " "
+
+commentBody :: Text -> Text
+commentBody commentText =
+  if "/*" `T.isPrefixOf` commentText && "*/" `T.isSuffixOf` commentText
+    then T.dropEnd 2 (T.drop 2 commentText)
+    else T.drop 2 commentText
 
 -- | Parse function-like macro call arguments.
 parseCallArgs :: Text -> Maybe ([Text], Text)
@@ -269,10 +319,10 @@ substituteParamsBuilder subs = renderPieces . collapseTokenPastes . collapseStri
           | c == '\'' ->
               let (literal, remaining) = scanQuoted '\'' txt
                in PieceRaw literal : tokenizeReplacementList remaining
-          | "/**/" `T.isPrefixOf` txt ->
-              -- cpphs accepts an empty C block comment as a token-pasting hack
-              -- in macro replacement lists, commonly used in Haskell CPP code.
-              PiecePaste : tokenizeReplacementList (T.drop 4 txt)
+          | "/*" `T.isPrefixOf` txt ->
+              let (commentText, remaining) = consumeCBlockComment txt
+                  piece = if commentText == "/**/" then PiecePaste else PieceWhitespace (commentReplacement commentText)
+               in piece : tokenizeReplacementList remaining
           | "##" `T.isPrefixOf` txt ->
               PiecePaste : tokenizeReplacementList (T.drop 2 txt)
           | isIdentStart c ->
