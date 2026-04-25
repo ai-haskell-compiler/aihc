@@ -65,9 +65,10 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Resolve.Types
+import Data.Data (Data, cast, gmapQ)
 import Data.List (mapAccumL)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -126,27 +127,62 @@ data Scope = Scope
 type ModuleExports = Map.Map Text Scope
 
 resolve :: [Module] -> ResolveResult
-resolve modules =
-  ResolveResult
-    { resolvedModules = modules',
-      resolvedAnnotations = extraAnnotations,
-      resolveErrors = []
-    }
-  where
-    step currentNextLocal modu =
-      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
-       in (nextLocal', (annotations, modu'))
-    (_, resolved) = mapAccumL step 0 modules
-    modules' = map snd resolved
-    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
-    exports = collectModuleExports modules
+resolve = resolveWithDeps Map.empty
+
+collectResolveErrors :: (Data a) => a -> [ResolveError]
+collectResolveErrors node =
+  ownResolveErrors node <> concat (gmapQ collectResolveErrors node)
+
+ownResolveErrors :: (Data a) => a -> [ResolveError]
+ownResolveErrors node =
+  declResolutionErrors (cast node)
+    <> patternResolutionErrors (cast node)
+    <> typeResolutionErrors (cast node)
+    <> exprResolutionErrors (cast node)
+
+declResolutionErrors :: Maybe Decl -> [ResolveError]
+declResolutionErrors maybeDecl =
+  case maybeDecl of
+    Just (DeclResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+patternResolutionErrors :: Maybe Pattern -> [ResolveError]
+patternResolutionErrors maybePattern =
+  case maybePattern of
+    Just (PResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+typeResolutionErrors :: Maybe Type -> [ResolveError]
+typeResolutionErrors maybeType =
+  case maybeType of
+    Just (TResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+exprResolutionErrors :: Maybe Expr -> [ResolveError]
+exprResolutionErrors maybeExpr =
+  case maybeExpr of
+    Just (EResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+annotationResolveError :: ResolutionAnnotation -> Maybe ResolveError
+annotationResolveError resolution =
+  case resolutionTarget resolution of
+    ResolvedError msg ->
+      Just
+        ResolveResolutionError
+          { resolveErrorSpan = resolutionSpan resolution,
+            resolveErrorName = resolutionName resolution,
+            resolveErrorNamespace = resolutionNamespace resolution,
+            resolveErrorMessage = msg
+          }
+    _ -> Nothing
 
 resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
 resolveWithDeps depExports modules =
   ResolveResult
     { resolvedModules = modules',
       resolvedAnnotations = extraAnnotations,
-      resolveErrors = []
+      resolveErrors = collectResolveErrors modules' <> concatMap (mapMaybe annotationResolveError . snd) extraAnnotations
     }
   where
     step currentNextLocal modu =

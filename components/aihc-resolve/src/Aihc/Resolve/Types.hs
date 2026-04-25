@@ -58,8 +58,14 @@ data ResolutionAnnotation = ResolutionAnnotation
   }
   deriving (Eq, Show)
 
-newtype ResolveError
-  = ResolveNotImplemented String
+data ResolveError
+  = ResolveResolutionError
+      { resolveErrorSpan :: !SourceSpan,
+        resolveErrorName :: !Text,
+        resolveErrorNamespace :: !ResolutionNamespace,
+        resolveErrorMessage :: !String
+      }
+  | ResolveNotImplemented String
   deriving (Eq, Show)
 
 data ResolveResult = ResolveResult

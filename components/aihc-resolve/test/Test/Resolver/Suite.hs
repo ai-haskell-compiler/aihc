@@ -5,10 +5,22 @@ module Test.Resolver.Suite
   )
 where
 
+import Aihc.Parser
+  ( ParserConfig (..),
+    defaultConfig,
+    parseModule,
+  )
+import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Resolve
+  ( ResolutionNamespace (..),
+    ResolveError (..),
+    ResolveResult (..),
+    resolve,
+  )
 import Control.Monad (when)
 import qualified ResolverGolden as RG
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
+import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase, testCaseInfo)
 
 resolverGoldenTests :: IO TestTree
 resolverGoldenTests = do
@@ -18,7 +30,7 @@ resolverGoldenTests = do
   pure
     ( testGroup
         "resolver-golden"
-        (checks <> [summary])
+        (checks <> [summary, resolveErrorsTests])
     )
 
 mkResolverCaseTest :: RG.ResolverCase -> IO TestTree
@@ -104,3 +116,30 @@ pct :: Int -> Int -> Double
 pct done totalN
   | totalN <= 0 = 0.0
   | otherwise = fromIntegral (done * 10000 `div` totalN) / 100.0
+
+resolveErrorsTests :: TestTree
+resolveErrorsTests =
+  testGroup
+    "resolve-errors"
+    [ testCase "collects unresolved names into ResolveResult" $ do
+        let source = "module Main where\nx = unknownVar\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError span' name namespace msg] -> do
+            assertEqual "error name" "unknownVar" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unbound" msg
+            case span' of
+              SourceSpan _ 2 5 2 15 _ _ -> pure ()
+              _ ->
+                assertFailure
+                  ("unexpected error source span: " <> show span')
+          actual ->
+            assertEqual
+              "unresolved names should remain annotated and also populate resolveErrors"
+              1
+              (length actual)
+    ]
