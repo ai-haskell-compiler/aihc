@@ -98,7 +98,10 @@
       name: drv:
         if builtins.elem name localPackageNames || !(isOverridableHaskellDrv pkgs drv)
         then drv
-        else hsLib.dontCheck drv
+        else
+          hsLib.dontCheck
+          (hsLib.dontHaddock
+            (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)))
     )
     prev;
 in rec {
