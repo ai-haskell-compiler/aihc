@@ -39,3 +39,6 @@ rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	pass
 macro-multiline-args	macro	macro-multiline-args.hs	pass
 stringify-paste-pair	macro	stringify-paste-pair.hs	pass
 macro-comment-replacement	macro	macro-comment-replacement.hs	pass
+thyme-lens-comment-paste	macro	thyme-lens-comment-paste.hs	pass
+macro-c-block-comment-literal	macro	macro-c-block-comment-literal.hs	pass
+function-macro-c-block-comment	macro	function-macro-c-block-comment.hs	pass
