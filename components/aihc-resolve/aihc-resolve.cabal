@@ -64,6 +64,27 @@ executable resolve-extension-progress
   ghc-options:        -Wall
   default-language: GHC2021
 
+executable resolve-stackage-progress
+  hs-source-dirs:
+      app/resolve-stackage-progress
+  main-is:          Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-resolve
+    , aihc-parser
+    , aihc-hackage
+    , text
+    , containers
+    , bytestring
+    , directory
+    , filepath
+    , async
+    , Cabal-syntax >= 3.14 && < 3.17
+    , deepseq
+    , aihc-cpp
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+  default-language: GHC2021
+
 test-suite spec
   type:             exitcode-stdio-1.0
   hs-source-dirs:

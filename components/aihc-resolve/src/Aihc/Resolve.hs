@@ -9,6 +9,11 @@ module Aihc.Resolve
     pattern PResolution,
     pattern TResolution,
     resolve,
+    resolveWithDeps,
+    extractInterface,
+    Scope (..),
+    ModuleExports,
+    collectModuleExports,
     ResolveError (..),
     ResolveResult (..),
     ResolutionNamespace (..),
@@ -122,20 +127,7 @@ data Scope = Scope
 type ModuleExports = Map.Map Text Scope
 
 resolve :: [Module] -> ResolveResult
-resolve modules =
-  ResolveResult
-    { resolvedModules = modules',
-      resolvedAnnotations = extraAnnotations,
-      resolveErrors = collectResolveErrors modules' <> concatMap (mapMaybe annotationResolveError . snd) extraAnnotations
-    }
-  where
-    step currentNextLocal modu =
-      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
-       in (nextLocal', (annotations, modu'))
-    (_, resolved) = mapAccumL step 0 modules
-    modules' = map snd resolved
-    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
-    exports = collectModuleExports modules
+resolve = resolveWithDeps Map.empty
 
 collectResolveErrors :: (Data a) => a -> [ResolveError]
 collectResolveErrors node =
@@ -184,6 +176,26 @@ annotationResolveError resolution =
             resolveErrorMessage = msg
           }
     _ -> Nothing
+
+resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
+resolveWithDeps depExports modules =
+  ResolveResult
+    { resolvedModules = modules',
+      resolvedAnnotations = extraAnnotations,
+      resolveErrors = collectResolveErrors modules' <> concatMap (mapMaybe annotationResolveError . snd) extraAnnotations
+    }
+  where
+    step currentNextLocal modu =
+      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
+       in (nextLocal', (annotations, modu'))
+    (_, resolved) = mapAccumL step 0 modules
+    modules' = map snd resolved
+    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
+    ownExports = collectModuleExports modules
+    exports = ownExports `Map.union` depExports
+
+extractInterface :: ResolveResult -> ModuleExports
+extractInterface = collectModuleExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
