@@ -15,12 +15,14 @@ module Aihc.Parser.Internal.Common
     identifierUnqualifiedNameParser,
     identifierTextParser,
     lowerIdentifierParser,
+    tyVarNameParser,
     implicitParamNameParser,
     constructorNameParser,
     constructorUnqualifiedNameParser,
     constructorOperatorUnqualifiedNameParser,
     constructorIdentifierParser,
     binderNameParser,
+    recordFieldNameParser,
     operatorNameParser,
     operatorUnqualifiedNameParser,
     operatorTextParser,
@@ -29,6 +31,7 @@ module Aihc.Parser.Internal.Common
     stringTextParser,
     withSpan,
     withSpanAnn,
+    optionalSuffix,
     sourceSpanFromPositions,
     parens,
     braces,
@@ -47,6 +50,9 @@ module Aihc.Parser.Internal.Common
     functionBindDecl,
     isExtensionEnabled,
     thAnyEnabled,
+    asPatternParser,
+    tupleDelimsParser,
+    recordFieldsWithWildcardsParser,
     closeImplicitLayout,
     layoutSepEndBy,
     layoutSepBy1,
@@ -289,6 +295,11 @@ lowerIdentifierParser =
       TkQVarId modName ident -> Just (modName <> "." <> ident)
       _ -> Nothing
 
+tyVarNameParser :: TokParser Text
+tyVarNameParser =
+  lowerIdentifierParser
+    <|> (expectedTok TkKeywordUnderscore $> "_")
+
 implicitParamNameParser :: TokParser Text
 implicitParamNameParser =
   tokenSatisfy "implicit parameter" $ \tok ->
@@ -326,6 +337,11 @@ binderNameParser :: TokParser UnqualifiedName
 binderNameParser =
   identifierUnqualifiedNameParser
     <|> parens operatorUnqualifiedNameParser
+
+recordFieldNameParser :: TokParser Name
+recordFieldNameParser =
+  identifierNameParser
+    <|> parens operatorNameParser
 
 operatorTextParser :: TokParser Text
 operatorTextParser = renderName <$> operatorNameParser
@@ -444,6 +460,15 @@ withSpan parser = do
   let endSpan = maybe noSourceSpan lexTokenSpan lastToken
       parserSpan = mergeSourceSpans startSpan endSpan
   pure (out parserSpan)
+
+optionalSuffix :: TokParser b -> (a -> b -> a) -> TokParser a -> TokParser a
+optionalSuffix suffixParser attach parser = do
+  base <- parser
+  mSuffix <- MP.optional suffixParser
+  pure $
+    case mSuffix of
+      Just suffix -> attach base suffix
+      Nothing -> base
 
 sourceSpanFromPositions :: SourcePos -> SourcePos -> SourceSpan
 sourceSpanFromPositions start end =
@@ -769,6 +794,31 @@ thAnyEnabled = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   pure (thEnabled || thFullEnabled)
+
+asPatternParser :: TokParser Pattern -> TokParser Pattern
+asPatternParser bodyParser = withSpanAnn (PAnn . mkAnnotation) $ do
+  name <- identifierTextParser
+  expectedTok TkReservedAt
+  PAs name <$> bodyParser
+
+tupleDelimsParser :: TokParser (TupleFlavor, LexTokenKind)
+tupleDelimsParser =
+  (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
+    <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+
+recordFieldsWithWildcardsParser :: TokParser [a] -> TokParser ([a], Bool)
+recordFieldsWithWildcardsParser fieldsParser = do
+  rwcEnabled <- isExtensionEnabled RecordWildCards
+  fields <- fieldsParser
+  if rwcEnabled
+    then do
+      mDotDot <- MP.optional (expectedTok TkReservedDotDot)
+      case mDotDot of
+        Nothing -> pure (fields, False)
+        Just _ -> do
+          _ <- MP.optional (expectedTok TkSpecialComma)
+          pure (fields, True)
+    else pure (fields, False)
 
 -- | Signal to the layout engine that a virtual close brace should be inserted.
 -- This implements the parse-error rule: when the parser encounters a token that

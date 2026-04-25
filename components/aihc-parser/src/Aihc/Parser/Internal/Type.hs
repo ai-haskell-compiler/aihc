@@ -43,13 +43,11 @@ typeParser :: TokParser Type
 typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
 
 kindSigTypeParser :: TokParser Type
-kindSigTypeParser = do
-  ty <- contextOrFunTypeParser
-  mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-  pure $
-    case mKind of
-      Just kind -> TKindSig ty kind
-      Nothing -> ty
+kindSigTypeParser =
+  optionalSuffix
+    (expectedTok TkReservedDoubleColon *> typeParser)
+    TKindSig
+    contextOrFunTypeParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
@@ -77,28 +75,23 @@ forallBinderParser =
     -- Inferred binder: {k} | {k :: Type}
     ( do
         expectedTok TkSpecialLBrace
-        ident <- forallBinderNameParser
+        ident <- tyVarNameParser
         mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
         expectedTok TkSpecialRBrace
         pure (\span' -> TyVarBinder [mkAnnotation span'] ident mKind TyVarBInferred TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
-              ident <- forallBinderNameParser
+              ident <- tyVarNameParser
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
               pure (\span' -> TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBVisible)
           )
       <|> ( do
-              ident <- forallBinderNameParser
+              ident <- tyVarNameParser
               pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
           )
-
-forallBinderNameParser :: TokParser Text
-forallBinderNameParser =
-  lowerIdentifierParser
-    <|> (expectedTok TkKeywordUnderscore $> "_")
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do
@@ -110,13 +103,11 @@ contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
-typeFunParser = do
-  lhs <- typeInfixParser
-  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParser)
-  pure $
-    case mRhs of
-      Just rhs -> TFun lhs rhs
-      Nothing -> lhs
+typeFunParser =
+  optionalSuffix
+    (expectedTok TkReservedRightArrow *> typeParser)
+    TFun
+    typeInfixParser
 
 typeInfixParser :: TokParser Type
 typeInfixParser = do
@@ -355,9 +346,7 @@ typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
-  (tupleFlavor, closeTok) <-
-    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
-      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  (tupleFlavor, closeTok) <- tupleDelimsParser
   mClosed <- MP.optional (expectedTok closeTok)
   case mClosed of
     Just () -> pure (TTuple tupleFlavor Unpromoted [])
