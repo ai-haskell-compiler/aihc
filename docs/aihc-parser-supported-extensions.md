@@ -3,17 +3,17 @@
 ## Summary
 
 - Total Extensions: 80
-- Supported: 77
-- In Progress: 3
+- Supported: 79
+- In Progress: 1
 
 ## Extension Status
 
 | Extension                 | Status | Tests Passing |
 |---------------------------|:------:|---------------|
-| Arrows                    |   🟡    | 18/19         |
+| Arrows                    |   🟢    | 20/20         |
 | BangPatterns              |   🟢    | 12/12         |
 | BinaryLiterals            |   🟢    | 3/3           |
-| BlockArguments            |   🟢    | 6/6           |
+| BlockArguments            |   🟢    | 7/7           |
 | CApiFFI                   |   🟢    | 2/2           |
 | ConstraintKinds           |   🟢    | 7/7           |
 | CPP                       |   🟢    | 7/7           |
@@ -23,7 +23,7 @@
 | DerivingVia               |   🟢    | 6/6           |
 | DoAndIfThenElse           |   🟢    | 15/15         |
 | EmptyCase                 |   🟢    | 4/4           |
-| EmptyDataDecls            |   🟢    | 7/7           |
+| EmptyDataDecls            |   🟢    | 8/8           |
 | EmptyDataDeriving         |   🟢    | 3/3           |
 | ExistentialQuantification |   🟢    | 7/7           |
 | ExplicitForAll            |   🟢    | 23/23         |
@@ -36,15 +36,15 @@
 | FunctionalDependencies    |   🟢    | 7/7           |
 | GADTs                     |   🟢    | 10/10         |
 | GADTSyntax                |   🟢    | 10/10         |
-| GHC2021                   |   🟡    | 31/32         |
+| GHC2021                   |   🟢    | 32/32         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
 | Haskell2010               |   🟢    | 13/13         |
 | HexFloatLiterals          |   🟢    | 3/3           |
-| ImplicitParams            |   🟢    | 10/10         |
+| ImplicitParams            |   🟢    | 11/11         |
 | ImportQualifiedPost       |   🟢    | 4/4           |
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
-| KindSignatures            |   🟢    | 23/23         |
+| KindSignatures            |   🟢    | 24/24         |
 | LambdaCase                |   🟢    | 14/14         |
 | MagicHash                 |   🟢    | 17/17         |
 | MultilineStrings          |   🟢    | 6/6           |
@@ -59,7 +59,7 @@
 | PackageImports            |   🟢    | 6/6           |
 | ParallelListComp          |   🟢    | 2/2           |
 | PartialTypeSignatures     |   🟢    | 11/11         |
-| PatternGuards             |   🔴    | 7/8           |
+| PatternGuards             |   🟢    | 8/8           |
 | PatternSynonyms           |   🟢    | 32/32         |
 | PolyKinds                 |   🟢    | 12/12         |
 | QualifiedDo               |   🟢    | 4/4           |
@@ -71,7 +71,7 @@
 | RequiredTypeArguments     |   🟢    | 2/2           |
 | RoleAnnotations           |   🟢    | 7/7           |
 | Safe                      |   🟢    | 2/2           |
-| ScopedTypeVariables       |   🟢    | 17/17         |
+| ScopedTypeVariables       |   🟢    | 18/18         |
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 10/10         |
 | StarIsType                |   🟢    | 1/1           |
@@ -84,7 +84,7 @@
 | TypeData                  |   🟢    | 1/1           |
 | TypeFamilies              |   🟢    | 54/54         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
-| TypeOperators             |   🟢    | 56/56         |
+| TypeOperators             |   🟡    | 56/57         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 7/7           |
 | UnboxedTuples             |   🟢    | 16/16         |
