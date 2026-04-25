@@ -16,7 +16,6 @@ import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
-import Data.Functor (($>))
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -24,12 +23,12 @@ patternParser :: TokParser Pattern
 patternParser = patternParserWithTypeSigParser typeParser
 
 patternParserWithTypeSigParser :: TokParser Type -> TokParser Pattern
-patternParserWithTypeSigParser typeSigParser = label "pattern" $ do
-  pat <- infixPatternParser
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
-  case mTypeSig of
-    Just ty -> pure (PTypeSig pat ty)
-    Nothing -> pure pat
+patternParserWithTypeSigParser typeSigParser =
+  label "pattern" $
+    optionalSuffix
+      (expectedTok TkReservedDoubleColon *> typeSigParser)
+      PTypeSig
+      infixPatternParser
 
 infixPatternParser :: TokParser Pattern
 infixPatternParser = do
@@ -44,10 +43,7 @@ asOrAppPatternParser :: TokParser Pattern
 asOrAppPatternParser = do
   isAsPattern <- startsWithAsPattern
   if isAsPattern
-    then withSpanAnn (PAnn . mkAnnotation) $ do
-      name <- identifierTextParser
-      expectedTok TkReservedAt
-      PAs name <$> patternAtomParser
+    then asPatternParser patternAtomParser
     else appPatternParser
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
@@ -143,10 +139,7 @@ patternAtomParser = do
     -- This allows as-patterns within constructor application patterns
     -- (e.g., Con x@(Con' y z)).
     atomAsPatternParser :: TokParser Pattern
-    atomAsPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-      name <- identifierTextParser
-      expectedTok TkReservedAt
-      PAs name <$> patternAtomParser
+    atomAsPatternParser = asPatternParser patternAtomParser
 
 typeBinderPatternParser :: TokParser Pattern
 typeBinderPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -246,22 +239,19 @@ simplePatternParser = do
   let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
   isAsPat <- startsWithAsPattern
   if isAsPat
-    then withSpanAnn (PAnn . mkAnnotation) $ do
-      name <- identifierTextParser
-      expectedTok TkReservedAt
-      PAs name <$> patternAtomParser
+    then asPatternParser patternAtomParser
     else typeBinderParser <|> patternAtomParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =
   withSpan $
     ( do
-        ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+        ident <- tyVarNameParser
         pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBInvisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
-              ident <- lowerIdentifierParser <|> (expectedTok TkKeywordUnderscore $> "_")
+              ident <- tyVarNameParser
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
@@ -285,7 +275,7 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 
 recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
-  field <- identifierNameParser <|> parens operatorNameParser
+  field <- recordFieldNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
@@ -297,18 +287,8 @@ recordFieldPatternParser = do
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
 recordPatternFieldListParser :: TokParser ([RecordField Pattern], Bool)
-recordPatternFieldListParser = do
-  rwcEnabled <- isExtensionEnabled RecordWildCards
-  fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
-  if rwcEnabled
-    then do
-      mDotDot <- MP.optional (expectedTok TkReservedDotDot)
-      case mDotDot of
-        Nothing -> pure (fields, False)
-        Just _ -> do
-          _ <- MP.optional (expectedTok TkSpecialComma)
-          pure (fields, True)
-    else pure (fields, False)
+recordPatternFieldListParser =
+  recordFieldsWithWildcardsParser (recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -340,9 +320,7 @@ subpatternWithBareViewParser = do
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  (tupleFlavor, closeTok) <-
-    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
-      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  (tupleFlavor, closeTok) <- tupleDelimsParser
   mNextTok <- MP.optional (lookAhead anySingle)
   case fmap lexTokenKind mNextTok of
     Just nextKind

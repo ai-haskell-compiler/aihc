@@ -37,7 +37,6 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (guard)
-import Data.Functor (($>))
 import Data.Text (Text)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
@@ -97,13 +96,11 @@ exprCoreParserWithoutTypeSigBody forbiddenInfix = do
     Nothing -> withInfix
 
 exprCoreParserWithTypeSigParserExcept :: TokParser Type -> [Text] -> TokParser Expr
-exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix = do
-  withArrow <- exprCoreParserWithoutTypeSigExcept forbiddenInfix
-  -- Optional type signature: expr :: type
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
-  pure $ case mTypeSig of
-    Just ty -> ETypeSig withArrow ty
-    Nothing -> withArrow
+exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix =
+  optionalSuffix
+    (expectedTok TkReservedDoubleColon *> typeSigParser)
+    ETypeSig
+    (exprCoreParserWithoutTypeSigExcept forbiddenInfix)
 
 -- | The operator name used to represent @->@ in view-pattern expressions.
 viewPatArrowName :: Name
@@ -222,24 +219,24 @@ exprParserNoArrowTail =
   label "expression" exprCoreParserNoArrowTail
 
 exprCoreParserNoArrowTail :: TokParser Expr
-exprCoreParserNoArrowTail = do
-  tok <- lookAhead anySingle
-  base <- case lexTokenKind tok of
-    TkKeywordDo -> doExprParser
-    TkKeywordMdo -> mdoExprParser
-    TkQualifiedDo {} -> qualifiedDoExprParser
-    TkQualifiedMdo {} -> qualifiedMdoExprParser
-    TkKeywordIf -> ifExprParser
-    TkKeywordLet -> letExprParser
-    TkKeywordProc -> procExprParser
-    TkReservedBackslash -> lambdaExprParser
-    _ -> infixExprParserExcept []
-  -- No arrow tail check here — leave -< / -<< for the command parser.
-  -- Optional type signature: expr :: type
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-  pure $ case mTypeSig of
-    Just ty -> ETypeSig base ty
-    Nothing -> base
+exprCoreParserNoArrowTail =
+  optionalSuffix
+    (expectedTok TkReservedDoubleColon *> typeParser)
+    ETypeSig
+    baseParser
+  where
+    baseParser = do
+      tok <- lookAhead anySingle
+      case lexTokenKind tok of
+        TkKeywordDo -> doExprParser
+        TkKeywordMdo -> mdoExprParser
+        TkQualifiedDo {} -> qualifiedDoExprParser
+        TkQualifiedMdo {} -> qualifiedMdoExprParser
+        TkKeywordIf -> ifExprParser
+        TkKeywordLet -> letExprParser
+        TkKeywordProc -> procExprParser
+        TkReservedBackslash -> lambdaExprParser
+        _ -> infixExprParserExcept []
 
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
@@ -444,24 +441,12 @@ atomOrRecordExprParser = do
 -- | Parse record braces: { field = value, field2 = value2, ... }
 recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)
 recordBracesParser =
-  braces recordFieldListParser
-  where
-    recordFieldListParser = do
-      rwcEnabled <- isExtensionEnabled RecordWildCards
-      fields <- layoutSepEndBy recordFieldBindingParser (expectedTok TkSpecialComma)
-      if rwcEnabled
-        then do
-          mDotDot <- MP.optional (expectedTok TkReservedDotDot)
-          case mDotDot of
-            Nothing -> pure (fields, False)
-            Just _ -> do
-              _ <- MP.optional (expectedTok TkSpecialComma)
-              pure (fields, True)
-        else pure (fields, False)
+  braces $
+    recordFieldsWithWildcardsParser (layoutSepEndBy recordFieldBindingParser (expectedTok TkSpecialComma))
 
 recordFieldBindingParser :: TokParser (Name, Maybe Expr, SourceSpan)
 recordFieldBindingParser = withSpan $ do
-  fieldName <- identifierNameParser <|> parens operatorNameParser
+  fieldName <- recordFieldNameParser
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
 
@@ -707,9 +692,7 @@ caseExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
 parenExprParser :: TokParser Expr
 parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  (tupleFlavor, closeTok) <-
-    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
-      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  (tupleFlavor, closeTok) <- tupleDelimsParser
   mClosed <- MP.optional (expectedTok closeTok)
   case mClosed of
     Just () -> pure (ETuple tupleFlavor [])
