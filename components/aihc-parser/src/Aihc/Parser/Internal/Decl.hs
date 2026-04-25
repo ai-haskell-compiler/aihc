@@ -1522,9 +1522,11 @@ valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- | Parse a pattern synonym declaration or signature.
 -- Dispatches between @pattern Name :: Type@ (signature) and
 -- @pattern Name args = pat@ / @pattern Name args <- pat [where ...]@ (declaration).
+-- Uses a forward scan for @name(s) ::@ to avoid backtracking over a large parse.
 patternSynonymParser :: TokParser Decl
-patternSynonymParser =
-  MP.try patternSynonymSigDeclParser <|> patternSynonymDeclParser
+patternSynonymParser = do
+  isSig <- MP.lookAhead (expectedTok TkKeywordPattern *> startsWithTypeSig)
+  if isSig then patternSynonymSigDeclParser else patternSynonymDeclParser
 
 -- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
 patternSynonymSigDeclParser :: TokParser Decl

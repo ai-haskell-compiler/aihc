@@ -238,6 +238,12 @@ exprCoreParserNoArrowTail =
         TkReservedBackslash -> lambdaExprParser
         _ -> infixExprParserExcept []
 
+startsWithPatternBind :: TokParser Bool
+startsWithPatternBind =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- patternParser
+    expectedTok TkReservedLeftArrow
+
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
   tok <- lookAhead anySingle
@@ -249,12 +255,6 @@ doStmtParser = do
       if isPatternBind
         then doPatBindStmtParser
         else doBindOrExprStmtParser
-
-startsWithPatternBind :: TokParser Bool
-startsWithPatternBind =
-  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- patternParser
-    expectedTok TkReservedLeftArrow
 
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do

@@ -81,16 +81,11 @@ conOperatorParser =
 -- @Con (-0)@ — the @-@ is not valid inside an @apat@.
 appPatternParser :: TokParser Pattern
 appPatternParser =
-  negativeLiteralPatternParser
-    <|> conAppOrAtomParser
-  where
-    conAppOrAtomParser = do
-      first <- patternAtomParser
-      if isPatternAppHead first
-        then do
-          rest <- MP.many patternAtomParser
-          pure (foldl buildPatternApp first rest)
-        else pure first
+  negativeLiteralPatternParser <|> do
+    first <- patternAtomParser
+    if isPatternAppHead first
+      then foldl buildPatternApp first <$> MP.many patternAtomParser
+      else pure first
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
