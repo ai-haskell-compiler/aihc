@@ -177,19 +177,11 @@ roleParser =
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: shared helpers
 
-forallPrefixDispatch :: TokParser [a] -> TokParser [a]
-forallPrefixDispatch forallParser = forallParser <|> pure []
-
--- | Parse an optional declaration context.
---
--- Uses 'MP.try' so declarations like @data T :: C => ()@ can backtrack from a
--- failed context parse and treat @::@ as the inline kind signature instead.
-contextPrefixDispatch :: TokParser (Maybe [Type])
-contextPrefixDispatch = MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-
--- | Like 'contextPrefixDispatch' but returns @[]@ instead of @Nothing@.
+-- | Parse an optional declaration context, returning @[]@ on absence.
+-- Uses 'MP.try' so inputs like @data T :: C => ()@ can backtrack from a
+-- failed context parse and treat @::@ as an inline kind signature instead.
 contextPrefixDispatchList :: TokParser [Type]
-contextPrefixDispatchList = fromMaybe [] <$> contextPrefixDispatch
+contextPrefixDispatchList = MP.option [] (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
 
 -- | Parse a declaration head with an optional leading context, but prefer an
 -- inline @::@ result kind when the head is immediately followed by @::@.
@@ -313,7 +305,7 @@ closedTypeFamilyWhereParser = whereClauseItemsParser typeFamilyEqParser
 -- | Parse one closed type family equation: @[forall binders.] LhsType = RhsType@
 typeFamilyEqParser :: TokParser TypeFamilyEq
 typeFamilyEqParser = withSpan $ do
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -351,7 +343,7 @@ typeFamilyInstParser :: TokParser Decl
 typeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   expectedTok TkKeywordInstance
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -369,7 +361,7 @@ dataFamilyInstParser :: TokParser Decl
 dataFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
   expectedTok TkKeywordInstance
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   (constructors, derivingClauses) <- gadtDataDeclParser <|> traditionalDataDeclParser
@@ -389,7 +381,7 @@ newtypeFamilyInstParser :: TokParser Decl
 newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
   expectedTok TkKeywordInstance
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (_, head') <- typeFamilyLhsParser
   kind <- familyResultKindParser
   expectedTok TkReservedEquals
@@ -443,7 +435,7 @@ classDefaultTypeInstParser' :: Bool -> TokParser ClassDeclItem
 classDefaultTypeInstParser' requireInstance = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   when requireInstance (expectedTok TkKeywordInstance)
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -467,7 +459,7 @@ instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   _ <- MP.optional (expectedTok TkKeywordInstance)
-  forallBinders <- forallPrefixDispatch explicitForallParser
+  forallBinders <- MP.option [] explicitForallParser
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -983,11 +975,23 @@ gadtTypeDataBodyParser = do
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
   (forallVars, context) <- dataConQualifiersParser
-  MP.try (dataConInfixParser forallVars context)
-    <|> MP.try (boxedTupleConDeclParser forallVars context)
-    <|> MP.try (unboxedConDeclParser forallVars context)
-    <|> MP.try (listConDeclParser forallVars context)
-    <|> dataConRecordOrPrefixParser forallVars context
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    -- `(#` is either the LHS arg of an infix constructor (e.g. @(# #) :. Int@) or a
+    -- standalone unboxed tuple/sum constructor (e.g. @(# Int, Bool #)@).
+    -- Try infix first to match the original priority; fall back to unboxed.
+    TkSpecialUnboxedLParen ->
+      MP.try (dataConInfixParser forallVars context)
+        <|> unboxedConDeclParser forallVars context
+    -- `[ ]` is the list-con; any other `[…` must be a type in infix position.
+    TkSpecialLBracket ->
+      MP.try (listConDeclParser forallVars context)
+        <|> dataConInfixParser forallVars context
+    -- General case: skip unboxed/list (wrong leading token), try infix then boxed-tuple then prefix/record.
+    _ ->
+      MP.try (dataConInfixParser forallVars context)
+        <|> MP.try (boxedTupleConDeclParser forallVars context)
+        <|> dataConRecordOrPrefixParser forallVars context
 
 listConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 listConDeclParser forallVars context = do
@@ -1142,24 +1146,11 @@ gadtPrefixBodyParser = do
           result = last allBangs
        in pure (GadtPrefixBody args (bangType result))
 
--- | Parse a potentially strict type for GADT prefix body: @!Type@ or @Type@
--- This handles strictness annotations on both simple and complex (parenthesized) types.
--- Uses 'typeInfixParser' so that infix type operators (e.g. @key := v@) are
+-- | Parse a potentially strict type for GADT prefix body.
+-- Uses 'typeInfixParser' so infix type operators (e.g. @key := v@) are
 -- accepted as argument types without requiring parentheses.
 gadtBangTypeParser :: TokParser BangType
-gadtBangTypeParser = withSpan $ do
-  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
-  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
-  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
-  ty <- typeInfixParser
-  pure $ \span' ->
-    BangType
-      { bangAnns = [mkAnnotation span'],
-        bangSourceUnpackedness = unpackedness,
-        bangStrict = strict,
-        bangLazy = lazy,
-        bangType = ty
-      }
+gadtBangTypeParser = bangTypeParserWith typeInfixParser
 
 -- | Parse the result type of a GADT constructor
 -- This is a simple type application like @T a b@
@@ -1169,8 +1160,11 @@ gadtResultTypeParser = typeParser
 declContextParser :: TokParser [Type]
 declContextParser = contextParserWith typeParser typeAtomParser
 
-typeDeclHeadParser :: TokParser (BinderHead UnqualifiedName)
-typeDeclHeadParser =
+-- | Parse a type/class declaration head, parameterised by the infix operator parser.
+-- Handles prefix (@T a b@), infix (@a op b@), parenthesised-infix (@(a op b) c@),
+-- and parenthesised-prefix (@(T a b) c@) forms.
+declHeadParserWith :: TokParser UnqualifiedName -> TokParser (BinderHead UnqualifiedName)
+declHeadParserWith opParser =
   MP.try parenthesizedInfixDeclHeadParser
     <|> MP.try parenthesizedPrefixDeclHeadParser
     <|> MP.try infixDeclHeadParser
@@ -1183,14 +1177,14 @@ typeDeclHeadParser =
 
     infixDeclHeadParser = do
       lhs <- declTypeParamParser
-      op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
+      op <- opParser
       rhs <- declTypeParamParser
       pure (InfixBinderHead lhs op rhs [])
 
     parenthesizedInfixDeclHeadParser = do
       expectedTok TkSpecialLParen
       lhs <- declTypeParamParser
-      op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
+      op <- opParser
       rhs <- declTypeParamParser
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
@@ -1203,6 +1197,9 @@ typeDeclHeadParser =
       expectedTok TkSpecialRParen
       tailParams <- MP.many declTypeParamParser
       pure (PrefixBinderHead name (params <> tailParams))
+
+typeDeclHeadParser :: TokParser (BinderHead UnqualifiedName)
+typeDeclHeadParser = declHeadParserWith (unqualifiedNameFromText <$> typeSynonymOperatorParser)
 
 typeSynonymOperatorParser :: TokParser Text
 typeSynonymOperatorParser =
@@ -1289,39 +1286,7 @@ typeFamilyLhsParser = do
     buildInfixType left ((op, promoted), right) = TInfix left op promoted right
 
 classHeadParser :: TokParser (BinderHead UnqualifiedName)
-classHeadParser =
-  MP.try parenthesizedInfixDeclHeadParser
-    <|> MP.try parenthesizedPrefixDeclHeadParser
-    <|> MP.try infixDeclHeadParser
-    <|> prefixDeclHeadParser
-  where
-    prefixDeclHeadParser = do
-      name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
-      params <- MP.many declTypeParamParser
-      pure (PrefixBinderHead name params)
-
-    infixDeclHeadParser = do
-      lhs <- declTypeParamParser
-      op <- typeFamilyOperatorParser
-      rhs <- declTypeParamParser
-      pure (InfixBinderHead lhs (nameToUnqualified op) rhs [])
-
-    parenthesizedInfixDeclHeadParser = do
-      expectedTok TkSpecialLParen
-      lhs <- declTypeParamParser
-      op <- typeFamilyOperatorParser
-      rhs <- declTypeParamParser
-      expectedTok TkSpecialRParen
-      tailParams <- MP.many declTypeParamParser
-      pure (InfixBinderHead lhs (nameToUnqualified op) rhs tailParams)
-
-    parenthesizedPrefixDeclHeadParser = do
-      expectedTok TkSpecialLParen
-      name <- constructorUnqualifiedNameParser
-      params <- MP.some declTypeParamParser
-      expectedTok TkSpecialRParen
-      tailParams <- MP.many declTypeParamParser
-      pure (PrefixBinderHead name (params <> tailParams))
+classHeadParser = declHeadParserWith (nameToUnqualified <$> typeFamilyOperatorParser)
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
@@ -1396,9 +1361,9 @@ derivingStrategyParser =
 
 dataConQualifiersParser :: TokParser ([Text], [Type])
 dataConQualifiersParser = do
-  mForall <- forallPrefixDispatch forallBindersParser
-  mContext <- contextPrefixDispatchList
-  pure (mForall, mContext)
+  foralls <- MP.option [] forallBindersParser
+  context <- contextPrefixDispatchList
+  pure (foralls, context)
 
 data FamilyKeywordMode
   = FamilyKeywordRequired
@@ -1482,26 +1447,10 @@ recordFieldDeclParser = withSpan $ do
       }
 
 constructorArgParser :: TokParser BangType
-constructorArgParser = MP.try $ do
-  MP.notFollowedBy derivingKeywordParser
-  bangTypeParser
+constructorArgParser = MP.try $ MP.notFollowedBy derivingKeywordParser *> bangTypeParser
 
 infixConstructorArgParser :: TokParser BangType
-infixConstructorArgParser = MP.try $ do
-  MP.notFollowedBy derivingKeywordParser
-  withSpan $ do
-    unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
-    strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
-    lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
-    ty <- typeAppParser
-    pure $ \span' ->
-      BangType
-        { bangAnns = [mkAnnotation span'],
-          bangSourceUnpackedness = unpackedness,
-          bangStrict = strict,
-          bangLazy = lazy,
-          bangType = ty
-        }
+infixConstructorArgParser = MP.try $ MP.notFollowedBy derivingKeywordParser *> bangTypeParserWith typeAppParser
 
 derivingKeywordParser :: TokParser ()
 derivingKeywordParser =
@@ -1510,12 +1459,12 @@ derivingKeywordParser =
       TkKeywordDeriving -> Just ()
       _ -> Nothing
 
-bangTypeParser :: TokParser BangType
-bangTypeParser = withSpan $ do
+bangTypeParserWith :: TokParser Type -> TokParser BangType
+bangTypeParserWith typeP = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
-  ty <- typeAtomParser
+  ty <- typeP
   pure $ \span' ->
     BangType
       { bangAnns = [mkAnnotation span'],
@@ -1525,20 +1474,11 @@ bangTypeParser = withSpan $ do
         bangType = ty
       }
 
+bangTypeParser :: TokParser BangType
+bangTypeParser = bangTypeParserWith typeAtomParser
+
 recordFieldBangTypeParser :: TokParser BangType
-recordFieldBangTypeParser = withSpan $ do
-  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
-  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
-  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
-  ty <- constructorFieldTypeParser
-  pure $ \span' ->
-    BangType
-      { bangAnns = [mkAnnotation span'],
-        bangSourceUnpackedness = unpackedness,
-        bangStrict = strict,
-        bangLazy = lazy,
-        bangType = ty
-      }
+recordFieldBangTypeParser = bangTypeParserWith typeParser
 
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
@@ -1546,11 +1486,6 @@ sourceUnpackednessPragmaParser =
     PragmaUnpack UnpackPragma -> Just SourceUnpack
     PragmaUnpack NoUnpackPragma -> Just SourceNoUnpack
     _ -> Nothing
-
--- | Parse a type in a constructor field position.
--- This supports function types (Int -> Int) and type applications (Maybe Int).
-constructorFieldTypeParser :: TokParser Type
-constructorFieldTypeParser = typeParser
 
 constructorOperatorParser :: TokParser Name
 constructorOperatorParser =
