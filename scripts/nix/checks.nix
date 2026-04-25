@@ -42,12 +42,12 @@
     alejandra --check .
   '';
 
-  haskellLint = mkSourceCheck "aihc-haskell-lint" (sources.haskellSrc pkgs) [(projectHsPackages pkgs).hlint pkgs.findutils] ''
+  haskellLint = mkSourceCheck "aihc-haskell-lint" (sources.haskellSrc pkgs) [pkgs.hlint pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r hlint
   '';
 
-  haskellFormat = mkSourceCheck "aihc-haskell-format" (sources.haskellSrc pkgs) [(projectHsPackages pkgs).ormolu pkgs.findutils] ''
+  haskellFormat = mkSourceCheck "aihc-haskell-format" (sources.haskellSrc pkgs) [pkgs.ormolu pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r ormolu --mode check
   '';

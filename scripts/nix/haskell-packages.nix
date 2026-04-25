@@ -91,14 +91,17 @@
     else drv;
 
   isOverridableHaskellDrv = pkgs: drv:
-    pkgs.lib.isDerivation drv && drv ? overrideScope;
+    pkgs.lib.isDerivation drv && drv.isHaskellLibrary or false;
 
   disableUpstreamChecks = pkgs: hsLib: localPackageNames: _final: prev:
     builtins.mapAttrs (
       name: drv:
         if builtins.elem name localPackageNames || !(isOverridableHaskellDrv pkgs drv)
         then drv
-        else hsLib.dontCheck drv
+        else
+          hsLib.dontCheck
+          (hsLib.dontHaddock
+            (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)))
     )
     prev;
 in rec {
@@ -154,10 +157,15 @@ in rec {
         disableUpstreamChecks pkgs hsLib localPackageNames final prev
         // hackageDepTestFixes pkgs final prev
         // {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {})
-          );
+          ghc-lib-parser = hsLib.dontCheck (hsLib.dontHaddock (
+            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling
+              final.ghc-lib-parser_9_14_1_20251220)
+          ));
+          aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
+            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
+              final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
+            ))
+          ));
         }
         // builtins.mapAttrs (mkComponent final) componentSpecs;
     };
