@@ -259,8 +259,7 @@ parseArgs depth argsRev current remaining =
   case T.uncons remaining of
     Nothing -> Nothing
     Just (ch, rest)
-      | ch == '{',
-        Just ('-', _) <- T.uncons rest ->
+      | startsHsBlockComment remaining ->
           let (commentText, afterComment) = consumeHsBlockComment remaining
            in parseArgs depth argsRev (current <> TB.fromText commentText) afterComment
       | ch == '(' ->
