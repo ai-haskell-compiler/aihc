@@ -617,9 +617,13 @@ contextItemParserWith typeParser typeAtomParser =
       pure (foldInfixR buildInfixType first rest)
     constraintTypeAppParser = do
       first <- typeAtomParser
-      rest <- MP.many typeAtomParser
-      pure (foldl buildTypeApp first rest)
-    buildTypeApp = TApp
+      rest <- MP.many constraintTypeAppArgParser
+      pure (foldl applyConstraintAppArg first rest)
+    constraintTypeAppArgParser =
+      (Left <$> MP.try (expectedTok TkTypeApp *> typeAtomParser))
+        <|> (Right <$> typeAtomParser)
+    applyConstraintAppArg fn (Left ty) = TTypeApp fn ty
+    applyConstraintAppArg fn (Right ty) = TApp fn ty
     -- \| Parse a type expression that can appear as a kind annotation.
     -- Handles function types (e.g., Type -> Constraint) and type application,
     -- but NOT context types (C a => ...) to avoid parsing cycles.
