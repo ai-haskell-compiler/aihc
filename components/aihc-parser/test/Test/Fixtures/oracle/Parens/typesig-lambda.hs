@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail "we shouldn't wrap 'Just a' in parens" -}
+{- ORACLE_TEST pass -}
 module M where
 
 n = \(Just a :: Maybe ()) -> a

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail "we shouldn't wrap 'n2 `Inf` ns' in parens" -}
+{- ORACLE_TEST pass -}
 module M where
 
 n = \(n1 `Inf` n2 `Inf` ns) -> ()

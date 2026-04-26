@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail "we shouldn't wrap this expression in parens" -}
+{- ORACLE_TEST pass -}
 module M where
 
 n = {-# SCC "tag" #-} fn arg :: ()
