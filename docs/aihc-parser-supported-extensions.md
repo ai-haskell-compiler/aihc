@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 80
-- Supported: 79
-- In Progress: 1
+- Supported: 80
+- In Progress: 0
 
 ## Extension Status
 
@@ -16,7 +16,7 @@
 | BlockArguments            |   🟢    | 7/7           |
 | CApiFFI                   |   🟢    | 2/2           |
 | ConstraintKinds           |   🟢    | 7/7           |
-| CPP                       |   🟢    | 7/7           |
+| CPP                       |   🟢    | 8/8           |
 | DataKinds                 |   🟢    | 46/46         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
@@ -84,10 +84,10 @@
 | TypeData                  |   🟢    | 1/1           |
 | TypeFamilies              |   🟢    | 54/54         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
-| TypeOperators             |   🟡    | 56/57         |
+| TypeOperators             |   🟢    | 61/61         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 7/7           |
-| UnboxedTuples             |   🟢    | 16/16         |
+| UnboxedTuples             |   🟢    | 18/18         |
 | UnicodeSyntax             |   🟢    | 18/18         |
 | ViewPatterns              |   🟢    | 19/19         |
 
