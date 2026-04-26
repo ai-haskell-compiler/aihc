@@ -1448,19 +1448,19 @@ data NewtypeDecl = NewtypeDecl
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkAnnotation').
     DataConAnn Annotation DataConDecl
-  | PrefixCon [Text] [Type] UnqualifiedName [BangType]
-  | InfixCon [Text] [Type] BangType UnqualifiedName BangType
-  | RecordCon [Text] [Type] UnqualifiedName [FieldDecl]
+  | PrefixCon [TyVarBinder] [Type] UnqualifiedName [BangType]
+  | InfixCon [TyVarBinder] [Type] BangType UnqualifiedName BangType
+  | RecordCon [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
     GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   | -- | Tuple-style constructor: @()@, @(a,b)@, @(# #)@, @(# a,b #)@
-    TupleCon [Text] [Type] TupleFlavor [BangType]
+    TupleCon [TyVarBinder] [Type] TupleFlavor [BangType]
   | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
     -- Fields: forall vars, context, position (1-based), total arity, field type
-    UnboxedSumCon [Text] [Type] Int Int BangType
+    UnboxedSumCon [TyVarBinder] [Type] Int Int BangType
   | -- | List constructor: @[]@
-    ListCon [Text] [Type]
+    ListCon [TyVarBinder] [Type]
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Strip nested 'DataConAnn' wrappers.

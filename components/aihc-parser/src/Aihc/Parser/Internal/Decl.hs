@@ -993,13 +993,13 @@ dataConDeclParser = withSpan $ do
         <|> MP.try (boxedTupleConDeclParser forallVars context)
         <|> dataConRecordOrPrefixParser forallVars context
 
-listConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+listConDeclParser :: [TyVarBinder] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 listConDeclParser forallVars context = do
   expectedTok TkSpecialLBracket
   expectedTok TkSpecialRBracket
   pure $ \span' -> DataConAnn (mkAnnotation span') (ListCon forallVars context)
 
-boxedTupleConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+boxedTupleConDeclParser :: [TyVarBinder] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 boxedTupleConDeclParser forallVars context = do
   expectedTok TkSpecialLParen
   mClose <- MP.optional (expectedTok TkSpecialRParen)
@@ -1017,7 +1017,7 @@ boxedTupleConDeclParser forallVars context = do
       expectedTok TkSpecialRParen
       pure $ \span' -> DataConAnn (mkAnnotation span') (TupleCon forallVars context Boxed (firstField : rest))
 
-unboxedConDeclParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+unboxedConDeclParser :: [TyVarBinder] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 unboxedConDeclParser forallVars context = do
   expectedTok TkSpecialUnboxedLParen
   mClose <- MP.optional (expectedTok TkSpecialUnboxedRParen)
@@ -1359,7 +1359,7 @@ derivingStrategyParser =
     <|> (expectedTok TkKeywordNewtype >> pure DerivingNewtype)
     <|> (varIdTok "anyclass" >> pure DerivingAnyclass)
 
-dataConQualifiersParser :: TokParser ([Text], [Type])
+dataConQualifiersParser :: TokParser ([TyVarBinder], [Type])
 dataConQualifiersParser = do
   foralls <- MP.option [] forallBindersParser
   context <- contextPrefixDispatchList
@@ -1391,14 +1391,14 @@ typeFamilyDeclBodyParser familyKeywordMode = do
         typeFamilyDeclEquations = equations
       }
 
-forallBindersParser :: TokParser [Text]
+forallBindersParser :: TokParser [TyVarBinder]
 forallBindersParser = do
   expectedTok TkKeywordForall
   binders <- MP.some explicitForallBinderParser
   expectedTok (TkVarSym ".")
-  pure (map tyVarBinderName binders)
+  pure binders
 
-dataConRecordOrPrefixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+dataConRecordOrPrefixParser :: [TyVarBinder] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConRecordOrPrefixParser forallVars context = do
   name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
   mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
@@ -1418,7 +1418,7 @@ dataConRecordOrPrefixParser forallVars context = do
       recordFieldsParser
         <|> (expectedTok TkSpecialSemicolon *> recordFieldsParser)
 
-dataConInfixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
+dataConInfixParser :: [TyVarBinder] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
   lhs <- infixConstructorArgParser
   op <- constructorOperatorUnqualifiedNameParser <|> backtickConstructorUnqualifiedParser
