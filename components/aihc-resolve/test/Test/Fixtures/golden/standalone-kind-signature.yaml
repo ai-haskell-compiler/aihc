@@ -10,7 +10,7 @@ modules:
 expected:
   Main:
     - "4:1-4:2 x => (value) Main.x"
-    - "4:6-4:14 Identity => (type) Error unbound"
+    - "4:6-4:14 Identity => (type) Main.Identity"
     - "4:15-4:18 Int => (type) Error unbound"
     - "5:1-5:2 x => (value) Main.x"
 annotated:
@@ -20,7 +20,7 @@ annotated:
     type Identity a = a
     x :: Identity Int
     │    │        └─ t Error unbound
-    │    └─ t Error unbound
+    │    └─ t Main
     └─ v Main
     x = 42
     └─ v Main
