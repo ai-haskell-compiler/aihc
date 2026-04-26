@@ -278,7 +278,7 @@ prettyRole role =
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
   case valueDecl of
-    PatternBind pat rhs -> [prettyPattern pat <+> prettyRhs rhs]
+    PatternBind multTag pat rhs -> [prettyMultiplicityTag multTag <> prettyPattern pat <+> prettyRhs rhs]
     FunctionBind name matches ->
       concatMap (prettyFunctionMatchLines name) matches
 
@@ -286,9 +286,14 @@ prettyValueDeclLines valueDecl =
 prettyValueDeclSingleLine :: ValueDecl -> Doc ann
 prettyValueDeclSingleLine valueDecl =
   case valueDecl of
-    PatternBind pat rhs -> prettyPattern pat <+> prettyRhs rhs
+    PatternBind multTag pat rhs -> prettyMultiplicityTag multTag <> prettyPattern pat <+> prettyRhs rhs
     FunctionBind name matches ->
       hsep (punctuate semi (map (prettyFunctionMatch name) matches))
+
+prettyMultiplicityTag :: MultiplicityTag -> Doc ann
+prettyMultiplicityTag NoMultiplicityTag = mempty
+prettyMultiplicityTag LinearMultiplicityTag = "%1" <+> mempty
+prettyMultiplicityTag (ExplicitMultiplicityTag ty) = "%" <> prettyType ty <+> mempty
 
 -- | Pretty-print a pattern synonym declaration.
 prettyPatSynDecl :: PatSynDecl -> Doc ann
@@ -419,8 +424,8 @@ prettyType ty =
       prettyType f <+> prettyType x
     TTypeApp f x ->
       prettyType f <+> "@" <> prettyType x
-    TFun a b ->
-      prettyType a <+> "->" <+> prettyType b
+    TFun arrowKind a b ->
+      prettyType a <+> prettyArrowKind arrowKind <+> prettyType b
     TTuple tupleFlavor promoted elems ->
       let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyType elems)))
        in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
@@ -437,6 +442,11 @@ prettyType ty =
         cs -> prettyContext cs <+> "=>" <+> prettyType inner
     TSplice body -> "$" <> prettyExpr body
     TWildcard -> "_"
+
+prettyArrowKind :: ArrowKind -> Doc ann
+prettyArrowKind ArrowUnrestricted = "->"
+prettyArrowKind ArrowLinear = "%1" <+> "->"
+prettyArrowKind (ArrowExplicit ty) = "%" <> prettyType ty <+> "->"
 
 prettyContext :: [Type] -> Doc ann
 prettyContext constraints =
@@ -655,24 +665,7 @@ prettyDataCon ctor =
         )
     RecordCon forallVars constraints name fields ->
       hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorUName name])
-        <+> braces
-          ( hsep
-              ( punctuate
-                  comma
-                  [ hsep
-                      [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
-                        "::",
-                        prettyRecordFieldBangType (fieldType fld)
-                      ]
-                  | fld <- fields
-                  ]
-              )
-          )
-      where
-        prettyFieldName :: UnqualifiedName -> Doc ann
-        prettyFieldName fieldName
-          | isSymbolicUName fieldName = parens (pretty fieldName)
-          | otherwise = pretty fieldName
+        <+> braces (prettyRecordFields fields)
     GadtCon foralls constraints names body ->
       prettyGadtCon foralls constraints names body
     TupleCon forallVars constraints Boxed fields ->
@@ -711,7 +704,10 @@ prettyGadtBody body =
     GadtPrefixBody args resultTy ->
       case args of
         [] -> prettyType resultTy
-        _ -> hsep (punctuate " ->" (map prettyBangType args ++ [prettyType resultTy]))
+        _ ->
+          hsep $
+            concatMap (\(bt, ak) -> [prettyBangType bt, prettyArrowKind ak]) args
+              ++ [prettyType resultTy]
     GadtRecordBody fields resultTy ->
       braces (prettyRecordFields fields) <+> "->" <+> prettyType resultTy
 
@@ -720,11 +716,12 @@ prettyRecordFields fields =
   hsep
     ( punctuate
         comma
-        [ hsep
-            [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
-              "::",
-              prettyRecordFieldBangType (fieldType fld)
-            ]
+        [ hsep $
+            [hsep (punctuate comma (map prettyFieldName (fieldNames fld)))]
+              <> maybe [] (\mult -> ["%" <> prettyType mult]) (fieldMultiplicity fld)
+              <> [ "::",
+                   prettyRecordFieldBangType (fieldType fld)
+                 ]
         | fld <- fields
         ]
     )

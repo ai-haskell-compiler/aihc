@@ -100,7 +100,7 @@ freeTypeVars = nub . go
   where
     go (TVar name) = [unqualifiedNameText name]
     go (TApp f a) = go f ++ go a
-    go (TFun a b) = go a ++ go b
+    go (TFun _ a b) = go a ++ go b
     go (TParen inner) = go inner
     go (TAnn _ inner) = go inner
     go (TContext _preds inner) = go inner
@@ -132,7 +132,7 @@ convertSurfaceType tvMap ty = case peelTypeHead ty of
                   Just tvId -> foldl TcAppTy (TcTyVar tvId) convertedArgs
                   Nothing -> foldl TcAppTy (TcTyCon (TyCon n 0) []) convertedArgs
           _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
-  TFun a b ->
+  TFun _ a b ->
     TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
   TTuple _ _ args ->
     let tys = map (convertSurfaceType tvMap) args
@@ -358,7 +358,7 @@ bars n
 
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]
-gadtBodyArgTypes (GadtPrefixBody bangTys _) = map bangType bangTys
+gadtBodyArgTypes (GadtPrefixBody argsWithKinds _) = map (bangType . fst) argsWithKinds
 gadtBodyArgTypes _ = []
 
 -- | Type-check a declaration, returning binding results for value bindings.
@@ -373,7 +373,7 @@ tcValueDecl (FunctionBind binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   tcFunctionInfer displayName name matches
-tcValueDecl (PatternBind pat rhs) = case patternBinderName pat of
+tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- Bare variable pattern (e.g. @x = 5@, @(.>.) = (++)@): type-check as a
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.

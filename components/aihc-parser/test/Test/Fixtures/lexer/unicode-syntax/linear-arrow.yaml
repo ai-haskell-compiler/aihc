@@ -2,6 +2,6 @@ extensions:
   - UnicodeSyntax
 input: "⊸"
 tokens:
-  - 'TkVarSym "%1->"'
+  - 'TkLinearArrow'
   - 'TkEOF'
 status: pass

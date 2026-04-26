@@ -67,6 +67,7 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Resolve.Types
+import Data.Bifunctor
 import Data.Data (Data, cast, gmapQ)
 import Data.List (mapAccumL)
 import Data.Map.Strict qualified as Map
@@ -264,10 +265,10 @@ resolveDeclCore scope nextLocal lastSeen decl =
           let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
               (nextLocal', matches') = mapAccumL (resolveMatch scope ambient) nextLocal matches
            in (nextLocal', DeclValue (FunctionBind name matches'))
-        PatternBind pat rhs ->
+        PatternBind multTag pat rhs ->
           let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
               (nextLocal', rhs') = resolveRhs scope nextLocal ambient rhs
-           in (nextLocal', DeclValue (PatternBind pat rhs'))
+           in (nextLocal', DeclValue (PatternBind multTag pat rhs'))
     DeclTypeSig names ty ->
       let ty' = resolveTypeAt scope lastSeen ty
        in (nextLocal, DeclTypeSig names ty')
@@ -590,7 +591,7 @@ resolveGadtBody :: Scope -> GadtBody -> GadtBody
 resolveGadtBody scope body =
   case body of
     GadtPrefixBody bangTypes ty ->
-      GadtPrefixBody (map resolveBangType bangTypes) (resolveType scope ty)
+      GadtPrefixBody (map (Data.Bifunctor.first resolveBangType) bangTypes) (resolveType scope ty)
     GadtRecordBody fields ty ->
       GadtRecordBody (map resolveFieldDecl fields) (resolveType scope ty)
   where
@@ -624,9 +625,9 @@ resolveTypeAt scope lastSeen ty =
     TApp left right ->
       let here = lastSeen
        in TApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
-    TFun left right ->
+    TFun arrowKind left right ->
       let here = lastSeen
-       in TFun (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+       in TFun arrowKind (resolveTypeAt scope here left) (resolveTypeAt scope here right)
     TTuple flavor promoted items ->
       let here = lastSeen
        in TTuple flavor promoted (map (resolveTypeAt scope here) items)
@@ -712,7 +713,7 @@ declBinderCandidates decl =
             FunctionBind name _ ->
               let loc = effectiveResolutionSpan outerSp NoSourceSpan
                in [(spanStartNameSpan loc (renderUnqualifiedName name), name)]
-            PatternBind pat _ ->
+            PatternBind _ pat _ ->
               let loc = effectiveResolutionSpan outerSp (peelPatternSpan NoSourceSpan pat)
                in collectPatVarBinders loc pat
         DeclTypeSig [name] _ ->
@@ -760,7 +761,7 @@ declBinderCandidate decl =
             FunctionBind name _ ->
               let loc = effectiveResolutionSpan outerSp NoSourceSpan
                in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
-            PatternBind pat _ ->
+            PatternBind _ pat _ ->
               case peelPatternAnn pat of
                 PVar name ->
                   let loc =
@@ -874,7 +875,7 @@ declExportedNames decl =
     DeclValue valueDecl ->
       case valueDecl of
         FunctionBind name _ -> ([name], [])
-        PatternBind pat _ ->
+        PatternBind _ pat _ ->
           (map snd (collectPatVarBinders NoSourceSpan pat), [])
     DeclTypeSig names _ -> (names, [])
     DeclClass classDecl ->

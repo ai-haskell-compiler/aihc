@@ -16,7 +16,7 @@
 -- Example:
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Demo where x = 1"
--- Module {name = "Demo", decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+-- Module {name = "Demo", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )
@@ -243,7 +243,17 @@ docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
   case vdecl of
     FunctionBind name matches -> "FunctionBind" <+> docUnqualifiedName name <+> brackets (hsep (punctuate comma (map docMatch matches)))
-    PatternBind pat rhs -> "PatternBind" <+> docPattern pat <+> docRhs rhs
+    PatternBind multTag pat rhs -> "PatternBind" <+> docMultiplicityTag multTag <+> docPattern pat <+> docRhs rhs
+
+docMultiplicityTag :: MultiplicityTag -> Doc ann
+docMultiplicityTag NoMultiplicityTag = "NoMultiplicityTag"
+docMultiplicityTag LinearMultiplicityTag = "LinearMultiplicityTag"
+docMultiplicityTag (ExplicitMultiplicityTag ty) = "ExplicitMultiplicityTag" <+> parens (docType ty)
+
+docArrowKind :: ArrowKind -> Doc ann
+docArrowKind ArrowUnrestricted = "ArrowUnrestricted"
+docArrowKind ArrowLinear = "ArrowLinear"
+docArrowKind (ArrowExplicit ty) = "ArrowExplicit" <+> parens (docType ty)
 
 docPatSynDecl :: PatSynDecl -> Doc ann
 docPatSynDecl ps =
@@ -386,9 +396,12 @@ docGadtBody :: GadtBody -> Doc ann
 docGadtBody body =
   case body of
     GadtPrefixBody args resultTy ->
-      "GadtPrefixBody" <+> braces (hsep (punctuate comma (listField "args" docBangType args <> [field "result" (docType resultTy)])))
+      "GadtPrefixBody" <+> braces (hsep (punctuate comma (listField "args" docGadtArg args <> [field "result" (docType resultTy)])))
     GadtRecordBody fields' resultTy ->
       "GadtRecordBody" <+> braces (hsep (punctuate comma (listField "fields" docFieldDecl fields' <> [field "result" (docType resultTy)])))
+
+docGadtArg :: (BangType, ArrowKind) -> Doc ann
+docGadtArg (bt, ak) = parens (docBangType bt <+> "," <+> docArrowKind ak)
 
 docBangType :: BangType -> Doc ann
 docBangType bt =
@@ -621,7 +634,7 @@ docType ty =
         <+> docName op
         <> (if promoted == Promoted then "'" else "")
         <+> parens (docType rhs)
-    TFun a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
+    TFun arrowKind a b -> "TFun" <+> docArrowKind arrowKind <+> parens (docType a) <+> parens (docType b)
     TTuple tupleFlavor promoted elems ->
       ( case (tupleFlavor, promoted) of
           (Boxed, Promoted) -> "TTuplePromoted"
@@ -935,6 +948,8 @@ docTokenKind kind =
     TkKeywordMdo -> "TkKeywordMdo"
     TkQualifiedDo modName -> "TkQualifiedDo" <+> docText modName
     TkQualifiedMdo modName -> "TkQualifiedMdo" <+> docText modName
+    TkPrefixPercent -> "TkPrefixPercent"
+    TkLinearArrow -> "TkLinearArrow"
     TkArrowTail -> "TkArrowTail"
     TkArrowTailReverse -> "TkArrowTailReverse"
     TkDoubleArrowTail -> "TkDoubleArrowTail"

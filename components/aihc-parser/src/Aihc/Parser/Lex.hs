@@ -608,6 +608,7 @@ lexBangOrTildeOperator st =
   case lexerInput st of
     '!' :< rest -> lexPrefixSensitiveOp st '!' TkPrefixBang rest
     '~' :< rest -> lexPrefixSensitiveOp st '~' TkPrefixTilde rest
+    '%' :< rest -> lexPrefixSensitiveOp st '%' TkPrefixPercent rest
     _ -> Nothing
 
 isPrefixPosition :: LexerState -> Bool
@@ -706,7 +707,7 @@ unicodeOpTokenKind hasArrows txt firstChar
   | txt == "⦈" = if hasArrows then TkBananaClose else TkVarSym "|)"
   | txt == "⟦" = TkVarSym "[|"
   | txt == "⟧" = TkVarSym "|]"
-  | txt == "⊸" = TkVarSym "%1->"
+  | txt == "⊸" = TkLinearArrow
   | firstChar == ':' = TkConSym txt
   | otherwise = TkVarSym txt
 

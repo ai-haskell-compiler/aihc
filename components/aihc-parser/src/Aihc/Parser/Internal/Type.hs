@@ -12,6 +12,7 @@ module Aihc.Parser.Internal.Type
     typeAtomParser,
     contextItemsParser,
     thSpliceTypeParser,
+    arrowKindParser,
   )
 where
 
@@ -103,11 +104,44 @@ contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
-typeFunParser =
-  optionalSuffix
-    (expectedTok TkReservedRightArrow *> typeParser)
-    TFun
-    typeInfixParser
+typeFunParser = do
+  lhs <- typeInfixParser
+  mArrow <- MP.optional arrowKindParser
+  case mArrow of
+    Nothing -> pure lhs
+    Just arrowKind -> TFun arrowKind lhs <$> typeParser
+
+-- | Parse an arrow annotation and consume the @->@ token.
+-- Handles @->@ (unrestricted), @⊸@ (linear), @%1 ->@ (linear), and @%m ->@
+-- (explicit multiplicity).  The @%@-prefixed forms are only attempted when
+-- @LinearTypes@ is enabled.
+arrowKindParser :: TokParser ArrowKind
+arrowKindParser = do
+  linearEnabled <- isExtensionEnabled LinearTypes
+  (expectedTok TkReservedRightArrow $> ArrowUnrestricted)
+    <|> (if linearEnabled then linearArrowKindParser else MP.empty)
+
+linearArrowKindParser :: TokParser ArrowKind
+linearArrowKindParser =
+  (expectedTok TkLinearArrow $> ArrowLinear)
+    <|> MP.try multiplicityAnnotatedArrowParser
+
+-- | Parse @%<mult> ->@, consuming all three tokens.
+-- Only matches when @%@ is a prefix operator (no space between @%@ and the
+-- multiplicity expression), which is how GHC distinguishes @a %1 -> b@ (linear)
+-- from @a % 1 -> b@ (type operator applied to @a@ and @1@, then unrestricted arrow).
+multiplicityAnnotatedArrowParser :: TokParser ArrowKind
+multiplicityAnnotatedArrowParser = do
+  expectedTok TkPrefixPercent
+  mult <- typeAtomParser
+  expectedTok TkReservedRightArrow
+  pure (multiplicityToArrowKind mult)
+
+multiplicityToArrowKind :: Type -> ArrowKind
+multiplicityToArrowKind ty =
+  case peelTypeAnn ty of
+    TTypeLit (TypeLitInteger 1 _) -> ArrowLinear
+    _ -> ArrowExplicit ty
 
 typeInfixParser :: TokParser Type
 typeInfixParser = do

@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
+import Data.Bifunctor (bimap)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 
@@ -456,7 +457,7 @@ addDeclSpliceParens = addExprParens
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
-    PatternBind pat rhs -> PatternBind (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
+    PatternBind multTag pat rhs -> PatternBind multTag (addPatternBindLhsParens pat rhs) (addRhsParens rhs)
     FunctionBind name matches -> FunctionBind name (map (addMatchParens name) matches)
 
 addPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
@@ -605,7 +606,7 @@ bangTypeNeedsPrefixParens TSplice {} = True
 -- Compound types: the first rendered character comes from the head/lhs.
 bangTypeNeedsPrefixParens (TApp f _) = bangTypeNeedsPrefixParens f
 bangTypeNeedsPrefixParens (TTypeApp f _) = bangTypeNeedsPrefixParens f
-bangTypeNeedsPrefixParens (TFun a _) = bangTypeNeedsPrefixParens a
+bangTypeNeedsPrefixParens (TFun _ a _) = bangTypeNeedsPrefixParens a
 bangTypeNeedsPrefixParens (TKindSig ty _) = bangTypeNeedsPrefixParens ty
 bangTypeNeedsPrefixParens (TContext cs _) = case cs of
   [] -> False
@@ -665,7 +666,8 @@ prefixConBangTypeNeedsParens _ = False
 addRecordFieldDeclParens :: FieldDecl -> FieldDecl
 addRecordFieldDeclParens fd =
   fd
-    { fieldType = addRecordFieldBangTypeParens (fieldType fd)
+    { fieldMultiplicity = fmap addTypeParens (fieldMultiplicity fd),
+      fieldType = addRecordFieldBangTypeParens (fieldType fd)
     }
 
 addRecordFieldBangTypeParens :: BangType -> BangType
@@ -687,7 +689,7 @@ addGadtBodyParens body =
       -- per component). A result type that is itself a TFun, TForall, TContext,
       -- TImplicitParam, or TKindSig would be misinterpreted as additional
       -- constructor arguments, so we use addTypeIn CtxTypeFunArg to wrap it.
-      GadtPrefixBody (map addGadtBangTypeParens args) (addTypeIn CtxTypeFunArg resultTy)
+      GadtPrefixBody (map (Data.Bifunctor.bimap addGadtBangTypeParens addArrowKindParens) args) (addTypeIn CtxTypeFunArg resultTy)
     GadtRecordBody fields resultTy ->
       -- Record GADT result type uses typeParser so any type is fine here.
       GadtRecordBody (map addRecordFieldDeclParens fields) (addTypeParens resultTy)
@@ -1096,8 +1098,8 @@ addTypeParensShared ctx prec ty =
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
         TTypeApp f x ->
           wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAtom x))
-        TFun a b ->
-          wrapTy (prec > 0) (TFun (addTypeIn CtxTypeFunArg a) (atom 0 b))
+        TFun arrowKind a b ->
+          wrapTy (prec > 0) (TFun (addArrowKindParens arrowKind) (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->
           TTuple tupleFlavor promoted (map (atom 0) elems)
         TUnboxedSum elems -> TUnboxedSum (map (atom 0) elems)
@@ -1115,6 +1117,11 @@ addTypeParensShared ctx prec ty =
           wrapTy (prec > 0) (TContext (addContextConstraints constraints) (atom 0 inner))
         TSplice body -> TSplice (addSpliceBodyParens body)
         TWildcard {} -> ty
+
+addArrowKindParens :: ArrowKind -> ArrowKind
+addArrowKindParens ArrowUnrestricted = ArrowUnrestricted
+addArrowKindParens ArrowLinear = ArrowLinear
+addArrowKindParens (ArrowExplicit ty) = ArrowExplicit (addTypeParens ty)
 
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =

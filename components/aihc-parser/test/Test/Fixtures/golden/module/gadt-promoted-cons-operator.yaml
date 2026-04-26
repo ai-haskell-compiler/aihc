@@ -3,5 +3,5 @@ input: |
   data Union f as where
     This :: !(f a) -> Union f (a : as)
 ast: |
-  Module {decls = [DeclData (DataDecl {name = "Union", params = [TyVarBinder {name = "f"}, TyVarBinder {name = "as"}], constructors = [GadtCon {names = ["This"], body = GadtPrefixBody {args = [BangType {strict = True, type = TParen (TApp (TVar "f") (TVar "a"))}], result = TApp (TApp (TCon "Union") (TVar "f")) (TParen (TInfix (TVar "a") ":" (TVar "as")))}}]})]}
+  Module {decls = [DeclData (DataDecl {name = "Union", params = [TyVarBinder {name = "f"}, TyVarBinder {name = "as"}], constructors = [GadtCon {names = ["This"], body = GadtPrefixBody {args = [(BangType {strict = True, type = TParen (TApp (TVar "f") (TVar "a"))} , ArrowUnrestricted)], result = TApp (TApp (TCon "Union") (TVar "f")) (TParen (TInfix (TVar "a") ":" (TVar "as")))}}]})]}
 status: pass

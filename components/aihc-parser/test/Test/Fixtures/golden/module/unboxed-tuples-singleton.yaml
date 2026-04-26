@@ -4,5 +4,5 @@ input: |
   module UnboxedTuplesSingleton where
   x = (# 1 #)
   f (# y #) = y
-ast: Module {name = "UnboxedTuplesSingleton", languagePragmas = [EnableExtension UnboxedTuples], decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (ETupleUnboxed [EInt 1 TInteger])), DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PTupleUnboxed [PVar "y"]], rhs = UnguardedRhs (EVar "y")}])]}
+ast: Module {name = "UnboxedTuplesSingleton", languagePragmas = [EnableExtension UnboxedTuples], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (ETupleUnboxed [EInt 1 TInteger])), DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PTupleUnboxed [PVar "y"]], rhs = UnguardedRhs (EVar "y")}])]}
 status: pass

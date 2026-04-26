@@ -634,7 +634,7 @@ contextItemParserWith typeParser typeAtomParser =
       mRhs <- MP.optional (expectedTok TkReservedRightArrow *> kindTypeParser)
       case mRhs of
         Just rhs ->
-          pure (TFun baseType rhs)
+          pure (TFun ArrowUnrestricted baseType rhs)
         Nothing -> pure baseType
     buildInfixType lhs ((op, promoted), rhs) =
       TInfix lhs op promoted rhs
@@ -754,7 +754,7 @@ functionBindValue _headForm name [] rhs =
   -- at least one argument pattern.  Symbolic operators are wrapped in 'PParen'
   -- to preserve the @(.>.) = expr@ surface syntax; the parser consumed the
   -- parens as part of the function binder, so we must restore them.
-  PatternBind (varPat name) rhs
+  PatternBind NoMultiplicityTag (varPat name) rhs
   where
     varPat n
       | unqualifiedNameType n == NameVarSym || unqualifiedNameType n == NameConSym =

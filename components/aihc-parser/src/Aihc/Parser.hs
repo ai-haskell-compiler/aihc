@@ -119,7 +119,7 @@ parsePattern cfg input =
 -- | Parse a Haskell type.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
--- ParseOk (TFun (TCon "Int") (TCon "Bool"))
+-- ParseOk (TFun ArrowUnrestricted (TCon "Int") (TCon "Bool"))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
@@ -148,7 +148,7 @@ parseDecl cfg input =
 -- returning the error and the successfully parsed declarations.
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- Module {name = "Main", decls = [DeclValue (PatternBind PVar "main" UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello")))]}
+-- Module {name = "Main", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "main" UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello")))]}
 --
 -- Modules without a header are also supported:
 --

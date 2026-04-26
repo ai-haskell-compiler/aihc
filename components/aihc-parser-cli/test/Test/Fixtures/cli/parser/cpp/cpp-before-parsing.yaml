@@ -4,5 +4,5 @@ input: |
   #define VALUE 42
   x = VALUE
 output: |
-  Module {name = "Demo", languagePragmas = [EnableExtension CPP], decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 42 TInteger))]}
+  Module {name = "Demo", languagePragmas = [EnableExtension CPP], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 42 TInteger))]}
 status: pass

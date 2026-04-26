@@ -3,4 +3,4 @@ input: |
   module Demo {-# WARNING "test warning" #-} where
   x = 1
 status: pass
-ast: Module {name = "Demo", warningText = WarnText "test warning", decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: Module {name = "Demo", warningText = WarnText "test warning", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}

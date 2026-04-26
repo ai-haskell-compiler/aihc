@@ -299,7 +299,7 @@ genValueDeclWith allowTHQuotes =
 -- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
 -- can be guarded, matching what GHC accepts.
 genPatternBindDecl :: Bool -> Gen ValueDecl
-genPatternBindDecl allowTHQuotes = PatternBind <$> genPattern <*> genRhsWith allowTHQuotes
+genPatternBindDecl allowTHQuotes = PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith allowTHQuotes
 
 -- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
 -- Produces a single 'Match', consistent with the parser which creates one
@@ -460,7 +460,7 @@ genTypeWith allowTHQuotes = do
         oneof
           [ genTypeLeaf,
             TApp <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
-            TFun <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+            TFun ArrowUnrestricted <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
             TList Unpromoted <$> genTypeListElemsWith allowTHQuotes,
             TTuple Boxed Unpromoted <$> genTypeTupleElemsWith allowTHQuotes,
             TParen <$> genTypeWith allowTHQuotes
@@ -754,9 +754,9 @@ shrinkLetDecl :: Decl -> [Decl]
 shrinkLetDecl decl =
   case decl of
     DeclAnn _ inner -> inner : shrinkLetDecl inner
-    DeclValue (PatternBind pat rhs) ->
-      [DeclValue (PatternBind pat rhs') | rhs' <- shrinkLetRhs rhs]
-        <> [DeclValue (PatternBind pat' rhs) | pat' <- shrinkPattern pat]
+    DeclValue (PatternBind multTag pat rhs) ->
+      [DeclValue (PatternBind multTag pat rhs') | rhs' <- shrinkLetRhs rhs]
+        <> [DeclValue (PatternBind multTag pat' rhs) | pat' <- shrinkPattern pat]
     DeclValue (FunctionBind name matches) ->
       -- Shrink multiple matches to a single match
       [DeclValue (FunctionBind name [m {matchAnns = []}]) | length matches > 1, m <- matches]

@@ -10,4 +10,4 @@ input: |
   f x = x
 status: pass
 ast: |
-  Module {name = "ForallKindedInferredBinder", imports = [ImportDecl {module = "Data.Kind", spec = ImportSpec {items = [ImportItemAbs{name = "Type"}]}}], decls = [DeclTypeSig {names = ["f"], type = TForall [TyVarBinder {name = "a", specificity = TyVarBInferred, kind = TCon "Type"}] (TFun (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])]} 
+  Module {name = "ForallKindedInferredBinder", imports = [ImportDecl {module = "Data.Kind", spec = ImportSpec {items = [ImportItemAbs{name = "Type"}]}}], decls = [DeclTypeSig {names = ["f"], type = TForall [TyVarBinder {name = "a", specificity = TyVarBInferred, kind = TCon "Type"}] (TFun ArrowUnrestricted (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])]} 

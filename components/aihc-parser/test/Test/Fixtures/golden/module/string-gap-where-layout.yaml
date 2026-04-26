@@ -6,7 +6,7 @@ input: |
       header = "hello\
                \world"
       footer = "bye"
-ast: Module {name = "StringGapWhere", decls = [DeclValue (PatternBind PVar "f" UnguardedRhs (EInfix (EVar "header") "++" (EVar "footer")) where [DeclValue (PatternBind PVar "header" UnguardedRhs (EString "helloworld")), DeclValue (PatternBind PVar "footer" UnguardedRhs (EString "bye"))])]}
+ast: Module {name = "StringGapWhere", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "f" UnguardedRhs (EInfix (EVar "header") "++" (EVar "footer")) where [DeclValue (PatternBind NoMultiplicityTag PVar "header" UnguardedRhs (EString "helloworld")), DeclValue (PatternBind NoMultiplicityTag PVar "footer" UnguardedRhs (EString "bye"))])]}
 status: pass
 comment: |
   String gap inside a where block must not trigger premature layout
