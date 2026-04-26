@@ -424,14 +424,14 @@ parseFileInfo pkgRoot fi = do
       driveIO (preprocess cppCfg (TE.encodeUtf8 injected))
     driveIO (Done r) = pure (resultOutput r)
     driveIO (NeedInclude req k) = do
-      content <- resolveInclude pkgRoot path req
+      content <- resolveInclude pkgRoot (HC.fileInfoIncludeDirs fi) path req
       driveIO (k content)
 
 -- | Resolve a CPP include request by searching candidate paths under the package root.
 -- Mirrors HackageSupport.resolveIncludeBestEffort.
-resolveInclude :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
-resolveInclude pkgRoot currentFile req = do
-  let candidates = includeCandidates pkgRoot currentFile req
+resolveInclude :: FilePath -> [FilePath] -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
+resolveInclude pkgRoot includeDirs currentFile req = do
+  let candidates = includeCandidates pkgRoot includeDirs currentFile req
   findFirst candidates
   where
     findFirst [] = pure Nothing
@@ -439,8 +439,8 @@ resolveInclude pkgRoot currentFile req = do
       exists <- doesFileExist p
       if exists then Just <$> BS.readFile p else findFirst ps
 
-includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
-includeCandidates pkgRoot currentFile req =
+includeCandidates :: FilePath -> [FilePath] -> FilePath -> IncludeRequest -> [FilePath]
+includeCandidates pkgRoot includeDirs currentFile req =
   nub ([normalise (dir </> includePath req) | dir <- searchDirs])
   where
     includeDir = takeDirectory (includeFrom req)
@@ -451,11 +451,12 @@ includeCandidates pkgRoot currentFile req =
         pkgRoot </> includeDir
       ]
     systemRoots =
-      [ pkgRoot </> "include",
-        pkgRoot </> "includes",
-        pkgRoot </> "cbits",
-        pkgRoot
-      ]
+      includeDirs
+        ++ [ pkgRoot </> "include",
+             pkgRoot </> "includes",
+             pkgRoot </> "cbits",
+             pkgRoot
+           ]
     searchDirs = case includeKind req of
       IncludeLocal -> localRoots ++ systemRoots
       IncludeSystem -> systemRoots ++ localRoots

@@ -30,6 +30,7 @@ import Distribution.PackageDescription
   ( BuildInfo,
     Executable,
     FlagName,
+    includeDirs,
     Library,
     autogenModules,
     buildInfo,
@@ -72,6 +73,8 @@ data FileInfo = FileInfo
     fileInfoExtensions :: [String],
     -- | CPP options from the @cpp-options@ field.
     fileInfoCppOptions :: [String],
+    -- | Include search directories from the @include-dirs@ field.
+    fileInfoIncludeDirs :: [FilePath],
     -- | Default language from the @default-language@ field.
     fileInfoLanguage :: Maybe String,
     -- | Build dependency package names.
@@ -106,13 +109,14 @@ libraryFilesFor evalCond packageRoot tree = do
       moduleNames = exposedModules library <> otherModules build <> autogenModules build
       exts = extractExtensions build
       cppOpts = cppOptions build
+      includeSearchDirs = extractIncludeDirs packageRoot build
       lang = extractLanguage build
       deps = extractDependencies build
   if not (buildable build)
     then pure []
     else do
       paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-      pure [FileInfo path exts cppOpts lang deps | path <- paths]
+      pure [FileInfo path exts cppOpts includeSearchDirs lang deps | path <- paths]
 
 executableFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [FileInfo]
 executableFilesFor evalCond packageRoot tree = do
@@ -122,6 +126,7 @@ executableFilesFor evalCond packageRoot tree = do
       mainPath = getSymbolicPath (modulePath executable)
       exts = extractExtensions build
       cppOpts = cppOptions build
+      includeSearchDirs = extractIncludeDirs packageRoot build
       lang = extractLanguage build
       deps = extractDependencies build
   if not (buildable build)
@@ -129,7 +134,7 @@ executableFilesFor evalCond packageRoot tree = do
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
       mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-      pure [FileInfo path exts cppOpts lang deps | path <- moduleFiles <> mainFiles]
+      pure [FileInfo path exts cppOpts includeSearchDirs lang deps | path <- moduleFiles <> mainFiles]
 
 -- | Evaluate cabal conditions using the host compiler and default flag values.
 conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
@@ -184,6 +189,11 @@ extractLanguage bi =
   case defaultLanguage bi of
     Just lang -> Just (prettyShow lang)
     Nothing -> Nothing
+
+-- | Extract include search directories from a 'BuildInfo'.
+extractIncludeDirs :: FilePath -> BuildInfo -> [FilePath]
+extractIncludeDirs packageRoot bi =
+  nub [packageRoot </> getSymbolicPath dir | dir <- includeDirs bi]
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]

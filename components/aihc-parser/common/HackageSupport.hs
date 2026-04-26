@@ -55,6 +55,7 @@ data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
     fileInfoExtensions :: [Syntax.ExtensionSetting],
     fileInfoCppOptions :: [String],
+    fileInfoIncludeDirs :: [FilePath],
     fileInfoLanguage :: Maybe Syntax.LanguageEdition,
     fileInfoDependencies :: [Text]
   }
@@ -96,6 +97,7 @@ convertFileInfo raw =
     { fileInfoPath = HC.fileInfoPath raw,
       fileInfoExtensions = mapMaybe (Syntax.parseExtensionSettingName . T.pack) (HC.fileInfoExtensions raw),
       fileInfoCppOptions = HC.fileInfoCppOptions raw,
+      fileInfoIncludeDirs = HC.fileInfoIncludeDirs raw,
       fileInfoLanguage = HC.fileInfoLanguage raw >>= Syntax.parseLanguageEdition . T.pack,
       fileInfoDependencies = HC.fileInfoDependencies raw
     }
@@ -103,15 +105,15 @@ convertFileInfo raw =
 readTextFileLenient :: FilePath -> IO Text
 readTextFileLenient = HU.readTextFileLenient
 
-resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
-resolveIncludeBestEffort packageRoot currentFile req = do
-  firstExisting <- firstExistingPath (includeCandidates packageRoot currentFile req)
+resolveIncludeBestEffort :: FilePath -> [FilePath] -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
+resolveIncludeBestEffort packageRoot includeDirs currentFile req = do
+  firstExisting <- firstExistingPath (includeCandidates packageRoot includeDirs currentFile req)
   case firstExisting of
     Nothing -> pure Nothing
     Just includeFile -> Just <$> BS.readFile includeFile
 
-includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
-includeCandidates packageRoot currentFile req =
+includeCandidates :: FilePath -> [FilePath] -> FilePath -> IncludeRequest -> [FilePath]
+includeCandidates packageRoot includeDirs currentFile req =
   map normalise $ nub [dir </> includePath req | dir <- searchDirs]
   where
     includeDir = takeDirectory (includeFrom req)
@@ -123,11 +125,12 @@ includeCandidates packageRoot currentFile req =
         packageRoot </> includeDir
       ]
     systemRoots =
-      [ packageRoot </> "include",
-        packageRoot </> "includes",
-        packageRoot </> "cbits",
-        packageRoot
-      ]
+      includeDirs
+        <> [ packageRoot </> "include",
+             packageRoot </> "includes",
+             packageRoot </> "cbits",
+             packageRoot
+           ]
     searchDirs =
       case includeKind req of
         IncludeLocal -> localRoots <> map (packageRoot </>) packageAncestors <> systemRoots
