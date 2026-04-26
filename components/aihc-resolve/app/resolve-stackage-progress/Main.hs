@@ -336,9 +336,11 @@ renderSourceSnippet srcTexts ss =
             | endLine == startLine = max 1 (endCol - startCol)
             | otherwise = max 1 (length lineText - caretStart)
           carets = replicate caretLen '^'
+          -- Carets sit directly under the token: indent = line-number gutter width + caretStart.
+          caretIndent = length lineNumStr + 3 + caretStart
        in pad ++ " |\n"
             ++ lineNumStr ++ " | " ++ lineText ++ "\n"
-            ++ pad ++ " | " ++ replicate caretStart ' ' ++ carets ++ "\n"
+            ++ replicate caretIndent ' ' ++ carets ++ "\n"
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
@@ -475,7 +477,7 @@ reportResults topN results = do
   where
     printFailure (pkg, msg) = do
       putStrLn $ "  " ++ T.unpack pkg ++ ":"
-      mapM_ (\l -> putStrLn ("    " ++ l)) (take 3 (lines msg))
+      mapM_ (\l -> putStrLn ("    " ++ l)) (take 5 (lines msg))
 
 pct :: Int -> Int -> Int
 pct _ 0 = 100
