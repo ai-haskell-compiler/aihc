@@ -153,6 +153,12 @@ tokenPastingTests =
         case preprocess defaultConfig (TE.encodeUtf8 tokenPasteChainedInput) of
           Done result ->
             resultOutput result @?= "#line 1 \"<input>\"\n\nfoobar\n"
+          _ -> assertFailure "expected Done",
+      testCase "token pasting survives Haskell block comments in arguments" $
+        case preprocess defaultConfig (TE.encodeUtf8 tokenPasteHsCommentInput) of
+          Done result ->
+            resultOutput result
+              @?= "#line 1 \"<input>\"\n\n{-# INLINE _bar #-}; _bar :: LensP Foo Baz{-comment-}; _bar = lens bar $ \\ Foo {..} bar_ -> Foo {bar = bar_, ..}\n"
           _ -> assertFailure "expected Done"
     ]
 
@@ -217,4 +223,11 @@ tokenPasteChainedInput =
   T.unlines
     [ "#define CHAIN(a,b,c) a##b##c",
       "CHAIN(foo,bar,)"
+    ]
+
+tokenPasteHsCommentInput :: T.Text
+tokenPasteHsCommentInput =
+  T.unlines
+    [ "#define LENS(S,F,A) {-# INLINE _/**/F #-}; _/**/F :: LensP S A; _/**/F = lens F $ \\ S {..} F/**/_ -> S {F = F/**/_, ..}",
+      "LENS(Foo,bar,Baz{-comment-})"
     ]
