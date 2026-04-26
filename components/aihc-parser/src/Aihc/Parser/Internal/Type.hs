@@ -12,6 +12,7 @@ module Aihc.Parser.Internal.Type
     typeAtomParser,
     contextItemsParser,
     thSpliceTypeParser,
+    arrowKindParser,
   )
 where
 
@@ -103,11 +104,41 @@ contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
-typeFunParser =
-  optionalSuffix
-    (expectedTok TkReservedRightArrow *> typeParser)
-    TFun
-    typeInfixParser
+typeFunParser = do
+  lhs <- typeInfixParser
+  mArrow <- MP.optional arrowKindParser
+  case mArrow of
+    Nothing -> pure lhs
+    Just arrowKind -> TFun arrowKind lhs <$> typeParser
+
+-- | Parse an arrow annotation and consume the @->@ token.
+-- Handles @->@ (unrestricted), @⊸@ (linear), @%1 ->@ (linear), and @%m ->@
+-- (explicit multiplicity).  The @%@-prefixed forms are only attempted when
+-- @LinearTypes@ is enabled.
+arrowKindParser :: TokParser ArrowKind
+arrowKindParser = do
+  linearEnabled <- isExtensionEnabled LinearTypes
+  (expectedTok TkReservedRightArrow $> ArrowUnrestricted)
+    <|> (if linearEnabled then linearArrowKindParser else MP.empty)
+
+linearArrowKindParser :: TokParser ArrowKind
+linearArrowKindParser =
+  (expectedTok TkLinearArrow $> ArrowLinear)
+    <|> MP.try multiplicityAnnotatedArrowParser
+
+-- | Parse @%<mult> ->@, consuming all three tokens.
+multiplicityAnnotatedArrowParser :: TokParser ArrowKind
+multiplicityAnnotatedArrowParser = do
+  expectedTok (TkVarSym "%")
+  mult <- typeAtomParser
+  expectedTok TkReservedRightArrow
+  pure (multiplicityToArrowKind mult)
+
+multiplicityToArrowKind :: Type -> ArrowKind
+multiplicityToArrowKind ty =
+  case peelTypeAnn ty of
+    TTypeLit (TypeLitInteger 1 _) -> ArrowLinear
+    _ -> ArrowExplicit ty
 
 typeInfixParser :: TokParser Type
 typeInfixParser = do
@@ -133,19 +164,21 @@ buildInfixType :: Type -> ((Name, TypePromotion), Type) -> Type
 buildInfixType lhs ((op, promoted), rhs) = TInfix lhs op promoted rhs
 
 typeInfixOperatorParser :: TokParser (Name, TypePromotion)
-typeInfixOperatorParser =
+typeInfixOperatorParser = do
+  linearEnabled <- isExtensionEnabled LinearTypes
   promotedInfixOperatorParser
     <|> backtickTypeOperatorParser
-    <|> unpromotedInfixOperatorParser
+    <|> unpromotedInfixOperatorParser linearEnabled
   where
-    unpromotedInfixOperatorParser =
+    unpromotedInfixOperatorParser linearEnabled =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
           TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "'" ->
+                && op /= "'"
+                && not (linearEnabled && op == "%") ->
                 Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
           TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
           TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op, Unpromoted)

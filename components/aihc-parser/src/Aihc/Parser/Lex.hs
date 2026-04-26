@@ -706,7 +706,7 @@ unicodeOpTokenKind hasArrows txt firstChar
   | txt == "⦈" = if hasArrows then TkBananaClose else TkVarSym "|)"
   | txt == "⟦" = TkVarSym "[|"
   | txt == "⟧" = TkVarSym "|]"
-  | txt == "⊸" = TkVarSym "%1->"
+  | txt == "⊸" = TkLinearArrow
   | firstChar == ':' = TkConSym txt
   | otherwise = TkVarSym txt
 

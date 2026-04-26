@@ -102,6 +102,8 @@ data LexTokenKind
   | TkReservedRightArrow
   | TkReservedAt
   | TkReservedDoubleArrow
+  | -- LinearTypes arrow operator
+    TkLinearArrow
   | -- Arrow notation reserved operators (Arrows extension)
     TkArrowTail
   | TkArrowTailReverse

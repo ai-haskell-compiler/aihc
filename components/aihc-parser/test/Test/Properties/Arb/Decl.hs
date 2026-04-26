@@ -119,7 +119,7 @@ genFunctionValueDecl = do
 
 genPatternValueDecl :: Gen ValueDecl
 genPatternValueDecl =
-  PatternBind <$> genPattern <*> genRhsWith False
+  PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith False
 
 genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = optional $ scale (`div` 2) $ listOf genDeclValue
@@ -249,7 +249,7 @@ genRecordCon :: Gen DataConDecl
 genRecordCon = RecordCon [] [] <$> genConUnqualifiedName <*> smallList0 genFieldDecl
 
 genFieldDecl :: Gen FieldDecl
-genFieldDecl = FieldDecl [] <$> smallList1 genVarUnqualifiedName <*> genSimpleBangType
+genFieldDecl = FieldDecl [] <$> smallList1 genVarUnqualifiedName <*> pure Nothing <*> genSimpleBangType
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = smallList1 genGadtCon
@@ -267,7 +267,10 @@ genGadtBody =
     ]
 
 genGadtPrefixBody :: Gen GadtBody
-genGadtPrefixBody = GadtPrefixBody <$> smallList0 genGadtBangType <*> genType
+genGadtPrefixBody = GadtPrefixBody <$> smallList0 genGadtArg <*> genType
+
+genGadtArg :: Gen (BangType, ArrowKind)
+genGadtArg = (,) <$> genGadtBangType <*> pure ArrowUnrestricted
 
 -- | Generate a BangType for GADT prefix body arg position.
 -- Does not generate lazy/strict annotations on types that start with symbolic
@@ -306,7 +309,7 @@ genGadtRecordBody = GadtRecordBody <$> smallList1 genGadtFieldDecl <*> genType
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldNames <- smallList1 genVarUnqualifiedName
-  FieldDecl [] fieldNames . BangType [] NoSourceUnpackedness False False <$> genType
+  FieldDecl [] fieldNames Nothing . BangType [] NoSourceUnpackedness False False <$> genType
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
@@ -375,7 +378,7 @@ genNewtypeRecordCon = do
   conName <- genConUnqualifiedName
   fieldName <- genVarUnqualifiedName
   ty <- genType
-  pure (RecordCon [] [] conName [FieldDecl [] [fieldName] (BangType [] NoSourceUnpackedness False False ty)])
+  pure (RecordCon [] [] conName [FieldDecl [] [fieldName] Nothing (BangType [] NoSourceUnpackedness False False ty)])
 
 genDeclClass :: Gen Decl
 genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
@@ -1020,9 +1023,9 @@ shrinkDecl decl =
 shrinkValueDecl :: ValueDecl -> [ValueDecl]
 shrinkValueDecl vd =
   case vd of
-    PatternBind pat rhs ->
-      [PatternBind pat rhs' | rhs' <- shrinkRhs rhs]
-        <> [PatternBind pat' rhs | pat' <- shrinkPattern pat]
+    PatternBind multTag pat rhs ->
+      [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
+        <> [PatternBind multTag pat' rhs | pat' <- shrinkPattern pat]
     FunctionBind name matches ->
       -- Shrink multiple matches to a single match
       [FunctionBind name [m {matchAnns = []}] | length matches > 1, m <- matches]
@@ -1157,7 +1160,7 @@ shrinkGadtBody :: GadtBody -> [GadtBody]
 shrinkGadtBody body =
   case body of
     GadtPrefixBody args result ->
-      [GadtPrefixBody args' result | args' <- shrinkList shrinkBangType args]
+      [GadtPrefixBody args' result | args' <- shrinkList (\(bt, ak) -> map (, ak) (shrinkBangType bt)) args]
         <> [GadtPrefixBody args result' | result' <- shrinkType result]
     GadtRecordBody fields result ->
       [GadtRecordBody fields' result | fields' <- shrinkList shrinkFieldDecl fields, not (null fields')]

@@ -5,5 +5,5 @@ input: |
 
   x = $(&&)
   y = $(+)
-ast: Module {name = "TH_Operator_Splice", languagePragmas = [EnableExtension TemplateHaskell], decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (ETHSplice (EVar "&&"))), DeclValue (PatternBind PVar "y" UnguardedRhs (ETHSplice (EVar "+")))]}
+ast: Module {name = "TH_Operator_Splice", languagePragmas = [EnableExtension TemplateHaskell], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (ETHSplice (EVar "&&"))), DeclValue (PatternBind NoMultiplicityTag PVar "y" UnguardedRhs (ETHSplice (EVar "+")))]}
 status: pass

@@ -75,7 +75,7 @@ genTypeApp :: Gen Type
 genTypeApp = TApp <$> genType <*> genType
 
 genTypeFun :: Gen Type
-genTypeFun = TFun <$> genType <*> genType
+genTypeFun = TFun ArrowUnrestricted <$> genType <*> genType
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr
@@ -192,7 +192,7 @@ genKindSigKind :: Gen Type
 genKindSigKind =
   frequency
     [ (3, genSimpleTypeAtom),
-      (1, TFun <$> genSimpleTypeAtom <*> genSimpleTypeAtom)
+      (1, TFun ArrowUnrestricted <$> genSimpleTypeAtom <*> genSimpleTypeAtom)
     ]
 
 genTypeBinders :: Gen [TyVarBinder]
@@ -283,10 +283,10 @@ shrinkType ty =
       [fn, arg]
         <> [TTypeApp fn' arg | fn' <- shrinkType fn]
         <> [TTypeApp fn arg' | arg' <- shrinkType arg]
-    TFun lhs rhs ->
+    TFun arrowKind lhs rhs ->
       [lhs, rhs]
-        <> [TFun lhs' rhs | lhs' <- shrinkType lhs]
-        <> [TFun lhs rhs' | rhs' <- shrinkType rhs]
+        <> [TFun arrowKind lhs' rhs | lhs' <- shrinkType lhs]
+        <> [TFun arrowKind lhs rhs' | rhs' <- shrinkType rhs]
     TInfix lhs op promoted rhs ->
       [lhs, rhs]
         <> [TInfix lhs' op promoted rhs | lhs' <- shrinkType lhs]

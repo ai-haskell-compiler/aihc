@@ -4,4 +4,4 @@ input: |
   module Demo (data Zero) where
   x = 1
 status: pass
-ast: Module {name = "Demo", exports = [ExportAbs{namespace = "data", name = "Zero"}], decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: Module {name = "Demo", exports = [ExportAbs{namespace = "data", name = "Zero"}], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}

@@ -6,4 +6,4 @@ input: |
   import PatternSynonymsSource (Nat (data Zero, data Succ))
   x = 1
 status: pass
-ast: Module {name = "Demo", imports = [ImportDecl {module = "PatternSynonymsSource", spec = ImportSpec {items = [ImportItemWith{name = "Nat", members = [ExportMember{namespace = "data", name = "Zero"}, ExportMember{namespace = "data", name = "Succ"}]}]}}], decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: Module {name = "Demo", imports = [ImportDecl {module = "PatternSynonymsSource", spec = ImportSpec {items = [ImportItemWith{name = "Nat", members = [ExportMember{namespace = "data", name = "Zero"}, ExportMember{namespace = "data", name = "Succ"}]}]}}], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}

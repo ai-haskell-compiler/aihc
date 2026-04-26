@@ -14,7 +14,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -94,7 +94,7 @@ nonBareVarPatternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) 
   case pat of
     PVar {} -> fail "bare variable bindings are parsed as function declarations"
     _ -> do
-      DeclValue . PatternBind pat <$> equationRhsParser
+      DeclValue . PatternBind NoMultiplicityTag pat <$> equationRhsParser
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
@@ -545,7 +545,7 @@ typeSigOrPatternTypeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       [name] -> do
         rhs <- equationRhsParser
         let pat = PTypeSig (PVar name) ty
-        pure (DeclValue (PatternBind pat rhs))
+        pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
       _ -> fail "typed pattern bindings with '=' require exactly one binder"
     else pure (DeclTypeSig names ty)
 
@@ -957,20 +957,19 @@ gadtTypeDataConDeclParser = withSpan $ do
 -- Only prefix style allowed (no records), no strictness annotations
 gadtTypeDataBodyParser :: TokParser GadtBody
 gadtTypeDataBodyParser = do
-  -- Parse types separated by arrows
-  -- Each component is a type application (no strictness annotations)
+  -- Parse types separated by arrows (may be linear with LinearTypes)
   firstTy <- typeAppParser
-  moreArgs <- MP.many $ expectedTok TkReservedRightArrow *> typeAppParser
-  -- Build list of all types
-  let allTypes = firstTy : moreArgs
-  -- If there's more than one type, all but last are argument types, last is result
-  -- If there's only one type, it's just the result type with no arguments
-  case allTypes of
-    [resultTy] -> pure (GadtPrefixBody [] resultTy)
+  rest <- MP.many ((,) <$> arrowKindParser <*> typeAppParser)
+  case rest of
+    [] -> pure (GadtPrefixBody [] firstTy)
     _ ->
-      let argTypes = map (BangType [] NoSourceUnpackedness False False) (init allTypes)
-          resultTy = last allTypes
-       in pure (GadtPrefixBody argTypes resultTy)
+      let mkBang ty = BangType [] NoSourceUnpackedness False False ty
+          allTys = firstTy : map snd rest
+          arrowKinds = map fst rest
+          argTys = init allTys
+          resultTy = last allTys
+          argsWithKinds = zip (map mkBang argTys) arrowKinds
+       in pure (GadtPrefixBody argsWithKinds resultTy)
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
@@ -1128,23 +1127,22 @@ gadtRecordBodyParser = do
 -- The result type is the final type in a chain of arrows.
 gadtPrefixBodyParser :: TokParser GadtBody
 gadtPrefixBodyParser = do
-  -- Parse the first component (could be an argument with bang or the result type)
   firstBang <- gadtBangTypeParser
-  -- Try to parse more arguments after ->
-  moreArgs <- MP.many $ do
-    expectedTok TkReservedRightArrow
-    gadtBangTypeParser
-  -- The last component is the result type, everything before it are arguments
-  case moreArgs of
-    [] ->
-      -- No arrows - this is just a result type
-      pure (GadtPrefixBody [] (bangType firstBang))
+  rest <- MP.many ((,) <$> gadtArrowParser <*> gadtBangTypeParser)
+  case rest of
+    [] -> pure (GadtPrefixBody [] (bangType firstBang))
     _ ->
-      -- Multiple components - last is result, rest are args
-      let allBangs = firstBang : moreArgs
+      let allBangs = firstBang : map snd rest
+          arrowKinds = map fst rest
           args = init allBangs
           result = last allBangs
-       in pure (GadtPrefixBody args (bangType result))
+          argsWithKinds = zip args arrowKinds
+       in pure (GadtPrefixBody argsWithKinds (bangType result))
+
+-- | Parse the arrow between GADT constructor arguments.
+-- Supports unrestricted @->@ and multiplicity-annotated arrows when LinearTypes is enabled.
+gadtArrowParser :: TokParser ArrowKind
+gadtArrowParser = arrowKindParser
 
 -- | Parse a potentially strict type for GADT prefix body.
 -- Uses 'typeInfixParser' so infix type operators (e.g. @key := v@) are
@@ -1437,14 +1435,22 @@ recordFieldsParser = braces (recordFieldDeclParser `MP.sepEndBy` expectedTok TkS
 recordFieldDeclParser :: TokParser FieldDecl
 recordFieldDeclParser = withSpan $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  linearEnabled <- isExtensionEnabled LinearTypes
+  mMult <- if linearEnabled then MP.optional fieldMultiplicityParser else pure Nothing
   expectedTok TkReservedDoubleColon
   fieldTy <- recordFieldBangTypeParser
   pure $ \span' ->
     FieldDecl
       { fieldAnns = [mkAnnotation span'],
         fieldNames = names,
+        fieldMultiplicity = mMult,
         fieldType = fieldTy
       }
+
+fieldMultiplicityParser :: TokParser Type
+fieldMultiplicityParser = MP.try $ do
+  expectedTok (TkVarSym "%")
+  typeAtomParser
 
 constructorArgParser :: TokParser BangType
 constructorArgParser = MP.try $ MP.notFollowedBy derivingKeywordParser *> bangTypeParser
@@ -1509,7 +1515,7 @@ constructorOperatorParser =
 patternBindDeclParser :: TokParser Decl
 patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
   pat <- region "while parsing pattern binding" patternParser
-  DeclValue . PatternBind pat <$> equationRhsParser
+  DeclValue . PatternBind NoMultiplicityTag pat <$> equationRhsParser
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

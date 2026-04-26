@@ -37,6 +37,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (guard)
+import Data.Functor (($>))
 import Data.Text (Text)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
@@ -1133,7 +1134,7 @@ localTypeSigDeclsParser = do
       [name] -> do
         rhs <- equationRhsParser
         let pat = PTypeSig (PVar name) ty
-        pure [DeclValue (PatternBind pat rhs)]
+        pure [DeclValue (PatternBind NoMultiplicityTag pat rhs)]
       _ ->
         fail "local typed bindings with '=' or guards require exactly one binder"
     else pure [sig]
@@ -1145,8 +1146,21 @@ localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
+  linearEnabled <- isExtensionEnabled LinearTypes
+  multTag <-
+    if linearEnabled
+      then MP.option NoMultiplicityTag (MP.try localMultiplicityTagParser)
+      else pure NoMultiplicityTag
   pat <- patternParser
-  DeclValue . PatternBind pat <$> equationRhsParser
+  DeclValue . PatternBind multTag pat <$> equationRhsParser
+
+localMultiplicityTagParser :: TokParser MultiplicityTag
+localMultiplicityTagParser = do
+  expectedTok (TkVarSym "%")
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkInteger 1 _ -> anySingle $> LinearMultiplicityTag
+    _ -> ExplicitMultiplicityTag <$> typeAtomParser
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
@@ -1157,6 +1171,7 @@ implicitParamDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclValue
       ( PatternBind
+          NoMultiplicityTag
           (PVar (mkUnqualifiedName NameVarId name))
           (UnguardedRhs [] rhsExpr whereDecls)
       )

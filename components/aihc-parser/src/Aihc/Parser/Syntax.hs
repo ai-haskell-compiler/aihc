@@ -11,6 +11,7 @@
 -- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
 module Aihc.Parser.Syntax
   ( ArithSeq (..),
+    ArrowKind (..),
     ArrAppType (..),
     BangType (..),
     BinderName,
@@ -60,6 +61,7 @@ module Aihc.Parser.Syntax
     Literal (..),
     Match (..),
     MatchHeadForm (..),
+    MultiplicityTag (..),
     Module (..),
     ModuleHead (..),
     ModuleHeaderPragmas (..),
@@ -992,9 +994,17 @@ peelDeclAnn :: Decl -> Decl
 peelDeclAnn (DeclAnn _ inner) = peelDeclAnn inner
 peelDeclAnn d = d
 
+-- | Multiplicity tag on a let/where pattern binding.
+-- Corresponds to @x = e@ (no tag), @%1 x = e@ (linear), @%m x = e@ (explicit).
+data MultiplicityTag
+  = NoMultiplicityTag
+  | LinearMultiplicityTag
+  | ExplicitMultiplicityTag Type
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data ValueDecl
   = FunctionBind BinderName [Match]
-  | PatternBind Pattern (Rhs Expr)
+  | PatternBind MultiplicityTag Pattern (Rhs Expr)
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Match = Match
@@ -1162,6 +1172,16 @@ data ForallTelescope = ForallTelescope
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The kind of a function arrow.
+-- @ArrowUnrestricted@ is the ordinary @->@.
+-- @ArrowLinear@ is @%1 ->@ (or its Unicode equivalent @⊸@).
+-- @ArrowExplicit ty@ is @%m ->@ for an arbitrary multiplicity type @m@.
+data ArrowKind
+  = ArrowUnrestricted
+  | ArrowLinear
+  | ArrowExplicit Type
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Type
   = TAnn Annotation Type
   | TVar UnqualifiedName
@@ -1174,7 +1194,7 @@ data Type
   | TApp Type Type
   | TTypeApp Type Type
   | TInfix Type Name TypePromotion Type
-  | TFun Type Type
+  | TFun ArrowKind Type Type
   | TTuple TupleFlavor TypePromotion [Type]
   | TUnboxedSum [Type]
   | TList TypePromotion [Type]
@@ -1470,8 +1490,9 @@ peelDataConAnn d = d
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
 data GadtBody
-  = -- | Prefix body: @a -> b -> T a@
-    GadtPrefixBody [BangType] Type
+  = -- | Prefix body: each argument is paired with its outgoing arrow kind.
+    -- E.g. @a -> b %1 -> T a@ gives @[(a, ArrowUnrestricted), (b, ArrowLinear)]@ with result @T a@.
+    GadtPrefixBody [(BangType, ArrowKind)] Type
   | -- | Record body: @{ field :: Type } -> T a@
     GadtRecordBody [FieldDecl] Type
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1509,6 +1530,8 @@ data SourceUnpackedness
 data FieldDecl = FieldDecl
   { fieldAnns :: [Annotation],
     fieldNames :: [UnqualifiedName],
+    -- | Optional multiplicity annotation, e.g. @x %'Many :: a@.
+    fieldMultiplicity :: Maybe Type,
     fieldType :: BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)

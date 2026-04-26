@@ -11,5 +11,5 @@ input: |
       return (x + y)
       else do
       return 0
-ast: Module {name = "DoAndIfThenElseLetLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclTypeSig {names = ["withLet"], type = TApp (TCon "IO") (TTuple [])}, DeclValue (PatternBind PVar "withLet" UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoLetDecls [DeclValue (PatternBind PVar "x" UnguardedRhs (EInt 1 TInteger)), DeclValue (PatternBind PVar "y" UnguardedRhs (EInt 2 TInteger))], DoExpr (EApp (EVar "return") (EParen (EInfix (EVar "x") "+" (EVar "y"))))]) (EDo [DoExpr (EApp (EVar "return") (EInt 0 TInteger))]))]))]}
+ast: Module {name = "DoAndIfThenElseLetLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclTypeSig {names = ["withLet"], type = TApp (TCon "IO") (TTuple [])}, DeclValue (PatternBind NoMultiplicityTag PVar "withLet" UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoLetDecls [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger)), DeclValue (PatternBind NoMultiplicityTag PVar "y" UnguardedRhs (EInt 2 TInteger))], DoExpr (EApp (EVar "return") (EParen (EInfix (EVar "x") "+" (EVar "y"))))]) (EDo [DoExpr (EApp (EVar "return") (EInt 0 TInteger))]))]))]}
 status: pass

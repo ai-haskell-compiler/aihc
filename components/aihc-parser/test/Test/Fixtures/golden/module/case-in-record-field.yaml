@@ -2,5 +2,5 @@ extensions: []
 input: |
   module CaseInRecordField where
   x = R { f = case y of A -> 1, g = 3 }
-ast: Module {name = "CaseInRecordField", decls = [DeclValue (PatternBind PVar "x" UnguardedRhs (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (UnguardedRhs (EInt 1 TInteger))], "g" = EInt 3 TInteger}))]}
+ast: Module {name = "CaseInRecordField", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (UnguardedRhs (EInt 1 TInteger))], "g" = EInt 3 TInteger}))]}
 status: pass
