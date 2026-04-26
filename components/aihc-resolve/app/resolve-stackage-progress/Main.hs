@@ -22,13 +22,14 @@ import Aihc.Parser.Syntax
     LanguageEdition (..),
     Module,
     ModuleHeaderPragmas (..),
+    SourceSpan (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
     parseExtensionSettingName,
     parseLanguageEdition,
   )
-import Aihc.Resolve (ModuleExports, ResolveResult (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), extractInterface, resolveWithDeps)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
@@ -273,14 +274,79 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
     then pure (PkgSuccess depExports)
     else do
       parseResults <- mapM (parseFileInfo (piSrcDir info)) rawFiles
-      let (errs, modules) = partitionEithers parseResults
+      let (errs, pairs) = partitionEithers parseResults
       case errs of
         (e : _) -> pure (PkgFailed e)
         [] -> do
-          let resolveResult = resolveWithDeps depExports modules
+          let modules = map fst pairs
+              srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
+              resolveResult = resolveWithDeps depExports modules
               !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
           _ <- evaluate annCount
-          pure (PkgSuccess (extractInterface resolveResult))
+          case resolveErrors resolveResult of
+            [] -> pure (PkgSuccess (extractInterface resolveResult))
+            resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcTexts) resolveErrs)))
+
+renderResolveError :: Map FilePath Text -> ResolveError -> String
+renderResolveError srcTexts (ResolveResolutionError errSpan _ _ msg) =
+  renderSpanHeader errSpan ++ renderSourceSnippet srcTexts errSpan ++ "  " ++ msg ++ "."
+renderResolveError _ (ResolveNotImplemented msg) = "not implemented: " ++ msg
+
+renderSpanHeader :: SourceSpan -> String
+renderSpanHeader NoSourceSpan = "<unknown location>\n"
+renderSpanHeader ss =
+  sourceSpanSourceName ss ++ ":" ++ show (sourceSpanStartLine ss) ++ ":" ++ show (sourceSpanStartCol ss) ++ ":\n"
+
+-- | Extract the source line containing 'offset' by scanning byte-by-byte.
+-- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.
+-- The line/column stored in 'SourceSpan' may be wrong after CPP '#line' pragmas,
+-- so we derive the actual source line from the byte offset instead.
+extractLineAtOffset :: BS.ByteString -> Int -> String
+extractLineAtOffset bytes offset =
+  let anchor = max 0 (min (BS.length bytes) offset)
+      start = scanBack anchor
+      end = scanFwd anchor
+   in T.unpack (TE.decodeUtf8 (BS.take (end - start) (BS.drop start bytes)))
+  where
+    scanBack i
+      | i <= 0 = 0
+      | BS.index bytes (i - 1) == 10 = i -- '\n'
+      | otherwise = scanBack (i - 1)
+    scanFwd i
+      | i >= BS.length bytes = BS.length bytes
+      | BS.index bytes i == 10 = i
+      | otherwise = scanFwd (i + 1)
+
+renderSourceSnippet :: Map FilePath Text -> SourceSpan -> String
+renderSourceSnippet _ NoSourceSpan = ""
+renderSourceSnippet srcTexts ss =
+  case Map.lookup (sourceSpanSourceName ss) srcTexts of
+    Nothing -> ""
+    Just src ->
+      let bytes = TE.encodeUtf8 src
+          startLine = sourceSpanStartLine ss
+          startCol = sourceSpanStartCol ss
+          endLine = sourceSpanEndLine ss
+          endCol = sourceSpanEndCol ss
+          lineText = extractLineAtOffset bytes (sourceSpanStartOffset ss)
+          lineNumStr = show startLine
+          pad = replicate (length lineNumStr) ' '
+          caretStart = startCol - 1
+          caretLen
+            | endLine == startLine = max 1 (endCol - startCol)
+            | otherwise = max 1 (length lineText - caretStart)
+          carets = replicate caretLen '^'
+          -- Carets sit directly under the token: indent = line-number gutter width + caretStart.
+          caretIndent = length lineNumStr + 3 + caretStart
+       in pad
+            ++ " |\n"
+            ++ lineNumStr
+            ++ " | "
+            ++ lineText
+            ++ "\n"
+            ++ replicate caretIndent ' '
+            ++ carets
+            ++ "\n"
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
@@ -309,7 +375,8 @@ normalizeSource filePath src
       | inCode = l : unlitLatex inCode ls
       | otherwise = "" : unlitLatex inCode ls
 
-parseFileInfo :: FilePath -> HC.FileInfo -> IO (Either String Module)
+-- Returns (Module, (filePath, processedSource)) on success.
+parseFileInfo :: FilePath -> HC.FileInfo -> IO (Either String (Module, (FilePath, Text)))
 parseFileInfo pkgRoot fi = do
   rawSrc <- readTextFileLenient path
   -- Strip BOM and unliterate .lhs before anything else.
@@ -335,7 +402,7 @@ parseFileInfo pkgRoot fi = do
       (parseErrs, modu) = parseModule cfg src
   pure $
     if null parseErrs
-      then Right modu
+      then Right (modu, (path, src))
       else Left (T.unpack (T.unwords (map snd parseErrs)))
   where
     path = HC.fileInfoPath fi
@@ -416,7 +483,7 @@ reportResults topN results = do
   where
     printFailure (pkg, msg) = do
       putStrLn $ "  " ++ T.unpack pkg ++ ":"
-      mapM_ (\l -> putStrLn ("    " ++ l)) (take 3 (lines msg))
+      mapM_ (\l -> putStrLn ("    " ++ l)) (take 5 (lines msg))
 
 pct :: Int -> Int -> Int
 pct _ 0 = 100
