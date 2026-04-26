@@ -4,7 +4,7 @@ import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
-import qualified Test.Tasty.QuickCheck as QC
+import Test.Tasty.QuickCheck qualified as QC
 
 main :: IO ()
 main =
