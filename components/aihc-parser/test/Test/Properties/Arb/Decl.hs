@@ -1160,7 +1160,7 @@ shrinkGadtBody :: GadtBody -> [GadtBody]
 shrinkGadtBody body =
   case body of
     GadtPrefixBody args result ->
-      [GadtPrefixBody args' result | args' <- shrinkList (\(bt, ak) -> map (, ak) (shrinkBangType bt)) args]
+      [GadtPrefixBody args' result | args' <- shrinkList (\(bt, ak) -> map (,ak) (shrinkBangType bt)) args]
         <> [GadtPrefixBody args result' | result' <- shrinkType result]
     GadtRecordBody fields result ->
       [GadtRecordBody fields' result | fields' <- shrinkList shrinkFieldDecl fields, not (null fields')]

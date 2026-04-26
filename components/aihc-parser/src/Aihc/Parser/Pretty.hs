@@ -717,7 +717,7 @@ prettyRecordFields fields =
     ( punctuate
         comma
         [ hsep $
-            [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))) ]
+            [hsep (punctuate comma (map prettyFieldName (fieldNames fld)))]
               <> maybe [] (\mult -> ["%" <> prettyType mult]) (fieldMultiplicity fld)
               <> [ "::",
                    prettyRecordFieldBangType (fieldType fld)
