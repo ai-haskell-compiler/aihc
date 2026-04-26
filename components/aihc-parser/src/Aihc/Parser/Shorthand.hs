@@ -367,19 +367,19 @@ docDataConDecl dcd =
   case dcd of
     DataConAnn _ inner -> docDataConDecl inner
     PrefixCon forallVars constraints name fields' ->
-      "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docBangType fields')))
+      "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> listField "fields" docBangType fields')))
     InfixCon forallVars constraints lhs op rhs ->
-      "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docUnqualifiedName op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints)))
+      "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docUnqualifiedName op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints)))
     RecordCon forallVars constraints name fields' ->
-      "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
+      "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
     GadtCon forallBinders constraints names body ->
       "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
     TupleCon forallVars constraints flavor fields' ->
-      "TupleCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> [field "flavor" (pretty (show flavor))] <> listField "fields" docBangType fields')))
+      "TupleCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> [field "flavor" (pretty (show flavor))] <> listField "fields" docBangType fields')))
     UnboxedSumCon forallVars constraints pos arity field' ->
-      "UnboxedSumCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints <> [field "pos" (pretty (show pos)), field "arity" (pretty (show arity)), field "field" (docBangType field')])))
+      "UnboxedSumCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> [field "pos" (pretty (show pos)), field "arity" (pretty (show arity)), field "field" (docBangType field')])))
     ListCon forallVars constraints ->
-      "ListCon" <+> braces (hsep (punctuate comma (listField "forallVars" docText forallVars <> listField "constraints" docType constraints)))
+      "ListCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints)))
 
 -- | Document a GADT body
 docGadtBody :: GadtBody -> Doc ann

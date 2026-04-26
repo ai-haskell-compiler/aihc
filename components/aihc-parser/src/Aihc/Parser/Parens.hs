@@ -564,19 +564,19 @@ addDataConDeclParens con =
   case con of
     DataConAnn ann inner -> DataConAnn ann (addDataConDeclParens inner)
     PrefixCon forallVars constraints name fields ->
-      PrefixCon forallVars (addContextConstraints constraints) name (map addPrefixConBangTypeParens fields)
+      PrefixCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints) name (map addPrefixConBangTypeParens fields)
     InfixCon forallVars constraints lhs op rhs ->
-      InfixCon forallVars (addContextConstraints constraints) (addInfixConBangTypeParens lhs) op (addInfixConBangTypeParens rhs)
+      InfixCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints) (addInfixConBangTypeParens lhs) op (addInfixConBangTypeParens rhs)
     RecordCon forallVars constraints name fields ->
-      RecordCon forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
+      RecordCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
     GadtCon forallBinders constraints names body ->
       GadtCon forallBinders (addContextConstraints constraints) names (addGadtBodyParens body)
     TupleCon forallVars constraints flavor fields ->
-      TupleCon forallVars (addContextConstraints constraints) flavor (map addPrefixConBangTypeParens fields)
+      TupleCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints) flavor (map addPrefixConBangTypeParens fields)
     UnboxedSumCon forallVars constraints pos arity field ->
-      UnboxedSumCon forallVars (addContextConstraints constraints) pos arity (addPrefixConBangTypeParens field)
+      UnboxedSumCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints) pos arity (addPrefixConBangTypeParens field)
     ListCon forallVars constraints ->
-      ListCon forallVars (addContextConstraints constraints)
+      ListCon (map addTyVarBinderParens forallVars) (addContextConstraints constraints)
 
 addBangTypeParens :: BangType -> BangType
 addBangTypeParens bt =

@@ -734,11 +734,8 @@ prettyRecordFields fields =
       | isSymbolicUName name = parens (pretty name)
       | otherwise = pretty name
 
-dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
-dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints
-  where
-    forallPrefix [] = []
-    forallPrefix binders = ["forall", hsep (map pretty binders) <> "."]
+dataConQualifierPrefix :: [TyVarBinder] -> [Type] -> [Doc ann]
+dataConQualifierPrefix forallVars constraints = forallTyVarBinderPrefix forallVars <> contextPrefix constraints
 
 -- | Pretty print a BangType. The type already has TParen nodes where needed.
 prettyBangType :: BangType -> Doc ann
