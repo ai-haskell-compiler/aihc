@@ -28,7 +28,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     parseLanguageEdition,
   )
-import Aihc.Resolve (ModuleExports, ResolveResult (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), extractInterface, resolveWithDeps)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
@@ -280,7 +280,13 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
           let resolveResult = resolveWithDeps depExports modules
               !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
           _ <- evaluate annCount
-          pure (PkgSuccess (extractInterface resolveResult))
+          case resolveErrors resolveResult of
+            [] -> pure (PkgSuccess (extractInterface resolveResult))
+            resolveErrs -> pure (PkgFailed (unlines (map renderResolveError resolveErrs)))
+
+renderResolveError :: ResolveError -> String
+renderResolveError (ResolveResolutionError _ name _ msg) = T.unpack name ++ ": " ++ msg
+renderResolveError (ResolveNotImplemented msg) = "not implemented: " ++ msg
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
