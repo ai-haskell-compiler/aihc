@@ -35,3 +35,16 @@ library
     , zlib >= 0.5.4 && < 0.8
   ghc-options:        -Wall
   default-language: GHC2021
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Spec.hs
+  build-depends:
+      base >= 4.16 && < 5
+    , aihc-hackage
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+  ghc-options:        -Wall
+  default-language: GHC2021

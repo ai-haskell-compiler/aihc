@@ -12,6 +12,7 @@ import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (SomeException, displayException, try)
 import Data.Char (isSpace)
 import Data.List (isPrefixOf)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.Lazy qualified as TL
@@ -97,8 +98,40 @@ parseConstraint entry
                 -- Snapshot constraints like "base installed" refer to compiler-provided
                 -- packages. We return a PackageSpec with version "installed" so that
                 -- downstream code can fetch the latest version from Hackage.
-                [name, "installed"] -> Just (PackageSpec (trim name) "installed")
+                [name, "installed"] ->
+                  let packageName = trim name
+                      version = Map.findWithDefault "installed" packageName installedPackageVersions
+                   in Just (PackageSpec packageName version)
                 _ -> Nothing
+
+installedPackageVersions :: Map.Map String String
+installedPackageVersions =
+  Map.fromList
+    [ ("binary", "0.8.9.3"),
+      ("bytestring", "0.12.2.0"),
+      ("containers", "0.7"),
+      ("Cabal", "3.14.2.0"),
+      ("Cabal-syntax", "3.14.2.0"),
+      ("array", "0.5.8.0"),
+      ("deepseq", "1.5.1.0"),
+      ("directory", "1.3.10.1"),
+      ("exceptions", "0.10.12"),
+      ("filepath", "1.5.5.0"),
+      ("mtl", "2.3.2"),
+      ("os-string", "2.0.10"),
+      ("parsec", "3.1.18.0"),
+      ("pretty", "1.1.3.6"),
+      ("process", "1.6.26.1"),
+      ("semaphore-compat", "1.0.0"),
+      ("stm", "2.5.3.1"),
+      ("template-haskell", "2.23.0.0"),
+      ("terminfo", "0.4.1.7"),
+      ("text", "2.1.4"),
+      ("time", "1.14"),
+      ("transformers", "0.6.3.0"),
+      ("unix", "2.8.8.0"),
+      ("xhtml", "3000.2.2.1")
+    ]
 
 breakOn :: String -> String -> Maybe (String, String)
 breakOn needle haystack =
