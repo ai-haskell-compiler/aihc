@@ -28,6 +28,7 @@ import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
     ClassDecl (..),
+    ClassDeclItem (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -51,6 +52,7 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
+    TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
     binderHeadName,
@@ -301,22 +303,30 @@ resolveRhs scope nextLocal ambient rhs =
   case rhs of
     UnguardedRhs anns expr mDecls ->
       let bodyHere = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
-          (nextLocal', expr') = resolveExprAt scope nextLocal bodyHere expr
-          (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
-       in (nextLocal'', UnguardedRhs anns expr' mDecls')
+          -- Pre-allocate where-clause binders so the body can reference them.
+          whereDecls = fromMaybe [] mDecls
+          (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal whereDecls
+          scoped = unionScope localScope scope
+          (nextLocal'', expr') = resolveExprAt scoped nextLocal' bodyHere expr
+          (nextLocal''', mDecls') = case mDecls of
+            Nothing -> (nextLocal'', Nothing)
+            Just decls ->
+              let (nl, ds) = resolveBoundDecls scoped binderAnnotations nextLocal'' Map.empty decls
+               in (nl, Just ds)
+       in (nextLocal''', UnguardedRhs anns expr' mDecls')
     GuardedRhss anns guardedRhss mDecls ->
       let here = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
-          (nextLocal', guardedRhss') = mapAccumL (resolveGuardedRhs scope here) nextLocal guardedRhss
-          (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
-       in (nextLocal'', GuardedRhss anns guardedRhss' mDecls')
-
-resolveWhereDecls :: Scope -> Int -> Maybe [Decl] -> (Int, Maybe [Decl])
-resolveWhereDecls _ nextLocal Nothing = (nextLocal, Nothing)
-resolveWhereDecls scope nextLocal (Just decls) =
-  let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-      scoped = unionScope localScope scope
-      (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
-   in (nextLocal'', Just decls')
+          -- Pre-allocate where-clause binders so guards can reference them.
+          whereDecls = fromMaybe [] mDecls
+          (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal whereDecls
+          scoped = unionScope localScope scope
+          (nextLocal'', guardedRhss') = mapAccumL (resolveGuardedRhs scoped here) nextLocal' guardedRhss
+          (nextLocal''', mDecls') = case mDecls of
+            Nothing -> (nextLocal'', Nothing)
+            Just decls ->
+              let (nl, ds) = resolveBoundDecls scoped binderAnnotations nextLocal'' Map.empty decls
+               in (nl, Just ds)
+       in (nextLocal''', GuardedRhss anns guardedRhss' mDecls')
 
 resolveGuardedRhs :: Scope -> SourceSpan -> Int -> GuardedRhs Expr -> (Int, GuardedRhs Expr)
 resolveGuardedRhs scope ambient nextLocal guardedRhs =
@@ -685,17 +695,47 @@ allocateLocalDeclBinders :: Int -> [Decl] -> (Int, Map.Map Text ResolutionAnnota
 allocateLocalDeclBinders nextLocal =
   foldl' step (nextLocal, Map.empty, emptyScope)
   where
-    step (currentId, annotations, scope) decl =
-      case declBinderCandidate decl of
-        Just (span', name) ->
-          let resolvedName = ResolvedLocal currentId name
-              key = renderUnqualifiedName name
-              annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-           in ( currentId + 1,
-                Map.insert key annotation annotations,
-                insertTerm key resolvedName scope
-              )
-        Nothing -> (currentId, annotations, scope)
+    step acc decl = foldl' addBinder acc (declBinderCandidates decl)
+    addBinder (currentId, annotations, scope) (span', name) =
+      let resolvedName = ResolvedLocal currentId name
+          key = renderUnqualifiedName name
+          annotation = ResolutionAnnotation span' key ResolutionNamespaceTerm resolvedName
+       in (currentId + 1, Map.insert key annotation annotations, insertTerm key resolvedName scope)
+
+-- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
+declBinderCandidates :: Decl -> [(SourceSpan, UnqualifiedName)]
+declBinderCandidates decl =
+  let (outerSp, innerDecl) = peelDeclSpan NoSourceSpan decl
+   in case innerDecl of
+        DeclValue valueDecl ->
+          case valueDecl of
+            FunctionBind name _ ->
+              let loc = effectiveResolutionSpan outerSp NoSourceSpan
+               in [(spanStartNameSpan loc (renderUnqualifiedName name), name)]
+            PatternBind pat _ ->
+              let loc = effectiveResolutionSpan outerSp (peelPatternSpan NoSourceSpan pat)
+               in collectPatVarBinders loc pat
+        DeclTypeSig [name] _ ->
+          [(spanStartNameSpan outerSp (renderUnqualifiedName name), name)]
+        _ -> []
+
+collectPatVarBinders :: SourceSpan -> Pattern -> [(SourceSpan, UnqualifiedName)]
+collectPatVarBinders ambient pat =
+  case peelPatternAnn pat of
+    PVar name -> [(spanStartNameSpan ambient (renderUnqualifiedName name), name)]
+    PTuple _ pats -> concatMap (collectPatVarBinders ambient) pats
+    PList pats -> concatMap (collectPatVarBinders ambient) pats
+    PParen inner -> collectPatVarBinders ambient inner
+    PAs alias inner ->
+      (spanStartNameSpan ambient alias, mkUnqualifiedName NameVarId alias)
+        : collectPatVarBinders ambient inner
+    PStrict inner -> collectPatVarBinders ambient inner
+    PIrrefutable inner -> collectPatVarBinders ambient inner
+    PRecord _ fields _ -> concatMap (collectPatVarBinders ambient . recordFieldValue) fields
+    PInfix left _ right ->
+      collectPatVarBinders ambient left <> collectPatVarBinders ambient right
+    PCon _ _ pats -> concatMap (collectPatVarBinders ambient) pats
+    _ -> []
 
 declBinderAnnotation :: Decl -> Map.Map Text ResolutionAnnotation -> Maybe ResolutionAnnotation
 declBinderAnnotation decl binderAnnotations =
@@ -839,14 +879,26 @@ declExportedNames decl =
             PVar name -> ([name], [])
             _ -> ([], [])
     DeclTypeSig names _ -> (names, [])
-    DeclClass classDecl -> ([], [binderHeadName (classDeclHead classDecl)])
+    DeclClass classDecl ->
+      ( classDeclMethodNames (classDeclItems classDecl),
+        [binderHeadName (classDeclHead classDecl)]
+      )
     DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
     DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
     DeclNewtype newtypeDecl ->
       ( maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl),
         [binderHeadName (newtypeDeclHead newtypeDecl)]
       )
+    DeclTypeSyn typeSynDecl -> ([], [binderHeadName (typeSynHead typeSynDecl)])
     _ -> ([], [])
+
+classDeclMethodNames :: [ClassDeclItem] -> [UnqualifiedName]
+classDeclMethodNames = concatMap go
+  where
+    go (ClassItemAnn _ inner) = go inner
+    go (ClassItemTypeSig names _) = names
+    go (ClassItemDefaultSig name _) = [name]
+    go _ = []
 
 dataDeclConstructorNames :: [DataConDecl] -> [UnqualifiedName]
 dataDeclConstructorNames = concatMap dataConDeclNames
@@ -858,7 +910,8 @@ dataConDeclNames dataConDecl =
           DataConAnn _ inner -> go inner
           PrefixCon _ _ name _ -> [name]
           InfixCon _ _ _ name _ -> [name]
-          RecordCon _ _ name _ -> [name]
+          RecordCon _ _ name fields -> name : concatMap fieldNames fields
+          GadtCon _ _ names (GadtRecordBody fields _) -> names <> concatMap fieldNames fields
           GadtCon _ _ names _ -> names
           TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
           UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
@@ -890,9 +943,12 @@ bars n
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
-  ownScope `unionScope` importedScope exports modu
+  ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude
   where
     ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
+    preludeScope = Map.findWithDefault emptyScope "Prelude" exports
+    -- Implicit Prelude: names available unqualified AND as Prelude.xxx
+    implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
 
 importedScope :: ModuleExports -> Module -> Scope
 importedScope exports modu =
@@ -914,9 +970,26 @@ filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      filterScopeByNames (`elem` allowedNames importSpecItems) scope
+      let allowed = allowedNames importSpecItems
+          -- When any T(..) import is present, all terms are allowed (we can't
+          -- enumerate class methods / constructors without full type info).
+          allTerms = any isAllImport importSpecItems
+       in Scope
+            { scopeTerms =
+                if allTerms
+                  then scopeTerms scope
+                  else Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTerms scope),
+              scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTypes scope),
+              scopeQualifiedModules = scopeQualifiedModules scope
+            }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
       filterScopeByNames (`notElem` allowedNames importSpecItems) scope
+
+isAllImport :: ImportItem -> Bool
+isAllImport (ImportItemAll {}) = True
+isAllImport (ImportItemAllWith {}) = True
+isAllImport (ImportAnn _ sub) = isAllImport sub
+isAllImport _ = False
 
 allowedNames :: [ImportItem] -> [Text]
 allowedNames items =
