@@ -14,7 +14,7 @@ import Data.Char (ord)
 import Data.Maybe (isNothing)
 import Data.Text qualified as T
 import Numeric (showHex, showOct)
-import ParserValidation (validateParser)
+import ParserValidation (formatDiff, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.ErrorMessages.Suite (errorMessageTests)
@@ -124,6 +124,7 @@ buildTests = do
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
               QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
@@ -713,6 +714,38 @@ test_prettyInfixRhsOpenEndedInsideSection = do
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_roundtripDiffIsMinimal :: Assertion
+test_roundtripDiffIsMinimal =
+  let before =
+        T.unlines
+          [ "data CtOrigin",
+            "  = forall (p :: Pass). (OutputableBndrId p) =>",
+            "    ExpectedFunTySyntaxOp !CtOrigin !(HsExpr (GhcPass p)) |",
+            "    ExpectedFunTyViewPat !(HsExpr GhcRn) |",
+            "    forall (p :: Pass). Outputable (HsExpr (GhcPass p)) =>",
+            "    Thing"
+          ]
+      rendered =
+        T.unlines
+          [ "data CtOrigin",
+            "  = forall p. (OutputableBndrId p) =>",
+            "    ExpectedFunTySyntaxOp !CtOrigin !(HsExpr (GhcPass p)) |",
+            "    ExpectedFunTyViewPat !(HsExpr GhcRn) |",
+            "    forall p. Outputable (HsExpr (GhcPass p)) =>",
+            "    Thing"
+          ]
+      expected =
+        Just
+          ( T.unlines
+              [ "@@ line 2 @@",
+                "-   = forall (p :: Pass). (OutputableBndrId p) =>",
+                "+   = forall p. (OutputableBndrId p) =>",
+                "-     forall (p :: Pass). Outputable (HsExpr (GhcPass p)) =>",
+                "+     forall p. Outputable (HsExpr (GhcPass p)) =>"
+              ]
+          )
+   in assertEqual "minimal diff" expected (formatDiff before rendered)
 
 -- | Regression test: bird-track unliteration must preserve column positions so
 -- that tab-aligned case alternatives remain in the same layout context.

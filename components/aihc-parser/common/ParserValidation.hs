@@ -3,12 +3,14 @@
 module ParserValidation
   ( ValidationErrorKind (..),
     ValidationError (..),
+    formatDiff,
     validateParser,
   )
 where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Syntax qualified as Syntax
+import Data.Algorithm.Diff (PolyDiff (..), getDiff)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GhcOracle qualified
@@ -121,24 +123,30 @@ formatDiff before after =
       suffixLen = commonSuffixLen beforeRest afterRest
       changedBefore = take (length beforeRest - suffixLen) beforeRest
       changedAfter = take (length afterRest - suffixLen) afterRest
-      removed = map ("- " <>) (take 30 changedBefore)
-      added = map ("+ " <>) (take 30 changedAfter)
-   in if null changedBefore && null changedAfter
+      diffLines = concatMap renderDiffLine (getDiff changedBefore changedAfter)
+      shownDiffLines = take 30 diffLines
+   in if null diffLines
         then Nothing
         else
           Just
             ( T.unlines
                 ( ["@@ line " <> T.pack (show (prefixLen + 1)) <> " @@"]
-                    <> removed
-                    <> added
-                    <> [truncationNote (length changedBefore) (length changedAfter)]
+                    <> shownDiffLines
+                    <> truncationNote diffLines
                 )
             )
 
-truncationNote :: Int -> Int -> Text
-truncationNote removedN addedN
-  | removedN <= 30 && addedN <= 30 = ""
-  | otherwise = "...diff truncated..."
+renderDiffLine :: PolyDiff Text Text -> [Text]
+renderDiffLine diffLine =
+  case diffLine of
+    First lineText -> ["- " <> lineText]
+    Second lineText -> ["+ " <> lineText]
+    Both _ _ -> []
+
+truncationNote :: [Text] -> [Text]
+truncationNote diffLines
+  | length diffLines <= 30 = []
+  | otherwise = ["...diff truncated..."]
 
 commonPrefixLen :: (Eq a) => [a] -> [a] -> Int
 commonPrefixLen = go 0
