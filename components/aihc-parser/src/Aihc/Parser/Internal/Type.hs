@@ -127,9 +127,12 @@ linearArrowKindParser =
     <|> MP.try multiplicityAnnotatedArrowParser
 
 -- | Parse @%<mult> ->@, consuming all three tokens.
+-- Only matches when @%@ is a prefix operator (no space between @%@ and the
+-- multiplicity expression), which is how GHC distinguishes @a %1 -> b@ (linear)
+-- from @a % 1 -> b@ (type operator applied to @a@ and @1@, then unrestricted arrow).
 multiplicityAnnotatedArrowParser :: TokParser ArrowKind
 multiplicityAnnotatedArrowParser = do
-  expectedTok (TkVarSym "%")
+  expectedTok TkPrefixPercent
   mult <- typeAtomParser
   expectedTok TkReservedRightArrow
   pure (multiplicityToArrowKind mult)
@@ -164,21 +167,19 @@ buildInfixType :: Type -> ((Name, TypePromotion), Type) -> Type
 buildInfixType lhs ((op, promoted), rhs) = TInfix lhs op promoted rhs
 
 typeInfixOperatorParser :: TokParser (Name, TypePromotion)
-typeInfixOperatorParser = do
-  linearEnabled <- isExtensionEnabled LinearTypes
+typeInfixOperatorParser =
   promotedInfixOperatorParser
     <|> backtickTypeOperatorParser
-    <|> unpromotedInfixOperatorParser linearEnabled
+    <|> unpromotedInfixOperatorParser
   where
-    unpromotedInfixOperatorParser linearEnabled =
+    unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
           TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "'"
-                && not (linearEnabled && op == "%") ->
+                && op /= "'" ->
                 Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
           TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
           TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op, Unpromoted)

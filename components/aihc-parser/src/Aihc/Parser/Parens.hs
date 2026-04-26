@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
+import Data.Bifunctor (bimap)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 

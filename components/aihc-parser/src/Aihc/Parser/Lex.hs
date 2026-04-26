@@ -608,6 +608,7 @@ lexBangOrTildeOperator st =
   case lexerInput st of
     '!' :< rest -> lexPrefixSensitiveOp st '!' TkPrefixBang rest
     '~' :< rest -> lexPrefixSensitiveOp st '~' TkPrefixTilde rest
+    '%' :< rest -> lexPrefixSensitiveOp st '%' TkPrefixPercent rest
     _ -> Nothing
 
 isPrefixPosition :: LexerState -> Bool

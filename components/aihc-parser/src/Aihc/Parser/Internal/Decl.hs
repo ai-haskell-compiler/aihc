@@ -1448,8 +1448,8 @@ recordFieldDeclParser = withSpan $ do
       }
 
 fieldMultiplicityParser :: TokParser Type
-fieldMultiplicityParser = MP.try $ do
-  expectedTok (TkVarSym "%")
+fieldMultiplicityParser = do
+  expectedTok TkPrefixPercent
   typeAtomParser
 
 constructorArgParser :: TokParser BangType

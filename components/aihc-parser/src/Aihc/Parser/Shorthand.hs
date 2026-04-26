@@ -948,6 +948,7 @@ docTokenKind kind =
     TkKeywordMdo -> "TkKeywordMdo"
     TkQualifiedDo modName -> "TkQualifiedDo" <+> docText modName
     TkQualifiedMdo modName -> "TkQualifiedMdo" <+> docText modName
+    TkPrefixPercent -> "TkPrefixPercent"
     TkLinearArrow -> "TkLinearArrow"
     TkArrowTail -> "TkArrowTail"
     TkArrowTailReverse -> "TkArrowTailReverse"

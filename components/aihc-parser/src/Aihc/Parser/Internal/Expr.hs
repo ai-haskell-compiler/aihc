@@ -1156,7 +1156,7 @@ localPatternDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 localMultiplicityTagParser :: TokParser MultiplicityTag
 localMultiplicityTagParser = do
-  expectedTok (TkVarSym "%")
+  expectedTok TkPrefixPercent
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkInteger 1 _ -> anySingle $> LinearMultiplicityTag

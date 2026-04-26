@@ -102,6 +102,8 @@ data LexTokenKind
   | TkReservedRightArrow
   | TkReservedAt
   | TkReservedDoubleArrow
+  | -- LinearTypes multiplicity prefix (e.g. @%1@, @%m@, @%'Many@)
+    TkPrefixPercent
   | -- LinearTypes arrow operator
     TkLinearArrow
   | -- Arrow notation reserved operators (Arrows extension)
