@@ -127,6 +127,7 @@ test-suite spec
       base >=4.16 && <5
     , aihc-cpp
     , aihc-hackage
+    , Diff
     , megaparsec
     , text
     , containers
@@ -165,6 +166,7 @@ executable parser-progress
     , aihc-parser
     , aihc-cpp
     , aihc-hackage
+    , Diff
     , bytestring
     , text
     , containers
@@ -212,6 +214,7 @@ executable extension-progress
     , aihc-parser
     , aihc-cpp
     , aihc-hackage
+    , Diff
     , text
     , containers
     , directory
@@ -246,6 +249,7 @@ executable hackage-tester
     , aihc-parser
     , aihc-cpp
     , aihc-hackage
+    , Diff
     , text
     , containers
     , deepseq
@@ -288,6 +292,7 @@ executable stackage-progress
     , aihc-parser
     , aihc-cpp
     , aihc-hackage
+    , Diff
     , text
     , containers
     , deepseq
