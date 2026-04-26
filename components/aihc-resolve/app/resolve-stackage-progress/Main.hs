@@ -310,7 +310,7 @@ extractLineAtOffset bytes offset =
   where
     scanBack i
       | i <= 0 = 0
-      | BS.index bytes (i - 1) == 10 = i  -- '\n'
+      | BS.index bytes (i - 1) == 10 = i -- '\n'
       | otherwise = scanBack (i - 1)
     scanFwd i
       | i >= BS.length bytes = BS.length bytes
@@ -338,9 +338,15 @@ renderSourceSnippet srcTexts ss =
           carets = replicate caretLen '^'
           -- Carets sit directly under the token: indent = line-number gutter width + caretStart.
           caretIndent = length lineNumStr + 3 + caretStart
-       in pad ++ " |\n"
-            ++ lineNumStr ++ " | " ++ lineText ++ "\n"
-            ++ replicate caretIndent ' ' ++ carets ++ "\n"
+       in pad
+            ++ " |\n"
+            ++ lineNumStr
+            ++ " | "
+            ++ lineText
+            ++ "\n"
+            ++ replicate caretIndent ' '
+            ++ carets
+            ++ "\n"
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
