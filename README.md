@@ -19,12 +19,12 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Resolve Stackage   | `0/3390` (`0.00%`)                                                                                                                   |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3414/3427` (`99.62%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3415/3427` (`99.65%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `12/29` (`41.37%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `15/17` (`88.23%`) <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `1935/1937` (`99.90%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `1949/1949` (`100.00%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `102/102` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
-| CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `40/40` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
+| CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `43/43` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
 
@@ -32,13 +32,13 @@ Find more information here:
 ```
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
-| aihc-cpp        |   1615 |     667 |    2282 |
+| aihc-cpp        |   1661 |     675 |    2336 |
 | aihc-fc         |    883 |     262 |    1145 |
-| aihc-parser     |  12421 |   15851 |   28272 |
+| aihc-parser     |  12333 |   15867 |   28200 |
 | aihc-parser-cli |   1963 |     430 |    2393 |
-| aihc-resolve    |   1228 |    1001 |    2229 |
+| aihc-resolve    |   1306 |    1462 |    2768 |
 | aihc-tc         |   1849 |    1004 |    2853 |
-| **Total**       |  19959 |   19215 |   39174 |
+| **Total**       |  19995 |   19700 |   39695 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
