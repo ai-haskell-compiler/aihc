@@ -963,7 +963,7 @@ gadtTypeDataBodyParser = do
   case rest of
     [] -> pure (GadtPrefixBody [] firstTy)
     _ ->
-      let mkBang ty = BangType [] NoSourceUnpackedness False False ty
+      let mkBang = BangType [] NoSourceUnpackedness False False
           allTys = firstTy : map snd rest
           arrowKinds = map fst rest
           argTys = init allTys

@@ -688,7 +688,7 @@ addGadtBodyParens body =
       -- per component). A result type that is itself a TFun, TForall, TContext,
       -- TImplicitParam, or TKindSig would be misinterpreted as additional
       -- constructor arguments, so we use addTypeIn CtxTypeFunArg to wrap it.
-      GadtPrefixBody (map (\(bt, ak) -> (addGadtBangTypeParens bt, addArrowKindParens ak)) args) (addTypeIn CtxTypeFunArg resultTy)
+      GadtPrefixBody (map (Data.Bifunctor.bimap addGadtBangTypeParens addArrowKindParens) args) (addTypeIn CtxTypeFunArg resultTy)
     GadtRecordBody fields resultTy ->
       -- Record GADT result type uses typeParser so any type is fine here.
       GadtRecordBody (map addRecordFieldDeclParens fields) (addTypeParens resultTy)
