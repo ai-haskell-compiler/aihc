@@ -368,8 +368,11 @@ normalizeSource filePath src
             else T.unlines (map unlitBird ls)
   where
     stripBom t = Data.Maybe.fromMaybe t (T.stripPrefix "\xfeff" t)
+    -- Replace the leading '>' with a space instead of stripping it.
+    -- This preserves original column positions, which is critical for
+    -- layout-sensitive parsing when tabs are present.
     unlitBird line = case T.stripPrefix ">" line of
-      Just rest -> Data.Maybe.fromMaybe rest (T.stripPrefix " " rest)
+      Just rest -> " " <> rest
       Nothing -> ""
     unlitLatex _ [] = []
     unlitLatex inCode (l : ls)

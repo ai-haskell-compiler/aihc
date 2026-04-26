@@ -3,11 +3,13 @@
 
 module Main (main) where
 
+import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
 import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Maybe (isNothing)
 import Data.Text qualified as T
@@ -122,6 +124,7 @@ buildTests = do
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
               QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
@@ -710,6 +713,29 @@ test_prettyInfixRhsOpenEndedInsideSection = do
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+-- | Regression test: bird-track unliteration must preserve column positions so
+-- that tab-aligned case alternatives remain in the same layout context.
+-- Before the fix, stripping "> " shifted columns by 2, causing tab-expanded
+-- and space-only lines to land at different indentation columns.
+test_birdTrackUnlitPreservesTabColumns :: Assertion
+test_birdTrackUnlitPreservesTabColumns = do
+  -- Literate Haskell with tab-indented case alternatives.
+  -- The tab on the "Just" line and the spaces on the "Nothing" line
+  -- are carefully chosen so they align at the same column in the original
+  -- (with "> " prefix) but diverge after naively stripping "> ".
+  let lhsSource =
+        T.unlines
+          [ "> module LitTest where",
+            "> f x = case x of",
+            ">          \t        Just y  -> y",
+            ">                       Nothing -> 0"
+          ]
+      preprocessed = resultOutput (preprocessForParserWithoutIncludesIfEnabled [] [] "LitTest.lhs" [] lhsSource)
+      (errs, _modu) = parseModule defaultConfig preprocessed
+  assertBool
+    ("expected no parse errors for bird-track .lhs with tabs, got:\n" <> formatParseErrors "LitTest.lhs" (Just preprocessed) errs)
+    (null errs)
 
 test_associatedDataFamilyOperatorName :: Assertion
 test_associatedDataFamilyOperatorName = do
