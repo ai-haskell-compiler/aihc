@@ -14,7 +14,7 @@ import Data.List (isSuffixOf)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import GhcOracle (oracleModuleAstFingerprint)
-import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
+import HackageSupport (fileInfoIncludeDirs, fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -54,7 +54,8 @@ hackageTesterTests =
       testGroup
         "package-selection"
         [ testCase "skips files from non-buildable components by default flags" test_skipsNonBuildableComponents,
-          testCase "prefers top-level cabal when multiple cabal files exist" test_prefersTopLevelCabalWhenMultipleExist
+          testCase "prefers top-level cabal when multiple cabal files exist" test_prefersTopLevelCabalWhenMultipleExist,
+          testCase "collects include-dirs from cabal files" test_collectsIncludeDirs
         ],
       testGroup
         "cpp-macros"
@@ -302,6 +303,27 @@ test_prefersTopLevelCabalWhenMultipleExist =
     let selected = map fileInfoPath files
     assertBool "expected Main.hs from top-level package to be selected" (any ("src/Main.hs" `isSuffixOf`) selected)
 
+test_collectsIncludeDirs :: Assertion
+test_collectsIncludeDirs =
+  withTempDir "hackage-tester" $ \root -> do
+    let cabalFile = root </> "demo.cabal"
+        srcDir = root </> "src"
+        mainFile = srcDir </> "Main.hs"
+        expectedIncludeDir = root </> "generated" </> "include"
+
+    createDirectory srcDir
+    writeFile mainFile "module Main where\nmain :: IO ()\nmain = pure ()\n"
+    writeFile cabalFile includeDirCabal
+
+    files <- findTargetFilesFromCabal root
+    case files of
+      [fileInfo] ->
+        assertEqual
+          "expected cabal include-dirs to be preserved"
+          [expectedIncludeDir]
+          (fileInfoIncludeDirs fileInfo)
+      _ -> assertBool "expected one selected source file" False
+
 test_resolveIncludeLenientDecode :: Assertion
 test_resolveIncludeLenientDecode =
   withTempDir "hackage-tester" $ \root -> do
@@ -316,6 +338,7 @@ test_resolveIncludeLenientDecode =
     mText <-
       resolveIncludeBestEffort
         root
+        []
         current
         IncludeRequest
           { includePath = "bad.inc",
@@ -459,6 +482,21 @@ nestedFixtureCabal =
       "version: 0.1.0.0",
       "executable fixture",
       "  main-is: Fixture.hs",
+      "  build-depends: base",
+      "  default-language: Haskell2010"
+    ]
+
+includeDirCabal :: String
+includeDirCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: demo",
+      "version: 0.1.0.0",
+      "",
+      "executable cli",
+      "  main-is: Main.hs",
+      "  hs-source-dirs: src",
+      "  include-dirs: generated/include",
       "  build-depends: base",
       "  default-language: Haskell2010"
     ]

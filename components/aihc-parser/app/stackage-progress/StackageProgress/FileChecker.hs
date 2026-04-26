@@ -161,7 +161,7 @@ checkFile checkOpts parsers verbose packageRoot info = do
   source <- readTextFileLenient file
   (preprocessed, preprocessNanos) <-
     withElapsedNanos $
-      preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (fileInfoDependencies info) (resolveIncludeBestEffort packageRoot file) source
+      preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (fileInfoDependencies info) (resolveIncludeBestEffort packageRoot (fileInfoIncludeDirs info) file) source
   let source' = resultOutput preprocessed
       keepAihcErrorDetail = fileCheckKeepFirstFailure checkOpts || fileCheckKeepFileErrors checkOpts
       cppErrorMsg

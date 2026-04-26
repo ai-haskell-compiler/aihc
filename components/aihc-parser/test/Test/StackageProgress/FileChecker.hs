@@ -63,6 +63,7 @@ brokenFileInfo file =
     { fileInfoPath = file,
       fileInfoExtensions = [],
       fileInfoCppOptions = [],
+      fileInfoIncludeDirs = [],
       fileInfoLanguage = Nothing,
       fileInfoDependencies = []
     }
