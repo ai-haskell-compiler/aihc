@@ -22,6 +22,7 @@ import Aihc.Parser.Syntax
     LanguageEdition (..),
     Module,
     ModuleHeaderPragmas (..),
+    SourceSpan (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
@@ -273,20 +274,51 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
     then pure (PkgSuccess depExports)
     else do
       parseResults <- mapM (parseFileInfo (piSrcDir info)) rawFiles
-      let (errs, modules) = partitionEithers parseResults
+      let (errs, pairs) = partitionEithers parseResults
       case errs of
         (e : _) -> pure (PkgFailed e)
         [] -> do
-          let resolveResult = resolveWithDeps depExports modules
+          let modules = map fst pairs
+              srcLines = Map.fromList [(path, T.lines src) | (_, (path, src)) <- pairs]
+              resolveResult = resolveWithDeps depExports modules
               !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
           _ <- evaluate annCount
           case resolveErrors resolveResult of
             [] -> pure (PkgSuccess (extractInterface resolveResult))
-            resolveErrs -> pure (PkgFailed (unlines (map renderResolveError resolveErrs)))
+            resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcLines) resolveErrs)))
 
-renderResolveError :: ResolveError -> String
-renderResolveError (ResolveResolutionError _ name _ msg) = T.unpack name ++ ": " ++ msg
-renderResolveError (ResolveNotImplemented msg) = "not implemented: " ++ msg
+renderResolveError :: Map FilePath [Text] -> ResolveError -> String
+renderResolveError srcLines (ResolveResolutionError errSpan _ _ msg) =
+  renderSpanHeader errSpan ++ renderSourceSnippet srcLines errSpan ++ "  " ++ msg ++ "."
+renderResolveError _ (ResolveNotImplemented msg) = "not implemented: " ++ msg
+
+renderSpanHeader :: SourceSpan -> String
+renderSpanHeader NoSourceSpan = "<unknown location>\n"
+renderSpanHeader ss =
+  sourceSpanSourceName ss ++ ":" ++ show (sourceSpanStartLine ss) ++ ":" ++ show (sourceSpanStartCol ss) ++ ":\n"
+
+renderSourceSnippet :: Map FilePath [Text] -> SourceSpan -> String
+renderSourceSnippet _ NoSourceSpan = ""
+renderSourceSnippet srcLines ss =
+  case Map.lookup (sourceSpanSourceName ss) srcLines of
+    Nothing -> ""
+    Just ls ->
+      let startLine = sourceSpanStartLine ss
+          startCol = sourceSpanStartCol ss
+          endLine = sourceSpanEndLine ss
+          endCol = sourceSpanEndCol ss
+          lineIdx = startLine - 1
+          lineText = if lineIdx >= 0 && lineIdx < length ls then ls !! lineIdx else ""
+          lineNumStr = show startLine
+          pad = replicate (length lineNumStr) ' '
+          caretStart = startCol - 1
+          caretLen
+            | endLine == startLine = max 1 (endCol - startCol)
+            | otherwise = max 1 (T.length lineText - caretStart)
+          carets = replicate caretLen '^'
+       in pad ++ " |\n"
+            ++ lineNumStr ++ " | " ++ T.unpack lineText ++ "\n"
+            ++ pad ++ " | " ++ replicate caretStart ' ' ++ carets ++ "\n"
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
@@ -315,7 +347,8 @@ normalizeSource filePath src
       | inCode = l : unlitLatex inCode ls
       | otherwise = "" : unlitLatex inCode ls
 
-parseFileInfo :: FilePath -> HC.FileInfo -> IO (Either String Module)
+-- Returns (Module, (filePath, processedSource)) on success.
+parseFileInfo :: FilePath -> HC.FileInfo -> IO (Either String (Module, (FilePath, Text)))
 parseFileInfo pkgRoot fi = do
   rawSrc <- readTextFileLenient path
   -- Strip BOM and unliterate .lhs before anything else.
@@ -341,7 +374,7 @@ parseFileInfo pkgRoot fi = do
       (parseErrs, modu) = parseModule cfg src
   pure $
     if null parseErrs
-      then Right modu
+      then Right (modu, (path, src))
       else Left (T.unpack (T.unwords (map snd parseErrs)))
   where
     path = HC.fileInfoPath fi
