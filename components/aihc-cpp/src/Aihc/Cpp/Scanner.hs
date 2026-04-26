@@ -61,14 +61,17 @@ expandLineBySpanMultiline :: EngineState -> [LineSpan] -> Cursor -> (Text, Int)
 expandLineBySpanMultiline st spans futureCursor =
   let commentSpans = filter lineSpanInBlockComment spans
       hasLineComment = any (\s -> "--" `T.isPrefixOf` lineSpanText s) commentSpans
-      hasBlockComment = any (\s -> not ("--" `T.isPrefixOf` lineSpanText s)) commentSpans
-   in if hasLineComment && not hasBlockComment
-        then -- Line with -- comment: full-line expansion so macro args can span into the comment
+      hasCBlockComment = any (T.all (== ' ') . lineSpanText) commentSpans
+      hasHsComment = case commentSpans of
+        [] -> False
+        _ -> not hasCBlockComment
+   in if hasLineComment || hasHsComment
+        then -- Haskell comments stay in the token stream, so expand the full line.
           let fullText = T.concat [lineSpanText s | s <- spans]
            in (expandMacros st fullText, 0)
         else
-          if hasBlockComment
-            then -- Block comment spans: fall back to per-span expansion
+          if hasCBlockComment
+            then -- C comments are stripped to spaces, so preserve per-span handling.
               (expandLineBySpan st spans, 0)
             else -- Pure code line: try multi-line expansion
               let codeText = T.concat [lineSpanText s | s <- spans]

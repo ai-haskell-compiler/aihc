@@ -78,6 +78,9 @@ countExtraLinesConsumed st txt moreLines = scanForFunctionMacro False False Fals
               let escaped' = c == '\\' && not escaped
                   inChar' = not (c == '\'' && not escaped)
                in scanForFunctionMacro False inChar' escaped' rest
+          | startsHsBlockComment t ->
+              let (_, remaining) = consumeHsBlockComment t
+               in scanForFunctionMacro False False False remaining
           | c == '"' -> scanForFunctionMacro True False False rest
           | c == '\'' -> scanForFunctionMacro False True False rest
           | isIdentStart c ->
@@ -146,6 +149,9 @@ goText st painted inString inChar escaped txt acc =
           let escaped' = c == '\\' && not escaped
               inChar' = not (c == '\'' && not escaped)
            in goText st painted False inChar' escaped' rest (acc <> TB.singleton c)
+      | startsHsBlockComment txt ->
+          let (commentText, remaining) = consumeHsBlockComment txt
+           in goText st painted False False False remaining (acc <> TB.fromText commentText)
       | c == '"' ->
           goText st painted True False False rest (acc <> TB.singleton c)
       | c == '\'' ->
@@ -253,6 +259,10 @@ parseArgs depth argsRev current remaining =
   case T.uncons remaining of
     Nothing -> Nothing
     Just (ch, rest)
+      | ch == '{',
+        Just ('-', _) <- T.uncons rest ->
+          let (commentText, afterComment) = consumeHsBlockComment remaining
+           in parseArgs depth argsRev (current <> TB.fromText commentText) afterComment
       | ch == '(' ->
           parseArgs (depth + 1) argsRev (current <> TB.singleton ch) rest
       | ch == ')' && depth > 0 ->
@@ -290,6 +300,39 @@ findLastCloseParen txt =
     Just revIdx ->
       let idx = T.length txt - revIdx - 1
        in Just (T.take idx txt, T.drop (idx + 1) txt)
+
+startsHsBlockComment :: Text -> Bool
+startsHsBlockComment txt =
+  case T.uncons txt of
+    Just ('{', rest) ->
+      case T.uncons rest of
+        Just ('-', rest') ->
+          case T.uncons rest' of
+            Just ('#', _) -> False
+            _ -> True
+        _ -> False
+    _ -> False
+
+consumeHsBlockComment :: Text -> (Text, Text)
+consumeHsBlockComment = go 0 mempty
+  where
+    go :: Int -> TB.Builder -> Text -> (Text, Text)
+    go depth acc txt =
+      case T.uncons txt of
+        Nothing -> (builderToText acc, "")
+        Just (c, rest) ->
+          case T.uncons rest of
+            Just ('-', rest')
+              | c == '{' ->
+                  go (depth + 1) (acc <> TB.fromText "{-") rest'
+            Just ('}', rest')
+              | c == '-' && depth <= 1 ->
+                  (builderToText (acc <> TB.fromText "-}"), rest')
+            Just ('}', rest')
+              | c == '-' ->
+                  go (depth - 1) (acc <> TB.fromText "-}") rest'
+            _ ->
+              go depth (acc <> TB.singleton c) rest
 
 data Piece
   = PieceWhitespace !Text
