@@ -241,6 +241,10 @@ needsExprParens ctx expr =
         -- wrapping, the re-parsed tree would right-associate differently.
         EInfix {} -> True
         ETypeSig {} -> True
+        -- A pragma on the infix LHS would absorb the operator and its RHS into
+        -- the pragma's scope, changing the parse: ({-# P #-} x) + y vs
+        -- {-# P #-} (x + y).
+        EPragma {} -> True
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -249,11 +253,16 @@ needsExprParens ctx expr =
     CtxAppArg ->
       case expr of
         _ | isBlockExpr expr -> False
+        -- A pragma as a function argument needs parens: `fn {-# P #-} x` is
+        -- ambiguous; `fn ({-# P #-} x)` is unambiguous.
+        EPragma {} -> True
         _ -> False
     CtxAppArgNoParens ->
       False
     CtxAppArgGreedy ->
-      isGreedyExpr expr
+      case expr of
+        EPragma {} -> True
+        _ -> isGreedyExpr expr
     CtxTypeSigBody ->
       case expr of
         ETypeSig {} -> True
@@ -928,7 +937,9 @@ addExprParensPrec prec expr =
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
     EPragma pragma inner ->
-      wrapExpr (prec > 0) (EPragma pragma (addExprParens inner))
+      -- EPragma is transparent w.r.t. precedence: wrapping decisions are made
+      -- by the outer context via needsExprParens, not by a self-prec check.
+      EPragma pragma (addExprParens inner)
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
   where
     isTypeSig :: Expr -> Bool
@@ -973,7 +984,12 @@ addNegateParens :: Expr -> Expr
 addNegateParens inner =
   if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
-    else addExprParensPrec 3 inner
+    else case peelExprAnn inner of
+      -- Avoid `--` being lexed as a line comment: wrap nested negation.
+      ENegate {} -> wrapExpr True (addExprParens inner)
+      -- Application and type-application bind tighter than negation, so `-f x`
+      -- does not need parens around `f x`.
+      _ -> addExprParensPrec 2 inner
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
@@ -1188,7 +1204,7 @@ addPatternParens pat =
     PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
     PList elems -> PList (map addPatternInDelimited elems)
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
-    PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixOperandParens rhs)
+    PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixRhsOperandParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
     PAs name inner -> PAs name (addPatternAtomStrictParens inner)
@@ -1198,7 +1214,7 @@ addPatternParens pat =
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
       PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
-    PTypeSig inner ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    PTypeSig inner ty -> PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
@@ -1277,6 +1293,17 @@ addPatternInfixOperandParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
     PCon {} -> addPatternParens pat
+    _ -> addPatternAtomParens pat
+
+-- | Add parens for the right operand of a 'PInfix' pattern.
+-- Infix patterns in Haskell are right-recursive (@infixpat -> pat10 conop infixpat@),
+-- so a nested 'PInfix' on the RHS is the natural parse and does not need wrapping.
+addPatternInfixRhsOperandParens :: Pattern -> Pattern
+addPatternInfixRhsOperandParens pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternInfixRhsOperandParens sub)
+    PCon {} -> addPatternParens pat
+    PInfix {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in arrow binder position (lambda/proc).
