@@ -18,9 +18,9 @@ main =
               PackageSpec "unix" "2.8.8.0"
             ],
       testCase "keeps installed for packages without a fixed override" $ do
-        parseSnapshotConstraints "constraints: base installed, custom-package installed"
+        parseSnapshotConstraints "constraints: ghc-prim installed, custom-package installed"
           @?= Right
-            [ PackageSpec "base" "installed",
+            [ PackageSpec "ghc-prim" "installed",
               PackageSpec "custom-package" "installed"
             ],
       QC.testProperty "dummy quickcheck property" prop_dummy
