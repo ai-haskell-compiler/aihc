@@ -67,6 +67,7 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Resolve.Types
+import Data.Bifunctor
 import Data.Data (Data, cast, gmapQ)
 import Data.List (mapAccumL)
 import Data.Map.Strict qualified as Map
@@ -590,7 +591,7 @@ resolveGadtBody :: Scope -> GadtBody -> GadtBody
 resolveGadtBody scope body =
   case body of
     GadtPrefixBody bangTypes ty ->
-      GadtPrefixBody (map (\(bt, ak) -> (resolveBangType bt, ak)) bangTypes) (resolveType scope ty)
+      GadtPrefixBody (map (Data.Bifunctor.first resolveBangType) bangTypes) (resolveType scope ty)
     GadtRecordBody fields ty ->
       GadtRecordBody (map resolveFieldDecl fields) (resolveType scope ty)
   where
