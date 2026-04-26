@@ -875,9 +875,7 @@ declExportedNames decl =
       case valueDecl of
         FunctionBind name _ -> ([name], [])
         PatternBind pat _ ->
-          case peelPatternAnn pat of
-            PVar name -> ([name], [])
-            _ -> ([], [])
+          (map snd (collectPatVarBinders NoSourceSpan pat), [])
     DeclTypeSig names _ -> (names, [])
     DeclClass classDecl ->
       ( classDeclMethodNames (classDeclItems classDecl),
