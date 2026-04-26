@@ -279,17 +279,17 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
         (e : _) -> pure (PkgFailed e)
         [] -> do
           let modules = map fst pairs
-              srcLines = Map.fromList [(path, T.lines src) | (_, (path, src)) <- pairs]
+              srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
               resolveResult = resolveWithDeps depExports modules
               !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
           _ <- evaluate annCount
           case resolveErrors resolveResult of
             [] -> pure (PkgSuccess (extractInterface resolveResult))
-            resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcLines) resolveErrs)))
+            resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcTexts) resolveErrs)))
 
-renderResolveError :: Map FilePath [Text] -> ResolveError -> String
-renderResolveError srcLines (ResolveResolutionError errSpan _ _ msg) =
-  renderSpanHeader errSpan ++ renderSourceSnippet srcLines errSpan ++ "  " ++ msg ++ "."
+renderResolveError :: Map FilePath Text -> ResolveError -> String
+renderResolveError srcTexts (ResolveResolutionError errSpan _ _ msg) =
+  renderSpanHeader errSpan ++ renderSourceSnippet srcTexts errSpan ++ "  " ++ msg ++ "."
 renderResolveError _ (ResolveNotImplemented msg) = "not implemented: " ++ msg
 
 renderSpanHeader :: SourceSpan -> String
@@ -297,27 +297,47 @@ renderSpanHeader NoSourceSpan = "<unknown location>\n"
 renderSpanHeader ss =
   sourceSpanSourceName ss ++ ":" ++ show (sourceSpanStartLine ss) ++ ":" ++ show (sourceSpanStartCol ss) ++ ":\n"
 
-renderSourceSnippet :: Map FilePath [Text] -> SourceSpan -> String
+-- | Extract the source line containing 'offset' by scanning byte-by-byte.
+-- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.
+-- The line/column stored in 'SourceSpan' may be wrong after CPP '#line' pragmas,
+-- so we derive the actual source line from the byte offset instead.
+extractLineAtOffset :: BS.ByteString -> Int -> String
+extractLineAtOffset bytes offset =
+  let anchor = max 0 (min (BS.length bytes) offset)
+      start = scanBack anchor
+      end = scanFwd anchor
+   in T.unpack (TE.decodeUtf8 (BS.take (end - start) (BS.drop start bytes)))
+  where
+    scanBack i
+      | i <= 0 = 0
+      | BS.index bytes (i - 1) == 10 = i  -- '\n'
+      | otherwise = scanBack (i - 1)
+    scanFwd i
+      | i >= BS.length bytes = BS.length bytes
+      | BS.index bytes i == 10 = i
+      | otherwise = scanFwd (i + 1)
+
+renderSourceSnippet :: Map FilePath Text -> SourceSpan -> String
 renderSourceSnippet _ NoSourceSpan = ""
-renderSourceSnippet srcLines ss =
-  case Map.lookup (sourceSpanSourceName ss) srcLines of
+renderSourceSnippet srcTexts ss =
+  case Map.lookup (sourceSpanSourceName ss) srcTexts of
     Nothing -> ""
-    Just ls ->
-      let startLine = sourceSpanStartLine ss
+    Just src ->
+      let bytes = TE.encodeUtf8 src
+          startLine = sourceSpanStartLine ss
           startCol = sourceSpanStartCol ss
           endLine = sourceSpanEndLine ss
           endCol = sourceSpanEndCol ss
-          lineIdx = startLine - 1
-          lineText = if lineIdx >= 0 && lineIdx < length ls then ls !! lineIdx else ""
+          lineText = extractLineAtOffset bytes (sourceSpanStartOffset ss)
           lineNumStr = show startLine
           pad = replicate (length lineNumStr) ' '
           caretStart = startCol - 1
           caretLen
             | endLine == startLine = max 1 (endCol - startCol)
-            | otherwise = max 1 (T.length lineText - caretStart)
+            | otherwise = max 1 (length lineText - caretStart)
           carets = replicate caretLen '^'
        in pad ++ " |\n"
-            ++ lineNumStr ++ " | " ++ T.unpack lineText ++ "\n"
+            ++ lineNumStr ++ " | " ++ lineText ++ "\n"
             ++ pad ++ " | " ++ replicate caretStart ' ' ++ carets ++ "\n"
 
 partitionEithers :: [Either a b] -> ([a], [b])
