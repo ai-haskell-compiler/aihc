@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail kind annotation on type instance RHS gains extra parentheses during roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}

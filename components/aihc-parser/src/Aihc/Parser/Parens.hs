@@ -539,7 +539,8 @@ addPatSynDirParens name (PatSynExplicitBidirectional matches) =
 addDataDeclParens :: DataDecl -> DataDecl
 addDataDeclParens decl =
   decl
-    { dataDeclContext = addContextConstraints (dataDeclContext decl),
+    { dataDeclCTypePragma = fmap stripPragmaRawText (dataDeclCTypePragma decl),
+      dataDeclContext = addContextConstraints (dataDeclContext decl),
       dataDeclKind = fmap addTypeParens (dataDeclKind decl),
       dataDeclConstructors = map addDataConDeclParens (dataDeclConstructors decl),
       dataDeclDeriving = map addDerivingClauseParens (dataDeclDeriving decl)
@@ -548,11 +549,15 @@ addDataDeclParens decl =
 addNewtypeDeclParens :: NewtypeDecl -> NewtypeDecl
 addNewtypeDeclParens decl =
   decl
-    { newtypeDeclContext = addContextConstraints (newtypeDeclContext decl),
+    { newtypeDeclCTypePragma = fmap stripPragmaRawText (newtypeDeclCTypePragma decl),
+      newtypeDeclContext = addContextConstraints (newtypeDeclContext decl),
       newtypeDeclKind = fmap addTypeParens (newtypeDeclKind decl),
       newtypeDeclConstructor = fmap addDataConDeclParens (newtypeDeclConstructor decl),
       newtypeDeclDeriving = map addDerivingClauseParens (newtypeDeclDeriving decl)
     }
+
+stripPragmaRawText :: Pragma -> Pragma
+stripPragmaRawText pragma = pragma {pragmaRawText = ""}
 
 addDerivingClauseParens :: DerivingClause -> DerivingClause
 addDerivingClauseParens dc =
@@ -811,7 +816,7 @@ addTypeFamilyLhsParens headForm ty =
         _ -> addTypeParens ty
 
 addTypeFamilyRhsParens :: Type -> Type
-addTypeFamilyRhsParens = addTypeParensShared CtxTypeFamilyOperand 0
+addTypeFamilyRhsParens = addTypeTopLevelParens
 
 addDataFamilyInstParens :: DataFamilyInst -> DataFamilyInst
 addDataFamilyInstParens dfi =
@@ -1133,7 +1138,7 @@ addTyVarBinderParens tvb =
 -- would fail to parse and must be wrapped in TParen.
 addForallBodyParens :: Type -> Type
 addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
-addForallBodyParens ty@(TForall {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
+addForallBodyParens ty@(TForall {}) = addTypeParensShared CtxTypeAtom 0 ty
 addForallBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body of a TImplicitParam. Although 'typeImplicitParamParser'

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail invisible forall body after visible forall in standalone kind signature is wrapped in extra parens during roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE DataKinds #-}

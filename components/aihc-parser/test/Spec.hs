@@ -115,6 +115,8 @@ buildTests = do
             testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
             testCase "boxed tuple infix constructor operands stay bare" test_boxedTupleInfixConOperandStaysBare,
             testCase "unboxed tuple infix constructor operands stay bare" test_unboxedTupleInfixConOperandStaysBare,
+            testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
+            testCase "newtype CTYPE pragmas round-trip" test_newtypeCTypePragmaRoundTrips,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
@@ -386,7 +388,8 @@ test_dataDeclResultKindContextRoundTrips = do
   let decl =
         DeclData
           DataDecl
-            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "\66952") [],
+            { dataDeclCTypePragma = Nothing,
+              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "\66952") [],
               dataDeclContext = [],
               dataDeclKind =
                 Just
@@ -409,7 +412,8 @@ test_boxedTupleInfixConOperandStaysBare = do
   let decl =
         DeclData
           DataDecl
-            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
+            { dataDeclCTypePragma = Nothing,
+              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
               dataDeclContext = [],
               dataDeclKind = Nothing,
               dataDeclConstructors =
@@ -430,7 +434,8 @@ test_unboxedTupleInfixConOperandStaysBare = do
   let decl =
         DeclData
           DataDecl
-            { dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
+            { dataDeclCTypePragma = Nothing,
+              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
               dataDeclContext = [],
               dataDeclKind = Nothing,
               dataDeclConstructors =
@@ -445,6 +450,24 @@ test_unboxedTupleInfixConOperandStaysBare = do
             }
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
+
+test_dataDeclCTypePragmaRoundTrips :: Assertion
+test_dataDeclCTypePragmaRoundTrips = do
+  let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "data {-# CTYPE \"termbox.h\" \"struct tb_cell\" #-} Tb_cell = Tb_cell"]
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+       in assertBool "expected rendered module to preserve data CTYPE pragma" ("CTYPE \"termbox.h\" \"struct tb_cell\"" `T.isInfixOf` rendered)
+    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
+
+test_newtypeCTypePragmaRoundTrips :: Assertion
+test_newtypeCTypePragmaRoundTrips = do
+  let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "import Foreign.C.Types (CInt (..))", "newtype {-# CTYPE \"signed int\" #-} Fixed = Fixed CInt"]
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+       in assertBool "expected rendered module to preserve newtype CTYPE pragma" ("CTYPE \"signed int\"" `T.isInfixOf` rendered)
+    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
 
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do

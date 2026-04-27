@@ -344,7 +344,8 @@ docDataDecl dd =
   "DataDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      take 1 binderFields
+      optionalField "ctype" docPragma (dataDeclCTypePragma dd)
+        <> take 1 binderFields
         <> listField "context" docType (dataDeclContext dd)
         <> drop 1 binderFields
         <> optionalField "kind" docType (dataDeclKind dd)
@@ -357,7 +358,8 @@ docNewtypeDecl nd =
   "NewtypeDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      take 1 binderFields
+      optionalField "ctype" docPragma (newtypeDeclCTypePragma nd)
+        <> take 1 binderFields
         <> listField "context" docType (newtypeDeclContext nd)
         <> drop 1 binderFields
         <> optionalField "kind" docType (newtypeDeclKind nd)
