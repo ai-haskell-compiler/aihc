@@ -238,6 +238,7 @@ data LayoutContext
 
 data ImplicitLayoutKind
   = LayoutOrdinary
+  | LayoutDoBlock
   | LayoutLetBlock
   | LayoutMultiWayIf
   | LayoutAfterThenElse !Int -- do-block opened directly by a preceding 'then'/'else'; tracks nested classic ifs inside the block

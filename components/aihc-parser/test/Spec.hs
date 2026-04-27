@@ -13,6 +13,7 @@ import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Maybe (isNothing)
 import Data.Text qualified as T
+import GhcOracle qualified
 import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -125,6 +126,7 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "Haskell98 pretty printer preserves top-level declaration boundaries" test_haskell98PrettyKeepsTopLevelDeclBoundaries,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -737,6 +739,42 @@ test_prettyInfixRhsOpenEndedInsideSection = do
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_haskell98PrettyKeepsTopLevelDeclBoundaries :: Assertion
+test_haskell98PrettyKeepsTopLevelDeclBoundaries = do
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE CPP #-}",
+            "module M where",
+            "sortDirShape :: Int -> Int",
+            "sortDirShape = id  where",
+            "",
+            "  -- HELPER:",
+            "sortDirBy :: Int -> Int",
+            "sortDirBy x = x",
+            "{-# DEPRECATED free \"Use record 'dirTree'\" #-}",
+            "free :: Int",
+            "free = 1"
+          ]
+      config = defaultConfig {parserExtensions = effectiveExtensions Haskell98Edition [EnableExtension CPP]}
+      (errs, modu) = parseModule config source
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+  assertBool ("expected parse success, got: " <> show errs) (null errs)
+  case moduleDecls modu of
+    [ _,
+      DeclAnn _ (DeclValue (PatternBind _ _ (UnguardedRhs _ _ (Just [])))),
+      _,
+      _,
+      DeclAnn _ (DeclPragma _),
+      _,
+      _
+      ] -> pure ()
+    other ->
+      assertFailure ("expected top-level where block to end before pragma, got: " <> show other)
+  case GhcOracle.oracleModuleAstFingerprint "<pretty-h98>" Haskell98Edition [EnableExtension CPP] rendered of
+    Left err ->
+      assertFailure ("expected Haskell98 pretty output to be accepted by GHC, got:\n" <> T.unpack err <> "\nRendered:\n" <> T.unpack rendered)
+    Right {} -> pure ()
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =
