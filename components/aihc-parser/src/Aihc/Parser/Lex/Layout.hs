@@ -92,19 +92,12 @@ openImplicitLayout kind st tok =
       openTok = virtualSymbolToken "{" (lexTokenSpan tok)
       closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
       newContext = LayoutImplicit col kind
-      -- NondecreasingIndentation only relaxes same-column nesting for do-style
-      -- blocks. A top-level `where` at the same column as the surrounding
-      -- declaration is still an empty block in GHC.
-      allowSameColumnNesting =
-        layoutNondecreasingIndent st
-          && case kind of
-            LayoutOrdinary -> False
-            LayoutDoBlock -> True
-            LayoutLetBlock -> False
-            LayoutCaseAlternative -> False
-            LayoutMultiWayIf -> False
-            LayoutAfterThenElse _ -> True
-      opensEmpty = if allowSameColumnNesting then col < parentIndent else col <= parentIndent
+      -- Under NondecreasingIndentation, same-column nesting is allowed for
+      -- ordinary statement layouts (not declaration where-blocks).
+      opensEmpty =
+        if layoutNondecreasingIndent st && kind /= LayoutWhereBlock
+          then col < parentIndent
+          else col <= parentIndent
    in if opensEmpty
         then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
         else
@@ -238,14 +231,14 @@ stepTokenContext st tok =
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
           st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
-      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutDoBlock)}
-    TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutDoBlock)}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkQualifiedDo {}
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
           st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
-      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutDoBlock)}
-    TkQualifiedMdo {} -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutDoBlock)}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkQualifiedMdo {} -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
@@ -256,8 +249,8 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just PendingMaybeLambdaCases}
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
-    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutDoBlock)}
-    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutWhereBlock)}
     TkKeywordElse -> decrementAfterThenElseClassicIfDepth st
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     TkTHDeclQuoteOpen ->
