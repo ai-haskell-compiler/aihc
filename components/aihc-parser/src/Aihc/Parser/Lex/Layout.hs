@@ -92,9 +92,12 @@ openImplicitLayout kind st tok =
       openTok = virtualSymbolToken "{" (lexTokenSpan tok)
       closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
       newContext = LayoutImplicit col kind
-      -- Under NondecreasingIndentation, a nested context at the same level
-      -- as its parent is allowed (produces normal layout, not empty {}).
-      opensEmpty = if layoutNondecreasingIndent st then col < parentIndent else col <= parentIndent
+      -- Under NondecreasingIndentation, same-column nesting is allowed for
+      -- ordinary statement layouts (not declaration where-blocks).
+      opensEmpty =
+        if layoutNondecreasingIndent st && kind /= LayoutWhereBlock
+          then col < parentIndent
+          else col <= parentIndent
    in if opensEmpty
         then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
         else
@@ -247,7 +250,7 @@ stepTokenContext st tok =
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
     TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutWhereBlock)}
     TkKeywordElse -> decrementAfterThenElseClassicIfDepth st
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     TkTHDeclQuoteOpen ->
