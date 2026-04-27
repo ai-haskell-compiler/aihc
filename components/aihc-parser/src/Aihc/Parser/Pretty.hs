@@ -92,15 +92,12 @@ prettyModuleDoc modu =
         Just name ->
           [ hsep
               ( ["module", pretty name]
-                  <> maybe [] prettyWarningText (moduleWarningText modu)
+                  <> maybe [] (\p -> [prettyPragma p]) (moduleWarningPragma modu)
                   <> maybe [] (\specs -> [prettyExportSpecList specs]) (moduleExports modu)
                   <> ["where"]
               )
           ]
         Nothing -> []
-    prettyWarningText (DeprText msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
-    prettyWarningText (WarnText msg) = ["{-# WARNING", pretty (show msg), "#-}"]
-    prettyWarningText (WarningTextAnn _ sub) = prettyWarningText sub
     importLines = map prettyImportDecl (moduleImports modu)
     declLines = concatMap prettyDeclLines (moduleDecls modu)
 
@@ -128,13 +125,11 @@ prettyExportSpec spec =
         mWarning
         (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (insertWildcard wildcardIndex (map prettyExportMember members)))))
 
-prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
+prettyExportWarning :: Maybe Pragma -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
   case mWarning of
     Nothing -> doc
-    Just (DeprText msg) -> hsep ["{-# DEPRECATED", pretty (show msg), "#-}", doc]
-    Just (WarnText msg) -> hsep ["{-# WARNING", pretty (show msg), "#-}", doc]
-    Just (WarningTextAnn _ sub) -> prettyExportWarning (Just sub) doc
+    Just p -> hsep [prettyPragma p, doc]
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
@@ -147,7 +142,7 @@ prettyImportDecl decl =
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
             <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
-            <> ["{-# SOURCE #-}" | importDeclSource decl]
+            <> maybe [] (\p -> [prettyPragma p]) (importDeclSourcePragma decl)
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
@@ -819,7 +814,7 @@ prettyInstanceDecl decl =
         hsep
           ( ["instance"]
               <> map prettyPragma (instanceDeclPragmas decl)
-              <> maybe [] (\w -> [prettyInstanceWarning w]) (instanceDeclWarning decl)
+              <> maybe [] (\w -> [prettyPragma w]) (instanceDeclWarning decl)
               <> forallTyVarBinderPrefix (instanceDeclForall decl)
               <> contextPrefix (instanceDeclContext decl)
               <> [prettyType (instanceDeclHead decl)]
@@ -828,10 +823,6 @@ prettyInstanceDecl decl =
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
 
-prettyInstanceWarning :: WarningText -> Doc ann
-prettyInstanceWarning (DeprText msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
-prettyInstanceWarning (WarnText msg) = "{-# WARNING " <> pretty (show msg) <> " #-}"
-prettyInstanceWarning (WarningTextAnn _ sub) = prettyInstanceWarning sub
 
 prettyStandaloneDeriving :: StandaloneDerivingDecl -> Doc ann
 prettyStandaloneDeriving decl =
@@ -841,7 +832,7 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
         <> map prettyPragma (standaloneDerivingPragmas decl)
-        <> maybe [] (\w -> [prettyInstanceWarning w]) (standaloneDerivingWarning decl)
+        <> maybe [] (\w -> [prettyPragma w]) (standaloneDerivingWarning decl)
         <> forallTyVarBinderPrefix (standaloneDerivingForall decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [prettyType (standaloneDerivingHead decl)]

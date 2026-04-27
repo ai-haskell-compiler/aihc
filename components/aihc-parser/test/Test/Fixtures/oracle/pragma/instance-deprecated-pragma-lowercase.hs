@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail WarningText does not carry pragmaRawText so the pretty-printer normalises to {-# DEPRECATED #-} -}
+{- ORACLE_TEST pass -}
 module InstanceDeprecatedPragmaLowercase where
 
 data T1 = T1

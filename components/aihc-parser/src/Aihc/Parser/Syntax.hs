@@ -69,7 +69,6 @@ module Aihc.Parser.Syntax
     NameType (..),
     UnqualifiedName (..),
     InstanceHeadType,
-    WarningText (..),
     Annotation,
     NewtypeDecl (..),
     OperatorName,
@@ -131,7 +130,7 @@ module Aihc.Parser.Syntax
     renderUnqualifiedName,
     unqualifiedNameFromText,
     moduleName,
-    moduleWarningText,
+    moduleWarningPragma,
     moduleExports,
     instanceHeadName,
     instanceHeadTypes,
@@ -169,7 +168,6 @@ module Aihc.Parser.Syntax
     getLiteralSourceSpan,
     getPatternSourceSpan,
     getTypeSourceSpan,
-    getWarningTextSourceSpan,
   )
 where
 
@@ -817,12 +815,6 @@ type BinderName = UnqualifiedName
 
 type OperatorName = UnqualifiedName
 
-data WarningText
-  = DeprText Text
-  | WarnText Text
-  | WarningTextAnn Annotation WarningText
-  deriving (Data, Eq, Show, Generic, NFData)
-
 data PragmaUnpackKind
   = UnpackPragma
   | NoUnpackPragma
@@ -846,15 +838,6 @@ data Pragma = Pragma
   }
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
-getWarningTextSourceSpan :: WarningText -> SourceSpan
-getWarningTextSourceSpan warningText =
-  case warningText of
-    DeprText _ -> NoSourceSpan
-    WarnText _ -> NoSourceSpan
-    WarningTextAnn ann sub
-      | Just srcSpan <- fromAnnotation ann -> srcSpan
-      | otherwise -> getWarningTextSourceSpan sub
-
 data Module = Module
   { moduleAnns :: [Annotation],
     moduleHead :: Maybe ModuleHead,
@@ -867,7 +850,7 @@ data Module = Module
 data ModuleHead = ModuleHead
   { moduleHeadAnns :: [Annotation],
     moduleHeadName :: Text,
-    moduleHeadWarningText :: Maybe WarningText,
+    moduleHeadWarningPragma :: Maybe Pragma,
     moduleHeadExports :: Maybe [ExportSpec]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -875,8 +858,8 @@ data ModuleHead = ModuleHead
 moduleName :: Module -> Maybe Text
 moduleName modu = moduleHeadName <$> moduleHead modu
 
-moduleWarningText :: Module -> Maybe WarningText
-moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
+moduleWarningPragma :: Module -> Maybe Pragma
+moduleWarningPragma modu = moduleHeadWarningPragma =<< moduleHead modu
 
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
@@ -899,12 +882,12 @@ data IEBundledMember = IEBundledMember
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
-  = ExportModule (Maybe WarningText) Text
-  | ExportVar (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAbs (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAll (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportWith (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  | ExportWithAll (Maybe WarningText) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
+  = ExportModule (Maybe Pragma) Text
+  | ExportVar (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportAbs (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportAll (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportWith (Maybe Pragma) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportWithAll (Maybe Pragma) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
   | ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -920,7 +903,7 @@ data ImportDecl = ImportDecl
   { importDeclAnns :: [Annotation],
     importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
-    importDeclSource :: Bool,
+    importDeclSourcePragma :: Maybe Pragma,
     importDeclSafe :: Bool,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
@@ -1554,7 +1537,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingViaType :: Maybe Type,
     standaloneDerivingPragmas :: [Pragma],
-    standaloneDerivingWarning :: Maybe WarningText,
+    standaloneDerivingWarning :: Maybe Pragma,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingHead :: InstanceHeadType
@@ -1603,7 +1586,7 @@ peelClassDeclItemAnn item = item
 
 data InstanceDecl = InstanceDecl
   { instanceDeclPragmas :: [Pragma],
-    instanceDeclWarning :: Maybe WarningText,
+    instanceDeclWarning :: Maybe Pragma,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclHead :: InstanceHeadType,
@@ -1943,7 +1926,6 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
         `extT` sCmd
         `extT` sExportSpec
         `extT` sImportItem
-        `extT` sWarningText
         `extT` sAnnotations
         `extT` sPragma
 
@@ -2010,10 +1992,6 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
     sImportItem :: ImportItem -> ImportItem
     sImportItem (ImportAnn _ i) = i
     sImportItem i = i
-
-    sWarningText :: WarningText -> WarningText
-    sWarningText (WarningTextAnn _ w) = w
-    sWarningText w = w
 
     sAnnotations :: [Annotation] -> [Annotation]
     sAnnotations _ = []

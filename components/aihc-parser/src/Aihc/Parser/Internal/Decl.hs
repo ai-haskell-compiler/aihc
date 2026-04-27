@@ -12,7 +12,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
-import Aihc.Parser.Internal.Import (warningTextParser)
+import Aihc.Parser.Internal.Import (warningPragmaParser)
 import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
@@ -692,7 +692,7 @@ instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordInstance
   overlapPragmas <- MP.option [] (fmap (: []) instanceOverlapPragmaParser)
-  warningText <- MP.optional warningTextParser
+  warningText <- MP.optional warningPragmaParser
   forallBinders <- MP.optional explicitForallParser
   (context, instanceHead) <- declHeadWithOptionalContext typeInfixParser
   items <- MP.option [] instanceWhereClauseParser
@@ -714,7 +714,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   expectedTok TkKeywordInstance
   overlapPragmas <- MP.option [] (fmap (: []) instanceOverlapPragmaParser)
-  warningText <- MP.optional warningTextParser
+  warningText <- MP.optional warningPragmaParser
   forallBinders <- MP.optional explicitForallParser
   (context, derivingHead) <- declHeadWithOptionalContext typeInfixParser
   pure $

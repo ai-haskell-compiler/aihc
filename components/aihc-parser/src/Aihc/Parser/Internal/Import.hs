@@ -6,7 +6,7 @@ module Aihc.Parser.Internal.Import
   ( languagePragmaParser,
     moduleHeaderParser,
     importDeclParser,
-    warningTextParser,
+    warningPragmaParser,
   )
 where
 
@@ -16,7 +16,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
 import Data.Char (isUpper)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec ((<|>))
@@ -32,39 +32,38 @@ moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
   expectedTok TkKeywordModule
   name <- moduleNameParser
-  mWarning <- MP.optional warningTextParser
+  mWarning <- MP.optional warningPragmaParser
   exports <- MP.optional exportSpecListParser
   expectedTok TkKeywordWhere
   pure $ \span' ->
     ModuleHead
       { moduleHeadAnns = [mkAnnotation span'],
         moduleHeadName = name,
-        moduleHeadWarningText = mWarning,
+        moduleHeadWarningPragma = mWarning,
         moduleHeadExports = exports
       }
 
-warningTextParser :: TokParser WarningText
-warningTextParser =
-  withSpanAnn (WarningTextAnn . mkAnnotation) $
-    hiddenPragma "warning pragma" $ \p -> case pragmaType p of
-      PragmaWarning msg -> Just (WarnText msg)
-      PragmaDeprecated msg -> Just (DeprText msg)
-      _ -> Nothing
+warningPragmaParser :: TokParser Pragma
+warningPragmaParser =
+  hiddenPragma "warning pragma" $ \p -> case pragmaType p of
+    PragmaWarning _ -> Just p
+    PragmaDeprecated _ -> Just p
+    _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser = withSpanAnn (ExportAnn . mkAnnotation) $ do
-  mWarning <- MP.optional warningTextParser
+  mWarning <- MP.optional warningPragmaParser
   exportModuleParser mWarning <|> exportNameParser mWarning
 
-exportModuleParser :: Maybe WarningText -> TokParser ExportSpec
+exportModuleParser :: Maybe Pragma -> TokParser ExportSpec
 exportModuleParser mWarning = do
   expectedTok TkKeywordModule
   ExportModule mWarning <$> moduleNameParser
 
-exportNameParser :: Maybe WarningText -> TokParser ExportSpec
+exportNameParser :: Maybe Pragma -> TokParser ExportSpec
 exportNameParser mWarning = do
   namespace <- MP.optional exportImportNamespaceParser
   name <- identifierNameParser <|> parens operatorNameParser
@@ -149,12 +148,9 @@ importDeclParser = withSpan $ do
     MP.option False (expectedTok TkVarQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
-  let isSourcePragma :: Pragma -> Maybe Bool
-      isSourcePragma p = case pragmaType p of
-        PragmaSource {} -> Just True
-        _ -> Nothing
-  importedSource <-
-    fromMaybe False <$> optionalHiddenPragma isSourcePragma
+  importedSource <- optionalHiddenPragma $ \p -> case pragmaType p of
+    PragmaSource {} -> Just p
+    _ -> Nothing
   importedModule <- moduleNameParser
   postQualified <-
     MP.optional $
@@ -175,7 +171,7 @@ importDeclParser = withSpan $ do
       { importDeclAnns = [mkAnnotation span'],
         importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
-        importDeclSource = importedSource,
+        importDeclSourcePragma = importedSource,
         importDeclSafe = importedSafe,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = isJust postQualified,
