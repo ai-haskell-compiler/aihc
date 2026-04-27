@@ -48,9 +48,10 @@ tryConsumeLineDirective st
                in case classifyHashLineTrivia atColumn1 lineText of
                     Just (HashLineDirective update) ->
                       Just (Nothing, applyDirectiveAdvance consumed update st)
-                    Just HashLineShebang | lexerLine st == 1 ->
-                      let st' = advanceChars consumed st
-                       in Just (Nothing, st')
+                    Just HashLineShebang
+                      | lexerLine st == 1 ->
+                          let st' = advanceChars consumed st
+                           in Just (Nothing, st')
                     Just HashLineShebang -> Nothing
                     Just HashLineMalformed ->
                       let st' = advanceChars consumed st
