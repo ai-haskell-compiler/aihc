@@ -45,7 +45,8 @@ tryConsumeLineDirective st
             '#' :< more ->
               let lineText = "#" <> takeLineRemainder more
                   consumed = spaces <> lineText
-               in case classifyHashLineTrivia atColumn1 lineText of
+                  isFirstLine = lexerLine st == 1
+               in case classifyHashLineTrivia atColumn1 isFirstLine lineText of
                     Just (HashLineDirective update) ->
                       Just (Nothing, applyDirectiveAdvance consumed update st)
                     Just HashLineShebang ->
@@ -140,13 +141,15 @@ applyDirectiveAdvance consumed update st =
 -- | Classify a line beginning with @#@.
 --
 -- @atColumn1@ is 'True' when @#@ sits at column 1 of the physical source
--- line (no leading whitespace).  CPP @#line@ directives are only
--- recognised at column 1, matching GHC behaviour.  Shebangs (@#!@) are
--- accepted regardless of column.
-classifyHashLineTrivia :: Bool -> Text -> Maybe HashLineTrivia
-classifyHashLineTrivia _atColumn1 raw
-  | isHashBangLine raw = Just HashLineShebang
-classifyHashLineTrivia atColumn1 raw
+-- line (no leading whitespace).  @isFirstLine@ is 'True' on line 1.
+-- Shebangs are accepted at column 1 on any line (for mid-file shebangs
+-- as in some polyglot scripts) or anywhere on line 1 (GHC also accepts
+-- an optional leading space before the initial shebang).
+-- An indented @#!@ past line 1 is left for the operator lexer.
+-- CPP @#line@ directives are only recognised at column 1, matching GHC.
+classifyHashLineTrivia :: Bool -> Bool -> Text -> Maybe HashLineTrivia
+classifyHashLineTrivia atColumn1 isFirstLine raw
+  | (atColumn1 || isFirstLine) && isHashBangLine raw = Just HashLineShebang
   | not atColumn1 = Nothing
   | looksLikeHashLineDirective raw =
       case parseHashLineDirective raw of

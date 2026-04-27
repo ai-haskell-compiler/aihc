@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SOURCE pragma with qualified import not yet supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module SourceImportQualified where

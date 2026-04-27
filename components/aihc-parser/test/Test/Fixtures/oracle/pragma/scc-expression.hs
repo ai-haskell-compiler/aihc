@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SCC pragma in expression context not yet supported -}
+{- ORACLE_TEST pass -}
 
 module SCCPragmaExpression where
 

@@ -33,7 +33,6 @@ import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
 import Data.Maybe (isNothing)
-import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -71,11 +70,6 @@ isSymbolicName name =
     NameVarSym -> True
     NameConSym -> True
     _ -> False
-
-isArrowTailOp :: Text -> Bool
-isArrowTailOp "-<" = True
-isArrowTailOp "-<<" = True
-isArrowTailOp _ = False
 
 -- ---------------------------------------------------------------------------
 -- Expression classification helpers (mirrored from Pretty.hs)
@@ -246,10 +240,6 @@ needsExprParens ctx expr =
         -- wrapping, the re-parsed tree would right-associate differently.
         EInfix {} -> True
         ETypeSig {} -> True
-        -- A pragma on the infix LHS would absorb the operator and its RHS into
-        -- the pragma's scope, changing the parse: ({-# P #-} x) + y vs
-        -- {-# P #-} (x + y).
-        EPragma {} -> True
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -888,24 +878,14 @@ addExprParensPrec prec expr =
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
     ELambdaCases alts ->
       wrapExpr (prec > 0) (ELambdaCases (map addLambdaCaseAltParens alts))
-    EInfix lhs op rhs
-      | isArrowTailOp (renderName op) ->
-          -- Arrow tail operators always parenthesized, LHS also parenthesized
-          wrapExpr
-            True
-            ( EInfix
-                (wrapExpr True (addExprParens lhs))
-                op
-                (addExprParens rhs)
-            )
-      | otherwise ->
-          wrapExpr
-            (prec > 1)
-            ( EInfix
-                (addExprParensIn CtxInfixLhs lhs)
-                op
-                (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
-            )
+    EInfix lhs op rhs ->
+      wrapExpr
+        (prec > 1)
+        ( EInfix
+            (addExprParensIn CtxInfixLhs lhs)
+            op
+            (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
+        )
     ENegate inner ->
       wrapExpr (prec > 2) (ENegate (addNegateParens inner))
     ESectionL lhs op ->

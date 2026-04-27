@@ -139,10 +139,10 @@ prettyImportDecl decl =
    in hsep
         ( ["import"]
             <> ["safe" | importDeclSafe decl]
+            <> maybe [] (\p -> [prettyPragma p]) (importDeclSourcePragma decl)
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
             <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
-            <> maybe [] (\p -> [prettyPragma p]) (importDeclSourcePragma decl)
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
@@ -399,6 +399,7 @@ startsWithTick (TAnn _ sub) = startsWithTick sub
 startsWithTick (TList Promoted _) = True
 startsWithTick (TCon _ Promoted) = True
 startsWithTick (TTuple _ Promoted _) = True
+startsWithTick (TApp f _) = startsWithTick f
 startsWithTick _ = False
 
 prettyType :: Type -> Doc ann
