@@ -26,7 +26,6 @@ import Aihc.Parser.Internal.FromTokens
 import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
-    Pragma (..),
     TokenOrigin (..),
     lexModuleTokens,
     lexTokens,
