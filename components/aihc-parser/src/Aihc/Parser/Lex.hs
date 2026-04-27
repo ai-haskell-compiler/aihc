@@ -687,13 +687,13 @@ lexOperator env st =
                   st' = advanceChars bananaText st
                in Just (mkToken st st' bananaText TkBananaClose, st')
             _
-              | hasExt OverloadedRecordDot env
-              , opText == "."
-              , not (lexerHadTrivia st)
-              , Just prevKind <- lexerPrevTokenKind st
-              , prevTokenAllowsRecordDot prevKind
-              , nextC :< _ <- T.drop 1 inp
-              , isVarIdentifierStartChar nextC ->
+              | hasExt OverloadedRecordDot env,
+                opText == ".",
+                not (lexerHadTrivia st),
+                Just prevKind <- lexerPrevTokenKind st,
+                prevTokenAllowsRecordDot prevKind,
+                nextC :< _ <- T.drop 1 inp,
+                isVarIdentifierStartChar nextC ->
                   let st' = advanceChars opText st
                    in Just (mkToken st st' opText TkRecordDot, st')
             _ ->
