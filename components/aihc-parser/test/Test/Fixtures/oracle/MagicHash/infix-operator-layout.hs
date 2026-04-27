@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail infix operator with magic hash in layout context not yet supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 
 module MagicHashOperatorLayout where

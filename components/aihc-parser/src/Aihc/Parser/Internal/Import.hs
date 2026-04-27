@@ -144,13 +144,13 @@ importDeclParser = withSpan $ do
   expectedTok TkKeywordImport
   importedSafe <-
     MP.option False (expectedTok TkVarSafe >> pure True)
+  importedSource <- optionalHiddenPragma $ \p -> case pragmaType p of
+    PragmaSource {} -> Just p
+    _ -> Nothing
   preQualified <-
     MP.option False (expectedTok TkVarQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
-  importedSource <- optionalHiddenPragma $ \p -> case pragmaType p of
-    PragmaSource {} -> Just p
-    _ -> Nothing
   importedModule <- moduleNameParser
   postQualified <-
     MP.optional $

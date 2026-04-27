@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail closed type family with promoted tuple patterns and polymorphic kind variables not yet supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}

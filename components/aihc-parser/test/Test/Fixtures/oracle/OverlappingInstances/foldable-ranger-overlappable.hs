@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail instance with OVERLAPPABLE pragma, type operators in constraint, and lambda case not yet supported -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}

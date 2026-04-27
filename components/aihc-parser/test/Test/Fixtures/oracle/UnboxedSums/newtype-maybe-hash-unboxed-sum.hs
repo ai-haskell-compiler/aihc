@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pretty-print yields ambiguous output -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
