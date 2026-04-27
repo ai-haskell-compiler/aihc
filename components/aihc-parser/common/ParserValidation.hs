@@ -13,7 +13,6 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseMo
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Algorithm.Diff (PolyDiff (..), getDiff)
-import Data.Data (Data)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
