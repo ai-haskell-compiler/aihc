@@ -72,7 +72,7 @@ instance Shorthand Module where
       fields =
         optionalField "name" docText (moduleName modu)
           <> listField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
-          <> optionalField "warningText" docWarningText (moduleWarningText modu)
+          <> optionalField "warningText" docPragma (moduleWarningPragma modu)
           <> optionalField "exports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleExports modu)
           <> listField "imports" docImportDecl (moduleImports modu)
           <> listField "decls" docDecl (moduleDecls modu)
@@ -101,13 +101,6 @@ showRationalAsFloat value =
     1 -> show (numerator value) <> ".0"
     _ -> show (fromRational value :: Double)
 
-docWarningText :: WarningText -> Doc ann
-docWarningText wt =
-  case wt of
-    DeprText msg -> "DeprText" <+> docText msg
-    WarnText msg -> "WarnText" <+> docText msg
-    WarningTextAnn _ sub -> docWarningText sub
-
 docExtensionSetting :: ExtensionSetting -> Doc ann
 docExtensionSetting setting =
   case setting of
@@ -119,25 +112,25 @@ docExportSpec spec =
   case spec of
     ExportAnn _ sub -> docExportSpec sub
     ExportModule mWarning name ->
-      "ExportModule" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> [field "name" (docText name)])))
+      "ExportModule" <> braces (hsep (punctuate comma (optionalField "warningText" docPragma mWarning <> [field "name" (docText name)])))
     ExportVar mWarning mNamespace name ->
-      "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
+      "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docPragma mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
     ExportAbs mWarning mNamespace name ->
-      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
+      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docPragma mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
     ExportAll mWarning mNamespace name ->
-      "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
+      "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docPragma mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
     ExportWith mWarning mNamespace name members ->
       "ExportWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
-          optionalField "warningText" docWarningText mWarning
+          optionalField "warningText" docPragma mWarning
             <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
     ExportWithAll mWarning mNamespace name wildcardIndex members ->
       "ExportWithAll" <> braces (hsep (punctuate comma fields))
       where
         fields =
-          optionalField "warningText" docWarningText mWarning
+          optionalField "warningText" docPragma mWarning
             <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docName name), field "wildcardIndex" (pretty wildcardIndex), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
@@ -147,7 +140,7 @@ docImportDecl decl =
   where
     fields =
       [field "module" (docText (importDeclModule decl))]
-        <> boolField "source" (importDeclSource decl)
+        <> optionalField "source" docPragma (importDeclSourcePragma decl)
         <> boolField "safe" (importDeclSafe decl)
         <> boolField "qualified" (importDeclQualified decl)
         <> boolField "qualifiedPost" (importDeclQualifiedPost decl)
@@ -408,17 +401,10 @@ docBangType bt =
   "BangType" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      sourceUnpackednessField (bangSourceUnpackedness bt)
+      listField "pragmas" docPragma (bangPragmas bt)
         <> boolField "strict" (bangStrict bt)
         <> boolField "lazy" (bangLazy bt)
         <> [field "type" (docType (bangType bt))]
-
-sourceUnpackednessField :: SourceUnpackedness -> [Doc ann]
-sourceUnpackednessField unpackedness =
-  case unpackedness of
-    NoSourceUnpackedness -> []
-    SourceUnpack -> [field "unpackedness" "\"UNPACK\""]
-    SourceNoUnpack -> [field "unpackedness" "\"NOUNPACK\""]
 
 docFieldDecl :: FieldDecl -> Doc ann
 docFieldDecl fd =
@@ -498,8 +484,8 @@ docInstanceDecl inst =
   "InstanceDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
-        <> optionalField "warning" docWarningText (instanceDeclWarning inst)
+      listField "pragmas" docPragma (instanceDeclPragmas inst)
+        <> optionalField "warning" docPragma (instanceDeclWarning inst)
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> listField "context" docType (instanceDeclContext inst)
         <> [field "head" (docType (instanceDeclHead inst))]
@@ -521,8 +507,8 @@ docStandaloneDerivingDecl sd =
   "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
-        <> optionalField "warning" docWarningText (standaloneDerivingWarning sd)
+      listField "pragmas" docPragma (standaloneDerivingPragmas sd)
+        <> optionalField "warning" docPragma (standaloneDerivingWarning sd)
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docType (standaloneDerivingContext sd)
         <> [field "head" (docType (standaloneDerivingHead sd))]
@@ -542,9 +528,9 @@ docPragmaUnpackKind kind =
     UnpackPragma -> "UnpackPragma"
     NoUnpackPragma -> "NoUnpackPragma"
 
-docPragma :: Pragma -> Doc ann
-docPragma pragma =
-  case pragma of
+docPragmaType :: PragmaType -> Doc ann
+docPragmaType pt =
+  case pt of
     PragmaLanguage settings -> "PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
     PragmaInstanceOverlap overlapPragma -> "PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma
     PragmaWarning msg -> "PragmaWarning" <+> docText msg
@@ -554,6 +540,9 @@ docPragma pragma =
     PragmaSource sourceText _ -> "PragmaSource" <+> docText sourceText
     PragmaSCC label -> "PragmaSCC" <+> docText label
     PragmaUnknown text -> "PragmaUnknown" <+> docText text
+
+docPragma :: Pragma -> Doc ann
+docPragma pragma = docPragmaType (pragmaType pragma)
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
@@ -998,17 +987,7 @@ docTokenKind kind =
     TkPrefixMinus -> "TkPrefixMinus"
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
-    TkPragma pragma' ->
-      case pragma' of
-        PragmaLanguage settings -> "TkPragma" <+> ("PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings))))
-        PragmaInstanceOverlap overlapPragma -> "TkPragma" <+> ("PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma)
-        PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
-        PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
-        PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
-        PragmaUnpack unpackKind -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind)
-        PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
-        PragmaSCC label -> "TkPragma" <+> ("PragmaSCC" <+> docText label)
-        PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
+    TkPragma pragma' -> "TkPragma" <+> docPragmaType (pragmaType pragma')
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"
