@@ -625,7 +625,7 @@ prettyDeclBinderHead constraints head' =
         PrefixBinderHead name params ->
           [prettyConstructorUName name] <> map prettyTyVarBinder params
         InfixBinderHead lhs name rhs tailPrms ->
-          let infixHead = pretty (tyVarBinderName lhs) <+> prettyInfixOp name <+> pretty (tyVarBinderName rhs)
+          let infixHead = prettyTyVarBinder lhs <+> prettyInfixOp name <+> prettyTyVarBinder rhs
            in case tailPrms of
                 [] -> [infixHead]
                 _ -> parens infixHead : map prettyTyVarBinder tailPrms
