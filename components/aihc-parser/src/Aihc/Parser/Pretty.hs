@@ -1142,6 +1142,8 @@ prettyExpr expr =
       prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     EGetField base field ->
       prettyExpr base <> "." <> prettyName field
+    EGetFieldProjection fields ->
+      "." <> mconcat (punctuate "." (map prettyName fields))
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
     EParen inner -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))

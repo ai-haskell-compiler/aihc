@@ -785,7 +785,8 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
         _ -> False
 
     parseBoxedContent closeTok =
-      MP.try (parseSectionR [])
+      MP.try (parseProjectionSection closeTok)
+        <|> MP.try (parseSectionR [])
         <|> do
           mBase <- MP.optional (MP.try negateExprParser <|> lexpParser)
           case mBase of
@@ -845,6 +846,13 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                           finalExpr <- maybeViewPattern typed
                           finishBoxed closeTok (Just finalExpr)
       where
+        parseProjectionSection tok = do
+          recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
+          guard recordDotEnabled
+          fields <- MP.some (expectedTok TkRecordDot *> recordFieldNameParser)
+          expectedTok tok
+          pure (EParen (EGetFieldProjection fields))
+
         parseSectionR forbidden = do
           op <- infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
           rhs <- exprParser

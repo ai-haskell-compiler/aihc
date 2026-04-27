@@ -1,0 +1,5 @@
+extensions: [OverloadedRecordDot]
+input: |
+  (.f.g)
+ast: EParen (EGetFieldProjection ["f", "g"])
+status: pass

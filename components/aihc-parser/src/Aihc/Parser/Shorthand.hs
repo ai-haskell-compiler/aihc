@@ -802,6 +802,7 @@ docExpr expr =
     ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma ([docExprRecordField recordField | recordField <- fields'] ++ [".." | hasWildcard])))
     ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docExprRecordField recordField | recordField <- fields']))
     EGetField base fieldName -> "EGetField" <+> parens (docExpr base) <+> docName fieldName
+    EGetFieldProjection fields -> "EGetFieldProjection" <+> brackets (hsep (punctuate comma (map docName fields)))
     ETypeSig inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen inner -> "EParen" <+> parens (docExpr inner)
     EList elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))

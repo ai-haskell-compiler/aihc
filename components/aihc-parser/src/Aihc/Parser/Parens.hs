@@ -935,6 +935,7 @@ addExprParensPrec prec expr =
       ERecordUpd (addExprParensPrec 3 base) [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields]
     EGetField base field ->
       EGetField (addExprParensPrec 3 base) field
+    EGetFieldProjection {} -> expr
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->

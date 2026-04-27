@@ -504,6 +504,14 @@ prevTokenAllowsTightPrefix kind =
     TkPragma _ -> True
     _ -> False
 
+-- | Returns True for tokens after which a '.' can begin a record field access
+-- or a projection section. This includes expression-ending tokens (the
+-- 'not prevTokenAllowsTightPrefix' cases) and '(' for projection sections
+-- like @(.field)@.
+prevTokenAllowsRecordDot :: LexTokenKind -> Bool
+prevTokenAllowsRecordDot TkSpecialLParen = True
+prevTokenAllowsRecordDot kind = not (prevTokenAllowsTightPrefix kind)
+
 canStartNegatedAtom :: Text -> Bool
 canStartNegatedAtom rest =
   case rest of
@@ -683,7 +691,7 @@ lexOperator env st =
               , opText == "."
               , not (lexerHadTrivia st)
               , Just prevKind <- lexerPrevTokenKind st
-              , not (prevTokenAllowsTightPrefix prevKind)
+              , prevTokenAllowsRecordDot prevKind
               , nextC :< _ <- T.drop 1 inp
               , isVarIdentifierStartChar nextC ->
                   let st' = advanceChars opText st
