@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 80
-- Supported: 80
+- Total Extensions: 81
+- Supported: 81
 - In Progress: 0
 
 ## Extension Status
@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 2/2           |
 | ConstraintKinds           |   🟢    | 7/7           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 46/46         |
+| DataKinds                 |   🟢    | 47/47         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 6/6           |
@@ -26,7 +26,7 @@
 | EmptyDataDecls            |   🟢    | 8/8           |
 | EmptyDataDeriving         |   🟢    | 3/3           |
 | ExistentialQuantification |   🟢    | 7/7           |
-| ExplicitForAll            |   🟢    | 23/23         |
+| ExplicitForAll            |   🟢    | 24/24         |
 | ExplicitLevelImports      |   🟢    | 4/4           |
 | ExplicitNamespaces        |   🟢    | 23/23         |
 | ExtendedLiterals          |   🟢    | 4/4           |
@@ -34,7 +34,7 @@
 | FlexibleInstances         |   🟢    | 18/18         |
 | ForeignFunctionInterface  |   🟢    | 40/40         |
 | FunctionalDependencies    |   🟢    | 7/7           |
-| GADTs                     |   🟢    | 10/10         |
+| GADTs                     |   🟢    | 11/11         |
 | GADTSyntax                |   🟢    | 10/10         |
 | GHC2021                   |   🟢    | 32/32         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
@@ -44,8 +44,9 @@
 | ImportQualifiedPost       |   🟢    | 4/4           |
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
-| KindSignatures            |   🟢    | 24/24         |
+| KindSignatures            |   🟢    | 25/25         |
 | LambdaCase                |   🟢    | 14/14         |
+| LinearTypes               |   🟢    | 14/14         |
 | MagicHash                 |   🟢    | 17/17         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
@@ -60,8 +61,8 @@
 | ParallelListComp          |   🟢    | 2/2           |
 | PartialTypeSignatures     |   🟢    | 11/11         |
 | PatternGuards             |   🟢    | 8/8           |
-| PatternSynonyms           |   🟢    | 32/32         |
-| PolyKinds                 |   🟢    | 12/12         |
+| PatternSynonyms           |   🟢    | 33/33         |
+| PolyKinds                 |   🟢    | 13/13         |
 | QualifiedDo               |   🟢    | 4/4           |
 | QuantifiedConstraints     |   🟢    | 1/1           |
 | QuasiQuotes               |   🟢    | 7/7           |
@@ -80,7 +81,7 @@
 | TransformListComp         |   🟢    | 13/13         |
 | TupleSections             |   🟢    | 4/4           |
 | TypeAbstractions          |   🟢    | 5/5           |
-| TypeApplications          |   🟢    | 9/9           |
+| TypeApplications          |   🟢    | 10/10         |
 | TypeData                  |   🟢    | 1/1           |
 | TypeFamilies              |   🟢    | 54/54         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
@@ -88,6 +89,6 @@
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 7/7           |
 | UnboxedTuples             |   🟢    | 18/18         |
-| UnicodeSyntax             |   🟢    | 18/18         |
+| UnicodeSyntax             |   🟢    | 19/19         |
 | ViewPatterns              |   🟢    | 19/19         |
 
