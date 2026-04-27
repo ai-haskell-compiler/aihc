@@ -18,7 +18,6 @@ module StackageProgress.FileChecker
 where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
-import Aihc.Parser qualified
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (deepseq)
 import Control.Exception (evaluate)
@@ -40,6 +39,7 @@ import HackageSupport
   )
 import HseExtensions (fromParserExtensions)
 import Language.Haskell.Exts qualified as HSE
+import ParserValidation (ValidationError (..), validateParser)
 import StackageProgress.CLI (Parser (..))
 import StackageProgress.FileCheckerTiming (maybeVerboseTimingParts)
 import StackageProgress.Summary (forceString)
@@ -177,12 +177,6 @@ checkFile checkOpts parsers verbose packageRoot info = do
       -- Compute the effective extensions using unified extension handling
       extensionSettings = fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas
       effectiveExts = Syntax.effectiveExtensions edition extensionSettings
-      -- Configure parser with computed extensions
-      parserConfig =
-        Aihc.Parser.defaultConfig
-          { Aihc.Parser.parserSourceName = file,
-            Aihc.Parser.parserExtensions = effectiveExts
-          }
 
   (aihcOk, aihcErrMsg, aihcNanos) <-
     if ParserAihc `elem` parsers
@@ -190,7 +184,7 @@ checkFile checkOpts parsers verbose packageRoot info = do
         (parseOutcome, parseNanos) <-
           withElapsedNanos $
             timeout aihcParseTimeoutMicros $
-              evaluate (let r = Aihc.Parser.parseModule parserConfig source' in r `deepseq` r)
+              evaluate (let r = ParserValidation.validateParser file edition extensionSettings source' in r `deepseq` r)
         let (!aihcParseOk, aihcErr) =
               case parseOutcome of
                 Nothing ->
@@ -202,15 +196,12 @@ checkFile checkOpts parsers verbose packageRoot info = do
                          in Just (T.unpack errorMsg)
                       else Nothing
                   )
-                Just (parseErrs, _parsed) ->
-                  case parseErrs of
-                    [] -> (True, Nothing)
-                    _
-                      | keepAihcErrorDetail ->
-                          let errorDetails = T.pack (Aihc.Parser.formatParseErrors file (Just source') parseErrs)
-                              errorMsg = prefixCppErrors cppErrorMsg errorDetails
-                           in (False, Just (T.unpack errorMsg))
-                    _ -> (False, Nothing)
+                Just Nothing -> (True, Nothing)
+                Just (Just err)
+                  | keepAihcErrorDetail ->
+                      let errorMsg = ParserValidation.validationErrorMessage err
+                       in (False, Just errorMsg)
+                  | otherwise -> (False, Nothing)
         pure (aihcParseOk, aihcErr, parseNanos)
       else pure (True, Nothing, 0)
 

@@ -167,6 +167,7 @@ executable parser-progress
     , aihc-cpp
     , aihc-hackage
     , Diff
+    , deepseq
     , bytestring
     , text
     , containers
@@ -215,6 +216,7 @@ executable extension-progress
     , aihc-cpp
     , aihc-hackage
     , Diff
+    , deepseq
     , text
     , containers
     , directory

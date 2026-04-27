@@ -67,7 +67,7 @@ optionsParser =
     <$> OA.strOption
       ( OA.long "snapshot"
           <> OA.metavar "SNAPSHOT"
-          <> OA.value "lts-24.33"
+          <> OA.value "lts-24.36"
           <> OA.showDefault
           <> OA.help "Stackage snapshot to test"
       )
