@@ -33,7 +33,6 @@ import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
 import Data.Maybe (isNothing)
-import Data.Text (Text)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -71,11 +70,6 @@ isSymbolicName name =
     NameVarSym -> True
     NameConSym -> True
     _ -> False
-
-isArrowTailOp :: Text -> Bool
-isArrowTailOp "-<" = True
-isArrowTailOp "-<<" = True
-isArrowTailOp _ = False
 
 -- ---------------------------------------------------------------------------
 -- Expression classification helpers (mirrored from Pretty.hs)
