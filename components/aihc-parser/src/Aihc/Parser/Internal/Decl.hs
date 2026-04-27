@@ -12,7 +12,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
-import Aihc.Parser.Internal.Import (warningTextParser)
+import Aihc.Parser.Internal.Import (warningPragmaParser)
 import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
@@ -27,10 +27,10 @@ import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
-instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
+instanceOverlapPragmaParser :: TokParser Pragma
 instanceOverlapPragmaParser =
-  hiddenPragma "instance overlap pragma" $ \case
-    PragmaInstanceOverlap overlapPragma -> Just overlapPragma
+  hiddenPragma "instance overlap pragma" $ \p -> case pragmaType p of
+    PragmaInstanceOverlap _ -> Just p
     _ -> Nothing
 
 anyPragmaParser :: String -> TokParser Pragma
@@ -691,15 +691,15 @@ classDefaultItemParser = valueItemParser (ClassItemAnn . mkAnnotation) ClassItem
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordInstance
-  overlapPragma <- MP.optional instanceOverlapPragmaParser
-  warningText <- MP.optional warningTextParser
+  overlapPragmas <- MP.option [] (fmap (: []) instanceOverlapPragmaParser)
+  warningText <- MP.optional warningPragmaParser
   forallBinders <- MP.optional explicitForallParser
   (context, instanceHead) <- declHeadWithOptionalContext typeInfixParser
   items <- MP.option [] instanceWhereClauseParser
   pure $
     DeclInstance
       InstanceDecl
-        { instanceDeclOverlapPragma = overlapPragma,
+        { instanceDeclPragmas = overlapPragmas,
           instanceDeclWarning = warningText,
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
@@ -713,8 +713,8 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   strategy <- MP.optional derivingStrategyParser
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   expectedTok TkKeywordInstance
-  overlapPragma <- MP.optional instanceOverlapPragmaParser
-  warningText <- MP.optional warningTextParser
+  overlapPragmas <- MP.option [] (fmap (: []) instanceOverlapPragmaParser)
+  warningText <- MP.optional warningPragmaParser
   forallBinders <- MP.optional explicitForallParser
   (context, derivingHead) <- declHeadWithOptionalContext typeInfixParser
   pure $
@@ -722,7 +722,7 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = viaTy,
-          standaloneDerivingOverlapPragma = overlapPragma,
+          standaloneDerivingPragmas = overlapPragmas,
           standaloneDerivingWarning = warningText,
           standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
@@ -912,7 +912,7 @@ typeDataConPrefixParser context = do
   -- Parse arguments (no strictness, no records).
   -- Use typeAtomParser to keep adjacent atoms as separate fields instead of
   -- merging them into a type application.
-  args <- MP.many $ BangType [] NoSourceUnpackedness False False <$> typeAtomParser
+  args <- MP.many $ BangType [] [] False False <$> typeAtomParser
   -- If a constructor operator follows, this declaration is actually infix.
   MP.notFollowedBy constructorOperatorParser
   pure $ \span' -> DataConAnn (mkAnnotation span') (PrefixCon [] context conName args)
@@ -931,7 +931,7 @@ typeDataConInfixParser context = do
       pure name
 
 typeDataConArgParser :: TokParser BangType
-typeDataConArgParser = BangType [] NoSourceUnpackedness False False <$> typeAtomParser
+typeDataConArgParser = BangType [] [] False False <$> typeAtomParser
 
 -- | Parse GADT-style constructors for type data (after `where`)
 -- No labelled fields, no strictness annotations
@@ -963,7 +963,7 @@ gadtTypeDataBodyParser = do
   case rest of
     [] -> pure (GadtPrefixBody [] firstTy)
     _ ->
-      let mkBang = BangType [] NoSourceUnpackedness False False
+      let mkBang = BangType [] [] False False
           allTys = firstTy : map snd rest
           arrowKinds = map fst rest
           argTys = init allTys
@@ -1467,14 +1467,14 @@ derivingKeywordParser =
 
 bangTypeParserWith :: TokParser Type -> TokParser BangType
 bangTypeParserWith typeP = withSpan $ do
-  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
+  pragmas <- MP.option [] (fmap (: []) unpackPragmaParser)
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- typeP
   pure $ \span' ->
     BangType
       { bangAnns = [mkAnnotation span'],
-        bangSourceUnpackedness = unpackedness,
+        bangPragmas = pragmas,
         bangStrict = strict,
         bangLazy = lazy,
         bangType = ty
@@ -1486,11 +1486,10 @@ bangTypeParser = bangTypeParserWith typeAtomParser
 recordFieldBangTypeParser :: TokParser BangType
 recordFieldBangTypeParser = bangTypeParserWith typeParser
 
-sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
-sourceUnpackednessPragmaParser =
-  hiddenPragma "source unpack pragma" $ \case
-    PragmaUnpack UnpackPragma -> Just SourceUnpack
-    PragmaUnpack NoUnpackPragma -> Just SourceNoUnpack
+unpackPragmaParser :: TokParser Pragma
+unpackPragmaParser =
+  hiddenPragma "source unpack pragma" $ \p -> case pragmaType p of
+    PragmaUnpack _ -> Just p
     _ -> Nothing
 
 constructorOperatorParser :: TokParser Name

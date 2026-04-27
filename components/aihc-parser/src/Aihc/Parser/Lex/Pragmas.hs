@@ -3,7 +3,7 @@
 
 module Aihc.Parser.Lex.Pragmas
   ( tryParsePragma,
-    parsePragma,
+    parsePragmaType,
     parseControlPragma,
   )
 where
@@ -28,8 +28,8 @@ import Text.Read (readMaybe)
 tryParsePragma :: LexerState -> Maybe (LexToken, LexerState)
 tryParsePragma st = do
   (rawBody, consumedLen) <- extractPragmaBody (lexerInput st)
-  let pragma = parsePragma rawBody
-      fullText = "{-#" <> rawBody <> "#-}"
+  let fullText = "{-#" <> rawBody <> "#-}"
+      pragma = Pragma {pragmaType = parsePragmaType rawBody, pragmaRawText = fullText}
       st' = advanceN consumedLen st
   Just (mkToken st st' fullText (TkPragma pragma), st')
 
@@ -45,30 +45,30 @@ extractPragmaBody input = do
       let consumedLen = T.length input - T.length (T.drop 3 marker)
        in Just (body, consumedLen)
 
--- | Parse pragma body text into a structured Pragma.
+-- | Parse pragma body text into a structured PragmaType.
 -- The body is the text between "{-#" and "#-}" (not including the delimiters).
-parsePragma :: Text -> Pragma
-parsePragma rawBody =
+parsePragmaType :: Text -> PragmaType
+parsePragmaType rawBody =
   let trimmed = T.strip rawBody
       upperBody = T.toUpper trimmed
    in case tryParseNamedPragma trimmed upperBody of
-        Just pragma -> pragma
+        Just pt -> pt
         Nothing -> PragmaUnknown ("{-#" <> rawBody <> "#-}")
 
-tryParseNamedPragma :: Text -> Text -> Maybe Pragma
+tryParseNamedPragma :: Text -> Text -> Maybe PragmaType
 tryParseNamedPragma body upperBody
-  | Just pragma <- parseLanguagePragma body upperBody = Just pragma
-  | Just pragma <- parseInstanceOverlapPragma body upperBody = Just pragma
-  | Just pragma <- parseOptionsPragma body upperBody = Just pragma
-  | Just pragma <- parseWarningPragma body upperBody = Just pragma
-  | Just pragma <- parseDeprecatedPragma body upperBody = Just pragma
-  | Just pragma <- parseInlinePragma body upperBody = Just pragma
-  | Just pragma <- parseUnpackPragma body upperBody = Just pragma
-  | Just pragma <- parseSourcePragma body upperBody = Just pragma
-  | Just pragma <- parseSCCPragma body upperBody = Just pragma
+  | Just pt <- parseLanguagePragma body upperBody = Just pt
+  | Just pt <- parseInstanceOverlapPragma body upperBody = Just pt
+  | Just pt <- parseOptionsPragma body upperBody = Just pt
+  | Just pt <- parseWarningPragma body upperBody = Just pt
+  | Just pt <- parseDeprecatedPragma body upperBody = Just pt
+  | Just pt <- parseInlinePragma body upperBody = Just pt
+  | Just pt <- parseUnpackPragma body upperBody = Just pt
+  | Just pt <- parseSourcePragma body upperBody = Just pt
+  | Just pt <- parseSCCPragma body upperBody = Just pt
   | otherwise = Nothing
 
-parseLanguagePragma :: Text -> Text -> Maybe Pragma
+parseLanguagePragma :: Text -> Text -> Maybe PragmaType
 parseLanguagePragma body upperBody
   | Just rest <- T.stripPrefix "LANGUAGE" upperBody,
     isPragmaBodyEnd rest =
@@ -76,7 +76,7 @@ parseLanguagePragma body upperBody
        in Just (PragmaLanguage names)
   | otherwise = Nothing
 
-parseInstanceOverlapPragma :: Text -> Text -> Maybe Pragma
+parseInstanceOverlapPragma :: Text -> Text -> Maybe PragmaType
 parseInstanceOverlapPragma _body upperBody
   | Just rest <- T.stripPrefix "OVERLAPPING" upperBody,
     isPragmaBodyEnd rest =
@@ -92,7 +92,7 @@ parseInstanceOverlapPragma _body upperBody
       Just (PragmaInstanceOverlap Incoherent)
   | otherwise = Nothing
 
-parseOptionsPragma :: Text -> Text -> Maybe Pragma
+parseOptionsPragma :: Text -> Text -> Maybe PragmaType
 parseOptionsPragma body upperBody
   | Just rest <- T.stripPrefix "OPTIONS_GHC" upperBody,
     isPragmaBodyEnd rest =
@@ -104,7 +104,7 @@ parseOptionsPragma body upperBody
        in Just (PragmaLanguage settings)
   | otherwise = Nothing
 
-parseWarningPragma :: Text -> Text -> Maybe Pragma
+parseWarningPragma :: Text -> Text -> Maybe PragmaType
 parseWarningPragma body upperBody
   | Just rest <- T.stripPrefix "WARNING" upperBody,
     isPragmaBodyEnd rest =
@@ -114,7 +114,7 @@ parseWarningPragma body upperBody
        in Just (PragmaWarning msg)
   | otherwise = Nothing
 
-parseDeprecatedPragma :: Text -> Text -> Maybe Pragma
+parseDeprecatedPragma :: Text -> Text -> Maybe PragmaType
 parseDeprecatedPragma body upperBody
   | Just rest <- T.stripPrefix "DEPRECATED" upperBody,
     isPragmaBodyEnd rest =
@@ -124,7 +124,7 @@ parseDeprecatedPragma body upperBody
        in Just (PragmaDeprecated msg)
   | otherwise = Nothing
 
-parseInlinePragma :: Text -> Text -> Maybe Pragma
+parseInlinePragma :: Text -> Text -> Maybe PragmaType
 parseInlinePragma body upperBody
   | Just rest <- T.stripPrefix "INLINEABLE" upperBody,
     isPragmaBodyEnd rest =
@@ -156,7 +156,7 @@ parseInlinePragma body upperBody
        in Just (PragmaInline "CONLIKE" fullBody)
   | otherwise = Nothing
 
-parseUnpackPragma :: Text -> Text -> Maybe Pragma
+parseUnpackPragma :: Text -> Text -> Maybe PragmaType
 parseUnpackPragma _body upperBody
   | Just rest <- T.stripPrefix "UNPACK" upperBody,
     isPragmaBodyEnd rest =
@@ -166,7 +166,7 @@ parseUnpackPragma _body upperBody
       Just (PragmaUnpack NoUnpackPragma)
   | otherwise = Nothing
 
-parseSourcePragma :: Text -> Text -> Maybe Pragma
+parseSourcePragma :: Text -> Text -> Maybe PragmaType
 parseSourcePragma body upperBody
   | Just rest <- T.stripPrefix "SOURCE" upperBody,
     isPragmaBodyEnd rest =
@@ -174,7 +174,7 @@ parseSourcePragma body upperBody
        in Just (PragmaSource fullBody fullBody)
   | otherwise = Nothing
 
-parseSCCPragma :: Text -> Text -> Maybe Pragma
+parseSCCPragma :: Text -> Text -> Maybe PragmaType
 parseSCCPragma body upperBody
   | Just rest <- T.stripPrefix "SCC" upperBody,
     isPragmaBodyEnd rest =

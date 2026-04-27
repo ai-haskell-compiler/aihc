@@ -203,7 +203,7 @@ genNonStrictBangType = do
   pure $
     BangType
       { bangAnns = [],
-        bangSourceUnpackedness = NoSourceUnpackedness,
+        bangPragmas = [],
         bangStrict = False,
         bangLazy = False,
         bangType = ty
@@ -283,9 +283,9 @@ genGadtBangType = do
   let canAnnotate = typeStartsWithAlpha ty
   annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
   case annotation of
-    NoAnnotation -> pure $ BangType [] NoSourceUnpackedness False False ty
-    StrictAnnotation -> pure $ BangType [] NoSourceUnpackedness True False ty
-    LazyAnnotation -> pure $ BangType [] NoSourceUnpackedness False True ty
+    NoAnnotation -> pure $ BangType [] [] False False ty
+    StrictAnnotation -> pure $ BangType [] [] True False ty
+    LazyAnnotation -> pure $ BangType [] [] False True ty
   where
     typeStartsWithAlpha :: Type -> Bool
     typeStartsWithAlpha (TVar _) = True
@@ -309,7 +309,7 @@ genGadtRecordBody = GadtRecordBody <$> smallList1 genGadtFieldDecl <*> genType
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldNames <- smallList1 genVarUnqualifiedName
-  FieldDecl [] fieldNames Nothing . BangType [] NoSourceUnpackedness False False <$> genType
+  FieldDecl [] fieldNames Nothing . BangType [] [] False False <$> genType
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
@@ -320,7 +320,7 @@ genSimpleBangType = do
       pure $
         BangType
           { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangPragmas = [],
             bangStrict = False,
             bangLazy = False,
             bangType = ty
@@ -329,7 +329,7 @@ genSimpleBangType = do
       pure $
         BangType
           { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangPragmas = [],
             bangStrict = True,
             bangLazy = False,
             bangType = ty
@@ -338,7 +338,7 @@ genSimpleBangType = do
       pure $
         BangType
           { bangAnns = [],
-            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangPragmas = [],
             bangStrict = False,
             bangLazy = True,
             bangType = ty
@@ -371,14 +371,14 @@ genNewtypePrefixCon :: Gen DataConDecl
 genNewtypePrefixCon = do
   conName <- genConUnqualifiedName
   ty <- genType
-  pure (PrefixCon [] [] conName [BangType [] NoSourceUnpackedness False False ty])
+  pure (PrefixCon [] [] conName [BangType [] [] False False ty])
 
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
   conName <- genConUnqualifiedName
   fieldName <- genVarUnqualifiedName
   ty <- genType
-  pure (RecordCon [] [] conName [FieldDecl [] [fieldName] Nothing (BangType [] NoSourceUnpackedness False False ty)])
+  pure (RecordCon [] [] conName [FieldDecl [] [fieldName] Nothing (BangType [] [] False False ty)])
 
 genDeclClass :: Gen Decl
 genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
@@ -519,7 +519,7 @@ genDeclInstancePrefix = do
   pure $
     DeclInstance $
       InstanceDecl
-        { instanceDeclOverlapPragma = Nothing,
+        { instanceDeclPragmas = [],
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
@@ -537,7 +537,7 @@ genDeclInstanceInfix = do
   pure $
     DeclInstance $
       InstanceDecl
-        { instanceDeclOverlapPragma = Nothing,
+        { instanceDeclPragmas = [],
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
@@ -558,7 +558,7 @@ genDeclInstanceParenInfix = do
   pure $
     DeclInstance $
       InstanceDecl
-        { instanceDeclOverlapPragma = Nothing,
+        { instanceDeclPragmas = [],
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
           instanceDeclContext = ctx,
@@ -580,7 +580,7 @@ genDeclStandaloneDerivingPrefix = do
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
-          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
@@ -599,7 +599,7 @@ genDeclStandaloneDerivingInfix = do
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
-          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
@@ -621,7 +621,7 @@ genDeclStandaloneDerivingParenInfix = do
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
-          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
@@ -886,7 +886,7 @@ isStarType _ = False
 genDeclPragma :: Gen Decl
 genDeclPragma = do
   kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
-  DeclPragma . PragmaInline kind <$> genVarId
+  DeclPragma . (\pt -> Pragma {pragmaType = pt, pragmaRawText = ""}) . PragmaInline kind <$> genVarId
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do

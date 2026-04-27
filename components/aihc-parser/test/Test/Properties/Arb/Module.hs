@@ -82,12 +82,12 @@ genModuleHead :: Gen ModuleHead
 genModuleHead = do
   name <- genModuleName
   exports <- genMaybeExportSpecs
-  warningText <- frequency [(4, pure Nothing), (1, Just <$> arbitrary)]
+  warningText <- frequency [(4, pure Nothing), (1, Just <$> genWarningPragma)]
   pure $
     ModuleHead
       { moduleHeadAnns = [],
         moduleHeadName = name,
-        moduleHeadWarningText = warningText,
+        moduleHeadWarningPragma = warningText,
         moduleHeadExports = exports
       }
 
@@ -107,8 +107,8 @@ shrinkModuleHead head' =
     <> [ head' {moduleHeadExports = shrunk}
        | shrunk <- shrinkMaybeExportSpecs (moduleHeadExports head')
        ]
-    <> [ head' {moduleHeadWarningText = shrunk}
-       | shrunk <- shrink (moduleHeadWarningText head')
+    <> [ head' {moduleHeadWarningPragma = shrunk}
+       | shrunk <- (Nothing :) . map Just . maybe [] shrinkWarningPragma $ moduleHeadWarningPragma head'
        ]
 
 genMaybeExportSpecs :: Gen (Maybe [ExportSpec])
@@ -154,34 +154,29 @@ shrinkWarningMessage :: Text -> [Text]
 shrinkWarningMessage msg =
   [T.pack candidate | candidate <- shrink (T.unpack msg), not (null candidate)]
 
-instance Arbitrary WarningText where
-  arbitrary =
-    oneof
-      [ DeprText <$> genWarningMessage,
-        WarnText <$> genWarningMessage,
-        WarningTextAnn (mkAnnotation ()) <$> leafWarningText
-      ]
-    where
-      leafWarningText =
-        oneof
-          [ DeprText <$> genWarningMessage,
-            WarnText <$> genWarningMessage
-          ]
+genMaybeWarningPragma :: Gen (Maybe Pragma)
+genMaybeWarningPragma = frequency [(4, pure Nothing), (1, Just <$> genWarningPragma)]
 
-  shrink wt =
-    case wt of
-      DeprText msg -> [DeprText msg' | msg' <- shrinkWarningMessage msg]
-      WarnText msg -> [WarnText msg' | msg' <- shrinkWarningMessage msg]
-      WarningTextAnn _ sub -> sub : shrink sub
+genWarningPragma :: Gen Pragma
+genWarningPragma = do
+  msg <- genWarningMessage
+  pt <- elements [PragmaWarning msg, PragmaDeprecated msg]
+  pure Pragma {pragmaType = pt, pragmaRawText = ""}
+
+shrinkWarningPragma :: Pragma -> [Pragma]
+shrinkWarningPragma p = case pragmaType p of
+  PragmaWarning msg -> [p {pragmaType = PragmaWarning msg'} | msg' <- shrinkWarningMessage msg]
+  PragmaDeprecated msg -> [p {pragmaType = PragmaDeprecated msg'} | msg' <- shrinkWarningMessage msg]
+  _ -> []
 
 instance Arbitrary ExportSpec where
   arbitrary =
     oneof
-      [ ExportModule <$> arbitrary <*> genModuleName,
-        ExportVar <$> arbitrary <*> pure Nothing <*> genExportVarName,
-        ExportAbs <$> arbitrary <*> arbitrary <*> genExportTypeName,
-        ExportAll <$> arbitrary <*> arbitrary <*> genExportTypeName,
-        ExportWith <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers,
+      [ ExportModule <$> genMaybeWarningPragma <*> genModuleName,
+        ExportVar <$> genMaybeWarningPragma <*> pure Nothing <*> genExportVarName,
+        ExportAbs <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName,
+        ExportAll <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName,
+        ExportWith <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName <*> genExportMembers,
         genExportWithAll
       ]
 
@@ -303,7 +298,7 @@ genMemberNameFor namespace =
 
 genExportWithAll :: Gen ExportSpec
 genExportWithAll = do
-  mWarning <- arbitrary
+  mWarning <- genMaybeWarningPragma
   namespace <- arbitrary
   name <- genExportTypeName
   members <- listOf1 arbitrary
@@ -362,7 +357,7 @@ instance Arbitrary ImportDecl where
         { importDeclAnns = [],
           importDeclLevel = Nothing,
           importDeclPackage = Nothing,
-          importDeclSource = False,
+          importDeclSourcePragma = Nothing,
           importDeclSafe = False,
           importDeclQualified = False,
           importDeclQualifiedPost = False,

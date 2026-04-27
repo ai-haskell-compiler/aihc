@@ -134,7 +134,7 @@ checkPattern expr = case expr of
 
 checkPragmaPattern :: Pragma -> Either Text Pattern
 checkPragmaPattern pragma =
-  case pragma of
+  case pragmaType pragma of
     PragmaSCC {} -> Left "unexpected SCC pragma in pattern"
     _ -> Left "unexpected pragma in pattern"
 

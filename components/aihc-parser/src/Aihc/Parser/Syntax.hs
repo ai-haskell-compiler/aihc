@@ -69,7 +69,6 @@ module Aihc.Parser.Syntax
     NameType (..),
     UnqualifiedName (..),
     InstanceHeadType,
-    WarningText (..),
     Annotation,
     NewtypeDecl (..),
     OperatorName,
@@ -79,12 +78,12 @@ module Aihc.Parser.Syntax
     Pattern (..),
     RecordField (..),
     Pragma (..),
+    PragmaType (..),
     PragmaUnpackKind (..),
     Role (..),
     RoleAnnotation (..),
     Rhs (..),
     SourceSpan (..),
-    SourceUnpackedness (..),
     StandaloneDerivingDecl (..),
     Type (..),
     TupleFlavor (..),
@@ -131,7 +130,7 @@ module Aihc.Parser.Syntax
     renderUnqualifiedName,
     unqualifiedNameFromText,
     moduleName,
-    moduleWarningText,
+    moduleWarningPragma,
     moduleExports,
     instanceHeadName,
     instanceHeadTypes,
@@ -169,7 +168,6 @@ module Aihc.Parser.Syntax
     getLiteralSourceSpan,
     getPatternSourceSpan,
     getTypeSourceSpan,
-    getWarningTextSourceSpan,
   )
 where
 
@@ -817,18 +815,12 @@ type BinderName = UnqualifiedName
 
 type OperatorName = UnqualifiedName
 
-data WarningText
-  = DeprText Text
-  | WarnText Text
-  | WarningTextAnn Annotation WarningText
-  deriving (Data, Eq, Show, Generic, NFData)
-
 data PragmaUnpackKind
   = UnpackPragma
   | NoUnpackPragma
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
-data Pragma
+data PragmaType
   = PragmaLanguage [ExtensionSetting]
   | PragmaInstanceOverlap InstanceOverlapPragma
   | PragmaWarning Text
@@ -840,14 +832,11 @@ data Pragma
   | PragmaUnknown Text
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
-getWarningTextSourceSpan :: WarningText -> SourceSpan
-getWarningTextSourceSpan warningText =
-  case warningText of
-    DeprText _ -> NoSourceSpan
-    WarnText _ -> NoSourceSpan
-    WarningTextAnn ann sub
-      | Just srcSpan <- fromAnnotation ann -> srcSpan
-      | otherwise -> getWarningTextSourceSpan sub
+data Pragma = Pragma
+  { pragmaType :: PragmaType,
+    pragmaRawText :: Text
+  }
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 data Module = Module
   { moduleAnns :: [Annotation],
@@ -861,7 +850,7 @@ data Module = Module
 data ModuleHead = ModuleHead
   { moduleHeadAnns :: [Annotation],
     moduleHeadName :: Text,
-    moduleHeadWarningText :: Maybe WarningText,
+    moduleHeadWarningPragma :: Maybe Pragma,
     moduleHeadExports :: Maybe [ExportSpec]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -869,8 +858,8 @@ data ModuleHead = ModuleHead
 moduleName :: Module -> Maybe Text
 moduleName modu = moduleHeadName <$> moduleHead modu
 
-moduleWarningText :: Module -> Maybe WarningText
-moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
+moduleWarningPragma :: Module -> Maybe Pragma
+moduleWarningPragma modu = moduleHeadWarningPragma =<< moduleHead modu
 
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
@@ -893,12 +882,12 @@ data IEBundledMember = IEBundledMember
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
-  = ExportModule (Maybe WarningText) Text
-  | ExportVar (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAbs (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAll (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportWith (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  | ExportWithAll (Maybe WarningText) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
+  = ExportModule (Maybe Pragma) Text
+  | ExportVar (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportAbs (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportAll (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | ExportWith (Maybe Pragma) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportWithAll (Maybe Pragma) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
   | ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -914,7 +903,7 @@ data ImportDecl = ImportDecl
   { importDeclAnns :: [Annotation],
     importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
-    importDeclSource :: Bool,
+    importDeclSourcePragma :: Maybe Pragma,
     importDeclSafe :: Bool,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
@@ -1514,17 +1503,11 @@ getDataConDeclSourceSpan dataConDecl =
 
 data BangType = BangType
   { bangAnns :: [Annotation],
-    bangSourceUnpackedness :: SourceUnpackedness,
+    bangPragmas :: [Pragma],
     bangStrict :: Bool,
     bangLazy :: Bool,
     bangType :: Type
   }
-  deriving (Data, Eq, Show, Generic, NFData)
-
-data SourceUnpackedness
-  = NoSourceUnpackedness
-  | SourceUnpack
-  | SourceNoUnpack
   deriving (Data, Eq, Show, Generic, NFData)
 
 data FieldDecl = FieldDecl
@@ -1553,8 +1536,8 @@ data DerivingStrategy
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingViaType :: Maybe Type,
-    standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
-    standaloneDerivingWarning :: Maybe WarningText,
+    standaloneDerivingPragmas :: [Pragma],
+    standaloneDerivingWarning :: Maybe Pragma,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingHead :: InstanceHeadType
@@ -1602,8 +1585,8 @@ peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
 
 data InstanceDecl = InstanceDecl
-  { instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
-    instanceDeclWarning :: Maybe WarningText,
+  { instanceDeclPragmas :: [Pragma],
+    instanceDeclWarning :: Maybe Pragma,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclHead :: InstanceHeadType,
@@ -1943,8 +1926,8 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
         `extT` sCmd
         `extT` sExportSpec
         `extT` sImportItem
-        `extT` sWarningText
         `extT` sAnnotations
+        `extT` sPragma
 
     -- \| Extend a generic transformation with a type-specific case.
     extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
@@ -2010,9 +1993,8 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
     sImportItem (ImportAnn _ i) = i
     sImportItem i = i
 
-    sWarningText :: WarningText -> WarningText
-    sWarningText (WarningTextAnn _ w) = w
-    sWarningText w = w
-
     sAnnotations :: [Annotation] -> [Annotation]
     sAnnotations _ = []
+
+    sPragma :: Pragma -> Pragma
+    sPragma p = p {pragmaRawText = ""}
