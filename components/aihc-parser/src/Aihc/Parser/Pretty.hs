@@ -852,8 +852,8 @@ prettyPragmaType pt =
         Overlappable -> "{-# OVERLAPPABLE #-}"
         Overlaps -> "{-# OVERLAPS #-}"
         Incoherent -> "{-# INCOHERENT #-}"
-    PragmaWarning msg -> "{-# WARNING " <> pretty msg <> " #-}"
-    PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty msg <> " #-}"
+    PragmaWarning msg -> "{-# WARNING " <> pretty (show msg) <> " #-}"
+    PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
     PragmaInline kind body -> "{-# " <> pretty kind <> " " <> pretty body <> " #-}"
     PragmaUnpack unpackKind ->
       case unpackKind of
