@@ -1726,6 +1726,8 @@ data Expr
   | EArithSeq ArithSeq
   | ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | ERecordUpd Expr [RecordField Expr]
+  | EGetField Expr Name -- a.b (OverloadedRecordDot)
+  | EGetFieldProjection [Name] -- (.b) or (.b.c) projection section (OverloadedRecordDot)
   | ETypeSig Expr Type
   | EParen Expr
   | EList [Expr]

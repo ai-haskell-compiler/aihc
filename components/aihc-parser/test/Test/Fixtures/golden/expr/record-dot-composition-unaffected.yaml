@@ -1,0 +1,5 @@
+extensions: [OverloadedRecordDot]
+input: |
+  f . g
+ast: EInfix (EVar "f") "." (EVar "g")
+status: pass
