@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail kind annotations on type synonym operator parameters are dropped during roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
