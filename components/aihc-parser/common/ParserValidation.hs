@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module ParserValidation
@@ -10,9 +11,12 @@ where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Syntax qualified as Syntax
+import Control.DeepSeq (NFData)
 import Data.Algorithm.Diff (PolyDiff (..), getDiff)
+import Data.Data (Data)
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 import GhcOracle qualified
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -20,13 +24,13 @@ import Prettyprinter.Render.Text (renderStrict)
 data ValidationErrorKind
   = ValidationParseError
   | ValidationRoundtripError
-  deriving (Eq, Show)
+  deriving (Eq, Show, NFData, Generic)
 
 data ValidationError = ValidationError
   { validationErrorKind :: ValidationErrorKind,
     validationErrorMessage :: String
   }
-  deriving (Eq)
+  deriving (Eq, NFData, Generic)
 
 instance Show ValidationError where
   show ValidationError {validationErrorKind = kind, validationErrorMessage = message} =
