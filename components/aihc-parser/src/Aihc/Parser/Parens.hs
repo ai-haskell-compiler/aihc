@@ -160,6 +160,7 @@ startsWithDollar (ETHSplice {}) = True
 startsWithDollar (ETHTypedSplice {}) = True
 startsWithDollar (ERecordUpd base _) = startsWithDollar base
 startsWithDollar (EApp fn _) = startsWithDollar fn
+startsWithDollar (ETypeApp fn _) = startsWithDollar fn
 startsWithDollar _ = False
 
 startsWithOverloadedLabel :: Expr -> Bool
