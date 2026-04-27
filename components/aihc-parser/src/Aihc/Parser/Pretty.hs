@@ -737,7 +737,7 @@ dataConQualifierPrefix forallVars constraints = forallTyVarBinderPrefix forallVa
 -- | Pretty print a BangType. The type already has TParen nodes where needed.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
+  hsep (map prettyPragma (bangPragmas bt) <> [strictOrLazyDoc])
   where
     strictOrLazyDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
@@ -746,19 +746,12 @@ prettyBangType bt =
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
+  hsep (map prettyPragma (bangPragmas bt) <> [strictOrLazyDoc])
   where
     strictOrLazyDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
       | bangLazy bt = "~" <> prettyType (bangType bt)
       | otherwise = prettyType (bangType bt)
-
-prettySourceUnpackedness :: SourceUnpackedness -> [Doc ann]
-prettySourceUnpackedness unpackedness =
-  case unpackedness of
-    NoSourceUnpackedness -> []
-    SourceUnpack -> ["{-# UNPACK #-}"]
-    SourceNoUnpack -> ["{-# NOUNPACK #-}"]
 
 prettyClassDecl :: ClassDecl -> Doc ann
 prettyClassDecl decl =
@@ -825,7 +818,7 @@ prettyInstanceDecl decl =
   let headDoc =
         hsep
           ( ["instance"]
-              <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl)
+              <> map prettyPragma (instanceDeclPragmas decl)
               <> maybe [] (\w -> [prettyInstanceWarning w]) (instanceDeclWarning decl)
               <> forallTyVarBinderPrefix (instanceDeclForall decl)
               <> contextPrefix (instanceDeclContext decl)
@@ -847,26 +840,28 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
-        <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
+        <> map prettyPragma (standaloneDerivingPragmas decl)
         <> maybe [] (\w -> [prettyInstanceWarning w]) (standaloneDerivingWarning decl)
         <> forallTyVarBinderPrefix (standaloneDerivingForall decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [prettyType (standaloneDerivingHead decl)]
     )
 
-prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
-prettyInstanceOverlapPragma pragma' =
-  case pragma' of
-    Overlapping -> "{-# OVERLAPPING #-}"
-    Overlappable -> "{-# OVERLAPPABLE #-}"
-    Overlaps -> "{-# OVERLAPS #-}"
-    Incoherent -> "{-# INCOHERENT #-}"
-
 prettyPragma :: Pragma -> Doc ann
-prettyPragma pragma =
-  case pragma of
+prettyPragma pragma
+  | not (T.null (pragmaRawText pragma)) = pretty (pragmaRawText pragma)
+  | otherwise = prettyPragmaType (pragmaType pragma)
+
+prettyPragmaType :: PragmaType -> Doc ann
+prettyPragmaType pt =
+  case pt of
     PragmaLanguage settings -> "{-# LANGUAGE " <> hsep (punctuate comma (map (pretty . extensionSettingName) settings)) <> " #-}"
-    PragmaInstanceOverlap overlapPragma -> prettyInstanceOverlapPragma overlapPragma
+    PragmaInstanceOverlap overlapPragma ->
+      case overlapPragma of
+        Overlapping -> "{-# OVERLAPPING #-}"
+        Overlappable -> "{-# OVERLAPPABLE #-}"
+        Overlaps -> "{-# OVERLAPS #-}"
+        Incoherent -> "{-# INCOHERENT #-}"
     PragmaWarning msg -> "{-# WARNING " <> pretty msg <> " #-}"
     PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty msg <> " #-}"
     PragmaInline kind body -> "{-# " <> pretty kind <> " " <> pretty body <> " #-}"

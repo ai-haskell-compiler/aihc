@@ -416,9 +416,9 @@ test_boxedTupleInfixConOperandStaysBare = do
                 [ InfixCon
                     []
                     []
-                    (BangType [] NoSourceUnpackedness False False (TTuple Boxed Unpromoted []))
+                    (BangType [] [] False False (TTuple Boxed Unpromoted []))
                     (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] NoSourceUnpackedness False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted))
+                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted))
                 ],
               dataDeclDeriving = []
             }
@@ -437,9 +437,9 @@ test_unboxedTupleInfixConOperandStaysBare = do
                 [ InfixCon
                     []
                     []
-                    (BangType [] NoSourceUnpackedness False False (TTuple Unboxed Unpromoted [TVar (mkUnqualifiedName NameVarId "a")]))
+                    (BangType [] [] False False (TTuple Unboxed Unpromoted [TVar (mkUnqualifiedName NameVarId "a")]))
                     (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] NoSourceUnpackedness False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted))
+                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted))
                 ],
               dataDeclDeriving = []
             }

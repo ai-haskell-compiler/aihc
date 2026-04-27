@@ -79,12 +79,12 @@ module Aihc.Parser.Syntax
     Pattern (..),
     RecordField (..),
     Pragma (..),
+    PragmaType (..),
     PragmaUnpackKind (..),
     Role (..),
     RoleAnnotation (..),
     Rhs (..),
     SourceSpan (..),
-    SourceUnpackedness (..),
     StandaloneDerivingDecl (..),
     Type (..),
     TupleFlavor (..),
@@ -828,7 +828,7 @@ data PragmaUnpackKind
   | NoUnpackPragma
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
-data Pragma
+data PragmaType
   = PragmaLanguage [ExtensionSetting]
   | PragmaInstanceOverlap InstanceOverlapPragma
   | PragmaWarning Text
@@ -838,6 +838,12 @@ data Pragma
   | PragmaSource Text Text
   | PragmaSCC Text
   | PragmaUnknown Text
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
+
+data Pragma = Pragma
+  { pragmaType :: PragmaType,
+    pragmaRawText :: Text
+  }
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 getWarningTextSourceSpan :: WarningText -> SourceSpan
@@ -1514,17 +1520,11 @@ getDataConDeclSourceSpan dataConDecl =
 
 data BangType = BangType
   { bangAnns :: [Annotation],
-    bangSourceUnpackedness :: SourceUnpackedness,
+    bangPragmas :: [Pragma],
     bangStrict :: Bool,
     bangLazy :: Bool,
     bangType :: Type
   }
-  deriving (Data, Eq, Show, Generic, NFData)
-
-data SourceUnpackedness
-  = NoSourceUnpackedness
-  | SourceUnpack
-  | SourceNoUnpack
   deriving (Data, Eq, Show, Generic, NFData)
 
 data FieldDecl = FieldDecl
@@ -1553,7 +1553,7 @@ data DerivingStrategy
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingViaType :: Maybe Type,
-    standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
+    standaloneDerivingPragmas :: [Pragma],
     standaloneDerivingWarning :: Maybe WarningText,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
@@ -1602,7 +1602,7 @@ peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
 
 data InstanceDecl = InstanceDecl
-  { instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
+  { instanceDeclPragmas :: [Pragma],
     instanceDeclWarning :: Maybe WarningText,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
@@ -1945,6 +1945,7 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
         `extT` sImportItem
         `extT` sWarningText
         `extT` sAnnotations
+        `extT` sPragma
 
     -- \| Extend a generic transformation with a type-specific case.
     extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
@@ -2016,3 +2017,6 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
 
     sAnnotations :: [Annotation] -> [Annotation]
     sAnnotations _ = []
+
+    sPragma :: Pragma -> Pragma
+    sPragma p = p {pragmaRawText = ""}

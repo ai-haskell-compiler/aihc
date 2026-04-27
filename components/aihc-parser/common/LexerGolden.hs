@@ -18,7 +18,7 @@ import Aihc.Parser.Lex
     lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
   )
-import Aihc.Parser.Syntax (Extension, FloatType, parseExtensionName)
+import Aihc.Parser.Syntax (Extension, FloatType, Pragma (..), PragmaType, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isDigit, isSpace, toLower)
@@ -127,8 +127,8 @@ evaluateLexerCase meta =
         if caseIsModule meta
           then lexModuleTokensWithExtensions (caseExtensions meta) (caseInput meta)
           else lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
-      actualKinds = map lexTokenKind actualTokens
-      tokenMatch = actualKinds == expectedKinds
+      actualKinds = map (normalizeTokKind . lexTokenKind) actualTokens
+      tokenMatch = actualKinds == map normalizeTokKind expectedKinds
    in case caseStatus meta of
         StatusPass
           | tokenMatch -> (OutcomePass, "")
@@ -187,13 +187,28 @@ parseFixtureExtensionName path name =
     Just ext -> Right ext
     Nothing -> Left ("Unknown lexer extension in " <> path <> ": " <> T.unpack name)
 
+-- | Parse a TkPragma token from the old fixture format "TkPragma (PragmaXxx ...)".
+-- Fixtures don't store pragmaRawText, so it is set to empty string.
+parseTkPragmaKind :: Text -> Maybe LexTokenKind
+parseTkPragmaKind raw = do
+  inner <- T.stripPrefix "TkPragma " (T.strip raw)
+  pt <- readMaybe (T.unpack inner) :: Maybe PragmaType
+  pure (TkPragma (Pragma {pragmaType = pt, pragmaRawText = ""}))
+
+-- | Normalize a token kind for fixture comparison by clearing pragmaRawText.
+normalizeTokKind :: LexTokenKind -> LexTokenKind
+normalizeTokKind (TkPragma p) = TkPragma (p {pragmaRawText = ""})
+normalizeTokKind tok = tok
+
 parseTokenKind :: FilePath -> Text -> Either String LexTokenKind
 parseTokenKind path raw =
-  case parseFloatTokenKind (T.strip raw) of
+  case parseTkPragmaKind (T.strip raw) of
     Just parsed -> Right parsed
-    Nothing -> case readMaybe (T.unpack (T.strip raw)) of
+    Nothing -> case parseFloatTokenKind (T.strip raw) of
       Just parsed -> Right parsed
-      Nothing -> Left ("Invalid token constructor in " <> path <> ": " <> T.unpack raw)
+      Nothing -> case readMaybe (T.unpack (T.strip raw)) of
+        Just parsed -> Right parsed
+        Nothing -> Left ("Invalid token constructor in " <> path <> ": " <> T.unpack raw)
 
 parseFloatTokenKind :: Text -> Maybe LexTokenKind
 parseFloatTokenKind raw = do

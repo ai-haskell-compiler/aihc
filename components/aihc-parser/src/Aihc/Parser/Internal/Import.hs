@@ -24,7 +24,7 @@ import Text.Megaparsec qualified as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =
-  hiddenPragma "LANGUAGE pragma" $ \case
+  hiddenPragma "LANGUAGE pragma" $ \p -> case pragmaType p of
     PragmaLanguage names -> Just names
     _ -> Nothing
 
@@ -46,7 +46,7 @@ moduleHeaderParser = withSpan $ do
 warningTextParser :: TokParser WarningText
 warningTextParser =
   withSpanAnn (WarningTextAnn . mkAnnotation) $
-    hiddenPragma "warning pragma" $ \case
+    hiddenPragma "warning pragma" $ \p -> case pragmaType p of
       PragmaWarning msg -> Just (WarnText msg)
       PragmaDeprecated msg -> Just (DeprText msg)
       _ -> Nothing
@@ -150,7 +150,7 @@ importDeclParser = withSpan $ do
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
   let isSourcePragma :: Pragma -> Maybe Bool
-      isSourcePragma = \case
+      isSourcePragma p = case pragmaType p of
         PragmaSource {} -> Just True
         _ -> Nothing
   importedSource <-

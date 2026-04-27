@@ -408,17 +408,10 @@ docBangType bt =
   "BangType" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      sourceUnpackednessField (bangSourceUnpackedness bt)
+      listField "pragmas" docPragma (bangPragmas bt)
         <> boolField "strict" (bangStrict bt)
         <> boolField "lazy" (bangLazy bt)
         <> [field "type" (docType (bangType bt))]
-
-sourceUnpackednessField :: SourceUnpackedness -> [Doc ann]
-sourceUnpackednessField unpackedness =
-  case unpackedness of
-    NoSourceUnpackedness -> []
-    SourceUnpack -> [field "unpackedness" "\"UNPACK\""]
-    SourceNoUnpack -> [field "unpackedness" "\"NOUNPACK\""]
 
 docFieldDecl :: FieldDecl -> Doc ann
 docFieldDecl fd =
@@ -498,7 +491,7 @@ docInstanceDecl inst =
   "InstanceDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
+      listField "pragmas" docPragma (instanceDeclPragmas inst)
         <> optionalField "warning" docWarningText (instanceDeclWarning inst)
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> listField "context" docType (instanceDeclContext inst)
@@ -521,7 +514,7 @@ docStandaloneDerivingDecl sd =
   "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
+      listField "pragmas" docPragma (standaloneDerivingPragmas sd)
         <> optionalField "warning" docWarningText (standaloneDerivingWarning sd)
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docType (standaloneDerivingContext sd)
@@ -542,9 +535,9 @@ docPragmaUnpackKind kind =
     UnpackPragma -> "UnpackPragma"
     NoUnpackPragma -> "NoUnpackPragma"
 
-docPragma :: Pragma -> Doc ann
-docPragma pragma =
-  case pragma of
+docPragmaType :: PragmaType -> Doc ann
+docPragmaType pt =
+  case pt of
     PragmaLanguage settings -> "PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
     PragmaInstanceOverlap overlapPragma -> "PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma
     PragmaWarning msg -> "PragmaWarning" <+> docText msg
@@ -554,6 +547,9 @@ docPragma pragma =
     PragmaSource sourceText _ -> "PragmaSource" <+> docText sourceText
     PragmaSCC label -> "PragmaSCC" <+> docText label
     PragmaUnknown text -> "PragmaUnknown" <+> docText text
+
+docPragma :: Pragma -> Doc ann
+docPragma pragma = docPragmaType (pragmaType pragma)
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
@@ -998,17 +994,7 @@ docTokenKind kind =
     TkPrefixMinus -> "TkPrefixMinus"
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
-    TkPragma pragma' ->
-      case pragma' of
-        PragmaLanguage settings -> "TkPragma" <+> ("PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings))))
-        PragmaInstanceOverlap overlapPragma -> "TkPragma" <+> ("PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma)
-        PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
-        PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
-        PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
-        PragmaUnpack unpackKind -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind)
-        PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
-        PragmaSCC label -> "TkPragma" <+> ("PragmaSCC" <+> docText label)
-        PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
+    TkPragma pragma' -> "TkPragma" <+> docPragmaType (pragmaType pragma')
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"
