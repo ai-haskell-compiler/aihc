@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  record.field
+ast: EInfix (EVar "record") "." (EVar "field")
+status: pass

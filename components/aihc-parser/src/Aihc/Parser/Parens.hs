@@ -159,6 +159,7 @@ startsWithDollar (EAnn _ sub) = startsWithDollar sub
 startsWithDollar (ETHSplice {}) = True
 startsWithDollar (ETHTypedSplice {}) = True
 startsWithDollar (ERecordUpd base _) = startsWithDollar base
+startsWithDollar (EGetField base _) = startsWithDollar base
 startsWithDollar (EApp fn _) = startsWithDollar fn
 startsWithDollar (ETypeApp fn _) = startsWithDollar fn
 startsWithDollar _ = False
@@ -170,6 +171,7 @@ startsWithOverloadedLabel = \case
   EApp fn _ -> startsWithOverloadedLabel fn
   EInfix lhs _ _ -> startsWithOverloadedLabel lhs
   ERecordUpd base _ -> startsWithOverloadedLabel base
+  EGetField base _ -> startsWithOverloadedLabel base
   ETypeSig inner _ -> startsWithOverloadedLabel inner
   ETypeApp fn _ -> startsWithOverloadedLabel fn
   _ -> False
@@ -180,6 +182,7 @@ startsWithBlockExpr = \case
   EInfix lhs _ _ -> startsWithBlockExpr lhs
   EApp fn _ -> startsWithBlockExpr fn
   ERecordUpd base _ -> startsWithBlockExpr base
+  EGetField base _ -> startsWithBlockExpr base
   ETypeSig inner _ -> startsWithBlockExpr inner
   ETypeApp fn _ -> startsWithBlockExpr fn
   expr -> isBlockExpr expr
@@ -930,6 +933,8 @@ addExprParensPrec prec expr =
       ERecordCon name [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields] hasWildcard
     ERecordUpd base fields ->
       ERecordUpd (addExprParensPrec 3 base) [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields]
+    EGetField base field ->
+      EGetField (addExprParensPrec 3 base) field
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->

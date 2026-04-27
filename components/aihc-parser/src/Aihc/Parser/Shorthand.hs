@@ -801,6 +801,7 @@ docExpr expr =
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
     ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma ([docExprRecordField recordField | recordField <- fields'] ++ [".." | hasWildcard])))
     ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docExprRecordField recordField | recordField <- fields']))
+    EGetField base fieldName -> "EGetField" <+> parens (docExpr base) <+> docName fieldName
     ETypeSig inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen inner -> "EParen" <+> parens (docExpr inner)
     EList elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
@@ -989,6 +990,7 @@ docTokenKind kind =
     TkPrefixMinus -> "TkPrefixMinus"
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
+    TkRecordDot -> "TkRecordDot"
     TkPragma pragma' -> "TkPragma" <+> docPragmaType (pragmaType pragma')
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"

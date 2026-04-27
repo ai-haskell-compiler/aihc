@@ -150,6 +150,8 @@ data LexTokenKind
   | -- Whitespace-sensitive operator support (GHC proposal 0229)
     TkPrefixBang
   | TkPrefixTilde
+  | -- OverloadedRecordDot: '.' immediately after an expression, before a lowercase ident
+    TkRecordDot
   | -- TypeApplications support
     TkTypeApp
   | -- Pragmas

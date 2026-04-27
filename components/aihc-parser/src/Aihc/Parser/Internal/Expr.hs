@@ -444,7 +444,6 @@ atomOrRecordExprParser = do
     applyRecordSuffixes e = do
       mRecordFields <- MP.optional recordBracesParser
       case mRecordFields of
-        Nothing -> pure e
         Just (fields, hasWildcard) -> do
           let result = case peelExprAnn e of
                 EVar name
@@ -453,6 +452,17 @@ atomOrRecordExprParser = do
                 _ ->
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
+        Nothing -> do
+          recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
+          if not recordDotEnabled
+            then pure e
+            else do
+              mDot <- MP.optional (expectedTok TkRecordDot)
+              case mDot of
+                Nothing -> pure e
+                Just () -> do
+                  fieldName <- recordFieldNameParser
+                  applyRecordSuffixes (EGetField e fieldName)
 
     normalizeField :: (Name, Maybe Expr, SourceSpan) -> RecordField Expr
     normalizeField (fieldName, mExpr, sp) =

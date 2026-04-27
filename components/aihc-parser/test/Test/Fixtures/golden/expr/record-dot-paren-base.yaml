@@ -1,0 +1,5 @@
+extensions: [OverloadedRecordDot]
+input: |
+  (f x).field
+ast: EGetField (EParen (EApp (EVar "f") (EVar "x"))) "field"
+status: pass

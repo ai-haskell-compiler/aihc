@@ -117,6 +117,7 @@ checkPattern expr = case expr of
   ESectionL {} -> Left "unexpected left section in pattern"
   ESectionR {} -> Left "unexpected right section in pattern"
   ERecordUpd {} -> Left "unexpected record update in pattern"
+  EGetField {} -> Left "unexpected record field access in pattern"
   ETypeApp fun ty -> do
     funPat <- checkPattern fun
     case peelPatternAnn funPat of

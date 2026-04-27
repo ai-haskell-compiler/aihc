@@ -609,6 +609,8 @@ shrinkExpr expr =
       target
         : [ERecordUpd target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd target fields' | fields' <- shrinkRecordFields fields]
+    EGetField base fieldName ->
+      base : [EGetField base' fieldName | base' <- shrinkExpr base]
     ETypeSig inner ty ->
       inner
         : [ETypeSig inner ty' | ty' <- shrinkType ty]

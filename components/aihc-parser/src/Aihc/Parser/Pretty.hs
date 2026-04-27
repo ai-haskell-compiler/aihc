@@ -1140,6 +1140,8 @@ prettyExpr expr =
       prettyPrefixName name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd base fields ->
       prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    EGetField base field ->
+      prettyExpr base <> "." <> prettyName field
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
     EParen inner -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
