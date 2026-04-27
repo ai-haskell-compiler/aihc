@@ -390,6 +390,17 @@ typeFamilyInfixAppView ty =
 
 -- | Pretty-print a type. The AST is assumed to already have TParen nodes
 -- in the correct positions (inserted by 'addTypeParens').
+-- | Check if a type, when pretty-printed, would start with a
+-- promotion tick.  This is used to decide whether a promoted list or
+-- tuple needs a space after the opening tick to avoid lexer confusion
+-- (e.g.  ''[ '[' ... ]'' is invalid, whereas ''[ '[ ... ]'' is valid).
+startsWithTick :: Type -> Bool
+startsWithTick (TAnn _ sub) = startsWithTick sub
+startsWithTick (TList Promoted _) = True
+startsWithTick (TCon _ Promoted) = True
+startsWithTick (TTuple _ Promoted _) = True
+startsWithTick _ = False
+
 prettyType :: Type -> Doc ann
 prettyType ty =
   case ty of
@@ -400,7 +411,7 @@ prettyType ty =
           base
             | isSymbolicTypeName name = parens (pretty rendered)
             | otherwise = pretty rendered
-       in if promoted == Promoted then "' " <> base else base
+       in if promoted == Promoted then "'" <> base else base
     TImplicitParam name inner -> pretty name <+> "::" <+> prettyType inner
     TTypeLit lit -> prettyTypeLiteral lit
     TStar -> "*"
@@ -422,13 +433,21 @@ prettyType ty =
     TFun arrowKind a b ->
       prettyType a <+> prettyArrowKind arrowKind <+> prettyType b
     TTuple tupleFlavor promoted elems ->
-      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyType elems)))
-       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+      let elemsDoc = hsep (punctuate comma (map prettyType elems))
+          tupleDoc = prettyTupleBody tupleFlavor elemsDoc
+       in case (promoted, elems) of
+            (Promoted, h : _) | startsWithTick h -> "' " <> tupleDoc
+            (Promoted, _) -> "'" <> tupleDoc
+            _ -> tupleDoc
     TUnboxedSum elems ->
       hsep ["(#", hsep (punctuate " |" (map prettyType elems)), "#)"]
     TList promoted elems ->
-      let listDoc = brackets (hsep (punctuate comma (map prettyType elems)))
-       in if promoted == Promoted then "'" <> listDoc else listDoc
+      let elemsDoc = hsep (punctuate comma (map prettyType elems))
+          listDoc = brackets elemsDoc
+       in case (promoted, elems) of
+            (Promoted, h : _) | startsWithTick h -> "' " <> listDoc
+            (Promoted, _) -> "'" <> listDoc
+            _ -> listDoc
     TKindSig ty' kind ->
       prettyType ty' <+> "::" <+> prettyType kind
     TContext constraints inner ->
