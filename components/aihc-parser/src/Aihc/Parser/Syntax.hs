@@ -1435,7 +1435,8 @@ data DataFamilyInst = DataFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 data DataDecl = DataDecl
-  { dataDeclHead :: BinderHead UnqualifiedName,
+  { dataDeclCTypePragma :: Maybe Pragma,
+    dataDeclHead :: BinderHead UnqualifiedName,
     dataDeclContext :: [Type],
     -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
     dataDeclKind :: Maybe Type,
@@ -1445,7 +1446,8 @@ data DataDecl = DataDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
 data NewtypeDecl = NewtypeDecl
-  { newtypeDeclHead :: BinderHead UnqualifiedName,
+  { newtypeDeclCTypePragma :: Maybe Pragma,
+    newtypeDeclHead :: BinderHead UnqualifiedName,
     newtypeDeclContext :: [Type],
     -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
     newtypeDeclKind :: Maybe Type,

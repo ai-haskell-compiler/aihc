@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail CTYPE pragma on data declaration is not preserved in roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE CApiFFI #-}
 

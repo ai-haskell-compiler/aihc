@@ -167,7 +167,8 @@ genDeclDataGadt = do
   ctors <- genGadtDataCons
   pure $
     DataDecl
-      { dataDeclHead = PrefixBinderHead name params,
+      { dataDeclCTypePragma = Nothing,
+        dataDeclHead = PrefixBinderHead name params,
         dataDeclContext = [],
         dataDeclKind = Nothing,
         dataDeclConstructors = ctors,
@@ -185,7 +186,8 @@ genDeclTypeDataPrefix = do
   pure $
     DeclTypeData $
       DataDecl
-        { dataDeclHead = PrefixBinderHead name params,
+        { dataDeclCTypePragma = Nothing,
+          dataDeclHead = PrefixBinderHead name params,
           dataDeclContext = [],
           dataDeclKind = Nothing,
           dataDeclConstructors = ctors,
@@ -217,7 +219,8 @@ genSimpleDataDecl = do
   deriving' <- genDerivingClauses
   pure $
     DataDecl
-      { dataDeclHead = head',
+      { dataDeclCTypePragma = Nothing,
+        dataDeclHead = head',
         dataDeclContext = [],
         dataDeclKind = kind,
         dataDeclConstructors = ctors,
@@ -353,7 +356,8 @@ genDeclNewtype = do
   pure $
     DeclNewtype $
       NewtypeDecl
-        { newtypeDeclHead = PrefixBinderHead name params,
+        { newtypeDeclCTypePragma = Nothing,
+          newtypeDeclHead = PrefixBinderHead name params,
           newtypeDeclContext = [],
           newtypeDeclKind = Nothing,
           newtypeDeclConstructor = Just ctor,

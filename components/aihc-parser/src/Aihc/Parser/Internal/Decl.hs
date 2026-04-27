@@ -853,13 +853,15 @@ gadtDataDeclParser = do
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
+  ctypePragma <- optionalHiddenPragma Just
   (context, typeHead, inlineKind) <- declHeadPreferringInlineKind typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructors, derivingClauses) <- gadtDataDeclParser <|> traditionalDataDeclParser
   pure $
     DeclData
       DataDecl
-        { dataDeclHead = typeHead,
+        { dataDeclCTypePragma = ctypePragma,
+          dataDeclHead = typeHead,
           dataDeclContext = fromMaybe [] context,
           dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
@@ -886,7 +888,8 @@ typeDataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   pure $
     DeclTypeData
       DataDecl
-        { dataDeclHead = typeHead,
+        { dataDeclCTypePragma = Nothing,
+          dataDeclHead = typeHead,
           dataDeclContext = [],
           dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
@@ -1052,13 +1055,15 @@ unboxedConDeclParser forallVars context = do
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
+  ctypePragma <- optionalHiddenPragma Just
   (context, typeHead, inlineKind) <- declHeadPreferringInlineKind typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $
     DeclNewtype
       NewtypeDecl
-        { newtypeDeclHead = typeHead,
+        { newtypeDeclCTypePragma = ctypePragma,
+          newtypeDeclHead = typeHead,
           newtypeDeclContext = fromMaybe [] context,
           newtypeDeclKind = inlineKind,
           newtypeDeclConstructor = constructor,

@@ -521,6 +521,7 @@ prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
   hsep
     ( ["data"]
+        <> maybe [] (pure . prettyPragma) (dataDeclCTypePragma decl)
         <> prettyDeclBinderHead (dataDeclContext decl) (dataDeclHead decl)
         <> kindPart
         <> ctorPart
@@ -561,6 +562,7 @@ prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
   hsep
     ( ["newtype"]
+        <> maybe [] (pure . prettyPragma) (newtypeDeclCTypePragma decl)
         <> prettyDeclBinderHead (newtypeDeclContext decl) (newtypeDeclHead decl)
         <> kindPart
         <> ctorPart
