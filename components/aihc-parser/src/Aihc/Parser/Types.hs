@@ -264,7 +264,9 @@ stepOne ts
                   pendingPragmas =
                     case lexTokenOrigin tok of
                       InsertedLayout -> tokStreamPendingPragmas ts0
-                      FromSource -> []
+                      FromSource
+                        | lexTokenKind tok == TkSpecialSemicolon -> tokStreamPendingPragmas ts0
+                        | otherwise -> []
                   ts' =
                     ts0
                       { tokStreamLayoutState = laySt {layoutBuffer = rest},
