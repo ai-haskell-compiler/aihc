@@ -1,0 +1,33 @@
+cabal-version:      3.8
+name:               aihc-dev
+version:            0.1.0.0
+build-type:         Simple
+license:            MIT
+license-file:       LICENSE
+author:             David Himmelstrup
+maintainer:         lemmih@gmail.com
+category:           Development
+synopsis:           Developer tools for the aihc compiler
+
+executable aihc-dev
+  main-is:          Main.hs
+  hs-source-dirs:   exe src
+  other-modules:
+      Aihc.Dev.ExtractHi
+    , Aihc.Dev.ExtractHi.Types
+    , Aihc.Dev.ExtractHi.GhcSession
+  build-depends:
+      base >= 4.16 && < 5
+    , aeson >= 2.0 && < 2.3
+    , bytestring >= 0.10.8 && < 0.13
+    , containers >= 0.5 && < 0.8
+    , directory >= 1.2.3 && < 1.5
+    , filepath >= 1.3.0.1 && < 1.6
+    , ghc >= 9.12 && < 9.13
+    , optparse-applicative >= 0.16 && < 0.19
+    , process >= 1.6 && < 1.8
+    , text >= 1.2.3 && < 2.2
+    , yaml >= 0.11 && < 0.12
+  default-extensions: OverloadedStrings
+  ghc-options:        -Wall
+  default-language: GHC2021

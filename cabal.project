@@ -6,5 +6,6 @@ packages:
   components/aihc-tc
   components/aihc-fc
   tooling/aihc-hackage
+  tooling/aihc-dev
 
 tests: True
