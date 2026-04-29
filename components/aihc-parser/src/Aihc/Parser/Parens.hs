@@ -302,6 +302,9 @@ addSectionLhsParens expr =
         (addExprParensIn CtxInfixLhs lhs)
         op
         (addSectionInfixRhsParens rhs)
+    ENegate inner
+      | isGreedyExpr inner || isOpenEnded inner ->
+          wrapExpr True (addExprParens expr)
     _ -> addExprParensPrec 1 expr
   where
     addSectionInfixRhsParens rhs =
