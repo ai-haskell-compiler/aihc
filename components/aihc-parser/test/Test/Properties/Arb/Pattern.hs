@@ -71,7 +71,6 @@ genPattern = scale (`div` 2) $ do
         PIrrefutable <$> genPattern
       ]
 
-
 genViewPatternWith :: Gen Pattern
 genViewPatternWith =
   PView <$> genViewPatternExpr <*> genPattern
