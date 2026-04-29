@@ -35,7 +35,7 @@ prop_modulePrettyRoundTrip modu =
 prop_moduleValidator :: Module -> Property
 prop_moduleValidator modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-      mbErr = validateParser "<quickcheck>" GHC2024Edition [] source
+      mbErr = validateParser "<quickcheck>" GHC2024Edition moduleExtensionSettings source
    in counterexample ("Original source:\n" <> T.unpack source) $
         case mbErr of
           Nothing -> property True
@@ -45,5 +45,30 @@ prop_moduleValidator modu =
 moduleConfig :: ParserConfig
 moduleConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension UnicodeSyntax, EnableExtension QuasiQuotes, EnableExtension PatternSynonyms, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension TypeApplications, EnableExtension TupleSections, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension ExplicitNamespaces, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments, EnableExtension ViewPatterns, EnableExtension LambdaCase]
+    { parserExtensions = effectiveExtensions GHC2024Edition moduleExtensionSettings
     }
+
+moduleExtensionSettings :: [ExtensionSetting]
+moduleExtensionSettings =
+  [ EnableExtension BlockArguments,
+    EnableExtension Arrows,
+    EnableExtension UnboxedTuples,
+    EnableExtension UnboxedSums,
+    EnableExtension TemplateHaskell,
+    EnableExtension UnicodeSyntax,
+    EnableExtension QuasiQuotes,
+    EnableExtension PatternSynonyms,
+    EnableExtension MagicHash,
+    EnableExtension OverloadedLabels,
+    EnableExtension MultiWayIf,
+    EnableExtension RecursiveDo,
+    EnableExtension TypeApplications,
+    EnableExtension TupleSections,
+    EnableExtension CApiFFI,
+    EnableExtension ImplicitParams,
+    EnableExtension ExplicitNamespaces,
+    EnableExtension TypeAbstractions,
+    EnableExtension RequiredTypeArguments,
+    EnableExtension ViewPatterns,
+    EnableExtension LambdaCase
+  ]
