@@ -823,7 +823,7 @@ prettyClassItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map prettyInfixOp ops
+            <> punctuate comma (map prettyInfixOp ops)
         )
     ClassItemDefault valueDecl -> prettyValueDeclSingleLine valueDecl
     ClassItemTypeFamilyDecl tf -> prettyAssocTypeFamilyDecl tf
@@ -904,7 +904,7 @@ prettyInstanceItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map prettyInfixOp ops
+            <> punctuate comma (map prettyInfixOp ops)
         )
     InstanceItemTypeFamilyInst tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst dfi -> prettyInstDataFamilyInst dfi

@@ -408,16 +408,36 @@ genClassDeclItems params =
   smallList0 $
     oneof
       [ genClassTypeSigItem,
+        genClassDefaultSigItem,
+        genClassFixityItem,
+        genClassDefaultItem,
         genClassAssociatedTypeDeclItem,
         genClassAssociatedDataDeclItem params,
-        ClassItemTypeFamilyDecl <$> genAssociatedTypeFamilyDecl,
-        ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst
+        ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst,
+        genClassPragmaItem,
+        genAnnotatedClassDeclItem params
       ]
 
 genClassTypeSigItem :: Gen ClassDeclItem
 genClassTypeSigItem = do
   name <- genVarUnqualifiedName
   ClassItemTypeSig [name] <$> genType
+
+genClassDefaultSigItem :: Gen ClassDeclItem
+genClassDefaultSigItem = do
+  name <- genVarUnqualifiedName
+  ClassItemDefaultSig name <$> genType
+
+genClassFixityItem :: Gen ClassDeclItem
+genClassFixityItem = do
+  assoc <- elements [Infix, InfixL, InfixR]
+  prec <- elements [Nothing, Just 0, Just 6, Just 9]
+  namespace <- elements [Nothing, Just IEEntityNamespaceType, Just IEEntityNamespaceData]
+  ops <- smallList1 genVarUnqualifiedName
+  pure (ClassItemFixity assoc namespace prec ops)
+
+genClassDefaultItem :: Gen ClassDeclItem
+genClassDefaultItem = ClassItemDefault <$> genFunctionValueDecl
 
 genClassAssociatedTypeDeclItem :: Gen ClassDeclItem
 genClassAssociatedTypeDeclItem = do
@@ -433,6 +453,25 @@ genClassAssociatedDataDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
 genClassAssociatedDataDeclItem params = do
   df <- genAssociatedDataFamilyDecl params
   pure $ ClassItemDataFamilyDecl df
+
+genClassPragmaItem :: Gen ClassDeclItem
+genClassPragmaItem = do
+  kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
+  ClassItemPragma . (\pt -> Pragma {pragmaType = pt, pragmaRawText = ""}) . PragmaInline kind <$> genVarId
+
+genAnnotatedClassDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
+genAnnotatedClassDeclItem params =
+  ClassItemAnn (mkAnnotation noSourceSpan)
+    <$> oneof
+      [ genClassTypeSigItem,
+        genClassDefaultSigItem,
+        genClassFixityItem,
+        genClassDefaultItem,
+        genClassAssociatedTypeDeclItem,
+        genClassAssociatedDataDeclItem params,
+        ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst,
+        genClassPragmaItem
+      ]
 
 genAssociatedTypeFamilyDecl :: Gen TypeFamilyDecl
 genAssociatedTypeFamilyDecl = do
