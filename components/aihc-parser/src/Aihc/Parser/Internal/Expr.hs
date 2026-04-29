@@ -9,6 +9,7 @@ module Aihc.Parser.Internal.Expr
     -- Re-exports from Pattern
     simplePatternParser,
     appPatternParser,
+    asOrAppPatternParser,
     patternParser,
     -- Re-exports from Type
     typeParser,
@@ -31,7 +32,7 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, asOrAppPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -1160,7 +1161,7 @@ localTypeSigDeclsParser = do
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith asOrAppPatternParser simplePatternParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 localPatternDeclParser :: TokParser Decl

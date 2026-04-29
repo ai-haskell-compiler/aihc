@@ -1150,6 +1150,10 @@ prettyExpr expr =
       -- reads as TkSpecialUnboxedLParen when UnboxedTuples/UnboxedSums is on.
       -- A leading space produces "( # ...)" which is unambiguous.
       ESectionR op _ | T.isPrefixOf "#" (renderName op) -> parens (" " <> prettyExpr inner)
+      -- ESectionL with a '#'-ending op renders as "(x #)" which the lexer
+      -- reads as TkSpecialUnboxedRParen when UnboxedTuples/UnboxedSums is on.
+      -- A trailing space produces "(x # )" which is unambiguous.
+      ESectionL _ op | T.isSuffixOf "#" (renderName op) -> parens (prettyExpr inner <> " ")
       _ -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
     ETuple Unboxed [] -> "(# #)"

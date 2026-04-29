@@ -12,7 +12,7 @@ where
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, asOrAppPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
@@ -80,7 +80,11 @@ ordinaryDeclParser = do
         TkSpecialComma -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
         TkReservedEquals -> valueDecl
         _ -> nonBareVarPatternBindDeclParser <|> valueDecl
-    _ -> MP.try typeSigOrPatternTypeSigDeclParser <|> patternBindDeclParser <|> valueDecl
+    _ ->
+      MP.try typeSigOrPatternTypeSigDeclParser
+        <|> MP.try valueDeclParser
+        <|> patternBindDeclParser
+        <|> (if exprFallback then exprDeclParser else MP.empty)
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.
 -- When the leading token is a variable identifier, a bare @x = 5@ must be
@@ -780,7 +784,7 @@ fixityItemParser ann ctor = withSpanAnn ann $ do
 
 valueItemParser :: (SourceSpan -> a -> a) -> (ValueDecl -> a) -> TokParser a
 valueItemParser ann ctor = withSpanAnn ann $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith asOrAppPatternParser simplePatternParser
   ctor . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
@@ -1522,7 +1526,7 @@ patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith asOrAppPatternParser simplePatternParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 -- ---------------------------------------------------------------------------

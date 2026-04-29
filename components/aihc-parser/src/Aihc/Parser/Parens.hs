@@ -1364,6 +1364,7 @@ addInfixFunctionHeadPatternAtomParens pat =
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
+    PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.

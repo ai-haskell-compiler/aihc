@@ -5,6 +5,7 @@ module Aihc.Parser.Internal.Pattern
     patternParserWithTypeSigParser,
     simplePatternParser,
     appPatternParser,
+    asOrAppPatternParser,
     literalParser,
   )
 where
