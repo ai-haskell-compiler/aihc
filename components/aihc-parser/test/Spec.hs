@@ -11,7 +11,9 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
+import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import Data.Maybe (isNothing)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, validateParser)
@@ -113,6 +115,7 @@ buildTests = do
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
             testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
+            testCase "promoted qualified constructors avoid char literal ambiguity" test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity,
             testCase "boxed tuple infix constructor operands stay bare" test_boxedTupleInfixConOperandStaysBare,
             testCase "unboxed tuple infix constructor operands stay bare" test_unboxedTupleInfixConOperandStaysBare,
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
@@ -149,6 +152,7 @@ buildTests = do
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
               QC.testProperty "generated class items include explicit associated type family syntax" prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword,
+              QC.testProperty "generated class declarations cover all class item constructors" prop_generatedClassDeclsCoverAllClassItemConstructors,
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
@@ -405,6 +409,17 @@ test_dataDeclResultKindContextRoundTrips = do
       expected = stripAnnotations (addDeclParens decl)
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "pretty-printed declaration" "data 𐖈 :: C => C" rendered
+  case parseDecl defaultConfig rendered of
+    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+
+test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity :: Assertion
+test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
+  let promotedName = mkName (Just "A'.B") NameConId "C"
+      decl = DeclStandaloneKindSig (mkUnqualifiedName NameConSym ":+") (TCon promotedName Promoted)
+      expected = stripAnnotations (addDeclParens decl)
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "type (:+) :: ' A'.B.C" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
     ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
@@ -953,6 +968,31 @@ prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword =
             <> show (length matching)
         )
         (not (null matching))
+
+prop_generatedClassDeclsCoverAllClassItemConstructors :: Property
+prop_generatedClassDeclsCoverAllClassItemConstructors =
+  let samples = sampleGen 6000 genDeclClass
+      seen =
+        Set.fromList
+          [ showConstr (toConstr item)
+          | DeclClass ClassDecl {classDeclItems} <- samples,
+            item <- map peelClassDeclItemAnn classDeclItems
+          ]
+      expected =
+        Set.fromList
+          [ ctor
+          | ctor <- map showConstr (dataTypeConstrs (dataTypeOf (undefined :: ClassDeclItem))),
+            ctor /= "ClassItemAnn"
+          ]
+      missing = Set.toList (expected Set.\\ seen)
+   in counterexample
+        ( "expected generated class declarations to cover all class item constructors; missing "
+            <> show missing
+            <> ", sampled "
+            <> show (length samples)
+            <> " declarations"
+        )
+        (Set.null (expected Set.\\ seen))
 
 prop_generatedModulesCanIncludeEmptyBundledImports :: Property
 prop_generatedModulesCanIncludeEmptyBundledImports =

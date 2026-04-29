@@ -269,7 +269,7 @@ needsExprParens ctx expr =
     CtxTypeSigBody ->
       case expr of
         ETypeSig {} -> True
-        ENegate inner -> isOpenEnded inner
+        ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
         ELambdaCases {} -> True
         _ -> isOpenEnded expr
