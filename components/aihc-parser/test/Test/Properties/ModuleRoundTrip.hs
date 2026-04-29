@@ -2,6 +2,7 @@
 
 module Test.Properties.ModuleRoundTrip
   ( prop_modulePrettyRoundTrip,
+    prop_moduleValidator,
   )
 where
 
@@ -10,6 +11,7 @@ import Aihc.Parser.Parens (addModuleParens)
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
+import ParserValidation (validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Module ()
@@ -30,8 +32,18 @@ prop_modulePrettyRoundTrip modu =
             _ ->
               counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
 
+prop_moduleValidator :: Module -> Property
+prop_moduleValidator modu =
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+      mbErr = validateParser "<quickcheck>" GHC2024Edition [] source
+   in counterexample ("Original source:\n" <> T.unpack source) $
+        case mbErr of
+          Nothing -> property True
+          Just errs ->
+            counterexample (show errs) False
+
 moduleConfig :: ParserConfig
 moduleConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension UnicodeSyntax, EnableExtension QuasiQuotes, EnableExtension PatternSynonyms, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension TypeApplications, EnableExtension TupleSections, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension ExplicitNamespaces, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments, EnableExtension LambdaCase]
+    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension UnicodeSyntax, EnableExtension QuasiQuotes, EnableExtension PatternSynonyms, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension TypeApplications, EnableExtension TupleSections, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension ExplicitNamespaces, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments, EnableExtension ViewPatterns, EnableExtension LambdaCase]
     }

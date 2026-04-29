@@ -66,6 +66,7 @@ generatedModuleExtensions =
       ImplicitParams,
       TypeAbstractions,
       RequiredTypeArguments,
+      ViewPatterns,
       LambdaCase
     ]
 
@@ -175,8 +176,10 @@ instance Arbitrary ExportSpec where
       [ ExportModule <$> genMaybeWarningPragma <*> genModuleName,
         ExportVar <$> genMaybeWarningPragma <*> pure Nothing <*> genExportVarName,
         ExportAbs <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName,
-        ExportAll <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName,
-        ExportWith <$> genMaybeWarningPragma <*> arbitrary <*> genExportTypeName <*> genExportMembers,
+        -- Namespace keywords (pattern/type/data) before T(..) are not valid GHC syntax
+        ExportAll <$> genMaybeWarningPragma <*> pure Nothing <*> genExportTypeName,
+        -- Namespace keywords (pattern/type/data) are not valid in ExportWith/ExportWithAll
+        ExportWith <$> genMaybeWarningPragma <*> pure Nothing <*> genExportTypeName <*> genExportMembers,
         genExportWithAll
       ]
 
@@ -195,17 +198,19 @@ instance Arbitrary ExportSpec where
         [ExportAbs mWarning namespace name]
           <> [ExportAll Nothing namespace name | Just _ <- [mWarning]]
           <> [ExportAll mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
-      ExportWith mWarning namespace name members ->
-        [ExportAbs mWarning namespace name | not (null members)]
-          <> [ExportWith Nothing namespace name members | Just _ <- [mWarning]]
-          <> [ExportWith mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
-          <> [ExportWith mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ExportWithAll mWarning namespace name wildcardIndex members ->
-        [ExportWith mWarning namespace name members]
-          <> [ExportWithAll Nothing namespace name wildcardIndex members | Just _ <- [mWarning]]
-          <> [ExportWithAll mWarning namespace shrunk wildcardIndex members | shrunk <- shrinkExportTypeName name]
-          <> [ExportWithAll mWarning namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
-          <> [ExportWithAll mWarning namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ExportWith mWarning _namespace name members ->
+        -- Always use Nothing namespace (pattern/type/data not valid in ExportWith)
+        [ExportAbs mWarning Nothing name | not (null members)]
+          <> [ExportWith Nothing Nothing name members | Just _ <- [mWarning]]
+          <> [ExportWith mWarning Nothing shrunk members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWith mWarning Nothing name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ExportWithAll mWarning _namespace name wildcardIndex members ->
+        -- Always use Nothing namespace (pattern/type/data not valid in ExportWithAll)
+        [ExportWith mWarning Nothing name members]
+          <> [ExportWithAll Nothing Nothing name wildcardIndex members | Just _ <- [mWarning]]
+          <> [ExportWithAll mWarning Nothing shrunk wildcardIndex members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWithAll mWarning Nothing name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
+          <> [ExportWithAll mWarning Nothing name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEEntityNamespace where
   arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
@@ -240,8 +245,7 @@ instance Arbitrary ImportItem where
       [ ImportItemVar Nothing <$> genUnqualifiedVarName,
         ImportItemAbs <$> genTypeNamespace <*> genTypeName,
         ImportItemAll <$> genTypeNamespace <*> genTypeName,
-        ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genImportMembers,
-        genImportItemAllWith
+        ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genImportMembers
       ]
 
   shrink item =
@@ -258,11 +262,8 @@ instance Arbitrary ImportItem where
         [ImportItemAbs namespace name | not (null members)]
           <> [ImportItemWith namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ImportItemWith namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ImportItemAllWith namespace name wildcardIndex members ->
+      ImportItemAllWith namespace name _wildcardIndex members ->
         [ImportItemWith namespace name members]
-          <> [ImportItemAllWith namespace shrunk wildcardIndex members | shrunk <- shrinkTypeName name]
-          <> [ImportItemAllWith namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
-          <> [ImportItemAllWith namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do
@@ -283,12 +284,12 @@ genMemberName =
 
 genUnqualifiedMemberName :: Gen UnqualifiedName
 genUnqualifiedMemberName =
-  oneof [genUnqualifiedVarName, genTypeName]
+  oneof [mkUnqualifiedName NameVarId <$> genVarId, genTypeName]
 
 genQualifiedMemberName :: Gen Name
 genQualifiedMemberName = do
   modName <- genModuleName
-  qualifyName (Just modName) <$> oneof [genUnqualifiedVarName, genTypeName]
+  qualifyName (Just modName) <$> oneof [mkUnqualifiedName NameVarId <$> genVarId, genTypeName]
 
 genMemberNameFor :: Maybe IEBundledNamespace -> Gen Name
 genMemberNameFor namespace =
@@ -299,19 +300,12 @@ genMemberNameFor namespace =
 genExportWithAll :: Gen ExportSpec
 genExportWithAll = do
   mWarning <- genMaybeWarningPragma
-  namespace <- arbitrary
+  -- Namespace keywords (pattern/type/data) are not valid before T(..) in exports
+  let namespace = Nothing
   name <- genExportTypeName
   members <- listOf1 arbitrary
   wildcardIndex <- chooseInt (0, length members)
   pure (ExportWithAll mWarning namespace name wildcardIndex members)
-
-genImportItemAllWith :: Gen ImportItem
-genImportItemAllWith = do
-  namespace <- genBundledNamespace
-  name <- genTypeName
-  members <- listOf1 arbitrary
-  wildcardIndex <- chooseInt (0, length members)
-  pure (ImportItemAllWith namespace name wildcardIndex members)
 
 genImportMembers :: Gen [IEBundledMember]
 genImportMembers =

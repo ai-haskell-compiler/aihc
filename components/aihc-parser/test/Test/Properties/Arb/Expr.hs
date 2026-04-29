@@ -3,6 +3,8 @@
 
 module Test.Properties.Arb.Expr
   ( genExpr,
+    genExprWith,
+    genViewPatternExpr,
     genRhsWith,
     mkIntExpr,
     shrinkExpr,
@@ -94,6 +96,28 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
           ]
       | otherwise =
           []
+
+-- | Generate an expression safe for use in a view pattern.
+-- Restricted to variable references and applications to avoid ambiguity with
+-- type syntax when TypeAbstractions/RequiredTypeArguments are enabled.
+genViewPatternExpr :: Gen Expr
+genViewPatternExpr = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0
+    then genViewPatternVar
+    else
+      oneof
+        [ genViewPatternVar,
+          EApp <$> genViewPatternExpr <*> genViewPatternExpr,
+          EParen <$> genViewPatternExpr,
+          ETypeApp <$> genViewPatternExpr <*> genTypeWith False,
+          ERecordCon <$> genConName <*> pure [] <*> pure False,
+          ERecordUpd <$> genViewPatternExpr <*> pure []
+        ]
+
+genViewPatternVar :: Gen Expr
+genViewPatternVar =
+  EVar . qualifyName Nothing . mkUnqualifiedName NameVarId <$> genVarId
 
 -- | Generate a leaf (non-recursive) expression.
 genExprLeaf :: Gen Expr
