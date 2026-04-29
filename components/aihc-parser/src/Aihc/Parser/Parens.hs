@@ -240,6 +240,14 @@ needsExprParens ctx expr =
         -- wrapping, the re-parsed tree would right-associate differently.
         EInfix {} -> True
         ETypeSig {} -> True
+        -- ENegate needs parenthesization when its inner expression is
+        -- open-ended (e.g. ends with a `let` body).  Without parens, the
+        -- parser re-reads `- f let {} in x \`op\` y` as
+        -- `-(f (let {} in (x \`op\` y)))` because the `let` body greedily
+        -- consumes the infix.  For non-greedy inner expressions (plain
+        -- variables, literals, etc.) no parens are needed: `-x + 1` is
+        -- correctly re-parsed as `(-x) + 1`.
+        ENegate inner -> isOpenEnded inner
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -261,6 +269,7 @@ needsExprParens ctx expr =
     CtxTypeSigBody ->
       case expr of
         ETypeSig {} -> True
+        ENegate inner -> isOpenEnded inner
         ELambdaPats {} -> True
         ELambdaCases {} -> True
         _ -> isOpenEnded expr
@@ -610,7 +619,7 @@ bangTypeNeedsPrefixParens (TKindSig ty _) = bangTypeNeedsPrefixParens ty
 bangTypeNeedsPrefixParens (TContext cs _) = case cs of
   [] -> False
   (c : _) -> bangTypeNeedsPrefixParens c
-bangTypeNeedsPrefixParens (TForall {}) = False -- starts with "forall"
+bangTypeNeedsPrefixParens (TForall {}) = True
 -- Promoted tuples/lists start with a tick mark.
 bangTypeNeedsPrefixParens (TTuple _ promoted _) = promoted == Promoted
 bangTypeNeedsPrefixParens (TList promoted _) = promoted == Promoted
@@ -861,7 +870,7 @@ addExprParensPrec prec expr =
     ETHTypedQuote body -> ETHTypedQuote (addExprParens body)
     ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
     ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
-    ETHPatQuote pat -> ETHPatQuote (addPatternParens pat)
+    ETHPatQuote pat -> ETHPatQuote (addTHPatQuoteParens pat)
     ETHNameQuote body -> ETHNameQuote (addExprParens body)
     ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
     ETHSplice body -> ETHSplice (addSpliceBodyParens body)
@@ -897,7 +906,10 @@ addExprParensPrec prec expr =
               else addSectionLhsParens lhs
        in EParen (ESectionL lhs' op)
     ESectionR op rhs ->
-      EParen (ESectionR op (addExprParens rhs))
+      -- The RHS operand is parsed as an infix RHS, so low-precedence forms
+      -- such as type signatures need their own parentheses:
+      -- @(`op` (x :: T))@, not @(`op` x :: T)@.
+      EParen (ESectionR op (addExprParensIn (CtxInfixRhs False) rhs))
     ELetDecls decls body ->
       wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
@@ -987,7 +999,12 @@ addNegateParens inner =
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
-  CaseAlt sp (addPatternParens pat) (addCaseAltRhsParens rhs)
+  CaseAlt sp (addCaseAltPatternParens pat) (addCaseAltRhsParens rhs)
+
+addCaseAltPatternParens :: Pattern -> Pattern
+addCaseAltPatternParens pat@(PTypeSig {}) = wrapPat True (addPatternParens pat)
+addCaseAltPatternParens (PAnn ann sub) = PAnn ann (addCaseAltPatternParens sub)
+addCaseAltPatternParens pat = addPatternParens pat
 
 addLambdaCaseAltParens :: LambdaCaseAlt -> LambdaCaseAlt
 addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
@@ -1227,6 +1244,15 @@ addPatternInDelimited pat =
     PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
     _ -> addPatternParens pat
 
+-- | Template Haskell pattern quotes accept typed patterns only when they are
+-- parenthesized: @[p| (a :: T) |]@ parses, but @[p| a :: T |]@ does not.
+addTHPatQuoteParens :: Pattern -> Pattern
+addTHPatQuoteParens pat =
+  let pat' = addPatternParens pat
+   in case peelPatternAnn pat' of
+        PTypeSig {} -> wrapPat True pat'
+        _ -> pat'
+
 -- | Add parens for a pattern nested inside a view pattern.
 -- Nested view patterns do not need extra parens.
 addPatternViewInnerParens :: Pattern -> Pattern
@@ -1395,7 +1421,7 @@ addCmdParens cmd =
 
 addCmdArrAppLhsParens :: Expr -> Expr
 addCmdArrAppLhsParens lhs =
-  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs) (addExprParensPrec 1 lhs)
+  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs || endsWithTypeSig lhs) (addExprParensPrec 1 lhs)
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
@@ -1408,7 +1434,7 @@ addCmdDoStmtParens stmt =
 
 addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
 addCmdCaseAltParens (CaseAlt anns pat rhs) =
-  CaseAlt anns (addPatternParens pat) (addCmdCaseAltRhsParens rhs)
+  CaseAlt anns (addCaseAltPatternParens pat) (addCmdCaseAltRhsParens rhs)
 
 addCmdCaseAltRhsParens :: Rhs Cmd -> Rhs Cmd
 addCmdCaseAltRhsParens rhs =

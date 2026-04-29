@@ -16,6 +16,7 @@ import Test.Properties.Arb.Identifiers
     genQuasiBody,
     genQuoterName,
     genVarId,
+    genVarIdNoHash,
     shrinkConIdent,
     shrinkIdent,
   )
@@ -106,7 +107,7 @@ genConstraintType = do
 
 genTypeImplicitParam :: Gen Type
 genTypeImplicitParam = do
-  name <- ("?" <>) <$> genVarId
+  name <- ("?" <>) <$> genVarIdNoHash
   TImplicitParam name <$> genType
 
 genTypeTupleElems :: Gen [Type]
@@ -195,32 +196,46 @@ genKindSigKind =
       (1, TFun ArrowUnrestricted <$> genSimpleTypeAtom <*> genSimpleTypeAtom)
     ]
 
-genTypeBinders :: Gen [TyVarBinder]
-genTypeBinders = do
-  n <- chooseInt (1, 3)
-  vectorOf n genTyVarBinder
-
 genForallTelescope :: Gen ForallTelescope
-genForallTelescope =
-  ForallTelescope <$> elements [ForallInvisible, ForallVisible] <*> genTypeBinders
+genForallTelescope = do
+  vis <- elements [ForallInvisible, ForallVisible]
+  -- Visible foralls (forall a -> T) require specified binders; inferred ({a}) are only valid in invisible foralls
+  binders <- genTypeBindersFor vis
+  pure (ForallTelescope vis binders)
 
-genTyVarBinder :: Gen TyVarBinder
-genTyVarBinder = do
+genTypeBindersFor :: ForallVis -> Gen [TyVarBinder]
+genTypeBindersFor vis = do
+  n <- chooseInt (1, 3)
+  vectorOf n (genTyVarBinderFor vis)
+
+genTyVarBinderFor :: ForallVis -> Gen TyVarBinder
+genTyVarBinderFor vis = do
   name <- genTypeVarName
-  oneof
-    [ -- Plain specified binder: a
-      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified TyVarBVisible),
-      -- Plain inferred binder: {a}
-      pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred TyVarBVisible),
-      -- Kinded inferred binder: {a :: Kind}
-      do
-        kind <- resize 0 genSimpleTypeAtom
-        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred TyVarBVisible),
-      -- Kinded specified binder: (a :: Kind)
-      do
-        kind <- resize 0 genSimpleTypeAtom
-        pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified TyVarBVisible)
-    ]
+  case vis of
+    ForallVisible ->
+      oneof
+        [ -- Plain specified binder: a
+          pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified TyVarBVisible),
+          -- Kinded specified binder: (a :: Kind)
+          do
+            kind <- resize 0 genSimpleTypeAtom
+            pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified TyVarBVisible)
+        ]
+    ForallInvisible ->
+      oneof
+        [ -- Plain specified binder: a
+          pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBSpecified TyVarBVisible),
+          -- Plain inferred binder: {a}
+          pure (TyVarBinder [] (renderUnqualifiedName name) Nothing TyVarBInferred TyVarBVisible),
+          -- Kinded inferred binder: {a :: Kind}
+          do
+            kind <- resize 0 genSimpleTypeAtom
+            pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBInferred TyVarBVisible),
+          -- Kinded specified binder: (a :: Kind)
+          do
+            kind <- resize 0 genSimpleTypeAtom
+            pure (TyVarBinder [] (renderUnqualifiedName name) (Just kind) TyVarBSpecified TyVarBVisible)
+        ]
 
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
@@ -257,8 +272,7 @@ shrinkType ty =
     TCon name promoted ->
       [TCon (nameFromText "C") promoted | renderName name /= "C"]
         <> [ TCon (name {nameText = shrunk}) promoted
-           | shrunk <- shrinkConIdent (nameText name),
-             promoted == Unpromoted || (T.length shrunk >= 2 && not (T.any (== '\'') shrunk))
+           | shrunk <- shrinkConIdent (nameText name)
            ]
     TImplicitParam name inner ->
       [inner]

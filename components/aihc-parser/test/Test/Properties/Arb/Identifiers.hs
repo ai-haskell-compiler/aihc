@@ -5,6 +5,7 @@
 module Test.Properties.Arb.Identifiers
   ( -- * Variable identifiers
     genVarId,
+    genVarIdNoHash,
     genVarUnqualifiedName,
     genVarName,
     shrinkIdent,
@@ -81,9 +82,11 @@ identTailChars = filter isValidIdentTailChar allChars
 symbolChars :: [Char]
 symbolChars = filter isValidSymbolChar allChars
 
--- Symbols starting with ':' are constructors, and symbols ending with '#' clashes with overloaded labels.
+-- Symbols starting with ':' are constructors, symbols starting with '|' collide
+-- with guard/alternative syntax in expression positions, and symbols ending
+-- with '#' clash with overloaded labels.
 varSymStartChars :: [Char]
-varSymStartChars = filter (\c -> c /= ':' && c /= '#') symbolChars
+varSymStartChars = filter (\c -> c /= ':' && c /= '|' && c /= '#') symbolChars
 
 reservedOperators :: Set.Set Text
 reservedOperators =
@@ -134,6 +137,16 @@ genVarId = do
   if isValidGeneratedIdent candidate
     then pure candidate
     else genVarId
+
+genVarIdNoHash :: Gen Text
+genVarIdNoHash = do
+  first <- elements varIdentStartChars
+  restLen <- chooseInt (0, 8)
+  rest <- vectorOf restLen (elements identTailChars)
+  let candidate = T.pack (first : rest)
+  if isValidGeneratedIdent candidate
+    then pure candidate
+    else genVarIdNoHash
 
 genVarUnqualifiedName :: Gen UnqualifiedName
 genVarUnqualifiedName = oneof [mkUnqualifiedName NameVarId <$> genVarId, mkUnqualifiedName NameVarSym <$> genVarSym]
@@ -235,6 +248,7 @@ isValidGeneratedVarSym op =
   case T.uncons op of
     Just (first, rest) ->
       first /= ':'
+        && first /= '|'
         && isValidSymbolChar first
         && T.all (/= '`') op
         && T.all isValidSymbolChar rest

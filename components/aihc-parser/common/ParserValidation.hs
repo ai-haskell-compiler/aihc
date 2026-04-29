@@ -127,15 +127,13 @@ formatDiff before after =
       changedBefore = take (length beforeRest - suffixLen) beforeRest
       changedAfter = take (length afterRest - suffixLen) afterRest
       diffLines = concatMap renderDiffLine (getDiff changedBefore changedAfter)
-      shownDiffLines = take 30 diffLines
    in if null diffLines
         then Nothing
         else
           Just
             ( T.unlines
                 ( ["@@ line " <> T.pack (show (prefixLen + 1)) <> " @@"]
-                    <> shownDiffLines
-                    <> truncationNote diffLines
+                    <> diffLines
                 )
             )
 
@@ -145,11 +143,6 @@ renderDiffLine diffLine =
     First lineText -> ["- " <> lineText]
     Second lineText -> ["+ " <> lineText]
     Both _ _ -> []
-
-truncationNote :: [Text] -> [Text]
-truncationNote diffLines
-  | length diffLines <= 30 = []
-  | otherwise = ["...diff truncated..."]
 
 commonPrefixLen :: (Eq a) => [a] -> [a] -> Int
 commonPrefixLen = go 0

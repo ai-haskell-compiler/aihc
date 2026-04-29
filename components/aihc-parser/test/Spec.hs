@@ -38,7 +38,7 @@ import Test.Properties.Identifiers
     shrinkConIdent,
     shrinkIdent,
   )
-import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
+import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
@@ -126,6 +126,7 @@ buildTests = do
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
@@ -151,6 +152,7 @@ buildTests = do
               QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
               QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+              QC.testProperty "generated module AST validator" prop_moduleValidator,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
@@ -511,7 +513,7 @@ test_generatedConstructorSymbolsRejectReservedSpellings =
 test_generatedVariableSymbolsRejectReservedSpellings :: Assertion
 test_generatedVariableSymbolsRejectReservedSpellings =
   assertBool "reserved variable symbol spellings and dash runs must be rejected" $
-    not (any isValidGeneratedVarSym ["..", "=", "\\", "|", "<-", "->", "@", "~", "=>", "--", "---"])
+    not (any isValidGeneratedVarSym ["..", "=", "\\", "|", "|+", "<-", "->", "@", "~", "=>", "--", "---"])
 
 test_generatedOperatorsRejectArrowTailSpellings :: Assertion
 test_generatedOperatorsRejectArrowTailSpellings =
@@ -731,6 +733,27 @@ test_prettyInfixRhsOpenEndedInsideSection = do
               (ELambdaPats [PLit (LitInt 0 TInteger "0")] (EChar ' ' "' '"))
           )
           op
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_prettyNegatedOpenEndedTypeSigBody :: Assertion
+test_prettyNegatedOpenEndedTypeSigBody = do
+  let config = defaultConfig {parserExtensions = [BlockArguments, MagicHash, UnboxedTuples]}
+      plus = qualifyName Nothing (mkUnqualifiedName NameVarSym "+")
+      tyCon = qualifyName Nothing (mkUnqualifiedName NameConId "C")
+      expr =
+        ETypeSig
+          ( ENegate
+              ( EApp
+                  (ETuple Unboxed [])
+                  (EIf (EStringHash "" "\"\"#") (EList []) (EVar plus))
+              )
+          )
+          (TCon tyCon Unpromoted)
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   case parseExpr config rendered of
     ParseOk reparsed ->

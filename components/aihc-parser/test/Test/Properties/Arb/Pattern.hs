@@ -10,7 +10,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genViewPatternExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -21,6 +21,7 @@ import Test.Properties.Arb.Identifiers
     genStringValue,
     genTenths,
     genVarId,
+    genVarIdNoHash,
     genVarName,
     isValidQuoterName,
     showHex,
@@ -64,11 +65,15 @@ genPattern = scale (`div` 2) $ do
         genRecordPatternWith,
         genPatternTypeSigWith,
         genUnboxedSumPatternWith,
-        PView <$> resize 2 genExpr <*> genPattern,
-        PAs <$> genVarId <*> genPattern,
+        genViewPatternWith,
+        PAs <$> genVarIdNoHash <*> genPattern,
         PStrict <$> genPattern,
         PIrrefutable <$> genPattern
       ]
+
+genViewPatternWith :: Gen Pattern
+genViewPatternWith =
+  PView <$> genViewPatternExpr <*> genPattern
 
 genPatternConWith :: Gen Pattern
 genPatternConWith = do

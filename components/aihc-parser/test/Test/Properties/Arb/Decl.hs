@@ -214,7 +214,8 @@ genNonStrictBangType = do
 genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
   head' <- genBinderHead genConUnqualifiedName
-  kind <- optional genType
+  -- GHC does not allow kind annotations (or wildcards) in non-GADT data declarations
+  let kind = Nothing
   ctors <- genSimpleDataCons
   deriving' <- genDerivingClauses
   pure $
@@ -511,7 +512,7 @@ genInstanceDeclItems = smallList0 genInstanceAssociatedDataFamilyInstItem
 
 genInstanceAssociatedDataFamilyInstItem :: Gen InstanceDeclItem
 genInstanceAssociatedDataFamilyInstItem = do
-  inst <- genDataFamilyInstWith genFamilyInfixHead genSimpleDataCons
+  inst <- genDataFamilyInstWith (pure Nothing) genFamilyInfixHead genSimpleDataCons
   pure (InstanceItemDataFamilyInst inst)
 
 genDeclInstancePrefix :: Gen Decl
@@ -796,10 +797,10 @@ genDeclDataFamilyInst =
       genDeclDataFamilyInstGadt
     ]
 
-genDataFamilyInstWith :: Gen Type -> Gen [DataConDecl] -> Gen DataFamilyInst
-genDataFamilyInstWith genHead genConstructors = do
+genDataFamilyInstWith :: Gen (Maybe Type) -> Gen Type -> Gen [DataConDecl] -> Gen DataFamilyInst
+genDataFamilyInstWith genKind genHead genConstructors = do
   head' <- genHead
-  kind <- genOptionalDataFamilyInstKind
+  kind <- genKind
   ctors <- genConstructors
   pure $
     DataFamilyInst
@@ -813,15 +814,17 @@ genDataFamilyInstWith genHead genConstructors = do
 
 genDeclDataFamilyInstPrefix :: Gen Decl
 genDeclDataFamilyInstPrefix = do
-  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyLhsType genSimpleDataCons
+  -- Kind annotations are not valid in non-GADT data instance declarations
+  DeclDataFamilyInst <$> genDataFamilyInstWith (pure Nothing) genFamilyLhsType genSimpleDataCons
 
 genDeclDataFamilyInstInfix :: Gen Decl
 genDeclDataFamilyInstInfix =
-  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyInfixHead genSimpleDataCons
+  -- Kind annotations are not valid in non-GADT data instance declarations
+  DeclDataFamilyInst <$> genDataFamilyInstWith (pure Nothing) genFamilyInfixHead genSimpleDataCons
 
 genDeclDataFamilyInstGadt :: Gen Decl
 genDeclDataFamilyInstGadt = do
-  DeclDataFamilyInst <$> genDataFamilyInstWith genFamilyLhsType genGadtDataCons
+  DeclDataFamilyInst <$> genDataFamilyInstWith genOptionalDataFamilyInstKind genFamilyLhsType genGadtDataCons
 
 genOptionalDataFamilyInstKind :: Gen (Maybe Type)
 genOptionalDataFamilyInstKind =
