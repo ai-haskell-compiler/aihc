@@ -83,10 +83,9 @@ symbolChars :: [Char]
 symbolChars = filter isValidSymbolChar allChars
 
 -- Symbols starting with ':' are constructors, symbols starting with '|' collide
--- with guard/alternative syntax in expression positions, and symbols ending
--- with '#' clash with overloaded labels.
+-- with guard/alternative syntax in expression positions.
 varSymStartChars :: [Char]
-varSymStartChars = filter (\c -> c /= ':' && c /= '|' && c /= '#') symbolChars
+varSymStartChars = filter (\c -> c /= ':' && c /= '|') symbolChars
 
 reservedOperators :: Set.Set Text
 reservedOperators =
@@ -254,7 +253,17 @@ isValidGeneratedVarSym op =
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
+        && not (isOverloadedLabelPrefix op)
     Nothing -> False
+
+-- | '#' followed by an identifier-start char is an overloaded label, not a symbol.
+isOverloadedLabelPrefix :: Text -> Bool
+isOverloadedLabelPrefix op =
+  case T.uncons op of
+    Just ('#', rest) -> case T.uncons rest of
+      Just (c, _) -> isValidGeneratedIdentStartChar c || isValidConIdentStartChar c
+      Nothing -> False
+    _ -> False
 
 -------------------------------------------------------------------------------
 -- Module qualifiers

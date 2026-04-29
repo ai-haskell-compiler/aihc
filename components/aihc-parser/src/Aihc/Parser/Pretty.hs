@@ -747,9 +747,7 @@ prettyRecordFields fields =
     )
   where
     prettyFieldName :: UnqualifiedName -> Doc ann
-    prettyFieldName name
-      | isSymbolicUName name = parens (pretty name)
-      | otherwise = pretty name
+    prettyFieldName = prettyFunctionBinder
 
 dataConQualifierPrefix :: [TyVarBinder] -> [Type] -> [Doc ann]
 dataConQualifierPrefix forallVars constraints = forallTyVarBinderPrefix forallVars <> contextPrefix constraints
@@ -1059,9 +1057,7 @@ prettyExpr expr =
   case expr of
     EApp fn arg -> prettyExpr fn <+> prettyExpr arg
     ETypeApp fn ty -> prettyExpr fn <+> "@" <> prettyType ty
-    EVar name
-      | isSymbolicName name -> parens (pretty (renderName name))
-      | otherwise -> pretty name
+    EVar name -> prettyName name
     ETypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
     ETypeSyntax TypeSyntaxInTerm ty -> prettyType ty
     EInt _ _ repr -> pretty repr
@@ -1149,7 +1145,12 @@ prettyExpr expr =
     EGetFieldProjection fields ->
       "." <> mconcat (punctuate "." (map prettyName fields))
     ETypeSig inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
-    EParen inner -> parens (prettyExpr inner)
+    EParen inner -> case inner of
+      -- ESectionR with a '#'-starting op renders as "(# ...)" which the lexer
+      -- reads as TkSpecialUnboxedLParen when UnboxedTuples/UnboxedSums is on.
+      -- A leading space produces "( # ...)" which is unambiguous.
+      ESectionR op _ | T.isPrefixOf "#" (renderName op) -> parens (" " <> prettyExpr inner)
+      _ -> parens (prettyExpr inner)
     EList values -> brackets (hsep (punctuate comma (map prettyExpr values)))
     ETuple Unboxed [] -> "(# #)"
     ETuple tupleFlavor values ->
