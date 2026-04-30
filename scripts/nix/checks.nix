@@ -53,9 +53,11 @@
   '';
 
   cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
-    while IFS= read -r -d '\0' file; do
-      cabal-gild --mode check --input "$file"
+    failed=0
+    while IFS= read -r -d "" file; do
+      cabal-gild --mode check --input "$file" || failed=1
     done < <(find . -type f -name '*.cabal' -print0)
+    test "$failed" -eq 0
   '';
 
   parserProgressStrict = mkProgressCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) hsPkgs.aihc-parser ''
