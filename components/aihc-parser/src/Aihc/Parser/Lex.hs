@@ -1042,6 +1042,8 @@ keywordTokenKind exts txt =
     "rec" | Set.member Arrows exts || Set.member RecursiveDo exts -> Just TkKeywordRec
     "mdo" | Set.member RecursiveDo exts -> Just TkKeywordMdo
     "pattern" | Set.member PatternSynonyms exts -> Just TkKeywordPattern
+    "by" | Set.member TransformListComp exts -> Just (TkVarId "by")
+    "using" | Set.member TransformListComp exts -> Just (TkVarId "using")
     _ -> Nothing
 
 reservedOpTokenKind :: Text -> Maybe LexTokenKind

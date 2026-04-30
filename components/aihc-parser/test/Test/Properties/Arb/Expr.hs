@@ -21,6 +21,8 @@ import Test.Properties.Arb.Decl (genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
+    genFieldName,
+    genModuleQualifier,
     genStringValue,
     genTenths,
     genVarId,
@@ -80,6 +82,9 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ETypeApp <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         EParen <$> genExprWith allowTHQuotes,
         EProc <$> genPattern <*> genCmdWith allowTHQuotes,
+        -- OverloadedRecordDot
+        EGetField <$> genExprWith allowTHQuotes <*> genRecordFieldName,
+        EGetFieldProjection <$> smallList1 genRecordFieldName,
         -- Template Haskell splices are valid inside quote bodies.
         ETHSplice <$> genSpliceBody,
         ETHTypedSplice <$> genTypedSpliceBody
@@ -346,7 +351,13 @@ genFunctionBindDecl allowTHQuotes = do
     )
 
 genDoFlavor :: Gen DoFlavor
-genDoFlavor = elements [DoPlain, DoMdo]
+genDoFlavor =
+  oneof
+    [ pure DoPlain,
+      pure DoMdo,
+      DoQualified <$> genModuleQualifier,
+      DoQualifiedMdo <$> genModuleQualifier
+    ]
 
 genDoStmtsWith :: Bool -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes = do
@@ -386,7 +397,11 @@ genCompStmtWith allowTHQuotes =
     oneof
       [ CompGen <$> genPattern <*> genExprWith allowTHQuotes,
         CompGuard <$> genExprWith allowTHQuotes,
-        CompLetDecls <$> genValueDeclsWith allowTHQuotes
+        CompLetDecls <$> genValueDeclsWith allowTHQuotes,
+        CompThen <$> genExprWith allowTHQuotes,
+        CompThenBy <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        CompGroupUsing <$> genExprWith allowTHQuotes,
+        CompGroupByUsing <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes
       ]
 
 genParallelCompStmtsWith :: Bool -> Gen [[CompStmt]]
@@ -472,6 +487,11 @@ genRecordFieldsWith :: Bool -> Gen [RecordField Expr]
 genRecordFieldsWith allowTHQuotes =
   smallList0 $
     RecordField <$> genVarName <*> genExprWith allowTHQuotes <*> pure False
+
+-- | Generate a field name for OverloadedRecordDot.
+-- Uses an unqualified variable name (field names are always unqualified).
+genRecordFieldName :: Gen Name
+genRecordFieldName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genFieldName
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Gen Type

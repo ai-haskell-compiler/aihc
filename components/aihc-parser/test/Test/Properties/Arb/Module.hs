@@ -67,7 +67,11 @@ generatedModuleExtensions =
       TypeAbstractions,
       RequiredTypeArguments,
       ViewPatterns,
-      LambdaCase
+      LambdaCase,
+      LinearTypes,
+      TransformListComp,
+      QualifiedDo,
+      OverloadedRecordDot
     ]
 
 -- | Generate an optional module head.

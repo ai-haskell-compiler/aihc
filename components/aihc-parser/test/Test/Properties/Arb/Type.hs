@@ -58,6 +58,8 @@ genType = scale (`div` 2) $ do
           TQuasiQuote <$> genQuoterName <*> genQuasiBody,
           TForall <$> genForallTelescope <*> genType,
           genTypeApp,
+          genTypeTypeApp,
+          genTypeInfix,
           genTypeFun,
           TTuple Boxed Unpromoted <$> genTypeTupleElems,
           TTuple Boxed Promoted <$> genPromotedTupleElems,
@@ -75,8 +77,32 @@ genType = scale (`div` 2) $ do
 genTypeApp :: Gen Type
 genTypeApp = TApp <$> genType <*> genType
 
+genTypeTypeApp :: Gen Type
+genTypeTypeApp = TTypeApp <$> genType <*> genType
+
+genTypeInfix :: Gen Type
+genTypeInfix = do
+  lhs <- genType
+  rhs <- genType
+  op <- genConName
+  pure (TInfix lhs op Unpromoted rhs)
+
 genTypeFun :: Gen Type
-genTypeFun = TFun ArrowUnrestricted <$> genType <*> genType
+genTypeFun =
+  oneof
+    [ TFun ArrowUnrestricted <$> genType <*> genType,
+      TFun ArrowLinear <$> genType <*> genType,
+      (TFun . ArrowExplicit <$> genMultiplicityType) <*> genType <*> genType
+    ]
+
+-- | Generate a multiplicity type for explicit multiplicity annotations.
+-- Keep it simple to avoid overly complex nesting.
+genMultiplicityType :: Gen Type
+genMultiplicityType =
+  oneof
+    [ TVar <$> genTypeVarName,
+      (`TCon` Unpromoted) <$> genConName
+    ]
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr

@@ -32,7 +32,8 @@ where
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
+import Data.Text qualified as T
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -145,6 +146,30 @@ endsWithTypeSig = \case
   ELambdaPats _ body -> endsWithTypeSig body
   EInfix _ _ rhs -> endsWithTypeSig rhs
   EIf _ _ no -> endsWithTypeSig no
+  _ -> False
+
+-- | Check whether an expression needs parenthesization before a record dot.
+-- Qualified variables (e.g., @A.x@), TH name quotes (@''C@, @'x@),
+-- numeric literals, MagicHash literals, and identifiers ending in @#@ all
+-- need parens to prevent ambiguity:
+-- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
+-- - TH quotes: @''C.field@ looks like quoting the qualified name @C.field@
+-- - Integers: @0xd9.field@ gets lexed as float @0xd9.d@ followed by @MQDc@
+-- - Floats: @1.0.field@ gets lexed as @1.0@ followed by @.field@
+-- - MagicHash: @'c'#.field@ or @x#.field@ — the @#.@ merges into an operator
+needsParensBeforeDot :: Expr -> Bool
+needsParensBeforeDot = \case
+  EAnn _ sub -> needsParensBeforeDot sub
+  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
+  ETHNameQuote {} -> True
+  ETHTypeNameQuote {} -> True
+  -- Numeric literals: digits followed by .field is ambiguous with float syntax
+  EInt {} -> True
+  EFloat {} -> True
+  -- MagicHash literals: the trailing # merges with . to form an operator
+  ECharHash {} -> True
+  EStringHash {} -> True
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
@@ -344,6 +369,7 @@ matchSymbolicInfixTypeApp ty = do
 
 data TypeCtx
   = CtxTypeFunArg
+  | CtxTypeAppFun
   | CtxTypeAppArg
   | CtxTypeFamilyOperand
   | CtxTypeAtom
@@ -362,6 +388,14 @@ needsTypeParens ctx ty =
         -- implicit param type, so TFun (TImplicitParam ..) .. needs parens.
         TImplicitParam {} -> True
         _ -> False
+    CtxTypeAppFun ->
+      case ty of
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TInfix {} -> True
+        TImplicitParam {} -> True
+        _ -> False
     CtxTypeAppArg ->
       case ty of
         TQuasiQuote {} -> False
@@ -370,6 +404,13 @@ needsTypeParens ctx ty =
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
+        TInfix {} -> True
+        -- TStar renders as @*@ which merges with the preceding @\@@ in TTypeApp
+        -- to form a single operator token @\@*@.
+        TStar {} -> True
+        -- TSplice renders as @$name@ or @$(expr)@; the @$@ merges with the
+        -- preceding @\@@ in TTypeApp to form a single operator token @\@$@.
+        TSplice {} -> True
         -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
         -- the surrounding -> U into the implicit param type.
         TImplicitParam {} -> True
@@ -379,6 +420,7 @@ needsTypeParens ctx ty =
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
+        TInfix {} -> True
         TImplicitParam {} -> True
         TKindSig {} -> True
         _ -> False
@@ -667,6 +709,7 @@ infixConOperandNeedsParens (TTuple Boxed _ _) = False
 infixConOperandNeedsParens (TTuple Unboxed _ _) = False
 infixConOperandNeedsParens (TUnboxedSum {}) = True
 infixConOperandNeedsParens (TList _ []) = True
+infixConOperandNeedsParens (TInfix {}) = True
 -- Application head determines what the parser sees first.
 infixConOperandNeedsParens (TApp f _) = infixConOperandNeedsParens f
 infixConOperandNeedsParens (TTypeApp f _) = infixConOperandNeedsParens f
@@ -932,16 +975,20 @@ addExprParensPrec prec expr =
     ERecordUpd base fields ->
       ERecordUpd (addExprParensPrec 3 base) [field {recordFieldValue = addExprParens (recordFieldValue field)} | field <- fields]
     EGetField base field ->
-      EGetField (addExprParensPrec 3 base) field
-    EGetFieldProjection {} -> expr
+      -- Qualified names (A.a) must be parenthesized because A.a.field would be
+      -- parsed as the qualified name A.a.field rather than field access on A.a.
+      let base' = addExprParensPrec 3 base
+       in EGetField (wrapExpr (needsParensBeforeDot base') base') field
+    EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
     EParen inner ->
-      -- If inner is a section, addExprParens(inner) already produces EParen(section).
+      -- If inner is a section or projection, addExprParens(inner) already produces EParen(section/projection).
       -- Delegating avoids double-wrapping and maintains idempotency.
       case peelExprAnn inner of
         ESectionL {} -> addExprParens inner
         ESectionR {} -> addExprParens inner
+        EGetFieldProjection {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
@@ -1046,9 +1093,51 @@ addCompStmtParens stmt =
     CompGuard e -> CompGuard (addExprParens e)
     CompLetDecls decls -> CompLetDecls (map addDeclParens decls)
     CompThen f -> CompThen (addExprParens f)
-    CompThenBy f e -> CompThenBy (addExprParens f) (addExprParens e)
+    -- In 'then f by e', the expression 'f' must not be greedy (let/if/lambda/etc.)
+    -- because the parser's compTransformExprParser dispatches let/if/lambda to their
+    -- standard parsers which consume 'by' as part of the body. Parenthesize greedy
+    -- expressions to prevent 'by' from being swallowed.
+    CompThenBy f e -> CompThenBy (addCompTransformExprParens f) (addExprParens e)
     CompGroupUsing f -> CompGroupUsing (addExprParens f)
-    CompGroupByUsing e f -> CompGroupByUsing (addExprParens e) (addExprParens f)
+    -- Same issue: 'then group by e using f' — 'e' must not swallow 'using'.
+    CompGroupByUsing e f -> CompGroupByUsing (addCompTransformExprParens e) (addExprParens f)
+
+-- | Parenthesize an expression for use in TransformListComp positions where
+-- a trailing keyword ('by'/'using') must not be consumed by the expression.
+-- The parser's compTransformExprParser uses negateExprParser which calls the
+-- standard appExprParser (not the restricted one), so any multi-token expression
+-- risks swallowing the keyword. We parenthesize all non-atomic expressions to
+-- be safe.
+addCompTransformExprParens :: Expr -> Expr
+addCompTransformExprParens expr =
+  let parenthesized = addExprParens expr
+   in if needsCompTransformParens parenthesized
+        then wrapExpr True parenthesized
+        else parenthesized
+
+-- | Check if an expression needs parenthesization in a TransformListComp
+-- position before 'by' or 'using'. Atomic/self-delimiting expressions are safe;
+-- anything else could consume the keyword as part of its body or as applications.
+needsCompTransformParens :: Expr -> Bool
+needsCompTransformParens = \case
+  EAnn _ sub -> needsCompTransformParens sub
+  -- Atoms: safe, won't consume trailing tokens
+  EVar {} -> False
+  EInt {} -> False
+  EFloat {} -> False
+  EChar {} -> False
+  ECharHash {} -> False
+  EString {} -> False
+  EStringHash {} -> False
+  EOverloadedLabel {} -> False
+  EQuasiQuote {} -> False
+  EList {} -> False
+  ETuple {} -> False
+  EUnboxedSum {} -> False
+  EParen {} -> False
+  EGetFieldProjection {} -> False
+  -- Everything else: could consume 'by'/'using'
+  _ -> True
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
@@ -1109,11 +1198,14 @@ addTypeParensShared ctx prec ty =
               -- an outer context.
               TApp (TApp op (addTypeIn CtxTypeAppArg lhs)) (addTypeIn CtxTypeAppArg rhs)
         TInfix lhs op promoted rhs ->
-          wrapTy (prec > 0) (TInfix (atom 0 lhs) op promoted (atom 0 rhs))
+          -- Type operators are right-associative in GHC, so the RHS can contain
+          -- nested TInfix without parens (a `op1` b `op2` c = a `op1` (b `op2` c)).
+          -- The LHS needs parens for nested TInfix to prevent left-association.
+          wrapTy (prec > 0) (TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeFunArg rhs))
         TApp f x ->
-          wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
+          wrapTy (prec > 2) (TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
         TTypeApp f x ->
-          wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAtom x))
+          wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
         TFun arrowKind a b ->
           wrapTy (prec > 0) (TFun (addArrowKindParens arrowKind) (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->
