@@ -33,3 +33,16 @@ check:
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
+
+# Generate boot package interfaces for the resolver (requires GHC dev env)
+gen-boot-ifaces:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  GHC_VERSION=$(ghc --numeric-version)
+  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/aihc-resolve/boot-interfaces/$GHC_VERSION"
+  mkdir -p "$CACHE_DIR"
+  for pkg in ghc-prim ghc-internal ghc-bignum base; do
+    echo "Extracting interface for $pkg..."
+    cabal run -v0 aihc-dev -- extract-resolve-iface --package "$pkg" --output "$CACHE_DIR/$pkg.json"
+  done
+  echo "Boot interfaces generated in $CACHE_DIR"

@@ -16,9 +16,11 @@ executable aihc-dev
       Aihc.Dev.ExtractHi
     , Aihc.Dev.ExtractHi.Types
     , Aihc.Dev.ExtractHi.GhcSession
+    , Aihc.Dev.ExtractHi.ToResolveIface
   build-depends:
       base >= 4.16 && < 5
     , aeson >= 2.0 && < 2.3
+    , aeson-pretty >= 0.8 && < 0.9
     , bytestring >= 0.10.8 && < 0.13
     , containers >= 0.5 && < 0.8
     , directory >= 1.2.3 && < 1.5

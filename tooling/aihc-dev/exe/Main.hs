@@ -1,10 +1,14 @@
 module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
+import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Data.Aeson (encode)
+import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
 import Options.Applicative
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory)
 
 main :: IO ()
 main = do
@@ -19,12 +23,18 @@ main = do
         )
 
 -- | Top-level command type. New subcommands are added here.
-newtype Command
+data Command
   = ExtractHi ExtractHiOpts
+  | ExtractResolveIface ExtractResolveIfaceOpts
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
     ehFormat :: OutputFormat
+  }
+
+data ExtractResolveIfaceOpts = ExtractResolveIfaceOpts
+  { eriPackage :: String,
+    eriOutput :: FilePath
   }
 
 data OutputFormat = YAML | JSON
@@ -39,6 +49,12 @@ commandParser =
             (ExtractHi <$> extractHiParser <**> helper)
             (progDesc "Extract scoping and typing information from .hi interface files")
         )
+        <> command
+          "extract-resolve-iface"
+          ( info
+              (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
+              (progDesc "Extract minimal resolver interface (names only) from .hi files")
+          )
     )
 
 extractHiParser :: Parser ExtractHiOpts
@@ -55,9 +71,29 @@ extractHiParser =
           <> help "Output JSON instead of YAML"
       )
 
+extractResolveIfaceParser :: Parser ExtractResolveIfaceOpts
+extractResolveIfaceParser =
+  ExtractResolveIfaceOpts
+    <$> strOption
+      ( long "package"
+          <> metavar "PACKAGE"
+          <> help "Package name to extract (e.g. 'base', 'ghc-prim')"
+      )
+    <*> strOption
+      ( long "output"
+          <> metavar "FILE"
+          <> help "Output file path for the JSON interface"
+      )
+
 runCommand :: Command -> IO ()
 runCommand (ExtractHi opts) = do
   pkg <- extractPackage (ehPackage opts)
   case ehFormat opts of
     YAML -> BL.putStr (BL.fromStrict (Yaml.encode pkg))
     JSON -> BL.putStr (encode pkg)
+runCommand (ExtractResolveIface opts) = do
+  pkg <- extractPackage (eriPackage opts)
+  let resolveIface = toResolveIface pkg
+      outputPath = eriOutput opts
+  createDirectoryIfMissing True (takeDirectory outputPath)
+  BL.writeFile outputPath (encodePretty resolveIface)
