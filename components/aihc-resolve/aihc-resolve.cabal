@@ -1,116 +1,140 @@
-cabal-version:      3.8
-name:               aihc-resolve
-version:            0.1.0.0
-build-type:         Simple
-license:            NONE
-license-file:       LICENSE
-author:             David Himmelstrup
-maintainer:         lemmih@gmail.com
-category:           Compilers
-synopsis:           Name resolution for parsed Haskell modules
+cabal-version: 3.8
+name: aihc-resolve
+version: 0.1.0.0
+build-type: Simple
+license: NONE
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Compilers
+synopsis: Name resolution for parsed Haskell modules
 
 library
   exposed-modules:
-      Aihc.Resolve
-    , Aihc.Resolve.Types
-  hs-source-dirs:   src
+    Aihc.Resolve
+    Aihc.Resolve.Types
+
+  hs-source-dirs: src
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , text >=1.2
-    , containers
-  ghc-options:        -Wall
+    aihc-parser,
+    base >=4.16 && <5,
+    containers,
+    text >=1.2,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable resolve-progress
   hs-source-dirs:
-      app/resolve-progress
-    , common
-  main-is:          Main.hs
+    app/resolve-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      ResolverGolden
+    ResolverGolden
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-resolve
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , aeson
-    , bytestring
-    , yaml
-  ghc-options:        -Wall
+    aeson,
+    aihc-parser,
+    aihc-resolve,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: Haskell2010
 
 executable resolve-extension-progress
   hs-source-dirs:
-      app/resolve-extension-progress
-    , common
-  main-is:          Main.hs
+    app/resolve-extension-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      ResolverGolden
+    ResolverGolden
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-resolve
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , aeson
-    , bytestring
-    , yaml
-  ghc-options:        -Wall
+    aeson,
+    aihc-parser,
+    aihc-resolve,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable resolve-stackage-progress
   hs-source-dirs:
-      app/resolve-stackage-progress
-  main-is:          Main.hs
+    app/resolve-stackage-progress
+
+  main-is: Main.hs
   other-modules:
-      BootInterface
+    BootInterface
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-resolve
-    , aihc-parser
-    , aihc-hackage
-    , aeson
-    , text
-    , containers
-    , bytestring
-    , directory
-    , filepath
-    , async
-    , Cabal-syntax >= 3.14 && < 3.17
-    , deepseq
-    , aihc-cpp
-    , process
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    Cabal-syntax >=3.14 && <3.17,
+    aeson,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    aihc-resolve,
+    async,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    process,
+    text,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
 
 test-suite spec
-  type:             exitcode-stdio-1.0
+  type: exitcode-stdio-1.0
   hs-source-dirs:
-      test
-    , common
-  main-is:          Spec.hs
+    test
+    common
+
+  main-is: Spec.hs
   other-modules:
-      ResolverGolden
-    , Test.Resolver.Suite
+    ResolverGolden
+    Test.Resolver.Suite
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-resolve
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
-    , aeson
-    , bytestring
-    , yaml
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    aeson,
+    aihc-parser,
+    aihc-resolve,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+    yaml,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: Haskell2010

@@ -52,6 +52,12 @@
       | xargs -0 -r ormolu --mode check
   '';
 
+  cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
+    while IFS= read -r -d '\0' file; do
+      cabal-gild --mode check --input "$file"
+    done < <(find . -type f -name '*.cabal' -print0)
+  '';
+
   parserProgressStrict = mkProgressCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) hsPkgs.aihc-parser ''
     parser-progress --strict
   '';
@@ -109,6 +115,7 @@ in {
   nix-format = nixFormat;
   haskell-lint = haskellLint;
   haskell-format = haskellFormat;
+  cabal-format = cabalFormat;
 
   all-tests = pkgs.linkFarm "aihc-all-tests" [
     {
@@ -174,6 +181,10 @@ in {
     {
       name = "haskell-format";
       path = haskellFormat;
+    }
+    {
+      name = "cabal-format";
+      path = cabalFormat;
     }
   ];
 }

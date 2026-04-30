@@ -1,111 +1,127 @@
-cabal-version:      3.8
-name:               aihc-tc
-version:            0.1.0.0
-build-type:         Simple
-license:            NONE
-license-file:       LICENSE
-author:             David Himmelstrup
-maintainer:         lemmih@gmail.com
-category:           Compilers
-synopsis:           OutsideIn(X) type checker for parsed Haskell modules
+cabal-version: 3.8
+name: aihc-tc
+version: 0.1.0.0
+build-type: Simple
+license: NONE
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Compilers
+synopsis: OutsideIn(X) type checker for parsed Haskell modules
 
 library
   exposed-modules:
-      Aihc.Tc
-    , Aihc.Tc.Types
-    , Aihc.Tc.Evidence
-    , Aihc.Tc.Constraint
-    , Aihc.Tc.Monad
-    , Aihc.Tc.Env
-    , Aihc.Tc.Annotations
-    , Aihc.Tc.Generate.Expr
-    , Aihc.Tc.Generate.Decl
-    , Aihc.Tc.Solve
-    , Aihc.Tc.Solve.Worklist
-    , Aihc.Tc.Solve.InertSet
-    , Aihc.Tc.Solve.Canonicalize
-    , Aihc.Tc.Solve.Equality
-    , Aihc.Tc.Solve.Dict
-    , Aihc.Tc.Unify
-    , Aihc.Tc.Zonk
-    , Aihc.Tc.Instantiate
-    , Aihc.Tc.Generalize
-    , Aihc.Tc.Error
-  hs-source-dirs:   src
+    Aihc.Tc
+    Aihc.Tc.Annotations
+    Aihc.Tc.Constraint
+    Aihc.Tc.Env
+    Aihc.Tc.Error
+    Aihc.Tc.Evidence
+    Aihc.Tc.Generalize
+    Aihc.Tc.Generate.Decl
+    Aihc.Tc.Generate.Expr
+    Aihc.Tc.Instantiate
+    Aihc.Tc.Monad
+    Aihc.Tc.Solve
+    Aihc.Tc.Solve.Canonicalize
+    Aihc.Tc.Solve.Dict
+    Aihc.Tc.Solve.Equality
+    Aihc.Tc.Solve.InertSet
+    Aihc.Tc.Solve.Worklist
+    Aihc.Tc.Types
+    Aihc.Tc.Unify
+    Aihc.Tc.Zonk
+
+  hs-source-dirs: src
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , text >=1.2
-    , containers
-    , transformers
-  ghc-options:        -Wall
+    aihc-parser,
+    base >=4.16 && <5,
+    containers,
+    text >=1.2,
+    transformers,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 test-suite spec
-  type:             exitcode-stdio-1.0
+  type: exitcode-stdio-1.0
   hs-source-dirs:
-      test
-    , common
-  main-is:          Spec.hs
+    test
+    common
+
+  main-is: Spec.hs
   other-modules:
-      TcGolden
-    , Test.Tc.Suite
-    , Test.Tc.Properties
+    TcGolden
+    Test.Tc.Properties
+    Test.Tc.Suite
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-tc
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
-    , aeson
-    , bytestring
-    , yaml
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    aeson,
+    aihc-parser,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+    yaml,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
 
 executable tc-progress
   hs-source-dirs:
-      app/tc-progress
-    , common
-  main-is:          Main.hs
+    app/tc-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      TcGolden
+    TcGolden
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-tc
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , yaml
-    , aeson
-    , bytestring
-  ghc-options:        -Wall
+    aeson,
+    aihc-parser,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable tc-extension-progress
   hs-source-dirs:
-      app/tc-extension-progress
-    , common
-  main-is:          Main.hs
+    app/tc-extension-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      TcGolden
+    TcGolden
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-tc
-    , aihc-parser
-    , text
-    , containers
-    , directory
-    , filepath
-    , yaml
-    , aeson
-    , bytestring
-  ghc-options:        -Wall
+    aeson,
+    aihc-parser,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: GHC2021
