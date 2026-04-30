@@ -169,6 +169,8 @@ isValidGeneratedIdent ident =
             && isValidGeneratedIdentStartChar first
             && T.all isValidIdentTailChar rest
             && not (isReservedIdentifier allExtensions ident)
+            -- GHC treats 'by' and 'using' as reserved when TransformListComp is enabled.
+            && ident `notElem` ["by", "using"]
         Nothing -> False
     Nothing -> False
 
@@ -294,7 +296,8 @@ genModuleSegment = T.filter (/= '#') <$> genConId
 -------------------------------------------------------------------------------
 
 -- | Generate a record field name (lowercase-starting identifier).
--- Rejects reserved identifiers and extension-reserved identifiers.
+-- Rejects reserved identifiers, extension-reserved identifiers, and
+-- TransformListComp contextual keywords ('by', 'using').
 genFieldName :: Gen Text
 genFieldName = do
   first <- elements (['a' .. 'z'] <> ['_'])
@@ -302,6 +305,7 @@ genFieldName = do
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
   if isReservedIdentifier allExtensions candidate
+    || candidate `elem` ["by", "using"]
     then genFieldName
     else pure candidate
 
