@@ -1397,7 +1397,7 @@ addCmdParens cmd =
     CmdArrApp lhs appTy rhs ->
       CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addExprParens rhs)
     CmdInfix l op r ->
-      CmdInfix (wrapCmdOperand (addCmdParens l)) op (wrapCmdOperand (addCmdParens r))
+      CmdInfix (wrapCmdInfixLhs (addCmdParens l)) op (wrapCmdInfixRhs (addCmdParens r))
     CmdDo stmts ->
       CmdDo (map addCmdDoStmtParens stmts)
     CmdIf cond yes no ->
@@ -1413,7 +1413,7 @@ addCmdParens cmd =
     CmdPar c ->
       CmdPar (addCmdParens c)
   where
-    wrapCmdOperand inner =
+    wrapCmdInfixLhs inner =
       case peelCmdAnn inner of
         CmdArrApp {} -> CmdPar inner
         CmdLet {} -> CmdPar inner
@@ -1421,6 +1421,15 @@ addCmdParens cmd =
         CmdCase {} -> CmdPar inner
         CmdLam {} -> CmdPar inner
         CmdInfix {} -> CmdPar inner
+        _ -> inner
+
+    wrapCmdInfixRhs inner =
+      case peelCmdAnn inner of
+        CmdArrApp {} -> CmdPar inner
+        CmdLet {} -> CmdPar inner
+        CmdIf {} -> CmdPar inner
+        CmdCase {} -> CmdPar inner
+        CmdLam {} -> CmdPar inner
         _ -> inner
 
 addCmdArrAppLhsParens :: Expr -> Expr
