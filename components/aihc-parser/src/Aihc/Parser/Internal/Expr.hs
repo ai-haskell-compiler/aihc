@@ -1061,17 +1061,17 @@ compTransformInfixExprParser :: TokParser Expr
 compTransformInfixExprParser = infixExprParserWith compTransformLexpParser []
 
 compTransformAppExprParser :: TokParser Expr
-compTransformAppExprParser = appExprParserWith compTransformAtomExprParser
+compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser
 
--- | Like 'atomExprParser' but rejects bare 'by' and 'using' identifiers.
+-- | Like 'atomOrRecordExprParser' but rejects bare 'by' and 'using' identifiers.
 -- These are treated as contextual keywords in TransformListComp context.
-compTransformAtomExprParser :: TokParser Expr
-compTransformAtomExprParser = do
+compTransformAtomOrRecordExprParser :: TokParser Expr
+compTransformAtomOrRecordExprParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkVarId "by" -> MP.empty
     TkVarId "using" -> MP.empty
-    _ -> atomExprParser
+    _ -> atomOrRecordExprParser
 
 compGenOrGuardParser :: TokParser CompStmt
 compGenOrGuardParser =
