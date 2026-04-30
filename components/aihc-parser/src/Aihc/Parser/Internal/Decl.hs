@@ -1526,7 +1526,9 @@ patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith asOrAppPatternParser simplePatternParser
+  -- Infix equations can use full operand patterns on both sides of the varop,
+  -- e.g. @a :&: as == b :&: bs = ()@.
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 -- ---------------------------------------------------------------------------
