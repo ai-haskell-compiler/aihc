@@ -30,6 +30,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     stripAnnotations,
   )
+import Control.Monad
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
@@ -61,7 +62,7 @@ runSnippet opts = do
   source <- maybe TIO.getContents TIO.readFile (snippetFile opts)
   let report = analyzeSnippet sourceTag (snippetExtensions opts) source
   putStr (renderSnippetReport report)
-  if reportHasBug report then exitFailure else pure ()
+  Control.Monad.when (reportHasBug report) exitFailure
 
 parseExtensionSettingArg :: String -> Either String ExtensionSetting
 parseExtensionSettingArg raw =
