@@ -21,6 +21,8 @@ import Test.Properties.Arb.Decl (genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
+    genFieldName,
+    genModuleQualifier,
     genStringValue,
     genTenths,
     genVarId,
@@ -37,8 +39,19 @@ import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
+-- Includes OverloadedRecordDot forms (EGetField, EGetFieldProjection) which
+-- require the OverloadedRecordDot extension to be enabled for parsing.
 genExpr :: Gen Expr
-genExpr = genExprWith True
+genExpr = scale (`div` 2) $ do
+  n <- getSize
+  if n <= 0
+    then genExprLeaf
+    else
+      oneof
+        [ genExprWith True,
+          EGetField <$> genExprWith True <*> genRecordFieldName,
+          EGetFieldProjection <$> smallList1 genRecordFieldName
+        ]
 
 -- | Generate an expression, optionally allowing Template Haskell quote forms.
 -- Nested TH brackets are rejected by GHC unless separated by splices, so quote
@@ -158,14 +171,14 @@ genSpliceBody :: Gen Expr
 genSpliceBody =
   oneof
     [ EVar <$> genVarName,
-      EParen <$> scale (`div` 2) genExpr
+      EParen <$> scale (`div` 2) (genExprWith True)
     ]
 
 -- | Generate the body of a TH typed splice: always parenthesized.
 -- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
 genTypedSpliceBody :: Gen Expr
 genTypedSpliceBody =
-  EParen <$> scale (`div` 2) genExpr
+  EParen <$> scale (`div` 2) (genExprWith True)
 
 -- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
@@ -346,7 +359,13 @@ genFunctionBindDecl allowTHQuotes = do
     )
 
 genDoFlavor :: Gen DoFlavor
-genDoFlavor = elements [DoPlain, DoMdo]
+genDoFlavor =
+  oneof
+    [ pure DoPlain,
+      pure DoMdo,
+      DoQualified <$> genModuleQualifier,
+      DoQualifiedMdo <$> genModuleQualifier
+    ]
 
 genDoStmtsWith :: Bool -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes = do
@@ -386,7 +405,11 @@ genCompStmtWith allowTHQuotes =
     oneof
       [ CompGen <$> genPattern <*> genExprWith allowTHQuotes,
         CompGuard <$> genExprWith allowTHQuotes,
-        CompLetDecls <$> genValueDeclsWith allowTHQuotes
+        CompLetDecls <$> genValueDeclsWith allowTHQuotes,
+        CompThen <$> genExprWith allowTHQuotes,
+        CompThenBy <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        CompGroupUsing <$> genExprWith allowTHQuotes,
+        CompGroupByUsing <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes
       ]
 
 genParallelCompStmtsWith :: Bool -> Gen [[CompStmt]]
@@ -472,6 +495,11 @@ genRecordFieldsWith :: Bool -> Gen [RecordField Expr]
 genRecordFieldsWith allowTHQuotes =
   smallList0 $
     RecordField <$> genVarName <*> genExprWith allowTHQuotes <*> pure False
+
+-- | Generate a field name for OverloadedRecordDot.
+-- Uses an unqualified variable name (field names are always unqualified).
+genRecordFieldName :: Gen Name
+genRecordFieldName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genFieldName
 
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Gen Type
