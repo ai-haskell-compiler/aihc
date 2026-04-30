@@ -964,8 +964,9 @@ addAppsChainPrec prec expr =
       nArgs = length args
       args' =
         [ let isLast = i == nArgs - 1
+              canStayBare = isBlockExpr a && (isLast || not (isOpenEnded a))
               ctx
-                | isLast, isBlockExpr a = CtxAppArgNoParens
+                | canStayBare = CtxAppArgNoParens
                 | isLast = CtxAppArg
                 | isGreedyExpr a = CtxAppArgGreedy
                 | otherwise = CtxAppArg
