@@ -11,14 +11,14 @@ synopsis:           From-scratch Haskell parser with differential tests
 
 library
   exposed-modules:
-      Aihc.Parser
-    , Aihc.Parser.Syntax
-    , Aihc.Parser.Lex
-    , Aihc.Parser.Shorthand
+       Aihc.Parser
+     , Aihc.Parser.Syntax
+     , Aihc.Parser.Lex
+     , Aihc.Parser.Shorthand
+     , Aihc.Parser.Parens
   other-modules:
-      Aihc.Parser.Parens
-    , Aihc.Parser.Pretty
-    , Aihc.Parser.Types
+       Aihc.Parser.Pretty
+     , Aihc.Parser.Types
     , Aihc.Parser.Lex.Header
     , Aihc.Parser.Lex.Layout
     , Aihc.Parser.Lex.Numbers
