@@ -42,6 +42,7 @@ import Data.Text qualified as T
 data ResolvedName
   = ResolvedTopLevel Name
   | ResolvedLocal Int UnqualifiedName
+  | ResolvedBuiltin Text
   | ResolvedError String
   deriving (Eq, Show)
 
@@ -96,6 +97,7 @@ renderResolvedName resolvedName =
   case resolvedName of
     ResolvedTopLevel name -> T.unpack (renderName name)
     ResolvedLocal uniqueId localName -> "Local " <> show uniqueId <> " " <> T.unpack (renderUnqualifiedName localName)
+    ResolvedBuiltin name -> "Builtin " <> T.unpack name
     ResolvedError msg -> "Error " <> msg
 
 renderResolutionAnnotation :: ResolutionAnnotation -> String
@@ -257,6 +259,7 @@ renderConciseOrigin resolvedName =
   case resolvedName of
     ResolvedTopLevel name -> T.unpack (fromMaybe (renderName name) (nameQualifier name))
     ResolvedLocal uniqueId _ -> show uniqueId
+    ResolvedBuiltin name -> "Builtin " <> T.unpack name
     ResolvedError msg -> "Error " <> msg
 
 -- | Render annotation lines for a group of annotations on the same source line.
