@@ -1089,13 +1089,40 @@ addCompStmtParens stmt =
 
 -- | Parenthesize an expression for use in TransformListComp positions where
 -- a trailing keyword ('by'/'using') must not be consumed by the expression.
--- Greedy expressions (let/if/lambda/case/do/proc) would swallow the keyword.
+-- The parser's compTransformExprParser uses negateExprParser which calls the
+-- standard appExprParser (not the restricted one), so any multi-token expression
+-- risks swallowing the keyword. We parenthesize all non-atomic expressions to
+-- be safe.
 addCompTransformExprParens :: Expr -> Expr
 addCompTransformExprParens expr =
   let parenthesized = addExprParens expr
-   in if isGreedyExpr parenthesized
+   in if needsCompTransformParens parenthesized
         then wrapExpr True parenthesized
         else parenthesized
+
+-- | Check if an expression needs parenthesization in a TransformListComp
+-- position before 'by' or 'using'. Atomic/self-delimiting expressions are safe;
+-- anything else could consume the keyword as part of its body or as applications.
+needsCompTransformParens :: Expr -> Bool
+needsCompTransformParens = \case
+  EAnn _ sub -> needsCompTransformParens sub
+  -- Atoms: safe, won't consume trailing tokens
+  EVar {} -> False
+  EInt {} -> False
+  EFloat {} -> False
+  EChar {} -> False
+  ECharHash {} -> False
+  EString {} -> False
+  EStringHash {} -> False
+  EOverloadedLabel {} -> False
+  EQuasiQuote {} -> False
+  EList {} -> False
+  ETuple {} -> False
+  EUnboxedSum {} -> False
+  EParen {} -> False
+  EGetFieldProjection {} -> False
+  -- Everything else: could consume 'by'/'using'
+  _ -> True
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
