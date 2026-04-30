@@ -264,6 +264,7 @@ needsExprParens ctx expr =
       False
     CtxAppArgGreedy ->
       case expr of
+        _ | isBracedExpr expr -> False
         EPragma {} -> True
         _ -> isGreedyExpr expr
     CtxTypeSigBody ->
@@ -288,7 +289,9 @@ exprCtxPrec ctx expr =
     CtxAppFun -> 2
     CtxAppArg -> 3
     CtxAppArgNoParens -> 0
-    CtxAppArgGreedy -> 3
+    CtxAppArgGreedy
+      | isBracedExpr expr -> 0
+      | otherwise -> 3
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
