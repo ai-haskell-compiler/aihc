@@ -1,16 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Aihc.Dev.Snippet.GhcOracle
+module GhcOracle
   ( oracleModuleAstFingerprint,
+    oracleModuleAstFingerprintNoCPP,
+    toGhcExtension,
+    fromGhcExtension,
   )
 where
 
 import Aihc.Cpp (resultOutput)
-import Aihc.Dev.Snippet.CppSupport (preprocessForParserWithoutIncludes)
 import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (catch, displayException, evaluate)
+import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -36,6 +39,7 @@ import GHC.Types.SrcLoc (Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.IO.Unsafe (unsafePerformIO)
+import Prelude hiding (foldl')
 
 oracleModuleAstFingerprint :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
 oracleModuleAstFingerprint sourceTag edition extNames input =
@@ -58,7 +62,7 @@ oracleModuleAstFingerprintNoCPP sourceTag edition extNames input =
 
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag exts input =
-  let opts = mkParserOpts (EnumSet.fromList exts) emptyDiagOpts [] False False False True
+  let opts = mkParserOpts (EnumSet.fromList exts) emptyDiagOpts False False False True
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
    in case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
@@ -68,8 +72,16 @@ parseWithGhcWithExtensions sourceTag exts input =
               Right tok ->
                 case unLoc tok of
                   ITeof -> Right (unLoc modu)
-                  _ -> Left ("GHC parser accepted module prefix but left trailing token: " <> T.pack (show tok))
-              Left lexErr -> Left ("GHC lexer failed while checking for trailing tokens: " <> lexErr)
+                  _ ->
+                    Left
+                      ( "GHC parser accepted module prefix but left trailing token: "
+                          <> T.pack (show tok)
+                      )
+              Left lexErr ->
+                Left
+                  ( "GHC lexer failed while checking for trailing tokens: "
+                      <> lexErr
+                  )
             else Left (renderParserErrors st)
         PFailed st ->
           let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
@@ -133,6 +145,9 @@ toGhcExtension ext =
     toGhcExtensionName Syntax.Rank2Types = "RankNTypes"
     toGhcExtensionName Syntax.PolymorphicComponents = "RankNTypes"
     toGhcExtensionName other = T.unpack (Syntax.extensionName other)
+
+fromGhcExtension :: GHC.Extension -> Maybe Syntax.Extension
+fromGhcExtension ghcExt = Syntax.parseExtensionName (T.pack (show ghcExt))
 
 computeEffectiveExtensions ::
   Syntax.LanguageEdition ->

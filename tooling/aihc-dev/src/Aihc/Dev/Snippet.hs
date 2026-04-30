@@ -13,9 +13,6 @@ module Aihc.Dev.Snippet
 where
 
 import Aihc.Cpp (resultOutput)
-import Aihc.Dev.Snippet.CppSupport (preprocessForParserWithoutIncludesIfEnabled)
-import Aihc.Dev.Snippet.GhcOracle (oracleModuleAstFingerprint)
-import Aihc.Dev.Snippet.Validation (ValidationError (..), validateParser)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Parens (addModuleParens)
@@ -31,11 +28,14 @@ import Aihc.Parser.Syntax
     stripAnnotations,
   )
 import Control.Monad
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import GhcOracle (oracleModuleAstFingerprint)
+import ParserValidation (ValidationError (..), validateParser)
 import System.Exit (exitFailure)
 
 data SnippetOpts = SnippetOpts

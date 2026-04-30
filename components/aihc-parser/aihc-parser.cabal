@@ -54,6 +54,7 @@ test-suite spec
       test
     , app/stackage-progress
     , common
+    , ../aihc-parser-support/src
     , src
   main-is:          Spec.hs
   other-modules:
@@ -155,6 +156,7 @@ executable parser-progress
   hs-source-dirs:
       app/parser-progress
     , common
+    , ../aihc-parser-support/src
   main-is:          Main.hs
   other-modules:
       CppSupport
@@ -203,6 +205,7 @@ executable extension-progress
   hs-source-dirs:
       app/extension-progress
     , common
+    , ../aihc-parser-support/src
   main-is:          Main.hs
   other-modules:
       CppSupport
@@ -235,6 +238,7 @@ executable hackage-tester
   hs-source-dirs:
       app/hackage-tester
     , common
+    , ../aihc-parser-support/src
   main-is:          Main.hs
   other-modules:
       ConcurrentProgress
@@ -274,6 +278,7 @@ executable stackage-progress
   hs-source-dirs:
       app/stackage-progress
     , common
+    , ../aihc-parser-support/src
   main-is:          Main.hs
   other-modules:
       ConcurrentProgress

@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Aihc.Dev.Snippet.Validation
+module ParserValidation
   ( ValidationErrorKind (..),
     ValidationError (..),
     formatDiff,
@@ -9,7 +9,6 @@ module Aihc.Dev.Snippet.Validation
   )
 where
 
-import Aihc.Dev.Snippet.GhcOracle qualified as GhcOracle
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
@@ -17,6 +16,7 @@ import Data.Algorithm.Diff (PolyDiff (..), getDiff)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+import GhcOracle qualified
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 
@@ -129,7 +129,9 @@ formatDiff before after =
         else
           Just
             ( T.unlines
-                (["@@ line " <> T.pack (show (prefixLen + 1)) <> " @@"] <> diffLines)
+                ( ["@@ line " <> T.pack (show (prefixLen + 1)) <> " @@"]
+                    <> diffLines
+                )
             )
 
 renderDiffLine :: PolyDiff Text Text -> [Text]

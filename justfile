@@ -16,7 +16,7 @@ qc:
 
 # Auto-format Nix files and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
-  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; ormolu --mode inplace $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
 # Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
 hlint-refactor:
@@ -26,7 +26,7 @@ hlint-refactor:
     'set -euo pipefail
      while IFS= read -r -d "" f; do
        hlint --refactor --refactor-options="--inplace" "$f"
-     done < <(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
+     done < <(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:

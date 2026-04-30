@@ -1,6 +1,7 @@
 packages:
   components/aihc-cpp
   components/aihc-parser
+  components/aihc-parser-support
   components/aihc-parser-cli
   components/aihc-resolve
   components/aihc-tc
