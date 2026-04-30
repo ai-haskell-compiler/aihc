@@ -1,58 +1,68 @@
-cabal-version:      3.8
-name:               aihc-fc
-version:            0.1.0.0
-build-type:         Simple
-license:            NONE
-license-file:       LICENSE
-author:             David Himmelstrup
-maintainer:         lemmih@gmail.com
-category:           Compilers
-synopsis:           System FC core language with desugaring and lint
+cabal-version: 3.8
+name: aihc-fc
+version: 0.1.0.0
+build-type: Simple
+license: NONE
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Compilers
+synopsis: System FC core language with desugaring and lint
 
 library
   exposed-modules:
-      Aihc.Fc
-    , Aihc.Fc.Syntax
-    , Aihc.Fc.Pretty
-    , Aihc.Fc.Subst
-    , Aihc.Fc.Lint
-    , Aihc.Fc.Desugar
-    , Aihc.Fc.Desugar.Expr
-    , Aihc.Fc.Desugar.Match
-  hs-source-dirs:   src
+    Aihc.Fc
+    Aihc.Fc.Desugar
+    Aihc.Fc.Desugar.Expr
+    Aihc.Fc.Desugar.Match
+    Aihc.Fc.Lint
+    Aihc.Fc.Pretty
+    Aihc.Fc.Subst
+    Aihc.Fc.Syntax
+
+  hs-source-dirs: src
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-tc
-    , text >=1.2
-    , containers
-    , transformers
-  ghc-options:        -Wall
+    aihc-parser,
+    aihc-tc,
+    base >=4.16 && <5,
+    containers,
+    text >=1.2,
+    transformers,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 test-suite spec
-  type:             exitcode-stdio-1.0
+  type: exitcode-stdio-1.0
   hs-source-dirs:
-      test
-    , common
-  main-is:          Spec.hs
+    test
+    common
+
+  main-is: Spec.hs
   other-modules:
-      FcGolden
-    , Test.Fc.Suite
+    FcGolden
+    Test.Fc.Suite
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-fc
-    , aihc-parser
-    , aihc-tc
-    , text
-    , containers
-    , directory
-    , filepath
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
-    , aeson
-    , bytestring
-    , yaml
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    aeson,
+    aihc-fc,
+    aihc-parser,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+    yaml,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021

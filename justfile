@@ -14,9 +14,9 @@ replay ARGUMENT:
 qc:
   while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000" || break; done
 
-# Auto-format Nix files and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
+# Auto-format Nix, Cabal, and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
-  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; ormolu --mode inplace $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); ormolu --mode inplace $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
 # Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
 hlint-refactor:
@@ -30,6 +30,7 @@ hlint-refactor:
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
+  nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); exit "$failed"'
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'

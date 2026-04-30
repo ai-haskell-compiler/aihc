@@ -1,311 +1,347 @@
-cabal-version:      3.8
-name:               aihc-parser
-version:            0.1.0.0
-build-type:         Simple
-license:            MIT
-license-file:       LICENSE
-author:             David Himmelstrup
-maintainer:         lemmih@gmail.com
-category:           Compilers
-synopsis:           From-scratch Haskell parser with differential tests
+cabal-version: 3.8
+name: aihc-parser
+version: 0.1.0.0
+build-type: Simple
+license: MIT
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Compilers
+synopsis: From-scratch Haskell parser with differential tests
 
 library
   exposed-modules:
-       Aihc.Parser
-     , Aihc.Parser.Syntax
-     , Aihc.Parser.Lex
-     , Aihc.Parser.Shorthand
-     , Aihc.Parser.Parens
+    Aihc.Parser
+    Aihc.Parser.Lex
+    Aihc.Parser.Parens
+    Aihc.Parser.Shorthand
+    Aihc.Parser.Syntax
+
   other-modules:
-       Aihc.Parser.Pretty
-     , Aihc.Parser.Types
-    , Aihc.Parser.Lex.Header
-    , Aihc.Parser.Lex.Layout
-    , Aihc.Parser.Lex.Numbers
-    , Aihc.Parser.Lex.Pragmas
-    , Aihc.Parser.Lex.Quoted
-    , Aihc.Parser.Lex.Trivia
-    , Aihc.Parser.Lex.Types
-    , Aihc.Parser.Internal.CheckPattern
-    , Aihc.Parser.Internal.Cmd
-    , Aihc.Parser.Internal.Common
-    , Aihc.Parser.Internal.Expr
-    , Aihc.Parser.Internal.Decl
-    , Aihc.Parser.Internal.Import
-    , Aihc.Parser.Internal.Module
-    , Aihc.Parser.Internal.Pattern
-    , Aihc.Parser.Internal.Type
-    , Aihc.Parser.Internal.FromTokens
-  hs-source-dirs:   src
+    Aihc.Parser.Internal.CheckPattern
+    Aihc.Parser.Internal.Cmd
+    Aihc.Parser.Internal.Common
+    Aihc.Parser.Internal.Decl
+    Aihc.Parser.Internal.Expr
+    Aihc.Parser.Internal.FromTokens
+    Aihc.Parser.Internal.Import
+    Aihc.Parser.Internal.Module
+    Aihc.Parser.Internal.Pattern
+    Aihc.Parser.Internal.Type
+    Aihc.Parser.Lex.Header
+    Aihc.Parser.Lex.Layout
+    Aihc.Parser.Lex.Numbers
+    Aihc.Parser.Lex.Pragmas
+    Aihc.Parser.Lex.Quoted
+    Aihc.Parser.Lex.Trivia
+    Aihc.Parser.Lex.Types
+    Aihc.Parser.Pretty
+    Aihc.Parser.Types
+
+  hs-source-dirs: src
   build-depends:
-      base >=4.16 && <5
-    , text >=1.2
-    , containers
-    , bytestring
-    , deepseq
-    , megaparsec
-    , prettyprinter
-  ghc-options:        -Wall
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    megaparsec,
+    prettyprinter,
+    text >=1.2,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 test-suite spec
-  type:             exitcode-stdio-1.0
+  type: exitcode-stdio-1.0
   hs-source-dirs:
-      test
-    , app/stackage-progress
-    , common
-    , src
-  main-is:          Spec.hs
+    test
+    app/stackage-progress
+    common
+    src
+
+  main-is: Spec.hs
   other-modules:
-      Aihc.Parser
-    , Aihc.Parser.Syntax
-    , Aihc.Parser.Lex
-    , Aihc.Parser.Shorthand
-    , Aihc.Parser.Parens
-    , Aihc.Parser.Pretty
-    , Aihc.Parser.Types
-    , Aihc.Parser.Lex.Header
-    , Aihc.Parser.Lex.Layout
-    , Aihc.Parser.Lex.Numbers
-    , Aihc.Parser.Lex.Pragmas
-    , Aihc.Parser.Lex.Quoted
-    , Aihc.Parser.Lex.Trivia
-    , Aihc.Parser.Lex.Types
-    , Aihc.Parser.Internal.CheckPattern
-    , Aihc.Parser.Internal.Cmd
-    , Aihc.Parser.Internal.Common
-    , Aihc.Parser.Internal.Expr
-    , Aihc.Parser.Internal.Decl
-    , Aihc.Parser.Internal.Import
-    , Aihc.Parser.Internal.Module
-    , Aihc.Parser.Internal.Pattern
-    , Aihc.Parser.Internal.Type
-    , Aihc.Parser.Internal.FromTokens
-    , CppSupport
-    , ExtensionSupport
-    , GhcOracle
-    , HackageSupport
-    , HackageTester.CLI
-    , HackageTester.Model
-    , HseExtensions
-    , LexerGolden
-    , ParserErrorGolden
-    , ParserGolden
-    , ParserValidation
-    , ShrinkUtils
-    , StackageProgress.CLI
-    , StackageProgress.FileChecker
-    , StackageProgress.Summary
-    , StackageProgress.FileCheckerTiming
-    , Test.ErrorMessages.Suite
-    , Test.Oracle.Suite
-    , Test.Performance.Suite
-    , Test.ExtensionMapping.Suite
-    , Test.HackageTester.Suite
-    , Test.Lexer.Suite
-    , Test.Properties.Arb.Decl
-    , Test.Properties.Arb.Expr
-    , Test.Properties.Arb.Utils
-    , Test.Properties.Arb.Identifiers
-    , Test.Properties.Arb.Module
-    , Test.Properties.Arb.Pattern
-    , Test.Properties.Arb.Type
-    , Test.Properties.Coverage
-    , Test.Properties.DeclRoundTrip
-    , Test.Properties.ExprHelpers
-    , Test.Properties.ExprRoundTrip
-    , Test.Properties.Identifiers
-    , Test.Properties.ModuleRoundTrip
-    , Test.Properties.NoExceptions
-    , Test.Properties.PatternRoundTrip
-    , Test.Properties.TypeRoundTrip
-    , Test.Parser.Suite
-    , Test.StackageProgress.FileCheckerTiming
-    , Test.StackageProgress.FileChecker
-    , Test.StackageProgress.Summary
+    Aihc.Parser
+    Aihc.Parser.Internal.CheckPattern
+    Aihc.Parser.Internal.Cmd
+    Aihc.Parser.Internal.Common
+    Aihc.Parser.Internal.Decl
+    Aihc.Parser.Internal.Expr
+    Aihc.Parser.Internal.FromTokens
+    Aihc.Parser.Internal.Import
+    Aihc.Parser.Internal.Module
+    Aihc.Parser.Internal.Pattern
+    Aihc.Parser.Internal.Type
+    Aihc.Parser.Lex
+    Aihc.Parser.Lex.Header
+    Aihc.Parser.Lex.Layout
+    Aihc.Parser.Lex.Numbers
+    Aihc.Parser.Lex.Pragmas
+    Aihc.Parser.Lex.Quoted
+    Aihc.Parser.Lex.Trivia
+    Aihc.Parser.Lex.Types
+    Aihc.Parser.Parens
+    Aihc.Parser.Pretty
+    Aihc.Parser.Shorthand
+    Aihc.Parser.Syntax
+    Aihc.Parser.Types
+    CppSupport
+    ExtensionSupport
+    GhcOracle
+    HackageSupport
+    HackageTester.CLI
+    HackageTester.Model
+    HseExtensions
+    LexerGolden
+    ParserErrorGolden
+    ParserGolden
+    ParserValidation
+    ShrinkUtils
+    StackageProgress.CLI
+    StackageProgress.FileChecker
+    StackageProgress.FileCheckerTiming
+    StackageProgress.Summary
+    Test.ErrorMessages.Suite
+    Test.ExtensionMapping.Suite
+    Test.HackageTester.Suite
+    Test.Lexer.Suite
+    Test.Oracle.Suite
+    Test.Parser.Suite
+    Test.Performance.Suite
+    Test.Properties.Arb.Decl
+    Test.Properties.Arb.Expr
+    Test.Properties.Arb.Identifiers
+    Test.Properties.Arb.Module
+    Test.Properties.Arb.Pattern
+    Test.Properties.Arb.Type
+    Test.Properties.Arb.Utils
+    Test.Properties.Coverage
+    Test.Properties.DeclRoundTrip
+    Test.Properties.ExprHelpers
+    Test.Properties.ExprRoundTrip
+    Test.Properties.Identifiers
+    Test.Properties.ModuleRoundTrip
+    Test.Properties.NoExceptions
+    Test.Properties.PatternRoundTrip
+    Test.Properties.TypeRoundTrip
+    Test.StackageProgress.FileChecker
+    Test.StackageProgress.FileCheckerTiming
+    Test.StackageProgress.Summary
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-cpp
-    , aihc-hackage
-    , Diff
-    , megaparsec
-    , text
-    , containers
-    , directory
-    , filepath
-    , deepseq
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck >= 0.11.1 && < 0.12
-    , QuickCheck
-    , ghc-lib-parser
-    , Cabal-syntax >= 3.14 && < 3.17
-    , haskell-src-exts
-    , aeson
-    , bytestring
-    , prettyprinter
-    , process
-    , yaml
-    , optparse-applicative
-    , template-haskell
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    QuickCheck,
+    aeson,
+    aihc-cpp,
+    aihc-hackage,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    haskell-src-exts,
+    megaparsec,
+    optparse-applicative,
+    prettyprinter,
+    process,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck >=0.11.1 && <0.12,
+    template-haskell,
+    text,
+    yaml,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
 
 executable parser-progress
   hs-source-dirs:
-      app/parser-progress
-    , common
-  main-is:          Main.hs
+    app/parser-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      CppSupport
-    , ExtensionSupport
-    , ParserValidation
-    , GhcOracle
+    CppSupport
+    ExtensionSupport
+    GhcOracle
+    ParserValidation
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-cpp
-    , aihc-hackage
-    , Diff
-    , deepseq
-    , bytestring
-    , text
-    , containers
-    , directory
-    , filepath
-    , ghc-lib-parser
-    , Cabal-syntax >= 3.14 && < 3.17
-    , prettyprinter
-  ghc-options:        -Wall
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    prettyprinter,
+    text,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable lexer-progress
   hs-source-dirs:
-      app/lexer-progress
-    , common
-  main-is:          Main.hs
+    app/lexer-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      LexerGolden
+    LexerGolden
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , text
-    , bytestring
-    , containers
-    , directory
-    , filepath
-    , aeson
-    , yaml
-  ghc-options:        -Wall
+    aeson,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable extension-progress
   hs-source-dirs:
-      app/extension-progress
-    , common
-  main-is:          Main.hs
+    app/extension-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      CppSupport
-    , ExtensionSupport
-    , ParserValidation
-    , GhcOracle
-    , ParserGolden
+    CppSupport
+    ExtensionSupport
+    GhcOracle
+    ParserGolden
+    ParserValidation
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-cpp
-    , aihc-hackage
-    , Diff
-    , deepseq
-    , text
-    , containers
-    , directory
-    , filepath
-    , ghc-lib-parser
-    , Cabal-syntax >= 3.14 && < 3.17
-    , megaparsec
-    , prettyprinter
-    , yaml
-    , aeson
-    , bytestring
-  ghc-options:        -Wall
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aeson,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    megaparsec,
+    prettyprinter,
+    text,
+    yaml,
+
+  ghc-options: -Wall
   default-language: GHC2021
 
 executable hackage-tester
   hs-source-dirs:
-      app/hackage-tester
-    , common
-  main-is:          Main.hs
+    app/hackage-tester
+    common
+
+  main-is: Main.hs
   other-modules:
-      ConcurrentProgress
-    , CppSupport
-    , GhcOracle
-    , HackageSupport
-    , HackageTester.CLI
-    , HackageTester.Model
-    , HseExtensions
-    , ParserValidation
-    , ShrinkUtils
+    ConcurrentProgress
+    CppSupport
+    GhcOracle
+    HackageSupport
+    HackageTester.CLI
+    HackageTester.Model
+    HseExtensions
+    ParserValidation
+    ShrinkUtils
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-cpp
-    , aihc-hackage
-    , Diff
-    , text
-    , containers
-    , deepseq
-    , directory
-    , filepath
-    , ghc-lib-parser
-    , Cabal-syntax >= 3.14 && < 3.17
-    , bytestring
-    , async
-    , aeson
-    , http-client
-    , http-client-tls
-    , optparse-applicative
-    , haskell-src-exts
-    , prettyprinter
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aeson,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    async,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    haskell-src-exts,
+    http-client,
+    http-client-tls,
+    optparse-applicative,
+    prettyprinter,
+    text,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
 
 executable stackage-progress
   hs-source-dirs:
-      app/stackage-progress
-    , common
-  main-is:          Main.hs
+    app/stackage-progress
+    common
+
+  main-is: Main.hs
   other-modules:
-      ConcurrentProgress
-    , CppSupport
-    , GhcOracle
-    , HackageSupport
-    , HseExtensions
-    , ParserValidation
-    , ShrinkUtils
-    , StackageProgress.CLI
-    , StackageProgress.FileChecker
-    , StackageProgress.FileCheckerTiming
-    , StackageProgress.PackageRunner
-    , StackageProgress.Snapshot
-    , StackageProgress.Summary
+    ConcurrentProgress
+    CppSupport
+    GhcOracle
+    HackageSupport
+    HseExtensions
+    ParserValidation
+    ShrinkUtils
+    StackageProgress.CLI
+    StackageProgress.FileChecker
+    StackageProgress.FileCheckerTiming
+    StackageProgress.PackageRunner
+    StackageProgress.Snapshot
+    StackageProgress.Summary
+
   build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-cpp
-    , aihc-hackage
-    , Diff
-    , text
-    , containers
-    , deepseq
-    , directory
-    , filepath
-    , ghc-lib-parser
-    , async
-    , Cabal-syntax >= 3.14 && < 3.17
-    , bytestring
-    , haskell-src-exts
-    , optparse-applicative
-    , prettyprinter
-  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    async,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    haskell-src-exts,
+    optparse-applicative,
+    prettyprinter,
+    text,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
