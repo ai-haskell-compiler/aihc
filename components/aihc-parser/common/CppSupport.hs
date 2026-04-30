@@ -105,6 +105,12 @@ unliterateIfNeeded inputFile source
             then T.unlines (unlitLatex False ls)
             else T.unlines (map unlitBirdLine ls)
   where
+    -- Replace the leading '>' with a space instead of stripping it.
+    -- This preserves original column positions, which is critical for
+    -- layout-sensitive parsing when tabs are present.  Stripping "> "
+    -- shifts columns by 2, but tab stops depend on absolute column
+    -- position, so tab-aligned code and space-aligned code would end
+    -- up at different columns after the shift.
     unlitBirdLine line =
       case T.stripPrefix ">" line of
         Just _rest -> " " <> _rest

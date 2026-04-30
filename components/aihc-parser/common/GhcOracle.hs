@@ -41,6 +41,8 @@ import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude hiding (foldl')
 
+-- | Compute an AST fingerprint using extension names and a language edition,
+-- reading in-file pragmas to determine the full effective extension set.
 oracleModuleAstFingerprint :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
 oracleModuleAstFingerprint sourceTag edition extNames input =
   let initialPragmas = Lex.readModuleHeaderPragmas input
@@ -51,6 +53,9 @@ oracleModuleAstFingerprint sourceTag edition extNames input =
           else input
    in oracleModuleAstFingerprintNoCPP sourceTag edition extNames preprocessedInput
 
+-- | Compute an AST fingerprint using extension names and a language edition,
+-- reading in-file pragmas to determine the full effective extension set.
+-- This version does not preprocess the input for CPP.
 oracleModuleAstFingerprintNoCPP :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
 oracleModuleAstFingerprintNoCPP sourceTag edition extNames input =
   let pragmas = Lex.readModuleHeaderPragmas input
@@ -60,6 +65,10 @@ oracleModuleAstFingerprintNoCPP sourceTag edition extNames input =
         parsed <- parseWithGhcWithExtensions sourceTag ghcExts input
         pure (T.pack (showSDocUnsafe (ppr parsed)))
 
+-- | Parse a module with GHC using the given extensions.
+-- The extensions should be the complete set - no base extensions are added.
+-- Extension handling (language editions, pragmas, implied extensions) should be done
+-- by the caller using aihc-parser infrastructure.
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag exts input =
   let opts = mkParserOpts (EnumSet.fromList exts) emptyDiagOpts False False False True
@@ -149,10 +158,20 @@ toGhcExtension ext =
 fromGhcExtension :: GHC.Extension -> Maybe Syntax.Extension
 fromGhcExtension ghcExt = Syntax.parseExtensionName (T.pack (show ghcExt))
 
+-- | Compute the effective set of parser extensions from:
+-- 1. A default language edition (from cabal file)
+-- 2. Extension names from cabal file
+-- 3. Module header pragmas (which may override the language edition)
+--
+-- This is the unified extension computation that should be used by all parsers.
 computeEffectiveExtensions ::
+  -- | Default language edition (from cabal file)
   Syntax.LanguageEdition ->
+  -- | Extension names from cabal file (e.g., ["UnicodeSyntax", "NoFieldSelectors"])
   [Syntax.ExtensionSetting] ->
+  -- | Module header pragmas (from readModuleHeaderPragmas)
   Syntax.ModuleHeaderPragmas ->
+  -- | Effective set of extensions
   [Syntax.Extension]
 computeEffectiveExtensions edition extensionSettings headerPragmas =
   let effectiveEdition = fromMaybe edition (Syntax.headerLanguageEdition headerPragmas)

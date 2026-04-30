@@ -35,6 +35,9 @@ instance Show ValidationError where
   show ValidationError {validationErrorKind = kind, validationErrorMessage = message} =
     show kind <> ":\n" <> message
 
+-- | Core validation with a caller-supplied fingerprint function.
+-- This allows the caller to choose how GHC extensions are determined (e.g. from
+-- pre-computed extension lists or by reading in-file pragmas).
 validateParser :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
 validateParser sourceTag edition extensionSettings source =
   let (errs, parsed) = parseModule parserConfig source
