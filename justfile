@@ -30,8 +30,8 @@ hlint-refactor:
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
-  nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'hlint $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)
