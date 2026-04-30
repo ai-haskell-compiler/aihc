@@ -1039,20 +1039,28 @@ compThenStmtParser = do
 -- (they are not consumed as variable identifiers at the application level).
 compTransformExprParser :: TokParser Expr
 compTransformExprParser =
-  label "expression" $ do
-    tok <- lookAhead anySingle
-    base <- case lexTokenKind tok of
-      TkKeywordDo -> doExprParser
-      TkKeywordMdo -> mdoExprParser
-      TkQualifiedDo {} -> qualifiedDoExprParser
-      TkQualifiedMdo {} -> qualifiedMdoExprParser
-      TkKeywordIf -> ifExprParser
-      TkKeywordLet -> letExprParser
-      TkKeywordProc -> procExprParser
-      TkReservedBackslash -> lambdaExprParser
-      _ -> compTransformInfixExprParser
-    rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
-    pure (foldInfixR buildInfix base rest)
+  label "expression" $
+    optionalSuffix
+      (expectedTok TkReservedDoubleColon *> typeParser)
+      ETypeSig
+      compTransformExprWithoutTypeSigParser
+
+-- | Parse the core of a TransformListComp expression (without type signature suffix).
+compTransformExprWithoutTypeSigParser :: TokParser Expr
+compTransformExprWithoutTypeSigParser = do
+  tok <- lookAhead anySingle
+  base <- case lexTokenKind tok of
+    TkKeywordDo -> doExprParser
+    TkKeywordMdo -> mdoExprParser
+    TkQualifiedDo {} -> qualifiedDoExprParser
+    TkQualifiedMdo {} -> qualifiedMdoExprParser
+    TkKeywordIf -> ifExprParser
+    TkKeywordLet -> letExprParser
+    TkKeywordProc -> procExprParser
+    TkReservedBackslash -> lambdaExprParser
+    _ -> compTransformInfixExprParser
+  rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
+  pure (foldInfixR buildInfix base rest)
 
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser = lexpBaseParser compTransformAppExprParser
