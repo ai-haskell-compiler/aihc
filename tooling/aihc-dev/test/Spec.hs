@@ -9,7 +9,7 @@ import Aihc.Dev.Snippet
     parseExtensionSettingArg,
     renderSnippetReport,
   )
-import Aihc.Parser.Syntax (ExtensionSetting (..), Extension (TypeApplications))
+import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -34,8 +34,8 @@ main =
         assertEqual "message" "Bug found: Parens.addModuleParens adds parentheses to the parsed snippet.\n" (renderSnippetReport report)
         assertBool "bug" (reportHasBug report),
       testCase "parses -X extension arguments" $ do
-        assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications")
-      , QC.testProperty "dummy quickcheck property" prop_dummy
+        assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications"),
+      QC.testProperty "dummy quickcheck property" prop_dummy
     ]
 
 prop_dummy :: Bool

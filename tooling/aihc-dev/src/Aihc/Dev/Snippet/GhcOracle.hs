@@ -7,9 +7,9 @@ module Aihc.Dev.Snippet.GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
+import Aihc.Dev.Snippet.CppSupport (preprocessForParserWithoutIncludes)
 import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Dev.Snippet.CppSupport (preprocessForParserWithoutIncludes)
 import Control.Exception (catch, displayException, evaluate)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)

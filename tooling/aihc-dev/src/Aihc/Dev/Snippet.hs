@@ -21,7 +21,6 @@ import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Parens (addModuleParens)
 import Aihc.Parser.Syntax
   ( ExtensionSetting,
-    LanguageEdition,
     LanguageEdition (Haskell2010Edition),
     Module,
     editionFromExtensionSettings,
