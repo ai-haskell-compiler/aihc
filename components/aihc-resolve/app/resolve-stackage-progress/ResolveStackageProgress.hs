@@ -2,7 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Main (main) where
+module ResolveStackageProgress
+  ( Options (..),
+    optionsParser,
+    run,
+  )
+where
 
 import Aihc.Cpp (Config (..), IncludeKind (..), IncludeRequest (..), Result (..), Step (..), preprocess)
 import Aihc.Cpp qualified as Cpp
@@ -51,8 +56,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import GHC.Conc (getNumProcessors)
+import Options.Applicative qualified as OA
 import System.Directory (doesFileExist)
-import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
@@ -68,27 +73,35 @@ data Options = Options
     optTopFailures :: Int
   }
 
-defaultOptions :: Options
-defaultOptions =
+optionsParser :: OA.Parser Options
+optionsParser =
   Options
-    { optSnapshot = "lts-24.33",
-      optJobs = 0,
-      optOffline = False,
-      optTopFailures = 10
-    }
-
-parseOptions :: [String] -> IO Options
-parseOptions = go defaultOptions
-  where
-    go opts [] = pure opts
-    go opts ("--snapshot" : s : rest) = go opts {optSnapshot = s} rest
-    go opts ("--jobs" : n : rest) = go opts {optJobs = read n} rest
-    go opts ("--offline" : rest) = go opts {optOffline = True} rest
-    go opts ("--top" : n : rest) = go opts {optTopFailures = read n} rest
-    go _ (flag : _) = do
-      hPutStrLn stderr ("Unknown flag: " ++ flag)
-      hPutStrLn stderr "Usage: resolve-stackage-progress [--snapshot SNAP] [--jobs N] [--offline] [--top N]"
-      exitFailure
+    <$> OA.strOption
+      ( OA.long "snapshot"
+          <> OA.metavar "SNAPSHOT"
+          <> OA.value "lts-24.33"
+          <> OA.showDefault
+          <> OA.help "Stackage snapshot to resolve"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "jobs"
+          <> OA.metavar "N"
+          <> OA.value 0
+          <> OA.help "Number of parallel jobs (default: CPU cores)"
+      )
+    <*> OA.switch
+      ( OA.long "offline"
+          <> OA.help "Use only cached packages, don't download"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "top"
+          <> OA.metavar "N"
+          <> OA.value 10
+          <> OA.showDefault
+          <> OA.help "Number of top failing packages to display"
+      )
 
 -- ---------------------------------------------------------------------------
 -- Package status
@@ -144,7 +157,6 @@ extractFromCabal cabalFile srcDir snapshotNames = do
       rawFiles <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
       let allDeps = concatMap HC.fileInfoDependencies rawFiles
           snapDeps = filter (`Set.member` snapshotNames) allDeps
-      -- Restrict files to those under srcDir (sanity check)
       let validFiles = filter (\f -> srcDir `isPrefixOf` HC.fileInfoPath f) rawFiles
       pure (validFiles, snapDeps)
   where
@@ -157,11 +169,8 @@ extractFromCabal cabalFile srcDir snapshotNames = do
 kahnLayers :: Map Text [Text] -> [[Text]]
 kahnLayers depGraph =
   let nodeSet = Map.keysSet depGraph
-      -- Filter each package's deps to only those that are also nodes in the graph.
       filteredDeps = Map.map (filter (`Set.member` nodeSet)) depGraph
-      -- in-degree[X] = number of X's own deps still unprocessed (starts as dep count).
       inDegree = Map.map length filteredDeps
-      -- Reverse graph: dep -> [packages that depend on it], for efficient decrement.
       revGraph =
         Map.foldlWithKey'
           (\acc pkg deps -> foldl' (\a d -> Map.insertWith (++) d [pkg] a) acc deps)
@@ -173,7 +182,7 @@ kahnLayers depGraph =
         | otherwise =
             let zeros = [n | (n, d) <- Map.toList indegrees, d == 0]
              in case zeros of
-                  [] -> [Map.keys indegrees] -- cycle: emit remaining as final layer
+                  [] -> [Map.keys indegrees]
                   _ ->
                     let indegrees' =
                           foldl'
@@ -298,10 +307,6 @@ renderSpanHeader NoSourceSpan = "<unknown location>\n"
 renderSpanHeader ss =
   sourceSpanSourceName ss ++ ":" ++ show (sourceSpanStartLine ss) ++ ":" ++ show (sourceSpanStartCol ss) ++ ":\n"
 
--- | Extract the source line containing 'offset' by scanning byte-by-byte.
--- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.
--- The line/column stored in 'SourceSpan' may be wrong after CPP '#line' pragmas,
--- so we derive the actual source line from the byte offset instead.
 extractLineAtOffset :: BS.ByteString -> Int -> String
 extractLineAtOffset bytes offset =
   let anchor = max 0 (min (BS.length bytes) offset)
@@ -311,7 +316,7 @@ extractLineAtOffset bytes offset =
   where
     scanBack i
       | i <= 0 = 0
-      | BS.index bytes (i - 1) == 10 = i -- '\n'
+      | BS.index bytes (i - 1) == 10 = i
       | otherwise = scanBack (i - 1)
     scanFwd i
       | i >= BS.length bytes = BS.length bytes
@@ -337,7 +342,6 @@ renderSourceSnippet srcTexts ss =
             | endLine == startLine = max 1 (endCol - startCol)
             | otherwise = max 1 (length lineText - caretStart)
           carets = replicate caretLen '^'
-          -- Carets sit directly under the token: indent = line-number gutter width + caretStart.
           caretIndent = length lineNumStr + 3 + caretStart
        in pad
             ++ " |\n"
@@ -354,8 +358,6 @@ partitionEithers [] = ([], [])
 partitionEithers (Left a : rest) = let (as, bs) = partitionEithers rest in (a : as, bs)
 partitionEithers (Right b : rest) = let (as, bs) = partitionEithers rest in (as, b : bs)
 
--- | Strip BOM and unliterate .lhs files (bird-track and LaTeX styles).
--- Must be applied before CPP and before parsing, matching CppSupport.normalizeSourceForParser.
 normalizeSource :: FilePath -> Text -> Text
 normalizeSource filePath src
   | map toLower (takeExtension filePath) /= ".lhs" = stripBom src
@@ -366,9 +368,6 @@ normalizeSource filePath src
             else T.unlines (map unlitBird ls)
   where
     stripBom t = Data.Maybe.fromMaybe t (T.stripPrefix "\xfeff" t)
-    -- Replace the leading '>' with a space instead of stripping it.
-    -- This preserves original column positions, which is critical for
-    -- layout-sensitive parsing when tabs are present.
     unlitBird line = case T.stripPrefix ">" line of
       Just rest -> " " <> rest
       Nothing -> ""
@@ -379,13 +378,10 @@ normalizeSource filePath src
       | inCode = l : unlitLatex inCode ls
       | otherwise = "" : unlitLatex inCode ls
 
--- Returns (Module, (filePath, processedSource)) on success.
 parseFileInfo :: FilePath -> HC.FileInfo -> IO (Either String (Module, (FilePath, Text)))
 parseFileInfo pkgRoot fi = do
   rawSrc <- readTextFileLenient path
-  -- Strip BOM and unliterate .lhs before anything else.
   let normalized = normalizeSource path rawSrc
-  -- Preprocess CPP if enabled in the cabal file or in the file's own LANGUAGE pragmas.
   let cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HC.fileInfoExtensions fi)
       isCppEnable (EnableExtension CPP) = True
       isCppEnable _ = False
@@ -395,7 +391,6 @@ parseFileInfo pkgRoot fi = do
     if cppEnabledGlobally || cppEnabledInFile
       then runCpp normalized
       else pure normalized
-  -- Read in-file {-# LANGUAGE ... #-} pragmas and merge with cabal-file extensions.
   let headerPragmas = readModuleHeaderPragmas src
       allExtSettings = cabalExtSettings ++ headerExtensionSettings headerPragmas
       lang =
@@ -425,8 +420,6 @@ parseFileInfo pkgRoot fi = do
       content <- resolveInclude pkgRoot (HC.fileInfoIncludeDirs fi) path req
       driveIO (k content)
 
--- | Resolve a CPP include request by searching candidate paths under the package root.
--- Mirrors HackageSupport.resolveIncludeBestEffort.
 resolveInclude :: FilePath -> [FilePath] -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
 resolveInclude pkgRoot includeDirs currentFile req = do
   let candidates = includeCandidates pkgRoot includeDirs currentFile req
@@ -504,13 +497,11 @@ putProgressLine done total = do
   hFlush stdout
 
 -- ---------------------------------------------------------------------------
--- main
+-- run
 -- ---------------------------------------------------------------------------
 
-main :: IO ()
-main = do
-  args <- getArgs
-  opts0 <- parseOptions args
+run :: Options -> IO ()
+run opts0 = do
   jobs <- if optJobs opts0 == 0 then getNumProcessors else pure (optJobs opts0)
   let opts = opts0 {optJobs = jobs}
 
@@ -521,13 +512,9 @@ main = do
 
   let total = length packages
       snapshotNames = Set.fromList (map (T.pack . pkgName) packages)
-      -- Partition into boot packages (pre-generated interfaces) and regular packages.
-      -- Boot packages: those in bootPackageNames that use GHC-internal syntax.
-      -- Other "installed" packages (e.g. text, parsec) are resolved from source.
       (bootPkgs, regularPkgs) = partition isBootPkg packages
       isBootPkg p = T.pack (pkgName p) `Set.member` bootPackageNames
 
-  -- Load pre-generated boot interfaces (generates on demand if not cached)
   putStrLn "Loading boot interfaces..."
   bootIfaceMap <- loadBootInterfaces
   let bootResults =
@@ -550,7 +537,6 @@ main = do
           [(name, piSnapshotDeps info) | (name, info) <- Map.toList infos]
       layers = kahnLayers depGraph
 
-  -- Warn about cycles (packages not covered by Kahn's layers)
   let coveredPkgs = Set.fromList (concat layers)
       cyclePkgs = Set.difference (Set.fromList (map (T.pack . pkgName) regularPkgs)) coveredPkgs
   if Set.null cyclePkgs

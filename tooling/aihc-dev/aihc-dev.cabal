@@ -64,6 +64,125 @@ library snippet
   ghc-options: -Wall
   default-language: GHC2021
 
+library hackage-tester
+  hs-source-dirs:
+    ../../components/aihc-parser/common
+
+  exposed-modules:
+    HackageTester.CLI
+    HackageTester.Run
+
+  other-modules:
+    ConcurrentProgress
+    CppSupport
+    GhcOracle
+    HackageSupport
+    HackageTester.Model
+    HseExtensions
+    ParserValidation
+    ShrinkUtils
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aeson >=2.0 && <2.3,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    async,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    deepseq,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    ghc-lib-parser,
+    haskell-src-exts,
+    http-client,
+    http-client-tls,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    text >=1.2.3 && <2.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+library parser-stackage-progress
+  hs-source-dirs:
+    ../../components/aihc-parser/app/stackage-progress
+    ../../components/aihc-parser/common
+
+  exposed-modules:
+    StackageProgress.CLI
+    StackageProgress.Run
+
+  other-modules:
+    ConcurrentProgress
+    CppSupport
+    GhcOracle
+    HackageSupport
+    HseExtensions
+    ParserValidation
+    ShrinkUtils
+    StackageProgress.FileChecker
+    StackageProgress.FileCheckerTiming
+    StackageProgress.PackageRunner
+    StackageProgress.Snapshot
+    StackageProgress.Summary
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    async,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    deepseq,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    ghc-lib-parser,
+    haskell-src-exts,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    text >=1.2.3 && <2.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+library resolve-stackage-progress
+  hs-source-dirs:
+    ../../components/aihc-resolve/app/resolve-stackage-progress
+
+  exposed-modules:
+    ResolveStackageProgress
+
+  other-modules:
+    BootInterface
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aeson >=2.0 && <2.3,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    aihc-resolve,
+    async,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    deepseq,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    optparse-applicative >=0.16 && <0.19,
+    process >=1.6 && <1.8,
+    text >=1.2.3 && <2.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 executable aihc-dev
   main-is: Main.hs
   hs-source-dirs:
@@ -73,6 +192,9 @@ executable aihc-dev
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc-dev:extract-hi,
+    aihc-dev:hackage-tester,
+    aihc-dev:parser-stackage-progress,
+    aihc-dev:resolve-stackage-progress,
     aihc-dev:snippet,
     aihc-parser,
     base >=4.16 && <5,
@@ -83,7 +205,12 @@ executable aihc-dev
     yaml >=0.11 && <0.12,
 
   default-extensions: OverloadedStrings
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021
 
 test-suite spec

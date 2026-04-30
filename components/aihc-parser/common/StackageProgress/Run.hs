@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main (main) where
+module StackageProgress.Run (run) where
 
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
@@ -15,7 +15,6 @@ import GHC.Conc (getNumProcessors)
 import StackageProgress.CLI
   ( Options (..),
     Parser (..),
-    parseOptionsIO,
     summaryOptionsFromOptions,
   )
 import StackageProgress.PackageRunner (runPackage)
@@ -44,10 +43,8 @@ import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 
-main :: IO ()
-main = do
-  opts <- parseOptionsIO
-
+run :: Options -> IO ()
+run opts = do
   snapshotResult <- loadStackageSnapshotWithMode (optSnapshot opts) (optOffline opts)
   packages <-
     case snapshotResult of

@@ -1,5 +1,6 @@
 module HackageTester.CLI
   ( Options (..),
+    optionsParser,
     parseOptionsIO,
     parseOptionsPure,
   )
