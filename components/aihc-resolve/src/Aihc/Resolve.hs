@@ -178,6 +178,7 @@ annotationResolveError resolution =
             resolveErrorNamespace = resolutionNamespace resolution,
             resolveErrorMessage = msg
           }
+    ResolvedBuiltin _ -> Nothing
     _ -> Nothing
 
 resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
@@ -942,7 +943,7 @@ bars n
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
-  ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude
+  ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude `unionScope` builtinScope
   where
     ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
     preludeScope = Map.findWithDefault emptyScope "Prelude" exports
@@ -1033,6 +1034,78 @@ moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
 emptyScope = Scope Map.empty Map.empty Map.empty
+
+-- | Scope containing all wired-in Haskell built-ins that have no defining
+-- source module but act like regular names during name resolution.
+--
+-- Term namespace: constructors for special syntax that cannot be expressed
+-- as ordinary Haskell declarations (list cons @(:)@, the empty list @[]@,
+-- tuple constructors, unboxed-tuple/sum constructors).  Normal Prelude
+-- constructors like @True@, @False@, @Just@, @Nothing@, @Left@, @Right@ are
+-- /not/ included here — they are defined in @base@ and reach a module via the
+-- implicit Prelude import.
+--
+-- Type namespace: primitive and special types that are not defined in any
+-- parsed source module and cannot be imported from @base@ in the ordinary
+-- way (unboxed primitive types, @TYPE@, @RuntimeRep@, the function arrow,
+-- @Constraint@, and the list type constructor @[]@).
+--
+-- This scope is merged into every module's scope unconditionally (lowest
+-- priority — user-defined and imported names shadow it).
+builtinScope :: Scope
+builtinScope =
+  Scope
+    { scopeTerms = Map.fromList (map mkBuiltinTerm builtinTermNames),
+      scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
+      scopeQualifiedModules = Map.empty
+    }
+  where
+    mkBuiltinTerm n = (n, ResolvedBuiltin n)
+    mkBuiltinType n = (n, ResolvedBuiltin n)
+
+-- | Wired-in term-namespace names: special syntax constructors that have no
+-- defining source declaration.  Normal Prelude constructors (@True@, @False@,
+-- @Just@, etc.) are intentionally excluded — they live in @base@ and arrive
+-- via the implicit Prelude import.
+--
+-- Note: names here must match exactly what the parser emits as the 'Name'
+-- text inside 'EVar'.  For example, the cons operator appears as @":"@ (not
+-- @"(:)"@), because the surrounding parens are stripped by the parser.
+builtinTermNames :: [T.Text]
+builtinTermNames =
+  [ -- Cons operator — the only list constructor that surfaces as EVar
+    ":"
+  ]
+
+-- | Wired-in type-namespace names: primitive types that are not defined in
+-- any parsed source module.  Prelude types like @Int@, @Bool@, @Maybe@, etc.
+-- are defined in @base@ and are intentionally excluded.
+--
+-- Note: names here must match exactly what the parser emits as the 'Name'
+-- text inside 'TCon'.  For example, the function arrow appears as @"->"@
+-- (not @"(->)"@).
+builtinTypeNames :: [T.Text]
+builtinTypeNames =
+  [ -- Function arrow (appears as TCon when used in kind signatures)
+    "->",
+    -- Constraint kind
+    "Constraint",
+    -- Unboxed primitive types (GHC.Prim / GHC.Types)
+    "Int#",
+    "Word#",
+    "Char#",
+    "Float#",
+    "Double#",
+    "Addr#",
+    "ByteArray#",
+    "MutableByteArray#",
+    "RealWorld",
+    "State#",
+    "TYPE",
+    "RuntimeRep",
+    "LiftedRep",
+    "UnliftedRep"
+  ]
 
 unionScope :: Scope -> Scope -> Scope
 unionScope left right =

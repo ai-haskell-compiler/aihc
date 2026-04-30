@@ -1,0 +1,29 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    cons :: a -> [a] -> [a]
+    cons x xs = (:) x xs
+expected:
+  Main:
+    - "2:1-2:5 cons => (value) Main.cons"
+    - "3:1-3:5 cons => (value) Main.cons"
+    - "3:6-3:7 x => (value) Local 0 x"
+    - "3:8-3:10 xs => (value) Local 1 xs"
+    - "3:13-3:16 : => (value) Builtin :"
+    - "3:17-3:18 x => (value) Local 0 x"
+    - "3:19-3:21 xs => (value) Local 1 xs"
+annotated:
+  - |
+    module Main where
+    cons :: a -> [a] -> [a]
+    └─ v Main
+    cons x xs = (:) x xs
+    │    │ │    │   │ └─ v 1
+    │    │ │    │   └─ v 0
+    │    │ │    └─ v Builtin :
+    │    │ └─ v 1
+    │    └─ v 0
+    └─ v Main
+status: pass
+reason: ""
