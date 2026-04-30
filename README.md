@@ -19,7 +19,7 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Resolve Stackage   | `0/3390` (`0.00%`)                                                                                                                   |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3395/3427` (`99.07%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3386/3427` (`98.80%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `12/29` (`41.37%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `16/18` (`88.88%`) <!-- AUTO-GENERATED: END resolve-progress -->                      |
 | Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2051/2051` (`100.00%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
@@ -34,11 +34,11 @@ Find more information here:
 |-----------------|--------|---------|---------|
 | aihc-cpp        |   1701 |     688 |    2389 |
 | aihc-fc         |    883 |     262 |    1145 |
-| aihc-parser     |  12437 |   16114 |   28551 |
+| aihc-parser     |  12461 |   16228 |   28689 |
 | aihc-parser-cli |   1963 |     430 |    2393 |
 | aihc-resolve    |   1369 |    1698 |    3067 |
 | aihc-tc         |   1849 |    1004 |    2853 |
-| **Total**       |  20202 |   20196 |   40398 |
+| **Total**       |  20226 |   20310 |   40536 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
