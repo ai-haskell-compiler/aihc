@@ -2,6 +2,8 @@ module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.Snippet (SnippetOpts (..), parseExtensionSettingArg, runSnippet)
+import Aihc.Parser.Syntax (ExtensionSetting)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
@@ -26,6 +28,7 @@ main = do
 data Command
   = ExtractHi ExtractHiOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
+  | Snippet SnippetOpts
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -54,6 +57,12 @@ commandParser =
           ( info
               (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
               (progDesc "Extract minimal resolver interface (names only) from .hi files")
+          )
+        <> command
+          "snippet"
+          ( info
+              (Snippet <$> snippetParser <**> helper)
+              (progDesc "Analyze a Haskell snippet using GHC and aihc-parser")
           )
     )
 
@@ -85,6 +94,28 @@ extractResolveIfaceParser =
           <> help "Output file path for the JSON interface"
       )
 
+snippetParser :: Parser SnippetOpts
+snippetParser =
+  SnippetOpts
+    <$> many
+      ( option
+          parseExtensionSetting
+          ( short 'X'
+              <> metavar "EXTENSION"
+              <> help "Enable a language extension (for example, -XTypeApplications)"
+          )
+      )
+    <*> optional
+      ( strArgument
+          ( metavar "FILE"
+              <> help "Snippet file to analyze (reads stdin if omitted)"
+          )
+      )
+
+parseExtensionSetting :: ReadM ExtensionSetting
+parseExtensionSetting =
+  eitherReader parseExtensionSettingArg
+
 runCommand :: Command -> IO ()
 runCommand (ExtractHi opts) = do
   pkg <- extractPackage (ehPackage opts)
@@ -97,3 +128,5 @@ runCommand (ExtractResolveIface opts) = do
       outputPath = eriOutput opts
   createDirectoryIfMissing True (takeDirectory outputPath)
   BL.writeFile outputPath (encodePretty resolveIface)
+runCommand (Snippet opts) =
+  runSnippet opts
