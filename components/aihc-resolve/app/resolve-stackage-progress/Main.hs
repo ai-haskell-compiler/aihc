@@ -22,17 +22,15 @@ import Aihc.Parser.Syntax
     LanguageEdition (..),
     Module,
     ModuleHeaderPragmas (..),
-    NameType (..),
     SourceSpan (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
-    mkQualifiedName,
-    mkUnqualifiedName,
     parseExtensionSettingName,
     parseLanguageEdition,
   )
-import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), extractInterface, resolveWithDeps)
+import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
@@ -40,7 +38,7 @@ import Control.Exception (SomeException, displayException, evaluate, try)
 import Control.Monad (mplus)
 import Control.Monad qualified
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isUpper, toLower)
+import Data.Char (toLower)
 import Data.List (nub, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -506,156 +504,6 @@ putProgressLine done total = do
   hFlush stdout
 
 -- ---------------------------------------------------------------------------
--- Boot package shims
--- ---------------------------------------------------------------------------
-
--- | Build a ResolvedTopLevel name for a boot shim entry.
-bootResolve :: Text -> Text -> ResolvedName
-bootResolve modName n =
-  ResolvedTopLevel (mkQualifiedName (mkUnqualifiedName nt n) (Just modName))
-  where
-    nt = case T.uncons n of
-      Nothing -> NameConId
-      Just (c, _)
-        | c == ':' -> NameConSym
-        | not (isAlphaNum c) && c /= '_' && c /= '\'' -> NameVarSym
-        | isUpper c -> NameConId
-        | otherwise -> NameVarId
-
-bootScope :: Text -> [Text] -> [Text] -> Scope
-bootScope modName termNames typeNames =
-  Scope
-    { scopeTerms = Map.fromList [(n, bootResolve modName n) | n <- termNames],
-      scopeTypes = Map.fromList [(n, bootResolve modName n) | n <- typeNames],
-      scopeQualifiedModules = Map.empty
-    }
-
-bootPackageExports :: Text -> ModuleExports
-bootPackageExports pkg = case pkg of
-  "ghc-prim" -> ghcPrimExports
-  "integer-gmp" -> integerExports
-  "integer-simple" -> integerExports
-  "ghc-bignum" -> integerExports
-  _ -> Map.empty
-
--- ---------------------------------------------------------------------------
--- Boot shims for common non-base packages
--- ---------------------------------------------------------------------------
-
-ghcPrimExports :: ModuleExports
-ghcPrimExports =
-  Map.fromList
-    [ ("GHC.Prim", ghcPrimScope),
-      ("GHC.Prim.Ext", ghcPrimExtScope)
-    ]
-
-ghcPrimScope :: Scope
-ghcPrimScope =
-  bootScope
-    "GHC.Prim"
-    [ "seq#",
-      "void#",
-      "realWorld#",
-      "coerce#",
-      "negateInt#",
-      "negateWord#",
-      "not#",
-      "narrow8Int#",
-      "narrow16Int#",
-      "narrow32Int#",
-      "narrow8Word#",
-      "narrow16Word#",
-      "narrow32Word#"
-    ]
-    [ "Int#",
-      "Word#",
-      "Char#",
-      "Float#",
-      "Double#",
-      "Addr#",
-      "State#",
-      "RealWorld",
-      "MutVar#",
-      "MutableByteArray#",
-      "ByteArray#",
-      "Array#",
-      "MutableArray#",
-      "SmallArray#",
-      "SmallMutableArray#",
-      "StablePtr#",
-      "StableName#",
-      "MVar#",
-      "TVar#",
-      "BCO#",
-      "ThreadId#",
-      "Weak#",
-      "Proxy#"
-    ]
-
-ghcPrimExtScope :: Scope
-ghcPrimExtScope =
-  bootScope
-    "GHC.Prim.Ext"
-    []
-    []
-
-integerExports :: ModuleExports
-integerExports =
-  Map.fromList
-    [ ("GHC.Integer", integerScope),
-      ("GHC.Integer.Type", integerScope),
-      ("GHC.Num.Integer", integerScope),
-      ("GHC.Num.Natural", naturalScope),
-      ("GHC.Natural", naturalScope),
-      ("Numeric.Natural", naturalScope)
-    ]
-
-integerScope :: Scope
-integerScope =
-  bootScope
-    "GHC.Integer"
-    [ "smallInteger",
-      "wordToInteger",
-      "integerToWord",
-      "integerToInt",
-      "integerToWord64",
-      "integerToInt64",
-      "word64ToInteger",
-      "int64ToInteger",
-      "plusInteger",
-      "minusInteger",
-      "timesInteger",
-      "negateInteger",
-      "absInteger",
-      "signumInteger",
-      "divModInteger",
-      "quotRemInteger",
-      "quotInteger",
-      "remInteger",
-      "divInteger",
-      "modInteger",
-      "gcdInteger",
-      "lcmInteger",
-      "andInteger",
-      "orInteger",
-      "xorInteger",
-      "complementInteger",
-      "shiftLInteger",
-      "shiftRInteger",
-      "testBitInteger",
-      "popCountInteger",
-      "bitInteger"
-    ]
-    ["Integer"]
-
-naturalScope :: Scope
-naturalScope =
-  bootScope
-    "Numeric.Natural"
-    []
-    ["Natural"]
-
--- ---------------------------------------------------------------------------
 -- main
 -- ---------------------------------------------------------------------------
 
@@ -673,18 +521,24 @@ main = do
 
   let total = length packages
       snapshotNames = Set.fromList (map (T.pack . pkgName) packages)
-      -- GHC boot packages use CPP and internal syntax our parser can't handle.
-      -- Pre-stub them as successful with hand-written export shims.
-      (bootPkgs, regularPkgs) = partition (\p -> pkgVersion p == "installed") packages
-      bootResults =
+      -- Partition into boot packages (pre-generated interfaces) and regular packages.
+      -- Boot packages: those in bootPackageNames that use GHC-internal syntax.
+      -- Other "installed" packages (e.g. text, parsec) are resolved from source.
+      (bootPkgs, regularPkgs) = partition isBootPkg packages
+      isBootPkg p = T.pack (pkgName p) `Set.member` bootPackageNames
+
+  -- Load pre-generated boot interfaces (generates on demand if not cached)
+  putStrLn "Loading boot interfaces..."
+  bootIfaceMap <- loadBootInterfaces
+  let bootResults =
         Map.fromList
-          [ (T.pack (pkgName p), PkgSuccess (bootPackageExports (T.pack (pkgName p))))
+          [ (T.pack (pkgName p), PkgSuccess (Map.findWithDefault Map.empty (T.pack (pkgName p)) bootIfaceMap))
           | p <- bootPkgs
           ]
 
   isStdoutTerminal <- hIsTerminalDevice stdout
   putStrLn $ "Resolving " ++ optSnapshot opts ++ " (" ++ show total ++ " packages, " ++ show jobs ++ " jobs)..."
-  putStrLn $ "  " ++ show (length bootPkgs) ++ " GHC boot packages stubbed, " ++ show (length regularPkgs) ++ " to download"
+  putStrLn $ "  " ++ show (length bootPkgs) ++ " boot packages (pre-generated), " ++ show (length regularPkgs) ++ " to resolve from source"
   putStrLn "Phase 1: downloading packages and collecting dependency info..."
 
   infos <- phase1Parallel opts regularPkgs snapshotNames isStdoutTerminal (length regularPkgs)
