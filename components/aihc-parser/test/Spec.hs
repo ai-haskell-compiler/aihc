@@ -131,6 +131,7 @@ buildTests = do
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
+            testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
@@ -796,6 +797,23 @@ test_prettyNegatedOpenEndedTypeSigBody = do
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_prettyRecordDotTHSpliceBase :: Assertion
+test_prettyRecordDotTHSpliceBase = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
+      spliceName = qualifyName Nothing (mkUnqualifiedName NameVarId "q#")
+      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "j7Msfc")
+      assertRoundTrips expectedRendered expr = do
+        let parenthesized = addExprParens expr
+            rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+        assertEqual "rendered expression" expectedRendered rendered
+        case parseExpr config rendered of
+          ParseOk reparsed ->
+            assertEqual "reparsed expression" (stripAnnotations parenthesized) (stripAnnotations reparsed)
+          ParseErr bundle ->
+            assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertRoundTrips "($q#).j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
+  assertRoundTrips "($$q#).j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =
