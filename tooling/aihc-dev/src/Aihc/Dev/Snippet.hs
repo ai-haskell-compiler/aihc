@@ -29,13 +29,15 @@ import Aihc.Parser.Syntax
   )
 import Control.Monad
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
-import Data.List (intercalate)
+import Data.List (dropWhileEnd, intercalate)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import GhcOracle (oracleModuleAstFingerprint)
-import ParserValidation (ValidationError (..), validateParser)
+import ParserValidation (ValidationError (..), formatDiff, validateParser)
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import System.Exit (exitFailure)
 
 data SnippetOpts = SnippetOpts
@@ -52,7 +54,7 @@ data ParseComparison
 
 data SnippetReport = SnippetReport
   { reportStatusLines :: [String],
-    reportHasBug :: Bool
+    reportHasFailure :: Bool
   }
   deriving (Eq, Show)
 
@@ -62,7 +64,7 @@ runSnippet opts = do
   source <- maybe TIO.getContents TIO.readFile (snippetFile opts)
   let report = analyzeSnippet sourceTag (snippetExtensions opts) source
   putStr (renderSnippetReport report)
-  Control.Monad.when (reportHasBug report) exitFailure
+  Control.Monad.when (reportHasFailure report) exitFailure
 
 parseExtensionSettingArg :: String -> Either String ExtensionSetting
 parseExtensionSettingArg raw =
@@ -85,21 +87,21 @@ analyzeSnippet sourceTag cliExtensions source =
         case comparison of
           BothAccept -> fmap validationErrorMessage (validateParser sourceTag edition extensionSettings source')
           _ -> Nothing
-      parensChanged = maybe False parsedSnippetNeedsParens parserModule
-   in buildSnippetReport comparison validationFailure parensChanged
+      parensDiff = parserModule >>= parsedSnippetParensDiff source
+   in buildSnippetReport comparison validationFailure parensDiff
 
-buildSnippetReport :: ParseComparison -> Maybe String -> Bool -> SnippetReport
-buildSnippetReport comparison validationFailure parensChanged =
+buildSnippetReport :: ParseComparison -> Maybe String -> Maybe String -> SnippetReport
+buildSnippetReport comparison validationFailure parensDiff =
   let statusLines =
         comparisonLines comparison
           ++ maybe [] pure validationFailure
-          ++ ["Bug found: Parens.addModuleParens adds parentheses to the parsed snippet." | parensChanged]
-      hasBug = comparison /= BothReject && comparison /= BothAccept || isJust validationFailure || parensChanged
-   in SnippetReport statusLines hasBug
+          ++ maybe [] pure parensDiff
+      hasFailure = comparison /= BothAccept || isJust validationFailure || isJust parensDiff
+   in SnippetReport statusLines hasFailure
 
 renderSnippetReport :: SnippetReport -> String
 renderSnippetReport report =
-  intercalate "\n" (reportStatusLines report)
+  intercalate "\n" (map (dropWhileEnd (== '\n')) (reportStatusLines report))
     <> if null (reportStatusLines report) then "" else "\n"
 
 compareParseResults :: Bool -> Maybe Module -> ParseComparison
@@ -133,6 +135,24 @@ parseWithAihc sourceTag edition extensionSettings source =
         [] -> Just modu
         _ -> Nothing
 
-parsedSnippetNeedsParens :: Module -> Bool
-parsedSnippetNeedsParens modu =
-  stripAnnotations (addModuleParens modu) /= stripAnnotations modu
+parsedSnippetParensDiff :: Text -> Module -> Maybe String
+parsedSnippetParensDiff source modu =
+  let moduWithParens = addModuleParens modu
+   in if stripAnnotations moduWithParens == stripAnnotations modu
+        then Nothing
+        else
+          let renderedWithParens = renderStrict (layoutPretty defaultLayoutOptions (pretty moduWithParens))
+           in Just (formatParensDiff source renderedWithParens)
+
+formatParensDiff :: Text -> Text -> String
+formatParensDiff before after =
+  let header = "Bug found: Parens.addModuleParens changes the parsed snippet."
+   in case formatDiff before after of
+        Nothing -> header
+        Just diffChunk ->
+          intercalate
+            "\n"
+            [ header,
+              "Changed section:",
+              T.unpack (T.stripEnd diffChunk)
+            ]
