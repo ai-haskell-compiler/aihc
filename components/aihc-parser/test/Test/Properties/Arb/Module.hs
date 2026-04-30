@@ -70,7 +70,8 @@ generatedModuleExtensions =
       LambdaCase,
       LinearTypes,
       TransformListComp,
-      QualifiedDo
+      QualifiedDo,
+      OverloadedRecordDot
     ]
 
 -- | Generate an optional module head.

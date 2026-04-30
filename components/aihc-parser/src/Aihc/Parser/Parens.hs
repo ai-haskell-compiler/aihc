@@ -33,6 +33,7 @@ import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
 import Data.Maybe (isJust, isNothing)
+import Data.Text qualified as T
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -147,18 +148,28 @@ endsWithTypeSig = \case
   EIf _ _ no -> endsWithTypeSig no
   _ -> False
 
--- | Check whether an expression is a qualified variable (e.g., @A.x@)
--- or any expression ending with a bare name that would be ambiguous
--- before a record dot (e.g., TH name quotes @''C@, @'x@).
--- These need parenthesization before @.field@ to avoid ambiguity with
--- longer qualified names or TH-quoted qualified names.
-isQualifiedVar :: Expr -> Bool
-isQualifiedVar = \case
-  EAnn _ sub -> isQualifiedVar sub
-  EVar name -> isJust (nameQualifier name)
+-- | Check whether an expression needs parenthesization before a record dot.
+-- Qualified variables (e.g., @A.x@), TH name quotes (@''C@, @'x@),
+-- numeric literals, MagicHash literals, and identifiers ending in @#@ all
+-- need parens to prevent ambiguity:
+-- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
+-- - TH quotes: @''C.field@ looks like quoting the qualified name @C.field@
+-- - Integers: @0xd9.field@ gets lexed as float @0xd9.d@ followed by @MQDc@
+-- - Floats: @1.0.field@ gets lexed as @1.0@ followed by @.field@
+-- - MagicHash: @'c'#.field@ or @x#.field@ — the @#.@ merges into an operator
+needsParensBeforeDot :: Expr -> Bool
+needsParensBeforeDot = \case
+  EAnn _ sub -> needsParensBeforeDot sub
+  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
   ETHTypeNameQuote {} -> True
+  -- Numeric literals: digits followed by .field is ambiguous with float syntax
+  EInt {} -> True
+  EFloat {} -> True
+  -- MagicHash literals: the trailing # merges with . to form an operator
+  ECharHash {} -> True
+  EStringHash {} -> True
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
@@ -964,7 +975,7 @@ addExprParensPrec prec expr =
       -- Qualified names (A.a) must be parenthesized because A.a.field would be
       -- parsed as the qualified name A.a.field rather than field access on A.a.
       let base' = addExprParensPrec 3 base
-       in EGetField (wrapExpr (isQualifiedVar base') base') field
+       in EGetField (wrapExpr (needsParensBeforeDot base') base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))

@@ -39,19 +39,8 @@ import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
--- Includes OverloadedRecordDot forms (EGetField, EGetFieldProjection) which
--- require the OverloadedRecordDot extension to be enabled for parsing.
 genExpr :: Gen Expr
-genExpr = scale (`div` 2) $ do
-  n <- getSize
-  if n <= 0
-    then genExprLeaf
-    else
-      oneof
-        [ genExprWith True,
-          EGetField <$> genExprWith True <*> genRecordFieldName,
-          EGetFieldProjection <$> smallList1 genRecordFieldName
-        ]
+genExpr = genExprWith True
 
 -- | Generate an expression, optionally allowing Template Haskell quote forms.
 -- Nested TH brackets are rejected by GHC unless separated by splices, so quote
@@ -93,6 +82,9 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ETypeApp <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
         EParen <$> genExprWith allowTHQuotes,
         EProc <$> genPattern <*> genCmdWith allowTHQuotes,
+        -- OverloadedRecordDot
+        EGetField <$> genExprWith allowTHQuotes <*> genRecordFieldName,
+        EGetFieldProjection <$> smallList1 genRecordFieldName,
         -- Template Haskell splices are valid inside quote bodies.
         ETHSplice <$> genSpliceBody,
         ETHTypedSplice <$> genTypedSpliceBody
@@ -171,14 +163,14 @@ genSpliceBody :: Gen Expr
 genSpliceBody =
   oneof
     [ EVar <$> genVarName,
-      EParen <$> scale (`div` 2) (genExprWith True)
+      EParen <$> scale (`div` 2) genExpr
     ]
 
 -- | Generate the body of a TH typed splice: always parenthesized.
 -- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
 genTypedSpliceBody :: Gen Expr
 genTypedSpliceBody =
-  EParen <$> scale (`div` 2) (genExprWith True)
+  EParen <$> scale (`div` 2) genExpr
 
 -- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
