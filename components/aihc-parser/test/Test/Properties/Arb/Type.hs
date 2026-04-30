@@ -12,9 +12,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
-    genConId,
     genConName,
-    genConSym,
     genQuasiBody,
     genQuoterName,
     genVarId,
@@ -86,12 +84,7 @@ genTypeInfix :: Gen Type
 genTypeInfix = do
   lhs <- genType
   rhs <- genType
-  -- Generate either a symbolic constructor operator or a backtick-wrapped conid
-  op <-
-    oneof
-      [ qualifyName Nothing . mkUnqualifiedName NameConSym <$> genConSym,
-        qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
-      ]
+  op <- genConName
   pure (TInfix lhs op Unpromoted rhs)
 
 genTypeFun :: Gen Type
