@@ -18,21 +18,21 @@ main :: IO ()
 main =
   defaultMain . testGroup "aihc-dev" $
     [ testCase "reports both parsers rejecting a snippet" $ do
-        let report = buildSnippetReport BothReject Nothing False
+        let report = buildSnippetReport BothReject Nothing Nothing
         assertEqual "message" "Snippet fails to parse with both GHC and aihc-parser.\n" (renderSnippetReport report)
-        assertBool "not a bug" (not (reportHasBug report)),
+        assertBool "failure" (reportHasFailure report),
       testCase "reports parser mismatch when aihc rejects valid GHC snippet" $ do
-        let report = buildSnippetReport GhcAcceptsAihcRejects Nothing False
+        let report = buildSnippetReport GhcAcceptsAihcRejects Nothing Nothing
         assertEqual "message" "Bug found: code rejected by aihc-parser but parsed by GHC.\n" (renderSnippetReport report)
-        assertBool "bug" (reportHasBug report),
+        assertBool "failure" (reportHasFailure report),
       testCase "includes roundtrip failures" $ do
-        let report = buildSnippetReport BothAccept (Just "Roundtrip mismatch") False
+        let report = buildSnippetReport BothAccept (Just "Roundtrip mismatch") Nothing
         assertEqual "message" "Roundtrip mismatch\n" (renderSnippetReport report)
-        assertBool "bug" (reportHasBug report),
-      testCase "includes parens bug notice" $ do
-        let report = buildSnippetReport BothAccept Nothing True
-        assertEqual "message" "Bug found: Parens.addModuleParens adds parentheses to the parsed snippet.\n" (renderSnippetReport report)
-        assertBool "bug" (reportHasBug report),
+        assertBool "failure" (reportHasFailure report),
+      testCase "includes parens diff" $ do
+        let report = buildSnippetReport BothAccept Nothing (Just "Bug found: Parens.addModuleParens changes the parsed snippet.\nChanged section:\n@@ line 1 @@\n- a\n+ (a)\n")
+        assertEqual "message" "Bug found: Parens.addModuleParens changes the parsed snippet.\nChanged section:\n@@ line 1 @@\n- a\n+ (a)\n" (renderSnippetReport report)
+        assertBool "failure" (reportHasFailure report),
       testCase "parses -X extension arguments" $ do
         assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications"),
       QC.testProperty "dummy quickcheck property" prop_dummy
