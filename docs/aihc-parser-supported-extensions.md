@@ -3,17 +3,17 @@
 ## Summary
 
 - Total Extensions: 82
-- Supported: 82
-- In Progress: 0
+- Supported: 81
+- In Progress: 1
 
 ## Extension Status
 
 | Extension                 | Status | Tests Passing |
 |---------------------------|:------:|---------------|
-| Arrows                    |   🟢    | 20/20         |
+| Arrows                    |   🟢    | 21/21         |
 | BangPatterns              |   🟢    | 12/12         |
 | BinaryLiterals            |   🟢    | 3/3           |
-| BlockArguments            |   🟢    | 7/7           |
+| BlockArguments            |   🟢    | 8/8           |
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 7/7           |
 | CPP                       |   🟢    | 8/8           |
@@ -77,7 +77,7 @@
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
 | StarIsType                |   🟢    | 1/1           |
-| TemplateHaskell           |   🟢    | 44/44         |
+| TemplateHaskell           |   🟡    | 44/46         |
 | TemplateHaskellQuotes     |   🟢    | 13/13         |
 | TransformListComp         |   🟢    | 13/13         |
 | TupleSections             |   🟢    | 4/4           |
@@ -89,7 +89,7 @@
 | TypeOperators             |   🟢    | 65/65         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 8/8           |
-| UnboxedTuples             |   🟢    | 18/18         |
+| UnboxedTuples             |   🟢    | 19/19         |
 | UnicodeSyntax             |   🟢    | 19/19         |
 | ViewPatterns              |   🟢    | 19/19         |
 
