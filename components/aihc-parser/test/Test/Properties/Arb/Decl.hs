@@ -27,6 +27,7 @@ import Test.Properties.Arb.Identifiers
     genVarName,
     genVarSym,
     genVarUnqualifiedName,
+    shrinkName,
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
@@ -492,7 +493,7 @@ genAssociatedDataFamilyDecl classParams = do
   head' <-
     if infixHead
       then do
-        name <- mkUnqualifiedName NameConSym <$> genConSym
+        name <- genConUnqualifiedName
         shuffled <- shuffle classParams
         case shuffled of
           lhs : rhs : _ -> pure (InfixBinderHead lhs name rhs [])
@@ -619,7 +620,6 @@ genDeclStandaloneDerivingPrefix = do
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -638,7 +638,6 @@ genDeclStandaloneDerivingInfix = do
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -660,7 +659,6 @@ genDeclStandaloneDerivingParenInfix = do
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -931,7 +929,7 @@ genDeclPragma = do
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
-  synName <- mkUnqualifiedName NameConId <$> genConId
+  synName <- genConUnqualifiedName
   argName <- genVarId
   conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
   let args = PatSynPrefixArgs [argName]
@@ -940,9 +938,7 @@ genDeclPatSyn = do
   pure $ DeclPatSyn (PatSynDecl synName args pat dir)
 
 genDeclPatSynSig :: Gen Decl
-genDeclPatSynSig = do
-  name <- mkUnqualifiedName NameConId <$> genConId
-  DeclPatSynSig [name] <$> genType
+genDeclPatSynSig = DeclPatSynSig <$> smallList1 genConUnqualifiedName <*> genType
 
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = DeclStandaloneKindSig <$> genConUnqualifiedName <*> genType
@@ -961,15 +957,17 @@ genDerivingClauses = smallList0 genDerivingClause
 
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
-  strategy <- elements [Nothing, Just DerivingStock]
-  classes <- smallList0 genSimpleConType
+  strategy <- optional $ oneof [pure DerivingStock, pure DerivingNewtype, pure DerivingAnyclass, DerivingVia <$> genType]
+  classes <- oneof [Left <$> genSimpleConName, Right <$> smallList0 genType]
   pure $
     DerivingClause
       { derivingStrategy = strategy,
-        derivingClasses = classes,
-        derivingViaType = Nothing,
-        derivingParenthesized = length classes /= 1
+        derivingClasses = classes
       }
+
+genSimpleConName :: Gen Name
+genSimpleConName =
+  qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
 
 -- | Generate a simple constructor type (used in deriving/context).
 genSimpleConType :: Gen Type
@@ -1167,6 +1165,10 @@ shrinkNewtypeDecl nd =
     <> [nd {newtypeDeclHead = head'} | head' <- shrinkBinderHeadParams (newtypeDeclHead nd)]
     -- Shrink context
     <> [nd {newtypeDeclContext = ctx'} | ctx' <- shrinkList shrinkType (newtypeDeclContext nd)]
+    -- Shrink constructor
+    <> [nd {newtypeDeclConstructor = Just ctor'} | Just ctor <- [newtypeDeclConstructor nd], ctor' <- shrinkDataConDecl ctor]
+    -- Shrink deriving clauses
+    <> [nd {newtypeDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (newtypeDeclDeriving nd)]
 
 shrinkDataConDecl :: DataConDecl -> [DataConDecl]
 shrinkDataConDecl con =
@@ -1220,7 +1222,18 @@ shrinkFieldDecl fd =
 
 shrinkDerivingClause :: DerivingClause -> [DerivingClause]
 shrinkDerivingClause dc =
-  [dc {derivingClasses = cs'} | cs' <- shrinkList shrinkType (derivingClasses dc)]
+  [dc {derivingStrategy = Just strategy'} | Just strategy <- [derivingStrategy dc], strategy' <- shrinkDerivingStrategy strategy]
+    <> case derivingClasses dc of
+      Left name -> [dc {derivingClasses = Left name'} | name' <- shrinkName name]
+      Right classes -> [dc {derivingClasses = Right cs'} | cs' <- shrinkList shrinkType classes]
+
+shrinkDerivingStrategy :: DerivingStrategy -> [DerivingStrategy]
+shrinkDerivingStrategy strategy =
+  case strategy of
+    DerivingStock -> []
+    DerivingNewtype -> []
+    DerivingAnyclass -> []
+    DerivingVia ty -> [DerivingVia ty' | ty' <- shrinkType ty]
 
 -- ---------------------------------------------------------------------------
 -- Class and instance declarations
@@ -1331,18 +1344,20 @@ shrinkBinderHeadName shrinkNameFn head' =
     InfixBinderHead lhs name rhs tailParams ->
       [InfixBinderHead lhs name' rhs tailParams | name' <- shrinkNameFn name]
 
-shrinkBinderHeadParams :: BinderHead name -> [BinderHead name]
+shrinkBinderHeadParams :: BinderHead UnqualifiedName -> [BinderHead UnqualifiedName]
 shrinkBinderHeadParams head' =
   case head' of
     PrefixBinderHead name params ->
-      [PrefixBinderHead name params' | params' <- shrinkTyVarBinders params]
+      [PrefixBinderHead name' params | name' <- shrinkUnqualifiedName name]
+        <> [PrefixBinderHead name params' | params' <- shrinkTyVarBinders params]
     InfixBinderHead lhs name rhs tailParams ->
-      [ head''
-      | params' <- shrinkTypeHeadParams TypeHeadInfix (lhs : rhs : tailParams),
-        head'' <- case params' of
-          lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
-          _ -> []
-      ]
+      [InfixBinderHead lhs name' rhs tailParams | name' <- shrinkUnqualifiedName name]
+        <> [ head''
+           | params' <- shrinkTypeHeadParams TypeHeadInfix (lhs : rhs : tailParams),
+             head'' <- case params' of
+               lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
+               _ -> []
+           ]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

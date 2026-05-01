@@ -163,6 +163,7 @@ endsWithTypeSig = \case
 needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
+  ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
@@ -617,9 +618,18 @@ stripPragmaRawText pragma = pragma {pragmaRawText = ""}
 addDerivingClauseParens :: DerivingClause -> DerivingClause
 addDerivingClauseParens dc =
   dc
-    { derivingClasses = map addTypeParens (derivingClasses dc),
-      derivingViaType = fmap addTypeParens (derivingViaType dc)
+    { derivingClasses =
+        case derivingClasses dc of
+          Left name -> Left name
+          Right classes -> Right (map addTypeParens classes),
+      derivingStrategy = fmap addDerivingStrategyParens (derivingStrategy dc)
     }
+
+addDerivingStrategyParens :: DerivingStrategy -> DerivingStrategy
+addDerivingStrategyParens strategy =
+  case strategy of
+    DerivingVia ty -> DerivingVia (addTypeParens ty)
+    _ -> strategy
 
 addDataConDeclParens :: DataConDecl -> DataConDecl
 addDataConDeclParens con =
@@ -809,7 +819,7 @@ addInstanceItemParens item =
 addStandaloneDerivingParens :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 addStandaloneDerivingParens decl =
   decl
-    { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
+    { standaloneDerivingStrategy = fmap addDerivingStrategyParens (standaloneDerivingStrategy decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
       standaloneDerivingHead = addTypeParens (standaloneDerivingHead decl)
     }
@@ -1050,6 +1060,9 @@ addNegateParens inner =
   if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
     else case peelExprAnn inner of
+      -- `-(518# {}).a` and similar forms must keep the field access grouped;
+      -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
+      EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
       -- Avoid `--` being lexed as a line comment: wrap nested negation.
       ENegate {} -> wrapExpr True (addExprParens inner)
       -- Application and type-application bind tighter than negation, so `-f x`

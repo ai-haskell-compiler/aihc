@@ -132,6 +132,7 @@ buildTests = do
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
+            testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -482,6 +483,30 @@ test_unboxedTupleInfixConOperandStaysBare = do
             }
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
+
+test_prettySymbolicDerivingClass :: Assertion
+test_prettySymbolicDerivingClass = do
+  let decl =
+        DeclNewtype
+          NewtypeDecl
+            { newtypeDeclCTypePragma = Nothing,
+              newtypeDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [],
+              newtypeDeclContext = [],
+              newtypeDeclKind = Nothing,
+              newtypeDeclConstructor = Just (RecordCon [] [] (mkUnqualifiedName NameConId "C") []),
+              newtypeDeclDeriving =
+                [ DerivingClause
+                    { derivingStrategy = Nothing,
+                      derivingClasses = Right [TCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":+")) Unpromoted]
+                    }
+                ]
+            }
+      expected = stripAnnotations (addDeclParens decl)
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "newtype C = C {} deriving ((:+))" rendered
+  case parseDecl defaultConfig rendered of
+    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
 
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do

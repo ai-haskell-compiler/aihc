@@ -714,7 +714,6 @@ standaloneDerivingDeclParser :: TokParser Decl
 standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
-  viaTy <- MP.optional (MP.try derivingViaTypeParser)
   expectedTok TkKeywordInstance
   overlapPragmas <- MP.option [] (fmap (: []) instanceOverlapPragmaParser)
   warningText <- MP.optional warningPragmaParser
@@ -724,7 +723,6 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
     DeclStandaloneDeriving
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = viaTy,
           standaloneDerivingPragmas = overlapPragmas,
           standaloneDerivingWarning = warningText,
           standaloneDerivingForall = fromMaybe [] forallBinders,
@@ -1346,13 +1344,15 @@ isTypeVarName name =
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   expectedTok TkKeywordDeriving
-  strategy <- MP.optional derivingStrategyParser
-  (classes, parenthesized) <- parenClasses <|> singleClass
-  viaTy <- MP.optional derivingViaTypeParser
-  pure (DerivingClause strategy classes viaTy parenthesized)
+  strategy <- MP.optional derivingStrategyWithoutViaParser
+  classes <- parenClasses <|> singleClass
+  viaStrategy <- MP.optional (DerivingVia <$> derivingViaTypeParser)
+  case (strategy, viaStrategy) of
+    (Just _, Just _) -> fail "deriving via cannot be combined with another deriving strategy"
+    _ -> pure (DerivingClause (viaStrategy <|> strategy) classes)
   where
-    singleClass = (\c -> ([c], False)) <$> contextItemParserWith typeParser typeAtomParser
-    parenClasses = fmap (,True) $ parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+    singleClass = Left <$> constructorNameParser
+    parenClasses = Right <$> parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
@@ -1361,6 +1361,11 @@ derivingViaTypeParser = do
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
+  derivingStrategyWithoutViaParser
+    <|> (DerivingVia <$> MP.try derivingViaTypeParser)
+
+derivingStrategyWithoutViaParser :: TokParser DerivingStrategy
+derivingStrategyWithoutViaParser =
   (varIdTok "stock" >> pure DerivingStock)
     <|> (expectedTok TkKeywordNewtype >> pure DerivingNewtype)
     <|> (varIdTok "anyclass" >> pure DerivingAnyclass)

@@ -211,7 +211,7 @@ data Extension
   | DeriveLift
   | DeriveTraversable
   | DerivingStrategies
-  | DerivingVia
+  | DerivingViaExtension
   | DisambiguateRecordFields
   | DoAndIfThenElse
   | DoRec
@@ -373,6 +373,7 @@ allKnownExtensions = [minBound .. maxBound]
 extensionName :: Extension -> Text
 extensionName ext =
   case ext of
+    DerivingViaExtension -> T.pack "DerivingVia"
     SafeHaskell -> T.pack "Safe"
     UnsafeHaskell -> T.pack "Unsafe"
     _ -> T.pack (show ext)
@@ -392,6 +393,7 @@ parseExtensionName raw =
     trimmed = T.strip raw
     aliases =
       [ ("Cpp", CPP),
+        ("DerivingVia", DerivingViaExtension),
         ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving),
         ("Safe", SafeHaskell),
         ("Unsafe", UnsafeHaskell)
@@ -584,7 +586,7 @@ languageEditionExtensions edition =
 impliedExtensions :: [(Extension, [ExtensionSetting])]
 impliedExtensions =
   [ (DeriveTraversable, [EnableExtension DeriveFunctor, EnableExtension DeriveFoldable]),
-    (DerivingVia, [EnableExtension DerivingStrategies]),
+    (DerivingViaExtension, [EnableExtension DerivingStrategies]),
     (DuplicateRecordFields, [EnableExtension DisambiguateRecordFields]),
     (ExistentialQuantification, [EnableExtension ExplicitForAll]),
     (ExplicitLevelImports, [DisableExtension ImplicitStagePersistence]),
@@ -1523,9 +1525,7 @@ data FieldDecl = FieldDecl
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: [Type],
-    derivingViaType :: Maybe Type,
-    derivingParenthesized :: Bool
+    derivingClasses :: Either Name [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1533,11 +1533,11 @@ data DerivingStrategy
   = DerivingStock
   | DerivingNewtype
   | DerivingAnyclass
+  | DerivingVia Type
   deriving (Data, Eq, Show, Generic, NFData)
 
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingStrategy :: Maybe DerivingStrategy,
-    standaloneDerivingViaType :: Maybe Type,
     standaloneDerivingPragmas :: [Pragma],
     standaloneDerivingWarning :: Maybe Pragma,
     standaloneDerivingForall :: [TyVarBinder],
