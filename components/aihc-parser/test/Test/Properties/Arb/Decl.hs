@@ -27,12 +27,10 @@ import Test.Properties.Arb.Identifiers
     genVarName,
     genVarSym,
     genVarUnqualifiedName,
-    shrinkIdent,
     shrinkUnqualifiedName,
-    shrinkVarSym,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (genType, shrinkType)
+import Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
 import Test.Properties.Arb.Utils (optional, smallList0, smallList1, smallList2)
 import Test.QuickCheck
 
@@ -1311,36 +1309,14 @@ shrinkConName :: UnqualifiedName -> [UnqualifiedName]
 shrinkConName = shrinkUnqualifiedName
 
 shrinkBinderName :: BinderName -> [BinderName]
-shrinkBinderName = shrinkUnqualifiedVarName
-
-shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
-shrinkUnqualifiedVarName name =
-  [mkUnqualifiedName (unqualifiedNameType name) candidate | candidate <- shrinkBinderText name]
-
-shrinkBinderText :: UnqualifiedName -> [Text]
-shrinkBinderText name =
-  case unqualifiedNameType name of
-    NameVarId -> shrinkIdent (renderUnqualifiedName name)
-    NameVarSym -> shrinkVarSym (renderUnqualifiedName name)
-    _ -> []
+shrinkBinderName = shrinkUnqualifiedName
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers
 -- ---------------------------------------------------------------------------
 
-shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
-shrinkTyVarBinders = shrinkList shrinkTyVarBinder
-  where
-    shrinkTyVarBinder tvb =
-      [tvb {tyVarBinderName = n'} | n' <- shrinkIdent (tyVarBinderName tvb)]
-
 shrinkForallTelescopes :: [ForallTelescope] -> [[ForallTelescope]]
 shrinkForallTelescopes = shrinkList shrinkForallTelescope
-  where
-    shrinkForallTelescope telescope =
-      [ telescope {forallTelescopeBinders = binders'}
-      | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
-      ]
 
 shrinkTypeHeadParams :: TypeHeadForm -> [TyVarBinder] -> [[TyVarBinder]]
 shrinkTypeHeadParams headForm params =

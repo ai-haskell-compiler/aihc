@@ -17,7 +17,6 @@ import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Debug.Trace
 import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
@@ -91,11 +90,11 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
       ]
     quoteGenerators
       | allowTHQuotes =
-          [ ETHExpQuote <$> genExprWith False,
-            ETHTypedQuote <$> genExprWith False,
+          [ ETHExpQuote <$> genExprWith True,
+            ETHTypedQuote <$> genExprWith True,
             ETHDeclQuote <$> smallList0 (DeclValue <$> genDeclValue),
             ETHPatQuote <$> genPattern,
-            ETHTypeQuote <$> genTypeWith False,
+            ETHTypeQuote <$> genType,
             ETHNameQuote <$> genNameQuoteExpr,
             ETHTypeNameQuote <$> genTypeNameQuoteType
           ]
@@ -115,7 +114,7 @@ genViewPatternExpr = scale (`div` 2) $ do
         [ genViewPatternVar,
           EApp <$> genViewPatternExpr <*> genViewPatternExpr,
           EParen <$> genViewPatternExpr,
-          ETypeApp <$> genViewPatternExpr <*> genTypeWith False,
+          ETypeApp <$> genViewPatternExpr <*> genType,
           ERecordCon <$> genConName <*> pure [] <*> pure False,
           ERecordUpd <$> genViewPatternExpr <*> pure []
         ]
@@ -422,43 +421,6 @@ genRecordFieldsWith allowTHQuotes =
 genRecordFieldName :: Gen Name
 genRecordFieldName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genFieldName
 
--- | Generate a type (simple version for use inside expressions).
-genTypeWith :: Bool -> Gen Type
-genTypeWith allowTHQuotes = do
-  n <- getSize
-  if n <= 0
-    then genTypeLeaf
-    else
-      scale (`div` 2) $
-        oneof
-          [ genTypeLeaf,
-            TApp <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
-            TFun ArrowUnrestricted <$> genTypeWith allowTHQuotes <*> genTypeWith allowTHQuotes,
-            TList Unpromoted <$> genTypeListElemsWith allowTHQuotes,
-            TTuple Boxed Unpromoted <$> genTypeTupleElemsWith allowTHQuotes,
-            TParen <$> genTypeWith allowTHQuotes
-          ]
-
-genTypeLeaf :: Gen Type
-genTypeLeaf =
-  oneof
-    [ TVar <$> genTypeVarName,
-      (`TCon` Unpromoted) <$> genConName
-    ]
-
-genTypeTupleElemsWith :: Bool -> Gen [Type]
-genTypeTupleElemsWith allowTHQuotes =
-  oneof
-    [ pure [],
-      smallList2 (genTypeWith allowTHQuotes)
-    ]
-
-genTypeListElemsWith :: Bool -> Gen [Type]
-genTypeListElemsWith allowTHQuotes = smallList1 (genTypeWith allowTHQuotes)
-
-genTypeVarName :: Gen UnqualifiedName
-genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
-
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
 mkHexExpr value = EInt value TInteger ("0x" <> T.pack (showHex value))
@@ -505,7 +467,7 @@ shrinkOverloadedLabel value raw
 
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
-shrinkExpr expr = trace (show expr) $
+shrinkExpr expr =
   case expr of
     EVar name -> [EVar name' | name' <- shrinkName name]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]

@@ -5,18 +5,16 @@ module Test.Properties.Arb.Module
   ( genModuleName,
     shrinkModuleName,
     genUnqualifiedVarName,
-    shrinkUnqualifiedVarName,
     genTypeName,
     shrinkTypeName,
   )
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Identifiers (genVarId, genVarSym, isValidGeneratedVarSym, shrinkIdent)
+import Test.Properties.Arb.Identifiers (genVarId, genVarSym, shrinkName, shrinkUnqualifiedName)
 import Test.QuickCheck
 
 instance Arbitrary Module where
@@ -29,7 +27,7 @@ instance Arbitrary Module where
       Module
         { moduleAnns = [],
           moduleHead = mHead,
-          moduleLanguagePragmas = generatedModuleExtensions,
+          moduleLanguagePragmas = [],
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -45,34 +43,6 @@ instance Arbitrary Module where
       <> [ modu {moduleHead = shrunk}
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
-
-generatedModuleExtensions :: [ExtensionSetting]
-generatedModuleExtensions =
-  map
-    EnableExtension
-    [ BlockArguments,
-      Arrows,
-      UnboxedTuples,
-      UnboxedSums,
-      TemplateHaskell,
-      UnicodeSyntax,
-      QuasiQuotes,
-      PatternSynonyms,
-      MagicHash,
-      OverloadedLabels,
-      MultiWayIf,
-      RecursiveDo,
-      CApiFFI,
-      ImplicitParams,
-      TypeAbstractions,
-      RequiredTypeArguments,
-      ViewPatterns,
-      LambdaCase,
-      LinearTypes,
-      TransformListComp,
-      QualifiedDo,
-      OverloadedRecordDot
-    ]
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
@@ -141,14 +111,6 @@ genExportVarName = qualifyName Nothing <$> genUnqualifiedVarName
 genExportTypeName :: Gen Name
 genExportTypeName = qualifyName Nothing <$> genTypeName
 
-shrinkExportVarName :: Name -> [Name]
-shrinkExportVarName name =
-  [qualifyName Nothing n | n <- shrinkUnqualifiedVarName (mkUnqualifiedName (nameType name) (nameText name))]
-
-shrinkExportTypeName :: Name -> [Name]
-shrinkExportTypeName name =
-  [qualifyName Nothing n | n <- shrinkTypeName (mkUnqualifiedName (nameType name) (nameText name))]
-
 genWarningMessage :: Gen Text
 genWarningMessage = do
   n <- chooseInt (1, 8)
@@ -194,25 +156,25 @@ instance Arbitrary ExportSpec where
         [ExportModule Nothing shrunk | shrunk <- shrinkModuleName modName]
       ExportVar mWarning namespace name ->
         [ExportVar Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportVar mWarning namespace shrunk | shrunk <- shrinkExportVarName name]
+          <> [ExportVar mWarning namespace shrunk | shrunk <- shrinkName name]
       ExportAbs mWarning namespace name ->
         [ExportAbs Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAbs mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
+          <> [ExportAbs mWarning namespace shrunk | shrunk <- shrinkName name]
       ExportAll mWarning namespace name ->
         [ExportAbs mWarning namespace name]
           <> [ExportAll Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAll mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
+          <> [ExportAll mWarning namespace shrunk | shrunk <- shrinkName name]
       ExportWith mWarning _namespace name members ->
         -- Always use Nothing namespace (pattern/type/data not valid in ExportWith)
         [ExportAbs mWarning Nothing name | not (null members)]
           <> [ExportWith Nothing Nothing name members | Just _ <- [mWarning]]
-          <> [ExportWith mWarning Nothing shrunk members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWith mWarning Nothing shrunk members | shrunk <- shrinkName name]
           <> [ExportWith mWarning Nothing name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
       ExportWithAll mWarning _namespace name wildcardIndex members ->
         -- Always use Nothing namespace (pattern/type/data not valid in ExportWithAll)
         [ExportWith mWarning Nothing name members]
           <> [ExportWithAll Nothing Nothing name wildcardIndex members | Just _ <- [mWarning]]
-          <> [ExportWithAll mWarning Nothing shrunk wildcardIndex members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWithAll mWarning Nothing shrunk wildcardIndex members | shrunk <- shrinkName name]
           <> [ExportWithAll mWarning Nothing name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
           <> [ExportWithAll mWarning Nothing name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
@@ -256,7 +218,7 @@ instance Arbitrary ImportItem where
     case item of
       ImportAnn _ sub -> sub : shrink sub
       ImportItemVar namespace name ->
-        [ImportItemVar namespace shrunk | shrunk <- shrinkUnqualifiedVarName name]
+        [ImportItemVar namespace shrunk | shrunk <- shrinkUnqualifiedName name]
       ImportItemAbs namespace name ->
         [ImportItemAbs namespace shrunk | shrunk <- shrinkTypeName name]
       ImportItemAll namespace name ->
@@ -323,28 +285,7 @@ shrinkWildcardIndex wildcardIndex members =
   [shrunk | shrunk <- shrink wildcardIndex, shrunk >= 0, shrunk <= length members]
 
 shrinkMemberNameFor :: Maybe IEBundledNamespace -> Name -> [Name]
-shrinkMemberNameFor namespace name =
-  case namespace of
-    Nothing -> shrinkUnqualifiedVarNameFor name <> shrinkTypeNameFor name
-    Just _ -> shrinkTypeNameFor name
-  where
-    shrinkUnqualifiedVarNameFor n =
-      [ qualifyName (nameQualifier n) (mkUnqualifiedName (nameType n) candidate)
-      | nameType n `elem` [NameVarId, NameVarSym],
-        candidate <- shrinkVarText n
-      ]
-    shrinkTypeNameFor n =
-      [ qualifyName (nameQualifier n) (mkUnqualifiedName NameConId candidate)
-      | nameType n == NameConId,
-        candidate <- map T.pack (shrink (T.unpack (nameText n))),
-        not (T.null candidate),
-        isUpper (T.head candidate)
-      ]
-    shrinkVarText n =
-      case nameType n of
-        NameVarId -> shrinkIdent (nameText n)
-        NameVarSym -> shrinkSymbolicName (nameText n)
-        _ -> []
+shrinkMemberNameFor _namespace = shrinkName
 
 instance Arbitrary ImportDecl where
   arbitrary = do
@@ -458,28 +399,6 @@ genUnqualifiedVarName =
     [ mkUnqualifiedName NameVarId <$> genVarId,
       mkUnqualifiedName NameVarSym <$> genVarSym
     ]
-
-shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
-shrinkUnqualifiedVarName name =
-  [ mkUnqualifiedName (unqualifiedNameType name) candidate
-  | candidate <- shrinkUnqualifiedVarText name
-  ]
-
-shrinkUnqualifiedVarText :: UnqualifiedName -> [Text]
-shrinkUnqualifiedVarText name =
-  case unqualifiedNameType name of
-    NameVarId -> shrinkIdent (renderUnqualifiedName name)
-    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
-    _ -> []
-
-shrinkSymbolicName :: Text -> [Text]
-shrinkSymbolicName txt =
-  filter (not . T.null) $
-    shrinkList noShrink (T.unpack txt) >>= \chars ->
-      let candidate = T.pack chars
-       in [candidate | isValidGeneratedVarSym candidate]
-  where
-    noShrink _ = []
 
 genImportItems :: Gen [ImportItem]
 genImportItems = do

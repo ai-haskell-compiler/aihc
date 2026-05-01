@@ -4,6 +4,8 @@
 module Test.Properties.Arb.Type
   ( genType,
     shrinkType,
+    shrinkTyVarBinders,
+    shrinkForallTelescope,
   )
 where
 
@@ -354,8 +356,8 @@ shrinkType ty =
       []
     TAnn _ sub -> shrinkType sub
 
-shrinkTypeBinders :: [TyVarBinder] -> [[TyVarBinder]]
-shrinkTypeBinders binders =
+shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
+shrinkTyVarBinders binders =
   [ shrunk
   | shrunk <- shrinkList shrinkTyVarBinder binders,
     not (null shrunk)
@@ -368,7 +370,7 @@ shrinkTyVarBinder tvb =
 shrinkForallTelescope :: ForallTelescope -> [ForallTelescope]
 shrinkForallTelescope telescope =
   [ telescope {forallTelescopeBinders = binders'}
-  | binders' <- shrinkTypeBinders (forallTelescopeBinders telescope)
+  | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
   ]
     <> [ telescope {forallTelescopeVisibility = ForallInvisible}
        | forallTelescopeVisibility telescope == ForallVisible

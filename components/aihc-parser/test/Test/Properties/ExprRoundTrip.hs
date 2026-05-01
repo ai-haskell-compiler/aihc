@@ -13,6 +13,7 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Expr ()
+import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
@@ -20,7 +21,7 @@ import Text.Megaparsec.Error qualified as MPE
 exprConfig :: ParserConfig
 exprConfig =
   defaultConfig
-    { parserExtensions = [Arrows, BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments, ViewPatterns, LambdaCase, LinearTypes, OverloadedRecordDot, TransformListComp, QualifiedDo, StarIsType]
+    { parserExtensions = requiredExtensions
     }
 
 prop_exprPrettyRoundTrip :: Expr -> Property
