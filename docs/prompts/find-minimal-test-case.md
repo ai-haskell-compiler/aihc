@@ -1,6 +1,6 @@
 ---
 name: find-minimal-test-case
-description: Reduce Haskell parser failures to minimal repros. Use when Codex needs to take a parse error from `hackage-tester`, a source file, or a failing fixture and shrink it to the smallest snippet that GHC accepts but `aihc-parser` rejects, while preserving the relevant language settings, token shape, and parser behavior needed for a regression test.
+description: Reduce Haskell parser failures to minimal repros. Use when Codex needs to take a parse error from `aihc-dev hackage-tester`, a source file, or a failing fixture and shrink it to the smallest snippet that GHC accepts but `aihc-parser` rejects, while preserving the relevant language settings, token shape, and parser behavior needed for a regression test.
 ---
 
 # Minimize Parse Failures
@@ -24,7 +24,7 @@ Prefer the raw failing file and the exact parser output over a paraphrase.
 If the failure comes from package testing, begin with:
 
 ```bash
-cabal run exe:hackage-tester -v0 -- <package>
+cabal run -v0 aihc-dev -- hackage-tester <package>
 ```
 
 Record:

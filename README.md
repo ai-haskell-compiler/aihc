@@ -46,7 +46,7 @@ Find more information here:
 ## Ways to contribute
 
 - PRs accepted and bugs are welcomed.
-- If you have spare inference, run this command to generate a prompt: `nix run .#prompt`
+- If you have spare inference, run this command to generate a prompt: `nix run .#aihc-dev -- parser-stackage-progress --prompt`
 - If you have spare compute, run this command to fuzz test aihc: `nix run .#parser-fuzz`
 -->
 
@@ -63,4 +63,3 @@ Run the full test suite in a hermetic build environment (slower than `just check
 ```bash
 nix flake check
 ```
-

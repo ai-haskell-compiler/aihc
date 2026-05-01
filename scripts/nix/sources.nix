@@ -63,6 +63,26 @@ in rec {
     ".cabal"
   ];
 
+  devSrc = pkgs:
+    pkgs.runCommand "aihc-dev-src" {} ''
+      mkdir -p "$out" "$out/vendor/aihc-parser" "$out/vendor/aihc-resolve"
+
+      ln -s ${root}/tooling/aihc-dev/src "$out/src"
+      ln -s ${root}/tooling/aihc-dev/exe "$out/exe"
+      ln -s ${root}/tooling/aihc-dev/test "$out/test"
+      ln -s ${root}/components/aihc-parser/common "$out/vendor/aihc-parser/common"
+      ln -s ${root}/components/aihc-parser/app/stackage-progress "$out/vendor/aihc-parser/stackage-progress"
+      ln -s ${root}/components/aihc-resolve/app/resolve-stackage-progress "$out/vendor/aihc-resolve/resolve-stackage-progress"
+
+      cp ${root}/tooling/aihc-dev/LICENSE "$out/LICENSE"
+      cp ${root}/tooling/aihc-dev/aihc-dev.cabal "$out/aihc-dev.cabal"
+
+      substituteInPlace "$out/aihc-dev.cabal" \
+        --replace-fail '../../components/aihc-parser/common' 'vendor/aihc-parser/common' \
+        --replace-fail '../../components/aihc-parser/app/stackage-progress' 'vendor/aihc-parser/stackage-progress' \
+        --replace-fail '../../components/aihc-resolve/app/resolve-stackage-progress' 'vendor/aihc-resolve/resolve-stackage-progress'
+    '';
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {

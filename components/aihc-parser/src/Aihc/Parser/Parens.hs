@@ -161,6 +161,8 @@ needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  ETHSplice {} -> True
+  ETHTypedSplice {} -> True
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
   ETHTypeNameQuote {} -> True

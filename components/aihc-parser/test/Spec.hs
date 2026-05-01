@@ -128,6 +128,7 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
@@ -750,6 +751,18 @@ test_prettyInfixRhsOpenEndedInsideSection = do
           )
           op
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_prettySpliceRecordDotBase :: Assertion
+test_prettySpliceRecordDotBase = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, OverloadedRecordDot, MagicHash]}
+      field = qualifyName Nothing (mkUnqualifiedName NameVarId "adpE")
+      expr = EGetField (ETHSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "x#")))) field
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
   case parseExpr config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)

@@ -46,7 +46,7 @@ resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 tc_extension_markdown_cmd="${TC_EXTENSION_PROGRESS_CMD:-nix run .#tc-extension-progress}"
-stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --jobs 1}"
+stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- parser-stackage-progress --snapshot lts-24.33 --jobs 1}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"

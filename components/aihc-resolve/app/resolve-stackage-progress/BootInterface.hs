@@ -33,15 +33,15 @@ import Aihc.Parser.Syntax (NameType (..), mkQualifiedName, mkUnqualifiedName)
 import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
-import Data.Aeson qualified as Aeson
+import qualified Data.Aeson as Aeson
 import Data.Char (isAlphaNum, isSpace, isUpper)
 import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
-import Data.Set qualified as Set
+import qualified Data.Set as Set
 import Data.Text (Text)
-import Data.Text qualified as T
+import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
