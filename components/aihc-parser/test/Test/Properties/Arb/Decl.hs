@@ -17,7 +17,7 @@ import Data.Char (isAlpha)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr, shrinkGuardQualifier)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhs, shrinkExpr, shrinkGuardQualifier)
 import Test.Properties.Arb.Identifiers
   ( genConId,
     genConName,
@@ -82,7 +82,7 @@ genDeclValue =
 genFunctionValueDecl :: Gen ValueDecl
 genFunctionValueDecl = do
   name <- genVarUnqualifiedName
-  rhs <- genRhsWith False
+  rhs <- genRhs
   oneof
     [ do
         pats <- smallList1 genPattern
@@ -116,7 +116,7 @@ genFunctionValueDecl = do
 
 genPatternValueDecl :: Gen ValueDecl
 genPatternValueDecl =
-  PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith False
+  PatternBind NoMultiplicityTag <$> genPattern <*> genRhs
 
 genWhereDecls :: Gen (Maybe [Decl])
 genWhereDecls = optional $ scale (`div` 2) $ listOf (DeclValue <$> genDeclValue)

@@ -10,8 +10,7 @@ import Aihc.Parser.Syntax (Expr, GuardQualifier, Rhs)
 import Test.QuickCheck (Gen)
 
 genExpr :: Gen Expr
-genExprWith :: Bool -> Gen Expr
 genViewPatternExpr :: Gen Expr
-genRhsWith :: Bool -> Gen (Rhs Expr)
+genRhs :: Gen (Rhs Expr)
 shrinkExpr :: Expr -> [Expr]
 shrinkGuardQualifier :: GuardQualifier -> [GuardQualifier]
