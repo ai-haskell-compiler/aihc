@@ -14,8 +14,10 @@ expected:
     - "2:13-2:14 f => (value) Local 0 f"
     - "2:16-2:17 g => (value) Local 1 g"
     - "2:18-2:19 x => (value) Local 2 x"
+    - "3:1-3:3 .* => (value) Main..*"
     - "3:8-3:11 . => (value) Main.."
     - "3:14-3:17 . => (value) Main.."
+    - "4:1-4:4 .** => (value) Main..**"
     - "4:9-4:12 . => (value) Main.."
     - "4:15-4:19 .* => (value) Main..*"
 annotated:
@@ -30,10 +32,12 @@ annotated:
     │└─ v 0
     └─ v Main
     (.*) = (.) . (.)
-           │     └─ v Main
-           └─ v Main
+    │      │     └─ v Main
+    │      └─ v Main
+    └─ v Main
     (.**) = (.) . (.*)
-            │     └─ v Main
-            └─ v Main
+    │       │     └─ v Main
+    │       └─ v Main
+    └─ v Main
 status: pass
 reason: ""

@@ -486,7 +486,7 @@ prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
   case pat of
     PAnn _ sub -> prettyPattern sub
-    PVar name -> pretty name
+    PVar name -> prettyBinderUName name
     PTypeBinder binder -> prettyTyVarBinder binder
     PTypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
     PTypeSyntax TypeSyntaxInTerm ty -> prettyType ty

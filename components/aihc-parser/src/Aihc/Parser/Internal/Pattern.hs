@@ -334,10 +334,10 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         Just mkView -> pure mkView
         Nothing -> tupleOrParenPatternParser tupleFlavor closeTok
   where
-    -- When a bare operator like :+ appears directly inside parens, the parens
-    -- serve as prefix notation (e.g. (:+)), not grouping. prettyPrefixName
-    -- already adds parens when printing symbolic names, so wrapping with PParen
-    -- would produce double parens.
+    -- When a bare operator like + or :+ appears directly inside parens, the
+    -- parens serve as prefix notation (e.g. (+), (:+)), not grouping.
+    -- prettyPrefixName already adds parens when printing symbolic names, so
+    -- wrapping with PParen would produce double parens.
     --
     -- However, when the inner pattern came from expression reclassification
     -- (e.g. ((:+)) where the expression parser already consumed the inner
@@ -349,6 +349,10 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     --   False -> parens are grouping, wrap with PParen
     parenOrSymConParser isBareOperator inner = do
       case peelPatternAnn inner of
+        PVar name
+          | isBareOperator,
+            unqualifiedNameType name == NameVarSym ->
+              pure inner
         PCon con [] []
           | isBareOperator,
             nameType con == NameConSym -> do
