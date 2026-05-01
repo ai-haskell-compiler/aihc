@@ -918,6 +918,12 @@ startsWithContextType = MP.lookAhead (go [])
         TkTHPatQuoteOpen -> go [TkTHExpQuoteClose]
         TkSpecialLBrace -> go [TkSpecialRBrace]
         -- Keywords that cannot appear inside a type expression: stop scanning.
+        -- This also prevents an enclosing expression form (such as if/then/else)
+        -- from being mistaken for a later top-level context arrow.
+        TkKeywordThen -> pure False
+        TkKeywordElse -> pure False
+        TkKeywordOf -> pure False
+        TkKeywordIn -> pure False
         TkKeywordInstance -> pure False
         TkKeywordWhere -> pure False
         TkKeywordClass -> pure False
