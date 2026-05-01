@@ -1,24 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module HackageTester.Run (run) where
+module Aihc.Dev.HackageTester.Run (run) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import CppSupport (preprocessForParserIfEnabled)
-import qualified Data.Aeson as Aeson
+import Data.Aeson qualified as Aeson
 import Data.Bifunctor (first)
-import qualified Data.ByteString.Lazy.Char8 as LBS8
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import GHC.Conc (getNumProcessors)
-import qualified GhcOracle
+import GhcOracle qualified
 import HackageSupport
   ( FileInfo (..),
     diagToText,
@@ -29,7 +29,7 @@ import HackageSupport
   )
 import HackageTester.CLI (Options (..))
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
+import ParserValidation (ValidationErrorKind (..), validateParser, validationErrorKind, validationErrorMessage)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (takeFileName)
 import System.IO (hPutStrLn, stderr)

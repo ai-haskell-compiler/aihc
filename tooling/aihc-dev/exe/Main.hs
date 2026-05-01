@@ -2,6 +2,7 @@ module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
 import Aihc.Dev.Snippet (SnippetOpts (..), parseExtensionSettingArg, runSnippet)
 import Aihc.Parser.Syntax (ExtensionSetting)
 import Data.Aeson (encode)
@@ -9,7 +10,6 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
 import HackageTester.CLI qualified as HackageTesterCLI
-import HackageTester.Run qualified as HackageTesterRun
 import Options.Applicative
 import ResolveStackageProgress qualified as RSP
 import StackageProgress.CLI qualified as ParserStackageProgressCLI
