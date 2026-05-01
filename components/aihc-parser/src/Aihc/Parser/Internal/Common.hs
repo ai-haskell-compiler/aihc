@@ -926,6 +926,7 @@ startsWithContextType = MP.lookAhead (go [])
         TkKeywordIn -> pure False
         TkKeywordInstance -> pure False
         TkKeywordWhere -> pure False
+        TkKeywordDeriving -> pure False
         TkKeywordClass -> pure False
         TkKeywordData -> pure False
         TkKeywordNewtype -> pure False

@@ -416,9 +416,7 @@ genClassDeclItems params =
       ]
 
 genClassTypeSigItem :: Gen ClassDeclItem
-genClassTypeSigItem = do
-  name <- genVarUnqualifiedName
-  ClassItemTypeSig [name] <$> genType
+genClassTypeSigItem = ClassItemTypeSig <$> smallList1 genVarUnqualifiedName <*> genType
 
 genClassDefaultSigItem :: Gen ClassDeclItem
 genClassDefaultSigItem = do
@@ -439,12 +437,6 @@ genClassDefaultItem = ClassItemDefault <$> genFunctionValueDecl
 genClassAssociatedTypeDeclItem :: Gen ClassDeclItem
 genClassAssociatedTypeDeclItem = do
   ClassItemTypeFamilyDecl <$> genAssociatedTypeFamilyDecl
-
--- genClassAssociatedTypeItems :: [TyVarBinder] -> Gen [ClassDeclItem]
--- genClassAssociatedTypeItems params = do
---   tf <- genAssociatedTypeFamilyDecl
---   mDefault <- genAssociatedTypeDefaultInst tf params
---   pure $ ClassItemTypeFamilyDecl tf : maybe [] (pure . ClassItemDefaultTypeInst) mDefault
 
 genClassAssociatedDataDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
 genClassAssociatedDataDeclItem params = do
@@ -614,7 +606,7 @@ genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
   className <- genConName
   types <- smallList0 genInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
@@ -632,7 +624,7 @@ genDeclStandaloneDerivingInfix = do
   className <- genConName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
@@ -653,7 +645,7 @@ genDeclStandaloneDerivingParenInfix = do
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   tailTypes <- smallList1 genInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
@@ -710,7 +702,7 @@ genDeclForeign = do
   direction <- elements [ForeignImport, ForeignExport]
   -- Safety is only valid for imports, not exports
   safety <- case direction of
-    ForeignImport -> elements [Nothing, Just Safe, Just Unsafe]
+    ForeignImport -> optional $ elements [Safe, Unsafe]
     ForeignExport -> pure Nothing
   name <- genVarUnqualifiedName
   ty <- genType
@@ -746,15 +738,14 @@ genDeclTypeFamilyDecl = do
 -- (e.g. @type family a \`And\` b@).
 genDeclTypeFamilyDeclInfix :: Gen Decl
 genDeclTypeFamilyDeclInfix = do
-  (nameType, nameText) <- elements [(NameConSym, genConSym), (NameConId, genConId)]
-  name <- nameText
+  name <- genConUnqualifiedName
   lhsName <- genVarId
   rhsName <- genVarId
   let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
       rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
-      headType = TInfix lhsType (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted rhsType
+      headType = TInfix lhsType (qualifyName Nothing name) Unpromoted rhsType
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
@@ -768,18 +759,11 @@ genDeclTypeFamilyDeclInfix = do
 
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
-  infixHead <- elements [False, True]
   head' <-
-    if infixHead
-      then do
-        name <- mkUnqualifiedName NameConSym <$> genConSym
-        params <- smallList2 genSimpleTyVarBinder
-        case params of
-          lhs : rhs : tailParams -> pure (InfixBinderHead lhs name rhs tailParams)
-          _ -> error "genDeclDataFamilyDecl: expected at least two parameters"
-      else do
-        name <- mkUnqualifiedName NameConId <$> genConId
-        PrefixBinderHead name <$> genSimpleTyVarBinders
+    oneof
+      [ InfixBinderHead <$> genSimpleTyVarBinder <*> genConUnqualifiedName <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders,
+        PrefixBinderHead <$> genConUnqualifiedName <*> genSimpleTyVarBinders
+      ]
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
@@ -835,6 +819,7 @@ genDataFamilyInstWith genKind genHead genConstructors = do
   head' <- genHead
   kind <- genKind
   ctors <- genConstructors
+  derivingClauses <- genDerivingClauses
   pure $
     DataFamilyInst
       { dataFamilyInstIsNewtype = False,
@@ -842,7 +827,7 @@ genDataFamilyInstWith genKind genHead genConstructors = do
         dataFamilyInstHead = head',
         dataFamilyInstKind = kind,
         dataFamilyInstConstructors = ctors,
-        dataFamilyInstDeriving = []
+        dataFamilyInstDeriving = derivingClauses
       }
 
 genDeclDataFamilyInstPrefix :: Gen Decl
@@ -860,15 +845,7 @@ genDeclDataFamilyInstGadt = do
   DeclDataFamilyInst <$> genDataFamilyInstWith genOptionalDataFamilyInstKind genFamilyLhsType genGadtDataCons
 
 genOptionalDataFamilyInstKind :: Gen (Maybe Type)
-genOptionalDataFamilyInstKind =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> genDataFamilyInstKind)
-    ]
-
-genDataFamilyInstKind :: Gen Type
-genDataFamilyInstKind =
-  scale (min 6) genType
+genOptionalDataFamilyInstKind = optional genType
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
@@ -957,7 +934,7 @@ genDerivingClauses = smallList0 genDerivingClause
 
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
-  strategy <- optional $ oneof [pure DerivingStock, pure DerivingNewtype, pure DerivingAnyclass, DerivingVia <$> genType]
+  strategy <- optional genDerivingStrategy
   classes <- oneof [Left <$> genSimpleConName, Right <$> smallList0 genType]
   pure $
     DerivingClause
@@ -965,6 +942,11 @@ genDerivingClause = do
         derivingClasses = classes
       }
 
+genDerivingStrategy :: Gen DerivingStrategy
+genDerivingStrategy =
+  oneof [pure DerivingStock, pure DerivingNewtype, pure DerivingAnyclass, DerivingVia <$> genType]
+
+-- GHC does not allow singleton symbolic class names in deriving clauses.
 genSimpleConName :: Gen Name
 genSimpleConName =
   qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
@@ -983,11 +965,7 @@ genSimpleContext = smallList0 genSimpleConstraint
 -- Never generates Just [] since that prints as () => which roundtrips
 -- to a unit tuple in the constraint list.
 genOptionalSimpleContext :: Gen (Maybe [Type])
-genOptionalSimpleContext =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> smallList1 genSimpleConstraint)
-    ]
+genOptionalSimpleContext = optional $ smallList1 genSimpleConstraint
 
 -- | Generate a simple constraint: ClassName tyvar
 genSimpleConstraint :: Gen Type
