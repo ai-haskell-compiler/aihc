@@ -5,5 +5,5 @@ input: |
   (<++>) :: [a] -> [a] -> [a]
   (<++>) = (++ )
 ast: |
-  Module {name = "D9", decls = [DeclFixity {assoc = InfixR, prec = 5, ops = ["<++>"]}, DeclTypeSig {names = ["<++>"], type = TFun ArrowUnrestricted (TList [TVar "a"]) (TFun ArrowUnrestricted (TList [TVar "a"]) (TList [TVar "a"]))}, DeclValue (PatternBind NoMultiplicityTag PParen (PVar "<++>") UnguardedRhs (EVar "++"))]}
+  Module {name = "D9", decls = [DeclFixity {assoc = InfixR, prec = 5, ops = ["<++>"]}, DeclTypeSig {names = ["<++>"], type = TFun ArrowUnrestricted (TList [TVar "a"]) (TFun ArrowUnrestricted (TList [TVar "a"]) (TList [TVar "a"]))}, DeclValue (PatternBind NoMultiplicityTag PVar "<++>" UnguardedRhs (EVar "++"))]}
 status: pass

@@ -750,16 +750,9 @@ functionBinderNameParser =
 functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> ValueDecl
 functionBindValue _headForm name [] rhs =
   -- Zero-argument bindings (e.g. @x = 5@, @x | g = 5@) are pattern bindings,
-  -- not function bindings.  'FunctionBind' is reserved for declarations with
-  -- at least one argument pattern.  Symbolic operators are wrapped in 'PParen'
-  -- to preserve the @(.>.) = expr@ surface syntax; the parser consumed the
-  -- parens as part of the function binder, so we must restore them.
-  PatternBind NoMultiplicityTag (varPat name) rhs
-  where
-    varPat n
-      | unqualifiedNameType n == NameVarSym || unqualifiedNameType n == NameConSym =
-          PParen (PVar n)
-      | otherwise = PVar n
+  -- not function bindings. 'FunctionBind' is reserved for declarations with
+  -- at least one argument pattern.
+  PatternBind NoMultiplicityTag (PVar name) rhs
 functionBindValue headForm name pats rhs =
   FunctionBind
     name
@@ -903,6 +896,7 @@ startsWithContextType = MP.lookAhead (go [])
       case lexTokenKind tok of
         TkEOF -> pure False
         TkReservedDoubleArrow -> pure True
+        TkReservedDoubleColon -> pure False
         TkReservedRightArrow -> pure False
         TkReservedEquals -> pure False
         TkSpecialComma -> pure False
@@ -912,11 +906,24 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialUnboxedRParen -> pure False
         TkSpecialRBracket -> pure False
         TkSpecialRBrace -> pure False
+        TkTHExpQuoteClose -> pure False
+        TkTHTypedQuoteClose -> pure False
         TkSpecialLParen -> go [TkSpecialRParen]
         TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
         TkSpecialLBracket -> go [TkSpecialRBracket]
+        TkTHExpQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHTypedQuoteOpen -> go [TkTHTypedQuoteClose]
+        TkTHDeclQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHTypeQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHPatQuoteOpen -> go [TkTHExpQuoteClose]
         TkSpecialLBrace -> go [TkSpecialRBrace]
         -- Keywords that cannot appear inside a type expression: stop scanning.
+        -- This also prevents an enclosing expression form (such as if/then/else)
+        -- from being mistaken for a later top-level context arrow.
+        TkKeywordThen -> pure False
+        TkKeywordElse -> pure False
+        TkKeywordOf -> pure False
+        TkKeywordIn -> pure False
         TkKeywordInstance -> pure False
         TkKeywordWhere -> pure False
         TkKeywordClass -> pure False
@@ -935,6 +942,11 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLParen -> go (TkSpecialRParen : stack)
         TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
         TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkTHExpQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHTypedQuoteOpen -> go (TkTHTypedQuoteClose : stack)
+        TkTHDeclQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHTypeQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHPatQuoteOpen -> go (TkTHExpQuoteClose : stack)
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 

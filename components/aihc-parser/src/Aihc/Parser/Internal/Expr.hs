@@ -415,16 +415,13 @@ appExprParser = appExprParserWith atomOrRecordExprParser
 
 appExprParserWith :: TokParser Expr -> TokParser Expr
 appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  typeAppsEnabled <- isExtensionEnabled TypeApplications
   first <- atomParser
-  rest <- MP.many (appArg typeAppsEnabled)
+  rest <- MP.many appArg
   pure $
     foldl applyArg first rest
   where
-    appArg :: Bool -> TokParser (Either Type Expr)
-    appArg typeAppsEnabled
-      | typeAppsEnabled = (Left <$> typeAppArg) <|> (Right <$> atomParser)
-      | otherwise = Right <$> atomParser
+    appArg :: TokParser (Either Type Expr)
+    appArg = (Left <$> typeAppArg) <|> (Right <$> atomParser)
 
     typeAppArg :: TokParser Type
     typeAppArg = MP.try $ do
