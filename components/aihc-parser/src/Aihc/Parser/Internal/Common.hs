@@ -896,6 +896,7 @@ startsWithContextType = MP.lookAhead (go [])
       case lexTokenKind tok of
         TkEOF -> pure False
         TkReservedDoubleArrow -> pure True
+        TkReservedDoubleColon -> pure False
         TkReservedRightArrow -> pure False
         TkReservedEquals -> pure False
         TkSpecialComma -> pure False
@@ -905,9 +906,16 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialUnboxedRParen -> pure False
         TkSpecialRBracket -> pure False
         TkSpecialRBrace -> pure False
+        TkTHExpQuoteClose -> pure False
+        TkTHTypedQuoteClose -> pure False
         TkSpecialLParen -> go [TkSpecialRParen]
         TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
         TkSpecialLBracket -> go [TkSpecialRBracket]
+        TkTHExpQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHTypedQuoteOpen -> go [TkTHTypedQuoteClose]
+        TkTHDeclQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHTypeQuoteOpen -> go [TkTHExpQuoteClose]
+        TkTHPatQuoteOpen -> go [TkTHExpQuoteClose]
         TkSpecialLBrace -> go [TkSpecialRBrace]
         -- Keywords that cannot appear inside a type expression: stop scanning.
         TkKeywordInstance -> pure False
@@ -928,6 +936,11 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLParen -> go (TkSpecialRParen : stack)
         TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
         TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkTHExpQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHTypedQuoteOpen -> go (TkTHTypedQuoteClose : stack)
+        TkTHDeclQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHTypeQuoteOpen -> go (TkTHExpQuoteClose : stack)
+        TkTHPatQuoteOpen -> go (TkTHExpQuoteClose : stack)
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
