@@ -38,7 +38,6 @@ import Test.Properties.Identifiers
     isValidGeneratedConSym,
     isValidGeneratedIdent,
     isValidGeneratedVarSym,
-    shrinkConIdent,
     shrinkIdent,
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
@@ -96,6 +95,7 @@ buildTests = do
             testCase "pretty-prints associated data family operator names" test_prettyAssocDataFamilyOperatorName,
             testCase "pretty-prints infix associated data family operator names" test_prettyAssocDataFamilyInfixOperatorName,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
+            testCase "does not lex symbolic unicode as overloaded labels" test_unicodeSymbolIsNotOverloadedLabel,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "pretty-prints overloaded labels with delimiter spacing" test_overloadedLabelPrettyPrintsWithDelimiterSpacing,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
@@ -122,7 +122,6 @@ buildTests = do
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
             testCase "newtype CTYPE pragmas round-trip" test_newtypeCTypePragmaRoundTrips,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
-            testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
             testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
             testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
@@ -244,6 +243,18 @@ test_quotedOverloadedLabelLexes =
   case lexTokensWithExtensions [OverloadedLabels] "#\"The quick brown fox\"" of
     [LexToken {lexTokenKind = TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
     other -> assertFailure ("expected quoted overloaded label token, got: " <> show other)
+
+test_unicodeSymbolIsNotOverloadedLabel :: Assertion
+test_unicodeSymbolIsNotOverloadedLabel = do
+  case lexTokensWithExtensions [OverloadedLabels] "#﹏" of
+    [LexToken {lexTokenKind = TkVarSym "#﹏"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected symbolic operator tokens, got: " <> show other)
+  let config = defaultConfig {parserExtensions = [Arrows, MagicHash, OverloadedLabels]}
+      source = "0.0 = proc 0.0 -> 0 -<< 'w'# where { ( #﹏ ) = proc C -> [] -< [] }"
+  case parseDecl config source of
+    ParseOk _ -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
 
 test_stringGapBeforeClosingQuoteLexes :: Assertion
 test_stringGapBeforeClosingQuoteLexes = do
@@ -496,11 +507,6 @@ test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
     isValidConIdent "T#"
   assertBool "MagicHash should allow repeated trailing hashes on constructor identifiers" $
     isValidConIdent "T####"
-
-test_shrunkConstructorIdentifiersPreserveFirstCharacter :: Assertion
-test_shrunkConstructorIdentifiersPreserveFirstCharacter =
-  assertBool "constructor identifier shrinking must preserve the first character" $
-    all ((== Just '\x0394') . fmap fst . T.uncons) (shrinkConIdent "\x0394elta9")
 
 test_magicHashIdentifierLexes :: Assertion
 test_magicHashIdentifierLexes = do

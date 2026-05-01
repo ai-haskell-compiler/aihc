@@ -584,25 +584,11 @@ lexOverloadedLabel env st
                       _ -> Nothing
                in (,raw) <$> decoded
             Left _ -> Nothing
-        _ ->
-          let (label, _) = T.span isUnquotedLabelChar chars
-           in if T.null label then Nothing else Just (label, label)
-
-    isUnquotedLabelChar c =
-      case generalCategory c of
-        UppercaseLetter -> True
-        LowercaseLetter -> True
-        TitlecaseLetter -> True
-        ModifierLetter -> True
-        OtherLetter -> True
-        DecimalNumber -> True
-        LetterNumber -> True
-        OtherNumber -> True
-        NonSpacingMark -> True
-        SpacingCombiningMark -> True
-        EnclosingMark -> True
-        ConnectorPunctuation -> True
-        _ -> c == '\''
+        c :< rest
+          | isVarIdentifierStartChar c ->
+              let label = T.take (1 + T.length (T.takeWhile isIdentTail rest)) chars
+               in Just (label, label)
+        _ -> Nothing
 
     takeMalformedString chars =
       case scanQuoted '"' (T.drop 1 chars) of
