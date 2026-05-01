@@ -10,7 +10,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genViewPatternExpr, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -31,6 +31,7 @@ import Test.Properties.Arb.Identifiers
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Type (shrinkType)
+import Test.Properties.Arb.Utils (smallList0, smallList2)
 import Test.QuickCheck
 
 instance Arbitrary Pattern where
@@ -74,18 +75,13 @@ genPattern = scale (`div` 2) $ do
 
 genViewPatternWith :: Gen Pattern
 genViewPatternWith =
-  PView <$> genViewPatternExpr <*> genPattern
+  PView <$> genExpr <*> genPattern
 
 genPatternConWith :: Gen Pattern
-genPatternConWith = do
-  con <- genConName
-  argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount genPattern
-  pure (PCon con [] args)
+genPatternConWith = PCon <$> genConName <*> pure [] <*> smallList0 genPattern
 
 genPatternTypeSigWith :: Gen Pattern
-genPatternTypeSigWith = do
-  PTypeSig <$> genPattern <*> genPatternType
+genPatternTypeSigWith = PTypeSig <$> genPattern <*> genPatternType
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type
@@ -96,26 +92,15 @@ genPatternType =
     ]
 
 genPatternInfixWith :: Gen Pattern
-genPatternInfixWith = do
-  lhs <- genPattern
-  op <- genConName
-  PInfix lhs op <$> genPattern
+genPatternInfixWith = PInfix <$> genPattern <*> genConName <*> genPattern
 
 genTupleElemsWith :: Gen [Pattern]
-genTupleElemsWith = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      n <- chooseInt (2, 4)
-      vectorOf n genPattern
+genTupleElemsWith = oneof [pure [], smallList2 genPattern]
 
 -- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
 genUnboxedTupleElemsWith :: Gen [Pattern]
-genUnboxedTupleElemsWith = do
-  n <- chooseInt (0, 4)
-  vectorOf n genPattern
+genUnboxedTupleElemsWith = smallList0 genPattern
 
 genUnboxedSumPatternWith :: Gen Pattern
 genUnboxedSumPatternWith = do
@@ -124,15 +109,10 @@ genUnboxedSumPatternWith = do
   PUnboxedSum altIdx arity <$> genPattern
 
 genListElemsWith :: Gen [Pattern]
-genListElemsWith = do
-  n <- chooseInt (0, 4)
-  vectorOf n genPattern
+genListElemsWith = smallList0 genPattern
 
 genRecordPatternWith :: Gen Pattern
-genRecordPatternWith = do
-  con <- genConName
-  fields <- genRecordFieldsWith
-  pure (PRecord con fields False)
+genRecordPatternWith = PRecord <$> genConName <*> genRecordFieldsWith <*> pure False
 
 genRecordFieldsWith :: Gen [RecordField Pattern]
 genRecordFieldsWith = do
