@@ -750,16 +750,9 @@ functionBinderNameParser =
 functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> ValueDecl
 functionBindValue _headForm name [] rhs =
   -- Zero-argument bindings (e.g. @x = 5@, @x | g = 5@) are pattern bindings,
-  -- not function bindings.  'FunctionBind' is reserved for declarations with
-  -- at least one argument pattern.  Symbolic operators are wrapped in 'PParen'
-  -- to preserve the @(.>.) = expr@ surface syntax; the parser consumed the
-  -- parens as part of the function binder, so we must restore them.
-  PatternBind NoMultiplicityTag (varPat name) rhs
-  where
-    varPat n
-      | unqualifiedNameType n == NameVarSym || unqualifiedNameType n == NameConSym =
-          PParen (PVar n)
-      | otherwise = PVar n
+  -- not function bindings. 'FunctionBind' is reserved for declarations with
+  -- at least one argument pattern.
+  PatternBind NoMultiplicityTag (PVar name) rhs
 functionBindValue headForm name pats rhs =
   FunctionBind
     name

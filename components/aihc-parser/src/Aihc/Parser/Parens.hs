@@ -1451,8 +1451,6 @@ addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
-    PVar name
-      | unqualifiedNameType name == NameVarSym -> wrapPat True (addPatternParens pat)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
@@ -1465,8 +1463,6 @@ addInfixFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
-    PVar name
-      | unqualifiedNameType name == NameVarSym -> wrapPat True (addPatternParens pat)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)
