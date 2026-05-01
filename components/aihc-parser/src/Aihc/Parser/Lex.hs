@@ -528,23 +528,21 @@ canStartNegatedAtom rest =
     _ -> False
 
 lexTypeApplication :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
-lexTypeApplication env st
-  | not (hasExt TypeApplications env) = Nothing
-  | otherwise =
-      case lexerInput st of
-        '@' :< rest
-          | not (startsWithSymOp rest) ->
-              -- GHC requires whitespace before @ in type applications.
-              -- Without whitespace, @ is the as-pattern operator (TkReservedAt).
-              -- With whitespace, it can be a type application (TkTypeApp).
-              if lexerHadTrivia st
-                then
-                  let kind
-                        | canStartTypeAtomT rest = TkTypeApp
-                        | otherwise = TkVarSym "@"
-                   in Just (emitToken st "@" kind)
-                else Just (emitToken st "@" TkReservedAt)
-        _ -> Nothing
+lexTypeApplication _env st =
+  case lexerInput st of
+    '@' :< rest
+      | not (startsWithSymOp rest) ->
+          -- GHC lexes visible type application syntax based on layout, not on
+          -- whether TypeApplications is enabled. Extension validity is checked
+          -- later, after parsing.
+          if lexerHadTrivia st
+            then
+              let kind
+                    | canStartTypeAtomT rest = TkTypeApp
+                    | otherwise = TkVarSym "@"
+               in Just (emitToken st "@" kind)
+            else Just (emitToken st "@" TkReservedAt)
+    _ -> Nothing
   where
     canStartTypeAtomT t =
       case t of
