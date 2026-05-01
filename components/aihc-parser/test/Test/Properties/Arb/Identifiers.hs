@@ -201,21 +201,7 @@ genConName = do
   qualifyName qual <$> genConUnqualifiedName
 
 shrinkConIdent :: Text -> [Text]
-shrinkConIdent ident =
-  filter (\candidate -> candidate /= ident && isValidConIdent candidate) $
-    preservedMinimal ident
-      <> [asciiConIdent ident | T.any (> '\x7f') ident]
-      <> shrinkWithPreservedFirstChar isValidConIdent ident
-  where
-    preservedMinimal name =
-      case T.uncons name of
-        Just (first, _) -> [T.singleton first]
-        Nothing -> []
-    asciiConIdent name =
-      case T.uncons name of
-        Just (first, rest) -> T.cons first (T.map replaceTailUnicode rest)
-        Nothing -> "A"
-    replaceTailUnicode c = if c > '\x7f' then 'a' else c
+shrinkConIdent = shrinkWithPreservedFirstChar isValidConIdent
 
 isValidConIdent :: Text -> Bool
 isValidConIdent ident =
