@@ -23,6 +23,7 @@ import Test.Properties.Arb.Identifiers
     genVarId,
     genVarIdNoHash,
     genVarName,
+    genVarUnqualifiedName,
     isValidQuoterName,
     showHex,
     shrinkFloat,
@@ -35,7 +36,7 @@ import Test.Properties.Arb.Utils (smallList0, smallList2)
 import Test.QuickCheck
 
 instance Arbitrary Pattern where
-  arbitrary = scale (min 3) genPattern
+  arbitrary = genPattern
   shrink = shrinkPattern
 
 genPattern :: Gen Pattern
@@ -46,7 +47,7 @@ genPattern = scale (`div` 2) $ do
     else oneof (leafGenerators <> recursiveGenerators)
   where
     leafGenerators =
-      [ PVar <$> genPatternUnqualVarName,
+      [ PVar <$> genVarUnqualifiedName,
         pure PWildcard,
         PLit <$> genLiteral,
         PQuasiQuote <$> genQuoterName <*> genQuasiBody,
@@ -148,9 +149,6 @@ genPatSpliceBody =
     [ EVar <$> genVarName,
       EParen . EVar <$> genVarName
     ]
-
-genPatternUnqualVarName :: Gen UnqualifiedName
-genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
 
 mkIntLiteral :: Integer -> Literal
 mkIntLiteral value = LitInt value TInteger (T.pack (show value))
