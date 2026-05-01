@@ -28,6 +28,7 @@ import Test.Properties.Arb.Identifiers
     shrinkFloat,
     shrinkIdent,
     shrinkName,
+    shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Type (shrinkType)
 import Test.QuickCheck
@@ -194,7 +195,7 @@ shrinkPattern pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar name ->
-      [PVar (name {unqualifiedNameText = shrunk}) | shrunk <- shrinkIdent (unqualifiedNameText name)]
+      [PVar shrunk | shrunk <- shrinkUnqualifiedName name]
     PTypeBinder binder -> [PTypeBinder binder' | binder' <- shrinkTyVarBinder binder]
     PTypeSyntax form ty -> [PTypeSyntax form ty' | ty' <- shrinkType ty]
     PWildcard -> []
@@ -214,6 +215,7 @@ shrinkPattern pat =
     PInfix lhs op rhs ->
       [lhs, rhs]
         <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]
+        <> [PInfix lhs op' rhs | op' <- shrinkName op]
         <> [PInfix lhs op rhs' | rhs' <- shrinkPattern rhs]
     PView expr inner ->
       [inner]
@@ -243,8 +245,8 @@ shrinkPattern pat =
     PTypeSig inner ty ->
       [inner]
         <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
-    PSplice {} ->
-      []
+    PSplice expr ->
+      [PSplice expr' | expr' <- shrinkExpr expr]
 
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =

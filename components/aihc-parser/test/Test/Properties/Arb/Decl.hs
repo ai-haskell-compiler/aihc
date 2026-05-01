@@ -14,7 +14,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (isAlpha)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr, shrinkGuardQualifier)
@@ -27,9 +27,9 @@ import Test.Properties.Arb.Identifiers
     genVarName,
     genVarSym,
     genVarUnqualifiedName,
-    isValidGeneratedVarSym,
     shrinkIdent,
     shrinkUnqualifiedName,
+    shrinkVarSym,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkType)
@@ -48,7 +48,7 @@ genDecl :: Gen Decl
 genDecl =
   scale (`div` 2) $
     oneof
-      [ genDeclValue,
+      [ DeclValue <$> genDeclValue,
         genDeclTypeSig,
         genDeclFixity,
         DeclRoleAnnotation <$> genDeclRoleAnnotation,
@@ -73,13 +73,12 @@ genDecl =
         genDeclStandaloneKindSig
       ]
 
-genDeclValue :: Gen Decl
+genDeclValue :: Gen ValueDecl
 genDeclValue =
-  DeclValue
-    <$> oneof
-      [ genFunctionValueDecl,
-        genPatternValueDecl
-      ]
+  oneof
+    [ genFunctionValueDecl,
+      genPatternValueDecl
+    ]
 
 genFunctionValueDecl :: Gen ValueDecl
 genFunctionValueDecl = do
@@ -101,9 +100,8 @@ genFunctionValueDecl = do
           ),
       do
         lhsPat <- genPattern
-        rhsPat <- scale (min 3) genPattern
-        extraCount <- chooseInt (0, 2)
-        extraPats <- vectorOf extraCount (scale (min 3) genPattern)
+        rhsPat <- genPattern
+        extraPats <- smallList0 genPattern
         pure
           ( FunctionBind
               name
@@ -122,7 +120,7 @@ genPatternValueDecl =
   PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith False
 
 genWhereDecls :: Gen (Maybe [Decl])
-genWhereDecls = optional $ scale (`div` 2) $ listOf genDeclValue
+genWhereDecls = optional $ scale (`div` 2) $ listOf (DeclValue <$> genDeclValue)
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = DeclTypeSig <$> smallList1 genVarUnqualifiedName <*> genType
@@ -915,8 +913,7 @@ genFamilyInfixHead = do
 genFamilyTypeApp :: Gen Type
 genFamilyTypeApp = do
   f <- genFamilyTypeAtom
-  argCount <- chooseInt (1, 2)
-  args <- vectorOf argCount genFamilyTypeAtom
+  args <- smallList1 genFamilyTypeAtom
   pure (foldl TApp f args)
 
 genFamilyTypeAtom :: Gen Type
@@ -962,21 +959,18 @@ genSimpleTyVarBinders =
 
 -- | Generate deriving clauses (0-2).
 genDerivingClauses :: Gen [DerivingClause]
-genDerivingClauses = do
-  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
-  vectorOf n genDerivingClause
+genDerivingClauses = smallList0 genDerivingClause
 
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
   strategy <- elements [Nothing, Just DerivingStock]
-  n <- chooseInt (0, 3)
-  classes <- vectorOf n genSimpleConType
+  classes <- smallList0 genSimpleConType
   pure $
     DerivingClause
       { derivingStrategy = strategy,
         derivingClasses = classes,
         derivingViaType = Nothing,
-        derivingParenthesized = n /= 1
+        derivingParenthesized = length classes /= 1
       }
 
 -- | Generate a simple constructor type (used in deriving/context).
@@ -987,9 +981,7 @@ genSimpleConType =
 -- | Generate a simple constraint context (0-2 constraints).
 -- For instance contexts, 0 constraints means no context at all.
 genSimpleContext :: Gen [Type]
-genSimpleContext = do
-  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
-  vectorOf n genSimpleConstraint
+genSimpleContext = smallList0 genSimpleConstraint
 
 -- | Generate an optional context (Nothing or Just [constraints]).
 -- Never generates Just [] since that prints as () => which roundtrips
@@ -998,7 +990,7 @@ genOptionalSimpleContext :: Gen (Maybe [Type])
 genOptionalSimpleContext =
   frequency
     [ (3, pure Nothing),
-      (1, Just <$> do n <- chooseInt (1, 2); vectorOf n genSimpleConstraint)
+      (1, Just <$> smallList1 genSimpleConstraint)
     ]
 
 -- | Generate a simple constraint: ClassName tyvar
@@ -1029,7 +1021,7 @@ shrinkDecl decl =
       [DeclStandaloneKindSig name' ty | name' <- shrinkConName name]
         <> [DeclStandaloneKindSig name ty' | ty' <- shrinkType ty]
     DeclFixity assoc ns prec ops ->
-      [DeclFixity assoc ns prec ops' | ops' <- shrinkList (const []) ops, not (null ops')]
+      [DeclFixity assoc ns prec ops' | ops' <- shrinkList shrinkBinderName ops, not (null ops')]
     DeclRoleAnnotation ra ->
       [DeclRoleAnnotation ra' | ra' <- shrinkRoleAnnotation ra]
     DeclTypeSyn ts ->
@@ -1079,6 +1071,9 @@ shrinkValueDecl vd =
         <> [FunctionBind name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
         -- Shrink the function name
         <> [FunctionBind name' matches | name' <- shrinkBinderName name]
+        <> [ PatternBind NoMultiplicityTag (PVar name) (matchRhs match)
+           | match <- matches
+           ]
 
 -- | Shrink an individual match clause.
 shrinkMatch :: Match -> [Match]
@@ -1104,6 +1099,8 @@ shrinkRhs rhs =
         <> [UnguardedRhs [] expr' mWhere | expr' <- shrinkExpr expr]
         -- Shrink the where clause
         <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
+        -- Place where with let
+        <> [rhs' | DeclValue (PatternBind _mult _pat rhs') <- fromMaybe [] mWhere]
     GuardedRhss _ grhss mWhere ->
       -- Collapse to unguarded keeping the where clause (try both with and without)
       [UnguardedRhs [] (guardedRhsBody firstGrhs) mWhere | firstGrhs : _ <- [grhss]]
@@ -1179,17 +1176,19 @@ shrinkDataConDecl con =
     DataConAnn _ inner -> inner : shrinkDataConDecl inner
     PrefixCon forall' ctx name fields ->
       [PrefixCon forall' ctx name fields' | fields' <- shrinkList shrinkBangType fields]
+        <> [PrefixCon forall' ctx name' fields | name' <- shrinkUnqualifiedName name]
         <> [PrefixCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
     InfixCon forall' ctx lhs name rhs ->
       [InfixCon forall' ctx lhs' name rhs | lhs' <- shrinkBangType lhs]
         <> [InfixCon forall' ctx lhs name rhs' | rhs' <- shrinkBangType rhs]
+        <> [InfixCon forall' ctx lhs name' rhs | name' <- shrinkUnqualifiedName name]
         <> [InfixCon forall' ctx' lhs name rhs | ctx' <- shrinkList shrinkType ctx]
     RecordCon forall' ctx name fields ->
       [RecordCon forall' ctx name' fields | name' <- shrinkUnqualifiedName name]
         <> [RecordCon forall' ctx name fields' | fields' <- shrinkList shrinkFieldDecl fields]
         <> [RecordCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
     GadtCon forall' ctx names body ->
-      [GadtCon forall' ctx names' body | names' <- shrinkList (const []) names, not (null names')]
+      [GadtCon forall' ctx names' body | names' <- shrinkList shrinkUnqualifiedName names, not (null names')]
         <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
         <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
         <> [GadtCon forall'' ctx names body | forall'' <- shrinkForallTelescopes forall']
@@ -1218,7 +1217,7 @@ shrinkBangType bt =
 
 shrinkFieldDecl :: FieldDecl -> [FieldDecl]
 shrinkFieldDecl fd =
-  [fd {fieldNames = ns'} | ns' <- shrinkList (const []) (fieldNames fd), not (null ns')]
+  [fd {fieldNames = ns'} | ns' <- shrinkList shrinkBinderName (fieldNames fd), not (null ns')]
     <> [fd {fieldType = bt'} | bt' <- shrinkBangType (fieldType fd)]
 
 shrinkDerivingClause :: DerivingClause -> [DerivingClause]
@@ -1322,17 +1321,8 @@ shrinkBinderText :: UnqualifiedName -> [Text]
 shrinkBinderText name =
   case unqualifiedNameType name of
     NameVarId -> shrinkIdent (renderUnqualifiedName name)
-    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
+    NameVarSym -> shrinkVarSym (renderUnqualifiedName name)
     _ -> []
-
-shrinkSymbolicName :: Text -> [Text]
-shrinkSymbolicName txt =
-  filter (not . T.null) $
-    shrinkList noShrink (T.unpack txt) >>= \chars ->
-      let candidate = T.pack chars
-       in [candidate | isValidGeneratedVarSym candidate]
-  where
-    noShrink _ = []
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers

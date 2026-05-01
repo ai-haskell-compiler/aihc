@@ -17,7 +17,8 @@ import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Decl (genWhereDecls)
+import Debug.Trace
+import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -27,13 +28,12 @@ import Test.Properties.Arb.Identifiers
     genTenths,
     genVarId,
     genVarName,
-    genVarUnqualifiedName,
     showHex,
     shrinkFloat,
     shrinkName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (shrinkType)
+import Test.Properties.Arb.Type (genType, shrinkType)
 import Test.Properties.Arb.Utils
 import Test.QuickCheck
 
@@ -65,7 +65,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         ELambdaPats <$> genPatterns <*> genExprWith allowTHQuotes,
         ELambdaCase <$> genCaseAltsWith allowTHQuotes,
         ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes,
-        ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
+        ELetDecls <$> smallList0 (DeclValue <$> genDeclValue) <*> genExprWith allowTHQuotes,
         EDo <$> genDoStmtsWith allowTHQuotes <*> genDoFlavor,
         EListComp <$> genExprWith allowTHQuotes <*> genCompStmtsWith allowTHQuotes,
         EListCompParallel <$> genExprWith allowTHQuotes <*> genParallelCompStmtsWith allowTHQuotes,
@@ -78,8 +78,8 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
         EArithSeq <$> genArithSeqWith allowTHQuotes,
         ERecordCon <$> genConName <*> genRecordFieldsWith allowTHQuotes <*> pure False,
         ERecordUpd <$> genExprWith allowTHQuotes <*> genRecordFieldsWith allowTHQuotes,
-        ETypeSig <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
-        ETypeApp <$> genExprWith allowTHQuotes <*> genTypeWith allowTHQuotes,
+        ETypeSig <$> genExprWith allowTHQuotes <*> genType,
+        ETypeApp <$> genExprWith allowTHQuotes <*> genType,
         EParen <$> genExprWith allowTHQuotes,
         EProc <$> genPattern <*> genCmdWith allowTHQuotes,
         -- OverloadedRecordDot
@@ -93,7 +93,7 @@ genExprWith allowTHQuotes = scale (`div` 2) $ do
       | allowTHQuotes =
           [ ETHExpQuote <$> genExprWith False,
             ETHTypedQuote <$> genExprWith False,
-            ETHDeclQuote <$> genValueDeclsWith False,
+            ETHDeclQuote <$> smallList0 (DeclValue <$> genDeclValue),
             ETHPatQuote <$> genPattern,
             ETHTypeQuote <$> genTypeWith False,
             ETHNameQuote <$> genNameQuoteExpr,
@@ -155,7 +155,10 @@ genOverloadedLabel = do
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
 genQuasiQuoteName :: Gen Text
-genQuasiQuoteName = suchThat genVarId (\name -> name `notElem` ["e", "d", "p", "t"] && not (T.isSuffixOf "#" name))
+genQuasiQuoteName = suchThat genVarId isValidQuasiQuoteName
+
+isValidQuasiQuoteName :: Text -> Bool
+isValidQuasiQuoteName name = name `notElem` ["e", "d", "p", "t", ""] && not (T.isSuffixOf "#" name)
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
 -- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
@@ -216,7 +219,7 @@ genCmdRecursiveWith allowTHQuotes =
     CmdDo <$> genCmdDoStmtsWith allowTHQuotes,
     CmdIf <$> genExprWith allowTHQuotes <*> genCmdWith allowTHQuotes <*> genCmdWith allowTHQuotes,
     CmdCase <$> genExprWith allowTHQuotes <*> genCmdCaseAltsWith allowTHQuotes,
-    CmdLet <$> genValueDeclsWith allowTHQuotes <*> genCmdWith allowTHQuotes,
+    CmdLet <$> smallList0 (DeclValue <$> genDeclValue) <*> genCmdWith allowTHQuotes,
     CmdLam <$> genPatterns <*> genCmdWith allowTHQuotes,
     CmdPar <$> genCmdWith allowTHQuotes
   ]
@@ -238,7 +241,7 @@ genCmdDoStmtWith :: Bool -> Gen (DoStmt Cmd)
 genCmdDoStmtWith allowTHQuotes =
   scale (`div` 2) . oneof $
     [ DoBind <$> genPattern <*> genCmdWith allowTHQuotes,
-      DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+      DoLetDecls <$> smallList0 (DeclValue <$> genDeclValue),
       DoExpr <$> genCmdWith allowTHQuotes,
       DoRecStmt <$> genCmdRecDoStmtsWith allowTHQuotes
     ]
@@ -248,7 +251,7 @@ genCmdRecDoStmtsWith allowTHQuotes =
   scale (`div` 2) . smallList1 $
     oneof
       [ DoBind <$> genPattern <*> genCmdWith allowTHQuotes,
-        DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+        DoLetDecls <$> smallList0 (DeclValue <$> genDeclValue),
         DoExpr <$> genCmdWith allowTHQuotes
       ]
 
@@ -303,52 +306,8 @@ genGuardQualifierWith allowTHQuotes =
       -- which includes parenthesized view patterns such as `(view -> pat)`.
       scale (`div` 2) (GuardPat <$> genPattern <*> genExprWith allowTHQuotes),
       -- Let guard: | let decls = ...
-      GuardLet <$> genValueDeclsWith allowTHQuotes
+      GuardLet <$> smallList0 (DeclValue <$> genDeclValue)
     ]
-
--- | Generate value declarations for let/where.
--- Produces a mix of simple pattern bindings (@x = expr@) and function bindings
--- (@f pat ... = expr@ or @f pat ... | guard = expr@), mirroring the parser
--- which creates each equation as a separate 'FunctionBind' with a single
--- 'Match'.
-genValueDeclsWith :: Bool -> Gen [Decl]
-genValueDeclsWith allowTHQuotes = smallList0 (genValueDeclWith allowTHQuotes)
-
--- | Generate a single value declaration: either a simple pattern binding or a
--- function binding with argument patterns and optional guards.
-genValueDeclWith :: Bool -> Gen Decl
-genValueDeclWith allowTHQuotes =
-  DeclValue
-    <$> oneof
-      [ genPatternBindDecl allowTHQuotes,
-        genFunctionBindDecl allowTHQuotes
-      ]
-
--- | Generate a pattern binding: @pat = expr@ or @pat | guard = expr@.
--- The pattern can be any pattern (bang, as, irrefutable, etc.) and the RHS
--- can be guarded, matching what GHC accepts.
-genPatternBindDecl :: Bool -> Gen ValueDecl
-genPatternBindDecl allowTHQuotes = PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith allowTHQuotes
-
--- | Generate a function binding: @f pat ... = expr@ or @f pat ... | guard = expr@.
--- Produces a single 'Match', consistent with the parser which creates one
--- 'FunctionBind' per equation.
-genFunctionBindDecl :: Bool -> Gen ValueDecl
-genFunctionBindDecl allowTHQuotes = do
-  name <- genVarUnqualifiedName
-  pats <- smallList1 genPattern
-  rhs <- genRhsWith allowTHQuotes
-  pure
-    ( FunctionBind
-        name
-        [ Match
-            { matchAnns = [],
-              matchHeadForm = MatchHeadPrefix,
-              matchPats = pats,
-              matchRhs = rhs
-            }
-        ]
-    )
 
 genDoFlavor :: Gen DoFlavor
 genDoFlavor =
@@ -371,7 +330,7 @@ genDoStmtWith allowTHQuotes =
   scale (`div` 2) $
     oneof
       [ DoBind <$> genPattern <*> genExprWith allowTHQuotes,
-        DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+        DoLetDecls <$> smallList0 (DeclValue <$> genDeclValue),
         DoExpr <$> genExprWith allowTHQuotes,
         DoRecStmt <$> genRecDoStmtsWith allowTHQuotes
       ]
@@ -384,7 +343,7 @@ genRecDoStmtsWith allowTHQuotes =
     smallList1 $
       oneof
         [ DoBind <$> genPattern <*> genExprWith allowTHQuotes,
-          DoLetDecls <$> genValueDeclsWith allowTHQuotes,
+          DoLetDecls <$> smallList0 (DeclValue <$> genDeclValue),
           DoExpr <$> genExprWith allowTHQuotes
         ]
 
@@ -397,7 +356,7 @@ genCompStmtWith allowTHQuotes =
     oneof
       [ CompGen <$> genPattern <*> genExprWith allowTHQuotes,
         CompGuard <$> genExprWith allowTHQuotes,
-        CompLetDecls <$> genValueDeclsWith allowTHQuotes,
+        CompLetDecls <$> smallList0 (DeclValue <$> genDeclValue),
         CompThen <$> genExprWith allowTHQuotes,
         CompThenBy <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
         CompGroupUsing <$> genExprWith allowTHQuotes,
@@ -405,22 +364,14 @@ genCompStmtWith allowTHQuotes =
       ]
 
 genParallelCompStmtsWith :: Bool -> Gen [[CompStmt]]
-genParallelCompStmtsWith allowTHQuotes = do
-  count <- chooseInt (2, 3)
-  scale (`div` count) $ vectorOf count (genCompStmtsWith allowTHQuotes)
+genParallelCompStmtsWith allowTHQuotes = smallList2 (genCompStmtsWith allowTHQuotes)
 
 genListElemsWith :: Bool -> Gen [Expr]
 genListElemsWith allowTHQuotes = smallList0 (genExprWith allowTHQuotes)
 
 -- | Generate tuple elements
 genTupleElemsWith :: Bool -> Gen [Expr]
-genTupleElemsWith allowTHQuotes =
-  oneof
-    [ pure [],
-      do
-        count <- chooseInt (2, 4)
-        scale (`div` count) $ vectorOf count (genExprWith allowTHQuotes)
-    ]
+genTupleElemsWith allowTHQuotes = smallList2 (genExprWith allowTHQuotes)
 
 -- | Generate elements for an unboxed tuple (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
@@ -428,25 +379,7 @@ genTupleElemsWith allowTHQuotes =
 -- to ensure proper implicit layout handling with unboxed tuple delimiters.
 genUnboxedTupleElemsWith :: Bool -> Gen [Expr]
 genUnboxedTupleElemsWith allowTHQuotes =
-  oneof
-    [ smallList0 (genExprWith allowTHQuotes),
-      smallList0 (genLayoutExprWith allowTHQuotes)
-    ]
-
--- | Generate expressions that trigger implicit layout (case, do, if, let, lambda).
--- These require special handling when nested inside delimiters like @(# ... #)@.
-genLayoutExprWith :: Bool -> Gen Expr
-genLayoutExprWith allowTHQuotes =
-  scale (`div` 2) $
-    oneof
-      [ ECase <$> genExprWith allowTHQuotes <*> genCaseAltsWith allowTHQuotes,
-        EDo <$> genDoStmtsWith allowTHQuotes <*> genDoFlavor,
-        EIf <$> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes <*> genExprWith allowTHQuotes,
-        ELetDecls <$> genValueDeclsWith allowTHQuotes <*> genExprWith allowTHQuotes,
-        ELambdaPats <$> genPatterns <*> genExprWith allowTHQuotes,
-        ELambdaCase <$> genCaseAltsWith allowTHQuotes,
-        ELambdaCases <$> genLambdaCaseAltsWith allowTHQuotes
-      ]
+  smallList0 (genExprWith allowTHQuotes)
 
 genUnboxedSumExprWith :: Bool -> Gen Expr
 genUnboxedSumExprWith allowTHQuotes = do
@@ -457,21 +390,17 @@ genUnboxedSumExprWith allowTHQuotes = do
 
 genTupleSectionElemsWith :: Bool -> Gen [Maybe Expr]
 genTupleSectionElemsWith allowTHQuotes = do
-  count <- chooseInt (2, 4)
-  elems <- scale (`div` count) $ vectorOf count (genMaybeExprWith allowTHQuotes)
+  elems <- smallList2 (genMaybeExprWith allowTHQuotes)
   -- Ensure at least one Nothing (otherwise it's just a tuple)
   if Nothing `notElem` elems
     then do
-      idx <- chooseInt (0, count - 1)
+      idx <- chooseInt (0, length elems - 1)
       pure (take idx elems <> [Nothing] <> drop (idx + 1) elems)
     else pure elems
 
 genMaybeExprWith :: Bool -> Gen (Maybe Expr)
 genMaybeExprWith allowTHQuotes =
-  oneof
-    [ Just <$> genExprWith allowTHQuotes,
-      pure Nothing
-    ]
+  optional (genExprWith allowTHQuotes)
 
 genArithSeqWith :: Bool -> Gen ArithSeq
 genArithSeqWith allowTHQuotes =
@@ -521,15 +450,11 @@ genTypeTupleElemsWith :: Bool -> Gen [Type]
 genTypeTupleElemsWith allowTHQuotes =
   oneof
     [ pure [],
-      do
-        count <- chooseInt (2, 3)
-        scale (`div` count) $ vectorOf count (genTypeWith allowTHQuotes)
+      smallList2 (genTypeWith allowTHQuotes)
     ]
 
 genTypeListElemsWith :: Bool -> Gen [Type]
-genTypeListElemsWith allowTHQuotes = do
-  count <- chooseInt (1, 4)
-  scale (`div` count) $ vectorOf count (genTypeWith allowTHQuotes)
+genTypeListElemsWith allowTHQuotes = smallList1 (genTypeWith allowTHQuotes)
 
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = mkUnqualifiedName NameVarId <$> genVarId
@@ -558,9 +483,17 @@ shrinkOverloadedLabel :: Text -> Text -> [String]
 shrinkOverloadedLabel value raw
   | Just unquoted <- T.stripPrefix "#" raw,
     not ("\"" `T.isPrefixOf` unquoted) =
-      [shrunk | shrunk <- shrink (T.unpack value), not (null shrunk), isValidLabelName (T.pack shrunk)]
+      [ T.unpack candidate
+      | candidate <-
+          ["a"]
+            <> [T.map replaceUnicode value | T.any (> '\x7f') value]
+            <> map T.pack (shrink (T.unpack value)),
+        candidate /= value,
+        isValidLabelName candidate
+      ]
   | otherwise = []
   where
+    replaceUnicode c = if c > '\x7f' then 'a' else c
     isValidLabelName name =
       case T.uncons name of
         Just (first, rest) ->
@@ -572,7 +505,7 @@ shrinkOverloadedLabel value raw
 
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
-shrinkExpr expr =
+shrinkExpr expr = trace (show expr) $
   case expr of
     EVar name -> [EVar name' | name' <- shrinkName name]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
@@ -586,7 +519,9 @@ shrinkExpr expr =
       [EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
     EPragma pragma inner -> inner : [EPragma pragma inner' | inner' <- shrinkExpr inner]
     EQuasiQuote quoter body ->
-      [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
+      [EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))]
+        <> [EQuasiQuote quoter' body | quoter' <- "q" : T.inits quoter, isValidQuasiQuoteName quoter', quoter' /= quoter]
+        <> [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
     EApp fn arg ->
       [fn, arg]
         <> [EApp fn' arg | fn' <- shrinkExpr fn]
@@ -622,9 +557,11 @@ shrinkExpr expr =
         : [ELambdaPats pats body' | body' <- shrinkExpr body]
           <> [ELambdaPats pats' body | pats' <- shrinkList shrinkPattern pats, not (null pats')]
     ELambdaCase alts ->
-      [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+      [body | CaseAlt {caseAltRhs = UnguardedRhs _ body _} <- alts]
+        <> [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
     ELambdaCases alts ->
-      [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
+      [body | LambdaCaseAlt {lambdaCaseAltRhs = UnguardedRhs _ body _} <- alts]
+        <> [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
     ELetDecls decls body ->
       body
         : [ELetDecls decls body' | body' <- shrinkExpr body]
@@ -643,7 +580,8 @@ shrinkExpr expr =
     EList elems ->
       [EList elems' | elems' <- shrinkList shrinkExpr elems]
     ETuple tupleFlavor elems ->
-      [ETuple tupleFlavor elems' | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
+      [ETuple Boxed elems | tupleFlavor == Unboxed, length elems /= 1]
+        <> [ETuple tupleFlavor elems' | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
     EArithSeq seq' ->
       [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
     ERecordCon con fields _ ->
@@ -654,25 +592,19 @@ shrinkExpr expr =
         : [ERecordUpd target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd target fields' | fields' <- shrinkRecordFields fields]
     EGetField base fieldName ->
-      base : [EGetField base' fieldName | base' <- shrinkExpr base]
+      base
+        : [EGetField base' fieldName | base' <- shrinkExpr base]
+          <> [EGetField base fieldName' | fieldName' <- shrinkName fieldName]
     EGetFieldProjection fields ->
       [EGetFieldProjection fields' | fields' <- shrinkList shrinkName fields, not (null fields')]
     ETypeSig inner ty ->
       inner
         : [ETypeSig inner ty' | ty' <- shrinkType ty]
-          <> [ ETypeSig
-                 inner'
-                 (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted)
-             | inner' <- shrinkExpr inner
-             ]
+          <> [ETypeSig inner' ty | inner' <- shrinkExpr inner]
     ETypeApp inner ty ->
       inner
         : [ETypeApp inner ty' | ty' <- shrinkType ty]
-          <> [ ETypeApp
-                 inner'
-                 (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted)
-             | inner' <- shrinkExpr inner
-             ]
+          <> [ETypeApp inner' ty | inner' <- shrinkExpr inner]
     EUnboxedSum altIdx arity inner ->
       [EUnboxedSum altIdx arity inner' | inner' <- shrinkExpr inner]
     EParen inner -> inner : [EParen inner' | inner' <- shrinkExpr inner]
@@ -756,22 +688,24 @@ shrinkLambdaCaseAlts = shrinkList shrinkLambdaCaseAlt
 
 shrinkCaseAlt :: CaseAlt Expr -> [CaseAlt Expr]
 shrinkCaseAlt alt =
-  case caseAltRhs alt of
-    UnguardedRhs _ expr _ ->
-      [alt {caseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
-    GuardedRhss _ rhss _ ->
-      -- Shrink to unguarded using the first guard's body
-      [alt {caseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
-        <> [alt {caseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+  [alt {caseAltPattern = pat'} | pat' <- shrinkPattern (caseAltPattern alt)]
+    <> case caseAltRhs alt of
+      UnguardedRhs _ expr _ ->
+        [alt {caseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
+      GuardedRhss _ rhss _ ->
+        -- Shrink to unguarded using the first guard's body
+        [alt {caseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
+          <> [alt {caseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
 shrinkLambdaCaseAlt :: LambdaCaseAlt -> [LambdaCaseAlt]
 shrinkLambdaCaseAlt alt =
-  case lambdaCaseAltRhs alt of
-    UnguardedRhs _ expr _ ->
-      [alt {lambdaCaseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
-    GuardedRhss _ rhss _ ->
-      [alt {lambdaCaseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
-        <> [alt {lambdaCaseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+  [alt {lambdaCaseAltPats = pats'} | pats' <- shrinkList shrinkPattern (lambdaCaseAltPats alt), not (null pats')]
+    <> case lambdaCaseAltRhs alt of
+      UnguardedRhs _ expr _ ->
+        [alt {lambdaCaseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
+      GuardedRhss _ rhss _ ->
+        [alt {lambdaCaseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
+          <> [alt {lambdaCaseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
 shrinkGuardedRhs :: GuardedRhs Expr -> [GuardedRhs Expr]
 shrinkGuardedRhs grhs =

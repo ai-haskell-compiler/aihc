@@ -909,7 +909,7 @@ addExprParensPrec prec expr =
     EApp {} -> addAppsChainPrec prec expr
     ETypeApp fn ty ->
       let fn' = wrapExpr (isGreedyExpr fn) (addExprParensIn CtxAppFun fn)
-       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAtom ty))
+       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAppArg ty))
     ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr

@@ -17,8 +17,8 @@ import Test.Properties.Arb.Identifiers
     genQuoterName,
     genVarId,
     genVarIdNoHash,
-    shrinkConIdent,
     shrinkIdent,
+    shrinkName,
   )
 import Test.Properties.Arb.Utils (smallList0)
 import Test.QuickCheck
@@ -296,10 +296,9 @@ shrinkType ty =
       [TVar $ unqualifiedNameFromText "a" | renderUnqualifiedName name /= "a"]
         <> [TVar (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon name promoted ->
-      [TCon (nameFromText "C") promoted | renderName name /= "C"]
-        <> [ TCon (name {nameText = shrunk}) promoted
-           | shrunk <- shrinkConIdent (nameText name)
-           ]
+      [ TCon shrunk promoted
+      | shrunk <- shrinkName name
+      ]
     TImplicitParam name inner ->
       [inner]
         <> [TImplicitParam name' inner | name' <- shrinkImplicitParamName name]
@@ -377,13 +376,15 @@ shrinkForallTelescope telescope =
 
 shrinkTypeTupleElems :: TupleFlavor -> [Type] -> [Type]
 shrinkTypeTupleElems tupleFlavor elems =
-  [ candidate
-  | shrunk <- shrinkList shrinkType elems,
-    candidate <- case shrunk of
-      [] -> [TTuple tupleFlavor Unpromoted []]
-      [_] | tupleFlavor == Boxed -> []
-      _ -> [TTuple tupleFlavor Unpromoted shrunk]
-  ]
+  elems
+    <> [TTuple Boxed Unpromoted elems | tupleFlavor == Unboxed, length elems /= 1]
+    <> [ candidate
+       | shrunk <- shrinkList shrinkType elems,
+         candidate <- case shrunk of
+           [] -> [TTuple tupleFlavor Unpromoted []]
+           [_] | tupleFlavor == Boxed -> []
+           _ -> [TTuple tupleFlavor Unpromoted shrunk]
+       ]
 
 shrinkImplicitParamName :: Text -> [Text]
 shrinkImplicitParamName name =

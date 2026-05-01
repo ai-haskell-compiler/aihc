@@ -40,4 +40,4 @@ prop_declPrettyRoundTrip decl =
                   counterexample (MPE.errorBundlePretty err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
-                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+                   in counterexample ("expected:\n" <> show expected <> "\nactual:\n" <> show actual) (expected == actual)
