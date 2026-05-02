@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 7/7           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 54/54         |
+| DataKinds                 |   🟢    | 55/55         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 6/6           |
@@ -66,7 +66,7 @@
 | PolyKinds                 |   🟢    | 14/14         |
 | QualifiedDo               |   🟢    | 4/4           |
 | QuantifiedConstraints     |   🟢    | 1/1           |
-| QuasiQuotes               |   🟢    | 7/7           |
+| QuasiQuotes               |   🟢    | 8/8           |
 | RankNTypes                |   🟢    | 3/3           |
 | RecordWildCards           |   🟢    | 10/10         |
 | RecursiveDo               |   🟢    | 4/4           |
@@ -76,8 +76,8 @@
 | ScopedTypeVariables       |   🟢    | 18/18         |
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
-| StarIsType                |   🟢    | 1/1           |
-| TemplateHaskell           |   🟡    | 44/46         |
+| StarIsType                |   🟢    | 2/2           |
+| TemplateHaskell           |   🟡    | 45/47         |
 | TemplateHaskellQuotes     |   🟢    | 13/13         |
 | TransformListComp         |   🟢    | 13/13         |
 | TupleSections             |   🟢    | 4/4           |
@@ -86,7 +86,7 @@
 | TypeData                  |   🟢    | 1/1           |
 | TypeFamilies              |   🟢    | 56/56         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
-| TypeOperators             |   🟢    | 65/65         |
+| TypeOperators             |   🟢    | 66/66         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 8/8           |
 | UnboxedTuples             |   🟢    | 19/19         |
