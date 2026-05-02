@@ -203,10 +203,10 @@ extractInterface = collectModuleExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
-  let scope = moduleScope exports modu
+  let (scope, importAnnotations) = moduleScope exports modu
       (nextLocal', resolvedDecls) = resolveTopLevelDecls scope nextLocal Map.empty (moduleDecls modu)
       decls' = map snd resolvedDecls
-      annotations = concatMap fst resolvedDecls
+      annotations = concatMap fst resolvedDecls <> importAnnotations
    in (nextLocal', annotations, modu {moduleDecls = decls'})
 
 resolveTopLevelDecls :: Scope -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [([ResolutionAnnotation], Decl)])
@@ -941,29 +941,49 @@ bars n
   | n <= 0 = ""
   | otherwise = T.replicate n "|"
 
-moduleScope :: ModuleExports -> Module -> Scope
+moduleScope :: ModuleExports -> Module -> (Scope, [ResolutionAnnotation])
 moduleScope exports modu =
-  ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude `unionScope` builtinScope
+  ( ownScope `unionScope` imported `unionScope` implicitPrelude `unionScope` builtinScope,
+    importAnnotations
+  )
   where
     ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
+    (imported, importAnnotations) = importedScopeWithErrors exports modu
     preludeScope = Map.findWithDefault emptyScope "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
 
-importedScope :: ModuleExports -> Module -> Scope
-importedScope exports modu =
-  foldl' addImport emptyScope (moduleImports modu)
+missingImportMessage :: Text -> String
+missingImportMessage moduleName =
+  "could not find " <> T.unpack moduleName <> " module"
+
+missingImportAnnotation :: SourceSpan -> Text -> ResolutionAnnotation
+missingImportAnnotation span moduleName =
+  ResolutionAnnotation
+    { resolutionSpan = span,
+      resolutionName = moduleName,
+      resolutionNamespace = ResolutionNamespaceType,
+      resolutionTarget = ResolvedError (missingImportMessage moduleName)
+    }
+
+importedScopeWithErrors :: ModuleExports -> Module -> (Scope, [ResolutionAnnotation])
+importedScopeWithErrors exports modu =
+  foldl' addImport (emptyScope, []) (moduleImports modu)
   where
-    addImport acc importDecl
+    addImport (acc, annotations) importDecl
+      | originScope == Nothing =
+          (acc, missingImportAnnotation importSpan originModule : annotations)
       | importDeclQualified importDecl || importDeclQualifiedPost importDecl =
-          insertQualifiedModule qualifier imported acc
+          (insertQualifiedModule qualifier imported acc, annotations)
       | otherwise =
           let qualifiedAcc = insertQualifiedModule qualifier imported acc
-           in unionScope qualifiedAcc imported
+           in (unionScope qualifiedAcc imported, annotations)
       where
         originModule = importDeclModule importDecl
         qualifier = fromMaybe originModule (importDeclAs importDecl)
-        imported = filterImportSpec (importDeclSpec importDecl) (Map.findWithDefault emptyScope originModule exports)
+        importSpan = sourceSpanFromAnns (importDeclAnns importDecl)
+        originScope = Map.lookup originModule exports
+        imported = filterImportSpec (importDeclSpec importDecl) (fromMaybe emptyScope originScope)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
