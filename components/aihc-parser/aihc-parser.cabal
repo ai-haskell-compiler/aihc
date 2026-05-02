@@ -51,11 +51,56 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
+library parser-tooling-common
+  visibility: public
+  hs-source-dirs: common
+  exposed-modules:
+    ConcurrentProgress
+    CppSupport
+    ExtensionSupport
+    GhcOracle
+    HackageSupport
+    HackageTester.CLI
+    HackageTester.Model
+    HseExtensions
+    LexerGolden
+    ParserErrorGolden
+    ParserGolden
+    ParserValidation
+    ShrinkUtils
+    StackageProgress.Summary
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    Diff,
+    aeson >=2.0 && <2.3,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    async,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    deepseq,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    ghc-lib-parser,
+    haskell-src-exts,
+    http-client,
+    http-client-tls,
+    megaparsec,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    text >=1.2.3 && <2.2,
+    yaml,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
-    app/stackage-progress
     common
     src
 
@@ -97,9 +142,6 @@ test-suite spec
     ParserGolden
     ParserValidation
     ShrinkUtils
-    StackageProgress.CLI
-    StackageProgress.FileChecker
-    StackageProgress.FileCheckerTiming
     StackageProgress.Summary
     Test.ErrorMessages.Suite
     Test.ExtensionMapping.Suite
@@ -124,8 +166,6 @@ test-suite spec
     Test.Properties.NoExceptions
     Test.Properties.PatternRoundTrip
     Test.Properties.TypeRoundTrip
-    Test.StackageProgress.FileChecker
-    Test.StackageProgress.FileCheckerTiming
     Test.StackageProgress.Summary
 
   build-depends:
@@ -165,21 +205,15 @@ test-suite spec
 executable parser-progress
   hs-source-dirs:
     app/parser-progress
-    common
 
   main-is: Main.hs
-  other-modules:
-    CppSupport
-    ExtensionSupport
-    GhcOracle
-    ParserValidation
-
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     Diff,
     aihc-cpp,
     aihc-hackage,
     aihc-parser,
+    aihc-parser:parser-tooling-common,
     base >=4.16 && <5,
     bytestring,
     containers,
@@ -196,15 +230,12 @@ executable parser-progress
 executable lexer-progress
   hs-source-dirs:
     app/lexer-progress
-    common
 
   main-is: Main.hs
-  other-modules:
-    LexerGolden
-
   build-depends:
     aeson,
     aihc-parser,
+    aihc-parser:parser-tooling-common,
     base >=4.16 && <5,
     bytestring,
     containers,
@@ -219,16 +250,8 @@ executable lexer-progress
 executable extension-progress
   hs-source-dirs:
     app/extension-progress
-    common
 
   main-is: Main.hs
-  other-modules:
-    CppSupport
-    ExtensionSupport
-    GhcOracle
-    ParserGolden
-    ParserValidation
-
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     Diff,
@@ -236,6 +259,7 @@ executable extension-progress
     aihc-cpp,
     aihc-hackage,
     aihc-parser,
+    aihc-parser:parser-tooling-common,
     base >=4.16 && <5,
     bytestring,
     containers,
@@ -249,99 +273,4 @@ executable extension-progress
     yaml,
 
   ghc-options: -Wall
-  default-language: GHC2021
-
-executable hackage-tester
-  hs-source-dirs:
-    app/hackage-tester
-    common
-
-  main-is: Main.hs
-  other-modules:
-    ConcurrentProgress
-    CppSupport
-    GhcOracle
-    HackageSupport
-    HackageTester.CLI
-    HackageTester.Model
-    HseExtensions
-    ParserValidation
-    ShrinkUtils
-
-  build-depends:
-    Cabal-syntax >=3.14 && <3.17,
-    Diff,
-    aeson,
-    aihc-cpp,
-    aihc-hackage,
-    aihc-parser,
-    async,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    deepseq,
-    directory,
-    filepath,
-    ghc-lib-parser,
-    haskell-src-exts,
-    http-client,
-    http-client-tls,
-    optparse-applicative,
-    prettyprinter,
-    text,
-
-  ghc-options:
-    -Wall
-    -threaded
-    -rtsopts
-    -with-rtsopts=-N
-
-  default-language: GHC2021
-
-executable stackage-progress
-  hs-source-dirs:
-    app/stackage-progress
-    common
-
-  main-is: Main.hs
-  other-modules:
-    ConcurrentProgress
-    CppSupport
-    GhcOracle
-    HackageSupport
-    HseExtensions
-    ParserValidation
-    ShrinkUtils
-    StackageProgress.CLI
-    StackageProgress.FileChecker
-    StackageProgress.FileCheckerTiming
-    StackageProgress.PackageRunner
-    StackageProgress.Snapshot
-    StackageProgress.Summary
-
-  build-depends:
-    Cabal-syntax >=3.14 && <3.17,
-    Diff,
-    aihc-cpp,
-    aihc-hackage,
-    aihc-parser,
-    async,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    deepseq,
-    directory,
-    filepath,
-    ghc-lib-parser,
-    haskell-src-exts,
-    optparse-applicative,
-    prettyprinter,
-    text,
-
-  ghc-options:
-    -Wall
-    -threaded
-    -rtsopts
-    -with-rtsopts=-N
-
   default-language: GHC2021

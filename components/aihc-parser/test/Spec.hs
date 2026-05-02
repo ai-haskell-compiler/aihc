@@ -6,7 +6,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
@@ -46,8 +46,6 @@ import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
-import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
-import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -128,12 +126,14 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
+            testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
@@ -168,8 +168,6 @@ buildTests = do
         oracle,
         extensionMappingTests,
         hackageTester,
-        stackageProgressFileCheckerTests,
-        stackageProgressFileCheckerTimingTests,
         stackageProgressSummaryTests
       ]
 
@@ -791,6 +789,18 @@ test_prettyInfixRhsOpenEndedInsideSection = do
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
 
+test_prettySpliceRecordDotBase :: Assertion
+test_prettySpliceRecordDotBase = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, OverloadedRecordDot, MagicHash]}
+      field = qualifyName Nothing (mkUnqualifiedName NameVarId "adpE")
+      expr = EGetField (ETHSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "x#")))) field
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
 test_prettyNegatedOpenEndedSectionLhs :: Assertion
 test_prettyNegatedOpenEndedSectionLhs = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
@@ -858,6 +868,31 @@ test_thTypeQuoteBeforeConstraintExprSig = do
     ParseOk _ -> pure ()
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_viewExprAppliedTypeSigParens :: Assertion
+test_viewExprAppliedTypeSigParens = do
+  let config = defaultConfig {parserExtensions = [BlockArguments, DataKinds, ViewPatterns]}
+      varA = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      conC = qualifyName Nothing (mkUnqualifiedName NameConId "C")
+      pat =
+        PView
+          ( EApp
+              (EList [])
+              ( EIf
+                  (EVar varA)
+                  (EVar varA)
+                  (ETypeSig (EList []) (TFun ArrowUnrestricted (TCon conC Promoted) (TCon conC Unpromoted)))
+              )
+          )
+          (PCon conC [] [])
+      parenthesized = addPatternParens pat
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+  assertEqual "rendered pattern" "(([] (if a then a else [] :: 'C -> C)) -> C)" rendered
+  case parsePattern config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> MPE.errorBundlePretty bundle)
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =

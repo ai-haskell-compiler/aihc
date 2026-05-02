@@ -46,7 +46,8 @@ resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 tc_extension_markdown_cmd="${TC_EXTENSION_PROGRESS_CMD:-nix run .#tc-extension-progress}"
-stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --jobs 1}"
+stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- parser-stackage-progress --snapshot lts-24.33 --jobs 1}"
+resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"
@@ -65,6 +66,7 @@ resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
 tc_extension_out="$tmpdir/tc-extension-progress.md"
 stackage_out="$tmpdir/stackage-progress.txt"
+resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$parser_cmd" >"$parser_out"
@@ -77,6 +79,7 @@ run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension 
 run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$tc_extension_markdown_cmd" | sed -n '/^# Type Checker Extension Support Status/,$p' >"$tc_extension_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
+run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
 parse_progress() {
@@ -192,6 +195,23 @@ parse_stackage_progress() {
   '
 }
 
+parse_resolve_stackage_progress() {
+	local infile="$1"
+	awk '
+    /^  Resolved:[[:space:]]+/ {
+      implemented = $2 + 0
+      total = $4 + 0
+    }
+    END {
+      if (total == "" || total <= 0) {
+        exit 2
+      }
+      complete = (implemented * 100.0) / total
+      printf "%d\n%d\n%.2f\n", implemented, total, complete
+    }
+  ' "$infile"
+}
+
 parser_vals=($(parse_progress "$parser_out")) || {
 	echo "update-generated-content.sh: could not parse parser-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
 	exit 2
@@ -275,6 +295,14 @@ stackage_implemented="${stackage_vals[0]}"
 stackage_total="${stackage_vals[1]}"
 stackage_complete="${stackage_vals[2]}"
 
+resolve_stackage_vals=($(parse_resolve_stackage_progress "$resolve_stackage_out")) || {
+	echo "update-generated-content.sh: could not parse resolve-stackage-progress output (expected '  Resolved: N / M' line on stdout)." >&2
+	exit 2
+}
+resolve_stackage_implemented="${resolve_stackage_vals[0]}"
+resolve_stackage_total="${resolve_stackage_vals[1]}"
+resolve_stackage_complete="${resolve_stackage_vals[2]}"
+
 parser_total_tests=$((parser_total + ext_test_total))
 parser_passing_tests=$((parser_implemented + ext_implemented))
 parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
@@ -293,6 +321,10 @@ EOF2
 
 cat >"$tmpdir/readme-root-stackage.txt" <<EOF2
 \`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-resolve-stackage.txt" <<EOF2
+\`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-root-lexer.txt" <<EOF2
@@ -446,6 +478,7 @@ fi
 replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
 replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
+replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root-resolve-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"

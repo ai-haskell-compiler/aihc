@@ -4,6 +4,7 @@
 module StackageProgress.CLI
   ( Options (..),
     Parser (..),
+    optionsParser,
     parseOptionsIO,
     parseOptionsPure,
     summaryOptionsFromOptions,

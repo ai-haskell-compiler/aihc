@@ -117,12 +117,12 @@ list-comp-parallel-1	expressions	list-comp.hs	pass	parallel list comprehension
 To validate the parser against real-world Haskell packages from Hackage:
 
 ```bash
-nix run .#hackage-tester -- <package-name>
+nix run .#aihc-dev -- hackage-tester <package-name>
 ```
 
 Example:
 ```bash
-nix run .#hackage-tester -- transformers
+nix run .#aihc-dev -- hackage-tester transformers
 ```
 
 The tool:

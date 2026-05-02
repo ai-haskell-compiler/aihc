@@ -154,6 +154,7 @@ endsWithTypeSig = \case
   ELetDecls _ body -> endsWithTypeSig body
   ELambdaPats _ body -> endsWithTypeSig body
   EInfix _ _ rhs -> endsWithTypeSig rhs
+  EApp _ arg -> endsWithTypeSig arg
   EIf _ _ no -> endsWithTypeSig no
   _ -> False
 
@@ -170,7 +171,7 @@ needsParensBeforeDot field = \case
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar {} -> False
   ETHNameQuote body -> nameQuoteNeedsParensBeforeDot body
-  ETHTypeNameQuote ty -> typeNameQuoteNeedsParensBeforeDot ty
+  ETHTypeNameQuote {} -> False
   ETHSplice body -> spliceNeedsParensBeforeDot body
   ETHTypedSplice body -> spliceNeedsParensBeforeDot body
   EInt _ TInteger _repr -> False
@@ -188,16 +189,6 @@ nameQuoteNeedsParensBeforeDot = \case
   EAnn _ sub -> nameQuoteNeedsParensBeforeDot sub
   EVar {} -> False
   _ -> False
-
-typeNameQuoteNeedsParensBeforeDot :: Type -> Bool
-typeNameQuoteNeedsParensBeforeDot = \case
-  TAnn _ sub -> typeNameQuoteNeedsParensBeforeDot sub
-  TCon name _ | nameText name == "[]" || nameText name == "()" -> False
-  TTuple {} -> False
-  TUnboxedSum {} -> False
-  TList {} -> False
-  TParen {} -> False
-  _ -> True
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
 startsWithDollar :: Expr -> Bool
@@ -307,6 +298,7 @@ needsExprParens ctx expr =
         _ -> False
     CtxAppArg ->
       case expr of
+        _ | endsWithTypeSig expr -> True
         _ | isBlockExpr expr -> False
         -- A pragma as a function argument needs parens: `fn {-# P #-} x` is
         -- ambiguous; `fn ({-# P #-} x)` is unambiguous.
@@ -544,6 +536,7 @@ ghcNeedsParensBeforeDot :: Expr -> Bool
 ghcNeedsParensBeforeDot = \case
   EAnn _ sub -> ghcNeedsParensBeforeDot sub
   EVar name -> (isJust (nameQualifier name) && not (isSymbolicName name)) || T.isSuffixOf "#" (nameText name)
+  ETHTypeNameQuote {} -> True
   ETHSplice {} -> True
   ETHTypedSplice {} -> True
   ECharHash {} -> True
@@ -631,7 +624,15 @@ addTHDeclQuoteParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addTHDeclQuoteParens sub)
     DeclValue (PatternBind multTag pat rhs) ->
-      DeclValue (PatternBind multTag (addTHDeclQuotePatternBindLhsParens pat rhs) (addRhsParens rhs))
+      DeclValue (PatternBind multTag (addTHDeclQuotePatternBindLhsParens pat rhs) (addLocalRhsParens rhs))
+    _ -> addDeclParens decl
+
+addLocalDeclParens :: Decl -> Decl
+addLocalDeclParens decl =
+  case decl of
+    DeclAnn ann sub -> DeclAnn ann (addLocalDeclParens sub)
+    DeclValue (PatternBind multTag pat rhs) ->
+      DeclValue (PatternBind multTag (addTHDeclQuotePatternBindLhsParens pat rhs) (addLocalRhsParens rhs))
     _ -> addDeclParens decl
 
 addValueDeclParens :: ValueDecl -> ValueDecl
@@ -691,6 +692,14 @@ addRhsParens rhs =
     GuardedRhss sp guards whereDecls ->
       GuardedRhss sp (map (addGuardedRhsParens GuardEquals) guards) (fmap (map addDeclParens) whereDecls)
 
+addLocalRhsParens :: Rhs Expr -> Rhs Expr
+addLocalRhsParens rhs =
+  case rhs of
+    UnguardedRhs sp body whereDecls ->
+      UnguardedRhs sp (addExprParens body) (fmap (map addLocalDeclParens) whereDecls)
+    GuardedRhss sp guards whereDecls ->
+      GuardedRhss sp (map (addGuardedRhsParens GuardEquals) guards) (fmap (map addLocalDeclParens) whereDecls)
+
 addGuardedRhsParens :: GuardArrow -> GuardedRhs Expr -> GuardedRhs Expr
 addGuardedRhsParens arrow grhs =
   grhs
@@ -704,7 +713,7 @@ addGuardQualifierParens arrow qual =
     GuardAnn ann inner -> GuardAnn ann (addGuardQualifierParens arrow inner)
     GuardExpr expr -> GuardExpr (addGuardExprParens arrow expr)
     GuardPat pat expr -> GuardPat (addPatternParens pat) (addGuardExprParens arrow expr)
-    GuardLet decls -> GuardLet (map addDeclParens decls)
+    GuardLet decls -> GuardLet (map addLocalDeclParens decls)
 
 addGuardExprParens :: GuardArrow -> Expr -> Expr
 addGuardExprParens arrow expr =
@@ -1137,7 +1146,7 @@ addExprParensPrec prec expr =
       -- @(`op` (x :: T))@, not @(`op` x :: T)@.
       EParen (ESectionR op (addExprParensIn (CtxInfixRhs False) rhs))
     ELetDecls decls body ->
-      wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
+      wrapExpr (prec > 0) (ELetDecls (map addLocalDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
       wrapExpr (prec > 0) (ECase (addExprParens scrutinee) (map addCaseAltParens alts))
     EDo stmts flavor ->
@@ -1191,7 +1200,7 @@ addAppsChainPrec prec expr =
       nArgs = length args
       args' =
         [ let isLast = i == nArgs - 1
-              canStayBare = isBlockExpr a && (isLast || not (isOpenEnded a))
+              canStayBare = isBlockExpr a && not (endsWithTypeSig a) && (isLast || not (isOpenEnded a))
               ctx
                 | canStayBare = CtxAppArgNoParens
                 | isLast = CtxAppArg
@@ -1275,7 +1284,7 @@ addDoStmtParens stmt =
   case stmt of
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
-    DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
+    DoLetDecls decls -> DoLetDecls (map addLocalDeclParens decls)
     DoExpr e -> DoExpr (addExprParens e)
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
 
