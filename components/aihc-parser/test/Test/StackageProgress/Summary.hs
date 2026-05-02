@@ -120,7 +120,7 @@ test_promptRendering = do
           [ "# Error messages:",
             "{{ERROR_MESSAGES}}",
             "",
-            "Re-test by running: nix run .#hackage-tester -- {{PACKAGE_NAME}}",
+            "Re-test by running: nix run .#aihc-dev -- hackage-tester {{PACKAGE_NAME}}",
             "",
             "Fix '{{PACKAGE_NAME}}'"
           ]
@@ -132,7 +132,7 @@ test_promptRendering = do
               promptErrorMessage = "parse failed in /tmp/Control/Monad/ST/Class.hs"
             }
   assertBool "prompt includes heading" ("# Error messages:" `isInfixOf` rendered)
-  assertBool "prompt includes re-test command" ("nix run .#hackage-tester -- monad-st" `isInfixOf` rendered)
+  assertBool "prompt includes re-test command" ("nix run .#aihc-dev -- hackage-tester monad-st" `isInfixOf` rendered)
   assertBool "prompt includes package replacement" ("Fix 'monad-st'" `isInfixOf` rendered)
 
 packageResult :: String -> Bool -> Bool -> Bool -> String -> Maybe String -> Integer -> PackageResult

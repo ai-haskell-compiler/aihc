@@ -63,6 +63,11 @@ in rec {
     ".cabal"
   ];
 
+  devSrc = mkComponentSrc "/tooling/aihc-dev" [
+    ".hs"
+    ".cabal"
+  ];
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {

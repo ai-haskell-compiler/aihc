@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main (main) where
+module Aihc.Dev.HackageTester.Run (run) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Hackage.VersionResolver (getLatestVersion)
@@ -27,9 +27,9 @@ import HackageSupport
     readTextFileLenient,
     resolveIncludeBestEffort,
   )
-import HackageTester.CLI (Options (..), parseOptionsIO)
+import HackageTester.CLI (Options (..))
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
+import ParserValidation (ValidationErrorKind (..), validateParser, validationErrorKind, validationErrorMessage)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (takeFileName)
 import System.IO (hPutStrLn, stderr)
@@ -40,9 +40,8 @@ data RunInfo = RunInfo
     runSummary :: Summary
   }
 
-main :: IO ()
-main = do
-  opts <- parseOptionsIO
+run :: Options -> IO ()
+run opts = do
   runResult <- try (runTester opts) :: IO (Either SomeException (Either Text Bool))
   case runResult of
     Left err -> do

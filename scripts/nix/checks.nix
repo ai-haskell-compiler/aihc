@@ -33,6 +33,7 @@
   fcTests = mkPackageTest hsPkgs.aihc-fc;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
+  devTests = mkPackageTest hsPkgs.aihc-dev;
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
     statix check flake.nix
@@ -107,6 +108,7 @@ in {
   fc-tests = fcTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
+  dev-tests = devTests;
   cpp-doctest = cppDoctest;
   parser-doctest = parserDoctest;
   parser-progress-strict = parserProgressStrict;
@@ -143,6 +145,10 @@ in {
     {
       name = "tc-tests";
       path = tcTests;
+    }
+    {
+      name = "dev-tests";
+      path = devTests;
     }
     {
       name = "cpp-doctest";

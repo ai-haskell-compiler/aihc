@@ -2,7 +2,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Main (main) where
+module ResolveStackageProgress
+  ( Options (..),
+    optionsParser,
+    run,
+  )
+where
 
 import Aihc.Cpp (Config (..), IncludeKind (..), IncludeRequest (..), Result (..), Step (..), preprocess)
 import Aihc.Cpp qualified as Cpp
@@ -21,7 +26,6 @@ import Aihc.Parser.Syntax
     ExtensionSetting (..),
     LanguageEdition (..),
     Module,
-    ModuleHeaderPragmas (..),
     SourceSpan (..),
     effectiveExtensions,
     headerExtensionSettings,
@@ -51,8 +55,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import GHC.Conc (getNumProcessors)
+import Options.Applicative qualified as OA
 import System.Directory (doesFileExist)
-import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
@@ -68,27 +72,35 @@ data Options = Options
     optTopFailures :: Int
   }
 
-defaultOptions :: Options
-defaultOptions =
+optionsParser :: OA.Parser Options
+optionsParser =
   Options
-    { optSnapshot = "lts-24.33",
-      optJobs = 0,
-      optOffline = False,
-      optTopFailures = 10
-    }
-
-parseOptions :: [String] -> IO Options
-parseOptions = go defaultOptions
-  where
-    go opts [] = pure opts
-    go opts ("--snapshot" : s : rest) = go opts {optSnapshot = s} rest
-    go opts ("--jobs" : n : rest) = go opts {optJobs = read n} rest
-    go opts ("--offline" : rest) = go opts {optOffline = True} rest
-    go opts ("--top" : n : rest) = go opts {optTopFailures = read n} rest
-    go _ (flag : _) = do
-      hPutStrLn stderr ("Unknown flag: " ++ flag)
-      hPutStrLn stderr "Usage: resolve-stackage-progress [--snapshot SNAP] [--jobs N] [--offline] [--top N]"
-      exitFailure
+    <$> OA.strOption
+      ( OA.long "snapshot"
+          <> OA.metavar "SNAPSHOT"
+          <> OA.value "lts-24.33"
+          <> OA.showDefault
+          <> OA.help "Stackage snapshot to resolve"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "jobs"
+          <> OA.metavar "N"
+          <> OA.value 0
+          <> OA.help "Number of parallel jobs (default: CPU cores)"
+      )
+    <*> OA.switch
+      ( OA.long "offline"
+          <> OA.help "Use only cached packages, don't download"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "top"
+          <> OA.metavar "N"
+          <> OA.value 10
+          <> OA.showDefault
+          <> OA.help "Number of top failing packages to display"
+      )
 
 -- ---------------------------------------------------------------------------
 -- Package status
@@ -293,15 +305,15 @@ renderResolveError srcTexts (ResolveResolutionError errSpan _ _ msg) =
   renderSpanHeader errSpan ++ renderSourceSnippet srcTexts errSpan ++ "  " ++ msg ++ "."
 renderResolveError _ (ResolveNotImplemented msg) = "not implemented: " ++ msg
 
+-- | Extract the source line containing 'offset' by scanning byte-by-byte.
+-- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.
+-- The line/column stored in 'SourceSpan' may be wrong after CPP '#line' pragmas,
+-- so we derive the actual source line from the byte offset instead.
 renderSpanHeader :: SourceSpan -> String
 renderSpanHeader NoSourceSpan = "<unknown location>\n"
 renderSpanHeader ss =
   sourceSpanSourceName ss ++ ":" ++ show (sourceSpanStartLine ss) ++ ":" ++ show (sourceSpanStartCol ss) ++ ":\n"
 
--- | Extract the source line containing 'offset' by scanning byte-by-byte.
--- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.
--- The line/column stored in 'SourceSpan' may be wrong after CPP '#line' pragmas,
--- so we derive the actual source line from the byte offset instead.
 extractLineAtOffset :: BS.ByteString -> Int -> String
 extractLineAtOffset bytes offset =
   let anchor = max 0 (min (BS.length bytes) offset)
@@ -504,13 +516,11 @@ putProgressLine done total = do
   hFlush stdout
 
 -- ---------------------------------------------------------------------------
--- main
+-- run
 -- ---------------------------------------------------------------------------
 
-main :: IO ()
-main = do
-  args <- getArgs
-  opts0 <- parseOptions args
+run :: Options -> IO ()
+run opts0 = do
   jobs <- if optJobs opts0 == 0 then getNumProcessors else pure (optJobs opts0)
   let opts = opts0 {optJobs = jobs}
 

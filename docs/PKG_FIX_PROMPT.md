@@ -1,7 +1,7 @@
 # Error messages:
 {{ERROR_MESSAGES}}
 
-Re-test by running: nix run .#hackage-tester -- {{PACKAGE_NAME}}
+Re-test by running: nix run .#aihc-dev -- hackage-tester {{PACKAGE_NAME}}
 Haskell 2010 language report (contains a slightly outdated specification for syntax): docs/haskell2010-language-report.md
 
 Starting hints:

@@ -12,8 +12,7 @@
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
   tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
-  hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
-  stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
+  aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
   aihcParserBenchExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser-bench";
 
@@ -140,19 +139,8 @@ in {
     ${extensionProgressExe} "$@"
   '';
 
-  hackage-tester = mkApp "hackage-tester" ''
-    set -euo pipefail
-    ${hackageTesterExe} "$@"
-  '';
-
-  stackage-progress = mkApp "stackage-progress" ''
-    set -euo pipefail
-    ${stackageProgressExe} "$@"
-  '';
-
-  prompt = mkApp "prompt" ''
-    set -euo pipefail
-    ${stackageProgressExe} --prompt "$@"
+  aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash] ''
+    exec ${aihcDevExe} "$@"
   '';
 
   parser-progress-strict = mkComponentApp "parser-progress-strict" "components/aihc-parser" ''

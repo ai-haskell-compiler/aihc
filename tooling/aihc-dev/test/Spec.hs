@@ -10,6 +10,8 @@ import Aihc.Dev.Snippet
     renderSnippetReport,
   )
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
+import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
+import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -35,7 +37,9 @@ main =
         assertBool "failure" (reportHasFailure report),
       testCase "parses -X extension arguments" $ do
         assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications"),
-      QC.testProperty "dummy quickcheck property" prop_dummy
+      QC.testProperty "dummy quickcheck property" prop_dummy,
+      stackageProgressFileCheckerTests,
+      stackageProgressFileCheckerTimingTests
     ]
 
 prop_dummy :: Bool

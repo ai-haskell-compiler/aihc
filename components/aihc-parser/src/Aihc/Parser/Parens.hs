@@ -173,11 +173,11 @@ needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  ETHSplice {} -> True
+  ETHTypedSplice {} -> True
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
   ETHTypeNameQuote {} -> True
-  ETHSplice {} -> True
-  ETHTypedSplice {} -> True
   -- Numeric literals: digits followed by .field is ambiguous with float syntax
   EInt {} -> True
   EFloat {} -> True

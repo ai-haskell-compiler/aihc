@@ -45,6 +45,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-dev = {
+      src = sources.devSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
   };
 
   enableCoverageWithExport = hsLib: drv:

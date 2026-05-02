@@ -2,13 +2,18 @@ module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
 import Aihc.Dev.Snippet (SnippetOpts (..), parseExtensionSettingArg, runSnippet)
 import Aihc.Parser.Syntax (ExtensionSetting)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
+import HackageTester.CLI qualified as HackageTesterCLI
 import Options.Applicative
+import ResolveStackageProgress qualified as RSP
+import StackageProgress.CLI qualified as ParserStackageProgressCLI
+import StackageProgress.Run qualified as ParserStackageProgressRun
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
 
@@ -29,6 +34,9 @@ data Command
   = ExtractHi ExtractHiOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Snippet SnippetOpts
+  | HackageTester HackageTesterCLI.Options
+  | ParserStackageProgress ParserStackageProgressCLI.Options
+  | ResolveStackageProgress RSP.Options
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -63,6 +71,24 @@ commandParser =
           ( info
               (Snippet <$> snippetParser <**> helper)
               (progDesc "Analyze a Haskell snippet using GHC and aihc-parser")
+          )
+        <> command
+          "hackage-tester"
+          ( info
+              (HackageTester <$> HackageTesterCLI.optionsParser <**> helper)
+              (progDesc "Test parser behavior on a Hackage package")
+          )
+        <> command
+          "parser-stackage-progress"
+          ( info
+              (ParserStackageProgress <$> ParserStackageProgressCLI.optionsParser <**> helper)
+              (progDesc "Test parser on Stackage snapshot packages")
+          )
+        <> command
+          "resolve-stackage-progress"
+          ( info
+              (ResolveStackageProgress <$> RSP.optionsParser <**> helper)
+              (progDesc "Test name resolver on Stackage snapshot packages")
           )
     )
 
@@ -130,3 +156,9 @@ runCommand (ExtractResolveIface opts) = do
   BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Snippet opts) =
   runSnippet opts
+runCommand (HackageTester opts) =
+  HackageTesterRun.run opts
+runCommand (ParserStackageProgress opts) =
+  ParserStackageProgressRun.run opts
+runCommand (ResolveStackageProgress opts) =
+  RSP.run opts
