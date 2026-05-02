@@ -63,28 +63,10 @@ in rec {
     ".cabal"
   ];
 
-  # aihc-dev's cabal file uses relative ../../ paths to reach into components/.
-  # callCabal2nix copies the source into a build sandbox where those paths break,
-  # so we vendor the external directories and rewrite the cabal file to match.
-  devSrc = pkgs: let
-    devFiles = mkComponentSrc "/tooling/aihc-dev" [".hs" ".cabal"];
-    parserCommon = mkComponentSrc "/components/aihc-parser/common" [".hs"];
-    parserApp = mkComponentSrc "/components/aihc-parser/app/stackage-progress" [".hs"];
-    resolveApp = mkComponentSrc "/components/aihc-resolve/app/resolve-stackage-progress" [".hs"];
-  in
-    pkgs.runCommand "aihc-dev-src" {} ''
-      mkdir -p "$out/vendor/aihc-parser" "$out/vendor/aihc-resolve"
-
-      cp -r ${devFiles pkgs}/. "$out"
-      ln -s ${parserCommon pkgs} "$out/vendor/aihc-parser/common"
-      ln -s ${parserApp pkgs} "$out/vendor/aihc-parser/stackage-progress"
-      ln -s ${resolveApp pkgs} "$out/vendor/aihc-resolve/resolve-stackage-progress"
-
-      substituteInPlace "$out/aihc-dev.cabal" \
-        --replace-fail '../../components/aihc-parser/common' 'vendor/aihc-parser/common' \
-        --replace-fail '../../components/aihc-parser/app/stackage-progress' 'vendor/aihc-parser/stackage-progress' \
-        --replace-fail '../../components/aihc-resolve/app/resolve-stackage-progress' 'vendor/aihc-resolve/resolve-stackage-progress'
-    '';
+  devSrc = mkComponentSrc "/tooling/aihc-dev" [
+    ".hs"
+    ".cabal"
+  ];
 
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:

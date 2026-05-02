@@ -10,8 +10,8 @@ module ResolveStackageProgress
 where
 
 import Aihc.Cpp (Config (..), IncludeKind (..), IncludeRequest (..), Result (..), Step (..), preprocess)
-import qualified Aihc.Cpp as Cpp
-import qualified Aihc.Hackage.Cabal as HC
+import Aihc.Cpp qualified as Cpp
+import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
 import Aihc.Hackage.Download (DownloadOptions (..), defaultDownloadOptions, downloadPackageWithOptions)
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
@@ -19,7 +19,7 @@ import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util (chooseBestCabalFile, findCabalFiles, readTextFileLenient)
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser (ParserConfig (..), parseModule)
-import qualified Aihc.Parser as Parser
+import Aihc.Parser qualified as Parser
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Syntax
   ( Extension (CPP),
@@ -40,22 +40,22 @@ import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (SomeException, displayException, evaluate, try)
 import Control.Monad (mplus)
-import qualified Control.Monad
-import qualified Data.ByteString as BS
+import Control.Monad qualified
+import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.List (nub, partition, sortOn)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
-import qualified Data.Maybe
+import Data.Maybe qualified
 import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import GHC.Conc (getNumProcessors)
-import qualified Options.Applicative as OA
+import Options.Applicative qualified as OA
 import System.Directory (doesFileExist)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
