@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module ValidModule where
+    data FoundType = FoundConstructor
+  - |
+    module Main where
+    import ValidModule (FoundType(MissingConstructor))
+    x = MissingConstructor
+status: xfail
+reason: "Imports with explicit constructors do not validate constructor availability; missing constructors are not rejected on the import."
+annotated: []
