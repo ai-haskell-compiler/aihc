@@ -156,34 +156,44 @@ endsWithTypeSig = \case
   _ -> False
 
 -- | Check whether an expression needs parenthesization before a record dot.
--- Qualified variables (e.g., @A.x@), TH name quotes (@''C@, @'x@),
--- TH splices (@$x@, @$$x@), numeric literals, MagicHash literals, and
--- identifiers ending in @#@ all
+-- Qualified variables (e.g., @A.x@), TH splices (@$x@, @$$x@), MagicHash
+-- literals, and identifiers ending in @#@ all
 -- need parens to prevent ambiguity:
 -- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
--- - TH quotes: @''C.field@ looks like quoting the qualified name @C.field@
 -- - TH splices: @$x.field@ and @$$x.field@ parse as a splice followed by an
 --   unexpected @.@
--- - Integers: @0xd9.field@ gets lexed as float @0xd9.d@ followed by @MQDc@
--- - Floats: @1.0.field@ gets lexed as @1.0@ followed by @.field@
--- - MagicHash: @'c'#.field@ or @x#.field@ — the @#.@ merges into an operator
+-- - TH name quotes whose body is a qualified or MagicHash-suffixed variable
+--   are rejected by GHC before record-dot
+-- - TH type-name quotes: @''C.field@ is rejected by GHC
+-- - MagicHash: @1#.field@, @1.0##.field@, @'c'#.field@, or @x#.field@ -
+--   the @#.@ merges into an operator
 needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
-  -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
-  ETHNameQuote {} -> True
+  ETHNameQuote body -> nameQuoteNeedsParensBeforeDot body
   ETHTypeNameQuote {} -> True
   ETHSplice {} -> True
   ETHTypedSplice {} -> True
-  -- Numeric literals: digits followed by .field is ambiguous with float syntax
-  EInt {} -> True
-  EFloat {} -> True
+  EInt _ TInteger repr -> isHexIntegerLiteral repr
+  -- Primitive numeric literals: the trailing # merges with . to form an operator
+  EInt _ nt _ -> nt /= TInteger
+  EFloat _ ft _ -> ft /= TFractional
   -- MagicHash literals: the trailing # merges with . to form an operator
   ECharHash {} -> True
   EStringHash {} -> True
   _ -> False
+
+nameQuoteNeedsParensBeforeDot :: Expr -> Bool
+nameQuoteNeedsParensBeforeDot = \case
+  EAnn _ sub -> nameQuoteNeedsParensBeforeDot sub
+  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  _ -> False
+
+isHexIntegerLiteral :: T.Text -> Bool
+isHexIntegerLiteral repr =
+  "0x" `T.isPrefixOf` repr || "0X" `T.isPrefixOf` repr
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
 startsWithDollar :: Expr -> Bool
@@ -310,7 +320,6 @@ needsExprParens ctx expr =
         ETypeSig {} -> True
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
-        ELambdaCases {} -> True
         _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
 
@@ -330,7 +339,9 @@ exprCtxPrec ctx expr =
     CtxAppArgGreedy
       | isBracedExpr expr -> 0
       | otherwise -> 3
-    CtxTypeSigBody -> 1
+    CtxTypeSigBody
+      | isBracedExpr expr -> 0
+      | otherwise -> 1
     CtxGuarded -> 0
 
 -- | Parenthesize a left section operand while protecting any rightmost
@@ -467,7 +478,6 @@ data GuardArrow = GuardArrow | GuardEquals
 guardExprNeedsParens :: GuardArrow -> Expr -> Bool
 guardExprNeedsParens arrow = \case
   ELambdaPats {} -> True
-  EProc {} -> True
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
   expr -> case arrow of
     GuardArrow -> endsWithTypeSig expr
@@ -910,7 +920,38 @@ addExprParens = addExprParensPrec 0
 
 addExprParensIn :: ExprCtx -> Expr -> Expr
 addExprParensIn ctx expr =
-  wrapExpr (needsExprParens ctx expr) (addExprParensPrec (exprCtxPrec ctx expr) expr)
+  let needsWrap = needsExprParens ctx expr
+      prec = exprCtxPrec ctx expr
+      expr' =
+        case expr of
+          EAnn ann sub | needsWrap -> EAnn ann (protectWrappedNegation sub)
+          ENegate {} | needsWrap -> protectWrappedNegation expr
+          _ -> addExprParensPrec prec expr
+   in wrapExpr needsWrap expr'
+
+protectWrappedNegation :: Expr -> Expr
+protectWrappedNegation expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (protectWrappedNegation sub)
+    ENegate inner -> ENegate (addNegateParens 3 inner)
+    _ -> addExprParens expr
+
+protectExplicitParenInner :: Expr -> Expr
+protectExplicitParenInner expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (protectExplicitParenInner sub)
+    ENegate {} -> protectWrappedNegation expr
+    ETypeSig inner ty -> ETypeSig (protectParenTypeSigBody inner) (addTypeParens ty)
+    _ -> addExprParens expr
+
+protectParenTypeSigBody :: Expr -> Expr
+protectParenTypeSigBody expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (protectParenTypeSigBody sub)
+    ENegate inner
+      | startsWithOverloadedLabel inner ->
+          protectWrappedNegation expr
+    _ -> addExprParensIn CtxTypeSigBody expr
 
 -- | Flatten a left-nested application chain.
 flattenApps :: Expr -> (Expr, [Expr])
@@ -967,7 +1008,7 @@ addExprParensPrec prec expr =
             (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
         )
     ENegate inner ->
-      wrapExpr (prec > 2) (ENegate (addNegateParens inner))
+      wrapExpr (prec > 2) (ENegate (addNegateParens prec inner))
     ESectionL lhs op ->
       -- Sections always require surrounding parens in source syntax.
       -- Wrap in EParen so the AST matches what the parser produces.
@@ -1011,7 +1052,7 @@ addExprParensPrec prec expr =
         ESectionL {} -> addExprParens inner
         ESectionR {} -> addExprParens inner
         EGetFieldProjection {} -> addExprParens inner
-        _ -> EParen (addExprParens inner)
+        _ -> EParen (protectExplicitParenInner inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
@@ -1062,16 +1103,32 @@ addSpliceBodyParens body =
     EParen inner -> EParen (addExprParens inner)
     _ -> EParen (addExprParens body)
 
-addNegateParens :: Expr -> Expr
-addNegateParens inner =
-  if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
+addPatternSpliceBodyParens :: Expr -> Expr
+addPatternSpliceBodyParens body =
+  case body of
+    EAnn ann sub -> EAnn ann (addPatternSpliceBodyParens sub)
+    EVar {} -> body
+    EParen inner -> EParen (addExprParens inner)
+    _ -> EParen (addExprParens body)
+
+addNegateParens :: Int -> Expr -> Expr
+addNegateParens prec inner =
+  if startsWithDollar inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
     else case peelExprAnn inner of
       -- `-(518# {}).a` and similar forms must keep the field access grouped;
       -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
       EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
+      -- `- #a` is a negated overloaded label, but `(- #a)` parses as a right
+      -- section. If an outer context wraps the negation, keep the label grouped.
+      _ | startsWithOverloadedLabel inner -> wrapExpr (prec > 2) (addExprParensPrec 2 inner)
       -- Avoid `--` being lexed as a line comment: wrap nested negation.
-      ENegate {} -> wrapExpr True (addExprParens inner)
+      ENegate {} -> wrapExpr True (protectWrappedNegation inner)
+      EIf {} -> addExprParens inner
+      ECase {} -> addExprParens inner
+      EMultiWayIf {} -> addExprParens inner
+      EDo {} -> addExprParens inner
+      EProc {} -> addExprParens inner
       -- Application and type-application bind tighter than negation, so `-f x`
       -- does not need parens around `f x`.
       _ -> addExprParensPrec 2 inner
@@ -1135,10 +1192,25 @@ addCompStmtParens stmt =
 -- be safe.
 addCompTransformExprParens :: Expr -> Expr
 addCompTransformExprParens expr =
-  let parenthesized = addExprParens expr
+  let parenthesized =
+        case expr of
+          EAnn ann sub -> EAnn ann (addCompTransformExprParens sub)
+          EParen inner ->
+            case peelExprAnn inner of
+              ESectionL {} -> addExprParens inner
+              ESectionR {} -> addExprParens inner
+              EGetFieldProjection {} -> addExprParens inner
+              _ -> EParen (protectExplicitParenInner inner)
+          _ -> addExprParens expr
    in if needsCompTransformParens parenthesized
-        then wrapExpr True parenthesized
+        then forceWrapExpr parenthesized
         else parenthesized
+
+forceWrapExpr :: Expr -> Expr
+forceWrapExpr expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (forceWrapExpr sub)
+    _ -> EParen expr
 
 -- | Check if an expression needs parenthesization in a TransformListComp
 -- position before 'by' or 'using'. Atomic/self-delimiting expressions are safe;
@@ -1159,10 +1231,17 @@ needsCompTransformParens = \case
   EList {} -> False
   ETuple {} -> False
   EUnboxedSum {} -> False
-  EParen {} -> False
+  EParen inner -> compTransformParenContentsNeedOuter inner
   EGetFieldProjection {} -> False
   -- Everything else: could consume 'by'/'using'
   _ -> True
+
+compTransformParenContentsNeedOuter :: Expr -> Bool
+compTransformParenContentsNeedOuter = \case
+  EAnn _ sub -> compTransformParenContentsNeedOuter sub
+  ESectionL {} -> True
+  ESectionR {} -> True
+  _ -> False
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
@@ -1355,7 +1434,7 @@ addPatternParens pat =
     PRecord con fields hasWildcard ->
       PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
     PTypeSig inner ty -> PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty)
-    PSplice body -> PSplice (addSpliceBodyParens body)
+    PSplice body -> PSplice (addPatternSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
 -- View patterns don't need extra parens there.
@@ -1471,7 +1550,6 @@ addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
@@ -1484,7 +1562,6 @@ addInfixFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
     PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)

@@ -30,7 +30,7 @@ import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
+import Test.Properties.ExprRoundTrip (prop_exprParensMinimal, prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers
   ( genConSym,
     genVarSym,
@@ -152,6 +152,8 @@ buildTests = do
           testGroup
             "properties"
             [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+              localOption (QC.QuickCheckTests 20) $
+                QC.testProperty "generated valid expr AST is not reparenthesized" prop_exprParensMinimal,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,

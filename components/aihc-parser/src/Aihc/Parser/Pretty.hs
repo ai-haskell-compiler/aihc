@@ -18,12 +18,12 @@
 -- formatting, so the formatting code here does not need to worry about
 -- operator precedence or context-sensitive parenthesization.
 --
--- This module has an empty export list because it only provides typeclass
--- instances. Import it to bring the 'Pretty' instances into scope.
+-- This module primarily provides typeclass instances. Import it to bring the
+-- 'Pretty' instances into scope.
 --
 -- __Provided instances:__ 'Pretty' for 'Module', 'Expr', 'Pattern', 'Type'.
 module Aihc.Parser.Pretty
-  (
+  ( prettyExpr,
   )
 where
 
@@ -779,7 +779,23 @@ prettyClassDecl decl =
           )
    in case classDeclItems decl of
         [] -> headDoc
-        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyClassItem items)))
+        items -> headDoc <+> "where" <+> classItemsBraces items
+
+classItemsBraces :: [ClassDeclItem] -> Doc ann
+classItemsBraces items =
+  let body = hsep (punctuate semi (map prettyClassItem items))
+   in if startsWithNegativeClassItem items
+        then spacedBraces body
+        else braces body
+
+startsWithNegativeClassItem :: [ClassDeclItem] -> Bool
+startsWithNegativeClassItem items =
+  case items of
+    [] -> False
+    item : _ ->
+      case peelClassDeclItemAnn item of
+        ClassItemDefault valueDecl -> startsWithNegativeValueDecl valueDecl
+        _ -> False
 
 prettyClassFundeps :: [FunctionalDependency] -> [Doc ann]
 prettyClassFundeps deps =
@@ -841,7 +857,40 @@ prettyInstanceDecl decl =
           )
    in case instanceDeclItems decl of
         [] -> headDoc
-        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
+        items -> headDoc <+> "where" <+> instanceItemsBraces items
+
+instanceItemsBraces :: [InstanceDeclItem] -> Doc ann
+instanceItemsBraces items =
+  let body = hsep (punctuate semi (map prettyInstanceItem items))
+   in if startsWithNegativeInstanceItem items
+        then spacedBraces body
+        else braces body
+
+startsWithNegativeInstanceItem :: [InstanceDeclItem] -> Bool
+startsWithNegativeInstanceItem items =
+  case items of
+    [] -> False
+    item : _ ->
+      case peelInstanceDeclItemAnn item of
+        InstanceItemBind valueDecl -> startsWithNegativeValueDecl valueDecl
+        _ -> False
+
+startsWithNegativeValueDecl :: ValueDecl -> Bool
+startsWithNegativeValueDecl valueDecl =
+  case valueDecl of
+    PatternBind _ pat _ -> startsWithNegativePattern pat
+    FunctionBind _ (match : _) ->
+      case (matchHeadForm match, matchPats match) of
+        (MatchHeadInfix, pat : _) -> startsWithNegativePattern pat
+        _ -> False
+    FunctionBind _ [] -> False
+
+startsWithNegativePattern :: Pattern -> Bool
+startsWithNegativePattern pat =
+  case pat of
+    PAnn _ sub -> startsWithNegativePattern sub
+    PNegLit {} -> True
+    _ -> False
 
 prettyStandaloneDeriving :: StandaloneDerivingDecl -> Doc ann
 prettyStandaloneDeriving decl =
