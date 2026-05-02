@@ -204,10 +204,9 @@ extractInterface = collectModuleExports . resolvedModules
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
   let scope = moduleScope exports modu
-      (_, importAnnotations) = importedScopeWithErrors exports modu
       (nextLocal', resolvedDecls) = resolveTopLevelDecls scope nextLocal Map.empty (moduleDecls modu)
       decls' = map snd resolvedDecls
-      annotations = concatMap fst resolvedDecls <> importAnnotations
+      annotations = concatMap fst resolvedDecls
    in (nextLocal', annotations, modu {moduleDecls = decls'})
 
 resolveTopLevelDecls :: Scope -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [([ResolutionAnnotation], Decl)])
@@ -953,39 +952,18 @@ moduleScope exports modu =
 
 importedScope :: ModuleExports -> Module -> Scope
 importedScope exports modu =
-  fst (importedScopeWithErrors exports modu)
-
-missingImportMessage :: Text -> String
-missingImportMessage moduleName =
-  "could not find " <> T.unpack moduleName <> " module"
-
-missingImportAnnotation :: SourceSpan -> Text -> ResolutionAnnotation
-missingImportAnnotation span moduleName =
-  ResolutionAnnotation
-    { resolutionSpan = span,
-      resolutionName = moduleName,
-      resolutionNamespace = ResolutionNamespaceType,
-      resolutionTarget = ResolvedError (missingImportMessage moduleName)
-    }
-
-importedScopeWithErrors :: ModuleExports -> Module -> (Scope, [ResolutionAnnotation])
-importedScopeWithErrors exports modu =
-  foldl' addImport (emptyScope, []) (moduleImports modu)
+  foldl' addImport emptyScope (moduleImports modu)
   where
-    addImport (acc, annotations) importDecl
-      | originScope == Nothing =
-          (acc, missingImportAnnotation importSpan originModule : annotations)
+    addImport acc importDecl
       | importDeclQualified importDecl || importDeclQualifiedPost importDecl =
-          (insertQualifiedModule qualifier imported acc, annotations)
+          insertQualifiedModule qualifier imported acc
       | otherwise =
           let qualifiedAcc = insertQualifiedModule qualifier imported acc
-           in (unionScope qualifiedAcc imported, annotations)
+           in unionScope qualifiedAcc imported
       where
         originModule = importDeclModule importDecl
         qualifier = fromMaybe originModule (importDeclAs importDecl)
-        importSpan = sourceSpanFromAnns (importDeclAnns importDecl)
-        originScope = Map.lookup originModule exports
-        imported = filterImportSpec (importDeclSpec importDecl) (fromMaybe emptyScope originScope)
+        imported = filterImportSpec (importDeclSpec importDecl) (Map.findWithDefault emptyScope originModule exports)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
