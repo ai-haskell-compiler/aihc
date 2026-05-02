@@ -203,7 +203,8 @@ extractInterface = collectModuleExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
-  let (scope, importAnnotations) = moduleScope exports modu
+  let scope = moduleScope exports modu
+      (_, importAnnotations) = importedScopeWithErrors exports modu
       (nextLocal', resolvedDecls) = resolveTopLevelDecls scope nextLocal Map.empty (moduleDecls modu)
       decls' = map snd resolvedDecls
       annotations = concatMap fst resolvedDecls <> importAnnotations
@@ -941,17 +942,18 @@ bars n
   | n <= 0 = ""
   | otherwise = T.replicate n "|"
 
-moduleScope :: ModuleExports -> Module -> (Scope, [ResolutionAnnotation])
+moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
-  ( ownScope `unionScope` imported `unionScope` implicitPrelude `unionScope` builtinScope,
-    importAnnotations
-  )
+  ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude `unionScope` builtinScope
   where
     ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
-    (imported, importAnnotations) = importedScopeWithErrors exports modu
     preludeScope = Map.findWithDefault emptyScope "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+
+importedScope :: ModuleExports -> Module -> Scope
+importedScope exports modu =
+  fst (importedScopeWithErrors exports modu)
 
 missingImportMessage :: Text -> String
 missingImportMessage moduleName =
