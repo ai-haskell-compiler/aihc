@@ -32,7 +32,7 @@ hlint-refactor:
 check:
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); exit "$failed"'
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  nix develop --quiet --command bash -c 'hlint $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'hlint -j $(find components tooling -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)

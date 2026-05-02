@@ -72,6 +72,13 @@ isSymbolicName name =
     NameConSym -> True
     _ -> False
 
+isSymbolicUName :: UnqualifiedName -> Bool
+isSymbolicUName name =
+  case unqualifiedNameType name of
+    NameVarSym -> True
+    NameConSym -> True
+    _ -> False
+
 -- ---------------------------------------------------------------------------
 -- Expression classification helpers (mirrored from Pretty.hs)
 -- ---------------------------------------------------------------------------
@@ -163,6 +170,7 @@ endsWithTypeSig = \case
 needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
+  ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
@@ -617,9 +625,18 @@ stripPragmaRawText pragma = pragma {pragmaRawText = ""}
 addDerivingClauseParens :: DerivingClause -> DerivingClause
 addDerivingClauseParens dc =
   dc
-    { derivingClasses = map addTypeParens (derivingClasses dc),
-      derivingViaType = fmap addTypeParens (derivingViaType dc)
+    { derivingClasses =
+        case derivingClasses dc of
+          Left name -> Left name
+          Right classes -> Right (map addTypeParens classes),
+      derivingStrategy = fmap addDerivingStrategyParens (derivingStrategy dc)
     }
+
+addDerivingStrategyParens :: DerivingStrategy -> DerivingStrategy
+addDerivingStrategyParens strategy =
+  case strategy of
+    DerivingVia ty -> DerivingVia (addTypeParens ty)
+    _ -> strategy
 
 addDataConDeclParens :: DataConDecl -> DataConDecl
 addDataConDeclParens con =
@@ -809,7 +826,7 @@ addInstanceItemParens item =
 addStandaloneDerivingParens :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 addStandaloneDerivingParens decl =
   decl
-    { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
+    { standaloneDerivingStrategy = fmap addDerivingStrategyParens (standaloneDerivingStrategy decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
       standaloneDerivingHead = addTypeParens (standaloneDerivingHead decl)
     }
@@ -909,7 +926,7 @@ addExprParensPrec prec expr =
     EApp {} -> addAppsChainPrec prec expr
     ETypeApp fn ty ->
       let fn' = wrapExpr (isGreedyExpr fn) (addExprParensIn CtxAppFun fn)
-       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAtom ty))
+       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAppArg ty))
     ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
@@ -1050,6 +1067,9 @@ addNegateParens inner =
   if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
     else case peelExprAnn inner of
+      -- `-(518# {}).a` and similar forms must keep the field access grouped;
+      -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
+      EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
       -- Avoid `--` being lexed as a line comment: wrap nested negation.
       ENegate {} -> wrapExpr True (addExprParens inner)
       -- Application and type-application bind tighter than negation, so `-f x`
@@ -1401,7 +1421,7 @@ addPatternAtomParens pat =
     PStrict {} -> addPatternParens pat
     PIrrefutable {} -> addPatternParens pat
     PView {} -> addPatternParens pat
-    PAs {} -> addPatternParens pat
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PSplice {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
@@ -1455,6 +1475,7 @@ addFunctionHeadPatternAtomParens pat =
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
+    PAs {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
@@ -1464,6 +1485,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
@@ -1481,6 +1503,7 @@ addPatternAtomStrictParens pat =
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat

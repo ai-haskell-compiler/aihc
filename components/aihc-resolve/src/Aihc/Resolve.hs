@@ -522,12 +522,12 @@ bindPattern typeScope lastSeen nextLocal pat =
        in (nextLocal', scope, PView expr inner')
     PAs alias inner ->
       let here = peelPatternSpan lastSeen pat
-          aliasName = mkUnqualifiedName NameVarId alias
-          aliasResolved = ResolvedLocal nextLocal aliasName
+          aliasKey = renderUnqualifiedName alias
+          aliasResolved = ResolvedLocal nextLocal alias
           aliasAnnotation =
-            ResolutionAnnotation (spanStartNameSpan here alias) alias ResolutionNamespaceTerm aliasResolved
+            ResolutionAnnotation (spanStartNameSpan here aliasKey) aliasKey ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern typeScope here (nextLocal + 1) inner
-          aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty Map.empty
+          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty
        in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
     PStrict inner ->
       let here = peelPatternSpan lastSeen pat
@@ -729,7 +729,7 @@ collectPatVarBinders ambient pat =
     PList pats -> concatMap (collectPatVarBinders ambient) pats
     PParen inner -> collectPatVarBinders ambient inner
     PAs alias inner ->
-      (spanStartNameSpan ambient alias, mkUnqualifiedName NameVarId alias)
+      (spanStartNameSpan ambient (renderUnqualifiedName alias), alias)
         : collectPatVarBinders ambient inner
     PStrict inner -> collectPatVarBinders ambient inner
     PIrrefutable inner -> collectPatVarBinders ambient inner

@@ -550,7 +550,7 @@ extractPatternBindings (pat, ty) = case pat of
   PWildcard {} -> []
   PLit {} -> []
   PNegLit {} -> []
-  PAs name inner -> (name, ty) : extractPatternBindings (inner, ty)
+  PAs name inner -> (unqualifiedNameText name, ty) : extractPatternBindings (inner, ty)
   PStrict inner -> extractPatternBindings (inner, ty)
   PIrrefutable inner -> extractPatternBindings (inner, ty)
   PCon _name _typeArgs subPats ->

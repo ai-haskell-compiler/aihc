@@ -3,9 +3,11 @@ module Test.Properties.Arb.Utils
     smallList0,
     smallList1,
     smallList2,
+    requiredExtensions,
   )
 where
 
+import Aihc.Parser.Syntax
 import Control.Monad (replicateM)
 import Test.QuickCheck
 
@@ -35,3 +37,38 @@ smallList2 gen = do
   limit <- getSize
   n <- chooseInt (2, min 3 (max 2 limit))
   replicateM n (scale (`div` n) gen)
+
+requiredExtensions :: [Extension]
+requiredExtensions = effectiveExtensions GHC2024Edition moduleExtensionSettings
+  where
+    moduleExtensionSettings :: [ExtensionSetting]
+    moduleExtensionSettings =
+      map
+        EnableExtension
+        [ Arrows,
+          BlockArguments,
+          CApiFFI,
+          ExplicitNamespaces,
+          ImplicitParams,
+          LambdaCase,
+          LinearTypes,
+          MagicHash,
+          MultiWayIf,
+          OverloadedLabels,
+          OverloadedRecordDot,
+          ParallelListComp,
+          PatternSynonyms,
+          QualifiedDo,
+          QuasiQuotes,
+          RecursiveDo,
+          RequiredTypeArguments,
+          TemplateHaskell,
+          TransformListComp,
+          TupleSections,
+          TypeAbstractions,
+          TypeApplications,
+          UnboxedSums,
+          UnboxedTuples,
+          UnicodeSyntax,
+          ViewPatterns
+        ]

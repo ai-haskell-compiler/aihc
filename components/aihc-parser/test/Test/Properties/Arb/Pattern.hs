@@ -10,7 +10,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genViewPatternExpr, shrinkExpr)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -21,19 +21,22 @@ import Test.Properties.Arb.Identifiers
     genStringValue,
     genTenths,
     genVarId,
-    genVarIdNoHash,
     genVarName,
+    genVarUnqualifiedName,
+    genVarUnqualifiedNameNoHash,
     isValidQuoterName,
     showHex,
     shrinkFloat,
     shrinkIdent,
     shrinkName,
+    shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Type (shrinkType)
+import Test.Properties.Arb.Utils (smallList0, smallList2)
 import Test.QuickCheck
 
 instance Arbitrary Pattern where
-  arbitrary = scale (min 3) genPattern
+  arbitrary = genPattern
   shrink = shrinkPattern
 
 genPattern :: Gen Pattern
@@ -44,7 +47,7 @@ genPattern = scale (`div` 2) $ do
     else oneof (leafGenerators <> recursiveGenerators)
   where
     leafGenerators =
-      [ PVar <$> genPatternUnqualVarName,
+      [ PVar <$> genVarUnqualifiedName,
         pure PWildcard,
         PLit <$> genLiteral,
         PQuasiQuote <$> genQuoterName <*> genQuasiBody,
@@ -66,25 +69,20 @@ genPattern = scale (`div` 2) $ do
         genPatternTypeSigWith,
         genUnboxedSumPatternWith,
         genViewPatternWith,
-        PAs <$> genVarIdNoHash <*> genPattern,
+        PAs <$> genVarUnqualifiedNameNoHash <*> genPattern,
         PStrict <$> genPattern,
         PIrrefutable <$> genPattern
       ]
 
 genViewPatternWith :: Gen Pattern
 genViewPatternWith =
-  PView <$> genViewPatternExpr <*> genPattern
+  PView <$> genExpr <*> genPattern
 
 genPatternConWith :: Gen Pattern
-genPatternConWith = do
-  con <- genConName
-  argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount genPattern
-  pure (PCon con [] args)
+genPatternConWith = PCon <$> genConName <*> pure [] <*> smallList0 genPattern
 
 genPatternTypeSigWith :: Gen Pattern
-genPatternTypeSigWith = do
-  PTypeSig <$> genPattern <*> genPatternType
+genPatternTypeSigWith = PTypeSig <$> genPattern <*> genPatternType
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type
@@ -95,26 +93,15 @@ genPatternType =
     ]
 
 genPatternInfixWith :: Gen Pattern
-genPatternInfixWith = do
-  lhs <- genPattern
-  op <- genConName
-  PInfix lhs op <$> genPattern
+genPatternInfixWith = PInfix <$> genPattern <*> genConName <*> genPattern
 
 genTupleElemsWith :: Gen [Pattern]
-genTupleElemsWith = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      n <- chooseInt (2, 4)
-      vectorOf n genPattern
+genTupleElemsWith = oneof [pure [], smallList2 genPattern]
 
 -- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
 genUnboxedTupleElemsWith :: Gen [Pattern]
-genUnboxedTupleElemsWith = do
-  n <- chooseInt (0, 4)
-  vectorOf n genPattern
+genUnboxedTupleElemsWith = smallList0 genPattern
 
 genUnboxedSumPatternWith :: Gen Pattern
 genUnboxedSumPatternWith = do
@@ -123,15 +110,10 @@ genUnboxedSumPatternWith = do
   PUnboxedSum altIdx arity <$> genPattern
 
 genListElemsWith :: Gen [Pattern]
-genListElemsWith = do
-  n <- chooseInt (0, 4)
-  vectorOf n genPattern
+genListElemsWith = smallList0 genPattern
 
 genRecordPatternWith :: Gen Pattern
-genRecordPatternWith = do
-  con <- genConName
-  fields <- genRecordFieldsWith
-  pure (PRecord con fields False)
+genRecordPatternWith = PRecord <$> genConName <*> genRecordFieldsWith <*> pure False
 
 genRecordFieldsWith :: Gen [RecordField Pattern]
 genRecordFieldsWith = do
@@ -168,9 +150,6 @@ genPatSpliceBody =
       EParen . EVar <$> genVarName
     ]
 
-genPatternUnqualVarName :: Gen UnqualifiedName
-genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genVarId
-
 mkIntLiteral :: Integer -> Literal
 mkIntLiteral value = LitInt value TInteger (T.pack (show value))
 
@@ -194,7 +173,7 @@ shrinkPattern pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar name ->
-      [PVar (name {unqualifiedNameText = shrunk}) | shrunk <- shrinkIdent (unqualifiedNameText name)]
+      [PVar shrunk | shrunk <- shrinkUnqualifiedName name]
     PTypeBinder binder -> [PTypeBinder binder' | binder' <- shrinkTyVarBinder binder]
     PTypeSyntax form ty -> [PTypeSyntax form ty' | ty' <- shrinkType ty]
     PWildcard -> []
@@ -214,6 +193,7 @@ shrinkPattern pat =
     PInfix lhs op rhs ->
       [lhs, rhs]
         <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]
+        <> [PInfix lhs op' rhs | op' <- shrinkName op]
         <> [PInfix lhs op rhs' | rhs' <- shrinkPattern rhs]
     PView expr inner ->
       [inner]
@@ -221,7 +201,7 @@ shrinkPattern pat =
         <> [PView expr inner' | inner' <- shrinkPattern inner]
     PAs name inner ->
       [inner]
-        <> [PAs name' inner | name' <- shrinkIdent name]
+        <> [PAs name' inner | name' <- shrinkUnqualifiedName name]
         <> [PAs name inner' | inner' <- shrinkPattern inner]
     PStrict inner ->
       [inner]
@@ -243,8 +223,8 @@ shrinkPattern pat =
     PTypeSig inner ty ->
       [inner]
         <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
-    PSplice {} ->
-      []
+    PSplice expr ->
+      [PSplice expr' | expr' <- shrinkExpr expr]
 
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =

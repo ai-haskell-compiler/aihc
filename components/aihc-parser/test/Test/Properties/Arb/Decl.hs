@@ -14,10 +14,10 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (isAlpha)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhsWith, shrinkExpr, shrinkGuardQualifier)
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genRhs, shrinkExpr, shrinkGuardQualifier)
 import Test.Properties.Arb.Identifiers
   ( genConId,
     genConName,
@@ -27,12 +27,11 @@ import Test.Properties.Arb.Identifiers
     genVarName,
     genVarSym,
     genVarUnqualifiedName,
-    isValidGeneratedVarSym,
-    shrinkIdent,
+    shrinkName,
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (genType, shrinkType)
+import Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
 import Test.Properties.Arb.Utils (optional, smallList0, smallList1, smallList2)
 import Test.QuickCheck
 
@@ -48,7 +47,7 @@ genDecl :: Gen Decl
 genDecl =
   scale (`div` 2) $
     oneof
-      [ genDeclValue,
+      [ DeclValue <$> genDeclValue,
         genDeclTypeSig,
         genDeclFixity,
         DeclRoleAnnotation <$> genDeclRoleAnnotation,
@@ -73,18 +72,17 @@ genDecl =
         genDeclStandaloneKindSig
       ]
 
-genDeclValue :: Gen Decl
+genDeclValue :: Gen ValueDecl
 genDeclValue =
-  DeclValue
-    <$> oneof
-      [ genFunctionValueDecl,
-        genPatternValueDecl
-      ]
+  oneof
+    [ genFunctionValueDecl,
+      genPatternValueDecl
+    ]
 
 genFunctionValueDecl :: Gen ValueDecl
 genFunctionValueDecl = do
   name <- genVarUnqualifiedName
-  rhs <- genRhsWith False
+  rhs <- genRhs
   oneof
     [ do
         pats <- smallList1 genPattern
@@ -101,9 +99,8 @@ genFunctionValueDecl = do
           ),
       do
         lhsPat <- genPattern
-        rhsPat <- scale (min 3) genPattern
-        extraCount <- chooseInt (0, 2)
-        extraPats <- vectorOf extraCount (scale (min 3) genPattern)
+        rhsPat <- genPattern
+        extraPats <- smallList0 genPattern
         pure
           ( FunctionBind
               name
@@ -119,10 +116,10 @@ genFunctionValueDecl = do
 
 genPatternValueDecl :: Gen ValueDecl
 genPatternValueDecl =
-  PatternBind NoMultiplicityTag <$> genPattern <*> genRhsWith False
+  PatternBind NoMultiplicityTag <$> genPattern <*> genRhs
 
 genWhereDecls :: Gen (Maybe [Decl])
-genWhereDecls = optional $ scale (`div` 2) $ listOf genDeclValue
+genWhereDecls = optional $ scale (`div` 2) $ listOf (DeclValue <$> genDeclValue)
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = DeclTypeSig <$> smallList1 genVarUnqualifiedName <*> genType
@@ -419,9 +416,7 @@ genClassDeclItems params =
       ]
 
 genClassTypeSigItem :: Gen ClassDeclItem
-genClassTypeSigItem = do
-  name <- genVarUnqualifiedName
-  ClassItemTypeSig [name] <$> genType
+genClassTypeSigItem = ClassItemTypeSig <$> smallList1 genVarUnqualifiedName <*> genType
 
 genClassDefaultSigItem :: Gen ClassDeclItem
 genClassDefaultSigItem = do
@@ -442,12 +437,6 @@ genClassDefaultItem = ClassItemDefault <$> genFunctionValueDecl
 genClassAssociatedTypeDeclItem :: Gen ClassDeclItem
 genClassAssociatedTypeDeclItem = do
   ClassItemTypeFamilyDecl <$> genAssociatedTypeFamilyDecl
-
--- genClassAssociatedTypeItems :: [TyVarBinder] -> Gen [ClassDeclItem]
--- genClassAssociatedTypeItems params = do
---   tf <- genAssociatedTypeFamilyDecl
---   mDefault <- genAssociatedTypeDefaultInst tf params
---   pure $ ClassItemTypeFamilyDecl tf : maybe [] (pure . ClassItemDefaultTypeInst) mDefault
 
 genClassAssociatedDataDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
 genClassAssociatedDataDeclItem params = do
@@ -496,7 +485,7 @@ genAssociatedDataFamilyDecl classParams = do
   head' <-
     if infixHead
       then do
-        name <- mkUnqualifiedName NameConSym <$> genConSym
+        name <- genConUnqualifiedName
         shuffled <- shuffle classParams
         case shuffled of
           lhs : rhs : _ -> pure (InfixBinderHead lhs name rhs [])
@@ -617,13 +606,12 @@ genDeclStandaloneDerivingPrefix :: Gen Decl
 genDeclStandaloneDerivingPrefix = do
   className <- genConName
   types <- smallList0 genInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -636,13 +624,12 @@ genDeclStandaloneDerivingInfix = do
   className <- genConName
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -658,13 +645,12 @@ genDeclStandaloneDerivingParenInfix = do
   lhs <- genInfixInstanceHeadType
   rhs <- genInfixInstanceHeadType
   tailTypes <- smallList1 genInstanceHeadType
-  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  strategy <- optional genDerivingStrategy
   ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving $
       StandaloneDerivingDecl
         { standaloneDerivingStrategy = strategy,
-          standaloneDerivingViaType = Nothing,
           standaloneDerivingPragmas = [],
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
@@ -716,7 +702,7 @@ genDeclForeign = do
   direction <- elements [ForeignImport, ForeignExport]
   -- Safety is only valid for imports, not exports
   safety <- case direction of
-    ForeignImport -> elements [Nothing, Just Safe, Just Unsafe]
+    ForeignImport -> optional $ elements [Safe, Unsafe]
     ForeignExport -> pure Nothing
   name <- genVarUnqualifiedName
   ty <- genType
@@ -752,15 +738,14 @@ genDeclTypeFamilyDecl = do
 -- (e.g. @type family a \`And\` b@).
 genDeclTypeFamilyDeclInfix :: Gen Decl
 genDeclTypeFamilyDeclInfix = do
-  (nameType, nameText) <- elements [(NameConSym, genConSym), (NameConId, genConId)]
-  name <- nameText
+  name <- genConUnqualifiedName
   lhsName <- genVarId
   rhsName <- genVarId
   let lhs = TyVarBinder [] lhsName Nothing TyVarBSpecified TyVarBVisible
       rhs = TyVarBinder [] rhsName Nothing TyVarBSpecified TyVarBVisible
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
-      headType = TInfix lhsType (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted rhsType
+      headType = TInfix lhsType (qualifyName Nothing name) Unpromoted rhsType
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
@@ -774,18 +759,11 @@ genDeclTypeFamilyDeclInfix = do
 
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
-  infixHead <- elements [False, True]
   head' <-
-    if infixHead
-      then do
-        name <- mkUnqualifiedName NameConSym <$> genConSym
-        params <- smallList2 genSimpleTyVarBinder
-        case params of
-          lhs : rhs : tailParams -> pure (InfixBinderHead lhs name rhs tailParams)
-          _ -> error "genDeclDataFamilyDecl: expected at least two parameters"
-      else do
-        name <- mkUnqualifiedName NameConId <$> genConId
-        PrefixBinderHead name <$> genSimpleTyVarBinders
+    oneof
+      [ InfixBinderHead <$> genSimpleTyVarBinder <*> genConUnqualifiedName <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders,
+        PrefixBinderHead <$> genConUnqualifiedName <*> genSimpleTyVarBinders
+      ]
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
@@ -841,6 +819,7 @@ genDataFamilyInstWith genKind genHead genConstructors = do
   head' <- genHead
   kind <- genKind
   ctors <- genConstructors
+  derivingClauses <- genDerivingClauses
   pure $
     DataFamilyInst
       { dataFamilyInstIsNewtype = False,
@@ -848,7 +827,7 @@ genDataFamilyInstWith genKind genHead genConstructors = do
         dataFamilyInstHead = head',
         dataFamilyInstKind = kind,
         dataFamilyInstConstructors = ctors,
-        dataFamilyInstDeriving = []
+        dataFamilyInstDeriving = derivingClauses
       }
 
 genDeclDataFamilyInstPrefix :: Gen Decl
@@ -866,15 +845,7 @@ genDeclDataFamilyInstGadt = do
   DeclDataFamilyInst <$> genDataFamilyInstWith genOptionalDataFamilyInstKind genFamilyLhsType genGadtDataCons
 
 genOptionalDataFamilyInstKind :: Gen (Maybe Type)
-genOptionalDataFamilyInstKind =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> genDataFamilyInstKind)
-    ]
-
-genDataFamilyInstKind :: Gen Type
-genDataFamilyInstKind =
-  scale (min 6) genType
+genOptionalDataFamilyInstKind = optional genType
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type
@@ -915,8 +886,7 @@ genFamilyInfixHead = do
 genFamilyTypeApp :: Gen Type
 genFamilyTypeApp = do
   f <- genFamilyTypeAtom
-  argCount <- chooseInt (1, 2)
-  args <- vectorOf argCount genFamilyTypeAtom
+  args <- smallList1 genFamilyTypeAtom
   pure (foldl TApp f args)
 
 genFamilyTypeAtom :: Gen Type
@@ -936,7 +906,7 @@ genDeclPragma = do
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
-  synName <- mkUnqualifiedName NameConId <$> genConId
+  synName <- genConUnqualifiedName
   argName <- genVarId
   conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
   let args = PatSynPrefixArgs [argName]
@@ -945,9 +915,7 @@ genDeclPatSyn = do
   pure $ DeclPatSyn (PatSynDecl synName args pat dir)
 
 genDeclPatSynSig :: Gen Decl
-genDeclPatSynSig = do
-  name <- mkUnqualifiedName NameConId <$> genConId
-  DeclPatSynSig [name] <$> genType
+genDeclPatSynSig = DeclPatSynSig <$> smallList1 genConUnqualifiedName <*> genType
 
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = DeclStandaloneKindSig <$> genConUnqualifiedName <*> genType
@@ -962,22 +930,26 @@ genSimpleTyVarBinders =
 
 -- | Generate deriving clauses (0-2).
 genDerivingClauses :: Gen [DerivingClause]
-genDerivingClauses = do
-  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
-  vectorOf n genDerivingClause
+genDerivingClauses = smallList0 genDerivingClause
 
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
-  strategy <- elements [Nothing, Just DerivingStock]
-  n <- chooseInt (0, 3)
-  classes <- vectorOf n genSimpleConType
+  strategy <- optional genDerivingStrategy
+  classes <- oneof [Left <$> genSimpleConName, Right <$> smallList0 genType]
   pure $
     DerivingClause
       { derivingStrategy = strategy,
-        derivingClasses = classes,
-        derivingViaType = Nothing,
-        derivingParenthesized = n /= 1
+        derivingClasses = classes
       }
+
+genDerivingStrategy :: Gen DerivingStrategy
+genDerivingStrategy =
+  oneof [pure DerivingStock, pure DerivingNewtype, pure DerivingAnyclass, DerivingVia <$> genType]
+
+-- GHC does not allow singleton symbolic class names in deriving clauses.
+genSimpleConName :: Gen Name
+genSimpleConName =
+  qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
 
 -- | Generate a simple constructor type (used in deriving/context).
 genSimpleConType :: Gen Type
@@ -987,19 +959,13 @@ genSimpleConType =
 -- | Generate a simple constraint context (0-2 constraints).
 -- For instance contexts, 0 constraints means no context at all.
 genSimpleContext :: Gen [Type]
-genSimpleContext = do
-  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
-  vectorOf n genSimpleConstraint
+genSimpleContext = smallList0 genSimpleConstraint
 
 -- | Generate an optional context (Nothing or Just [constraints]).
 -- Never generates Just [] since that prints as () => which roundtrips
 -- to a unit tuple in the constraint list.
 genOptionalSimpleContext :: Gen (Maybe [Type])
-genOptionalSimpleContext =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> do n <- chooseInt (1, 2); vectorOf n genSimpleConstraint)
-    ]
+genOptionalSimpleContext = optional $ smallList1 genSimpleConstraint
 
 -- | Generate a simple constraint: ClassName tyvar
 genSimpleConstraint :: Gen Type
@@ -1029,7 +995,7 @@ shrinkDecl decl =
       [DeclStandaloneKindSig name' ty | name' <- shrinkConName name]
         <> [DeclStandaloneKindSig name ty' | ty' <- shrinkType ty]
     DeclFixity assoc ns prec ops ->
-      [DeclFixity assoc ns prec ops' | ops' <- shrinkList (const []) ops, not (null ops')]
+      [DeclFixity assoc ns prec ops' | ops' <- shrinkList shrinkBinderName ops, not (null ops')]
     DeclRoleAnnotation ra ->
       [DeclRoleAnnotation ra' | ra' <- shrinkRoleAnnotation ra]
     DeclTypeSyn ts ->
@@ -1079,6 +1045,9 @@ shrinkValueDecl vd =
         <> [FunctionBind name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
         -- Shrink the function name
         <> [FunctionBind name' matches | name' <- shrinkBinderName name]
+        <> [ PatternBind NoMultiplicityTag (PVar name) (matchRhs match)
+           | match <- matches
+           ]
 
 -- | Shrink an individual match clause.
 shrinkMatch :: Match -> [Match]
@@ -1104,6 +1073,8 @@ shrinkRhs rhs =
         <> [UnguardedRhs [] expr' mWhere | expr' <- shrinkExpr expr]
         -- Shrink the where clause
         <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
+        -- Place where with let
+        <> [rhs' | DeclValue (PatternBind _mult _pat rhs') <- fromMaybe [] mWhere]
     GuardedRhss _ grhss mWhere ->
       -- Collapse to unguarded keeping the where clause (try both with and without)
       [UnguardedRhs [] (guardedRhsBody firstGrhs) mWhere | firstGrhs : _ <- [grhss]]
@@ -1172,6 +1143,10 @@ shrinkNewtypeDecl nd =
     <> [nd {newtypeDeclHead = head'} | head' <- shrinkBinderHeadParams (newtypeDeclHead nd)]
     -- Shrink context
     <> [nd {newtypeDeclContext = ctx'} | ctx' <- shrinkList shrinkType (newtypeDeclContext nd)]
+    -- Shrink constructor
+    <> [nd {newtypeDeclConstructor = Just ctor'} | Just ctor <- [newtypeDeclConstructor nd], ctor' <- shrinkDataConDecl ctor]
+    -- Shrink deriving clauses
+    <> [nd {newtypeDeclDeriving = ds'} | ds' <- shrinkList shrinkDerivingClause (newtypeDeclDeriving nd)]
 
 shrinkDataConDecl :: DataConDecl -> [DataConDecl]
 shrinkDataConDecl con =
@@ -1179,17 +1154,19 @@ shrinkDataConDecl con =
     DataConAnn _ inner -> inner : shrinkDataConDecl inner
     PrefixCon forall' ctx name fields ->
       [PrefixCon forall' ctx name fields' | fields' <- shrinkList shrinkBangType fields]
+        <> [PrefixCon forall' ctx name' fields | name' <- shrinkUnqualifiedName name]
         <> [PrefixCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
     InfixCon forall' ctx lhs name rhs ->
       [InfixCon forall' ctx lhs' name rhs | lhs' <- shrinkBangType lhs]
         <> [InfixCon forall' ctx lhs name rhs' | rhs' <- shrinkBangType rhs]
+        <> [InfixCon forall' ctx lhs name' rhs | name' <- shrinkUnqualifiedName name]
         <> [InfixCon forall' ctx' lhs name rhs | ctx' <- shrinkList shrinkType ctx]
     RecordCon forall' ctx name fields ->
       [RecordCon forall' ctx name' fields | name' <- shrinkUnqualifiedName name]
         <> [RecordCon forall' ctx name fields' | fields' <- shrinkList shrinkFieldDecl fields]
         <> [RecordCon forall' ctx' name fields | ctx' <- shrinkList shrinkType ctx]
     GadtCon forall' ctx names body ->
-      [GadtCon forall' ctx names' body | names' <- shrinkList (const []) names, not (null names')]
+      [GadtCon forall' ctx names' body | names' <- shrinkList shrinkUnqualifiedName names, not (null names')]
         <> [GadtCon forall' ctx names body' | body' <- shrinkGadtBody body]
         <> [GadtCon forall' ctx' names body | ctx' <- shrinkList shrinkType ctx]
         <> [GadtCon forall'' ctx names body | forall'' <- shrinkForallTelescopes forall']
@@ -1218,12 +1195,23 @@ shrinkBangType bt =
 
 shrinkFieldDecl :: FieldDecl -> [FieldDecl]
 shrinkFieldDecl fd =
-  [fd {fieldNames = ns'} | ns' <- shrinkList (const []) (fieldNames fd), not (null ns')]
+  [fd {fieldNames = ns'} | ns' <- shrinkList shrinkBinderName (fieldNames fd), not (null ns')]
     <> [fd {fieldType = bt'} | bt' <- shrinkBangType (fieldType fd)]
 
 shrinkDerivingClause :: DerivingClause -> [DerivingClause]
 shrinkDerivingClause dc =
-  [dc {derivingClasses = cs'} | cs' <- shrinkList shrinkType (derivingClasses dc)]
+  [dc {derivingStrategy = Just strategy'} | Just strategy <- [derivingStrategy dc], strategy' <- shrinkDerivingStrategy strategy]
+    <> case derivingClasses dc of
+      Left name -> [dc {derivingClasses = Left name'} | name' <- shrinkName name]
+      Right classes -> [dc {derivingClasses = Right cs'} | cs' <- shrinkList shrinkType classes]
+
+shrinkDerivingStrategy :: DerivingStrategy -> [DerivingStrategy]
+shrinkDerivingStrategy strategy =
+  case strategy of
+    DerivingStock -> []
+    DerivingNewtype -> []
+    DerivingAnyclass -> []
+    DerivingVia ty -> [DerivingVia ty' | ty' <- shrinkType ty]
 
 -- ---------------------------------------------------------------------------
 -- Class and instance declarations
@@ -1312,45 +1300,14 @@ shrinkConName :: UnqualifiedName -> [UnqualifiedName]
 shrinkConName = shrinkUnqualifiedName
 
 shrinkBinderName :: BinderName -> [BinderName]
-shrinkBinderName = shrinkUnqualifiedVarName
-
-shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
-shrinkUnqualifiedVarName name =
-  [mkUnqualifiedName (unqualifiedNameType name) candidate | candidate <- shrinkBinderText name]
-
-shrinkBinderText :: UnqualifiedName -> [Text]
-shrinkBinderText name =
-  case unqualifiedNameType name of
-    NameVarId -> shrinkIdent (renderUnqualifiedName name)
-    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
-    _ -> []
-
-shrinkSymbolicName :: Text -> [Text]
-shrinkSymbolicName txt =
-  filter (not . T.null) $
-    shrinkList noShrink (T.unpack txt) >>= \chars ->
-      let candidate = T.pack chars
-       in [candidate | isValidGeneratedVarSym candidate]
-  where
-    noShrink _ = []
+shrinkBinderName = shrinkUnqualifiedName
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers
 -- ---------------------------------------------------------------------------
 
-shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
-shrinkTyVarBinders = shrinkList shrinkTyVarBinder
-  where
-    shrinkTyVarBinder tvb =
-      [tvb {tyVarBinderName = n'} | n' <- shrinkIdent (tyVarBinderName tvb)]
-
 shrinkForallTelescopes :: [ForallTelescope] -> [[ForallTelescope]]
 shrinkForallTelescopes = shrinkList shrinkForallTelescope
-  where
-    shrinkForallTelescope telescope =
-      [ telescope {forallTelescopeBinders = binders'}
-      | binders' <- shrinkTyVarBinders (forallTelescopeBinders telescope)
-      ]
 
 shrinkTypeHeadParams :: TypeHeadForm -> [TyVarBinder] -> [[TyVarBinder]]
 shrinkTypeHeadParams headForm params =
@@ -1365,18 +1322,20 @@ shrinkBinderHeadName shrinkNameFn head' =
     InfixBinderHead lhs name rhs tailParams ->
       [InfixBinderHead lhs name' rhs tailParams | name' <- shrinkNameFn name]
 
-shrinkBinderHeadParams :: BinderHead name -> [BinderHead name]
+shrinkBinderHeadParams :: BinderHead UnqualifiedName -> [BinderHead UnqualifiedName]
 shrinkBinderHeadParams head' =
   case head' of
     PrefixBinderHead name params ->
-      [PrefixBinderHead name params' | params' <- shrinkTyVarBinders params]
+      [PrefixBinderHead name' params | name' <- shrinkUnqualifiedName name]
+        <> [PrefixBinderHead name params' | params' <- shrinkTyVarBinders params]
     InfixBinderHead lhs name rhs tailParams ->
-      [ head''
-      | params' <- shrinkTypeHeadParams TypeHeadInfix (lhs : rhs : tailParams),
-        head'' <- case params' of
-          lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
-          _ -> []
-      ]
+      [InfixBinderHead lhs name' rhs tailParams | name' <- shrinkUnqualifiedName name]
+        <> [ head''
+           | params' <- shrinkTypeHeadParams TypeHeadInfix (lhs : rhs : tailParams),
+             head'' <- case params' of
+               lhs' : rhs' : tailParams' -> [InfixBinderHead lhs' name rhs' tailParams']
+               _ -> []
+           ]
 
 shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
 shrinkFunctionHeadPats headForm pats =

@@ -11,6 +11,7 @@ import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
@@ -18,7 +19,7 @@ import Text.Megaparsec.Error qualified as MPE
 typeConfig :: ParserConfig
 typeConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension MagicHash, EnableExtension ImplicitParams, EnableExtension LinearTypes]
+    { parserExtensions = requiredExtensions
     }
 
 prop_typePrettyRoundTrip :: Type -> Property

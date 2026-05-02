@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  data X = X deriving Mod.ClassName
+ast: Module {decls = [DeclData (DataDecl {name = "X", constructors = [PrefixCon {name = "X"}], deriving = [DerivingClause {classes = "Mod.ClassName"}]})]}
+status: pass

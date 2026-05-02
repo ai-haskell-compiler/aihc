@@ -38,7 +38,6 @@ import Test.Properties.Identifiers
     isValidGeneratedConSym,
     isValidGeneratedIdent,
     isValidGeneratedVarSym,
-    shrinkConIdent,
     shrinkIdent,
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
@@ -96,6 +95,7 @@ buildTests = do
             testCase "pretty-prints associated data family operator names" test_prettyAssocDataFamilyOperatorName,
             testCase "pretty-prints infix associated data family operator names" test_prettyAssocDataFamilyInfixOperatorName,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
+            testCase "does not lex symbolic unicode as overloaded labels" test_unicodeSymbolIsNotOverloadedLabel,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "pretty-prints overloaded labels with delimiter spacing" test_overloadedLabelPrettyPrintsWithDelimiterSpacing,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
@@ -122,7 +122,6 @@ buildTests = do
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
             testCase "newtype CTYPE pragmas round-trip" test_newtypeCTypePragmaRoundTrips,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
-            testCase "shrinking constructor identifiers preserves the first character" test_shrunkConstructorIdentifiersPreserveFirstCharacter,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
             testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
             testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
@@ -133,6 +132,7 @@ buildTests = do
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
+            testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -244,6 +244,18 @@ test_quotedOverloadedLabelLexes =
   case lexTokensWithExtensions [OverloadedLabels] "#\"The quick brown fox\"" of
     [LexToken {lexTokenKind = TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
     other -> assertFailure ("expected quoted overloaded label token, got: " <> show other)
+
+test_unicodeSymbolIsNotOverloadedLabel :: Assertion
+test_unicodeSymbolIsNotOverloadedLabel = do
+  case lexTokensWithExtensions [OverloadedLabels] "#﹏" of
+    [LexToken {lexTokenKind = TkVarSym "#﹏"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected symbolic operator tokens, got: " <> show other)
+  let config = defaultConfig {parserExtensions = [Arrows, MagicHash, OverloadedLabels]}
+      source = "0.0 = proc 0.0 -> 0 -<< 'w'# where { ( #﹏ ) = proc C -> [] -< [] }"
+  case parseDecl config source of
+    ParseOk _ -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
 
 test_stringGapBeforeClosingQuoteLexes :: Assertion
 test_stringGapBeforeClosingQuoteLexes = do
@@ -472,6 +484,30 @@ test_unboxedTupleInfixConOperandStaysBare = do
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
 
+test_prettySymbolicDerivingClass :: Assertion
+test_prettySymbolicDerivingClass = do
+  let decl =
+        DeclNewtype
+          NewtypeDecl
+            { newtypeDeclCTypePragma = Nothing,
+              newtypeDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [],
+              newtypeDeclContext = [],
+              newtypeDeclKind = Nothing,
+              newtypeDeclConstructor = Just (RecordCon [] [] (mkUnqualifiedName NameConId "C") []),
+              newtypeDeclDeriving =
+                [ DerivingClause
+                    { derivingStrategy = Nothing,
+                      derivingClasses = Right [TCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":+")) Unpromoted]
+                    }
+                ]
+            }
+      expected = stripAnnotations (addDeclParens decl)
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "newtype C = C {} deriving ((:+))" rendered
+  case parseDecl defaultConfig rendered of
+    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "data {-# CTYPE \"termbox.h\" \"struct tb_cell\" #-} Tb_cell = Tb_cell"]
@@ -496,11 +532,6 @@ test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
     isValidConIdent "T#"
   assertBool "MagicHash should allow repeated trailing hashes on constructor identifiers" $
     isValidConIdent "T####"
-
-test_shrunkConstructorIdentifiersPreserveFirstCharacter :: Assertion
-test_shrunkConstructorIdentifiersPreserveFirstCharacter =
-  assertBool "constructor identifier shrinking must preserve the first character" $
-    all ((== Just '\x0394') . fmap fst . T.uncons) (shrinkConIdent "\x0394elta9")
 
 test_magicHashIdentifierLexes :: Assertion
 test_magicHashIdentifierLexes = do

@@ -418,9 +418,13 @@ docDerivingClause dc =
   where
     fields =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
-        <> listField "classes" docType (derivingClasses dc)
-        <> optionalField "viaType" docType (derivingViaType dc)
-        <> boolField "parenthesized" (derivingParenthesized dc)
+        <> [field "classes" (docDerivingClasses (derivingClasses dc))]
+
+docDerivingClasses :: Either Name [Type] -> Doc ann
+docDerivingClasses classes =
+  case classes of
+    Left name -> docName name
+    Right types -> brackets (hsep (punctuate comma (map docType types)))
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
 docDerivingStrategy ds =
@@ -428,6 +432,7 @@ docDerivingStrategy ds =
     DerivingStock -> "DerivingStock"
     DerivingNewtype -> "DerivingNewtype"
     DerivingAnyclass -> "DerivingAnyclass"
+    DerivingVia ty -> "DerivingVia" <+> docType ty
 
 docClassDecl :: ClassDecl -> Doc ann
 docClassDecl cd =
@@ -514,7 +519,6 @@ docStandaloneDerivingDecl sd =
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docType (standaloneDerivingContext sd)
         <> [field "head" (docType (standaloneDerivingHead sd))]
-        <> optionalField "viaType" docType (standaloneDerivingViaType sd)
 
 docInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
 docInstanceOverlapPragma pragma' =
@@ -740,7 +744,7 @@ docPattern pat =
               )
     PInfix lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
     PView expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
-    PAs name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
+    PAs name inner -> "PAs" <+> docUnqualifiedName name <+> parens (docPattern inner)
     PStrict inner -> "PStrict" <+> parens (docPattern inner)
     PIrrefutable inner -> "PIrrefutable" <+> parens (docPattern inner)
     PNegLit lit -> "PNegLit" <+> parens (docLiteral lit)

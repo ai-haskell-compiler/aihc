@@ -12,6 +12,7 @@ import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
@@ -19,7 +20,7 @@ import Text.Megaparsec.Error qualified as MPE
 declConfig :: ParserConfig
 declConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions GHC2024Edition [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell, EnableExtension QuasiQuotes, EnableExtension PatternSynonyms, EnableExtension UnicodeSyntax, EnableExtension MagicHash, EnableExtension OverloadedLabels, EnableExtension MultiWayIf, EnableExtension RecursiveDo, EnableExtension TypeApplications, EnableExtension TupleSections, EnableExtension CApiFFI, EnableExtension ImplicitParams, EnableExtension ExplicitNamespaces, EnableExtension TypeAbstractions, EnableExtension RequiredTypeArguments, EnableExtension LambdaCase, EnableExtension LinearTypes, EnableExtension OverloadedRecordDot, EnableExtension TransformListComp, EnableExtension QualifiedDo]
+    { parserExtensions = requiredExtensions
     }
 
 prop_declPrettyRoundTrip :: Decl -> Property
@@ -40,4 +41,4 @@ prop_declPrettyRoundTrip decl =
                   counterexample (MPE.errorBundlePretty err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
-                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+                   in counterexample ("expected:\n" <> show expected <> "\nactual:\n" <> show actual) (expected == actual)

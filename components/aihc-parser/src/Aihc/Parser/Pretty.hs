@@ -503,7 +503,7 @@ prettyPattern pat =
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
       prettyExpr viewExpr <+> "->" <+> prettyPattern inner
-    PAs name inner -> pretty name <> "@" <> prettyPattern inner
+    PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
     PNegLit lit -> "-" <> prettyLiteral lit
@@ -604,22 +604,19 @@ derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
 
 derivingPart :: DerivingClause -> [Doc ann]
-derivingPart (DerivingClause strategy classes viaTy parenthesized) =
-  ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart viaTy
+derivingPart (DerivingClause strategy classes) =
+  ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart strategy
   where
     strategyPart Nothing = []
-    strategyPart (Just DerivingStock) = ["stock"]
-    strategyPart (Just DerivingNewtype) = ["newtype"]
-    strategyPart (Just DerivingAnyclass) = ["anyclass"]
+    strategyPart (Just (DerivingVia _)) = []
+    strategyPart (Just strategy') = [prettyDerivingStrategy strategy']
 
-    classesPart [] = ["()"]
-    classesPart [single]
-      | parenthesized = [parens (prettyType single)]
-      | otherwise = [prettyType single]
-    classesPart _ = [parens (hsep (punctuate comma (map prettyType classes)))]
+    classesPart (Left name) = [prettyName name]
+    classesPart (Right []) = ["()"]
+    classesPart (Right classTypes) = [parens (hsep (punctuate comma (map prettyType classTypes)))]
 
-    viaPart Nothing = []
-    viaPart (Just ty) = ["via", prettyType ty]
+    viaPart (Just (DerivingVia ty)) = ["via", prettyType ty]
+    viaPart _ = []
 
 prettyDeclBinderHead :: [Type] -> BinderHead UnqualifiedName -> [Doc ann]
 prettyDeclBinderHead constraints head' =
@@ -851,7 +848,6 @@ prettyStandaloneDeriving decl =
   hsep
     ( ["deriving"]
         <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
-        <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
         <> map prettyPragma (standaloneDerivingPragmas decl)
         <> maybe [] (\w -> [prettyPragma w]) (standaloneDerivingWarning decl)
@@ -892,6 +888,7 @@ prettyDerivingStrategy strategy =
     DerivingStock -> "stock"
     DerivingNewtype -> "newtype"
     DerivingAnyclass -> "anyclass"
+    DerivingVia ty -> "via" <+> prettyType ty
 
 prettyInstanceItem :: InstanceDeclItem -> Doc ann
 prettyInstanceItem item =

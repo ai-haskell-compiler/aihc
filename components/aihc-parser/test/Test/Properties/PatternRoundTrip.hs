@@ -12,6 +12,7 @@ import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Pattern ()
+import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
@@ -19,7 +20,7 @@ import Text.Megaparsec.Error qualified as MPE
 patternConfig :: ParserConfig
 patternConfig =
   defaultConfig
-    { parserExtensions = [Arrows, BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, TypeApplications, MultiWayIf, RecursiveDo, TupleSections, ImplicitParams, ExplicitNamespaces, TypeAbstractions, RequiredTypeArguments, ViewPatterns, LambdaCase]
+    { parserExtensions = requiredExtensions
     }
 
 prop_patternPrettyRoundTrip :: Pattern -> Property
