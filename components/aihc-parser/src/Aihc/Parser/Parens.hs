@@ -152,6 +152,7 @@ endsWithTypeSig = \case
   ELetDecls _ body -> endsWithTypeSig body
   ELambdaPats _ body -> endsWithTypeSig body
   EInfix _ _ rhs -> endsWithTypeSig rhs
+  EApp _ arg -> endsWithTypeSig arg
   EIf _ _ no -> endsWithTypeSig no
   _ -> False
 
@@ -293,6 +294,7 @@ needsExprParens ctx expr =
         _ -> False
     CtxAppArg ->
       case expr of
+        _ | endsWithTypeSig expr -> True
         _ | isBlockExpr expr -> False
         -- A pragma as a function argument needs parens: `fn {-# P #-} x` is
         -- ambiguous; `fn ({-# P #-} x)` is unambiguous.
@@ -1036,7 +1038,7 @@ addAppsChainPrec prec expr =
       nArgs = length args
       args' =
         [ let isLast = i == nArgs - 1
-              canStayBare = isBlockExpr a && (isLast || not (isOpenEnded a))
+              canStayBare = isBlockExpr a && not (endsWithTypeSig a) && (isLast || not (isOpenEnded a))
               ctx
                 | canStayBare = CtxAppArgNoParens
                 | isLast = CtxAppArg
