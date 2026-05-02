@@ -10,12 +10,10 @@ import Aihc.Parser
 import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Pretty (prettyExpr)
 import Aihc.Parser.Syntax
-import Control.Exception (evaluate)
 import Data.Data (Data, gmapQl)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import System.Timeout (timeout)
 import Test.Properties.Arb.Expr ()
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
@@ -53,28 +51,24 @@ prop_exprParensMinimal expr =
             counterexample ("raw source: " <> T.unpack source) $
               if T.length source > 120
                 then property True
-                else ioProperty $ do
-                  parsedResult <- timeout 100000 (evaluate (parseExpr exprConfig source))
-                  pure $ case parsedResult of
-                    Nothing ->
-                      property True
-                    Just (ParseErr _) ->
-                      property True
-                    Just (ParseOk parsed) ->
-                      let parsedExpr = stripAnnotations parsed
-                          actual = stripAnnotations (addExprParens expr)
-                          validRawExpr = parsedExpr == expected
-                          failure =
-                            unlines
-                              [ "raw source: " <> T.unpack source,
-                                "parsed: " <> show parsedExpr,
-                                "expected: " <> show expected,
-                                "actual: " <> show actual
-                              ]
-                       in cover 1 validRawExpr "valid raw expression" $
-                            if validRawExpr
-                              then counterexample failure (actual == expected)
-                              else property True
+                else case parseExpr exprConfig source of
+                  ParseErr _ ->
+                    property True
+                  ParseOk parsed ->
+                    let parsedExpr = stripAnnotations parsed
+                        actual = stripAnnotations (addExprParens expr)
+                        validRawExpr = parsedExpr == expected
+                        failure =
+                          unlines
+                            [ "raw source: " <> T.unpack source,
+                              "parsed: " <> show parsedExpr,
+                              "expected: " <> show expected,
+                              "actual: " <> show actual
+                            ]
+                     in cover 1 validRawExpr "valid raw expression" $
+                          if validRawExpr
+                            then counterexample failure (actual == expected)
+                            else property True
 
 astSize :: (Data a) => a -> Int
 astSize x = 1 + gmapQl (+) 0 astSize x

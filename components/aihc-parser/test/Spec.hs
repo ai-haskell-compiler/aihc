@@ -152,8 +152,7 @@ buildTests = do
           testGroup
             "properties"
             [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
-              localOption (QC.QuickCheckTests 20) $
-                QC.testProperty "generated valid expr AST is not reparenthesized" prop_exprParensMinimal,
+              QC.testProperty "generated valid expr AST is not reparenthesized" prop_exprParensMinimal,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
               QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
@@ -847,8 +846,8 @@ test_prettyRecordDotTHSpliceBase = do
             assertEqual "reparsed expression" (stripAnnotations parenthesized) (stripAnnotations reparsed)
           ParseErr bundle ->
             assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
-  assertRoundTrips "($q#).j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
-  assertRoundTrips "($$q#).j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
+  assertRoundTrips "$q#.j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
+  assertRoundTrips "$$q#.j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do

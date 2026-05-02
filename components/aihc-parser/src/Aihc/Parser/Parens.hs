@@ -32,8 +32,10 @@ where
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
-import Data.Maybe (isJust, isNothing)
+import Data.Data (Data, gmapT)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text qualified as T
+import Data.Typeable (cast)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -96,6 +98,7 @@ isBlockExpr = \case
   ELambdaCase {} -> True
   ELambdaCases {} -> True
   ELetDecls {} -> True
+  EProc {} -> True
   _ -> False
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
@@ -137,7 +140,6 @@ isOpenEnded = \case
   EAnn _ sub -> isOpenEnded sub
   EIf {} -> True
   ELambdaPats {} -> True
-  ELambdaCases {} -> True
   ELetDecls {} -> True
   EProc {} -> True
   EInfix _ _ rhs -> isOpenEnded rhs
@@ -156,44 +158,46 @@ endsWithTypeSig = \case
   _ -> False
 
 -- | Check whether an expression needs parenthesization before a record dot.
--- Qualified variables (e.g., @A.x@), TH splices (@$x@, @$$x@), MagicHash
--- literals, and identifiers ending in @#@ all
+-- Non-atomic TH splices (@$(f x)@, @$$([|| x ||])@)
 -- need parens to prevent ambiguity:
--- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
--- - TH splices: @$x.field@ and @$$x.field@ parse as a splice followed by an
---   unexpected @.@
+-- - Non-atomic TH splices need their body delimiters preserved before @.@
 -- - TH name quotes whose body is a qualified or MagicHash-suffixed variable
 --   are rejected by GHC before record-dot
 -- - TH type-name quotes: @''C.field@ is rejected by GHC
--- - MagicHash: @1#.field@, @1.0##.field@, @'c'#.field@, or @x#.field@ -
---   the @#.@ merges into an operator
-needsParensBeforeDot :: Expr -> Bool
-needsParensBeforeDot = \case
-  EAnn _ sub -> needsParensBeforeDot sub
+needsParensBeforeDot :: Name -> Expr -> Bool
+needsParensBeforeDot field = \case
+  EAnn _ sub -> needsParensBeforeDot field sub
   ENegate inner -> startsWithPrimitiveLiteral inner
-  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  EVar {} -> False
   ETHNameQuote body -> nameQuoteNeedsParensBeforeDot body
-  ETHTypeNameQuote {} -> True
-  ETHSplice {} -> True
-  ETHTypedSplice {} -> True
-  EInt _ TInteger repr -> isHexIntegerLiteral repr
-  -- Primitive numeric literals: the trailing # merges with . to form an operator
-  EInt _ nt _ -> nt /= TInteger
-  EFloat _ ft _ -> ft /= TFractional
-  -- MagicHash literals: the trailing # merges with . to form an operator
-  ECharHash {} -> True
-  EStringHash {} -> True
+  ETHTypeNameQuote ty -> typeNameQuoteNeedsParensBeforeDot ty
+  ETHSplice body -> spliceNeedsParensBeforeDot body
+  ETHTypedSplice body -> spliceNeedsParensBeforeDot body
+  EInt _ TInteger _repr -> False
   _ -> False
+
+spliceNeedsParensBeforeDot :: Expr -> Bool
+spliceNeedsParensBeforeDot = \case
+  EAnn _ sub -> spliceNeedsParensBeforeDot sub
+  EVar {} -> False
+  EParen {} -> False
+  _ -> True
 
 nameQuoteNeedsParensBeforeDot :: Expr -> Bool
 nameQuoteNeedsParensBeforeDot = \case
   EAnn _ sub -> nameQuoteNeedsParensBeforeDot sub
-  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  EVar {} -> False
   _ -> False
 
-isHexIntegerLiteral :: T.Text -> Bool
-isHexIntegerLiteral repr =
-  "0x" `T.isPrefixOf` repr || "0X" `T.isPrefixOf` repr
+typeNameQuoteNeedsParensBeforeDot :: Type -> Bool
+typeNameQuoteNeedsParensBeforeDot = \case
+  TAnn _ sub -> typeNameQuoteNeedsParensBeforeDot sub
+  TCon name _ | nameText name == "[]" || nameText name == "()" -> False
+  TTuple {} -> False
+  TUnboxedSum {} -> False
+  TList {} -> False
+  TParen {} -> False
+  _ -> True
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
 startsWithDollar :: Expr -> Bool
@@ -320,6 +324,7 @@ needsExprParens ctx expr =
         ETypeSig {} -> True
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
+        ELambdaCases {} -> False
         _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
 
@@ -394,6 +399,7 @@ matchSymbolicInfixTypeApp ty = do
 data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppFun
+  | CtxTypePlainAppArg
   | CtxTypeAppArg
   | CtxTypeFamilyOperand
   | CtxTypeAtom
@@ -420,6 +426,11 @@ needsTypeParens ctx ty =
         TInfix {} -> True
         TImplicitParam {} -> True
         _ -> False
+    CtxTypePlainAppArg ->
+      case ty of
+        TStar {} -> False
+        TSplice {} -> False
+        _ -> needsTypeParens CtxTypeAppArg ty
     CtxTypeAppArg ->
       case ty of
         TQuasiQuote {} -> False
@@ -477,7 +488,6 @@ data GuardArrow = GuardArrow | GuardEquals
 
 guardExprNeedsParens :: GuardArrow -> Expr -> Bool
 guardExprNeedsParens arrow = \case
-  ELambdaPats {} -> True
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
   expr -> case arrow of
     GuardArrow -> endsWithTypeSig expr
@@ -489,9 +499,97 @@ guardExprNeedsParens arrow = \case
 
 addModuleParens :: Module -> Module
 addModuleParens modu =
-  modu
-    { moduleDecls = map addDeclParens (moduleDecls modu)
-    }
+  addModuleGhcParens
+    modu
+      { moduleDecls = map addDeclParens (moduleDecls modu)
+      }
+
+addModuleGhcParens :: Module -> Module
+addModuleGhcParens = wrapGhcArrowBndrNegLits
+
+wrapGhcArrowBndrNegLits :: (Data a) => a -> a
+wrapGhcArrowBndrNegLits x =
+  let x' = gmapT wrapGhcArrowBndrNegLits x
+   in case cast x' of
+        Just expr -> fromMaybe x' (cast (wrapExprArrowBndrNegLits expr))
+        Nothing -> x'
+
+wrapExprArrowBndrNegLits :: Expr -> Expr
+wrapExprArrowBndrNegLits expr =
+  case expr of
+    EMultiWayIf rhss -> EMultiWayIf (map wrapGhcArrowGuardedRhs rhss)
+    ECase scrut alts -> ECase scrut (map wrapGhcCaseAlt alts)
+    ELambdaCase alts -> ELambdaCase (map wrapGhcCaseAlt alts)
+    ELambdaCases alts -> ELambdaCases (map wrapGhcLambdaCaseAlt alts)
+    ELambdaPats pats body -> ELambdaPats (map wrapArrowBndrNegLit pats) body
+    EProc pat body -> EProc (wrapArrowBndrNegLit pat) body
+    ETHPatQuote pat -> ETHPatQuote (wrapGhcTHPatQuote pat)
+    ETypeSig inner ty -> ETypeSig inner (wrapGhcExprSigType ty)
+    EGetField base field -> EGetField (wrapExpr (ghcNeedsParensBeforeDot base) base) field
+    _ -> expr
+
+wrapGhcArrowGuardedRhs :: GuardedRhs Expr -> GuardedRhs Expr
+wrapGhcArrowGuardedRhs grhs =
+  grhs {guardedRhsGuards = map wrapGhcArrowGuardQualifier (guardedRhsGuards grhs)}
+
+wrapGhcArrowGuardQualifier :: GuardQualifier -> GuardQualifier
+wrapGhcArrowGuardQualifier qual =
+  case qual of
+    GuardAnn ann inner -> GuardAnn ann (wrapGhcArrowGuardQualifier inner)
+    GuardExpr expr -> GuardExpr (wrapExpr (endsWithTypeSig expr) expr)
+    GuardPat pat expr -> GuardPat pat (wrapExpr (endsWithTypeSig expr) expr)
+    GuardLet {} -> qual
+
+ghcNeedsParensBeforeDot :: Expr -> Bool
+ghcNeedsParensBeforeDot = \case
+  EAnn _ sub -> ghcNeedsParensBeforeDot sub
+  EVar name -> (isJust (nameQualifier name) && not (isSymbolicName name)) || T.isSuffixOf "#" (nameText name)
+  ETHSplice {} -> True
+  ETHTypedSplice {} -> True
+  ECharHash {} -> True
+  EStringHash {} -> True
+  EInt _ nt _ -> nt /= TInteger
+  EFloat _ ft _ -> ft /= TFractional
+  _ -> False
+
+wrapGhcExprSigType :: Type -> Type
+wrapGhcExprSigType ty =
+  case ty of
+    TAnn ann sub -> TAnn ann (wrapGhcExprSigType sub)
+    TKindSig {} -> TParen ty
+    _ -> ty
+
+wrapArrowBndrNegLit :: Pattern -> Pattern
+wrapArrowBndrNegLit pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (wrapArrowBndrNegLit sub)
+    PNegLit {} -> PParen pat
+    PInfix {} -> PParen pat
+    PCon _ (_ : _) _ -> PParen pat
+    PCon _ [] (_ : _) -> PParen pat
+    _ -> pat
+
+wrapGhcTHPatQuote :: Pattern -> Pattern
+wrapGhcTHPatQuote pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (wrapGhcTHPatQuote sub)
+    PTypeSig {} -> PParen pat
+    _ -> pat
+
+wrapGhcCaseAlt :: CaseAlt Expr -> CaseAlt Expr
+wrapGhcCaseAlt alt =
+  alt {caseAltPattern = wrapGhcCaseAltPattern (caseAltPattern alt)}
+
+wrapGhcLambdaCaseAlt :: LambdaCaseAlt -> LambdaCaseAlt
+wrapGhcLambdaCaseAlt alt =
+  alt {lambdaCaseAltPats = map wrapGhcCaseAltPattern (lambdaCaseAltPats alt)}
+
+wrapGhcCaseAltPattern :: Pattern -> Pattern
+wrapGhcCaseAltPattern pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (wrapGhcCaseAltPattern sub)
+    PTypeSig {} -> PParen pat
+    _ -> pat
 
 -- ---------------------------------------------------------------------------
 -- Declarations
@@ -528,6 +626,14 @@ addDeclParens decl =
 addDeclSpliceParens :: Expr -> Expr
 addDeclSpliceParens = addExprParens
 
+addTHDeclQuoteParens :: Decl -> Decl
+addTHDeclQuoteParens decl =
+  case decl of
+    DeclAnn ann sub -> DeclAnn ann (addTHDeclQuoteParens sub)
+    DeclValue (PatternBind multTag pat rhs) ->
+      DeclValue (PatternBind multTag (addTHDeclQuotePatternBindLhsParens pat rhs) (addRhsParens rhs))
+    _ -> addDeclParens decl
+
 addValueDeclParens :: ValueDecl -> ValueDecl
 addValueDeclParens vdecl =
   case vdecl of
@@ -543,7 +649,15 @@ addPatternBindLhsParens pat rhs =
     -- parser does not reinterpret them as signatures.
     PTypeSig inner@(PVar {}) ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
+    PSplice {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
+
+addTHDeclQuotePatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
+addTHDeclQuotePatternBindLhsParens pat rhs =
+  case pat of
+    PAnn ann sub -> PAnn ann (addTHDeclQuotePatternBindLhsParens sub rhs)
+    PSplice body -> PSplice (addPatternSpliceBodyParens body)
+    _ -> addPatternBindLhsParens pat rhs
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =
@@ -941,7 +1055,7 @@ protectExplicitParenInner expr =
   case expr of
     EAnn ann sub -> EAnn ann (protectExplicitParenInner sub)
     ENegate {} -> protectWrappedNegation expr
-    ETypeSig inner ty -> ETypeSig (protectParenTypeSigBody inner) (addTypeParens ty)
+    ETypeSig inner ty -> ETypeSig (protectParenTypeSigBody inner) (addTypeTopLevelParens ty)
     _ -> addExprParens expr
 
 protectParenTypeSigBody :: Expr -> Expr
@@ -980,8 +1094,8 @@ addExprParensPrec prec expr =
     EQuasiQuote {} -> expr
     ETHExpQuote body -> ETHExpQuote (addExprParens body)
     ETHTypedQuote body -> ETHTypedQuote (addExprParens body)
-    ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
-    ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
+    ETHDeclQuote decls -> ETHDeclQuote (map addTHDeclQuoteParens decls)
+    ETHTypeQuote ty -> ETHTypeQuote (addTypeTopLevelParens ty)
     ETHPatQuote pat -> ETHPatQuote (addTHPatQuoteParens pat)
     ETHNameQuote body -> ETHNameQuote (addExprParens body)
     ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
@@ -994,7 +1108,7 @@ addExprParensPrec prec expr =
     EMultiWayIf rhss ->
       wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
     ELambdaPats pats body ->
-      wrapExpr (prec > 0) (ELambdaPats (map addArrowBndrPatternParens pats) (addExprParens body))
+      wrapExpr (prec > 0) (ELambdaPats (map addLambdaBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->
       wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
     ELambdaCases alts ->
@@ -1041,10 +1155,10 @@ addExprParensPrec prec expr =
       -- Qualified names (A.a) must be parenthesized because A.a.field would be
       -- parsed as the qualified name A.a.field rather than field access on A.a.
       let base' = addExprParensPrec 3 base
-       in EGetField (wrapExpr (needsParensBeforeDot base') base') field
+       in EGetField (wrapExpr (needsParensBeforeDot field base') base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
-      wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
+      wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeTopLevelParens ty))
     EParen inner ->
       -- If inner is a section or projection, addExprParens(inner) already produces EParen(section/projection).
       -- Delegating avoids double-wrapping and maintains idempotency.
@@ -1057,7 +1171,7 @@ addExprParensPrec prec expr =
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
-      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
+      wrapExpr (prec > 0) (EProc (addProcBndrPatternParens pat) (addCmdParens body))
     EPragma pragma inner ->
       -- EPragma is transparent w.r.t. precedence: wrapping decisions are made
       -- by the outer context via needsExprParens, not by a self-prec check.
@@ -1093,10 +1207,8 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- Bare unqualified variables and operators use the compact splice syntax.
-    -- Qualified names require $(M.name) to remain parseable.
-    EVar name
-      | isNothing (nameQualifier name) -> body
+    -- Bare variables and operators use the compact splice syntax.
+    EVar {} -> body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
@@ -1128,6 +1240,7 @@ addNegateParens prec inner =
       ECase {} -> addExprParens inner
       EMultiWayIf {} -> addExprParens inner
       EDo {} -> addExprParens inner
+      ELetDecls {} -> addExprParens inner
       EProc {} -> addExprParens inner
       -- Application and type-application bind tighter than negation, so `-f x`
       -- does not need parens around `f x`.
@@ -1138,7 +1251,6 @@ addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addCaseAltPatternParens pat) (addCaseAltRhsParens rhs)
 
 addCaseAltPatternParens :: Pattern -> Pattern
-addCaseAltPatternParens pat@(PTypeSig {}) = wrapPat True (addPatternParens pat)
 addCaseAltPatternParens (PAnn ann sub) = PAnn ann (addCaseAltPatternParens sub)
 addCaseAltPatternParens pat = addPatternParens pat
 
@@ -1300,14 +1412,14 @@ addTypeParensShared ctx prec ty =
               -- normal type-application precedence. In particular, an operand
               -- like @A => B@ must stay parenthesized so it is not re-parsed as
               -- an outer context.
-              TApp (TApp op (addTypeIn CtxTypeAppArg lhs)) (addTypeIn CtxTypeAppArg rhs)
+              TApp (TApp op (addTypeIn CtxTypePlainAppArg lhs)) (addTypeIn CtxTypePlainAppArg rhs)
         TInfix lhs op promoted rhs ->
           -- Type operators are right-associative in GHC, so the RHS can contain
           -- nested TInfix without parens (a `op1` b `op2` c = a `op1` (b `op2` c)).
           -- The LHS needs parens for nested TInfix to prevent left-association.
           wrapTy (prec > 0) (TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeFunArg rhs))
         TApp f x ->
-          wrapTy (prec > 2) (TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
+          wrapTy (prec > 2) (TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypePlainAppArg x))
         TTypeApp f x ->
           wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
         TFun arrowKind a b ->
@@ -1447,14 +1559,9 @@ addPatternInDelimited pat =
     PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
     _ -> addPatternParens pat
 
--- | Template Haskell pattern quotes accept typed patterns only when they are
--- parenthesized: @[p| (a :: T) |]@ parses, but @[p| a :: T |]@ does not.
+-- | Add required parentheses inside Template Haskell pattern quotes.
 addTHPatQuoteParens :: Pattern -> Pattern
-addTHPatQuoteParens pat =
-  let pat' = addPatternParens pat
-   in case peelPatternAnn pat' of
-        PTypeSig {} -> wrapPat True pat'
-        _ -> pat'
+addTHPatQuoteParens = addPatternParens
 
 -- | Add parens for a pattern nested inside a view pattern.
 -- Nested view patterns do not need extra parens.
@@ -1521,6 +1628,7 @@ addPatternInfixOperandParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
     PCon {} -> addPatternParens pat
+    PNegLit {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
 -- | Add parens for the right operand of a 'PInfix' pattern.
@@ -1532,18 +1640,23 @@ addPatternInfixRhsOperandParens pat =
     PAnn ann sub -> PAnn ann (addPatternInfixRhsOperandParens sub)
     PCon {} -> addPatternParens pat
     PInfix {} -> addPatternParens pat
+    PNegLit {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in arrow binder position (lambda/proc).
 -- Type-signatured, negated literal, infix, and non-nullary constructor patterns
 -- must be parenthesized to avoid ambiguity.
-addArrowBndrPatternParens :: Pattern -> Pattern
-addArrowBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
-addArrowBndrPatternParens p@(PNegLit {}) = wrapPat True (addPatternParens p)
-addArrowBndrPatternParens p@(PInfix {}) = wrapPat True (addPatternParens p)
-addArrowBndrPatternParens p@(PCon _ (_ : _) _) = wrapPat True (addPatternParens p)
-addArrowBndrPatternParens p@(PCon _ [] (_ : _)) = wrapPat True (addPatternParens p)
-addArrowBndrPatternParens pat = addPatternParens pat
+addLambdaBndrPatternParens :: Pattern -> Pattern
+addLambdaBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
+addLambdaBndrPatternParens p@(PNegLit {}) = wrapPat True (addPatternParens p)
+addLambdaBndrPatternParens p@(PInfix {}) = wrapPat True (addPatternParens p)
+addLambdaBndrPatternParens p@(PCon _ (_ : _) _) = wrapPat True (addPatternParens p)
+addLambdaBndrPatternParens p@(PCon _ [] (_ : _)) = wrapPat True (addPatternParens p)
+addLambdaBndrPatternParens pat = addPatternParens pat
+
+addProcBndrPatternParens :: Pattern -> Pattern
+addProcBndrPatternParens p@(PTypeSig {}) = wrapPat True (addPatternParens p)
+addProcBndrPatternParens pat = addPatternParens pat
 
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
