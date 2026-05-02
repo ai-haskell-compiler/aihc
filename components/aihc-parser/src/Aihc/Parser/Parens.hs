@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Bifunctor (bimap)
 import Data.Data (Data, gmapT)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text qualified as T
 import Data.Typeable (cast)
 
@@ -171,7 +171,7 @@ needsParensBeforeDot field = \case
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar {} -> False
   ETHNameQuote body -> nameQuoteNeedsParensBeforeDot body
-  ETHTypeNameQuote {} -> False
+  ETHTypeNameQuote ty -> typeNameQuoteNeedsParensBeforeDot ty
   ETHSplice body -> spliceNeedsParensBeforeDot body
   ETHTypedSplice body -> spliceNeedsParensBeforeDot body
   EInt _ TInteger _repr -> False
@@ -188,6 +188,20 @@ nameQuoteNeedsParensBeforeDot :: Expr -> Bool
 nameQuoteNeedsParensBeforeDot = \case
   EAnn _ sub -> nameQuoteNeedsParensBeforeDot sub
   EVar {} -> False
+  _ -> False
+
+typeNameQuoteNeedsParensBeforeDot :: Type -> Bool
+typeNameQuoteNeedsParensBeforeDot = \case
+  TAnn _ sub -> typeNameQuoteNeedsParensBeforeDot sub
+  -- @'' C.a@ quotes the qualified type name @C.a@.  Symbolic constructors
+  -- are already delimited as @'' (:+).a@, and a MagicHash-suffixed constructor
+  -- cannot be extended this way, so both forms must stay minimal.
+  TCon name _ ->
+    isNothing (nameQualifier name)
+      && nameType name == NameConId
+      && nameText name /= "[]"
+      && nameText name /= "()"
+      && not (T.isSuffixOf "#" (nameText name))
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.

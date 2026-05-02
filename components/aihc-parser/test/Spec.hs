@@ -131,6 +131,7 @@ buildTests = do
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
+            testCase "pretty-prints TH type-name quote record-dot bases" test_prettyRecordDotTHTypeNameQuoteBase,
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
@@ -858,6 +859,20 @@ test_prettyRecordDotTHSpliceBase = do
             assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
   assertRoundTrips "$q#.j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
   assertRoundTrips "$$q#.j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
+
+test_prettyRecordDotTHTypeNameQuoteBase :: Assertion
+test_prettyRecordDotTHTypeNameQuoteBase = do
+  let conName = qualifyName Nothing (mkUnqualifiedName NameConId "C")
+      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              (PVar (mkUnqualifiedName NameVarSym "+"))
+              (UnguardedRhs [] (EGetField (ETHTypeNameQuote (TCon conName Unpromoted)) fieldName) Nothing)
+          )
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "rendered declaration" "(+) = ('' C).a" rendered
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
