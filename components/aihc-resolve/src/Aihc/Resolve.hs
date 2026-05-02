@@ -39,6 +39,7 @@ import Aihc.Parser.Syntax
     GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
+    IEBundledMember (..),
     ImportDecl (..),
     ImportItem (..),
     ImportLevel (..),
@@ -59,6 +60,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     fromAnnotation,
+    getImportItemSourceSpan,
     mkAnnotation,
     mkQualifiedName,
     mkUnqualifiedName,
@@ -69,9 +71,10 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Resolve.Types
+import Control.Applicative ((<|>))
 import Data.Bifunctor
 import Data.Data (Data, cast, gmapQ)
-import Data.List (mapAccumL)
+import Data.List (find, mapAccumL)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -155,7 +158,7 @@ declResolutionErrors maybeDecl =
 importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
 importResolutionErrors maybeImport =
   case maybeImport of
-    Just (ImportResolution resolution) -> maybeToList (annotationResolveError resolution)
+    Just importDecl -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (importDeclAnns importDecl))
     _ -> []
 
 patternResolutionErrors :: Maybe Pattern -> [ResolveError]
@@ -225,7 +228,8 @@ resolveModuleImports exports =
   map resolveModuleImport
   where
     resolveModuleImport importDecl
-      | Map.member (importDeclModule importDecl) exports = importDecl
+      | Just originScope <- Map.lookup (importDeclModule importDecl) exports =
+          annotateImportErrors (missingImportItemAnnotations originScope importDecl) importDecl
       | otherwise = annotateImport (missingModuleImportAnnotation importDecl) importDecl
 
 missingModuleImportAnnotation :: ImportDecl -> ResolutionAnnotation
@@ -236,6 +240,75 @@ missingModuleImportAnnotation importDecl =
         importedModule
         ResolutionNamespaceModule
         (ResolvedError "not found")
+
+missingImportItemAnnotations :: Scope -> ImportDecl -> [ResolutionAnnotation]
+missingImportItemAnnotations originScope importDecl =
+  case importDeclSpec importDecl of
+    Just ImportSpec {importSpecHiding = False, importSpecItems} ->
+      mapMaybe (missingImportItemAnnotation originScope) importSpecItems
+    _ -> []
+
+missingImportItemAnnotation :: Scope -> ImportItem -> Maybe ResolutionAnnotation
+missingImportItemAnnotation originScope item =
+  go item
+  where
+    go current =
+      case current of
+        ImportAnn _ sub -> go sub
+        ImportItemVar _ itemName ->
+          missingImportedName item ResolutionNamespaceTerm itemName (scopeTerms originScope)
+        ImportItemAbs _ itemName ->
+          missingImportedName item ResolutionNamespaceType itemName (scopeTypes originScope)
+        ImportItemAll _ itemName ->
+          missingImportedName item ResolutionNamespaceType itemName (scopeTypes originScope)
+        ImportItemWith _ itemName members ->
+          missingImportedName item ResolutionNamespaceType itemName (scopeTypes originScope)
+            <|> missingImportMemberAnnotation originScope item members
+        ImportItemAllWith _ itemName _ members ->
+          missingImportedName item ResolutionNamespaceType itemName (scopeTypes originScope)
+            <|> missingImportMemberAnnotation originScope item members
+
+missingImportMemberAnnotation :: Scope -> ImportItem -> [IEBundledMember] -> Maybe ResolutionAnnotation
+missingImportMemberAnnotation originScope item members =
+  missingMemberAnnotation <$> find missingMember members
+  where
+    missingMember member = Map.notMember (nameText (ieBundledMemberName member)) (scopeTerms originScope)
+    missingMemberAnnotation member =
+      let memberName = nameText (ieBundledMemberName member)
+       in ResolutionAnnotation
+            (importMemberNameSpan (getImportItemSourceSpan item) memberName)
+            memberName
+            ResolutionNamespaceTerm
+            (ResolvedError "not exported")
+
+missingImportedName :: ImportItem -> ResolutionNamespace -> UnqualifiedName -> Map.Map Text ResolvedName -> Maybe ResolutionAnnotation
+missingImportedName item namespace itemName candidates
+  | Map.member rendered candidates = Nothing
+  | otherwise =
+      Just
+        ( ResolutionAnnotation
+            (spanStartNameSpan (getImportItemSourceSpan item) rendered)
+            rendered
+            namespace
+            (ResolvedError "not exported")
+        )
+  where
+    rendered = renderUnqualifiedName itemName
+
+importMemberNameSpan :: SourceSpan -> Text -> SourceSpan
+importMemberNameSpan itemSpan memberName =
+  case itemSpan of
+    SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset ->
+      let width = T.length memberName
+       in SourceSpan
+            sourceName
+            startLine
+            (max startCol (endCol - width - 1))
+            endLine
+            endCol
+            startOffset
+            endOffset
+    NoSourceSpan -> NoSourceSpan
 
 resolveTopLevelDecls :: Scope -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [([ResolutionAnnotation], Decl)])
 resolveTopLevelDecls _ nextLocal _ [] = (nextLocal, [])
@@ -1205,6 +1278,10 @@ annotateType annotation = TAnn (mkAnnotation annotation)
 annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =
   importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
+
+annotateImportErrors :: [ResolutionAnnotation] -> ImportDecl -> ImportDecl
+annotateImportErrors annotations importDecl =
+  importDecl {importDeclAnns = map mkAnnotation annotations <> importDeclAnns importDecl}
 
 importModuleNameSpan :: ImportDecl -> SourceSpan
 importModuleNameSpan importDecl =

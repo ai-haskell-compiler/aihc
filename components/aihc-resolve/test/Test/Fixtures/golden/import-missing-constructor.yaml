@@ -7,6 +7,26 @@ modules:
     module Main where
     import ValidModule (FoundType(MissingConstructor))
     x = MissingConstructor
-status: xfail
-reason: "Imports with explicit constructors do not validate constructor availability; missing constructors are not rejected on the import."
-annotated: []
+status: pass
+reason: ""
+expected:
+  Main:
+    - "2:31-2:50 MissingConstructor => (value) Error not exported"
+    - "3:1-3:2 x => (value) Main.x"
+    - "3:5-3:23 MissingConstructor => (value) Error unbound"
+  ValidModule:
+    - "2:6-2:15 FoundType => (type) ValidModule.FoundType"
+    - "2:18-2:34 FoundConstructor => (value) ValidModule.FoundConstructor"
+annotated:
+  - |
+    module Main where
+    import ValidModule (FoundType(MissingConstructor))
+                                  └─ v Error not exported
+    x = MissingConstructor
+    │   └─ v Error unbound
+    └─ v Main
+  - |
+    module ValidModule where
+    data FoundType = FoundConstructor
+         │           └─ v ValidModule
+         └─ t ValidModule

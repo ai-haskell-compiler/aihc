@@ -8,6 +8,29 @@ modules:
     module Main where
     import ValidModule (missing_fn)
     x = missing_fn
-status: xfail
-reason: "Missing value imports are not detected as import-level errors when the imported name is absent."
-annotated: []
+status: pass
+reason: ""
+expected:
+  Main:
+    - "2:21-2:31 missing_fn => (value) Error not exported"
+    - "3:1-3:2 x => (value) Main.x"
+    - "3:5-3:15 missing_fn => (value) Error unbound"
+  ValidModule:
+    - "2:1-2:9 valid_fn => (value) ValidModule.valid_fn"
+    - "2:13-2:16 Int => (type) Error unbound"
+    - "3:1-3:9 valid_fn => (value) ValidModule.valid_fn"
+annotated:
+  - |
+    module Main where
+    import ValidModule (missing_fn)
+                        └─ v Error not exported
+    x = missing_fn
+    │   └─ v Error unbound
+    └─ v Main
+  - |
+    module ValidModule where
+    valid_fn :: Int
+    │           └─ t Error unbound
+    └─ v ValidModule
+    valid_fn = 1
+    └─ v ValidModule
