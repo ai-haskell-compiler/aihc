@@ -550,6 +550,7 @@ ghcNeedsParensBeforeDot :: Expr -> Bool
 ghcNeedsParensBeforeDot = \case
   EAnn _ sub -> ghcNeedsParensBeforeDot sub
   EVar name -> (isJust (nameQualifier name) && not (isSymbolicName name)) || T.isSuffixOf "#" (nameText name)
+  ETHNameQuote body -> ghcNameQuoteNeedsParensBeforeDot body
   ETHTypeNameQuote {} -> True
   ETHSplice {} -> True
   ETHTypedSplice {} -> True
@@ -557,6 +558,12 @@ ghcNeedsParensBeforeDot = \case
   EStringHash {} -> True
   EInt _ nt _ -> nt /= TInteger
   EFloat _ ft _ -> ft /= TFractional
+  _ -> False
+
+ghcNameQuoteNeedsParensBeforeDot :: Expr -> Bool
+ghcNameQuoteNeedsParensBeforeDot = \case
+  EAnn _ sub -> ghcNameQuoteNeedsParensBeforeDot sub
+  EVar name -> (isJust (nameQualifier name) && not (isSymbolicName name)) || T.isSuffixOf "#" (nameText name)
   _ -> False
 
 wrapGhcExprSigType :: Type -> Type
@@ -646,7 +653,7 @@ addLocalDeclParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addLocalDeclParens sub)
     DeclValue (PatternBind multTag pat rhs) ->
-      DeclValue (PatternBind multTag (addTHDeclQuotePatternBindLhsParens pat rhs) (addLocalRhsParens rhs))
+      DeclValue (PatternBind multTag (addLocalPatternBindLhsParens pat rhs) (addLocalRhsParens rhs))
     _ -> addDeclParens decl
 
 addValueDeclParens :: ValueDecl -> ValueDecl
@@ -671,6 +678,14 @@ addTHDeclQuotePatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
 addTHDeclQuotePatternBindLhsParens pat rhs =
   case pat of
     PAnn ann sub -> PAnn ann (addTHDeclQuotePatternBindLhsParens sub rhs)
+    PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
+    PSplice body -> PSplice (addPatternSpliceBodyParens body)
+    _ -> addPatternBindLhsParens pat rhs
+
+addLocalPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
+addLocalPatternBindLhsParens pat rhs =
+  case pat of
+    PAnn ann sub -> PAnn ann (addLocalPatternBindLhsParens sub rhs)
     PSplice body -> PSplice (addPatternSpliceBodyParens body)
     _ -> addPatternBindLhsParens pat rhs
 
@@ -1129,7 +1144,7 @@ addExprParensPrec prec expr =
         (prec > 0)
         (EIf (addExprParens cond) (addExprParens yes) (addExprParens no))
     EMultiWayIf rhss ->
-      wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
+      wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardEquals) rhss))
     ELambdaPats pats body ->
       wrapExpr (prec > 0) (ELambdaPats (map addLambdaBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->

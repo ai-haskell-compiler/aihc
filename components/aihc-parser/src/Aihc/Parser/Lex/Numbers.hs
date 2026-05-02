@@ -55,7 +55,7 @@ lexHexFloat env st =
                 case rest2 of
                   '.' :< more ->
                     let (frac, rest') = T.span isHexDigit more
-                     in (Just frac, rest')
+                     in if T.null frac then (Nothing, rest2) else (Just frac, rest')
                   _ -> (Nothing, rest2)
           expo <- takeHexExponent rest3
           if T.length expo <= 1

@@ -6,7 +6,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
@@ -130,7 +130,9 @@ buildTests = do
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
+            testCase "parses hex integer record-dot fields that start with p" test_hexIntegerRecordDotPFieldParses,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
+            testCase "pretty-prints TH name quote MagicHash record-dot bases" test_prettyRecordDotTHNameQuoteMagicHashBase,
             testCase "pretty-prints TH type-name quote record-dot bases" test_prettyRecordDotTHTypeNameQuoteBase,
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
@@ -859,6 +861,39 @@ test_prettyRecordDotTHSpliceBase = do
             assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
   assertRoundTrips "$q#.j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
   assertRoundTrips "$$q#.j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
+
+test_hexIntegerRecordDotPFieldParses :: Assertion
+test_hexIntegerRecordDotPFieldParses = do
+  let config = defaultConfig {parserExtensions = [HexFloatLiterals, OverloadedRecordDot]}
+      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "p4bqhN")
+      expected = EGetField (EInt 47 TInteger "0x2f") fieldName
+  case parseExpr config "0x2f.p4bqhN" of
+    ParseOk actual ->
+      assertEqual "parsed expression" (stripAnnotations expected) (stripAnnotations actual)
+    ParseErr bundle ->
+      assertFailure ("expected expression to parse, got:\n" <> show bundle)
+
+test_prettyRecordDotTHNameQuoteMagicHashBase :: Assertion
+test_prettyRecordDotTHNameQuoteMagicHashBase = do
+  let quotedName = qualifyName Nothing (mkUnqualifiedName NameVarId "q#")
+      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      modu =
+        Module
+          { moduleAnns = [],
+            moduleHead = Nothing,
+            moduleLanguagePragmas = [],
+            moduleImports = [],
+            moduleDecls =
+              [ DeclValue
+                  ( PatternBind
+                      NoMultiplicityTag
+                      (PVar (mkUnqualifiedName NameVarSym "+"))
+                      (UnguardedRhs [] (EGetField (ETHNameQuote (EVar quotedName)) fieldName) Nothing)
+                  )
+              ]
+          }
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addModuleParens modu)))
+  assertEqual "rendered module" "(+) = (' q#).a" rendered
 
 test_prettyRecordDotTHTypeNameQuoteBase :: Assertion
 test_prettyRecordDotTHTypeNameQuoteBase = do
