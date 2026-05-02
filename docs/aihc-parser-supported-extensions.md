@@ -17,14 +17,14 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 7/7           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 55/55         |
+| DataKinds                 |   🟢    | 56/56         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
-| DerivingVia               |   🟢    | 6/6           |
+| DerivingVia               |   🟢    | 7/7           |
 | DoAndIfThenElse           |   🟢    | 15/15         |
 | EmptyCase                 |   🟢    | 4/4           |
 | EmptyDataDecls            |   🟢    | 8/8           |
-| EmptyDataDeriving         |   🟢    | 3/3           |
+| EmptyDataDeriving         |   🟢    | 4/4           |
 | ExistentialQuantification |   🟢    | 7/7           |
 | ExplicitForAll            |   🟢    | 25/25         |
 | ExplicitLevelImports      |   🟢    | 4/4           |
@@ -44,7 +44,7 @@
 | ImportQualifiedPost       |   🟢    | 5/5           |
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
-| KindSignatures            |   🟢    | 28/28         |
+| KindSignatures            |   🟢    | 29/29         |
 | LambdaCase                |   🟢    | 15/15         |
 | LinearTypes               |   🟢    | 14/14         |
 | MagicHash                 |   🟢    | 19/19         |
@@ -76,7 +76,7 @@
 | ScopedTypeVariables       |   🟢    | 18/18         |
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
-| StarIsType                |   🟢    | 2/2           |
+| StarIsType                |   🟢    | 3/3           |
 | TemplateHaskell           |   🟡    | 45/47         |
 | TemplateHaskellQuotes     |   🟢    | 13/13         |
 | TransformListComp         |   🟢    | 13/13         |
@@ -86,7 +86,7 @@
 | TypeData                  |   🟢    | 1/1           |
 | TypeFamilies              |   🟢    | 56/56         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
-| TypeOperators             |   🟢    | 66/66         |
+| TypeOperators             |   🟢    | 67/67         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 8/8           |
 | UnboxedTuples             |   🟢    | 19/19         |
