@@ -744,7 +744,7 @@ docPattern pat =
               )
     PInfix lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
     PView expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
-    PAs name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
+    PAs name inner -> "PAs" <+> docUnqualifiedName name <+> parens (docPattern inner)
     PStrict inner -> "PStrict" <+> parens (docPattern inner)
     PIrrefutable inner -> "PIrrefutable" <+> parens (docPattern inner)
     PNegLit lit -> "PNegLit" <+> parens (docLiteral lit)

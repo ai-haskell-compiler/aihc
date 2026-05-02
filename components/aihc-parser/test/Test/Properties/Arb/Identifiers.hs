@@ -7,6 +7,7 @@ module Test.Properties.Arb.Identifiers
     genVarId,
     genVarIdNoHash,
     genVarUnqualifiedName,
+    genVarUnqualifiedNameNoHash,
     genVarName,
     shrinkIdent,
     isValidGeneratedIdent,
@@ -149,6 +150,10 @@ genVarIdNoHash = do
 
 genVarUnqualifiedName :: Gen UnqualifiedName
 genVarUnqualifiedName = oneof [mkUnqualifiedName NameVarId <$> genVarId, mkUnqualifiedName NameVarSym <$> genVarSym]
+
+-- For silly reasons, as-patterns don't support magic hashes in var-ids, but it's fine in var-syms.
+genVarUnqualifiedNameNoHash :: Gen UnqualifiedName
+genVarUnqualifiedNameNoHash = oneof [mkUnqualifiedName NameVarId <$> genVarIdNoHash, mkUnqualifiedName NameVarSym <$> genVarSym]
 
 genVarName :: Gen Name
 genVarName = do

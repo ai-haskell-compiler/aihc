@@ -21,9 +21,9 @@ import Test.Properties.Arb.Identifiers
     genStringValue,
     genTenths,
     genVarId,
-    genVarIdNoHash,
     genVarName,
     genVarUnqualifiedName,
+    genVarUnqualifiedNameNoHash,
     isValidQuoterName,
     showHex,
     shrinkFloat,
@@ -69,7 +69,7 @@ genPattern = scale (`div` 2) $ do
         genPatternTypeSigWith,
         genUnboxedSumPatternWith,
         genViewPatternWith,
-        PAs <$> genVarIdNoHash <*> genPattern,
+        PAs <$> genVarUnqualifiedNameNoHash <*> genPattern,
         PStrict <$> genPattern,
         PIrrefutable <$> genPattern
       ]
@@ -201,7 +201,7 @@ shrinkPattern pat =
         <> [PView expr inner' | inner' <- shrinkPattern inner]
     PAs name inner ->
       [inner]
-        <> [PAs name' inner | name' <- shrinkIdent name]
+        <> [PAs name' inner | name' <- shrinkUnqualifiedName name]
         <> [PAs name inner' | inner' <- shrinkPattern inner]
     PStrict inner ->
       [inner]

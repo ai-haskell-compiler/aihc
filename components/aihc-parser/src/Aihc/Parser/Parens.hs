@@ -72,6 +72,13 @@ isSymbolicName name =
     NameConSym -> True
     _ -> False
 
+isSymbolicUName :: UnqualifiedName -> Bool
+isSymbolicUName name =
+  case unqualifiedNameType name of
+    NameVarSym -> True
+    NameConSym -> True
+    _ -> False
+
 -- ---------------------------------------------------------------------------
 -- Expression classification helpers (mirrored from Pretty.hs)
 -- ---------------------------------------------------------------------------
@@ -1414,7 +1421,7 @@ addPatternAtomParens pat =
     PStrict {} -> addPatternParens pat
     PIrrefutable {} -> addPatternParens pat
     PView {} -> addPatternParens pat
-    PAs {} -> addPatternParens pat
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PSplice {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
@@ -1468,6 +1475,7 @@ addFunctionHeadPatternAtomParens pat =
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
+    PAs {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
@@ -1477,6 +1485,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
@@ -1494,6 +1503,7 @@ addPatternAtomStrictParens pat =
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
+    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat

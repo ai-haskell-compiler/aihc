@@ -1123,7 +1123,7 @@ data Pattern
   | PCon Name [Type] [Pattern]
   | PInfix Pattern Name Pattern
   | PView Expr Pattern
-  | PAs Text Pattern
+  | PAs UnqualifiedName Pattern
   | PStrict Pattern
   | PIrrefutable Pattern
   | PNegLit Literal

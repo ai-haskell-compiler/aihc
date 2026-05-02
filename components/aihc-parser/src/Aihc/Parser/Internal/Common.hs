@@ -794,7 +794,7 @@ thAnyEnabled = do
 
 asPatternParser :: TokParser Pattern -> TokParser Pattern
 asPatternParser bodyParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  name <- identifierTextParser
+  name <- binderNameParser
   expectedTok TkReservedAt
   PAs name <$> bodyParser
 
@@ -978,7 +978,7 @@ startsWithTypeSig =
 startsWithAsPattern :: TokParser Bool
 startsWithAsPattern =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- identifierTextParser
+    _ <- binderNameParser
     expectedTok TkReservedAt
 
 -- | Non-consuming lookahead: does the input start with a type binder (@\@@var or @\@@_)?

@@ -503,7 +503,7 @@ prettyPattern pat =
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
       prettyExpr viewExpr <+> "->" <+> prettyPattern inner
-    PAs name inner -> pretty name <> "@" <> prettyPattern inner
+    PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
     PNegLit lit -> "-" <> prettyLiteral lit
