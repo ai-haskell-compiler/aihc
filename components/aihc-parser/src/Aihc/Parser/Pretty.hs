@@ -779,7 +779,25 @@ prettyClassDecl decl =
           )
    in case classDeclItems decl of
         [] -> headDoc
-        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyClassItem items)))
+        items -> headDoc <+> "where" <+> prettyClassItems items
+
+prettyClassItems :: [ClassDeclItem] -> Doc ann
+prettyClassItems items =
+  case items of
+    [] -> braces mempty
+    firstItem : restItems
+      | classItemCanStartComment firstItem -> "{" <+> bodyDoc <> "}"
+      | otherwise -> braces bodyDoc
+      where
+        bodyDoc = hsep (punctuate semi (map prettyClassItem (firstItem : restItems)))
+
+classItemCanStartComment :: ClassDeclItem -> Bool
+classItemCanStartComment item =
+  case item of
+    ClassItemAnn _ inner -> classItemCanStartComment inner
+    ClassItemDefault (PatternBind NoMultiplicityTag PNegLit {} _) -> True
+    ClassItemDefault (PatternBind LinearMultiplicityTag PNegLit {} _) -> True
+    _ -> False
 
 prettyClassFundeps :: [FunctionalDependency] -> [Doc ann]
 prettyClassFundeps deps =

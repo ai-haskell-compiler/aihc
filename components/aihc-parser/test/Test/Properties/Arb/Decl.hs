@@ -32,7 +32,7 @@ import Test.Properties.Arb.Identifiers
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
-import Test.Properties.Arb.Utils (optional, smallList0, smallList1, smallList2)
+import Test.Properties.Arb.Utils (optional, smallList0, smallList1)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -383,19 +383,17 @@ genNewtypeRecordCon = do
   pure (RecordCon [] [] conName [FieldDecl [] [fieldName] Nothing (BangType [] [] False False ty)])
 
 genDeclClass :: Gen Decl
-genDeclClass = oneof [genDeclClassPrefix, genDeclClassInfix]
-
-genDeclClassPrefix :: Gen Decl
-genDeclClassPrefix = do
+genDeclClass = do
   name <- genConUnqualifiedName
   params <- genSimpleTyVarBinders
   ctx <- genOptionalSimpleContext
   items <- genClassDeclItems params
+  declHead <- oneof [pure $ PrefixBinderHead name params, InfixBinderHead <$> genSimpleTyVarBinder <*> pure name <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders]
   pure $
     DeclClass $
       ClassDecl
         { classDeclContext = ctx,
-          classDeclHead = PrefixBinderHead name params,
+          classDeclHead = declHead,
           classDeclFundeps = [],
           classDeclItems = items
         }
@@ -411,8 +409,7 @@ genClassDeclItems params =
         genClassAssociatedTypeDeclItem,
         genClassAssociatedDataDeclItem params,
         ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst,
-        genClassPragmaItem,
-        genAnnotatedClassDeclItem params
+        genClassPragmaItem
       ]
 
 genClassTypeSigItem :: Gen ClassDeclItem
@@ -447,20 +444,6 @@ genClassPragmaItem :: Gen ClassDeclItem
 genClassPragmaItem = do
   kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
   ClassItemPragma . (\pt -> Pragma {pragmaType = pt, pragmaRawText = ""}) . PragmaInline kind <$> genVarId
-
-genAnnotatedClassDeclItem :: [TyVarBinder] -> Gen ClassDeclItem
-genAnnotatedClassDeclItem params =
-  ClassItemAnn (mkAnnotation noSourceSpan)
-    <$> oneof
-      [ genClassTypeSigItem,
-        genClassDefaultSigItem,
-        genClassFixityItem,
-        genClassDefaultItem,
-        genClassAssociatedTypeDeclItem,
-        genClassAssociatedDataDeclItem params,
-        ClassItemDefaultTypeInst <$> genAssociatedTypeDefaultInst,
-        genClassPragmaItem
-      ]
 
 genAssociatedTypeFamilyDecl :: Gen TypeFamilyDecl
 genAssociatedTypeFamilyDecl = do
@@ -513,24 +496,6 @@ genAssociatedTypeDefaultInst = do
         typeFamilyInstLhs = lhs,
         typeFamilyInstRhs = rhs
       }
-
-genDeclClassInfix :: Gen Decl
-genDeclClassInfix = do
-  name <- genConUnqualifiedName
-  params <- smallList2 genSimpleTyVarBinder
-  ctx <- genOptionalSimpleContext
-  items <- genClassDeclItems params
-  pure $
-    DeclClass $
-      ClassDecl
-        { classDeclContext = ctx,
-          classDeclHead =
-            case params of
-              lhs : rhs : tailParams -> InfixBinderHead lhs name rhs tailParams
-              _ -> error "genDeclClassInfix: expected at least two parameters",
-          classDeclFundeps = [],
-          classDeclItems = items
-        }
 
 genDeclInstance :: Gen Decl
 genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix, genDeclInstanceParenInfix]
@@ -1220,9 +1185,45 @@ shrinkDerivingStrategy strategy =
 shrinkClassDecl :: ClassDecl -> [ClassDecl]
 shrinkClassDecl cd =
   [cd {classDeclHead = head'} | head' <- shrinkBinderHeadName shrinkConName (classDeclHead cd)]
-    <> [cd {classDeclItems = is'} | is' <- shrinkList (const []) (classDeclItems cd)]
+    <> [cd {classDeclItems = is'} | is' <- shrinkList shrinkClassDeclItem (classDeclItems cd)]
     <> [cd {classDeclHead = head'} | head' <- shrinkBinderHeadParams (classDeclHead cd)]
     <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
+
+shrinkClassDeclItem :: ClassDeclItem -> [ClassDeclItem]
+shrinkClassDeclItem item =
+  case item of
+    ClassItemAnn _ inner -> inner : shrinkClassDeclItem inner
+    ClassItemTypeSig names ty ->
+      [ClassItemTypeSig names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
+        <> [ClassItemTypeSig names ty' | ty' <- shrinkType ty]
+    ClassItemDefaultSig name ty ->
+      [ClassItemDefaultSig name' ty | name' <- shrinkBinderName name]
+        <> [ClassItemDefaultSig name ty' | ty' <- shrinkType ty]
+    ClassItemFixity assoc ns prec ops ->
+      [ClassItemFixity assoc ns prec ops' | ops' <- shrinkList shrinkBinderName ops, not (null ops')]
+        <> [ClassItemFixity assoc Nothing prec ops | isJust ns]
+        <> [ClassItemFixity assoc ns Nothing ops | isJust prec]
+    ClassItemDefault vd ->
+      [ClassItemDefault vd' | vd' <- shrinkClassDefaultDecl vd]
+    ClassItemTypeFamilyDecl tf ->
+      [ClassItemTypeFamilyDecl tf' | tf' <- shrinkTypeFamilyDecl tf]
+    ClassItemDataFamilyDecl df ->
+      [ClassItemDataFamilyDecl df' | df' <- shrinkDataFamilyDecl df]
+    ClassItemDefaultTypeInst tfi ->
+      [ClassItemDefaultTypeInst tfi' | tfi' <- shrinkTypeFamilyInst tfi]
+    ClassItemPragma _ -> []
+
+shrinkClassDefaultDecl :: ValueDecl -> [ValueDecl]
+shrinkClassDefaultDecl vd =
+  case vd of
+    PatternBind multTag pat rhs ->
+      [PatternBind multTag (PVar (mkUnqualifiedName NameVarId "x")) rhs]
+        <> [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
+        <> [PatternBind multTag pat' rhs | pat' <- shrinkPattern pat]
+    FunctionBind name matches ->
+      [FunctionBind name [m {matchAnns = []}] | length matches > 1, m <- matches]
+        <> [FunctionBind name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
+        <> [FunctionBind name' matches | name' <- shrinkBinderName name]
 
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =
