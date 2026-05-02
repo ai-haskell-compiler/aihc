@@ -8,6 +8,29 @@ modules:
     import ValidModule (MissingType(..))
     x :: MissingType
     x = 1
-status: xfail
-reason: "Type wildcard imports of missing types are not explicitly reported; missing type names are only caught indirectly."
-annotated: []
+status: pass
+reason: ""
+expected:
+  Main:
+    - "2:21-2:32 MissingType => (type) Error not exported"
+    - "3:1-3:2 x => (value) Main.x"
+    - "3:6-3:17 MissingType => (type) Error unbound"
+    - "4:1-4:2 x => (value) Main.x"
+  ValidModule:
+    - "2:6-2:15 FoundType => (type) ValidModule.FoundType"
+    - "2:18-2:34 FoundConstructor => (value) ValidModule.FoundConstructor"
+annotated:
+  - |
+    module Main where
+    import ValidModule (MissingType(..))
+                        └─ t Error not exported
+    x :: MissingType
+    │    └─ t Error unbound
+    └─ v Main
+    x = 1
+    └─ v Main
+  - |
+    module ValidModule where
+    data FoundType = FoundConstructor
+         │           └─ v ValidModule
+         └─ t ValidModule

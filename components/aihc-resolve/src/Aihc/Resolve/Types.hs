@@ -95,7 +95,10 @@ pattern ImportResolution :: ResolutionAnnotation -> ImportDecl
 pattern ImportResolution resolution <- (importResolutionAnnotation -> Just resolution)
 
 importResolutionAnnotation :: ImportDecl -> Maybe ResolutionAnnotation
-importResolutionAnnotation = listToMaybe . mapMaybe fromAnnotation . importDeclAnns
+importResolutionAnnotation = listToMaybe . importResolutionAnnotations
+
+importResolutionAnnotations :: ImportDecl -> [ResolutionAnnotation]
+importResolutionAnnotations = mapMaybe fromAnnotation . importDeclAnns
 
 renderResolveResult :: ResolveResult -> String
 renderResolveResult result =
@@ -179,7 +182,7 @@ declResolution maybeDecl =
 importResolution :: Maybe ImportDecl -> [ResolutionAnnotation]
 importResolution maybeImport =
   case maybeImport of
-    Just (ImportResolution resolution) -> [resolution]
+    Just importDecl -> importResolutionAnnotations importDecl
     _ -> []
 
 patternResolution :: Maybe Pattern -> [ResolutionAnnotation]
