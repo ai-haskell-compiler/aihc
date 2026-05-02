@@ -78,6 +78,7 @@ library parser-tooling-common
     HseExtensions
     ParserValidation
     ShrinkUtils
+    StackageProgress.Summary
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
@@ -104,35 +105,35 @@ library parser-tooling-common
   ghc-options: -Wall
   default-language: GHC2021
 
-library parser-stackage-progress
+executable aihc-dev
+  main-is: Main.hs
   hs-source-dirs:
+    exe
     ../../components/aihc-parser/app/stackage-progress
-    ../../components/aihc-parser/common
-
-  exposed-modules:
-    StackageProgress.CLI
-    StackageProgress.Run
+    ../../components/aihc-resolve/app/resolve-stackage-progress
 
   other-modules:
-    ConcurrentProgress
-    CppSupport
-    GhcOracle
-    HackageSupport
-    HseExtensions
-    ParserValidation
-    ShrinkUtils
+    Aihc.Dev.HackageTester.Run
+    BootInterface
+    ResolveStackageProgress
+    StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
     StackageProgress.PackageRunner
+    StackageProgress.Run
     StackageProgress.Snapshot
-    StackageProgress.Summary
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
-    Diff,
+    aeson >=2.0 && <2.3,
+    aeson-pretty >=0.8 && <0.9,
     aihc-cpp,
+    aihc-dev:extract-hi,
+    aihc-dev:parser-tooling-common,
+    aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,
+    aihc-resolve,
     async,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
@@ -144,64 +145,7 @@ library parser-stackage-progress
     haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
-    text >=1.2.3 && <2.2,
-
-  ghc-options: -Wall
-  default-language: GHC2021
-
-library resolve-stackage-progress
-  hs-source-dirs:
-    ../../components/aihc-resolve/app/resolve-stackage-progress
-
-  exposed-modules:
-    ResolveStackageProgress
-
-  other-modules:
-    BootInterface
-
-  build-depends:
-    Cabal-syntax >=3.14 && <3.17,
-    aeson >=2.0 && <2.3,
-    aihc-cpp,
-    aihc-hackage,
-    aihc-parser,
-    aihc-resolve,
-    async,
-    base >=4.16 && <5,
-    bytestring >=0.10.8 && <0.13,
-    containers >=0.5 && <0.8,
-    deepseq,
-    directory >=1.2.3 && <1.5,
-    filepath >=1.3.0.1 && <1.6,
-    optparse-applicative >=0.16 && <0.19,
     process >=1.6 && <1.8,
-    text >=1.2.3 && <2.2,
-
-  ghc-options: -Wall
-  default-language: GHC2021
-
-executable aihc-dev
-  main-is: Main.hs
-  hs-source-dirs: exe
-  other-modules:
-    Aihc.Dev.HackageTester.Run
-
-  build-depends:
-    aeson >=2.0 && <2.3,
-    aeson-pretty >=0.8 && <0.9,
-    aihc-cpp,
-    aihc-dev:extract-hi,
-    aihc-dev:parser-stackage-progress,
-    aihc-dev:parser-tooling-common,
-    aihc-dev:resolve-stackage-progress,
-    aihc-dev:snippet,
-    aihc-hackage,
-    aihc-parser,
-    base >=4.16 && <5,
-    bytestring >=0.10.8 && <0.13,
-    directory >=1.2.3 && <1.5,
-    filepath >=1.3.0.1 && <1.6,
-    optparse-applicative >=0.16 && <0.19,
     text >=1.2.3 && <2.2,
     yaml >=0.11 && <0.12,
 
