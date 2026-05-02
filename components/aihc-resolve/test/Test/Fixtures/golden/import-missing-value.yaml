@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module ValidModule where
+    valid_fn :: Int
+    valid_fn = 1
+  - |
+    module Main where
+    import ValidModule (missing_fn)
+    x = missing_fn
+status: xfail
+reason: "Missing value imports are not detected as import-level errors when the imported name is absent."
+annotated: []

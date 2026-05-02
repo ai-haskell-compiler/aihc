@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module ValidModule where
+    data FoundType = FoundConstructor
+  - |
+    module Main where
+    import ValidModule (MissingType(..))
+    x :: MissingType
+    x = 1
+status: xfail
+reason: "Type wildcard imports of missing types are not explicitly reported; missing type names are only caught indirectly."
+annotated: []

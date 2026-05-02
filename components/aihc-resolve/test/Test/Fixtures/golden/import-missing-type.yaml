@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module ValidModule where
+    data FoundType = FoundConstructor
+  - |
+    module Main where
+    import ValidModule (MissingType)
+    x :: MissingType
+    x = 1
+status: xfail
+reason: "Missing type imports are not diagnosed at import time, so the missing type only surfaces as downstream name resolution failures."
+annotated: []
