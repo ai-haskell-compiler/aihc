@@ -141,5 +141,26 @@ resolveErrorsTests =
             assertEqual
               "unresolved names should remain annotated and also populate resolveErrors"
               1
+              (length actual),
+      testCase "collects missing module imports into ResolveResult" $ do
+        let source = "module Main where\nimport Missing.Foo\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError span' name namespace msg] -> do
+            assertEqual "error name" "Missing.Foo" name
+            assertEqual "error namespace" ResolutionNamespaceModule namespace
+            assertEqual "error message" "not found" msg
+            case span' of
+              SourceSpan _ 2 8 2 19 _ _ -> pure ()
+              _ ->
+                assertFailure
+                  ("unexpected error source span: " <> show span')
+          actual ->
+            assertEqual
+              "missing module imports should remain annotated and also populate resolveErrors"
+              1
               (length actual)
     ]
