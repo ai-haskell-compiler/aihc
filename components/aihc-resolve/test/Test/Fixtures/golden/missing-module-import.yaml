@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    import Missing.Foo
+    x = importedValue
+expected: |
+  Main:
+    - "3:1-3:13 x => (value) Main.x"
+    - "3:5-3:18 importedValue => (value) Error unbound"
+annotated:
+  - |
+    module Main where
+    import Missing.Foo
+    x = importedValue
+    │  └─ v Main
+    └─ (unknown)
+status: xfail
+reason: "Missing-module imports are currently treated as empty imports, so unbound uses resolve as plain unbound names instead of a dedicated module-not-found error."
