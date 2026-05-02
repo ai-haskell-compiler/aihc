@@ -8,6 +8,7 @@ modules:
     f x# = addInt# x# 1#
 expected:
   Main:
+    - "2:8-2:16 GHC.Exts => (module) Error not found"
     - "3:1-3:2 f => (value) Main.f"
     - "3:6-3:10 Int# => (type) Builtin Int#"
     - "3:14-3:18 Int# => (type) Builtin Int#"
@@ -19,6 +20,7 @@ annotated:
   - |
     module Main where
     import GHC.Exts (Int#, addInt#)
+           └─ m Error not found
     f :: Int# -> Int#
     │    │       └─ t Builtin Int#
     │    └─ t Builtin Int#

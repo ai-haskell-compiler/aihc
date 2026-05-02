@@ -4,6 +4,7 @@
 module Aihc.Resolve.Types
   ( pattern DeclResolution,
     pattern EResolution,
+    pattern ImportResolution,
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
@@ -21,6 +22,7 @@ where
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
+    ImportDecl (..),
     Module (..),
     Name (..),
     Pattern (..),
@@ -35,7 +37,7 @@ import Aihc.Parser.Syntax
 import Data.Data (Data, cast, gmapQ)
 import Data.List (intercalate, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -49,6 +51,7 @@ data ResolvedName
 data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
+  | ResolutionNamespaceModule
   deriving (Eq, Show)
 
 data ResolutionAnnotation = ResolutionAnnotation
@@ -88,6 +91,12 @@ pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
 pattern EResolution :: ResolutionAnnotation -> Expr
 pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _
 
+pattern ImportResolution :: ResolutionAnnotation -> ImportDecl
+pattern ImportResolution resolution <- (importResolutionAnnotation -> Just resolution)
+
+importResolutionAnnotation :: ImportDecl -> Maybe ResolutionAnnotation
+importResolutionAnnotation = listToMaybe . mapMaybe fromAnnotation . importDeclAnns
+
 renderResolveResult :: ResolveResult -> String
 renderResolveResult result =
   intercalate "\n" (map renderModuleAnnotations (sortOn fst (mergeModules (collectModules (resolvedModules result) <> resolvedAnnotations result))))
@@ -115,6 +124,7 @@ renderResolutionNamespace namespace =
   case namespace of
     ResolutionNamespaceTerm -> "(value)"
     ResolutionNamespaceType -> "(type)"
+    ResolutionNamespaceModule -> "(module)"
 
 annotationKey :: ResolutionAnnotation -> (Int, Int, Int, Int, Text)
 annotationKey ann =
@@ -155,6 +165,7 @@ collectAnnotations node =
 ownAnnotation :: (Data a) => a -> [ResolutionAnnotation]
 ownAnnotation node =
   declResolution (cast node)
+    <> importResolution (cast node)
     <> patternResolution (cast node)
     <> typeResolution (cast node)
     <> exprResolution (cast node)
@@ -163,6 +174,12 @@ declResolution :: Maybe Decl -> [ResolutionAnnotation]
 declResolution maybeDecl =
   case maybeDecl of
     Just (DeclResolution resolution) -> [resolution]
+    _ -> []
+
+importResolution :: Maybe ImportDecl -> [ResolutionAnnotation]
+importResolution maybeImport =
+  case maybeImport of
+    Just (ImportResolution resolution) -> [resolution]
     _ -> []
 
 patternResolution :: Maybe Pattern -> [ResolutionAnnotation]
@@ -253,6 +270,7 @@ renderConciseNamespace namespace =
   case namespace of
     ResolutionNamespaceTerm -> "v"
     ResolutionNamespaceType -> "t"
+    ResolutionNamespaceModule -> "m"
 
 renderConciseOrigin :: ResolvedName -> String
 renderConciseOrigin resolvedName =

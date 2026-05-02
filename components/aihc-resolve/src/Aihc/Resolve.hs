@@ -6,6 +6,7 @@
 module Aihc.Resolve
   ( pattern DeclResolution,
     pattern EResolution,
+    pattern ImportResolution,
     pattern PResolution,
     pattern TResolution,
     resolve,
@@ -40,6 +41,7 @@ import Aihc.Parser.Syntax
     GuardedRhs (..),
     ImportDecl (..),
     ImportItem (..),
+    ImportLevel (..),
     ImportSpec (..),
     Match (..),
     Module (..),
@@ -139,6 +141,7 @@ collectResolveErrors node =
 ownResolveErrors :: (Data a) => a -> [ResolveError]
 ownResolveErrors node =
   declResolutionErrors (cast node)
+    <> importResolutionErrors (cast node)
     <> patternResolutionErrors (cast node)
     <> typeResolutionErrors (cast node)
     <> exprResolutionErrors (cast node)
@@ -147,6 +150,12 @@ declResolutionErrors :: Maybe Decl -> [ResolveError]
 declResolutionErrors maybeDecl =
   case maybeDecl of
     Just (DeclResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
+importResolutionErrors maybeImport =
+  case maybeImport of
+    Just (ImportResolution resolution) -> maybeToList (annotationResolveError resolution)
     _ -> []
 
 patternResolutionErrors :: Maybe Pattern -> [ResolveError]
@@ -203,11 +212,30 @@ extractInterface = collectModuleExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
-  let scope = moduleScope exports modu
+  let imports' = resolveModuleImports exports (moduleImports modu)
+      modu' = modu {moduleImports = imports'}
+      scope = moduleScope exports modu'
       (nextLocal', resolvedDecls) = resolveTopLevelDecls scope nextLocal Map.empty (moduleDecls modu)
       decls' = map snd resolvedDecls
       annotations = concatMap fst resolvedDecls
-   in (nextLocal', annotations, modu {moduleDecls = decls'})
+   in (nextLocal', annotations, modu' {moduleDecls = decls'})
+
+resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
+resolveModuleImports exports =
+  map resolveModuleImport
+  where
+    resolveModuleImport importDecl
+      | Map.member (importDeclModule importDecl) exports = importDecl
+      | otherwise = annotateImport (missingModuleImportAnnotation importDecl) importDecl
+
+missingModuleImportAnnotation :: ImportDecl -> ResolutionAnnotation
+missingModuleImportAnnotation importDecl =
+  let importedModule = importDeclModule importDecl
+   in ResolutionAnnotation
+        (importModuleNameSpan importDecl)
+        importedModule
+        ResolutionNamespaceModule
+        (ResolvedError "not found")
 
 resolveTopLevelDecls :: Scope -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [([ResolutionAnnotation], Decl)])
 resolveTopLevelDecls _ nextLocal _ [] = (nextLocal, [])
@@ -1173,6 +1201,58 @@ annotatePattern annotation = PAnn (mkAnnotation annotation)
 
 annotateType :: ResolutionAnnotation -> Type -> Type
 annotateType annotation = TAnn (mkAnnotation annotation)
+
+annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
+annotateImport annotation importDecl =
+  importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
+
+importModuleNameSpan :: ImportDecl -> SourceSpan
+importModuleNameSpan importDecl =
+  shiftSpanStartNameSpan (sourceSpanFromAnns (importDeclAnns importDecl)) prefixWidth (importDeclModule importDecl)
+  where
+    prefixWidth =
+      T.length "import "
+        + safeWidth
+        + sourcePragmaWidth
+        + preQualifiedWidth
+        + levelWidth
+        + packageWidth
+    safeWidth
+      | importDeclSafe importDecl = T.length "safe "
+      | otherwise = 0
+    sourcePragmaWidth =
+      case importDeclSourcePragma importDecl of
+        Just _ -> T.length "{-# SOURCE #-} "
+        Nothing -> 0
+    preQualifiedWidth
+      | importDeclQualified importDecl && not (importDeclQualifiedPost importDecl) = T.length "qualified "
+      | otherwise = 0
+    levelWidth =
+      case importDeclLevel importDecl of
+        Just ImportLevelQuote -> T.length "quote "
+        Just ImportLevelSplice -> T.length "splice "
+        Nothing -> 0
+    packageWidth =
+      case importDeclPackage importDecl of
+        Just packageName -> T.length packageName + T.length "\"\" "
+        Nothing -> 0
+
+shiftSpanStartNameSpan :: SourceSpan -> Int -> Text -> SourceSpan
+shiftSpanStartNameSpan span' offset name =
+  case span' of
+    SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
+      let shiftedStartOffset = startOffset + offset
+          shifted =
+            SourceSpan
+              sourceName
+              startLine
+              (startCol + offset)
+              startLine
+              (startCol + offset)
+              shiftedStartOffset
+              endOffset
+       in spanStartNameSpan shifted name
+    NoSourceSpan -> NoSourceSpan
 
 declKeywordNameSpan :: Text -> SourceSpan -> Text -> SourceSpan
 declKeywordNameSpan keyword span' name =
