@@ -212,6 +212,27 @@ parse_resolve_stackage_progress() {
   ' "$infile"
 }
 
+progress_circles() {
+	local complete="$1"
+	awk -v complete="$complete" '
+    BEGIN {
+      filled = int(complete / 20)
+      if (filled < 0) {
+        filled = 0
+      } else if (filled > 5) {
+        filled = 5
+      }
+
+      for (i = 1; i <= filled; i++) {
+        printf "●"
+      }
+      for (i = filled + 1; i <= 5; i++) {
+        printf "○"
+      }
+    }
+  '
+}
+
 parser_vals=($(parse_progress "$parser_out")) || {
 	echo "update-generated-content.sh: could not parse parser-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
 	exit 2
@@ -306,37 +327,44 @@ resolve_stackage_complete="${resolve_stackage_vals[2]}"
 parser_total_tests=$((parser_total + ext_test_total))
 parser_passing_tests=$((parser_implemented + ext_implemented))
 parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
+parser_total_circles="$(progress_circles "$parser_total_complete")"
+cpp_circles="$(progress_circles "$cpp_complete")"
+stackage_circles="$(progress_circles "$stackage_complete")"
+resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
+lexer_circles="$(progress_circles "$lexer_complete")"
+resolve_circles="$(progress_circles "$resolve_complete")"
+tc_circles="$(progress_circles "$tc_complete")"
 
 # extract extension name lists (alphabetically sorted, comma-separated) from the markdown table if present
 ext_supported_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "Supported") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 ext_in_progress_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "In Progress") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
 
 cat >"$tmpdir/readme-root-parser.txt" <<EOF2
-\`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`)
+\`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) ${parser_total_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-cpp.txt" <<EOF2
-\`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`)
+\`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`) ${cpp_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-stackage.txt" <<EOF2
-\`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`)
+\`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`) ${stackage_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-resolve-stackage.txt" <<EOF2
-\`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`)
+\`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`) ${resolve_stackage_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-lexer.txt" <<EOF2
-\`${lexer_implemented}/${lexer_total}\` (\`${lexer_complete}%\`)
+\`${lexer_implemented}/${lexer_total}\` (\`${lexer_complete}%\`) ${lexer_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
-\`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`)
+\`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-tc.txt" <<EOF2
-\`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`)
+\`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`) ${tc_circles}
 EOF2
 
 cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
