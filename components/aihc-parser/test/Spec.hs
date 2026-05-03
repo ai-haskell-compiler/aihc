@@ -290,7 +290,7 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
           EParen (EOverloadedLabel "a" "#a")
         ]
       rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
-      expected = ["( #a, )", "[ #a]", "( #a)"]
+      expected = ["( #a,\n   )", "[ #a]", "( #a)"]
   assertEqual "pretty-printed forms" expected rendered
   mapM_
     ( \source ->
@@ -796,7 +796,7 @@ test_quasiQuotesDoNotEnableTHNameQuotes = do
 test_prettyCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyCaseExpressionUsesImplicitLayout = do
   let source = "case x of { 0 -> 1; _ -> 2 }"
-      expected = T.intercalate "\n" ["case x of", "  0 -> 1", "  _ -> 2"]
+      expected = T.intercalate "\n" ["case x of", "  0 ->", "    1", "  _ ->", "    2"]
   case parseExpr defaultConfig source of
     ParseOk expr -> do
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
@@ -812,7 +812,7 @@ test_prettyCaseExpressionUsesImplicitLayout = do
 test_prettyLetExpressionUsesImplicitLayout :: Assertion
 test_prettyLetExpressionUsesImplicitLayout = do
   let source = "let { x = 10 } in x + x"
-      expected = T.intercalate "\n" ["let", "  x = 10", "in x + x"]
+      expected = T.intercalate "\n" ["let", "  x =", "    10", "in x", " + x"]
   case parseExpr defaultConfig source of
     ParseOk expr -> do
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
@@ -847,8 +847,12 @@ test_prettyNegatedLayoutEndingListCompBody = do
       expected =
         T.intercalate
           "\n"
-          [ "[-0.0 case 0.0 of",
-            "  0 | let {  } -> \"\"",
+          [ "[-0.0",
+            "  case 0.0 of",
+            "    0",
+            "      | let {  }",
+            "       ->",
+            "        \"\"",
             " | let {  }]"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
@@ -892,9 +896,13 @@ test_prettyLayoutLetGuardInMultiWayIf = do
         T.intercalate
           "\n"
           [ "if { | let",
-            "  x = () :: a",
-            " -> case '5' of",
-            "  (+) -> 0 }"
+            "  x =",
+            "    ()",
+            "     :: a",
+            " ->",
+            "  case '5' of",
+            "    (+) ->",
+            "      0 }"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" expected rendered
@@ -910,9 +918,11 @@ test_prettyWhereClauseUsesImplicitLayout = do
       expected =
         T.intercalate
           "\n"
-          [ "f x = x",
+          [ "f x =",
+            "  x",
             "  where",
-            "    y = 1"
+            "    y =",
+            "      1"
           ]
   case parseDecl defaultConfig source of
     ParseOk decl -> do
@@ -964,7 +974,7 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCaseExpressionUsesImplicitLayout = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
       source = "\\case { 0 -> 1; _ -> 2 }"
-      expected = T.intercalate "\n" ["\\case", "  0 -> 1", "  _ -> 2"]
+      expected = T.intercalate "\n" ["\\case", "  0 ->", "    1", "  _ ->", "    2"]
   case parseExpr config source of
     ParseOk expr -> do
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
@@ -982,9 +992,11 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
           "\n"
           [ "f =",
             "  \\case",
-            "    0 -> 1",
+            "    0 ->",
+            "      1",
             "  where",
-            "    g = 2"
+            "    g =",
+            "      2"
           ]
   case parseDecl config declSource of
     ParseOk decl -> do
@@ -1001,11 +1013,15 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
       guardedDeclExpected =
         T.intercalate
           "\n"
-          [ "a = \\case",
-            "  0",
-            "    | let",
-            "      a = () :: ()",
-            "     -> ()"
+          [ "a =",
+            "  \\case",
+            "    0",
+            "      | let",
+            "        a =",
+            "          ()",
+            "           :: ()",
+            "       ->",
+            "        ()"
           ]
   case parseDecl config guardedDeclSource of
     ParseOk decl -> do
@@ -1023,7 +1039,7 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCasesExpressionUsesImplicitLayout = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
       source = "\\cases { True False -> 0; _ _ -> 1 }"
-      expected = T.intercalate "\n" ["\\cases", "  True False -> 0", "  _ _ -> 1"]
+      expected = T.intercalate "\n" ["\\cases", "  True False ->", "    0", "  _ _ ->", "    1"]
   case parseExpr config source of
     ParseOk expr -> do
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
@@ -1041,9 +1057,11 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout = do
           "\n"
           [ "f =",
             "  \\cases",
-            "    0 -> 1",
+            "    0 ->",
+            "      1",
             "  where",
-            "    g = 2"
+            "    g =",
+            "      2"
           ]
   case parseDecl config declSource of
     ParseOk decl -> do
@@ -1065,10 +1083,14 @@ test_prettyClassDeclarationUsesImplicitLayout = do
           "\n"
           [ "class C a where",
             "  f :: a -> Int",
-            "  f x = case x of",
-            "    0 -> 1",
-            "    _ -> 2",
-            "  g = 3"
+            "  f x =",
+            "    case x of",
+            "      0 ->",
+            "        1",
+            "      _ ->",
+            "        2",
+            "  g =",
+            "    3"
           ]
   case parseDecl defaultConfig source of
     ParseOk decl -> do
@@ -1089,10 +1111,14 @@ test_prettyInstanceDeclarationUsesImplicitLayout = do
         T.intercalate
           "\n"
           [ "instance C a where",
-            "  f x = case x of",
-            "    0 -> 1",
-            "    _ -> 2",
-            "  g = 3"
+            "  f x =",
+            "    case x of",
+            "      0 ->",
+            "        1",
+            "      _ ->",
+            "        2",
+            "  g =",
+            "    3"
           ]
   case parseDecl defaultConfig source of
     ParseOk decl -> do
@@ -1132,8 +1158,10 @@ test_prettyLayoutEndingOperandInsideLeftSection = do
       expected =
         T.intercalate
           "\n"
-          [ "([0 ..] `a` \\case",
-            "  [] -> a",
+          [ "([0 ..]",
+            " `a` \\case",
+            "  [] ->",
+            "    a",
             " `a`)"
           ]
   case parseExpr config source of
@@ -1168,9 +1196,12 @@ test_prettyTypeAppAfterLayoutEndingFunction = do
       expected =
         T.intercalate
           "\n"
-          [ "(+) = 0 \\case",
-            "  0.0 -> \"\"#",
-            " @(# _ | * #)"
+          [ "(+) =",
+            "  0",
+            "    \\case",
+            "      0.0 ->",
+            "        \"\"#",
+            "   @(# _ | * #)"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertEqual "pretty-printed declaration" expected rendered
@@ -1194,9 +1225,13 @@ test_prettyTypeSigAfterLayoutEndingFunction = do
       expected =
         T.intercalate
           "\n"
-          [ "(:+) = [d|  |] \\case",
-            "  _ -> '1'",
-            " :: [a||]"
+          [ "(:+) =",
+            "  [d|",
+            "    |]",
+            "    \\case",
+            "      _ ->",
+            "        '1'",
+            "   :: [a||]"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertEqual "pretty-printed declaration" expected rendered
@@ -1243,12 +1278,18 @@ test_prettyOperatorAfterLayoutDoBlock = do
       expected =
         T.intercalate
           "\n"
-          [ "do {",
-            "let",
-            "  f x = \\case",
-            "    -134 | (# #) <- 'n' -> 85.3",
-            "}",
-            " + (#  |  |  | 0 #)"
+          [ "do",
+            "   let",
+            "      f x =",
+            "        \\case",
+            "          -134",
+            "            | (# #) <- 'n'",
+            "             ->",
+            "              85.3",
+            " + (# ",
+            "        | ",
+            "        | ",
+            "        | 0 #)"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" expected rendered
@@ -1356,7 +1397,7 @@ test_viewExprAppliedTypeSigParens = do
           (PCon conC [] [])
       parenthesized = addPatternParens pat
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-  assertEqual "rendered pattern" "(([] (if a then a else [] :: 'C -> C)) -> C)" rendered
+  assertEqual "rendered pattern" "(([]\n  (if a then a else []\n   :: 'C -> C))\n -> C)" rendered
   case parsePattern config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)

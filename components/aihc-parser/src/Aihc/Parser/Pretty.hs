@@ -42,6 +42,8 @@ import Prettyprinter
     hardline,
     hsep,
     indent,
+    nest,
+    nesting,
     parens,
     punctuate,
     semi,
@@ -55,6 +57,11 @@ import Prettyprinter
 -- minus sign (e.g. a negated literal pattern in a let binding).
 spacedBraces :: Doc ann -> Doc ann
 spacedBraces d = "{" <+> d <+> "}"
+
+prettyRawText :: Text -> Doc ann
+prettyRawText raw
+  | T.isInfixOf "\n" raw = nesting $ \level -> nest (negate level) (pretty raw)
+  | otherwise = pretty raw
 
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
@@ -359,38 +366,37 @@ prettyFunctionHead name headForm pats =
 prettyRhs :: Rhs Expr -> Doc ann
 prettyRhs rhs =
   case rhs of
-    UnguardedRhs _ body whereDecls
-      | isJust whereDecls && exprEndsWithLayoutCase body ->
-          "="
-            <> hardline
-            <> indent 2 (prettyExpr body)
-            <> hardline
-            <> indent 2 (prettyWhereClauseBare whereDecls)
     UnguardedRhs _ body whereDecls ->
-      "=" <+> prettyExpr body <> prettyWhereClause whereDecls
-    GuardedRhss _ guards whereDecls
-      | guardedRhssNeedLayoutBlock guards whereDecls ->
-          hardline <> indent 2 (prettyGuardedRhssBlock guards whereDecls)
+      "="
+        <> hardline
+        <> indent 2 (prettyExpr body)
+        <> prettyIndentedWhereClause whereDecls
     GuardedRhss _ guards whereDecls ->
-      hsep
-        (map (prettyGuardedRhs "=") guards)
-        <> prettyWhereClause whereDecls
-
-prettyWhereClause :: Maybe [Decl] -> Doc ann
-prettyWhereClause Nothing = mempty
-prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
-prettyWhereClause (Just decls)
-  | any declContainsMultilineString decls = " where" <+> spacedBraces (prettyInlineDecls decls)
-prettyWhereClause (Just decls) =
-  hardline <> indent 2 ("where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls)))
+      hardline <> indent 2 (prettyGuardedRhssBlock guards whereDecls)
 
 prettyWhereClauseBare :: Maybe [Decl] -> Doc ann
 prettyWhereClauseBare Nothing = mempty
 prettyWhereClauseBare (Just []) = "where" <+> spacedBraces mempty
-prettyWhereClauseBare (Just decls)
-  | any declContainsMultilineString decls = "where" <+> spacedBraces (prettyInlineDecls decls)
 prettyWhereClauseBare (Just decls) =
   "where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls))
+
+prettyIndentedWhereClause :: Maybe [Decl] -> Doc ann
+prettyIndentedWhereClause Nothing = mempty
+prettyIndentedWhereClause whereDecls = hardline <> indent 2 (prettyWhereClauseBare whereDecls)
+
+prettyTHDeclQuote :: [Decl] -> Doc ann
+prettyTHDeclQuote [] =
+  hang 2 $
+    "[d|"
+      <> hardline
+      <> "|]"
+prettyTHDeclQuote decls =
+  hang 2 $
+    "[d|"
+      <> hardline
+      <> vsep (concatMap prettyDeclLines decls)
+      <> hardline
+      <> "|]"
 
 -- | Infix type-family heads use @l \`Op\` r@ with a 'NameConId' operator (e.g.
 -- @\`And\`@), so 'isSymbolicTypeName' is false; 'TypeHeadInfix' already marks
@@ -510,15 +516,12 @@ prettyPattern pat =
     PTuple tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
     PUnboxedSum altIdx arity inner ->
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
-       in hsep ["(#", hsep (punctuate " |" slots), "#)"]
+       in hsep ["(#", prettyBarSeparated slots, "#)"]
     PList elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon con typeArgs args -> hsep ([prettyPrefixName con] <> map prettyInvisibleTypeArg typeArgs <> map prettyPattern args)
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
-    PView viewExpr inner
-      | exprEndsWithLayoutCase viewExpr ->
-          prettyExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
     PView viewExpr inner ->
-      prettyExpr viewExpr <+> "->" <+> prettyPattern inner
+      prettyExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
     PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
@@ -552,8 +555,8 @@ prettyLiteral lit =
     LitFloat _ _ repr -> pretty repr
     LitChar _ repr -> pretty repr
     LitCharHash _ repr -> pretty repr
-    LitString _ repr -> pretty repr
-    LitStringHash _ repr -> pretty repr
+    LitString _ repr -> prettyRawText repr
+    LitStringHash _ repr -> prettyRawText repr
     LitAnn {} -> error "unreachable"
 
 prettyDataDecl :: DataDecl -> Doc ann
@@ -1103,9 +1106,7 @@ prettyExpr expr =
   case expr of
     EApp {} -> prettyApp expr
     ETypeApp fn ty ->
-      if exprEndsWithLayoutCase fn
-        then prettyExpr fn <> hardline <> " " <> "@" <> prettyType ty
-        else prettyExpr fn <+> "@" <> prettyType ty
+      prettyExpr fn <> hardline <> " " <> "@" <> prettyType ty
     EVar name -> prettyName name
     ETypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
     ETypeSyntax TypeSyntaxInTerm ty -> prettyType ty
@@ -1113,20 +1114,13 @@ prettyExpr expr =
     EFloat _ _ repr -> pretty repr
     EChar _ repr -> pretty repr
     ECharHash _ repr -> pretty repr
-    EString _ repr -> pretty repr
-    EStringHash _ repr -> pretty repr
+    EString _ repr -> prettyRawText repr
+    EStringHash _ repr -> prettyRawText repr
     EOverloadedLabel _ raw -> pretty (" " <> raw)
     EQuasiQuote quoter body -> prettyQuasiQuote quoter body
     ETHExpQuote body -> "[|" <+> prettyExpr body <+> "|]"
     ETHTypedQuote body -> "[||" <+> prettyExpr body <+> "||]"
-    ETHDeclQuote decls
-      | any declContainsLayoutCase decls ->
-          "[d|"
-            <> hardline
-            <> indent 2 (vsep (concatMap prettyDeclLines decls))
-            <> hardline
-            <> indent 2 "|]"
-      | otherwise -> "[d|" <+> prettyInlineDecls decls <+> "|]"
+    ETHDeclQuote decls -> prettyTHDeclQuote decls
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote body -> "' " <> prettyExpr body
@@ -1147,14 +1141,10 @@ prettyExpr expr =
     ELambdaCases alts ->
       "\\" <> "cases" <> prettyCaseLayout (map prettyLambdaCaseAlt alts)
     EInfix lhs op rhs ->
-      if exprEndsWithLayoutCase lhs
-        then prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
-        else prettyExpr lhs <+> prettyNameInfixOp op <+> prettyExpr rhs
+      prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
     ESectionL lhs op ->
-      if exprEndsWithLayoutCase lhs
-        then prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
-        else prettyExpr lhs <+> prettyNameInfixOp op
+      prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
     ESectionR op rhs -> prettyNameInfixOp op <+> prettyExpr rhs
     ELetDecls decls body ->
       case decls of
@@ -1163,24 +1153,20 @@ prettyExpr expr =
     ECase scrutinee alts ->
       prettyCaseExpr prettyCaseLayout scrutinee alts
     EDo stmts flavor ->
-      prettyDoFlavor flavor <> prettyDoLayout prettyDoStmt doStmtContainsLayoutCase stmts
+      prettyDoFlavor flavor <> prettyDoLayout prettyDoStmt stmts
     EListComp body quals ->
       brackets
-        ( let qualifiers = prettyCommaSeparated prettyCompStmt compStmtContainsLayoutCase quals
-           in if exprEndsWithLayoutCase body
-                then prettyExpr body <> hardline <> " |" <+> qualifiers
-                else prettyExpr body <+> "|" <+> qualifiers
+        ( let qualifiers = prettyCommaSeparated prettyCompStmt quals
+           in prettyExpr body <> hardline <> " |" <+> qualifiers
         )
     EListCompParallel body qualifierGroups ->
       brackets
         ( let qualifiers =
                 prettyBarSeparated
-                  [ (prettyCommaSeparated prettyCompStmt compStmtContainsLayoutCase group, any compStmtContainsLayoutCase group)
+                  [ prettyCommaSeparated prettyCompStmt group
                   | group <- qualifierGroups
                   ]
-           in if exprEndsWithLayoutCase body
-                then prettyExpr body <> hardline <> " |" <+> qualifiers
-                else prettyExpr body <+> "|" <+> qualifiers
+           in prettyExpr body <> hardline <> " |" <+> qualifiers
         )
     EArithSeq seqInfo -> prettyArithSeq seqInfo
     ERecordCon name fields hasWildcard ->
@@ -1192,9 +1178,7 @@ prettyExpr expr =
     EGetFieldProjection fields ->
       "." <> mconcat (punctuate "." (map prettyName fields))
     ETypeSig inner ty ->
-      if exprEndsWithLayoutCase inner
-        then prettyExpr inner <> hardline <> " " <> "::" <+> prettyType ty
-        else prettyExpr inner <+> "::" <+> prettyType ty
+      prettyExpr inner <> hardline <> " " <> "::" <+> prettyType ty
     EParen inner -> case inner of
       ECase scrutinee alts ->
         parens (prettyCaseExpr prettyCaseLayoutAligned scrutinee alts)
@@ -1207,12 +1191,12 @@ prettyExpr expr =
       -- A trailing space produces "(x # )" which is unambiguous.
       ESectionL _ op | T.isSuffixOf "#" (renderName op) -> parens (prettyExpr inner <> " ")
       _ -> parens (prettyExpr inner)
-    EList values -> brackets (prettyCommaSeparated prettyExpr exprEndsWithLayoutCase values)
+    EList values -> brackets (prettyCommaSeparated prettyExpr values)
     ETuple Unboxed [] -> "(# #)"
     ETuple tupleFlavor values ->
-      prettyTupleBody tupleFlavor (prettyCommaSeparated (maybe mempty prettyExpr) (maybe False exprEndsWithLayoutCase) values)
+      prettyTupleBody tupleFlavor (prettyCommaSeparated (maybe mempty prettyExpr) values)
     EUnboxedSum altIdx arity inner ->
-      let slots = [(if i == altIdx then prettyExpr inner else mempty, i == altIdx && exprEndsWithLayoutCase inner) | i <- [0 .. arity - 1]]
+      let slots = [if i == altIdx then prettyExpr inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", prettyBarSeparated slots, "#)"]
     EProc pat body ->
       "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
@@ -1221,46 +1205,29 @@ prettyExpr expr =
     EAnn _ sub -> prettyExpr sub
 
 prettyApp :: Expr -> Doc ann
-prettyApp expr =
+prettyApp = prettyAppWith prettyExpr
+
+prettyAppWith :: (Expr -> Doc ann) -> Expr -> Doc ann
+prettyAppWith prettyFn expr =
   let (fn, args) = flattenApps expr
-      docs = prettyExpr fn : map prettyExpr args
-   in if any exprEndsWithLayoutCase (init args)
-        then vsep (prettyExpr fn : map (indent 2 . prettyExpr) args)
-        else hsep docs
+   in vsep (prettyFn fn : map (indent 2 . prettyExpr) args)
   where
     flattenApps = go []
     go args (EAnn _ sub) = go args sub
     go args (EApp fn arg) = go (arg : args) fn
     go args root = (root, args)
 
-prettySemiBlock :: (a -> Doc ann) -> (a -> Bool) -> [a] -> Doc ann
-prettySemiBlock render endsWithLayout items =
-  "{" <+> prettySemiSeparated render endsWithLayout items <+> "}"
-
-prettySemiSeparated :: (a -> Doc ann) -> (a -> Bool) -> [a] -> Doc ann
-prettySemiSeparated render endsWithLayout items =
+prettyCommaSeparated :: (a -> Doc ann) -> [a] -> Doc ann
+prettyCommaSeparated render items =
   case map render items of
     [] -> mempty
-    rendered@(firstItem : restItems)
-      | any endsWithLayout (init items) -> vsep (firstItem : map (semi <+>) restItems)
-      | otherwise -> hsep (punctuate semi rendered)
+    rendered -> hang 2 (vsep (punctuate comma rendered))
 
-prettyCommaSeparated :: (a -> Doc ann) -> (a -> Bool) -> [a] -> Doc ann
-prettyCommaSeparated render endsWithLayout items =
-  case map render items of
-    [] -> mempty
-    rendered@(firstItem : restItems)
-      | any endsWithLayout (init items) -> vsep (firstItem : map ((" " <> comma) <+>) restItems)
-      | otherwise -> hsep (punctuate comma rendered)
-
-prettyBarSeparated :: [(Doc ann, Bool)] -> Doc ann
+prettyBarSeparated :: [Doc ann] -> Doc ann
 prettyBarSeparated items =
   case items of
     [] -> mempty
-    (firstItem, _) : restItems
-      | any snd (init items) ->
-          vsep (firstItem : map (((" " <> "|") <+>) . fst) restItems)
-      | otherwise -> hsep (punctuate " |" (map fst items))
+    firstItem : restItems -> hang 2 (vsep (firstItem : map ("|" <+>) restItems))
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
@@ -1274,119 +1241,50 @@ prettyBinding field =
     then prettyName (recordFieldName field)
     else prettyName (recordFieldName field) <+> "=" <+> prettyExpr (recordFieldValue field)
 
-prettyCaseAltWith :: (body -> Doc ann) -> (body -> Bool) -> CaseAlt body -> Doc ann
-prettyCaseAltWith prettyBody bodyEndsWithLayoutCase (CaseAlt _ pat rhs) =
+prettyCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
+prettyCaseAltWith prettyBody (CaseAlt _ pat rhs) =
   case rhs of
-    UnguardedRhs _ body whereDecls
-      | isJust whereDecls && bodyEndsWithLayoutCase body ->
-          prettyPattern pat
-            <+> "->"
-            <> hardline
-            <> indent 2 (prettyBody body)
-            <> hardline
-            <> indent 2 (prettyWhereClauseBare whereDecls)
     UnguardedRhs _ body whereDecls ->
       prettyPattern pat
         <+> "->"
-        <+> prettyBody body
-        <> prettyWhereClause whereDecls
+        <> hardline
+        <> indent 2 (prettyBody body)
+        <> prettyIndentedWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
-      if guardedBodiesNeedLayoutBlock bodyEndsWithLayoutCase grhss whereDecls
-        then
-          prettyPattern pat
-            <> hardline
-            <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyBody bodyEndsWithLayoutCase) grhss))
-            <> case whereDecls of
-              Nothing -> mempty
-              Just _ -> hardline <> indent 2 (prettyWhereClauseBare whereDecls)
-        else
-          hsep
-            [ prettyPattern pat,
-              hsep (map (prettyCaseGuardedRhs prettyBody) grhss)
-            ]
-            <> prettyWhereClause whereDecls
+      prettyPattern pat
+        <> hardline
+        <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyBody) grhss))
+        <> prettyIndentedWhereClause whereDecls
 
 prettyCaseAlt :: CaseAlt Expr -> Doc ann
-prettyCaseAlt = prettyCaseAltWith prettyExpr exprEndsWithLayoutCase
-
-prettyGuardedRhs :: Text -> GuardedRhs Expr -> Doc ann
-prettyGuardedRhs arrow grhs =
-  let guards = guardedRhsGuards grhs
-      body = guardedRhsBody grhs
-   in if any guardQualifierEndsWithLayoutCase guards
-        then
-          "|"
-            <+> prettyGuardQualifiersLayout guards
-            <> hardline
-            <> " "
-            <> pretty arrow
-            <+> prettyExpr body
-        else
-          "|"
-            <+> prettyGuardQualifiers guards
-            <+> pretty arrow
-            <+> prettyExpr body
+prettyCaseAlt = prettyCaseAltWith prettyExpr
 
 prettyGuardedRhsBodyBlock :: Text -> GuardedRhs Expr -> Doc ann
 prettyGuardedRhsBodyBlock arrow grhs =
   let guards = guardedRhsGuards grhs
       body = guardedRhsBody grhs
-   in if any guardQualifierEndsWithLayoutCase guards
-        then
-          "|"
-            <+> prettyGuardQualifiersLayout guards
-            <> hardline
-            <> " "
-            <> pretty arrow
-            <+> prettyExpr body
-        else
-          if exprEndsWithLayoutCase body
-            then
-              "|"
-                <+> prettyGuardQualifiers guards
-                <+> pretty arrow
-                <> hardline
-                <> indent 2 (prettyExpr body)
-            else prettyGuardedRhs arrow grhs
+   in "|"
+        <+> prettyGuardQualifiersLayout guards
+        <> hardline
+        <> " "
+        <> pretty arrow
+        <> hardline
+        <> indent 2 (prettyExpr body)
 
-prettyCaseGuardedRhs :: (body -> Doc ann) -> GuardedRhs body -> Doc ann
-prettyCaseGuardedRhs prettyBody grhs =
-  "|"
-    <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
-    <+> "->"
-    <+> prettyBody (guardedRhsBody grhs)
-
-prettyCaseGuardedRhsBlock :: (body -> Doc ann) -> (body -> Bool) -> GuardedRhs body -> Doc ann
-prettyCaseGuardedRhsBlock prettyBody bodyEndsWithLayoutCase grhs =
+prettyCaseGuardedRhsBlock :: (body -> Doc ann) -> GuardedRhs body -> Doc ann
+prettyCaseGuardedRhsBlock prettyBody grhs =
   let guards = guardedRhsGuards grhs
       body = guardedRhsBody grhs
-   in if any guardQualifierEndsWithLayoutCase guards
-        then
-          "|"
-            <+> prettyGuardQualifiersLayout guards
-            <> hardline
-            <> " "
-            <> "->"
-            <+> prettyBody body
-        else
-          if bodyEndsWithLayoutCase body
-            then
-              "|"
-                <+> hsep (punctuate comma (map prettyGuardQualifier guards))
-                <+> "->"
-                <> hardline
-                <> indent 2 (prettyBody body)
-            else prettyCaseGuardedRhs prettyBody grhs
+   in "|"
+        <+> prettyGuardQualifiersLayout guards
+        <> hardline
+        <> " "
+        <> "->"
+        <> hardline
+        <> indent 2 (prettyBody body)
 
 prettyMultiWayIfRhss :: [GuardedRhs Expr] -> Doc ann
-prettyMultiWayIfRhss rhss =
-  if guardedBodiesNeedLayoutBlock exprEndsWithLayoutCase rhss Nothing
-    then vsep (map (prettyGuardedRhsBodyBlock "->") rhss)
-    else hsep (map (prettyGuardedRhs "->") rhss)
-
-prettyGuardQualifiers :: [GuardQualifier] -> Doc ann
-prettyGuardQualifiers qualifiers =
-  hsep (punctuate comma (map prettyGuardQualifier qualifiers))
+prettyMultiWayIfRhss rhss = vsep (map (prettyGuardedRhsBodyBlock "->") rhss)
 
 prettyGuardQualifiersLayout :: [GuardQualifier] -> Doc ann
 prettyGuardQualifiersLayout qualifiers =
@@ -1413,34 +1311,17 @@ prettyCaseLayoutAligned alts = hang 2 (hardline <> vsep alts)
 prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
   case rhs of
-    UnguardedRhs _ body whereDecls
-      | isJust whereDecls && exprEndsWithLayoutCase body ->
-          hsep (map prettyPattern pats)
-            <+> "->"
-            <> hardline
-            <> indent 2 (prettyExpr body)
-            <> hardline
-            <> indent 2 (prettyWhereClauseBare whereDecls)
     UnguardedRhs _ body whereDecls ->
       hsep (map prettyPattern pats)
         <+> "->"
-        <+> prettyExpr body
-        <> prettyWhereClause whereDecls
+        <> hardline
+        <> indent 2 (prettyExpr body)
+        <> prettyIndentedWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
-      if guardedBodiesNeedLayoutBlock exprEndsWithLayoutCase grhss whereDecls
-        then
-          hsep (map prettyPattern pats)
-            <> hardline
-            <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyExpr exprEndsWithLayoutCase) grhss))
-            <> case whereDecls of
-              Nothing -> mempty
-              Just _ -> hardline <> indent 2 (prettyWhereClauseBare whereDecls)
-        else
-          hsep
-            [ hsep (map prettyPattern pats),
-              hsep (map (prettyCaseGuardedRhs prettyExpr) grhss)
-            ]
-            <> prettyWhereClause whereDecls
+      hsep (map prettyPattern pats)
+        <> hardline
+        <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyExpr) grhss))
+        <> prettyIndentedWhereClause whereDecls
 
 prettyGuardQualifier :: GuardQualifier -> Doc ann
 prettyGuardQualifier qualifier =
@@ -1462,15 +1343,17 @@ prettyDoFlavor DoMdo = "mdo"
 prettyDoFlavor (DoQualified m) = pretty m <> ".do"
 prettyDoFlavor (DoQualifiedMdo m) = pretty m <> ".mdo"
 
-prettyDoLayout :: (a -> Doc ann) -> (a -> Bool) -> [a] -> Doc ann
-prettyDoLayout prettyStmt stmtContainsLayout stmts
-  | any stmtContainsLayout stmts =
-      " {"
-        <> hardline
-        <> prettySemiSeparated prettyStmt stmtContainsLayout stmts
-        <> hardline
-        <> "}"
-  | otherwise = " " <> prettySemiBlock prettyStmt (const False) stmts
+prettyDoLayout :: (a -> Doc ann) -> [a] -> Doc ann
+prettyDoLayout prettyStmt stmts =
+  case stmts of
+    [] -> hardline
+    _ -> hardline <> indent 2 (prettyLayoutStatements prettyStmt stmts)
+
+prettyLayoutStatements :: (a -> Doc ann) -> [a] -> Doc ann
+prettyLayoutStatements prettyStmt stmts =
+  case map prettyStmt stmts of
+    [] -> mempty
+    rendered -> vsep (map (hang 2 . (" " <>)) rendered)
 
 prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
@@ -1479,8 +1362,24 @@ prettyDoStmt stmt =
     DoBind pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     DoLetDecls decls -> prettyLetDecls decls
     DoExpr expr@ELetDecls {} -> parens (prettyExpr expr)
-    DoExpr expr -> prettyExpr expr
-    DoRecStmt stmts -> "rec" <> prettyDoLayout prettyDoStmt doStmtContainsLayoutCase stmts
+    DoExpr expr -> prettyExprAtStatementStart expr
+    DoRecStmt stmts -> "rec" <> prettyDoLayout prettyDoStmt stmts
+
+prettyExprAtStatementStart :: Expr -> Doc ann
+prettyExprAtStatementStart expr =
+  case expr of
+    EAnn _ sub -> prettyExprAtStatementStart sub
+    EOverloadedLabel _ raw -> pretty raw
+    EApp {} -> prettyAppWith prettyExprAtStatementStart expr
+    ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> "@" <> prettyType ty
+    EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
+    ESectionL lhs op -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op
+    ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> " " <> "::" <+> prettyType ty
+    ERecordUpd base fields ->
+      prettyExprAtStatementStart base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    EGetField base field ->
+      prettyExprAtStatementStart base <> "." <> prettyName field
+    _ -> prettyExpr expr
 
 -- | Pretty-print an arrow command.
 prettyCmd :: Cmd -> Doc ann
@@ -1492,9 +1391,9 @@ prettyCmd cmd =
     CmdArrApp lhs HsHigherOrderApp rhs ->
       prettyExpr lhs <+> "-<<" <+> prettyExpr rhs
     CmdInfix l op r ->
-      prettyCmd l <+> prettyNameInfixOp op <+> prettyCmd r
+      prettyCmd l <> hardline <> " " <> prettyNameInfixOp op <+> prettyCmd r
     CmdDo stmts ->
-      "do" <> prettyDoLayout prettyCmdStmt cmdStmtContainsLayoutCase stmts
+      "do" <> prettyDoLayout prettyCmdStmt stmts
     CmdIf cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
     CmdCase scrut alts ->
@@ -1516,11 +1415,26 @@ prettyCmdStmt stmt =
     DoAnn _ inner -> prettyCmdStmt inner
     DoBind pat cmd' -> prettyPattern pat <+> "<-" <+> prettyCmd cmd'
     DoLetDecls decls -> prettyLetDecls decls
-    DoExpr cmd' -> prettyCmd cmd'
-    DoRecStmt stmts -> "rec" <> prettyDoLayout prettyCmdStmt cmdStmtContainsLayoutCase stmts
+    DoExpr cmd'@CmdLet {} -> parens (prettyCmd cmd')
+    DoExpr cmd' -> prettyCmdAtStatementStart cmd'
+    DoRecStmt stmts -> "rec" <> prettyDoLayout prettyCmdStmt stmts
+
+prettyCmdAtStatementStart :: Cmd -> Doc ann
+prettyCmdAtStatementStart cmd =
+  case cmd of
+    CmdAnn _ inner -> prettyCmdAtStatementStart inner
+    CmdArrApp lhs HsFirstOrderApp rhs ->
+      prettyExprAtStatementStart lhs <+> "-<" <+> prettyExpr rhs
+    CmdArrApp lhs HsHigherOrderApp rhs ->
+      prettyExprAtStatementStart lhs <+> "-<<" <+> prettyExpr rhs
+    CmdInfix l op r ->
+      prettyCmdAtStatementStart l <> hardline <> " " <> prettyNameInfixOp op <+> prettyCmd r
+    CmdApp c e ->
+      prettyCmdAtStatementStart c <+> prettyExpr e
+    _ -> prettyCmd cmd
 
 prettyCmdCaseAlt :: CaseAlt Cmd -> Doc ann
-prettyCmdCaseAlt = prettyCaseAltWith prettyCmd cmdEndsWithLayoutCase
+prettyCmdCaseAlt = prettyCaseAltWith prettyCmd
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =
@@ -1534,457 +1448,6 @@ prettyCompStmt stmt =
     CompGroupUsing f -> "then" <+> "group" <+> "using" <+> prettyExpr f
     CompGroupByUsing e f -> "then" <+> "group" <+> "by" <+> prettyExpr e <+> "using" <+> prettyExpr f
 
-prettyInlineDecls :: [Decl] -> Doc ann
-prettyInlineDecls decls =
-  case map prettyInlineDecl decls of
-    [] -> mempty
-    renderedDecls@(firstDecl : restDecls)
-      | any inlineDeclEndsWithLayoutCase (init decls) ->
-          vsep (firstDecl : map (semi <+>) restDecls)
-      | otherwise -> hsep (punctuate semi renderedDecls)
-  where
-    prettyInlineDecl decl = case decl of
-      DeclValue valueDecl -> prettyInlineValueDecl valueDecl
-      _ -> hsep (prettyDeclLines decl)
-
-    prettyInlineValueDecl valueDecl = case valueDecl of
-      PatternBind multTag pat rhs -> prettyMultiplicityTag multTag <> prettyPattern pat <+> prettyInlineRhs rhs
-      FunctionBind name matches ->
-        hsep (punctuate semi (map (prettyInlineFunctionMatch name) matches))
-
-    prettyInlineFunctionMatch name match =
-      prettyFunctionHead name (matchHeadForm match) (matchPats match) <+> prettyInlineRhs (matchRhs match)
-
-    prettyInlineRhs rhs = case rhs of
-      UnguardedRhs _ body whereDecls
-        | isJust whereDecls && exprEndsWithLayoutCase body ->
-            "="
-              <> hardline
-              <> indent 2 (prettyExpr body)
-              <> hardline
-              <> indent 2 (prettyWhereClauseBare whereDecls)
-      UnguardedRhs _ body whereDecls ->
-        "="
-          <+> prettyInlineExpr body
-          <> prettyWhereClause whereDecls
-      GuardedRhss _ guards whereDecls
-        | guardedRhssNeedLayoutBlock guards whereDecls ->
-            hardline <> indent 2 (prettyGuardedRhssBlock guards whereDecls)
-      GuardedRhss _ guards whereDecls ->
-        hsep
-          (map (prettyGuardedRhs "=") guards)
-          <> prettyWhereClause whereDecls
-
-    prettyInlineExpr = prettyExpr
-
-    inlineDeclEndsWithLayoutCase decl = case decl of
-      DeclAnn _ sub -> inlineDeclEndsWithLayoutCase sub
-      DeclValue valueDecl -> valueDeclContainsLayoutCase valueDecl
-      _ -> False
-
-exprEndsWithLayoutCase :: Expr -> Bool
-exprEndsWithLayoutCase expr =
-  case expr of
-    EAnn _ sub -> exprEndsWithLayoutCase sub
-    ECase _ alts -> not (null alts)
-    ELambdaCase alts -> not (null alts)
-    ELambdaCases alts -> not (null alts)
-    EIf _ _ no -> exprEndsWithLayoutCase no
-    ELambdaPats _ body -> exprEndsWithLayoutCase body
-    ELetDecls _ body -> exprEndsWithLayoutCase body
-    EInfix _ _ rhs -> exprEndsWithLayoutCase rhs
-    EApp _ arg -> exprEndsWithLayoutCase arg
-    ETypeApp fn _ -> exprEndsWithLayoutCase fn
-    ENegate inner -> exprEndsWithLayoutCase inner
-    EDo stmts _ -> any doStmtContainsLayoutCase stmts
-    ERecordUpd base _ -> exprEndsWithLayoutCase base
-    EGetField base _ -> exprEndsWithLayoutCase base
-    EProc _ cmd -> cmdEndsWithLayoutCase cmd
-    EPragma _ inner -> exprEndsWithLayoutCase inner
-    EParen inner -> exprEndsWithLayoutCase inner
-    _ -> False
-
-declContainsLayoutCase :: Decl -> Bool
-declContainsLayoutCase decl =
-  case decl of
-    DeclAnn _ sub -> declContainsLayoutCase sub
-    DeclValue valueDecl -> valueDeclContainsLayoutCase valueDecl
-    DeclPatSyn patSynDecl -> patSynDeclContainsLayout patSynDecl
-    DeclData dataDecl -> dataDeclContainsLayout dataDecl
-    DeclTypeData dataDecl -> dataDeclContainsLayout dataDecl
-    DeclNewtype newtypeDecl -> maybe False isGadtCon (newtypeDeclConstructor newtypeDecl)
-    DeclTypeFamilyDecl tf -> maybe False (not . null) (typeFamilyDeclEquations tf)
-    DeclDataFamilyInst dfi -> any isGadtCon (dataFamilyInstConstructors dfi)
-    _ -> False
-  where
-    patSynDeclContainsLayout ps =
-      case patSynDeclDir ps of
-        PatSynExplicitBidirectional matches -> not (null matches)
-        _ -> False
-
-    dataDeclContainsLayout dataDecl = any isGadtCon (dataDeclConstructors dataDecl)
-
-valueDeclContainsLayoutCase :: ValueDecl -> Bool
-valueDeclContainsLayoutCase valueDecl =
-  case valueDecl of
-    PatternBind _ pat rhs -> patternContainsLayoutCase pat || rhsContainsLayoutCase rhs
-    FunctionBind _ matches -> any matchContainsLayoutCase matches
-
-matchContainsLayoutCase :: Match -> Bool
-matchContainsLayoutCase match =
-  any patternContainsLayoutCase (matchPats match) || rhsContainsLayoutCase (matchRhs match)
-
-rhsEndsWithLayoutCase :: Rhs Expr -> Bool
-rhsEndsWithLayoutCase rhs =
-  case rhs of
-    UnguardedRhs _ body _ -> exprEndsWithLayoutCase body
-    GuardedRhss _ guards _ -> any (exprEndsWithLayoutCase . guardedRhsBody) guards
-
-rhsContainsLayoutCase :: Rhs Expr -> Bool
-rhsContainsLayoutCase rhs =
-  case rhs of
-    UnguardedRhs _ body whereDecls ->
-      exprContainsLayoutCase body || maybe False whereDeclsContainLayout whereDecls
-    GuardedRhss _ guards whereDecls ->
-      any guardedRhsContainsLayoutCase guards || maybe False whereDeclsContainLayout whereDecls
-  where
-    whereDeclsContainLayout decls = not (null decls) || any declContainsLayoutCase decls
-
-declContainsMultilineString :: Decl -> Bool
-declContainsMultilineString decl =
-  case decl of
-    DeclAnn _ sub -> declContainsMultilineString sub
-    DeclValue valueDecl -> valueDeclContainsMultilineString valueDecl
-    _ -> False
-
-valueDeclContainsMultilineString :: ValueDecl -> Bool
-valueDeclContainsMultilineString valueDecl =
-  case valueDecl of
-    PatternBind _ pat rhs -> patternContainsMultilineString pat || rhsContainsMultilineString rhs
-    FunctionBind _ matches -> any matchContainsMultilineString matches
-
-matchContainsMultilineString :: Match -> Bool
-matchContainsMultilineString match =
-  any patternContainsMultilineString (matchPats match) || rhsContainsMultilineString (matchRhs match)
-
-rhsContainsMultilineString :: Rhs Expr -> Bool
-rhsContainsMultilineString rhs =
-  case rhs of
-    UnguardedRhs _ body whereDecls ->
-      exprContainsMultilineString body || maybe False (any declContainsMultilineString) whereDecls
-    GuardedRhss _ guards whereDecls ->
-      any guardedRhsContainsMultilineString guards || maybe False (any declContainsMultilineString) whereDecls
-
-guardedRhsContainsMultilineString :: GuardedRhs Expr -> Bool
-guardedRhsContainsMultilineString grhs =
-  any guardQualifierContainsMultilineString (guardedRhsGuards grhs)
-    || exprContainsMultilineString (guardedRhsBody grhs)
-
-exprContainsMultilineString :: Expr -> Bool
-exprContainsMultilineString expr =
-  case expr of
-    EAnn _ sub -> exprContainsMultilineString sub
-    EString _ raw -> T.isInfixOf "\n" raw
-    EStringHash _ raw -> T.isInfixOf "\n" raw
-    EApp fn arg -> exprContainsMultilineString fn || exprContainsMultilineString arg
-    ETypeApp fn _ -> exprContainsMultilineString fn
-    EIf cond yes no -> any exprContainsMultilineString [cond, yes, no]
-    EMultiWayIf rhss -> any guardedRhsContainsMultilineString rhss
-    ELambdaPats _ body -> exprContainsMultilineString body
-    ELambdaCase alts -> any caseAltContainsMultilineString alts
-    ELambdaCases alts -> any lambdaCaseAltContainsMultilineString alts
-    EInfix lhs _ rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
-    ENegate inner -> exprContainsMultilineString inner
-    ESectionL lhs _ -> exprContainsMultilineString lhs
-    ESectionR _ rhs -> exprContainsMultilineString rhs
-    ELetDecls decls body -> any declContainsMultilineString decls || exprContainsMultilineString body
-    ECase scrut alts -> exprContainsMultilineString scrut || any caseAltContainsMultilineString alts
-    EDo stmts _ -> any doStmtContainsMultilineString stmts
-    EListComp body quals -> exprContainsMultilineString body || any compStmtContainsMultilineString quals
-    EListCompParallel body qualifierGroups -> exprContainsMultilineString body || any (any compStmtContainsMultilineString) qualifierGroups
-    ERecordCon _ fields _ -> any (exprContainsMultilineString . recordFieldValue) fields
-    ERecordUpd base fields -> exprContainsMultilineString base || any (exprContainsMultilineString . recordFieldValue) fields
-    EGetField base _ -> exprContainsMultilineString base
-    ETypeSig inner _ -> exprContainsMultilineString inner
-    EParen inner -> exprContainsMultilineString inner
-    EList values -> any exprContainsMultilineString values
-    ETuple _ values -> any (maybe False exprContainsMultilineString) values
-    EUnboxedSum _ _ inner -> exprContainsMultilineString inner
-    EProc _ cmd -> cmdContainsMultilineString cmd
-    EPragma _ inner -> exprContainsMultilineString inner
-    ETHExpQuote body -> exprContainsMultilineString body
-    ETHTypedQuote body -> exprContainsMultilineString body
-    ETHDeclQuote decls -> any declContainsMultilineString decls
-    ETHPatQuote pat -> patternContainsMultilineString pat
-    ETHNameQuote body -> exprContainsMultilineString body
-    ETHSplice body -> exprContainsMultilineString body
-    ETHTypedSplice body -> exprContainsMultilineString body
-    _ -> False
-
-cmdContainsMultilineString :: Cmd -> Bool
-cmdContainsMultilineString cmd =
-  case cmd of
-    CmdAnn _ inner -> cmdContainsMultilineString inner
-    CmdArrApp lhs _ rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
-    CmdInfix lhs _ rhs -> cmdContainsMultilineString lhs || cmdContainsMultilineString rhs
-    CmdDo stmts -> any cmdStmtContainsMultilineString stmts
-    CmdIf cond yes no -> exprContainsMultilineString cond || cmdContainsMultilineString yes || cmdContainsMultilineString no
-    CmdCase scrut alts -> exprContainsMultilineString scrut || any cmdCaseAltContainsMultilineString alts
-    CmdLet decls body -> any declContainsMultilineString decls || cmdContainsMultilineString body
-    CmdLam _ body -> cmdContainsMultilineString body
-    CmdApp c e -> cmdContainsMultilineString c || exprContainsMultilineString e
-    CmdPar c -> cmdContainsMultilineString c
-
-patternContainsMultilineString :: Pattern -> Bool
-patternContainsMultilineString pat =
-  case pat of
-    PAnn _ sub -> patternContainsMultilineString sub
-    PLit lit -> literalContainsMultilineString lit
-    PNegLit lit -> literalContainsMultilineString lit
-    PView expr sub -> exprContainsMultilineString expr || patternContainsMultilineString sub
-    PSplice expr -> exprContainsMultilineString expr
-    PInfix lhs _ rhs -> patternContainsMultilineString lhs || patternContainsMultilineString rhs
-    PCon _ _ args -> any patternContainsMultilineString args
-    PRecord _ fields _ -> any (patternContainsMultilineString . recordFieldValue) fields
-    PList pats -> any patternContainsMultilineString pats
-    PTuple _ pats -> any patternContainsMultilineString pats
-    PUnboxedSum _ _ inner -> patternContainsMultilineString inner
-    PAs _ sub -> patternContainsMultilineString sub
-    PStrict sub -> patternContainsMultilineString sub
-    PIrrefutable sub -> patternContainsMultilineString sub
-    PTypeSig sub _ -> patternContainsMultilineString sub
-    PParen sub -> patternContainsMultilineString sub
-    _ -> False
-
-literalContainsMultilineString :: Literal -> Bool
-literalContainsMultilineString lit =
-  case lit of
-    LitAnn _ sub -> literalContainsMultilineString sub
-    LitString _ raw -> T.isInfixOf "\n" raw
-    LitStringHash _ raw -> T.isInfixOf "\n" raw
-    _ -> False
-
-caseAltContainsMultilineString :: CaseAlt Expr -> Bool
-caseAltContainsMultilineString (CaseAlt _ pat rhs) =
-  patternContainsMultilineString pat || rhsContainsMultilineString rhs
-
-cmdCaseAltContainsMultilineString :: CaseAlt Cmd -> Bool
-cmdCaseAltContainsMultilineString (CaseAlt _ pat rhs) =
-  patternContainsMultilineString pat || cmdRhsContainsMultilineString rhs
-
-lambdaCaseAltContainsMultilineString :: LambdaCaseAlt -> Bool
-lambdaCaseAltContainsMultilineString (LambdaCaseAlt _ pats rhs) =
-  any patternContainsMultilineString pats || rhsContainsMultilineString rhs
-
-cmdRhsContainsMultilineString :: Rhs Cmd -> Bool
-cmdRhsContainsMultilineString rhs =
-  case rhs of
-    UnguardedRhs _ body whereDecls ->
-      cmdContainsMultilineString body || maybe False (any declContainsMultilineString) whereDecls
-    GuardedRhss _ guards whereDecls ->
-      any cmdGuardedRhsContainsMultilineString guards || maybe False (any declContainsMultilineString) whereDecls
-
-cmdGuardedRhsContainsMultilineString :: GuardedRhs Cmd -> Bool
-cmdGuardedRhsContainsMultilineString grhs =
-  any guardQualifierContainsMultilineString (guardedRhsGuards grhs)
-    || cmdContainsMultilineString (guardedRhsBody grhs)
-
-guardQualifierContainsMultilineString :: GuardQualifier -> Bool
-guardQualifierContainsMultilineString qualifier =
-  case qualifier of
-    GuardAnn _ inner -> guardQualifierContainsMultilineString inner
-    GuardExpr expr -> exprContainsMultilineString expr
-    GuardPat pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
-    GuardLet decls -> any declContainsMultilineString decls
-
-doStmtContainsMultilineString :: DoStmt Expr -> Bool
-doStmtContainsMultilineString stmt =
-  case stmt of
-    DoAnn _ inner -> doStmtContainsMultilineString inner
-    DoBind pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
-    DoExpr expr -> exprContainsMultilineString expr
-    DoLetDecls decls -> any declContainsMultilineString decls
-    DoRecStmt stmts -> any doStmtContainsMultilineString stmts
-
-cmdStmtContainsMultilineString :: DoStmt Cmd -> Bool
-cmdStmtContainsMultilineString stmt =
-  case stmt of
-    DoAnn _ inner -> cmdStmtContainsMultilineString inner
-    DoBind pat cmd -> patternContainsMultilineString pat || cmdContainsMultilineString cmd
-    DoExpr cmd -> cmdContainsMultilineString cmd
-    DoLetDecls decls -> any declContainsMultilineString decls
-    DoRecStmt stmts -> any cmdStmtContainsMultilineString stmts
-
-compStmtContainsMultilineString :: CompStmt -> Bool
-compStmtContainsMultilineString stmt =
-  case stmt of
-    CompAnn _ inner -> compStmtContainsMultilineString inner
-    CompGen pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
-    CompGuard expr -> exprContainsMultilineString expr
-    CompLetDecls decls -> any declContainsMultilineString decls
-    CompThen expr -> exprContainsMultilineString expr
-    CompThenBy lhs rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
-    CompGroupUsing expr -> exprContainsMultilineString expr
-    CompGroupByUsing lhs rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
-
-guardedRhsContainsLayoutCase :: GuardedRhs Expr -> Bool
-guardedRhsContainsLayoutCase grhs =
-  any guardQualifierContainsLayoutCase (guardedRhsGuards grhs)
-    || exprContainsLayoutCase (guardedRhsBody grhs)
-
-exprContainsLayoutCase :: Expr -> Bool
-exprContainsLayoutCase expr =
-  case expr of
-    EAnn _ sub -> exprContainsLayoutCase sub
-    ECase scrut alts -> exprContainsLayoutCase scrut || not (null alts) || any caseAltEndsWithLayoutCase alts
-    EApp fn arg -> exprContainsLayoutCase fn || exprContainsLayoutCase arg
-    ETypeApp fn _ -> exprContainsLayoutCase fn
-    EIf cond yes no -> any exprContainsLayoutCase [cond, yes, no]
-    EMultiWayIf rhss -> any guardedRhsContainsLayoutCase rhss
-    ELambdaPats _ body -> exprContainsLayoutCase body
-    ELambdaCase alts -> not (null alts) || any caseAltEndsWithLayoutCase alts
-    ELambdaCases alts -> not (null alts) || any lambdaCaseAltEndsWithLayoutCase alts
-    EInfix lhs _ rhs -> exprContainsLayoutCase lhs || exprContainsLayoutCase rhs
-    ENegate inner -> exprContainsLayoutCase inner
-    ESectionL lhs _ -> exprContainsLayoutCase lhs
-    ESectionR _ rhs -> exprContainsLayoutCase rhs
-    ELetDecls decls body -> any declContainsLayoutCase decls || exprContainsLayoutCase body
-    EDo stmts _ -> any doStmtContainsLayoutCase stmts
-    EListComp body quals -> exprContainsLayoutCase body || any compStmtContainsLayoutCase quals
-    EListCompParallel body qualifierGroups -> exprContainsLayoutCase body || any (any compStmtContainsLayoutCase) qualifierGroups
-    ERecordCon _ fields _ -> any (exprContainsLayoutCase . recordFieldValue) fields
-    ERecordUpd base fields -> exprContainsLayoutCase base || any (exprContainsLayoutCase . recordFieldValue) fields
-    EGetField base _ -> exprContainsLayoutCase base
-    ETypeSig inner _ -> exprContainsLayoutCase inner
-    EParen inner -> exprContainsLayoutCase inner
-    EList values -> any exprContainsLayoutCase values
-    ETuple _ values -> any (maybe False exprContainsLayoutCase) values
-    EUnboxedSum _ _ inner -> exprContainsLayoutCase inner
-    EProc _ cmd -> cmdContainsLayoutCase cmd
-    EPragma _ inner -> exprContainsLayoutCase inner
-    ETHExpQuote body -> exprContainsLayoutCase body
-    ETHTypedQuote body -> exprContainsLayoutCase body
-    ETHDeclQuote decls -> any declContainsLayoutCase decls
-    ETHPatQuote pat -> patternContainsLayoutCase pat
-    ETHNameQuote body -> exprContainsLayoutCase body
-    ETHSplice body -> exprContainsLayoutCase body
-    ETHTypedSplice body -> exprContainsLayoutCase body
-    _ -> False
-
-cmdContainsLayoutCase :: Cmd -> Bool
-cmdContainsLayoutCase cmd =
-  case cmd of
-    CmdAnn _ inner -> cmdContainsLayoutCase inner
-    CmdArrApp lhs _ rhs -> exprContainsLayoutCase lhs || exprContainsLayoutCase rhs
-    CmdInfix lhs _ rhs -> cmdContainsLayoutCase lhs || cmdContainsLayoutCase rhs
-    CmdDo stmts -> any cmdStmtContainsLayoutCase stmts
-    CmdIf cond yes no -> exprContainsLayoutCase cond || cmdContainsLayoutCase yes || cmdContainsLayoutCase no
-    CmdCase _ alts -> not (null alts)
-    CmdLet decls body -> any declContainsLayoutCase decls || cmdContainsLayoutCase body
-    CmdLam _ body -> cmdContainsLayoutCase body
-    CmdApp c e -> cmdContainsLayoutCase c || exprContainsLayoutCase e
-    CmdPar c -> cmdContainsLayoutCase c
-
-cmdEndsWithLayoutCase :: Cmd -> Bool
-cmdEndsWithLayoutCase cmd =
-  case cmd of
-    CmdAnn _ inner -> cmdEndsWithLayoutCase inner
-    CmdArrApp _ _ rhs -> exprEndsWithLayoutCase rhs
-    CmdInfix _ _ rhs -> cmdEndsWithLayoutCase rhs
-    CmdIf _ _ no -> cmdEndsWithLayoutCase no
-    CmdCase _ alts -> not (null alts)
-    CmdLet _ body -> cmdEndsWithLayoutCase body
-    CmdLam _ body -> cmdEndsWithLayoutCase body
-    CmdApp _ arg -> exprEndsWithLayoutCase arg
-    CmdPar inner -> cmdEndsWithLayoutCase inner
-    _ -> False
-
-cmdStmtContainsLayoutCase :: DoStmt Cmd -> Bool
-cmdStmtContainsLayoutCase stmt =
-  case stmt of
-    DoAnn _ inner -> cmdStmtContainsLayoutCase inner
-    DoBind _ cmd -> cmdContainsLayoutCase cmd
-    DoExpr cmd -> cmdContainsLayoutCase cmd
-    DoLetDecls decls -> not (null decls) || any declContainsLayoutCase decls
-    DoRecStmt stmts -> any cmdStmtContainsLayoutCase stmts
-
-compStmtContainsLayoutCase :: CompStmt -> Bool
-compStmtContainsLayoutCase stmt =
-  case stmt of
-    CompAnn _ inner -> compStmtContainsLayoutCase inner
-    CompGen _ expr -> exprContainsLayoutCase expr
-    CompGuard expr -> exprContainsLayoutCase expr
-    CompLetDecls decls -> not (null decls) || any declContainsLayoutCase decls
-    CompThen expr -> exprContainsLayoutCase expr
-    CompThenBy lhs rhs -> exprContainsLayoutCase lhs || exprContainsLayoutCase rhs
-    CompGroupUsing expr -> exprContainsLayoutCase expr
-    CompGroupByUsing lhs rhs -> exprContainsLayoutCase lhs || exprContainsLayoutCase rhs
-
-patternContainsLayoutCase :: Pattern -> Bool
-patternContainsLayoutCase pat =
-  case pat of
-    PAnn _ sub -> patternContainsLayoutCase sub
-    PView expr sub -> exprContainsLayoutCase expr || patternContainsLayoutCase sub
-    PSplice expr -> exprContainsLayoutCase expr
-    PInfix lhs _ rhs -> patternContainsLayoutCase lhs || patternContainsLayoutCase rhs
-    PCon _ _ args -> any patternContainsLayoutCase args
-    PRecord _ fields _ -> any (patternContainsLayoutCase . recordFieldValue) fields
-    PList pats -> any patternContainsLayoutCase pats
-    PTuple _ pats -> any patternContainsLayoutCase pats
-    PUnboxedSum _ _ inner -> patternContainsLayoutCase inner
-    PAs _ sub -> patternContainsLayoutCase sub
-    PStrict sub -> patternContainsLayoutCase sub
-    PIrrefutable sub -> patternContainsLayoutCase sub
-    PTypeSig sub _ -> patternContainsLayoutCase sub
-    PParen sub -> patternContainsLayoutCase sub
-    _ -> False
-
-caseAltEndsWithLayoutCase :: CaseAlt Expr -> Bool
-caseAltEndsWithLayoutCase (CaseAlt _ _ rhs) = rhsEndsWithLayoutCase rhs
-
-lambdaCaseAltEndsWithLayoutCase :: LambdaCaseAlt -> Bool
-lambdaCaseAltEndsWithLayoutCase (LambdaCaseAlt _ _ rhs) = rhsEndsWithLayoutCase rhs
-
-guardQualifierEndsWithLayoutCase :: GuardQualifier -> Bool
-guardQualifierEndsWithLayoutCase qualifier =
-  case qualifier of
-    GuardAnn _ inner -> guardQualifierEndsWithLayoutCase inner
-    GuardExpr expr -> exprEndsWithLayoutCase expr
-    GuardPat _ expr -> exprEndsWithLayoutCase expr
-    GuardLet decls -> not (null decls) || any declContainsLayoutCase decls
-
-guardQualifierContainsLayoutCase :: GuardQualifier -> Bool
-guardQualifierContainsLayoutCase qualifier =
-  case qualifier of
-    GuardAnn _ inner -> guardQualifierContainsLayoutCase inner
-    GuardExpr expr -> exprContainsLayoutCase expr
-    GuardPat pat expr -> patternContainsLayoutCase pat || exprContainsLayoutCase expr
-    GuardLet decls -> not (null decls) || any declContainsLayoutCase decls
-
-doStmtContainsLayoutCase :: DoStmt Expr -> Bool
-doStmtContainsLayoutCase stmt =
-  case stmt of
-    DoAnn _ inner -> doStmtContainsLayoutCase inner
-    DoBind _ expr -> exprContainsLayoutCase expr
-    DoExpr expr -> exprContainsLayoutCase expr
-    DoLetDecls decls -> not (null decls) || any declContainsLayoutCase decls
-    DoRecStmt stmts -> any doStmtContainsLayoutCase stmts
-
-guardedRhssNeedLayoutBlock :: [GuardedRhs Expr] -> Maybe [Decl] -> Bool
-guardedRhssNeedLayoutBlock = guardedBodiesNeedLayoutBlock exprEndsWithLayoutCase
-
-guardedBodiesNeedLayoutBlock :: (body -> Bool) -> [GuardedRhs body] -> Maybe [Decl] -> Bool
-guardedBodiesNeedLayoutBlock bodyEndsWithLayoutCase guards whereDecls =
-  any guardedRhsHasLayoutGuard guards
-    || any (bodyEndsWithLayoutCase . guardedRhsBody) (dropLast guards)
-    || (isJust whereDecls && any (bodyEndsWithLayoutCase . guardedRhsBody) guards)
-  where
-    guardedRhsHasLayoutGuard = any guardQualifierEndsWithLayoutCase . guardedRhsGuards
-
-    dropLast [] = []
-    dropLast [_] = []
-    dropLast (x : xs) = x : dropLast xs
-
 prettyGuardedRhssBlock :: [GuardedRhs Expr] -> Maybe [Decl] -> Doc ann
 prettyGuardedRhssBlock guards whereDecls =
   vsep (map prettyGuardedRhsBlock guards)
@@ -1996,14 +1459,13 @@ prettyGuardedRhsBlock :: GuardedRhs Expr -> Doc ann
 prettyGuardedRhsBlock grhs =
   let guards = guardedRhsGuards grhs
       body = guardedRhsBody grhs
-   in if exprEndsWithLayoutCase body
-        then
-          "|"
-            <+> prettyGuardQualifiers guards
-            <+> "="
-            <> hardline
-            <> indent 2 (prettyExpr body)
-        else prettyGuardedRhs "=" grhs
+   in "|"
+        <+> prettyGuardQualifiersLayout guards
+        <> hardline
+        <> " "
+        <> "="
+        <> hardline
+        <> indent 2 (prettyExpr body)
 
 prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =
@@ -2019,7 +1481,7 @@ quoted :: Text -> Doc ann
 quoted txt = pretty (show (T.unpack txt))
 
 prettyQuasiQuote :: Text -> Text -> Doc ann
-prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]"
+prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> prettyRawText body <> "|]"
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers

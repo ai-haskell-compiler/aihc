@@ -47,6 +47,12 @@ wrapExpr True e@EParen {} = e
 wrapExpr True e = EParen e
 wrapExpr False e = e
 
+wrapCmd :: Bool -> Cmd -> Cmd
+wrapCmd True (CmdAnn ann sub) = CmdAnn ann (wrapCmd True sub)
+wrapCmd True c@CmdPar {} = c
+wrapCmd True c = CmdPar c
+wrapCmd False c = c
+
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
 wrapPat :: Bool -> Pattern -> Pattern
 wrapPat True (PAnn ann sub) = PAnn ann (wrapPat True sub)
@@ -1579,8 +1585,12 @@ addCmdDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addCmdDoStmtParens inner)
     DoBind pat cmd' -> DoBind (addPatternParens pat) (addCmdParens cmd')
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr cmd' -> DoExpr (addCmdParens cmd')
+    DoExpr cmd' -> DoExpr (wrapCmd (isLetCmd cmd') (addCmdParens cmd'))
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
+  where
+    isLetCmd CmdLet {} = True
+    isLetCmd (CmdAnn _ sub) = isLetCmd sub
+    isLetCmd _ = False
 
 addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
 addCmdCaseAltParens (CaseAlt anns pat rhs) =
