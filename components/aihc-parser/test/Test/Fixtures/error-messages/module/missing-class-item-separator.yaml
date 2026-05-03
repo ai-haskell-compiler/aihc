@@ -1,0 +1,18 @@
+src: |
+  {-# LANGUAGE TypeFamilies #-}
+  module M where
+  class C a where { type F a type G a }
+ghc: |
+  test.hs:3:28: error: [GHC-58481] parse error on input `type'
+aihc: |
+  test.hs:3:28:
+  3 | class C a where { type F a type G a }
+    |                            ^^^^
+  unexpected type
+  expecting operator '::', operator '=', symbol '(', symbol ';', symbol '}', type application '@', or type parameter binder
+  
+  test.hs:3:37:
+  3 | class C a where { type F a type G a }
+    |                                     ^
+  unexpected }
+  expecting end of input

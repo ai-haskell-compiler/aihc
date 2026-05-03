@@ -1131,11 +1131,9 @@ whereClauseParser = do
   bracedDeclsMaybeEmpty <|> plainDeclsMaybeEmpty
 
 localDeclsParser :: TokParser [Decl]
-localDeclsParser = do
-  mPragma <- MP.optional pragmaDeclParser
-  case mPragma of
-    Just pragmaDecl -> pure [pragmaDecl]
-    Nothing -> do
+localDeclsParser =
+  (pure <$> pragmaDeclParser)
+    <|> do
       isTySig <- startsWithTypeSig
       if isTySig
         then localTypeSigDeclsParser
