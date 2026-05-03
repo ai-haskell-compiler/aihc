@@ -121,18 +121,24 @@ test-suite spec
     StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
+    Test.ResolveStackageProgress.PathsModule
     Test.StackageProgress.FileChecker
     Test.StackageProgress.FileCheckerTiming
 
   build-depends:
+    aeson >=2.0 && <2.3,
     aihc-cpp,
     aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,
     aihc-parser:parser-tooling-common,
+    aihc-resolve,
     base >=4.16 && <5,
+    bytestring,
+    containers,
     deepseq,
     directory,
+    filepath,
     haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
     tasty,
