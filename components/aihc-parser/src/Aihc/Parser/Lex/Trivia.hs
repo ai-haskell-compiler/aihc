@@ -87,7 +87,13 @@ consumeLineComment st =
 consumeBlockComment :: LexerState -> Maybe LexerState
 consumeBlockComment st =
   case scanNestedBlockComment 1 (T.drop 2 (lexerInput st)) of
-    Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
+    Just consumedTail ->
+      let consumed = "{-" <> consumedTail
+          st' = advanceChars consumed st
+       in Just $
+            if T.any (== '\n') consumed
+              then st'
+              else st' {lexerAtLineStart = lexerAtLineStart st}
     Nothing -> Nothing
 
 consumeBlockCommentOrError :: LexerState -> Either (LexToken, LexerState) LexerState
