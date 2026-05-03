@@ -38,6 +38,8 @@ macro-expansion-not-in-string	macro	macro-expansion-not-in-string.hs	pass
 hpp-file-macro-string-pattern	macro	hpp-file-macro-string-pattern.hs	pass
 rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	pass
 macro-multiline-args	macro	macro-multiline-args.hs	pass
+macro-multiline-string-comma	macro	macro-multiline-string-comma.hs	pass
+macro-multiline-string-parens	macro	macro-multiline-string-parens.hs	pass
 stringify-paste-pair	macro	stringify-paste-pair.hs	pass
 macro-comment-replacement	macro	macro-comment-replacement.hs	pass
 thyme-lens-comment-paste	macro	thyme-lens-comment-paste.hs	pass
