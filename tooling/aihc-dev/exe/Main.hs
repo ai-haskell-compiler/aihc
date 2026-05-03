@@ -137,6 +137,10 @@ snippetParser =
               <> help "Snippet file to analyze (reads stdin if omitted)"
           )
       )
+    <*> switch
+      ( long "print-roundtripped"
+          <> help "Print the roundtripped module emitted by aihc-parser"
+      )
 
 parseExtensionSetting :: ReadM ExtensionSetting
 parseExtensionSetting =

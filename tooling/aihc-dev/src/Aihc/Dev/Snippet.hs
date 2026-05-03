@@ -42,7 +42,8 @@ import System.Exit (exitFailure)
 
 data SnippetOpts = SnippetOpts
   { snippetExtensions :: [ExtensionSetting],
-    snippetFile :: Maybe FilePath
+    snippetFile :: Maybe FilePath,
+    snippetPrintRoundtripped :: Bool
   }
 
 data ParseComparison
@@ -62,8 +63,14 @@ runSnippet :: SnippetOpts -> IO ()
 runSnippet opts = do
   let sourceTag = fromMaybe "<stdin>" (snippetFile opts)
   source <- maybe TIO.getContents TIO.readFile (snippetFile opts)
-  let report = analyzeSnippet sourceTag (snippetExtensions opts) source
+  let (report, roundtrippedSource) = analyzeSnippet sourceTag (snippetExtensions opts) source
   putStr (renderSnippetReport report)
+  when (snippetPrintRoundtripped opts) $
+    case roundtrippedSource of
+      Nothing -> pure ()
+      Just rendered -> do
+        putStrLn "\nRoundtripped module:"
+        TIO.putStrLn rendered
   Control.Monad.when (reportHasFailure report) exitFailure
 
 parseExtensionSettingArg :: String -> Either String ExtensionSetting
@@ -72,7 +79,7 @@ parseExtensionSettingArg raw =
     Just setting -> Right setting
     Nothing -> Left ("Unknown extension: " <> raw)
 
-analyzeSnippet :: FilePath -> [ExtensionSetting] -> Text -> SnippetReport
+analyzeSnippet :: FilePath -> [ExtensionSetting] -> Text -> (SnippetReport, Maybe Text)
 analyzeSnippet sourceTag cliExtensions source =
   let preprocessed = preprocessForParserWithoutIncludesIfEnabled cliExtensions [] sourceTag [] source
       source' = resultOutput preprocessed
@@ -88,7 +95,8 @@ analyzeSnippet sourceTag cliExtensions source =
           BothAccept -> fmap validationErrorMessage (validateParser sourceTag edition extensionSettings source')
           _ -> Nothing
       parensDiff = parserModule >>= parsedSnippetParensDiff source
-   in buildSnippetReport comparison validationFailure parensDiff
+      roundtrippedSource = fmap renderModule parserModule
+   in (buildSnippetReport comparison validationFailure parensDiff, roundtrippedSource)
 
 buildSnippetReport :: ParseComparison -> Maybe String -> Maybe String -> SnippetReport
 buildSnippetReport comparison validationFailure parensDiff =
@@ -134,6 +142,10 @@ parseWithAihc sourceTag edition extensionSettings source =
    in case errs of
         [] -> Just modu
         _ -> Nothing
+
+renderModule :: Module -> Text
+renderModule =
+  renderStrict . layoutPretty defaultLayoutOptions . pretty
 
 parsedSnippetParensDiff :: Text -> Module -> Maybe String
 parsedSnippetParensDiff source modu =

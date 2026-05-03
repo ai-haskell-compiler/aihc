@@ -1141,10 +1141,10 @@ prettyExpr expr =
     ELambdaCases alts ->
       "\\" <> "cases" <> prettyCaseLayout (map prettyLambdaCaseAlt alts)
     EInfix lhs op rhs ->
-      prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
+      prettyExpr lhs <> infixBreak op <> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
     ESectionL lhs op ->
-      prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
+      prettyExpr lhs <> infixBreak op <> prettyNameInfixOp op
     ESectionR op rhs -> prettyNameInfixOp op <+> prettyExpr rhs
     ELetDecls decls body ->
       case decls of
@@ -1372,8 +1372,8 @@ prettyExprAtStatementStart expr =
     EOverloadedLabel _ raw -> pretty raw
     EApp {} -> prettyAppWith prettyExprAtStatementStart expr
     ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> "@" <> prettyType ty
-    EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
-    ESectionL lhs op -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op
+    EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> infixBreak op <> prettyNameInfixOp op <+> prettyExpr rhs
+    ESectionL lhs op -> prettyExprAtStatementStart lhs <> infixBreak op <> prettyNameInfixOp op
     ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> " " <> "::" <+> prettyType ty
     ERecordUpd base fields ->
       prettyExprAtStatementStart base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
@@ -1432,6 +1432,10 @@ prettyCmdAtStatementStart cmd =
     CmdApp c e ->
       prettyCmdAtStatementStart c <+> prettyExpr e
     _ -> prettyCmd cmd
+
+infixBreak :: Name -> Doc ann
+infixBreak op =
+  if isHashLeadingSymbolicName op then " " else hardline
 
 prettyCmdCaseAlt :: CaseAlt Cmd -> Doc ann
 prettyCmdCaseAlt = prettyCaseAltWith prettyCmd
