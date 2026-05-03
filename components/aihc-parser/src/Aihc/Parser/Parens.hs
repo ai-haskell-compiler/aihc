@@ -1126,12 +1126,17 @@ addDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (wrapExpr (isLetExpr e) (addExprParens e))
+    DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    isLetExpr ELetDecls {} = True
-    isLetExpr (EAnn _ inner) = isLetExpr inner
-    isLetExpr _ = False
+    letExprNeedsDoStmtParens (ELetDecls (_ : _) body) = not (isInfixExpr body)
+    letExprNeedsDoStmtParens (ELetDecls [] _) = True
+    letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
+    letExprNeedsDoStmtParens _ = False
+
+    isInfixExpr EInfix {} = True
+    isInfixExpr (EAnn _ inner) = isInfixExpr inner
+    isInfixExpr _ = False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =

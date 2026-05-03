@@ -843,7 +843,7 @@ test_prettyCaseExpressionUsesImplicitLayout = do
 test_prettyLetExpressionUsesImplicitLayout :: Assertion
 test_prettyLetExpressionUsesImplicitLayout = do
   let source = "let { x = 10 } in x + x"
-      expected = T.intercalate "\n" ["let", "  x =", "    10", "in x", " + x"]
+      expected = T.intercalate "\n" ["let", "  x =", "    10", "  in x", "   + x"]
   case parseExpr defaultConfig source of
     ParseOk expr -> do
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
