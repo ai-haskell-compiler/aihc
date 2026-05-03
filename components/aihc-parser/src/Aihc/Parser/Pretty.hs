@@ -1362,25 +1362,8 @@ prettyDoStmt stmt =
     DoAnn _ inner -> prettyDoStmt inner
     DoBind pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     DoLetDecls decls -> prettyLetDecls decls
-    DoExpr expr
-      | Just (decls, body) <- peelLetExpr expr ->
-          prettyLetExprExplicit decls body
     DoExpr expr -> prettyExprAtStatementStart expr
     DoRecStmt stmts -> "rec" <> prettyDoLayout prettyDoStmt stmts
-
-prettyLetExprExplicit :: [Decl] -> Expr -> Doc ann
-prettyLetExprExplicit decls body =
-  "let" <+> spacedBraces (hsep (punctuate semi (concatMap prettyDeclLines decls))) <+> "in" <+> prettyExpr body
-
-peelLetExpr :: Expr -> Maybe ([Decl], Expr)
-peelLetExpr expr =
-  case expr of
-    EAnn _ sub -> peelLetExpr sub
-    ELetDecls decls body -> Just (decls, body)
-    EParen inner
-      | Just _ <- peelLetExpr inner ->
-          Nothing
-    _ -> Nothing
 
 prettyExprAtStatementStart :: Expr -> Doc ann
 prettyExprAtStatementStart expr =
