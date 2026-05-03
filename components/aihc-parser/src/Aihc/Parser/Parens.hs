@@ -499,8 +499,8 @@ guardExprNeedsParens arrow = \case
   ELambdaPats {} -> True
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
-  expr -> case arrow of
-    GuardArrow -> endsWithTypeSig expr
+  _ -> case arrow of
+    GuardArrow -> False
     GuardEquals -> False
 
 -- ---------------------------------------------------------------------------
@@ -559,12 +559,22 @@ addPatternBindLhsParens pat rhs =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
     -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
-    -- dedicated decl parser path. Other typed patterns must stay grouped so the
-    -- parser does not reinterpret them as signatures.
+    -- dedicated decl parser path. Nullary constructors must stay grouped so the
+    -- parser does not reinterpret them as variable signatures, but composite
+    -- patterns such as @[x] :: [T] = rhs@ round-trip without an outer pattern
+    -- paren.
     PTypeSig inner@(PVar name) ty ->
       wrapPat (isSymbolicUName name) (PTypeSig (addPatternAtomParens inner) (addTypeParens ty))
-    PTypeSig {} -> wrapPat True (addPatternParens pat)
+    PTypeSig inner ty ->
+      wrapPat
+        (typedPatternBindLhsNeedsParens inner)
+        (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
     _ -> addPatternParens pat
+
+typedPatternBindLhsNeedsParens :: Pattern -> Bool
+typedPatternBindLhsNeedsParens (PAnn _ sub) = typedPatternBindLhsNeedsParens sub
+typedPatternBindLhsNeedsParens PCon {} = True
+typedPatternBindLhsNeedsParens _ = False
 
 addMatchParens :: UnqualifiedName -> Match -> Match
 addMatchParens name match =
@@ -1142,21 +1152,10 @@ addDoStmtParens stmt =
     DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    letExprNeedsDoStmtParens (ELetDecls decls@(_ : _) _) =
-      not (all isBareDoLetExprDecl decls)
+    letExprNeedsDoStmtParens (ELetDecls (_ : _) _) = False
     letExprNeedsDoStmtParens (ELetDecls [] _) = True
     letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
     letExprNeedsDoStmtParens _ = False
-
-    isBareDoLetExprDecl (DeclAnn _ inner) = isBareDoLetExprDecl inner
-    isBareDoLetExprDecl (DeclValue (PatternBind NoMultiplicityTag _ (UnguardedRhs _ _ Nothing))) = True
-    isBareDoLetExprDecl (DeclValue (FunctionBind _ matches)) = all hasPlainMatchRhs matches
-    isBareDoLetExprDecl _ = False
-
-    hasPlainMatchRhs match =
-      case matchRhs match of
-        UnguardedRhs _ _ Nothing -> True
-        _ -> False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
@@ -1222,7 +1221,11 @@ addArithSeqParens seqInfo =
     ArithSeqFromThenTo fromE thenE toE -> ArithSeqFromThenTo (addExprGuardedParens fromE) (addExprGuardedParens thenE) (addExprParens toE)
 
 addExprGuardedParens :: Expr -> Expr
-addExprGuardedParens = addExprParensIn CtxGuarded
+addExprGuardedParens expr =
+  case peelExprAnn expr of
+    EIf {} -> addExprParens expr
+    EMultiWayIf {} -> addExprParens expr
+    _ -> addExprParensIn CtxGuarded expr
 
 -- ---------------------------------------------------------------------------
 -- Types
