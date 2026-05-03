@@ -34,6 +34,7 @@ data Directive
   | DirElse
   | DirEndIf
   | DirLine !Int !(Maybe FilePath)
+  | DirPragmaOnce
   | DirWarning !Text
   | DirError !Text
   | DirUnsupported !Text
@@ -71,6 +72,7 @@ parseDirectiveBody body =
           "else" -> Just DirElse
           "endif" -> Just DirEndIf
           "line" -> parseLineDirective rest
+          "pragma" -> parsePragma rest
           "warning" -> Just (DirWarning rest)
           "error" -> Just (DirError rest)
           _ -> Nothing
@@ -84,6 +86,12 @@ parseLineDirective body =
        in case parseQuotedText rest of
             Nothing -> Just (DirLine lineNumber Nothing)
             Just path -> Just (DirLine lineNumber (Just (T.unpack path)))
+
+parsePragma :: Text -> Maybe Directive
+parsePragma body =
+  case T.words body of
+    ["once"] -> Just DirPragmaOnce
+    _ -> Nothing
 
 parseDefine :: Text -> Maybe Directive
 parseDefine rest = do

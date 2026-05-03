@@ -1126,12 +1126,19 @@ addDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (wrapExpr (isLetExpr e) (addExprParens e))
+    DoExpr e -> DoExpr (wrapExpr (isComplexLetExpr e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    isLetExpr ELetDecls {} = True
-    isLetExpr (EAnn _ inner) = isLetExpr inner
-    isLetExpr _ = False
+    isComplexLetExpr (EAnn _ inner) = isComplexLetExpr inner
+    isComplexLetExpr (ELetDecls decls _) = not (all isSimpleLetDecl decls)
+    isComplexLetExpr _ = False
+
+    isSimpleLetDecl (DeclAnn _ inner) = isSimpleLetDecl inner
+    isSimpleLetDecl (DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs _ _ Nothing))) =
+      case peelPatternAnn pat of
+        PVar _ -> True
+        _ -> False
+    isSimpleLetDecl _ = False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =

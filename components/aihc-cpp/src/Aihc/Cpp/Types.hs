@@ -27,6 +27,8 @@ import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text.Lazy.Builder as TB
 import GHC.Generics (Generic)
@@ -136,6 +138,7 @@ data EngineState = EngineState
     stOutput :: !TB.Builder,
     stOutputLineCount :: {-# UNPACK #-} !Int,
     stDiagnosticsRev :: ![Diagnostic],
+    stPragmaOnceFiles :: !(Set FilePath),
     stSkippingDanglingElse :: !Bool,
     stHsBlockCommentDepth :: !Int,
     stCBlockCommentDepth :: !Int,
@@ -150,6 +153,7 @@ emptyState filePath =
       stOutput = mempty,
       stOutputLineCount = 0,
       stDiagnosticsRev = [],
+      stPragmaOnceFiles = S.empty,
       stSkippingDanglingElse = False,
       stHsBlockCommentDepth = 0,
       stCBlockCommentDepth = 0,
