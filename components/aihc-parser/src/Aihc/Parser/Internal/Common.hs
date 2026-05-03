@@ -1032,6 +1032,9 @@ infixOperatorParserExcept forbidden =
           TkConSym op ->
             let name = qualifyName Nothing (mkUnqualifiedName NameConSym op)
              in if allowed name then Just name else Nothing
+          TkPrefixPercent ->
+            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym "%")
+             in if allowed name then Just name else Nothing
           TkQVarSym modName op ->
             let name = mkName (Just modName) NameVarSym op
              in if allowed name then Just name else Nothing
