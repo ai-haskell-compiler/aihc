@@ -1142,23 +1142,21 @@ addDoStmtParens stmt =
     DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    letExprNeedsDoStmtParens (ELetDecls decls@(_ : _) body)
-      | all isSimpleLetDecl decls = False
-      | otherwise = not (isInfixExpr body)
+    letExprNeedsDoStmtParens (ELetDecls decls@(_ : _) _) =
+      not (all isBareDoLetExprDecl decls)
     letExprNeedsDoStmtParens (ELetDecls [] _) = True
     letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
     letExprNeedsDoStmtParens _ = False
 
-    isSimpleLetDecl (DeclAnn _ inner) = isSimpleLetDecl inner
-    isSimpleLetDecl (DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs _ _ Nothing))) =
-      case peelPatternAnn pat of
-        PVar _ -> True
-        _ -> False
-    isSimpleLetDecl _ = False
+    isBareDoLetExprDecl (DeclAnn _ inner) = isBareDoLetExprDecl inner
+    isBareDoLetExprDecl (DeclValue (PatternBind NoMultiplicityTag _ (UnguardedRhs _ _ Nothing))) = True
+    isBareDoLetExprDecl (DeclValue (FunctionBind _ matches)) = all hasPlainMatchRhs matches
+    isBareDoLetExprDecl _ = False
 
-    isInfixExpr EInfix {} = True
-    isInfixExpr (EAnn _ inner) = isInfixExpr inner
-    isInfixExpr _ = False
+    hasPlainMatchRhs match =
+      case matchRhs match of
+        UnguardedRhs _ _ Nothing -> True
+        _ -> False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
@@ -1237,6 +1235,14 @@ addTypeParens = addTypeParensShared CtxTypeAtom 0
 addTypeTopLevelParens :: Type -> Type
 addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
 addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addTypeParensShared CtxTypeAtom 0 ty) (addTypeParensShared CtxTypeAtom 0 kind)
+addTypeTopLevelParens (TForall telescope inner) =
+  TForall
+    (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+    (addTypeTopLevelParens inner)
+addTypeTopLevelParens (TContext constraints inner) =
+  TContext (addContextConstraints constraints) (addContextBodyParens inner)
+addTypeTopLevelParens (TParen inner) =
+  TParen (addTypeTopLevelParens inner)
 addTypeTopLevelParens ty = addTypeParens ty
 
 addTypeIn :: TypeCtx -> Type -> Type
@@ -1333,6 +1339,28 @@ addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens
 addImplicitParamBodyParens ty@(TContext {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
 addImplicitParamBodyParens ty@(TForall {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
 addImplicitParamBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
+
+-- | Process the body to the right of a constraint arrow in a top-level type
+-- RHS. A kind signature is already delimited there in cases like
+-- @type X = C => T :: K@, but TH splices still need grouping because
+-- @type X = C => $x :: K@ is rejected at the @::@ by GHC.
+addContextBodyParens :: Type -> Type
+addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
+addContextBodyParens ty =
+  case ty of
+    TKindSig ty' kind ->
+      wrapTy
+        (startsWithTypeSplice ty')
+        (TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind))
+    _ -> addTypeParensShared CtxTypeAtom 0 ty
+
+startsWithTypeSplice :: Type -> Bool
+startsWithTypeSplice (TAnn _ sub) = startsWithTypeSplice sub
+startsWithTypeSplice (TParen _) = False
+startsWithTypeSplice TSplice {} = True
+startsWithTypeSplice (TApp f _) = startsWithTypeSplice f
+startsWithTypeSplice (TTypeApp f _) = startsWithTypeSplice f
+startsWithTypeSplice _ = False
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter
