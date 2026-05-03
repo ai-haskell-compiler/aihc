@@ -745,6 +745,7 @@ functionBinderNameParser =
       tokenSatisfy "variable operator" $ \tok ->
         case lexTokenKind tok of
           TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
+          TkReservedAt -> Just (mkUnqualifiedName NameVarSym "@")
           _ -> Nothing
 
 functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs Expr -> ValueDecl

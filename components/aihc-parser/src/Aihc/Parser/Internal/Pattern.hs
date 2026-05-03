@@ -13,7 +13,7 @@ where
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser, exprParserWithTypeSigParser)
-import Aihc.Parser.Internal.Type (typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -316,7 +316,7 @@ subpatternWithBareViewParser = do
 
 viewPatternExprParser :: TokParser Expr
 viewPatternExprParser =
-  exprParserWithTypeSigParser typeInfixParser
+  exprParserWithTypeSigParser typeParser
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -410,6 +410,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         TkConSym {} -> operatorOrExprPatternParser
         TkQConSym {} -> operatorOrExprPatternParser
         TkReservedColon -> operatorOrExprPatternParser
+        TkReservedAt -> operatorOrExprPatternParser
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
@@ -442,6 +443,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
             TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
             TkQConSym modName op -> pure (PCon (mkName (Just modName) NameConSym op) [] [])
             TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":")) [] [])
+            TkReservedAt -> pure (PVar (mkUnqualifiedName NameVarSym "@"))
             _ ->
               MP.customFailure
                 UnexpectedTokenExpecting

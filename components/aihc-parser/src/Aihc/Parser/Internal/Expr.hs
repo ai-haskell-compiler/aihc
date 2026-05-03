@@ -565,6 +565,7 @@ operatorExprNameParser =
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
       TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
+      TkReservedAt -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "@"))
       TkMinusOperator -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-"))
       TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
       TkReservedDoubleColon -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "::"))

@@ -436,9 +436,11 @@ needsTypeParens ctx ty =
         -- TStar renders as @*@ which merges with the preceding @\@@ in TTypeApp
         -- to form a single operator token @\@*@.
         TStar {} -> True
-        -- TSplice renders as @$name@ or @$(expr)@; the @$@ merges with the
-        -- preceding @\@@ in TTypeApp to form a single operator token @\@$@.
-        TSplice {} -> True
+        -- TSplice renders as @$name@ or @$(expr)@. Parenthesizing this form in
+        -- type-application argument positions changes the pretty output from
+        -- @$expr@ to @(@$expr)@ and can trigger avoidable roundtrip mismatches
+        -- in instance heads.
+        TSplice {} -> False
         -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
         -- the surrounding -> U into the implicit param type.
         TImplicitParam {} -> True
@@ -1490,10 +1492,15 @@ addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
+    PParen (PTypeSig inner@(PVar {}) ty) ->
+      PParen (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
+    PTypeSig inner@(PVar {}) ty ->
+      PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty)
+    PTypeSig {} -> wrapPat True (addPatternParens pat)
     PAs {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
