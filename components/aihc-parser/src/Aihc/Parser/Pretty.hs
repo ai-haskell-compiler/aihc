@@ -321,8 +321,9 @@ prettyPatSynLhs name args =
 prettyPatSynWhere :: UnqualifiedName -> PatSynDir -> [Doc ann]
 prettyPatSynWhere _ PatSynBidirectional = []
 prettyPatSynWhere _ PatSynUnidirectional = []
+prettyPatSynWhere _ (PatSynExplicitBidirectional []) = ["where", spacedBraces mempty]
 prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
-  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch name) matches)))]
+  ["where" <> hardline <> indent 2 (vsep (map (prettyFunctionMatch name) matches))]
 
 prettyFunctionMatchLines :: UnqualifiedName -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
@@ -379,17 +380,17 @@ prettyWhereClause :: Maybe [Decl] -> Doc ann
 prettyWhereClause Nothing = mempty
 prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
 prettyWhereClause (Just decls)
-  | any declContainsLayoutCase decls =
-      hardline <> indent 2 ("where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls)))
-prettyWhereClause (Just decls) = " where" <+> spacedBraces (prettyInlineDecls decls)
+  | any declContainsMultilineString decls = " where" <+> spacedBraces (prettyInlineDecls decls)
+prettyWhereClause (Just decls) =
+  hardline <> indent 2 ("where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls)))
 
 prettyWhereClauseBare :: Maybe [Decl] -> Doc ann
 prettyWhereClauseBare Nothing = mempty
 prettyWhereClauseBare (Just []) = "where" <+> spacedBraces mempty
 prettyWhereClauseBare (Just decls)
-  | any declContainsLayoutCase decls =
-      "where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls))
-prettyWhereClauseBare (Just decls) = "where" <+> spacedBraces (prettyInlineDecls decls)
+  | any declContainsMultilineString decls = "where" <+> spacedBraces (prettyInlineDecls decls)
+prettyWhereClauseBare (Just decls) =
+  "where" <> hardline <> indent 2 (vsep (concatMap prettyDeclLines decls))
 
 -- | Infix type-family heads use @l \`Op\` r@ with a 'NameConId' operator (e.g.
 -- @\`And\`@), so 'isSymbolicTypeName' is false; 'TypeHeadInfix' already marks
@@ -557,39 +558,42 @@ prettyLiteral lit =
 
 prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
-  hsep
-    ( ["data"]
+  case dataDeclConstructors decl of
+    ctors
+      | any isGadtCon ctors ->
+          headDoc <+> prettyGadtConBlock ctors (dataDeclDeriving decl)
+    _ ->
+      hsep (headParts <> ctorPart <> derivingParts (dataDeclDeriving decl))
+  where
+    headParts =
+      ["data"]
         <> maybe [] (pure . prettyPragma) (dataDeclCTypePragma decl)
         <> prettyDeclBinderHead (dataDeclContext decl) (dataDeclHead decl)
         <> kindPart
-        <> ctorPart
-        <> derivingParts (dataDeclDeriving decl)
-    )
-  where
+    headDoc = hsep headParts
     kindPart = maybe [] (\k -> ["::", prettyType k]) (dataDeclKind decl)
     ctorPart =
       case dataDeclConstructors decl of
         [] -> []
-        ctors
-          | any isGadtCon ctors -> ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
-          | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+        ctors -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
 prettyTypeDataDecl :: DataDecl -> Doc ann
 prettyTypeDataDecl decl =
-  hsep
-    ( ["type data"]
+  case dataDeclConstructors decl of
+    ctors
+      | any isGadtCon ctors -> headDoc <+> prettyGadtConBlock ctors []
+    _ -> hsep (headParts <> ctorPart)
+  where
+    headParts =
+      ["type data"]
         <> prettyDeclBinderHead (dataDeclContext decl) (dataDeclHead decl)
         <> kindPart
-        <> ctorPart
-    )
-  where
+    headDoc = hsep headParts
     kindPart = maybe [] (\k -> ["::", prettyType k]) (dataDeclKind decl)
     ctorPart =
       case dataDeclConstructors decl of
         [] -> []
-        ctors
-          | any isGadtCon ctors -> ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
-          | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+        ctors -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
 isGadtCon :: DataConDecl -> Bool
 isGadtCon (DataConAnn _ inner) = isGadtCon inner
@@ -598,25 +602,33 @@ isGadtCon _ = False
 
 prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
-  hsep
-    ( ["newtype"]
+  case newtypeDeclConstructor decl of
+    Just ctor
+      | isGadtCon ctor ->
+          headDoc <+> prettyGadtConBlock [ctor] (newtypeDeclDeriving decl)
+    _ ->
+      hsep (headParts <> ctorPart <> derivingParts (newtypeDeclDeriving decl))
+  where
+    headParts =
+      ["newtype"]
         <> maybe [] (pure . prettyPragma) (newtypeDeclCTypePragma decl)
         <> prettyDeclBinderHead (newtypeDeclContext decl) (newtypeDeclHead decl)
         <> kindPart
-        <> ctorPart
-        <> derivingParts (newtypeDeclDeriving decl)
-    )
-  where
+    headDoc = hsep headParts
     kindPart = maybe [] (\k -> ["::", prettyType k]) (newtypeDeclKind decl)
     ctorPart =
       case newtypeDeclConstructor decl of
         Nothing -> []
-        Just ctor
-          | isGadtCon ctor -> ["where", braces (prettyDataCon ctor)]
-          | otherwise -> ["=", prettyDataCon ctor]
+        Just ctor -> ["=", prettyDataCon ctor]
 
 derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
+
+prettyGadtConBlock :: [DataConDecl] -> [DerivingClause] -> Doc ann
+prettyGadtConBlock ctors derivingClauses =
+  "where"
+    <> hardline
+    <> indent 2 (vsep (map prettyDataCon ctors <> derivingParts derivingClauses))
 
 derivingPart :: DerivingClause -> [Doc ann]
 derivingPart (DerivingClause strategy classes) =
@@ -1597,7 +1609,20 @@ declContainsLayoutCase decl =
   case decl of
     DeclAnn _ sub -> declContainsLayoutCase sub
     DeclValue valueDecl -> valueDeclContainsLayoutCase valueDecl
+    DeclPatSyn patSynDecl -> patSynDeclContainsLayout patSynDecl
+    DeclData dataDecl -> dataDeclContainsLayout dataDecl
+    DeclTypeData dataDecl -> dataDeclContainsLayout dataDecl
+    DeclNewtype newtypeDecl -> maybe False isGadtCon (newtypeDeclConstructor newtypeDecl)
+    DeclTypeFamilyDecl tf -> maybe False (not . null) (typeFamilyDeclEquations tf)
+    DeclDataFamilyInst dfi -> any isGadtCon (dataFamilyInstConstructors dfi)
     _ -> False
+  where
+    patSynDeclContainsLayout ps =
+      case patSynDeclDir ps of
+        PatSynExplicitBidirectional matches -> not (null matches)
+        _ -> False
+
+    dataDeclContainsLayout dataDecl = any isGadtCon (dataDeclConstructors dataDecl)
 
 valueDeclContainsLayoutCase :: ValueDecl -> Bool
 valueDeclContainsLayoutCase valueDecl =
@@ -1619,9 +1644,188 @@ rhsContainsLayoutCase :: Rhs Expr -> Bool
 rhsContainsLayoutCase rhs =
   case rhs of
     UnguardedRhs _ body whereDecls ->
-      exprContainsLayoutCase body || maybe False (any declContainsLayoutCase) whereDecls
+      exprContainsLayoutCase body || maybe False whereDeclsContainLayout whereDecls
     GuardedRhss _ guards whereDecls ->
-      any guardedRhsContainsLayoutCase guards || maybe False (any declContainsLayoutCase) whereDecls
+      any guardedRhsContainsLayoutCase guards || maybe False whereDeclsContainLayout whereDecls
+  where
+    whereDeclsContainLayout decls = not (null decls) || any declContainsLayoutCase decls
+
+declContainsMultilineString :: Decl -> Bool
+declContainsMultilineString decl =
+  case decl of
+    DeclAnn _ sub -> declContainsMultilineString sub
+    DeclValue valueDecl -> valueDeclContainsMultilineString valueDecl
+    _ -> False
+
+valueDeclContainsMultilineString :: ValueDecl -> Bool
+valueDeclContainsMultilineString valueDecl =
+  case valueDecl of
+    PatternBind _ pat rhs -> patternContainsMultilineString pat || rhsContainsMultilineString rhs
+    FunctionBind _ matches -> any matchContainsMultilineString matches
+
+matchContainsMultilineString :: Match -> Bool
+matchContainsMultilineString match =
+  any patternContainsMultilineString (matchPats match) || rhsContainsMultilineString (matchRhs match)
+
+rhsContainsMultilineString :: Rhs Expr -> Bool
+rhsContainsMultilineString rhs =
+  case rhs of
+    UnguardedRhs _ body whereDecls ->
+      exprContainsMultilineString body || maybe False (any declContainsMultilineString) whereDecls
+    GuardedRhss _ guards whereDecls ->
+      any guardedRhsContainsMultilineString guards || maybe False (any declContainsMultilineString) whereDecls
+
+guardedRhsContainsMultilineString :: GuardedRhs Expr -> Bool
+guardedRhsContainsMultilineString grhs =
+  any guardQualifierContainsMultilineString (guardedRhsGuards grhs)
+    || exprContainsMultilineString (guardedRhsBody grhs)
+
+exprContainsMultilineString :: Expr -> Bool
+exprContainsMultilineString expr =
+  case expr of
+    EAnn _ sub -> exprContainsMultilineString sub
+    EString _ raw -> T.isInfixOf "\n" raw
+    EStringHash _ raw -> T.isInfixOf "\n" raw
+    EApp fn arg -> exprContainsMultilineString fn || exprContainsMultilineString arg
+    ETypeApp fn _ -> exprContainsMultilineString fn
+    EIf cond yes no -> any exprContainsMultilineString [cond, yes, no]
+    EMultiWayIf rhss -> any guardedRhsContainsMultilineString rhss
+    ELambdaPats _ body -> exprContainsMultilineString body
+    ELambdaCase alts -> any caseAltContainsMultilineString alts
+    ELambdaCases alts -> any lambdaCaseAltContainsMultilineString alts
+    EInfix lhs _ rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
+    ENegate inner -> exprContainsMultilineString inner
+    ESectionL lhs _ -> exprContainsMultilineString lhs
+    ESectionR _ rhs -> exprContainsMultilineString rhs
+    ELetDecls decls body -> any declContainsMultilineString decls || exprContainsMultilineString body
+    ECase scrut alts -> exprContainsMultilineString scrut || any caseAltContainsMultilineString alts
+    EDo stmts _ -> any doStmtContainsMultilineString stmts
+    EListComp body quals -> exprContainsMultilineString body || any compStmtContainsMultilineString quals
+    EListCompParallel body qualifierGroups -> exprContainsMultilineString body || any (any compStmtContainsMultilineString) qualifierGroups
+    ERecordCon _ fields _ -> any (exprContainsMultilineString . recordFieldValue) fields
+    ERecordUpd base fields -> exprContainsMultilineString base || any (exprContainsMultilineString . recordFieldValue) fields
+    EGetField base _ -> exprContainsMultilineString base
+    ETypeSig inner _ -> exprContainsMultilineString inner
+    EParen inner -> exprContainsMultilineString inner
+    EList values -> any exprContainsMultilineString values
+    ETuple _ values -> any (maybe False exprContainsMultilineString) values
+    EUnboxedSum _ _ inner -> exprContainsMultilineString inner
+    EProc _ cmd -> cmdContainsMultilineString cmd
+    EPragma _ inner -> exprContainsMultilineString inner
+    ETHExpQuote body -> exprContainsMultilineString body
+    ETHTypedQuote body -> exprContainsMultilineString body
+    ETHDeclQuote decls -> any declContainsMultilineString decls
+    ETHPatQuote pat -> patternContainsMultilineString pat
+    ETHNameQuote body -> exprContainsMultilineString body
+    ETHSplice body -> exprContainsMultilineString body
+    ETHTypedSplice body -> exprContainsMultilineString body
+    _ -> False
+
+cmdContainsMultilineString :: Cmd -> Bool
+cmdContainsMultilineString cmd =
+  case cmd of
+    CmdAnn _ inner -> cmdContainsMultilineString inner
+    CmdArrApp lhs _ rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
+    CmdInfix lhs _ rhs -> cmdContainsMultilineString lhs || cmdContainsMultilineString rhs
+    CmdDo stmts -> any cmdStmtContainsMultilineString stmts
+    CmdIf cond yes no -> exprContainsMultilineString cond || cmdContainsMultilineString yes || cmdContainsMultilineString no
+    CmdCase scrut alts -> exprContainsMultilineString scrut || any cmdCaseAltContainsMultilineString alts
+    CmdLet decls body -> any declContainsMultilineString decls || cmdContainsMultilineString body
+    CmdLam _ body -> cmdContainsMultilineString body
+    CmdApp c e -> cmdContainsMultilineString c || exprContainsMultilineString e
+    CmdPar c -> cmdContainsMultilineString c
+
+patternContainsMultilineString :: Pattern -> Bool
+patternContainsMultilineString pat =
+  case pat of
+    PAnn _ sub -> patternContainsMultilineString sub
+    PLit lit -> literalContainsMultilineString lit
+    PNegLit lit -> literalContainsMultilineString lit
+    PView expr sub -> exprContainsMultilineString expr || patternContainsMultilineString sub
+    PSplice expr -> exprContainsMultilineString expr
+    PInfix lhs _ rhs -> patternContainsMultilineString lhs || patternContainsMultilineString rhs
+    PCon _ _ args -> any patternContainsMultilineString args
+    PRecord _ fields _ -> any (patternContainsMultilineString . recordFieldValue) fields
+    PList pats -> any patternContainsMultilineString pats
+    PTuple _ pats -> any patternContainsMultilineString pats
+    PUnboxedSum _ _ inner -> patternContainsMultilineString inner
+    PAs _ sub -> patternContainsMultilineString sub
+    PStrict sub -> patternContainsMultilineString sub
+    PIrrefutable sub -> patternContainsMultilineString sub
+    PTypeSig sub _ -> patternContainsMultilineString sub
+    PParen sub -> patternContainsMultilineString sub
+    _ -> False
+
+literalContainsMultilineString :: Literal -> Bool
+literalContainsMultilineString lit =
+  case lit of
+    LitAnn _ sub -> literalContainsMultilineString sub
+    LitString _ raw -> T.isInfixOf "\n" raw
+    LitStringHash _ raw -> T.isInfixOf "\n" raw
+    _ -> False
+
+caseAltContainsMultilineString :: CaseAlt Expr -> Bool
+caseAltContainsMultilineString (CaseAlt _ pat rhs) =
+  patternContainsMultilineString pat || rhsContainsMultilineString rhs
+
+cmdCaseAltContainsMultilineString :: CaseAlt Cmd -> Bool
+cmdCaseAltContainsMultilineString (CaseAlt _ pat rhs) =
+  patternContainsMultilineString pat || cmdRhsContainsMultilineString rhs
+
+lambdaCaseAltContainsMultilineString :: LambdaCaseAlt -> Bool
+lambdaCaseAltContainsMultilineString (LambdaCaseAlt _ pats rhs) =
+  any patternContainsMultilineString pats || rhsContainsMultilineString rhs
+
+cmdRhsContainsMultilineString :: Rhs Cmd -> Bool
+cmdRhsContainsMultilineString rhs =
+  case rhs of
+    UnguardedRhs _ body whereDecls ->
+      cmdContainsMultilineString body || maybe False (any declContainsMultilineString) whereDecls
+    GuardedRhss _ guards whereDecls ->
+      any cmdGuardedRhsContainsMultilineString guards || maybe False (any declContainsMultilineString) whereDecls
+
+cmdGuardedRhsContainsMultilineString :: GuardedRhs Cmd -> Bool
+cmdGuardedRhsContainsMultilineString grhs =
+  any guardQualifierContainsMultilineString (guardedRhsGuards grhs)
+    || cmdContainsMultilineString (guardedRhsBody grhs)
+
+guardQualifierContainsMultilineString :: GuardQualifier -> Bool
+guardQualifierContainsMultilineString qualifier =
+  case qualifier of
+    GuardAnn _ inner -> guardQualifierContainsMultilineString inner
+    GuardExpr expr -> exprContainsMultilineString expr
+    GuardPat pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
+    GuardLet decls -> any declContainsMultilineString decls
+
+doStmtContainsMultilineString :: DoStmt Expr -> Bool
+doStmtContainsMultilineString stmt =
+  case stmt of
+    DoAnn _ inner -> doStmtContainsMultilineString inner
+    DoBind pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
+    DoExpr expr -> exprContainsMultilineString expr
+    DoLetDecls decls -> any declContainsMultilineString decls
+    DoRecStmt stmts -> any doStmtContainsMultilineString stmts
+
+cmdStmtContainsMultilineString :: DoStmt Cmd -> Bool
+cmdStmtContainsMultilineString stmt =
+  case stmt of
+    DoAnn _ inner -> cmdStmtContainsMultilineString inner
+    DoBind pat cmd -> patternContainsMultilineString pat || cmdContainsMultilineString cmd
+    DoExpr cmd -> cmdContainsMultilineString cmd
+    DoLetDecls decls -> any declContainsMultilineString decls
+    DoRecStmt stmts -> any cmdStmtContainsMultilineString stmts
+
+compStmtContainsMultilineString :: CompStmt -> Bool
+compStmtContainsMultilineString stmt =
+  case stmt of
+    CompAnn _ inner -> compStmtContainsMultilineString inner
+    CompGen pat expr -> patternContainsMultilineString pat || exprContainsMultilineString expr
+    CompGuard expr -> exprContainsMultilineString expr
+    CompLetDecls decls -> any declContainsMultilineString decls
+    CompThen expr -> exprContainsMultilineString expr
+    CompThenBy lhs rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
+    CompGroupUsing expr -> exprContainsMultilineString expr
+    CompGroupByUsing lhs rhs -> exprContainsMultilineString lhs || exprContainsMultilineString rhs
 
 guardedRhsContainsLayoutCase :: GuardedRhs Expr -> Bool
 guardedRhsContainsLayoutCase grhs =
@@ -1837,7 +2041,8 @@ prettyTypeFamilyDecl tf =
     resultSigPart (Just (TypeFamilyInjectiveSig result injectivity)) =
       ["=", prettyTyVarBinder result, "|", prettyTypeFamilyInjectivity injectivity]
     eqsPart Nothing = []
-    eqsPart (Just eqs) = ["where", braces (hsep (punctuate semi (map prettyTypeFamilyEq eqs)))]
+    eqsPart (Just []) = ["where", spacedBraces mempty]
+    eqsPart (Just eqs) = ["where" <> hardline <> indent 2 (vsep (map prettyTypeFamilyEq eqs))]
 
 prettyTypeFamilyEq :: TypeFamilyEq -> Doc ann
 prettyTypeFamilyEq eq =
@@ -1872,22 +2077,29 @@ prettyTopTypeFamilyInst tfi =
 
 prettyTopDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyTopDataFamilyInst dfi =
-  hsep $
-    [keyword, "instance"]
-      <> forallPart (dataFamilyInstForall dfi)
-      <> [prettyType (dataFamilyInstHead dfi)]
-      <> kindPart (dataFamilyInstKind dfi)
-      <> ctorPart (dataFamilyInstConstructors dfi)
-      <> derivingParts (dataFamilyInstDeriving dfi)
+  case dataFamilyInstConstructors dfi of
+    ctors
+      | any isGadtCon ctors ->
+          headDoc <+> prettyGadtConBlock ctors (dataFamilyInstDeriving dfi)
+    _ ->
+      hsep $
+        headParts
+          <> ctorPart (dataFamilyInstConstructors dfi)
+          <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    headParts =
+      [keyword, "instance"]
+        <> forallPart (dataFamilyInstForall dfi)
+        <> [prettyType (dataFamilyInstHead dfi)]
+        <> kindPart (dataFamilyInstKind dfi)
+    headDoc = hsep headParts
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
     kindPart Nothing = []
     kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
-      | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
       | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
@@ -1987,17 +2199,24 @@ prettyTypeFamilyInfix ty =
 
 prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyInstDataFamilyInst dfi =
-  hsep $
-    [keyword, prettyType (dataFamilyInstHead dfi)]
-      <> kindPart (dataFamilyInstKind dfi)
-      <> ctorPart (dataFamilyInstConstructors dfi)
-      <> derivingParts (dataFamilyInstDeriving dfi)
+  case dataFamilyInstConstructors dfi of
+    ctors
+      | any isGadtCon ctors ->
+          headDoc <+> prettyGadtConBlock ctors (dataFamilyInstDeriving dfi)
+    _ ->
+      hsep $
+        headParts
+          <> ctorPart (dataFamilyInstConstructors dfi)
+          <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    headParts =
+      [keyword, prettyType (dataFamilyInstHead dfi)]
+        <> kindPart (dataFamilyInstKind dfi)
+    headDoc = hsep headParts
     kindPart Nothing = []
     kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
-      | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
       | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]

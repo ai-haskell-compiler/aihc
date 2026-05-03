@@ -132,6 +132,8 @@ buildTests = do
             testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
+            testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
+            testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
             testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
             testCase "pretty-prints lambda-cases expressions with implicit layout" test_prettyLambdaCasesExpressionUsesImplicitLayout,
             testCase "pretty-prints class declarations with implicit layout" test_prettyClassDeclarationUsesImplicitLayout,
@@ -894,6 +896,62 @@ test_prettyLayoutLetGuardInMultiWayIf = do
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
 
+test_prettyWhereClauseUsesImplicitLayout :: Assertion
+test_prettyWhereClauseUsesImplicitLayout = do
+  let source = "f x = x where { y = 1 }"
+      expected =
+        T.intercalate
+          "\n"
+          [ "f x = x",
+            "  where",
+            "    y = 1"
+          ]
+  case parseDecl defaultConfig source of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" expected rendered
+      case parseDecl defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyGadtConstructorsUseImplicitLayout :: Assertion
+test_prettyGadtConstructorsUseImplicitLayout = do
+  let config = defaultConfig {parserExtensions = [GADTs, TypeFamilies]}
+      gadtSource = "data T where { MkT :: T; MkU :: T }"
+      gadtExpected =
+        T.intercalate
+          "\n"
+          [ "data T where",
+            "  MkT :: T",
+            "  MkU :: T"
+          ]
+      typeFamilySource = "type family F a where { F Int = Bool; F Bool = Int }"
+      typeFamilyExpected =
+        T.intercalate
+          "\n"
+          [ "type family F a where",
+            "  F Int = Bool",
+            "  F Bool = Int"
+          ]
+      assertDecl expected source =
+        case parseDecl config source of
+          ParseOk decl -> do
+            let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+            assertEqual "pretty-printed declaration" expected rendered
+            case parseDecl config rendered of
+              ParseOk reparsed ->
+                assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+              ParseErr bundle ->
+                assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          ParseErr bundle ->
+            assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+  assertDecl gadtExpected gadtSource
+  assertDecl typeFamilyExpected typeFamilySource
+
 test_prettyLambdaCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCaseExpressionUsesImplicitLayout = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
@@ -917,7 +975,8 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
           [ "f =",
             "  \\case",
             "    0 -> 1",
-            "  where { g = 2 }"
+            "  where",
+            "    g = 2"
           ]
   case parseDecl config declSource of
     ParseOk decl -> do
@@ -975,7 +1034,8 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout = do
           [ "f =",
             "  \\cases",
             "    0 -> 1",
-            "  where { g = 2 }"
+            "  where",
+            "    g = 2"
           ]
   case parseDecl config declSource of
     ParseOk decl -> do
