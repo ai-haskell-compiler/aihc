@@ -4,7 +4,15 @@
 
 module ResolveStackageProgress
   ( Options (..),
+    PackageInfo (..),
+    PackageStatus (..),
+    collectPackageInfo,
+    gatherDepExports,
+    kahnLayers,
     optionsParser,
+    phase1Parallel,
+    processLayers,
+    resolveOnePackage,
     run,
   )
 where

@@ -67,6 +67,7 @@ executable aihc-dev
   other-modules:
     Aihc.Dev.HackageTester.Run
     BootInterface
+    ResolvePackage
     ResolveStackageProgress
     StackageProgress.CLI
     StackageProgress.FileChecker
@@ -115,24 +116,32 @@ test-suite spec
   hs-source-dirs:
     test
     app/stackage-progress
+    app/resolve-stackage-progress
 
   main-is: Spec.hs
   other-modules:
+    BootInterface
+    ResolvePackage
+    ResolveStackageProgress
     StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
+    Test.ResolvePackage
     Test.ResolveStackageProgress.PathsModule
     Test.StackageProgress.FileChecker
     Test.StackageProgress.FileCheckerTiming
 
   build-depends:
+    Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
+    aeson-pretty >=0.8 && <0.9,
     aihc-cpp,
     aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,
     aihc-parser:parser-tooling-common,
     aihc-resolve,
+    async,
     base >=4.16 && <5,
     bytestring,
     containers,
@@ -141,10 +150,12 @@ test-suite spec
     filepath,
     haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
+    process >=1.6 && <1.8,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
     text >=1.2.3 && <2.2,
+    yaml >=0.11 && <0.12,
 
   ghc-options: -Wall
   default-language: GHC2021
