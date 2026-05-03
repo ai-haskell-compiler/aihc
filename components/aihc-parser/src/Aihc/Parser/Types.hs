@@ -24,14 +24,13 @@ import Aihc.Parser.Lex
     LexTokenKind (..),
     Pragma,
     TokenOrigin (..),
-    enabledExtensionsFromSettings,
     layoutTransition,
     mkInitialLayoutState,
     mkInitialLexerState,
     readModuleHeaderExtensionsFromChunks,
     scanAllTokens,
   )
-import Aihc.Parser.Syntax (Extension, SourceSpan (..))
+import Aihc.Parser.Syntax (Extension, SourceSpan (..), applyExtensionSetting, applyImpliedExtensions)
 import Control.DeepSeq (NFData (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
@@ -188,8 +187,8 @@ mkTokStreamModule sourceName baseExts input =
             tokStreamEOFEmitted = False
           }
   where
-    headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
-    effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
+    headerSettings = readModuleHeaderExtensionsFromChunks [input]
+    effectiveExts = applyImpliedExtensions (foldr applyExtensionSetting baseExts headerSettings)
 
 -- | Create a TokStream from pre-lexed tokens (for testing/compatibility).
 -- Layout tokens must already be inserted in the token list.

@@ -112,8 +112,8 @@ lexModuleTokensWithSourceNameAndExtensions :: FilePath -> [Extension] -> Text ->
 lexModuleTokensWithSourceNameAndExtensions sourceName baseExts input =
   lexChunksWithExtensions True sourceName effectiveExts [input]
   where
-    headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
-    effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
+    headerSettings = readModuleHeaderExtensionsFromChunks [input]
+    effectiveExts = applyImpliedExtensions (foldr applyExtensionSetting baseExts headerSettings)
 
 lexTokensFromChunksWithExtensions :: [Extension] -> [Text] -> [LexToken]
 lexTokensFromChunksWithExtensions = lexChunksWithExtensions False "<input>"

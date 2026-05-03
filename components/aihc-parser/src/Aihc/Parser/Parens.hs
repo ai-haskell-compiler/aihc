@@ -399,6 +399,7 @@ data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppFun
   | CtxTypeAppArg
+  | CtxTypeAppVisibleArg
   | CtxTypeFamilyOperand
   | CtxTypeAtom
   | CtxKindSig
@@ -433,8 +434,20 @@ needsTypeParens ctx ty =
         TFun {} -> True
         TContext {} -> True
         TInfix {} -> True
-        -- TStar renders as @*@ which merges with the preceding @\@@ in TTypeApp
-        -- to form a single operator token @\@*@.
+        TSplice {} -> False
+        TImplicitParam {} -> True
+        _ -> False
+    CtxTypeAppVisibleArg ->
+      case ty of
+        TQuasiQuote {} -> False
+        TApp {} -> True
+        TTypeApp {} -> True
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TInfix {} -> True
+        -- TStar renders as @*@, which merges with the preceding @\@@ in
+        -- visible type application to form a single operator token @\@*@.
         TStar {} -> True
         -- TSplice renders as @$name@ or @$(expr)@. Parenthesizing this form in
         -- type-application argument positions changes the pretty output from
@@ -945,7 +958,7 @@ addExprParensPrec prec expr =
     EApp {} -> addAppsChainPrec prec expr
     ETypeApp fn ty ->
       let fn' = wrapExpr (isGreedyExpr fn) (addExprParensIn CtxAppFun fn)
-       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAppArg ty))
+       in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAppVisibleArg ty))
     ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
@@ -1253,7 +1266,7 @@ addTypeParensShared ctx prec ty =
         TApp f x ->
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
         TTypeApp f x ->
-          wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
+          wrapTy (prec > 2) (TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppVisibleArg x))
         TFun arrowKind a b ->
           wrapTy (prec > 0) (TFun (addArrowKindParens arrowKind) (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->
