@@ -73,7 +73,7 @@ parseDirectiveBody body =
           "line" -> parseLineDirective rest
           "warning" -> Just (DirWarning rest)
           "error" -> Just (DirError rest)
-          _ -> Just (DirUnsupported name)
+          _ -> Nothing
 
 parseLineDirective :: Text -> Maybe Directive
 parseLineDirective body =
