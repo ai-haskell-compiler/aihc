@@ -117,6 +117,7 @@ buildTests = do
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
             testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
             testCase "promoted qualified constructors avoid char literal ambiguity" test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity,
+            testCase "promoted lists space infix elements starting with ticks" test_promotedListSpacesInfixElementsStartingWithTicks,
             testCase "boxed tuple infix constructor operands stay bare" test_boxedTupleInfixConOperandStaysBare,
             testCase "unboxed tuple infix constructor operands stay bare" test_unboxedTupleInfixConOperandStaysBare,
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
@@ -451,6 +452,36 @@ test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
       expected = stripAnnotations (addDeclParens decl)
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "pretty-printed declaration" "type (:+) :: ' A'.B.C" rendered
+  case parseDecl defaultConfig rendered of
+    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+
+test_promotedListSpacesInfixElementsStartingWithTicks :: Assertion
+test_promotedListSpacesInfixElementsStartingWithTicks = do
+  let textType lit =
+        TApp
+          (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Text")) Promoted)
+          (TTypeLit (TypeLitSymbol lit (T.pack (show (T.unpack lit)))))
+      messageType =
+        TInfix
+          (textType "alpha")
+          (qualifyName Nothing (mkUnqualifiedName NameConSym ":<>:"))
+          Promoted
+          (textType "beta")
+      decl =
+        DeclTypeSyn
+          TypeSynDecl
+            { typeSynHead = PrefixBinderHead (mkUnqualifiedName NameConId "M1") [],
+              typeSynBody =
+                TList
+                  Promoted
+                  [ messageType,
+                    textType "gamma"
+                  ]
+            }
+      expected = stripAnnotations (addDeclParens decl)
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "pretty-printed declaration" "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
     ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)

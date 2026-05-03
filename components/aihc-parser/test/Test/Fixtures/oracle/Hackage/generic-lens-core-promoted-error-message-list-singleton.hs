@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Promoted list elements containing infix ErrorMessage operators are not parenthesized in pretty-printed output -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 module M where

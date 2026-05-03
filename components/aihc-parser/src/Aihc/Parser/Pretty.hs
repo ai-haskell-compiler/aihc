@@ -419,6 +419,7 @@ startsWithTick (TList Promoted _) = True
 startsWithTick (TCon _ Promoted) = True
 startsWithTick (TTuple _ Promoted _) = True
 startsWithTick (TApp f _) = startsWithTick f
+startsWithTick (TInfix lhs _ _ _) = startsWithTick lhs
 startsWithTick _ = False
 
 prettyType :: Type -> Doc ann
