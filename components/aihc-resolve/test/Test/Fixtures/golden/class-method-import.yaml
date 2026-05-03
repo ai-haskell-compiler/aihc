@@ -9,5 +9,6 @@ modules:
     import ClassMod (Box (pick))
 
     f = pick
+annotated: []
 status: xfail
 reason: "Class member imports do not currently preserve method names in the term scope, so imported members like `pick` become Unbound."
