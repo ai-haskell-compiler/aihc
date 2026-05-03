@@ -74,6 +74,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -470,6 +471,8 @@ handleDirective ctx st directive =
         else continueBlank ctx st
     DirLine n mPath ->
       handleLineDirective ctx st n mPath
+    DirPragmaOnce ->
+      handlePragmaOnceDirective ctx st
     DirUnsupported name ->
       addDiagnosticWhenActive ctx Warning ("unsupported directive: " <> name) st
 
@@ -492,6 +495,12 @@ addDiagnosticWhenActive :: LineContext -> Severity -> Text -> EngineState -> Ste
 addDiagnosticWhenActive ctx severity message st =
   if currentActive (lcStack ctx)
     then continueBlank ctx (addDiag severity message (lcFilePath ctx) (lcLineNo ctx) st)
+    else continueBlank ctx st
+
+handlePragmaOnceDirective :: LineContext -> EngineState -> Step
+handlePragmaOnceDirective ctx st =
+  if currentActive (lcStack ctx)
+    then continueBlank ctx (st {stPragmaOnceFiles = S.insert (lcFilePath ctx) (stPragmaOnceFiles st)})
     else continueBlank ctx st
 
 pushConditionalFrame :: LineContext -> EngineState -> Bool -> Step
@@ -545,9 +554,14 @@ handleElseDirective ctx st =
 handleIncludeDirective :: LineContext -> EngineState -> IncludeKind -> Text -> Step
 handleIncludeDirective ctx st kind includeTarget
   | not (currentActive (lcStack ctx)) = continueBlank ctx st
+  | S.member includeFilePath (stPragmaOnceFiles st) = continueBlank ctx st
   | otherwise = NeedInclude includeReq nextStep
   where
     includePathText = T.unpack includeTarget
+    includeFilePath =
+      case kind of
+        IncludeLocal -> takeDirectory (lcFilePath ctx) </> includePathText
+        IncludeSystem -> includePathText
     includeReq =
       IncludeRequest
         { includePath = includePathText,
@@ -561,11 +575,7 @@ handleIncludeDirective ctx st kind includeTarget
         ctx
         (addDiag Error ("missing include: " <> includeTarget) (lcFilePath ctx) (lcLineNo ctx) st)
     nextStep (Just includeBytes) =
-      let includeFilePath =
-            case kind of
-              IncludeLocal -> takeDirectory (lcFilePath ctx) </> includePathText
-              IncludeSystem -> includePathText
-          includeCursor = fromByteString includeBytes
+      let includeCursor = fromByteString includeBytes
           -- Include files treat trailing newlines as producing an extra
           -- empty line (matching splitOn "\n" semantics).
           includeHasTrailingNl = not (BS.null includeBytes) && BS.last includeBytes == 0x0A

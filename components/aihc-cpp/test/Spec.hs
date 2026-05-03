@@ -20,6 +20,7 @@ main = do
         "cpp-oracle"
         ( checks
             <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, tokenPastingTests, ccallLineCommentTest]
+            <> [pragmaOnceTest]
             <> [QC.testProperty "dummy quickcheck property" prop_dummy]
         )
     )
@@ -173,6 +174,20 @@ ccallLineCommentTest =
           then pure ()
           else assertFailure ("expected CCALL expansion with line comment, got: " <> show (resultOutput result))
       _ -> assertFailure "expected Done"
+
+pragmaOnceTest :: TestTree
+pragmaOnceTest =
+  testCase "#pragma once skips repeated includes" $
+    case preprocess defaultConfig {configInputFile = "root.hs"} (TE.encodeUtf8 "#include \"guarded.inc\"\n#include \"guarded.inc\"\nafter") of
+      NeedInclude _ k1 ->
+        case k1 (Just "#pragma once\ninside") of
+          NeedInclude {} -> assertFailure "second include should be skipped"
+          Done result -> do
+            let output = resultOutput result
+            if T.count "inside" output == 1 && "after\n" `T.isSuffixOf` output
+              then pure ()
+              else assertFailure ("expected guarded include once, got: " <> show output)
+      Done _ -> assertFailure "expected include continuation step"
 
 ccallLineCommentInput :: T.Text
 ccallLineCommentInput =

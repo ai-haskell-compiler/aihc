@@ -1129,10 +1129,19 @@ addDoStmtParens stmt =
     DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    letExprNeedsDoStmtParens (ELetDecls (_ : _) body) = not (isInfixExpr body)
+    letExprNeedsDoStmtParens (ELetDecls decls@(_ : _) body)
+      | all isSimpleLetDecl decls = False
+      | otherwise = not (isInfixExpr body)
     letExprNeedsDoStmtParens (ELetDecls [] _) = True
     letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
     letExprNeedsDoStmtParens _ = False
+
+    isSimpleLetDecl (DeclAnn _ inner) = isSimpleLetDecl inner
+    isSimpleLetDecl (DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs _ _ Nothing))) =
+      case peelPatternAnn pat of
+        PVar _ -> True
+        _ -> False
+    isSimpleLetDecl _ = False
 
     isInfixExpr EInfix {} = True
     isInfixExpr (EAnn _ inner) = isInfixExpr inner
