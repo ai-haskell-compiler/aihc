@@ -47,6 +47,12 @@ wrapExpr True e@EParen {} = e
 wrapExpr True e = EParen e
 wrapExpr False e = e
 
+wrapCmd :: Bool -> Cmd -> Cmd
+wrapCmd True (CmdAnn ann sub) = CmdAnn ann (wrapCmd True sub)
+wrapCmd True c@CmdPar {} = c
+wrapCmd True c = CmdPar c
+wrapCmd False c = c
+
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
 wrapPat :: Bool -> Pattern -> Pattern
 wrapPat True (PAnn ann sub) = PAnn ann (wrapPat True sub)
@@ -123,7 +129,7 @@ isGreedyExpr = \case
 isBracedExpr :: Expr -> Bool
 isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub
-  ECase {} -> True
+  ECase _ [] -> True
   EMultiWayIf {} -> True
   EDo {} -> True
   ELambdaCase {} -> True
@@ -135,6 +141,7 @@ isBracedExpr = \case
 isOpenEnded :: Expr -> Bool
 isOpenEnded = \case
   EAnn _ sub -> isOpenEnded sub
+  ECase _ alts -> not (null alts)
   EIf {} -> True
   ELambdaPats {} -> True
   ELambdaCases {} -> True
@@ -287,6 +294,7 @@ needsExprParens ctx expr =
         -- variables, literals, etc.) no parens are needed: `-x + 1` is
         -- correctly re-parsed as `(-x) + 1`.
         ENegate inner -> isOpenEnded inner
+        ECase {} -> False
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -304,6 +312,7 @@ needsExprParens ctx expr =
       False
     CtxAppArgGreedy ->
       case expr of
+        ECase {} -> False
         _ | isBracedExpr expr -> False
         EPragma {} -> True
         _ -> isGreedyExpr expr
@@ -324,12 +333,16 @@ exprCtxPrec ctx expr =
       | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxInfixLhs
+      | isBlockExpr expr -> 0
       | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxAppFun -> 2
-    CtxAppArg -> 3
+    CtxAppArg
+      | isBlockExpr expr -> 0
+      | otherwise -> 3
     CtxAppArgNoParens -> 0
     CtxAppArgGreedy
+      | isBlockExpr expr -> 0
       | isBracedExpr expr -> 0
       | otherwise -> 3
     CtxTypeSigBody -> 1
@@ -1109,8 +1122,12 @@ addDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (addExprParens e)
+    DoExpr e -> DoExpr (wrapExpr (isLetExpr e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
+  where
+    isLetExpr ELetDecls {} = True
+    isLetExpr (EAnn _ inner) = isLetExpr inner
+    isLetExpr _ = False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
@@ -1568,8 +1585,12 @@ addCmdDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addCmdDoStmtParens inner)
     DoBind pat cmd' -> DoBind (addPatternParens pat) (addCmdParens cmd')
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr cmd' -> DoExpr (addCmdParens cmd')
+    DoExpr cmd' -> DoExpr (wrapCmd (isLetCmd cmd') (addCmdParens cmd'))
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
+  where
+    isLetCmd CmdLet {} = True
+    isLetCmd (CmdAnn _ sub) = isLetCmd sub
+    isLetCmd _ = False
 
 addCmdCaseAltParens :: CaseAlt Cmd -> CaseAlt Cmd
 addCmdCaseAltParens (CaseAlt anns pat rhs) =

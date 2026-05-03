@@ -15,7 +15,7 @@ import Data.Char (isSpace)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls)
+import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls, shrinkFunctionHeadPats)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -28,6 +28,7 @@ import Test.Properties.Arb.Identifiers
     showHex,
     shrinkFloat,
     shrinkName,
+    shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (genType, shrinkType)
@@ -616,23 +617,12 @@ shrinkLambdaCaseAlts = shrinkList shrinkLambdaCaseAlt
 shrinkCaseAlt :: CaseAlt Expr -> [CaseAlt Expr]
 shrinkCaseAlt alt =
   [alt {caseAltPattern = pat'} | pat' <- shrinkPattern (caseAltPattern alt)]
-    <> case caseAltRhs alt of
-      UnguardedRhs _ expr _ ->
-        [alt {caseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
-      GuardedRhss _ rhss _ ->
-        -- Shrink to unguarded using the first guard's body
-        [alt {caseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
-          <> [alt {caseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+    <> [alt {caseAltRhs = rhs'} | rhs' <- shrinkLetRhs (caseAltRhs alt)]
 
 shrinkLambdaCaseAlt :: LambdaCaseAlt -> [LambdaCaseAlt]
 shrinkLambdaCaseAlt alt =
   [alt {lambdaCaseAltPats = pats'} | pats' <- shrinkList shrinkPattern (lambdaCaseAltPats alt), not (null pats')]
-    <> case lambdaCaseAltRhs alt of
-      UnguardedRhs _ expr _ ->
-        [alt {lambdaCaseAltRhs = UnguardedRhs [] expr' Nothing} | expr' <- shrinkExpr expr]
-      GuardedRhss _ rhss _ ->
-        [alt {lambdaCaseAltRhs = UnguardedRhs [] (guardedRhsBody firstRhs) Nothing} | firstRhs : _ <- [rhss]]
-          <> [alt {lambdaCaseAltRhs = GuardedRhss [] rhss' Nothing} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+    <> [alt {lambdaCaseAltRhs = rhs'} | rhs' <- shrinkLetRhs (lambdaCaseAltRhs alt)]
 
 shrinkGuardedRhs :: GuardedRhs Expr -> [GuardedRhs Expr]
 shrinkGuardedRhs grhs =
@@ -671,6 +661,10 @@ shrinkLetDecl decl =
       [DeclValue (FunctionBind name [m {matchAnns = []}]) | length matches > 1, m <- matches]
         -- Shrink individual matches
         <> [DeclValue (FunctionBind name ms') | ms' <- shrinkList shrinkLetMatch matches, not (null ms')]
+        <> [DeclValue (FunctionBind name' matches) | name' <- shrinkUnqualifiedName name]
+        <> [ DeclValue (PatternBind NoMultiplicityTag (PVar name) (matchRhs match))
+           | match <- matches
+           ]
     DeclTypeSig names ty ->
       [DeclTypeSig names ty' | ty' <- shrinkType ty]
     _ -> []
@@ -679,6 +673,7 @@ shrinkLetDecl decl =
 shrinkLetMatch :: Match -> [Match]
 shrinkLetMatch match =
   [match {matchAnns = [], matchRhs = rhs'} | rhs' <- shrinkLetRhs (matchRhs match)]
+    <> [match {matchAnns = [], matchPats = pats'} | pats' <- shrinkFunctionHeadPats (matchHeadForm match) (matchPats match)]
 
 -- | Shrink an RHS within let/where/TH contexts.
 shrinkLetRhs :: Rhs Expr -> [Rhs Expr]

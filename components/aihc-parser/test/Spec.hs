@@ -13,6 +13,7 @@ import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import Data.Maybe (isNothing)
+import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -29,6 +30,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst)
 import Test.Properties.Arb.Module (genTypeName)
+import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers
@@ -122,12 +124,27 @@ buildTests = do
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
             testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
+            testCase "quasiquotes do not enable Template Haskell name quotes" test_quasiQuotesDoNotEnableTHNameQuotes,
             testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "pretty-prints case expressions with implicit layout" test_prettyCaseExpressionUsesImplicitLayout,
+            testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
+            testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
+            testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
+            testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
+            testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
+            testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
+            testCase "pretty-prints lambda-cases expressions with implicit layout" test_prettyLambdaCasesExpressionUsesImplicitLayout,
+            testCase "pretty-prints class declarations with implicit layout" test_prettyClassDeclarationUsesImplicitLayout,
+            testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "pretty-prints layout-ending operands inside left sections" test_prettyLayoutEndingOperandInsideLeftSection,
+            testCase "pretty-prints type applications after layout-ending functions" test_prettyTypeAppAfterLayoutEndingFunction,
+            testCase "pretty-prints type signatures after layout-ending functions" test_prettyTypeSigAfterLayoutEndingFunction,
+            testCase "pretty-prints operators after layout-rendered do blocks" test_prettyOperatorAfterLayoutDoBlock,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
@@ -273,7 +290,7 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
           EParen (EOverloadedLabel "a" "#a")
         ]
       rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
-      expected = ["( #a, )", "[ #a]", "( #a)"]
+      expected = ["( #a,\n   )", "[ #a]", "( #a)"]
   assertEqual "pretty-printed forms" expected rendered
   mapM_
     ( \source ->
@@ -769,6 +786,352 @@ test_bundledExportWildcardPosition = do
           other ->
             assertFailure ("unexpected export AST: " <> show other)
 
+test_quasiQuotesDoNotEnableTHNameQuotes :: Assertion
+test_quasiQuotesDoNotEnableTHNameQuotes = do
+  let config = defaultConfig {parserExtensions = [QuasiQuotes]}
+      source = T.unlines ["module M where", "x = 'id", "y = ''T"]
+      (errs, _modu) = parseModule config source
+  assertBool "expected TH name quotes to require TemplateHaskellQuotes or TemplateHaskell" (not (null errs))
+
+test_prettyCaseExpressionUsesImplicitLayout :: Assertion
+test_prettyCaseExpressionUsesImplicitLayout = do
+  let source = "case x of { 0 -> 1; _ -> 2 }"
+      expected = T.intercalate "\n" ["case x of", "  0 ->", "    1", "  _ ->", "    2"]
+  case parseExpr defaultConfig source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyLetExpressionUsesImplicitLayout :: Assertion
+test_prettyLetExpressionUsesImplicitLayout = do
+  let source = "let { x = 10 } in x + x"
+      expected = T.intercalate "\n" ["let", "  x =", "    10", "in x", " + x"]
+  case parseExpr defaultConfig source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyNegatedLayoutEndingListCompBody :: Assertion
+test_prettyNegatedLayoutEndingListCompBody = do
+  let config = defaultConfig {parserExtensions = [BlockArguments]}
+      expr =
+        EListComp
+          ( ENegate
+              ( EApp
+                  (EFloat (0 % 1) TFractional "0.0")
+                  ( ECase
+                      (EFloat (0 % 1) TFractional "0.0")
+                      [ CaseAlt
+                          []
+                          (PLit (LitInt 0 TInteger "0"))
+                          (GuardedRhss [] [GuardedRhs [] [GuardLet []] (EString "" "\"\"")] Nothing)
+                      ]
+                  )
+              )
+          )
+          [CompLetDecls []]
+      expected =
+        T.intercalate
+          "\n"
+          [ "[-0.0",
+            "  case 0.0 of",
+            "    0",
+            "      | let {  }",
+            "       ->",
+            "        \"\"",
+            " | let {  }]"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertEqual "pretty-printed expression" expected rendered
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyLayoutLetGuardInMultiWayIf :: Assertion
+test_prettyLayoutLetGuardInMultiWayIf = do
+  let config = defaultConfig {parserExtensions = [BlockArguments, MultiWayIf]}
+      expr =
+        EMultiWayIf
+          [ GuardedRhs
+              []
+              [ GuardLet
+                  [ DeclValue
+                      ( PatternBind
+                          NoMultiplicityTag
+                          (PVar (mkUnqualifiedName NameVarId "x"))
+                          ( UnguardedRhs
+                              []
+                              (ETypeSig (ETuple Boxed []) (TVar (mkUnqualifiedName NameVarId "a")))
+                              Nothing
+                          )
+                      )
+                  ]
+              ]
+              ( ECase
+                  (EChar '5' "'5'")
+                  [ CaseAlt
+                      []
+                      (PVar (mkUnqualifiedName NameVarSym "+"))
+                      (UnguardedRhs [] (EInt 0 TInteger "0") Nothing)
+                  ]
+              )
+          ]
+      expected =
+        T.intercalate
+          "\n"
+          [ "if { | let",
+            "  x =",
+            "    ()",
+            "     :: a",
+            " ->",
+            "  case '5' of",
+            "    (+) ->",
+            "      0 }"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertEqual "pretty-printed expression" expected rendered
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyWhereClauseUsesImplicitLayout :: Assertion
+test_prettyWhereClauseUsesImplicitLayout = do
+  let source = "f x = x where { y = 1 }"
+      expected =
+        T.intercalate
+          "\n"
+          [ "f x =",
+            "  x",
+            "  where",
+            "    y =",
+            "      1"
+          ]
+  case parseDecl defaultConfig source of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" expected rendered
+      case parseDecl defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyGadtConstructorsUseImplicitLayout :: Assertion
+test_prettyGadtConstructorsUseImplicitLayout = do
+  let config = defaultConfig {parserExtensions = [GADTs, TypeFamilies]}
+      gadtSource = "data T where { MkT :: T; MkU :: T }"
+      gadtExpected =
+        T.intercalate
+          "\n"
+          [ "data T where",
+            "  MkT :: T",
+            "  MkU :: T"
+          ]
+      typeFamilySource = "type family F a where { F Int = Bool; F Bool = Int }"
+      typeFamilyExpected =
+        T.intercalate
+          "\n"
+          [ "type family F a where",
+            "  F Int = Bool",
+            "  F Bool = Int"
+          ]
+      assertDecl expected source =
+        case parseDecl config source of
+          ParseOk decl -> do
+            let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+            assertEqual "pretty-printed declaration" expected rendered
+            case parseDecl config rendered of
+              ParseOk reparsed ->
+                assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+              ParseErr bundle ->
+                assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          ParseErr bundle ->
+            assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+  assertDecl gadtExpected gadtSource
+  assertDecl typeFamilyExpected typeFamilySource
+
+test_prettyLambdaCaseExpressionUsesImplicitLayout :: Assertion
+test_prettyLambdaCaseExpressionUsesImplicitLayout = do
+  let config = defaultConfig {parserExtensions = [LambdaCase]}
+      source = "\\case { 0 -> 1; _ -> 2 }"
+      expected = T.intercalate "\n" ["\\case", "  0 ->", "    1", "  _ ->", "    2"]
+  case parseExpr config source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+  let declSource = "f = \\case { 0 -> 1 } where { g = 2 }"
+      declExpected =
+        T.intercalate
+          "\n"
+          [ "f =",
+            "  \\case",
+            "    0 ->",
+            "      1",
+            "  where",
+            "    g =",
+            "      2"
+          ]
+  case parseDecl config declSource of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" declExpected rendered
+      case parseDecl config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> MPE.errorBundlePretty bundle)
+  let guardedDeclSource = "a = \\case { 0 | let { a = () :: () } -> () }"
+      guardedDeclExpected =
+        T.intercalate
+          "\n"
+          [ "a =",
+            "  \\case",
+            "    0",
+            "      | let",
+            "        a =",
+            "          ()",
+            "           :: ()",
+            "       ->",
+            "        ()"
+          ]
+  case parseDecl config guardedDeclSource of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed guarded declaration" guardedDeclExpected rendered
+      case parseDecl config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed guarded declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed guarded declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack guardedDeclSource <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyLambdaCasesExpressionUsesImplicitLayout :: Assertion
+test_prettyLambdaCasesExpressionUsesImplicitLayout = do
+  let config = defaultConfig {parserExtensions = [LambdaCase]}
+      source = "\\cases { True False -> 0; _ _ -> 1 }"
+      expected = T.intercalate "\n" ["\\cases", "  True False ->", "    0", "  _ _ ->", "    1"]
+  case parseExpr config source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+  let declSource = "f = \\cases { 0 -> 1 } where { g = 2 }"
+      declExpected =
+        T.intercalate
+          "\n"
+          [ "f =",
+            "  \\cases",
+            "    0 ->",
+            "      1",
+            "  where",
+            "    g =",
+            "      2"
+          ]
+  case parseDecl config declSource of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" declExpected rendered
+      case parseDecl config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyClassDeclarationUsesImplicitLayout :: Assertion
+test_prettyClassDeclarationUsesImplicitLayout = do
+  let source = "class C a where { f :: a -> Int; f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
+      expected =
+        T.intercalate
+          "\n"
+          [ "class C a where",
+            "  f :: a -> Int",
+            "  f x =",
+            "    case x of",
+            "      0 ->",
+            "        1",
+            "      _ ->",
+            "        2",
+            "  g =",
+            "    3"
+          ]
+  case parseDecl defaultConfig source of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" expected rendered
+      case parseDecl defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyInstanceDeclarationUsesImplicitLayout :: Assertion
+test_prettyInstanceDeclarationUsesImplicitLayout = do
+  let source = "instance C a where { f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
+      expected =
+        T.intercalate
+          "\n"
+          [ "instance C a where",
+            "  f x =",
+            "    case x of",
+            "      0 ->",
+            "        1",
+            "      _ ->",
+            "        2",
+            "  g =",
+            "    3"
+          ]
+  case parseDecl defaultConfig source of
+    ParseOk decl -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      assertEqual "pretty-printed declaration" expected rendered
+      case parseDecl defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
@@ -787,6 +1150,154 @@ test_prettyInfixRhsOpenEndedInsideSection = do
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_prettyLayoutEndingOperandInsideLeftSection :: Assertion
+test_prettyLayoutEndingOperandInsideLeftSection = do
+  let config = defaultConfig {parserExtensions = [LambdaCase]}
+      source = "([0 ..] `a` \\case { [] -> a } `a`)"
+      expected =
+        T.intercalate
+          "\n"
+          [ "([0 ..]",
+            " `a` \\case",
+            "  [] ->",
+            "    a",
+            " `a`)"
+          ]
+  case parseExpr config source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr config rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyTypeAppAfterLayoutEndingFunction :: Assertion
+test_prettyTypeAppAfterLayoutEndingFunction = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      expr =
+        ETypeApp
+          ( EApp
+              (EInt 0 TInteger "0")
+              ( ELambdaCase
+                  [ CaseAlt
+                      []
+                      (PLit (LitFloat (0 % 1) TFractional "0.0"))
+                      (UnguardedRhs [] (EStringHash "" "\"\"#") Nothing)
+                  ]
+              )
+          )
+          (TUnboxedSum [TWildcard, TStar])
+      decl = DeclValue (PatternBind NoMultiplicityTag (PVar (mkUnqualifiedName NameVarSym "+")) (UnguardedRhs [] expr Nothing))
+      expected =
+        T.intercalate
+          "\n"
+          [ "(+) =",
+            "  0",
+            "    \\case",
+            "      0.0 ->",
+            "        \"\"#",
+            "   @(# _ | * #)"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertEqual "pretty-printed declaration" expected rendered
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyTypeSigAfterLayoutEndingFunction :: Assertion
+test_prettyTypeSigAfterLayoutEndingFunction = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      expr =
+        ETypeSig
+          ( EApp
+              (ETHDeclQuote [])
+              (ELambdaCase [CaseAlt [] PWildcard (UnguardedRhs [] (EChar '1' "'1'") Nothing)])
+          )
+          (TQuasiQuote "a" "")
+      decl = DeclValue (PatternBind NoMultiplicityTag (PCon (mkName Nothing NameConSym ":+") [] []) (UnguardedRhs [] expr Nothing))
+      expected =
+        T.intercalate
+          "\n"
+          [ "(:+) =",
+            "  [d|",
+            "    |]",
+            "    \\case",
+            "      _ ->",
+            "        '1'",
+            "   :: [a||]"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertEqual "pretty-printed declaration" expected rendered
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyOperatorAfterLayoutDoBlock :: Assertion
+test_prettyOperatorAfterLayoutDoBlock = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      plus = mkName Nothing NameVarSym "+"
+      expr =
+        EInfix
+          ( EDo
+              [ DoLetDecls
+                  [ DeclValue
+                      ( FunctionBind
+                          (mkUnqualifiedName NameVarId "f")
+                          [ Match
+                              []
+                              MatchHeadPrefix
+                              [PVar (mkUnqualifiedName NameVarId "x")]
+                              ( UnguardedRhs
+                                  []
+                                  ( ELambdaCase
+                                      [ CaseAlt
+                                          []
+                                          (PNegLit (LitInt 134 TInteger "134"))
+                                          (GuardedRhss [] [GuardedRhs [] [GuardPat (PTuple Unboxed []) (EChar 'n' "'n'")] (EFloat (853 % 10) TFractional "85.3")] Nothing)
+                                      ]
+                                  )
+                                  Nothing
+                              )
+                          ]
+                      )
+                  ]
+              ]
+              DoPlain
+          )
+          plus
+          (EUnboxedSum 3 4 (EInt 0 TInteger "0"))
+      expected =
+        T.intercalate
+          "\n"
+          [ "do",
+            "   let",
+            "      f x =",
+            "        \\case",
+            "          -134",
+            "            | (# #) <- 'n'",
+            "             ->",
+            "              85.3",
+            " + (# ",
+            "        | ",
+            "        | ",
+            "        | 0 #)"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertEqual "pretty-printed expression" expected rendered
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
 
 test_prettySpliceRecordDotBase :: Assertion
 test_prettySpliceRecordDotBase = do
@@ -886,7 +1397,7 @@ test_viewExprAppliedTypeSigParens = do
           (PCon conC [] [])
       parenthesized = addPatternParens pat
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-  assertEqual "rendered pattern" "(([] (if a then a else [] :: 'C -> C)) -> C)" rendered
+  assertEqual "rendered pattern" "(([]\n  (if a then a else []\n   :: 'C -> C))\n -> C)" rendered
   case parsePattern config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
@@ -1002,7 +1513,7 @@ test_prettyAssocDataFamilyOperatorName = do
                 ]
             }
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered @?= "class C a where {data (:*:) a}"
+  rendered @?= T.intercalate "\n" ["class C a where", "  data (:*:) a"]
 
 test_prettyAssocDataFamilyInfixOperatorName :: Assertion
 test_prettyAssocDataFamilyInfixOperatorName = do
@@ -1026,7 +1537,7 @@ test_prettyAssocDataFamilyInfixOperatorName = do
                 ]
             }
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered @?= "class C x where {data a :*: b :: *}"
+  rendered @?= T.intercalate "\n" ["class C x where", "  data a :*: b :: *"]
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =

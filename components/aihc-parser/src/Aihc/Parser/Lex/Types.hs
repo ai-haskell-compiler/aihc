@@ -238,6 +238,7 @@ data LayoutContext
 
 data ImplicitLayoutKind
   = LayoutOrdinary
+  | LayoutTHDeclQuote
   | LayoutWhereBlock
   | LayoutLetBlock
   | LayoutMultiWayIf

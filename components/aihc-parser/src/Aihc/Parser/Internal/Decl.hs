@@ -12,7 +12,7 @@ where
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, asOrAppPatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
@@ -668,7 +668,7 @@ ordinaryClassDeclItemParser = do
     TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
     _ -> do
       isSig <- startsWithTypeSig
-      if isSig then classTypeSigItemParser else classDefaultItemParser
+      if isSig then MP.try classTypeSigItemParser <|> classDefaultItemParser else classDefaultItemParser
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
@@ -782,7 +782,9 @@ fixityItemParser ann ctor = withSpanAnn ann $ do
 
 valueItemParser :: (SourceSpan -> a -> a) -> (ValueDecl -> a) -> TokParser a
 valueItemParser ann ctor = withSpanAnn ann $ do
-  (headForm, name, pats) <- functionHeadParserWith asOrAppPatternParser simplePatternParser
+  -- Infix equations can use full operand patterns on both sides of the varop,
+  -- e.g. @a :&: as == b :&: bs = ()@.
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   ctor . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
