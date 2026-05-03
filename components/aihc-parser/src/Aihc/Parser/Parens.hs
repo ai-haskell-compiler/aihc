@@ -1126,12 +1126,15 @@ addDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (wrapExpr (isComplexLetExpr e) (addExprParens e))
+    DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
   where
-    isComplexLetExpr (EAnn _ inner) = isComplexLetExpr inner
-    isComplexLetExpr (ELetDecls decls _) = not (all isSimpleLetDecl decls)
-    isComplexLetExpr _ = False
+    letExprNeedsDoStmtParens (ELetDecls decls@(_ : _) body)
+      | all isSimpleLetDecl decls = False
+      | otherwise = not (isInfixExpr body)
+    letExprNeedsDoStmtParens (ELetDecls [] _) = True
+    letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
+    letExprNeedsDoStmtParens _ = False
 
     isSimpleLetDecl (DeclAnn _ inner) = isSimpleLetDecl inner
     isSimpleLetDecl (DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs _ _ Nothing))) =
@@ -1139,6 +1142,10 @@ addDoStmtParens stmt =
         PVar _ -> True
         _ -> False
     isSimpleLetDecl _ = False
+
+    isInfixExpr EInfix {} = True
+    isInfixExpr (EAnn _ inner) = isInfixExpr inner
+    isInfixExpr _ = False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =

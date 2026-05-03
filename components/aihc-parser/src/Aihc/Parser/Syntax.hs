@@ -599,6 +599,7 @@ impliedExtensions =
     (LinearTypes, [EnableExtension MonoLocalBinds]),
     (MonadComprehensions, [EnableExtension ParallelListComp]),
     (MultiParamTypeClasses, [EnableExtension ConstrainedClassMethods]),
+    (PolymorphicComponents, [EnableExtension RankNTypes]),
     (PolyKinds, [EnableExtension KindSignatures]),
     (QuantifiedConstraints, [EnableExtension ExplicitForAll]),
     (Rank2Types, [EnableExtension RankNTypes]),

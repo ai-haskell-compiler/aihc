@@ -46,6 +46,7 @@ hackageTesterTests =
           testCase "accepts mixed-case LANGUAGE pragmas" test_oracleAcceptsMixedCaseLanguagePragma,
           testCase "accepts NondecreasingIndentation pragmas" test_oracleAcceptsNondecreasingIndentationPragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
+          testCase "treats PolymorphicComponents as RankNTypes" test_oracleTreatsPolymorphicComponentsAsRankNTypes,
           testCase "defaults to Haskell2010 when language is omitted" test_oracleDefaultsToHaskell2010,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
@@ -197,6 +198,21 @@ test_oracleAppliesImpliedExtensions =
           "module A where",
           "f :: forall a. a -> a",
           "f x = x"
+        ]
+
+test_oracleTreatsPolymorphicComponentsAsRankNTypes :: Assertion
+test_oracleTreatsPolymorphicComponentsAsRankNTypes =
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [Syntax.EnableExtension Syntax.PolymorphicComponents] source of
+    Left err ->
+      assertBool
+        ("expected PolymorphicComponents to imply RankNTypes and ExplicitForAll, got: " <> T.unpack err)
+        False
+    Right {} -> pure ()
+  where
+    source =
+      T.unlines
+        [ "module A where",
+          "data R m = R { runR :: forall a. m a -> m a }"
         ]
 
 test_oracleDefaultsToHaskell2010 :: Assertion

@@ -1150,7 +1150,7 @@ prettyExpr expr =
     ELetDecls decls body ->
       case decls of
         [] -> prettyLetDecls decls <+> "in" <+> prettyExpr body
-        _ -> align (prettyLetDecls decls <> hardline <> "in" <+> prettyExpr body)
+        _ -> align (prettyLetDecls decls <> hardline <> indent 2 ("in" <+> prettyExpr body))
     ECase scrutinee alts ->
       prettyCaseExpr prettyCaseLayout scrutinee alts
     EDo stmts flavor ->
