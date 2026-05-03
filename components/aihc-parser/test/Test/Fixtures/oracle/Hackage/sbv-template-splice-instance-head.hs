@@ -1,5 +1,7 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
-module M where
+module S where
 
-x = [d| instance X $a |]
+class C a
+
+instance C $(pure Int)

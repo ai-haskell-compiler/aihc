@@ -501,6 +501,7 @@ prevTokenAllowsTightPrefix kind =
     TkReservedDoubleColon -> True
     TkReservedPipe -> True
     TkReservedBackslash -> True
+    TkTypeApp -> True
     TkPragma _ -> True
     _ -> False
 
@@ -531,6 +532,7 @@ lexTypeApplication :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTypeApplication _env st =
   case lexerInput st of
     '@' :< rest
+      | startsWithSplice rest -> Just (emitToken st "@" TkTypeApp)
       | not (startsWithSymOp rest) ->
           -- GHC lexes visible type application syntax based on layout, not on
           -- whether TypeApplications is enabled. Extension validity is checked
@@ -554,6 +556,15 @@ lexTypeApplication _env st =
           | c == '_' -> True
           | c == '\'' -> True
           | c == '"' -> True
+        _ -> False
+    startsWithSplice t =
+      case t of
+        '$' :< ('$' :< rest) -> canStartSpliceAtomT rest
+        '$' :< rest -> canStartSpliceAtomT rest
+        _ -> False
+    canStartSpliceAtomT t =
+      case t of
+        c :< _ -> isIdentStart c || c == '('
         _ -> False
 
 lexOverloadedLabel :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
@@ -964,7 +975,7 @@ takeQuoter input =
         _ -> (T.take n input, chars)
 
 isIdentStart :: Char -> Bool
-isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_' || isUniSmall c || isUniLarge c
+isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_' || isUniSmall c || isUniLarge c || isUniOtherLetter c
 
 isVarIdentifierStartChar :: Char -> Bool
 isVarIdentifierStartChar c = c == '_' || isAsciiLower c || isUniSmall c
@@ -976,10 +987,13 @@ isConIdStart :: Char -> Bool
 isConIdStart c = isAsciiUpper c || isUniLarge c
 
 isUniSmall :: Char -> Bool
-isUniSmall c = not (isAscii c) && generalCategory c == LowercaseLetter
+isUniSmall c = not (isAscii c) && generalCategory c `elem` [LowercaseLetter, OtherLetter]
 
 isUniLarge :: Char -> Bool
 isUniLarge c = not (isAscii c) && generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
+
+isUniOtherLetter :: Char -> Bool
+isUniOtherLetter c = not (isAscii c) && generalCategory c == OtherLetter
 
 isIdentNumber :: Char -> Bool
 isIdentNumber c =

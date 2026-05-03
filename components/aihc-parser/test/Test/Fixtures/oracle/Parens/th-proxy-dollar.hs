@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Parens.addModuleParens changes the parsed snippet -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 module M where
 
