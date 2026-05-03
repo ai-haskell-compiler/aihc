@@ -25,6 +25,7 @@ function-macro-guard-patterns	macro	function-macro-guard-patterns.hs	pass
 line-directive-file-and-number	diagnostics	line-directive-file-and-number.hs	pass
 line-directive-number-only	diagnostics	line-directive-number-only.hs	pass
 language-pragma-closing-line	lexing	language-pragma-closing-line.hs	pass
+indented-hash-operator	lexing	indented-hash-operator.hs	pass
 macro-in-comment	lexing	macro-in-comment.hs	pass
 macro-in-inline-block-comment	lexing	macro-in-inline-block-comment.hs	pass
 macro-in-line-comment	lexing	macro-in-line-comment.hs	pass
