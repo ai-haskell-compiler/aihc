@@ -354,6 +354,7 @@ operatorNameParser =
       TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
       TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
       TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
+      TkReservedAt -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "@"))
       _ -> Nothing
 
 operatorUnqualifiedNameParser :: TokParser UnqualifiedName
@@ -370,6 +371,7 @@ operatorUnqualifiedNameParser =
       TkReservedDotDot -> Just (mkUnqualifiedName NameVarSym "..")
       TkReservedDoubleColon -> Just (mkUnqualifiedName NameVarSym "::")
       TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+      TkReservedAt -> Just (mkUnqualifiedName NameVarSym "@")
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
