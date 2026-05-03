@@ -213,11 +213,11 @@ hasFailedDep completed depGraph pkg =
     isFailure PkgSkipped = True
     isFailure _ = False
 
-gatherDepExports :: Text -> Map Text PackageStatus -> Map Text [Text] -> ModuleExports
-gatherDepExports pkg completed depGraph =
+gatherDepExports :: ModuleExports -> Text -> Map Text PackageStatus -> Map Text [Text] -> ModuleExports
+gatherDepExports ambientExports pkg completed depGraph =
   foldl'
     Map.union
-    Map.empty
+    ambientExports
     [ iface
     | dep <- Map.findWithDefault [] pkg depGraph,
       Just (PkgSuccess iface) <- [Map.lookup dep completed]
@@ -225,12 +225,13 @@ gatherDepExports pkg completed depGraph =
 
 processLayer ::
   Options ->
+  ModuleExports ->
   [Text] ->
   Map Text PackageInfo ->
   Map Text PackageStatus ->
   Map Text [Text] ->
   IO (Map Text PackageStatus)
-processLayer opts layer infos completed depGraph = do
+processLayer opts ambientExports layer infos completed depGraph = do
   let (toSkip, toProcess) = partition (hasFailedDep completed depGraph) layer
   let withSkips = foldl' (\m p -> Map.insert p PkgSkipped m) completed toSkip
   if null toProcess
@@ -247,7 +248,7 @@ processLayer opts layer infos completed depGraph = do
               Nothing -> pure ()
               Just pkg -> do
                 current <- readMVar resultVar
-                let depExports = gatherDepExports pkg current depGraph
+                let depExports = gatherDepExports ambientExports pkg current depGraph
                     info = Map.findWithDefault (PackageInfo "" [] []) pkg infos
                 status <- resolveOnePackage (optOffline opts) pkg info depExports
                 modifyMVar_ resultVar (pure . Map.insert pkg status)
@@ -257,16 +258,17 @@ processLayer opts layer infos completed depGraph = do
 
 processLayers ::
   Options ->
+  ModuleExports ->
   [[Text]] ->
   Map Text PackageInfo ->
   Map Text [Text] ->
   Map Text PackageStatus ->
   IO (Map Text PackageStatus)
-processLayers opts layers infos depGraph = go layers
+processLayers opts ambientExports layers infos depGraph = go layers
   where
     go [] acc = pure acc
     go (layer : rest) acc = do
-      acc' <- processLayer opts layer infos acc depGraph
+      acc' <- processLayer opts ambientExports layer infos acc depGraph
       go rest acc'
 
 -- ---------------------------------------------------------------------------
@@ -540,6 +542,7 @@ run opts0 = do
   -- Load pre-generated boot interfaces (generates on demand if not cached)
   putStrLn "Loading boot interfaces..."
   bootIfaceMap <- loadBootInterfaces
+  let bootExports = foldl' Map.union Map.empty (Map.elems bootIfaceMap)
   let bootResults =
         Map.fromList
           [ (T.pack (pkgName p), PkgSuccess (Map.findWithDefault Map.empty (T.pack (pkgName p)) bootIfaceMap))
@@ -567,7 +570,7 @@ run opts0 = do
     then pure ()
     else hPutStrLn stderr ("Warning: " ++ show (Set.size cyclePkgs) ++ " packages in dep cycles, resolving without dep interfaces")
 
-  results <- processLayers opts layers infos depGraph bootResults
+  results <- processLayers opts bootExports layers infos depGraph bootResults
 
   reportResults (optTopFailures opts) results
 

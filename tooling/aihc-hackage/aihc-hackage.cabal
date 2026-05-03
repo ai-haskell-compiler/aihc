@@ -22,6 +22,7 @@ library
 
   hs-source-dirs: src
   build-depends:
+    Cabal >=3.14 && <3.17,
     Cabal-syntax >=3.14 && <3.17,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
@@ -43,11 +44,16 @@ test-suite spec
   hs-source-dirs: test
   main-is: Spec.hs
   build-depends:
+    Cabal-syntax >=3.14 && <3.17,
     aihc-hackage,
     base >=4.16 && <5,
+    bytestring,
+    directory,
+    filepath,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021
