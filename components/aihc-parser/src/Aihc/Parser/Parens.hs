@@ -123,7 +123,7 @@ isGreedyExpr = \case
 isBracedExpr :: Expr -> Bool
 isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub
-  ECase {} -> True
+  ECase _ [] -> True
   EMultiWayIf {} -> True
   EDo {} -> True
   ELambdaCase {} -> True
@@ -135,6 +135,7 @@ isBracedExpr = \case
 isOpenEnded :: Expr -> Bool
 isOpenEnded = \case
   EAnn _ sub -> isOpenEnded sub
+  ECase _ alts -> not (null alts)
   EIf {} -> True
   ELambdaPats {} -> True
   ELambdaCases {} -> True
@@ -287,6 +288,7 @@ needsExprParens ctx expr =
         -- variables, literals, etc.) no parens are needed: `-x + 1` is
         -- correctly re-parsed as `(-x) + 1`.
         ENegate inner -> isOpenEnded inner
+        ECase {} -> False
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -304,6 +306,7 @@ needsExprParens ctx expr =
       False
     CtxAppArgGreedy ->
       case expr of
+        ECase {} -> False
         _ | isBracedExpr expr -> False
         EPragma {} -> True
         _ -> isGreedyExpr expr
@@ -324,12 +327,16 @@ exprCtxPrec ctx expr =
       | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxInfixLhs
+      | isBlockExpr expr -> 0
       | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxAppFun -> 2
-    CtxAppArg -> 3
+    CtxAppArg
+      | isBlockExpr expr -> 0
+      | otherwise -> 3
     CtxAppArgNoParens -> 0
     CtxAppArgGreedy
+      | isBlockExpr expr -> 0
       | isBracedExpr expr -> 0
       | otherwise -> 3
     CtxTypeSigBody -> 1

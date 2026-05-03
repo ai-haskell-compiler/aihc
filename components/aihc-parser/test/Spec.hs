@@ -126,6 +126,7 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "pretty-prints case expressions with implicit layout" test_prettyCaseExpressionUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
@@ -768,6 +769,22 @@ test_bundledExportWildcardPosition = do
                 assertFailure ("unexpected reparsed export AST: " <> show other)
           other ->
             assertFailure ("unexpected export AST: " <> show other)
+
+test_prettyCaseExpressionUsesImplicitLayout :: Assertion
+test_prettyCaseExpressionUsesImplicitLayout = do
+  let source = "case x of { 0 -> 1; _ -> 2 }"
+      expected = T.intercalate "\n" ["case x of", "  0 -> 1", "  _ -> 2"]
+  case parseExpr defaultConfig source of
+    ParseOk expr -> do
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+      assertEqual "pretty-printed expression" expected rendered
+      case parseExpr defaultConfig rendered of
+        ParseOk reparsed ->
+          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+        ParseErr bundle ->
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
 
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
