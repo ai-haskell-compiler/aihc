@@ -112,19 +112,35 @@ countExtraLinesConsumed st txt moreLines = scanForFunctionMacro False False Fals
               seekOpenParen (T.dropWhile isSpace nextLine) (extraLines + 1)
 
     findClosingParen :: Int -> Text -> Int -> Maybe Int
-    findClosingParen depth remaining extraLines =
-      case T.uncons remaining of
-        Nothing ->
-          -- Need more lines
-          case drop extraLines moreLines of
-            [] -> Nothing -- No more lines, unclosed call
-            (nextLine : _) ->
-              findClosingParen depth (T.cons '\n' nextLine) (extraLines + 1)
-        Just (ch, rest)
-          | ch == '(' -> findClosingParen (depth + 1) rest extraLines
-          | ch == ')' && depth > 0 -> findClosingParen (depth - 1) rest extraLines
-          | ch == ')' -> Just extraLines
-          | otherwise -> findClosingParen depth rest extraLines
+    findClosingParen = goClosing False False False
+      where
+        goClosing :: Bool -> Bool -> Bool -> Int -> Text -> Int -> Maybe Int
+        goClosing inString inChar escaped depth remaining extraLines =
+          case T.uncons remaining of
+            Nothing ->
+              -- Need more lines
+              case drop extraLines moreLines of
+                [] -> Nothing -- No more lines, unclosed call
+                (nextLine : _) ->
+                  goClosing inString inChar escaped depth (T.cons '\n' nextLine) (extraLines + 1)
+            Just (ch, rest)
+              | inString ->
+                  let escaped' = ch == '\\' && not escaped
+                      inString' = not (ch == '"' && not escaped)
+                   in goClosing inString' False escaped' depth rest extraLines
+              | inChar ->
+                  let escaped' = ch == '\\' && not escaped
+                      inChar' = not (ch == '\'' && not escaped)
+                   in goClosing False inChar' escaped' depth rest extraLines
+              | startsHsBlockComment remaining ->
+                  let (_, afterComment) = consumeHsBlockComment remaining
+                   in goClosing False False False depth afterComment extraLines
+              | ch == '"' -> goClosing True False False depth rest extraLines
+              | ch == '\'' -> goClosing False True False depth rest extraLines
+              | ch == '(' -> goClosing False False False (depth + 1) rest extraLines
+              | ch == ')' && depth > 0 -> goClosing False False False (depth - 1) rest extraLines
+              | ch == ')' -> Just extraLines
+              | otherwise -> goClosing False False False depth rest extraLines
 
 -- | Blue-paint macro expansion engine. Uses a suppression set (@painted@)
 -- to prevent infinite recursion instead of iterating to a fixpoint.
@@ -252,20 +268,32 @@ commentBody commentText =
 parseCallArgs :: Text -> Maybe ([Text], Text)
 parseCallArgs input = do
   ('(', rest) <- T.uncons (T.dropWhile isSpace input)
-  parseArgs 0 [] mempty rest
+  parseArgs False False False 0 [] mempty rest
 
-parseArgs :: Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
-parseArgs depth argsRev current remaining =
+parseArgs :: Bool -> Bool -> Bool -> Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
+parseArgs inString inChar escaped depth argsRev current remaining =
   case T.uncons remaining of
     Nothing -> Nothing
     Just (ch, rest)
+      | inString ->
+          let escaped' = ch == '\\' && not escaped
+              inString' = not (ch == '"' && not escaped)
+           in parseArgs inString' False escaped' depth argsRev (current <> TB.singleton ch) rest
+      | inChar ->
+          let escaped' = ch == '\\' && not escaped
+              inChar' = not (ch == '\'' && not escaped)
+           in parseArgs False inChar' escaped' depth argsRev (current <> TB.singleton ch) rest
       | startsHsBlockComment remaining ->
           let (commentText, afterComment) = consumeHsBlockComment remaining
-           in parseArgs depth argsRev (current <> TB.fromText commentText) afterComment
+           in parseArgs False False False depth argsRev (current <> TB.fromText commentText) afterComment
+      | ch == '"' ->
+          parseArgs True False False depth argsRev (current <> TB.singleton ch) rest
+      | ch == '\'' ->
+          parseArgs False True False depth argsRev (current <> TB.singleton ch) rest
       | ch == '(' ->
-          parseArgs (depth + 1) argsRev (current <> TB.singleton ch) rest
+          parseArgs False False False (depth + 1) argsRev (current <> TB.singleton ch) rest
       | ch == ')' && depth > 0 ->
-          parseArgs (depth - 1) argsRev (current <> TB.singleton ch) rest
+          parseArgs False False False (depth - 1) argsRev (current <> TB.singleton ch) rest
       | ch == ')' && depth == 0 ->
           let arg = trimSpacesText (builderToText current)
               argsRev' =
@@ -275,7 +303,7 @@ parseArgs depth argsRev current remaining =
            in Just (reverse argsRev', rest)
       | ch == ',' && depth == 0 ->
           let arg = trimSpacesText (builderToText current)
-           in parseArgs depth (arg : argsRev) mempty rest
+           in parseArgs False False False depth (arg : argsRev) mempty rest
       | ch == '-' && depth == 0,
         Just ('-', afterDash) <- T.uncons rest ->
           -- Haskell line comment inside arg list: close the arg, find ')' in comment
@@ -289,7 +317,7 @@ parseArgs depth argsRev current remaining =
                       argsRev' = if T.null arg && null argsRev then [""] else arg : argsRev
                    in Just (reverse argsRev', trailingWS <> commentPrefix <> afterClose)
       | otherwise ->
-          parseArgs depth argsRev (current <> TB.singleton ch) rest
+          parseArgs False False False depth argsRev (current <> TB.singleton ch) rest
 
 -- | Find the last ')' in text and split before it.
 findLastCloseParen :: Text -> Maybe (Text, Text)
