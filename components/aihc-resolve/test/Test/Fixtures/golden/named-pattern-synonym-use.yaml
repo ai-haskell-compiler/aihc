@@ -1,0 +1,22 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Main where
+    data F a = ArgF a
+    pattern Arg a = ArgF a
+    newtype Param p = Param p
+    param _ a = Param (Arg a)
+expected:
+  Main:
+    - "3:6-3:7 F => (type) Main.F"
+    - "3:10-3:14 ArgF => (value) Main.ArgF"
+    - "5:10-5:15 Param => (type) Main.Param"
+    - "5:18-5:23 Param => (value) Main.Param"
+    - "6:1-6:6 param => (value) Main.param"
+    - "6:9-6:10 a => (value) Local 0 a"
+    - "6:13-6:18 Param => (value) Main.Param"
+    - "6:20-6:23 Arg => (value) Error unbound"
+    - "6:24-6:25 a => (value) Local 0 a"
+status: xfail
+reason: "Pattern synonyms are not inserted into term scope in aihc-resolve. This module is equivalent to `named`'s internal helper usage and reproduces the unresolved `Arg` name at `param _ a = Param (Arg a)`."
