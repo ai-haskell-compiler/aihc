@@ -19,8 +19,9 @@ applyLayoutTokens enableModuleLayout exts =
       case toks of
         [] ->
           let eofAnchor = NoSourceSpan
-              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
-           in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
+              (pendingInserted, stAfterPending) = flushPendingImplicitLayout st eofAnchor
+              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF stAfterPending eofAnchor
+           in pendingInserted <> moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
         tok : rest ->
           let (emitted, stNext) = layoutTransition st tok
            in emitted <> go stNext rest
@@ -98,7 +99,7 @@ openImplicitLayout kind st tok =
       -- Under NondecreasingIndentation, same-column nesting is allowed for
       -- ordinary statement layouts (not declaration where-blocks).
       opensEmpty =
-        if layoutNondecreasingIndent st && kind /= LayoutWhereBlock
+        if layoutNondecreasingIndent st && allowsNondecreasingLayout kind
           then col < parentIndent
           else col <= parentIndent
    in if opensEmpty
@@ -112,6 +113,13 @@ openImplicitLayout kind st tok =
             True
           )
 
+allowsNondecreasingLayout :: ImplicitLayoutKind -> Bool
+allowsNondecreasingLayout kind =
+  case kind of
+    LayoutOrdinary -> True
+    LayoutAfterThenElse {} -> True
+    _ -> False
+
 {-# INLINE closeBeforeToken #-}
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
@@ -124,8 +132,9 @@ closeBeforeToken st tok =
            in (inserted, st {layoutContexts = ctxs'})
     kind
       | closesImplicitBeforeDelimiter kind ->
-          let (inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -> True) (layoutContexts st)
-           in (inserted, st {layoutContexts = ctxs'})
+          let (pendingInserted, st0) = flushPendingImplicitLayout st anchor
+              (inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -> True) (layoutContexts st0)
+           in (pendingInserted <> inserted, st0 {layoutContexts = ctxs'})
     TkKeywordThen -> closeBeforeThenElse
     TkKeywordElse -> closeBeforeThenElse
     _ -> ([], st)
@@ -140,14 +149,10 @@ closeBeforeToken st tok =
     -- need closing.
     closeBeforeWhere =
       let col = tokenStartCol tok
-          openTok = virtualSymbolToken "{" anchor
           -- Flush any pending implicit layout as an empty block before
           -- closing contexts.
           (pendingInserted, st0) =
-            case layoutPendingLayout st of
-              Just (PendingImplicitLayout _) ->
-                ([openTok, closeTok], st {layoutPendingLayout = Nothing})
-              _ -> ([], st)
+            flushPendingImplicitLayout st anchor
           go ctxs =
             case ctxs of
               LayoutImplicit indent LayoutCaseAlternative : rest
@@ -181,6 +186,15 @@ closeBeforeToken st tok =
               _ -> ([], ctxs)
           (closed, ctxs') = go (layoutContexts st)
        in (closed, st {layoutContexts = ctxs'})
+
+flushPendingImplicitLayout :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
+flushPendingImplicitLayout st anchor =
+  case layoutPendingLayout st of
+    Just (PendingImplicitLayout _) ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutPendingLayout = Nothing}
+      )
+    _ -> ([], st)
 
 {-# INLINE bolLayout #-}
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
