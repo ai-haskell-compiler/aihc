@@ -548,7 +548,8 @@ addPatternBindLhsParens pat rhs =
     -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
     -- dedicated decl parser path. Other typed patterns must stay grouped so the
     -- parser does not reinterpret them as signatures.
-    PTypeSig inner@(PVar {}) ty -> PTypeSig (addPatternAtomParens inner) (addTypeParens ty)
+    PTypeSig inner@(PVar name) ty ->
+      wrapPat (isSymbolicUName name) (PTypeSig (addPatternAtomParens inner) (addTypeParens ty))
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
@@ -1499,7 +1500,7 @@ addFunctionHeadPatternAtomParens pat =
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PTypeSig inner@(PVar {}) ty ->
-      PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty)
+      wrapPat True (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PAs {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
