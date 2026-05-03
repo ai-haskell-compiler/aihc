@@ -3,6 +3,7 @@
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
+    exprParserWithTypeSigParser,
     atomExprParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,

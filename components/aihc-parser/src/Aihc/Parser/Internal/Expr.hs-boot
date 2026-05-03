@@ -9,10 +9,11 @@
 module Aihc.Parser.Internal.Expr where
 
 import Aihc.Parser.Internal.Common (TokParser)
-import Aihc.Parser.Syntax (Decl, Expr, Rhs)
+import Aihc.Parser.Syntax (Decl, Expr, Rhs, Type)
 
 -- | Parse a full expression
 exprParser :: TokParser Expr
+exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 atomExprParser :: TokParser Expr
 
 -- | Parse an expression without consuming arrow tail operators.

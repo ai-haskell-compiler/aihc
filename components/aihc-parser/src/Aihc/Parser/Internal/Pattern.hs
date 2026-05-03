@@ -12,8 +12,8 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
-import Aihc.Parser.Internal.Type (typeParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser, exprParserWithTypeSigParser)
+import Aihc.Parser.Internal.Type (typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -309,10 +309,14 @@ listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 subpatternWithBareViewParser :: TokParser Pattern
 subpatternWithBareViewParser = do
   mView <- MP.optional . MP.try $ do
-    expr <- exprParser
+    expr <- viewPatternExprParser
     expectedTok TkReservedRightArrow
     PView expr <$> subpatternWithBareViewParser
   maybe patternParser pure mView
+
+viewPatternExprParser :: TokParser Expr
+viewPatternExprParser =
+  exprParserWithTypeSigParser typeInfixParser
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -373,7 +377,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- Returns Nothing if the content is not a view pattern.
     viewPatternParser :: LexTokenKind -> TokParser (Maybe Pattern)
     viewPatternParser closeTok = MP.optional . MP.try $ do
-      expr <- exprParser <* lookAhead (expectedTok TkReservedRightArrow)
+      expr <- viewPatternExprParser <* lookAhead (expectedTok TkReservedRightArrow)
       expectedTok TkReservedRightArrow
       inner <- subpatternWithBareViewParser
       expectedTok closeTok

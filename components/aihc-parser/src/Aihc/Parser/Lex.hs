@@ -858,7 +858,7 @@ firstTextKind st ((sym, kind) : rest)
 
 lexTHQuoteBracket :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHQuoteBracket env st
-  | not (thQuotesEnabled env st) = Nothing
+  | not (thBracketQuotesEnabled env) = Nothing
   | otherwise =
       case lexerInput st of
         '[' :< _ -> firstTextKind st brackets
@@ -876,14 +876,14 @@ lexTHQuoteBracket env st
 
 lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHCloseQuote env st
-  | not (thQuotesEnabled env st) = Nothing
+  | not (thBracketQuotesEnabled env) = Nothing
   | "||]" `T.isPrefixOf` lexerInput st = Just (emitToken st "||]" TkTHTypedQuoteClose)
   | "|]" `T.isPrefixOf` lexerInput st = Just (emitToken st "|]" TkTHExpQuoteClose)
   | otherwise = Nothing
 
 lexTHNameQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHNameQuote env st
-  | not (thQuotesEnabled env st) = Nothing
+  | not (thNameQuotesEnabled env) = Nothing
   | otherwise =
       case lexerInput st of
         '\'' :< ('\'' :< rest)
@@ -906,10 +906,15 @@ lexTHNameQuote env st
             c :< _ -> Just c
             _ -> Nothing
 
-thQuotesEnabled :: LexerEnv -> LexerState -> Bool
-thQuotesEnabled env _ =
+thBracketQuotesEnabled :: LexerEnv -> Bool
+thBracketQuotesEnabled env =
   hasExt TemplateHaskellQuotes env
     || hasExt TemplateHaskell env
+
+thNameQuotesEnabled :: LexerEnv -> Bool
+thNameQuotesEnabled env =
+  thBracketQuotesEnabled env
+    || hasExt QuasiQuotes env
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =

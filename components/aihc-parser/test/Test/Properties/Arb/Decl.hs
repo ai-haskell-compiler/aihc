@@ -9,6 +9,7 @@ module Test.Properties.Arb.Decl
     genDeclValue,
     genWhereDecls,
     shrinkDecl,
+    shrinkFunctionHeadPats,
   )
 where
 

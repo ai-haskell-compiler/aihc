@@ -88,7 +88,10 @@ openPendingLayout st tok =
 openImplicitLayout :: ImplicitLayoutKind -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
 openImplicitLayout kind st tok =
   let col = tokenStartCol tok
-      parentIndent = currentLayoutIndent (layoutContexts st)
+      parentIndent =
+        case (kind, layoutContexts st) of
+          (LayoutCaseAlternative, LayoutImplicit _ LayoutTHDeclQuote : _) -> 0
+          _ -> currentLayoutIndent (layoutContexts st)
       openTok = virtualSymbolToken "{" (lexTokenSpan tok)
       closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
       newContext = LayoutImplicit col kind
@@ -114,9 +117,11 @@ closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
   case lexTokenKind tok of
     TkKeywordWhere -> closeBeforeWhere
-    TkKeywordIn ->
-      let (inserted, ctxs') = closeLeadingImplicitLet anchor (layoutContexts st)
-       in (inserted, st {layoutContexts = ctxs'})
+    TkKeywordIn
+      | layoutPrevTokenKind st == Just TkSpecialRBrace -> ([], st)
+      | otherwise ->
+          let (inserted, ctxs') = closeLeadingImplicitLet anchor (layoutContexts st)
+           in (inserted, st {layoutContexts = ctxs'})
     kind
       | closesImplicitBeforeDelimiter kind ->
           let (inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -> True) (layoutContexts st)
@@ -256,7 +261,7 @@ stepTokenContext st tok =
     TkTHDeclQuoteOpen ->
       st
         { layoutContexts = LayoutDelimiter : layoutContexts st,
-          layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)
+          layoutPendingLayout = Just (PendingImplicitLayout LayoutTHDeclQuote)
         }
     kind
       | opensDelimiter kind ->
