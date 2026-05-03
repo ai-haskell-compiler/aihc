@@ -1435,7 +1435,9 @@ prettyCmdAtStatementStart cmd =
 
 infixBreak :: Name -> Doc ann
 infixBreak op =
-  if isHashLeadingSymbolicName op then " " else hardline
+  if isHashLeadingSymbolicName op
+    then " "
+    else hardline <> " "
 
 prettyCmdCaseAlt :: CaseAlt Cmd -> Doc ann
 prettyCmdCaseAlt = prettyCaseAltWith prettyCmd
