@@ -752,6 +752,7 @@ infixConOperandNeedsParens (TList _ []) = True
 infixConOperandNeedsParens (TInfix {}) = True
 -- Application head determines what the parser sees first.
 infixConOperandNeedsParens (TApp f _) = infixConOperandNeedsParens f
+infixConOperandNeedsParens (TTypeApp _ TSplice {}) = True
 infixConOperandNeedsParens (TTypeApp f _) = infixConOperandNeedsParens f
 infixConOperandNeedsParens _ = False
 

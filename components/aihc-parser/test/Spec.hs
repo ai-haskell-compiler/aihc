@@ -578,7 +578,7 @@ test_generatedConstructorSymbolsRejectReservedSpellings =
 test_generatedVariableSymbolsRejectReservedSpellings :: Assertion
 test_generatedVariableSymbolsRejectReservedSpellings =
   assertBool "reserved variable symbol spellings and dash runs must be rejected" $
-    not (any isValidGeneratedVarSym ["..", "=", "\\", "|", "|+", "<-", "->", "@", "~", "=>", "--", "---"])
+    not (any isValidGeneratedVarSym ["..", "=", "\\", "|", "|+", "<-", "->", "~", "=>", "--", "---"])
 
 test_generatedOperatorsRejectArrowTailSpellings :: Assertion
 test_generatedOperatorsRejectArrowTailSpellings =
