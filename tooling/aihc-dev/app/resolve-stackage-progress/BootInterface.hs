@@ -43,7 +43,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.Environment (lookupEnv)
+import System.Environment (getExecutablePath, lookupEnv)
 import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcess)
@@ -106,11 +106,12 @@ loadFromFile pkgName path = do
 generateBootInterface :: Text -> FilePath -> IO Bool
 generateBootInterface pkgName outputPath = do
   hPutStrLn stderr ("Generating boot interface for " <> T.unpack pkgName <> "...")
+  aihcDevExe <- getExecutablePath
   result <-
     try $
       readProcess
-        "cabal"
-        ["run", "-v0", "aihc-dev", "--", "extract-resolve-iface", "--package", T.unpack pkgName, "--output", outputPath]
+        aihcDevExe
+        ["extract-resolve-iface", "--package", T.unpack pkgName, "--output", outputPath]
         ""
   case result of
     Left (e :: IOException) -> do

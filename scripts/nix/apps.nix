@@ -139,7 +139,7 @@ in {
     ${extensionProgressExe} "$@"
   '';
 
-  aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash] ''
+  aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash hsPkgs.ghc] ''
     exec ${aihcDevExe} "$@"
   '';
 
