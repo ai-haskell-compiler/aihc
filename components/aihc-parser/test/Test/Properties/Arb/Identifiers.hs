@@ -267,14 +267,8 @@ isValidGeneratedVarSym op =
         && T.all isValidSymbolChar rest
         && op `Set.notMember` reservedOperators
         && not (isDashRun op)
-        && not (isTypeAppSplicePrefix op)
         && not (isOverloadedLabelPrefix op)
     Nothing -> False
-
--- | '@$' starts visible type application followed by a Template Haskell splice,
--- not an operator token.
-isTypeAppSplicePrefix :: Text -> Bool
-isTypeAppSplicePrefix = T.isPrefixOf "@$"
 
 -- | '#' followed by an identifier-start char is an overloaded label, not a symbol.
 isOverloadedLabelPrefix :: Text -> Bool
