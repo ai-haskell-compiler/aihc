@@ -163,6 +163,8 @@ bootModuleToScope bmi =
   Scope
     { scopeTerms = Map.fromList termEntries,
       scopeTypes = Map.fromList typeEntries,
+      scopeConstructors = bmiConstructors bmi,
+      scopeMethods = bmiMethods bmi,
       scopeQualifiedModules = Map.empty
     }
   where

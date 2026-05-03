@@ -11,6 +11,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
 import HackageTester.CLI qualified as HackageTesterCLI
 import Options.Applicative
+import ResolvePackage qualified as RP
 import ResolveStackageProgress qualified as RSP
 import StackageProgress.CLI qualified as ParserStackageProgressCLI
 import StackageProgress.Run qualified as ParserStackageProgressRun
@@ -36,6 +37,7 @@ data Command
   | Snippet SnippetOpts
   | HackageTester HackageTesterCLI.Options
   | ParserStackageProgress ParserStackageProgressCLI.Options
+  | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
 
 data ExtractHiOpts = ExtractHiOpts
@@ -83,6 +85,12 @@ commandParser =
           ( info
               (ParserStackageProgress <$> ParserStackageProgressCLI.optionsParser <**> helper)
               (progDesc "Test parser on Stackage snapshot packages")
+          )
+        <> command
+          "resolve"
+          ( info
+              (ResolvePackage <$> RP.optionsParser <**> helper)
+              (progDesc "Resolve names in a Stackage package and print its resolver interface")
           )
         <> command
           "resolve-stackage-progress"
@@ -160,5 +168,7 @@ runCommand (HackageTester opts) =
   HackageTesterRun.run opts
 runCommand (ParserStackageProgress opts) =
   ParserStackageProgressRun.run opts
+runCommand (ResolvePackage opts) =
+  RP.run opts
 runCommand (ResolveStackageProgress opts) =
   RSP.run opts

@@ -28,6 +28,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
+    BinderHead,
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
@@ -129,6 +130,8 @@ rhsSpan rhs =
 data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
     scopeTypes :: Map.Map Text ResolvedName,
+    scopeConstructors :: Map.Map Text [Text],
+    scopeMethods :: Map.Map Text [Text],
     scopeQualifiedModules :: Map.Map Text Scope
   }
 
@@ -574,7 +577,7 @@ declSignatureScope decl signatureScopes =
 bindPatterns :: Scope -> SourceSpan -> Int -> [Pattern] -> (Int, Scope, [Pattern])
 bindPatterns typeScope ambient nextLocal pats =
   let (nextLocal', scopedEntries, pats') = foldl' step (nextLocal, [], []) pats
-   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty, reverse pats')
+   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty Map.empty Map.empty, reverse pats')
   where
     step (currentId, entries, acc) pat =
       let (nextId, scope, pat') = bindPattern typeScope ambient currentId pat
@@ -589,13 +592,13 @@ bindPattern typeScope lastSeen nextLocal pat =
       let sp = peelPatternSpan lastSeen pat
           resolvedName = ResolvedLocal nextLocal name
           annotation = ResolutionAnnotation sp (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty, annotatePattern annotation (PVar name))
+       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty Map.empty Map.empty, annotatePattern annotation (PVar name))
     PTypeBinder binder ->
       let scoped = unionScope emptyScope typeScope
           binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
           resolvedName = ResolvedLocal nextLocal binderName
           binder' = binder {tyVarBinderKind = fmap (resolveTypeAt scoped NoSourceSpan) (tyVarBinderKind binder)}
-          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty
+          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty
        in (nextLocal + 1, binderScope, PTypeBinder binder')
     PTypeSyntax form ty ->
       let here = peelPatternSpan lastSeen pat
@@ -628,7 +631,7 @@ bindPattern typeScope lastSeen nextLocal pat =
           aliasAnnotation =
             ResolutionAnnotation (spanStartNameSpan here aliasKey) aliasKey ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern typeScope here (nextLocal + 1) inner
-          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty
+          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty Map.empty Map.empty
        in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
     PStrict inner ->
       let here = peelPatternSpan lastSeen pat
@@ -652,7 +655,7 @@ bindPattern typeScope lastSeen nextLocal pat =
               )
               (nextLocal, [], [])
               fields
-       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty, PRecord name (reverse fields') wildcard)
+       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty Map.empty Map.empty, PRecord name (reverse fields') wildcard)
     PTypeSig inner ty ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
@@ -966,32 +969,57 @@ topLevelScope modu =
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel . (`mkQualifiedName` Just moduleKeyText)
     addDecl scope decl =
-      let (termNames, typeNames) = declExportedNames decl
+      let DeclExports termNames typeNames constructors methods = declExportedNames decl
           scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
-       in foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
+          scope'' = foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
+          scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
+       in scope''' {scopeMethods = methods `Map.union` scopeMethods scope'''}
 
-declExportedNames :: Decl -> ([UnqualifiedName], [UnqualifiedName])
+data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text])
+
+declExportedNames :: Decl -> DeclExports
 declExportedNames decl =
   case decl of
     DeclAnn _ inner -> declExportedNames inner
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind name _ -> ([name], [])
+        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty
         PatternBind _ pat _ ->
-          (map snd (collectPatVarBinders NoSourceSpan pat), [])
-    DeclTypeSig names _ -> (names, [])
+          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty
+    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty
     DeclClass classDecl ->
-      ( classDeclMethodNames (classDeclItems classDecl),
-        [binderHeadName (classDeclHead classDecl)]
-      )
-    DeclTypeData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
-    DeclData dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [binderHeadName (dataDeclHead dataDecl)])
+      let className = binderHeadName (classDeclHead classDecl)
+          methodNames = classDeclMethodNames (classDeclItems classDecl)
+       in DeclExports
+            methodNames
+            [className]
+            Map.empty
+            (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName methodNames))
+    DeclTypeData dataDecl ->
+      dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
+    DeclData dataDecl ->
+      dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
     DeclNewtype newtypeDecl ->
-      ( maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl),
-        [binderHeadName (newtypeDeclHead newtypeDecl)]
-      )
-    DeclTypeSyn typeSynDecl -> ([], [binderHeadName (typeSynHead typeSynDecl)])
-    _ -> ([], [])
+      let typeName = binderHeadName (newtypeDeclHead newtypeDecl)
+          termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
+          constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
+       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) Map.empty
+    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty
+    _ -> DeclExports [] [] Map.empty Map.empty
+
+dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports
+dataDeclExports headBinder constructors =
+  let typeName = binderHeadName headBinder
+   in DeclExports
+        (dataDeclConstructorNames constructors)
+        [typeName]
+        (constructorMap typeName (concatMap dataConDeclConstructorNames constructors))
+        Map.empty
+
+constructorMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
+constructorMap typeName constructors
+  | null constructors = Map.empty
+  | otherwise = Map.singleton (renderUnqualifiedName typeName) (map renderUnqualifiedName constructors)
 
 classDeclMethodNames :: [ClassDeclItem] -> [UnqualifiedName]
 classDeclMethodNames = concatMap go
@@ -1013,6 +1041,20 @@ dataConDeclNames dataConDecl =
           InfixCon _ _ _ name _ -> [name]
           RecordCon _ _ name fields -> name : concatMap fieldNames fields
           GadtCon _ _ names (GadtRecordBody fields _) -> names <> concatMap fieldNames fields
+          GadtCon _ _ names _ -> names
+          TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
+          UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
+          ListCon {} -> [listConName]
+   in go dataConDecl
+
+dataConDeclConstructorNames :: DataConDecl -> [UnqualifiedName]
+dataConDeclConstructorNames dataConDecl =
+  let go d =
+        case d of
+          DataConAnn _ inner -> go inner
+          PrefixCon _ _ name _ -> [name]
+          InfixCon _ _ _ name _ -> [name]
+          RecordCon _ _ name _ -> [name]
           GadtCon _ _ names _ -> names
           TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
           UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
@@ -1081,6 +1123,8 @@ filterImportSpec maybeSpec scope =
                   then scopeTerms scope
                   else Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTerms scope),
               scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTypes scope),
+              scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeConstructors scope),
+              scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeMethods scope),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
@@ -1134,7 +1178,7 @@ moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Scope containing all wired-in Haskell built-ins that have no defining
 -- source module but act like regular names during name resolution.
@@ -1158,6 +1202,8 @@ builtinScope =
   Scope
     { scopeTerms = Map.fromList (map mkBuiltinTerm builtinTermNames),
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
+      scopeConstructors = Map.empty,
+      scopeMethods = Map.empty,
       scopeQualifiedModules = Map.empty
     }
   where
@@ -1213,6 +1259,8 @@ unionScope left right =
   Scope
     { scopeTerms = scopeTerms left `Map.union` scopeTerms right,
       scopeTypes = scopeTypes left `Map.union` scopeTypes right,
+      scopeConstructors = scopeConstructors left `Map.union` scopeConstructors right,
+      scopeMethods = scopeMethods left `Map.union` scopeMethods right,
       scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
 
@@ -1245,6 +1293,8 @@ filterScopeByNames keep scope =
   Scope
     { scopeTerms = Map.filterWithKey (\name _ -> keep name) (scopeTerms scope),
       scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope),
+      scopeConstructors = Map.filterWithKey (\name _ -> keep name) (scopeConstructors scope),
+      scopeMethods = Map.filterWithKey (\name _ -> keep name) (scopeMethods scope),
       scopeQualifiedModules = scopeQualifiedModules scope
     }
 

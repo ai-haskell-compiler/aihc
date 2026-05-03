@@ -112,6 +112,8 @@ mkScope moduleName terms types =
   Scope
     { scopeTerms = Map.fromList [(name, resolve name) | name <- terms],
       scopeTypes = Map.fromList [(name, resolve name) | name <- types],
+      scopeConstructors = Map.empty,
+      scopeMethods = Map.empty,
       scopeQualifiedModules = Map.empty
     }
   where

@@ -10,6 +10,7 @@ import Aihc.Dev.Snippet
     renderSnippetReport,
   )
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
+import Test.ResolvePackage (resolvePackageTests)
 import Test.ResolveStackageProgress.PathsModule (resolveStackagePathsModuleTests)
 import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
@@ -39,6 +40,7 @@ main =
       testCase "parses -X extension arguments" $ do
         assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications"),
       QC.testProperty "dummy quickcheck property" prop_dummy,
+      resolvePackageTests,
       resolveStackagePathsModuleTests,
       stackageProgressFileCheckerTests,
       stackageProgressFileCheckerTimingTests
