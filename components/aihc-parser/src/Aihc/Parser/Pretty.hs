@@ -497,7 +497,7 @@ prettyTypeLiteral :: TypeLiteral -> Doc ann
 prettyTypeLiteral lit =
   case lit of
     TypeLitInteger _ repr -> pretty repr
-    TypeLitSymbol _ repr -> pretty repr
+    TypeLitSymbol _ repr -> prettyRawText repr
     TypeLitChar _ repr -> pretty repr
 
 -- | Pretty-print a pattern. The AST is assumed to already have PParen nodes
