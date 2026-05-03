@@ -124,6 +124,7 @@ buildTests = do
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
             testCase "lexes identifiers with repeated MagicHash suffixes" test_magicHashIdentifierLexes,
             testCase "parses repeated MagicHash suffixes in exports" test_magicHashExportParses,
+            testCase "quasiquotes do not enable Template Haskell name quotes" test_quasiQuotesDoNotEnableTHNameQuotes,
             testCase "generated constructor symbols reject reserved spellings" test_generatedConstructorSymbolsRejectReservedSpellings,
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
@@ -784,6 +785,13 @@ test_bundledExportWildcardPosition = do
                 assertFailure ("unexpected reparsed export AST: " <> show other)
           other ->
             assertFailure ("unexpected export AST: " <> show other)
+
+test_quasiQuotesDoNotEnableTHNameQuotes :: Assertion
+test_quasiQuotesDoNotEnableTHNameQuotes = do
+  let config = defaultConfig {parserExtensions = [QuasiQuotes]}
+      source = T.unlines ["module M where", "x = 'id", "y = ''T"]
+      (errs, _modu) = parseModule config source
+  assertBool "expected TH name quotes to require TemplateHaskellQuotes or TemplateHaskell" (not (null errs))
 
 test_prettyCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyCaseExpressionUsesImplicitLayout = do

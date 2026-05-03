@@ -790,8 +790,7 @@ thAnyEnabled :: TokParser Bool
 thAnyEnabled = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
-  qqEnabled <- isExtensionEnabled QuasiQuotes
-  pure (thEnabled || thFullEnabled || qqEnabled)
+  pure (thEnabled || thFullEnabled)
 
 asPatternParser :: TokParser Pattern -> TokParser Pattern
 asPatternParser bodyParser = withSpanAnn (PAnn . mkAnnotation) $ do

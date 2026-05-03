@@ -912,9 +912,7 @@ thBracketQuotesEnabled env =
     || hasExt TemplateHaskell env
 
 thNameQuotesEnabled :: LexerEnv -> Bool
-thNameQuotesEnabled env =
-  thBracketQuotesEnabled env
-    || hasExt QuasiQuotes env
+thNameQuotesEnabled = thBracketQuotesEnabled
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =
