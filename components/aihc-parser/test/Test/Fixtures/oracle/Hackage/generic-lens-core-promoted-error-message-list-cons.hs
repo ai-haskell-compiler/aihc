@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Promoted list element boundaries break after infix ErrorMessage operators -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 module M where
