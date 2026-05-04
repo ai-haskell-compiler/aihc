@@ -138,9 +138,9 @@ dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfo
 
 libraryFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FilePath -> LibraryName -> CondTree ConfVar c Library -> IO [FileInfo]
 libraryFilesFor pkgDescr evalCond packageRoot libName tree = do
-  let library = condTreeData tree
+  let libraries = collectCondTreeData evalCond tree
       build = collectMergedBuildInfo evalCond libBuildInfo tree
-      moduleNames = exposedModules library <> otherModules build <> autogenModules build
+      moduleNames = nub (concatMap exposedModules libraries <> otherModules build <> autogenModules build)
       exts = extractExtensions build
       cppOpts = cppOptions build
       includeSearchDirs = extractIncludeDirs packageRoot build
