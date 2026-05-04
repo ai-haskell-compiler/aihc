@@ -6,9 +6,15 @@
 -- enabling complete CLI testing without IO. By default, the CLI parses
 -- Haskell source code. Use @--lex@ to switch to lexer-only mode.
 -- Use @--cpp@ to run only the C preprocessor.
-module Aihc.Parser.Run
-  ( runCLI,
-    CLIResult (..),
+module Aihc.Dev.Parser.Run
+  ( CLIResult (..),
+    Mode (..),
+    Options (..),
+    OutputFormat (..),
+    optionsParser,
+    optionsParserInfo,
+    runCLI,
+    runParsedCLI,
   )
 where
 
@@ -63,8 +69,11 @@ data OutputFormat = OutputShorthand | OutputPretty
 data Options = Options
   { optMode :: !Mode,
     optOutputFormat :: !OutputFormat,
-    optExtensions :: ![ExtensionSetting]
+    optExtensions :: ![ExtensionSetting],
+    optIncludePaths :: ![FilePath],
+    optInputFile :: !(Maybe FilePath)
   }
+  deriving (Eq, Show)
 
 -- | Run the CLI with given arguments, stdin, and include map.
 -- Returns exit code, stdout, and stderr.
@@ -77,67 +86,72 @@ data Options = Options
 -- Files not in the map will fail to resolve during CPP preprocessing.
 runCLI :: Map FilePath Text -> [String] -> Text -> CLIResult
 runCLI includeMap args stdin =
-  case execParserPure defaultPrefs optionsParser args of
+  case execParserPure defaultPrefs optionsParserInfo args of
     Success opts ->
-      let extensions = optExtensions opts
-       in case optMode opts of
-            ModeCpp -> runCppMode includeMap stdin
-            ModeParse -> runParseMode (optOutputFormat opts) extensions includeMap stdin
-            ModeLex -> runLexMode extensions stdin
+      runParsedCLI includeMap opts stdin
     Failure failure ->
-      let (msg, exitCode) = renderFailure failure "aihc-parser"
+      let (msg, exitCode) = renderFailure failure "aihc-dev parser"
        in if exitCode == ExitSuccess
             then CLIResult exitCode (T.pack msg) ""
             else CLIResult exitCode "" (T.pack msg)
     CompletionInvoked _ ->
       CLIResult ExitSuccess "" ""
 
+runParsedCLI :: Map FilePath Text -> Options -> Text -> CLIResult
+runParsedCLI includeMap opts input =
+  let extensions = optExtensions opts
+      sourceName = fromMaybe "<stdin>" (optInputFile opts)
+   in case optMode opts of
+        ModeCpp -> runCppMode sourceName includeMap input
+        ModeParse -> runParseMode sourceName (optOutputFormat opts) extensions includeMap input
+        ModeLex -> runLexMode extensions input
+
 -- | Run in CPP-only mode: preprocess and output the result.
-runCppMode :: Map FilePath Text -> Text -> CLIResult
-runCppMode includeMap stdin =
+runCppMode :: FilePath -> Map FilePath Text -> Text -> CLIResult
+runCppMode sourceName includeMap input =
   let cfg =
         Cpp.defaultConfig
-          { Cpp.configInputFile = "<stdin>",
+          { Cpp.configInputFile = sourceName,
             Cpp.configMacros = M.empty
           }
-      step = preprocess cfg (TE.encodeUtf8 stdin)
+      step = preprocess cfg (TE.encodeUtf8 input)
       result = resolveCppStep includeMap step
    in if hasCppErrors result
         then CLIResult (ExitFailure 1) (resultOutput result) (formatCppDiagnostics (resultDiagnostics result))
-        else CLIResult ExitSuccess (resultOutput result) ""
+        else CLIResult ExitSuccess (resultOutput result) (formatCppDiagnostics (resultDiagnostics result))
 
 -- | Run in parse mode: parse a Haskell module and output the AST.
 -- If CPP extension is enabled, preprocess first.
-runParseMode :: OutputFormat -> [ExtensionSetting] -> Map FilePath Text -> Text -> CLIResult
-runParseMode outputFormat extensionSettings includeMap stdin =
-  let headerPragmas = readModuleHeaderPragmas stdin
+runParseMode :: FilePath -> OutputFormat -> [ExtensionSetting] -> Map FilePath Text -> Text -> CLIResult
+runParseMode sourceName outputFormat extensionSettings includeMap input =
+  let headerPragmas = readModuleHeaderPragmas input
       defaultEdition = fromMaybe Syntax.Haskell2010Edition (Syntax.editionFromExtensionSettings extensionSettings)
       edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
       finalExts = Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
       cppEnabled = CPP `elem` finalExts
    in if cppEnabled
-        then runParseModeWithCpp outputFormat finalExts includeMap stdin
-        else runParseModeDirect outputFormat finalExts stdin
+        then runParseModeWithCpp sourceName outputFormat finalExts includeMap input
+        else runParseModeDirect sourceName outputFormat finalExts input
 
 -- | Parse directly without CPP preprocessing.
-runParseModeDirect :: OutputFormat -> [Extension] -> Text -> CLIResult
-runParseModeDirect outputFormat finalExts stdin =
-  let (errs, modu) = parseModule cfg stdin
+runParseModeDirect :: FilePath -> OutputFormat -> [Extension] -> Text -> CLIResult
+runParseModeDirect sourceName outputFormat finalExts input =
+  let (errs, modu) = parseModule cfg input
    in if null errs
         then CLIResult ExitSuccess (formatOutput outputFormat modu <> "\n") ""
-        else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName cfg) (Just stdin) errs))
+        else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName cfg) (Just input) errs))
   where
-    cfg = defaultConfig {parserExtensions = finalExts, parserSourceName = "<stdin>"}
+    cfg = defaultConfig {parserExtensions = finalExts, parserSourceName = sourceName}
 
 -- | Parse with CPP preprocessing first.
-runParseModeWithCpp :: OutputFormat -> [Extension] -> Map FilePath Text -> Text -> CLIResult
-runParseModeWithCpp outputFormat finalExts includeMap stdin =
+runParseModeWithCpp :: FilePath -> OutputFormat -> [Extension] -> Map FilePath Text -> Text -> CLIResult
+runParseModeWithCpp sourceName outputFormat finalExts includeMap input =
   let cfg =
         Cpp.defaultConfig
-          { Cpp.configInputFile = "<stdin>",
+          { Cpp.configInputFile = sourceName,
             Cpp.configMacros = M.empty
           }
-      cppStep = preprocess cfg (TE.encodeUtf8 stdin)
+      cppStep = preprocess cfg (TE.encodeUtf8 input)
       cppResult = resolveCppStep includeMap cppStep
       cppDiagnostics = resultDiagnostics cppResult
       cppErrors = [d | d <- cppDiagnostics, diagSeverity d == Error]
@@ -150,7 +164,7 @@ runParseModeWithCpp outputFormat finalExts includeMap stdin =
                 then CLIResult ExitSuccess (formatOutput outputFormat modu <> "\n") (formatCppDiagnostics [d | d <- cppDiagnostics, diagSeverity d == Warning])
                 else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName parseCfg) (Just preprocessed) errs))
   where
-    parseCfg = defaultConfig {parserExtensions = finalExts, parserSourceName = "<stdin>"}
+    parseCfg = defaultConfig {parserExtensions = finalExts, parserSourceName = sourceName}
 
 formatOutput :: OutputFormat -> Module -> Text
 formatOutput OutputShorthand modu = T.pack (show (shorthand modu))
@@ -160,7 +174,8 @@ formatOutput OutputPretty modu = T.pack (renderString (layoutPretty defaultLayou
 runLexMode :: [ExtensionSetting] -> Text -> CLIResult
 runLexMode extensionSettings stdin =
   let headerPragmas = readModuleHeaderPragmas stdin
-      edition = fromMaybe Syntax.Haskell2010Edition (Syntax.headerLanguageEdition headerPragmas)
+      defaultEdition = fromMaybe Syntax.Haskell2010Edition (Syntax.editionFromExtensionSettings extensionSettings)
+      edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
       finalExts = Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
       tokens = lexModuleTokensWithExtensions finalExts stdin
    in CLIResult ExitSuccess (T.unlines (map (T.pack . show . shorthand) tokens)) ""
@@ -207,37 +222,35 @@ formatCppDiagnostics diags =
 hasCppErrors :: Result -> Bool
 hasCppErrors result = any (\d -> diagSeverity d == Error) (resultDiagnostics result)
 
-optionsParser :: ParserInfo Options
-optionsParser =
+optionsParserInfo :: ParserInfo Options
+optionsParserInfo =
   info
-    (optionsP <**> helper)
+    (optionsParser <**> helper)
     ( fullDesc
         <> progDesc "Parse or lex Haskell source code"
-        <> header "aihc-parser - Haskell parser and lexer"
+        <> header "aihc-dev parser - Haskell parser and lexer"
     )
 
-optionsP :: Parser Options
-optionsP =
+optionsParser :: Parser Options
+optionsParser =
   Options
     <$> modeOption
     <*> outputFormatOption
     <*> many extensionOption
-    <* many includeOption
-    <* optional (argument (str :: ReadM String) (metavar "FILE" <> help "Input file (reads stdin if omitted)"))
+    <*> many includeOption
+    <*> optional (argument (str :: ReadM String) (metavar "FILE" <> help "Input file (reads stdin if omitted)"))
 
 modeOption :: Parser Mode
 modeOption =
-  flag
-    ModeParse
+  flag'
     ModeLex
-    ( long "lex"
-        <> help "Lex only, do not parse (output token stream)"
-    )
+    (long "lex" <> help "Lex only, do not parse (output token stream)")
     <|> flag'
       ModeCpp
       ( long "cpp"
           <> help "Run C preprocessor only (output preprocessed source)"
       )
+    <|> pure ModeParse
 
 outputFormatOption :: Parser OutputFormat
 outputFormatOption =

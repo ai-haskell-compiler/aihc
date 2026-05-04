@@ -725,7 +725,7 @@ aihc-tc
     mtl            (or transformers)
 ```
 
-The type checker does *not* depend on `aihc-cpp` or `aihc-parser-cli`.
+The type checker does *not* depend on parser CLI tooling.
 
 ---
 

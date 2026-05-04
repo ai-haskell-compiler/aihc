@@ -123,7 +123,7 @@ Interpret the result as follows:
 If the bug might be lexical rather than syntactic, inspect tokens with:
 
 ```bash
-cat fail.hs | cabal run -v0 exe:aihc-parser -- --lex
+cat fail.hs | cabal run -v0 exe:aihc-dev -- parser --lex
 ```
 
 Use raw `ghc -v0 -fno-code -ddump-parsed fail.hs` only when you need to inspect

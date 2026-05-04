@@ -37,13 +37,6 @@ in rec {
     ".yml"
   ];
 
-  parserCliSrc = mkComponentSrc "/components/aihc-parser-cli" [
-    ".hs"
-    ".cabal"
-    ".yaml"
-    ".yml"
-  ];
-
   resolveSrc = mkComponentSrc "/components/aihc-resolve" [
     ".hs"
     ".cabal"
@@ -66,6 +59,8 @@ in rec {
   devSrc = mkComponentSrc "/tooling/aihc-dev" [
     ".hs"
     ".cabal"
+    ".yaml"
+    ".yml"
   ];
 
   # Filtered source for nix linting - only nix files.
@@ -103,36 +98,5 @@ in rec {
         baseName = baseNameOf path;
       in
         type == "directory" || (pkgs.lib.hasSuffix ".sh" baseName && pkgs.lib.hasInfix "/scripts" (toString path));
-    };
-
-  # Filtered source for WASM builds - include all packages plus cabal.project.
-  wasmBuildSrc = pkgs:
-    pkgs.lib.cleanSourceWith {
-      src = root;
-      filter = path: type: let
-        pathStr = toString path;
-        baseName = baseNameOf path;
-        inComponents =
-          pkgs.lib.hasInfix "/components/aihc-parser/" pathStr
-          || pkgs.lib.hasInfix "/components/aihc-parser-cli/" pathStr
-          || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr
-          || pkgs.lib.hasInfix "/tooling/aihc-hackage/" pathStr;
-        isAllowedComponentFile = builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) [
-          ".hs"
-          ".cabal"
-          ".yaml"
-          ".yml"
-          ".tsv"
-          ".json"
-          ".inc"
-        ];
-        isProject = baseName == "cabal.project";
-        isWasmProjectFreeze = pkgs.lib.hasInfix "/scripts/nix/cabal.project.freeze" pathStr;
-      in
-        type
-        == "directory"
-        || isProject
-        || isWasmProjectFreeze
-        || (inComponents && (isAllowedComponentFile || baseName == "LICENSE"));
     };
 }

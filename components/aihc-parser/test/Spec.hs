@@ -926,14 +926,14 @@ test_prettyLayoutLetGuardInMultiWayIf = do
       expected =
         T.intercalate
           "\n"
-          [ "if { | let",
-            "  x =",
-            "    ()",
-            "     :: a",
-            " ->",
-            "  case '5' of",
-            "    (+) ->",
-            "      0 }"
+          [ "if | let",
+            "     x =",
+            "       ()",
+            "        :: a",
+            "    ->",
+            "     case '5' of",
+            "       (+) ->",
+            "         0"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" expected rendered

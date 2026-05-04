@@ -4,14 +4,14 @@
 --
 -- These tests run the unified aihc-parser CLI in-process. Lexer tests use the
 -- @--lex@ flag to switch to lexer mode. No external executables are required.
-module Test.CLI.Suite
+module Test.ParserCLI.Suite
   ( cliTests,
   )
 where
 
-import qualified CLIGolden as CG
 import Control.Monad (forM, unless)
 import Data.List (intercalate)
+import Test.ParserCLI.Golden qualified as CG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 
@@ -54,7 +54,9 @@ runCLIGoldenTest cliCase = do
   case outcome of
     CG.OutcomePass -> pure ()
     CG.OutcomeXFail -> pure () -- Expected failure
-    CG.OutcomeXPass -> pure () -- Known bug that passes (acceptable)
+    CG.OutcomeXPass ->
+      assertFailure $
+        "CLI test unexpectedly passed for " <> CG.caseId cliCase <> ": " <> detail
     CG.OutcomeFail ->
       assertFailure $
         "CLI test failed for " <> CG.caseId cliCase <> ": " <> detail
@@ -68,9 +70,13 @@ runSummaryTest cases = do
   let (pass, xfail, xpass, _failures) = CG.progressSummary results
       total = length cases
       failList = [(c, d) | (c, CG.OutcomeFail, d) <- results]
-  unless (null failList) $ do
+      xpassList = [(c, d) | (c, CG.OutcomeXPass, d) <- results]
+  unless (null failList && null xpassList) $ do
     let failMessages =
           ["  - " <> CG.caseId c <> ": " <> d | (c, d) <- failList]
+        xpassMessages =
+          ["  - " <> CG.caseId c <> ": " <> d | (c, d) <- xpassList]
+        details = intercalate "\n" (failMessages <> xpassMessages)
     assertFailure $
       "CLI golden test summary: "
         <> show pass
@@ -83,4 +89,4 @@ runSummaryTest cases = do
         <> " fail out of "
         <> show total
         <> "\n\nFailures:\n"
-        <> intercalate "\n" failMessages
+        <> details
