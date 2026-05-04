@@ -1,4 +1,4 @@
 interface:
   display_name: "AIHC Resolve Test Cases"
-  short_description: "Author and review aihc-resolve golden fixtures"
+  short_description: "Author and fix aihc-resolve golden fixtures"
   default_prompt: "Use $aihc-resolve-test-cases to author or fix aihc-resolve fixture cases."
