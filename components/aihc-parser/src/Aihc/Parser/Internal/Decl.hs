@@ -17,7 +17,7 @@ import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAp
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Data.Char (isLower)
 import Data.Functor (($>))
 import Data.Maybe (fromMaybe, isJust)
@@ -443,8 +443,6 @@ classDefaultTypeInstParser' requireInstance = withSpanAnn (ClassItemAnn . mkAnno
   (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
-  unless requireInstance $
-    MP.notFollowedBy (expectedTok TkReservedPipe)
   pure
     ( ClassItemDefaultTypeInst
         TypeFamilyInst
@@ -669,7 +667,7 @@ classDeclItemParser =
         TkKeywordDefault -> classDefaultSigItemParser
         TkKeywordType
           | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
-        TkKeywordType -> MP.try classDefaultTypeInstShorthandParser <|> classTypeFamilyDeclParser
+        TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
         _ -> do
           isSig <- startsWithTypeSig
           if isSig then MP.try classTypeSigItemParser <|> classDefaultItemParser else classDefaultItemParser
@@ -1306,18 +1304,12 @@ explicitForallBinderParser :: TokParser TyVarBinder
 explicitForallBinderParser =
   withSpan $
     ( do
-        ident <-
-          tokenSatisfy "type parameter binder" $ \tok ->
-            case lexTokenKind tok of
-              TkVarId name
-                | isTypeVarName name ->
-                    Just name
-              _ -> Nothing
+        ident <- typeParamBinderNameParser
         pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
-              ident <- lowerIdentifierParser
+              ident <- typeParamBinderNameParser
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
@@ -1347,6 +1339,15 @@ isTypeVarName name =
   case T.uncons name of
     Just (c, _) -> c == '_' || isLower c
     Nothing -> False
+
+typeParamBinderNameParser :: TokParser Text
+typeParamBinderNameParser =
+  tokenSatisfy "type parameter binder" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId name
+        | isTypeVarName name -> Just name
+      TkKeywordUnderscore -> Just "_"
+      _ -> Nothing
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
