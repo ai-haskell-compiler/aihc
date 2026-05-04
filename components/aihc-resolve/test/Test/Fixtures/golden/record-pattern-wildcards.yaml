@@ -8,8 +8,8 @@ modules:
       , age :: Int
       , email :: String
       }
-    getName :: Person -> String
-    getName (Person { name = n, .. }) = n
+    getAge :: Person -> Int
+    getAge (Person { name = n, .. }) = age
 expected:
   Main:
     - "2:6-2:12 Person => (type) Main.Person"
@@ -17,12 +17,12 @@ expected:
     - "3:13-3:19 String => (type) Error unbound"
     - "4:12-4:15 Int => (type) Error unbound"
     - "5:14-5:20 String => (type) Error unbound"
-    - "7:1-7:7 getName => (value) Main.getName"
-    - "7:12-7:18 Person => (type) Main.Person"
-    - "7:22-7:28 String => (type) Error unbound"
-    - "8:1-8:7 getName => (value) Main.getName"
+    - "7:1-7:7 getAge => (value) Main.getAge"
+    - "7:11-7:17 Person => (type) Main.Person"
+    - "7:21-7:24 Int => (type) Error unbound"
+    - "8:1-8:7 getAge => (value) Main.getAge"
     - "8:25-8:26 n => (value) Local 0 n"
-    - "8:37-8:38 n => (value) Local 0 n"
+    - "8:36-8:39 age => (value) Local 1 age"
 annotated:
   - |
     module Main where
@@ -36,9 +36,8 @@ annotated:
       , email :: String
                  └─ t Error unbound
       }
-    getName :: Person -> String
+    getAge :: Person -> Int
     └─ v Main └─ t Main └─ t Error unbound
-    getName (Person { name = n, .. }) = n
-    └─ v Main               └─ v 0         └─ v 0
-status: xfail
-reason: "Record wildcard patterns (..) are not resolved - the resolver handles PRecord fields but does not expand wildcards to bring additional record field names into scope"
+    getAge (Person { name = n, .. }) = age
+    └─ v Main               └─ v 0     └─ v 1
+status: pass
