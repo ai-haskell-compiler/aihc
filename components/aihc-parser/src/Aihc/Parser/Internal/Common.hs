@@ -527,67 +527,51 @@ layoutSemicolons1 = layoutSep (expectedTok TkSpecialSemicolon)
 bracedSemiSep :: TokParser a -> TokParser [a]
 bracedSemiSep parser = do
   expectedTok TkSpecialLBrace
-  bracedSemiSepRest parser
+  items <- layoutSemiSep parser
+  closeAndExpectRBrace
+  pure items
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
 bracedSemiSep1 parser = do
   expectedTok TkSpecialLBrace
-  bracedSemiSepRest1 parser
-
-bracedSemiSepRest :: TokParser a -> TokParser [a]
-bracedSemiSepRest parser =
-  bracedSemiSepItem parser
-    <|> (layoutSemicolons1 *> bracedSemiSepRest parser)
-    <|> closeBracedSemiSep
-
-bracedSemiSepRest1 :: TokParser a -> TokParser [a]
-bracedSemiSepRest1 parser =
-  bracedSemiSepItem parser
-    <|> (layoutSemicolons1 *> bracedSemiSepRest1 parser)
-
-bracedSemiSepItem :: TokParser a -> TokParser [a]
-bracedSemiSepItem parser = do
-  item <- parser
-  rest <- bracedSemiSepAfterItem parser
-  pure (item : rest)
-
-bracedSemiSepAfterItem :: TokParser a -> TokParser [a]
-bracedSemiSepAfterItem parser =
-  (layoutSemicolons1 *> bracedSemiSepRest parser)
-    <|> closeBracedSemiSep
-
-closeBracedSemiSep :: TokParser [a]
-closeBracedSemiSep = layoutSep (expectedTok TkSpecialRBrace) $> []
+  items <- layoutSemiSep1 parser
+  closeAndExpectRBrace
+  pure items
 
 -- | Zero-or-more variant of 'plainSemiSep1'.
 -- Parses zero or more items separated by semicolons (no surrounding braces).
 plainSemiSep :: TokParser a -> TokParser [a]
-plainSemiSep = plainSemiSepRest
+plainSemiSep = layoutSemiSep
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
-plainSemiSep1 = plainSemiSepRest1
+plainSemiSep1 = layoutSemiSep1
 
-plainSemiSepRest :: TokParser a -> TokParser [a]
-plainSemiSepRest parser =
-  plainSemiSepItem parser
-    <|> (layoutSemicolons1 *> plainSemiSepRest parser)
-    <|> pure []
+layoutSemiSep :: TokParser a -> TokParser [a]
+layoutSemiSep parser =
+  MP.option [] $
+    layoutSemiSepItem parser
+      <|> do
+        layoutSemicolons1
+        layoutSemiSep parser
 
-plainSemiSepRest1 :: TokParser a -> TokParser [a]
-plainSemiSepRest1 parser =
-  plainSemiSepItem parser
-    <|> (layoutSemicolons1 *> plainSemiSepRest1 parser)
+layoutSemiSep1 :: TokParser a -> TokParser [a]
+layoutSemiSep1 parser =
+  layoutSemiSepItem parser
+    <|> do
+      layoutSemicolons1
+      layoutSemiSep1 parser
 
-plainSemiSepItem :: TokParser a -> TokParser [a]
-plainSemiSepItem parser = do
+layoutSemiSepItem :: TokParser a -> TokParser [a]
+layoutSemiSepItem parser = do
   item <- parser
-  rest <- plainSemiSepAfterItem parser
+  rest <- layoutSemiSepAfterItem parser
   pure (item : rest)
 
-plainSemiSepAfterItem :: TokParser a -> TokParser [a]
-plainSemiSepAfterItem parser =
-  (layoutSemicolons1 *> plainSemiSepRest parser)
-    <|> pure []
+layoutSemiSepAfterItem :: TokParser a -> TokParser [a]
+layoutSemiSepAfterItem parser =
+  MP.option [] $ do
+    layoutSemicolons1
+    layoutSemiSep parser
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
