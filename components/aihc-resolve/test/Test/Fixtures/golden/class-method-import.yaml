@@ -9,6 +9,24 @@ modules:
     import ClassMod (Box (pick))
 
     f = pick
-annotated: []
-status: xfail
-reason: "Class member imports do not currently preserve method names in the term scope, so imported members like `pick` become Unbound."
+expected:
+  ClassMod:
+    - "2:7-2:10 Box => (type) ClassMod.Box"
+  Main:
+    - "4:1-4:2 f => (value) Main.f"
+    - "4:5-4:9 pick => (value) ClassMod.pick"
+annotated:
+  - |
+    module ClassMod where
+    class Box a where
+          └─ t ClassMod
+      pick :: a -> a
+  - |
+    module Main where
+    import ClassMod (Box (pick))
+
+    f = pick
+    │   └─ v ClassMod
+    └─ v Main
+status: pass
+reason: ""
