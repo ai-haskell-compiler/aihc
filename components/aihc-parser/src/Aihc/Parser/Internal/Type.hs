@@ -336,10 +336,15 @@ typeParenOperatorParser = withSpanAnn (TAnn . mkAnnotation) $ do
       TkQConSym modQual sym -> Just (mkName (Just modQual) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
       TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
+      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (TCon op Unpromoted)
+  pure $
+    case (nameQualifier op, nameType op, nameText op) of
+      (Nothing, NameVarSym, "->") -> TBuiltinCon TBuiltinArrow
+      (Nothing, NameConSym, ":") -> TBuiltinCon TBuiltinCons
+      _ -> TCon op Unpromoted
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
@@ -372,7 +377,7 @@ typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkSpecialLBracket
   mClosed <- MP.optional (expectedTok TkSpecialRBracket)
   case mClosed of
-    Just () -> pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
+    Just () -> pure (TBuiltinCon TBuiltinList)
     Nothing -> do
       elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
       expectedTok TkSpecialRBracket
@@ -392,11 +397,11 @@ typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
       moreCommas <- MP.many (expectedTok TkSpecialComma)
       expectedTok closeTok
       let arity = 2 + length moreCommas
-          tupleConName =
-            case tupleFlavor of
-              Boxed -> "(" <> T.replicate (arity - 1) "," <> ")"
-              Unboxed -> "(#" <> T.replicate (arity - 1) "," <> "#)"
-      pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
+      case tupleFlavor of
+        Boxed -> pure (TBuiltinCon (TBuiltinTuple arity))
+        Unboxed -> do
+          let tupleConName = "(#" <> T.replicate (arity - 1) "," <> "#)"
+          pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser

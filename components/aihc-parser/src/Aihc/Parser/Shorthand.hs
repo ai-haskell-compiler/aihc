@@ -610,6 +610,7 @@ docType ty =
       if promoted == Promoted
         then "TConPromoted" <+> docName name
         else "TCon" <+> docName name
+    TBuiltinCon con -> "TBuiltinCon" <+> pretty (show con)
     TImplicitParam name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
     TTypeLit lit -> "TTypeLit" <+> docTypeLiteral lit
     TStar -> "TStar"

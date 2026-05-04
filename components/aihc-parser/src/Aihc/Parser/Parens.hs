@@ -471,6 +471,7 @@ needsTypeParens ctx ty =
       case ty of
         TVar {} -> False
         TCon {} -> False
+        TBuiltinCon {} -> False
         TImplicitParam {} -> False
         TTypeLit {} -> False
         TStar {} -> False
@@ -733,6 +734,8 @@ bangTypeNeedsPrefixParens TStar = True
 bangTypeNeedsPrefixParens (TCon name promoted)
   | promoted == Promoted = True
   | otherwise = isSymbolicName name
+bangTypeNeedsPrefixParens (TBuiltinCon TBuiltinCons) = True
+bangTypeNeedsPrefixParens (TBuiltinCon _) = False
 bangTypeNeedsPrefixParens TImplicitParam {} = True
 bangTypeNeedsPrefixParens TSplice {} = True
 -- Compound types: the first rendered character comes from the head/lhs.
@@ -785,6 +788,7 @@ infixConOperandNeedsParens (TTuple Boxed _ _) = False
 infixConOperandNeedsParens (TTuple Unboxed _ _) = False
 infixConOperandNeedsParens (TUnboxedSum {}) = True
 infixConOperandNeedsParens (TList _ []) = True
+infixConOperandNeedsParens (TBuiltinCon TBuiltinList) = True
 infixConOperandNeedsParens (TInfix {}) = True
 -- Application head determines what the parser sees first.
 infixConOperandNeedsParens (TApp f _) = infixConOperandNeedsParens f
@@ -1274,6 +1278,7 @@ addTypeParensShared ctx prec ty =
         TCon name promoted
           | isSymbolicName name, promoted /= Promoted -> TCon name promoted
           | otherwise -> TCon name promoted
+        TBuiltinCon {} -> ty
         TImplicitParam name inner -> TImplicitParam name (addImplicitParamBodyParens inner)
         TTypeLit {} -> ty
         TStar {} -> ty
