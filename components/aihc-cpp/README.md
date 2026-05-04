@@ -16,7 +16,7 @@ Coverage is tracked with a manifest-driven corpus under:
 Current baseline:
 
 <!-- AUTO-GENERATED: START cpp-progress -->
-- `43/43` implemented (`100.00%` complete)
+- `46/46` implemented (`100.00%` complete)
 <!-- AUTO-GENERATED: END cpp-progress -->
 
 ## Commands
