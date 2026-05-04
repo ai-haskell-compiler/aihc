@@ -409,7 +409,8 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
-  ClassItemTypeFamilyDecl <$> typeFamilyDeclBodyParser FamilyKeywordOptional
+  tf <- typeFamilyDeclBodyParser FamilyKeywordOptional
+  pure (ClassItemTypeFamilyDecl tf)
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -642,7 +643,11 @@ classFundepParser = withSpan $ do
       }
 
 classWhereClauseParser :: TokParser [ClassDeclItem]
-classWhereClauseParser = whereClauseItemsParser classDeclItemParser
+classWhereClauseParser = do
+  expectedTok TkKeywordWhere
+  bracedSemiSep classDeclItemParser
+    <|> plainSemiSep1 classDeclItemParser
+    <|> pure []
 
 whereClauseItemsParser :: TokParser a -> TokParser [a]
 whereClauseItemsParser itemParser = do
@@ -650,25 +655,22 @@ whereClauseItemsParser itemParser = do
   bracedSemiSep itemParser <|> plainSemiSep1 itemParser <|> pure []
 
 classDeclItemParser :: TokParser ClassDeclItem
-classDeclItemParser = do
-  mPragmaItem <- MP.optional classPragmaItemParser
-  maybe ordinaryClassDeclItemParser pure mPragmaItem
-
-ordinaryClassDeclItemParser :: TokParser ClassDeclItem
-ordinaryClassDeclItemParser = do
-  (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
-  case lexTokenKind tok of
-    TkKeywordInfix -> classFixityItemParser
-    TkKeywordInfixl -> classFixityItemParser
-    TkKeywordInfixr -> classFixityItemParser
-    TkKeywordData -> classDataFamilyDeclParser
-    TkKeywordDefault -> classDefaultSigItemParser
-    TkKeywordType
-      | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
-    TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
-    _ -> do
-      isSig <- startsWithTypeSig
-      if isSig then MP.try classTypeSigItemParser <|> classDefaultItemParser else classDefaultItemParser
+classDeclItemParser =
+  classPragmaItemParser
+    <|> do
+      (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
+      case lexTokenKind tok of
+        TkKeywordInfix -> classFixityItemParser
+        TkKeywordInfixl -> classFixityItemParser
+        TkKeywordInfixr -> classFixityItemParser
+        TkKeywordData -> classDataFamilyDeclParser
+        TkKeywordDefault -> classDefaultSigItemParser
+        TkKeywordType
+          | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
+        TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
+        _ -> do
+          isSig <- startsWithTypeSig
+          if isSig then MP.try classTypeSigItemParser <|> classDefaultItemParser else classDefaultItemParser
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
@@ -731,26 +733,27 @@ standaloneDerivingDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
         }
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
-instanceWhereClauseParser = whereClauseItemsParser instanceDeclItemParser
+instanceWhereClauseParser = do
+  expectedTok TkKeywordWhere
+  bracedSemiSep instanceDeclItemParser
+    <|> plainSemiSep1 instanceDeclItemParser
+    <|> pure []
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
-instanceDeclItemParser = do
-  mPragmaItem <- MP.optional instancePragmaItemParser
-  maybe ordinaryInstanceDeclItemParser pure mPragmaItem
-
-ordinaryInstanceDeclItemParser :: TokParser InstanceDeclItem
-ordinaryInstanceDeclItemParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordInfix -> instanceFixityItemParser
-    TkKeywordInfixl -> instanceFixityItemParser
-    TkKeywordInfixr -> instanceFixityItemParser
-    TkKeywordData -> instanceDataFamilyInstParser
-    TkKeywordNewtype -> instanceNewtypeFamilyInstParser
-    TkKeywordType -> instanceTypeFamilyInstParser
-    _ -> do
-      isSig <- startsWithTypeSig
-      if isSig then instanceTypeSigItemParser else instanceValueItemParser
+instanceDeclItemParser =
+  instancePragmaItemParser
+    <|> do
+      tok <- lookAhead anySingle
+      case lexTokenKind tok of
+        TkKeywordInfix -> instanceFixityItemParser
+        TkKeywordInfixl -> instanceFixityItemParser
+        TkKeywordInfixr -> instanceFixityItemParser
+        TkKeywordData -> instanceDataFamilyInstParser
+        TkKeywordNewtype -> instanceNewtypeFamilyInstParser
+        TkKeywordType -> instanceTypeFamilyInstParser
+        _ -> do
+          isSig <- startsWithTypeSig
+          if isSig then instanceTypeSigItemParser else instanceValueItemParser
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
@@ -1301,18 +1304,12 @@ explicitForallBinderParser :: TokParser TyVarBinder
 explicitForallBinderParser =
   withSpan $
     ( do
-        ident <-
-          tokenSatisfy "type parameter binder" $ \tok ->
-            case lexTokenKind tok of
-              TkVarId name
-                | isTypeVarName name ->
-                    Just name
-              _ -> Nothing
+        ident <- typeParamBinderNameParser
         pure (\span' -> TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBVisible)
     )
       <|> ( do
               expectedTok TkSpecialLParen
-              ident <- lowerIdentifierParser
+              ident <- typeParamBinderNameParser
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
@@ -1342,6 +1339,15 @@ isTypeVarName name =
   case T.uncons name of
     Just (c, _) -> c == '_' || isLower c
     Nothing -> False
+
+typeParamBinderNameParser :: TokParser Text
+typeParamBinderNameParser =
+  tokenSatisfy "type parameter binder" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId name
+        | isTypeVarName name -> Just name
+      TkKeywordUnderscore -> Just "_"
+      _ -> Nothing
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do

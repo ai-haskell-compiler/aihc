@@ -77,6 +77,7 @@ import Control.Monad (guard)
 import Data.Char (isUpper)
 import Data.Functor (($>))
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -522,27 +523,29 @@ skipSemicolons :: TokParser ()
 skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
 bracedSemiSep :: TokParser a -> TokParser [a]
-bracedSemiSep parser =
-  braces $ do
-    skipSemicolons
-    MP.many (parser <* skipSemicolons)
+bracedSemiSep = braces . layoutSemiSep
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
-bracedSemiSep1 parser =
-  braces $ do
-    skipSemicolons
-    x <- parser
-    skipSemicolons
-    rest <- MP.many (parser <* skipSemicolons)
-    pure (x : rest)
+bracedSemiSep1 = braces . layoutSemiSep1
 
 -- | Zero-or-more variant of 'plainSemiSep1'.
 -- Parses zero or more items separated by semicolons (no surrounding braces).
 plainSemiSep :: TokParser a -> TokParser [a]
-plainSemiSep parser = MP.many (parser <* skipSemicolons)
+plainSemiSep = layoutSemiSep
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
-plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
+plainSemiSep1 = layoutSemiSep1
+
+layoutSemiSep :: TokParser a -> TokParser [a]
+layoutSemiSep parser =
+  catMaybes <$> MP.sepBy (MP.optional parser) (expectedTok TkSpecialSemicolon)
+
+layoutSemiSep1 :: TokParser a -> TokParser [a]
+layoutSemiSep1 parser = do
+  items <- layoutSemiSep parser
+  case items of
+    [] -> MP.empty
+    _ -> pure items
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
