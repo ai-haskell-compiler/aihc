@@ -51,6 +51,7 @@ import Aihc.Parser.Syntax
     NameType (..),
     NewtypeDecl (..),
     Pattern (..),
+    RecordField (..),
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
@@ -68,6 +69,7 @@ import Aihc.Parser.Syntax
     moduleName,
     peelGuardQualifierAnn,
     peelPatternAnn,
+    recordFieldName,
     recordFieldValue,
     renderUnqualifiedName,
   )
@@ -131,6 +133,7 @@ data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
     scopeTypes :: Map.Map Text ResolvedName,
     scopeConstructors :: Map.Map Text [Text],
+    scopeRecordFields :: Map.Map Text [Text],
     scopeMethods :: Map.Map Text [Text],
     scopeQualifiedModules :: Map.Map Text Scope
   }
@@ -584,7 +587,7 @@ declSignatureScope decl signatureScopes =
 bindPatterns :: Scope -> SourceSpan -> Int -> [Pattern] -> (Int, Scope, [Pattern])
 bindPatterns typeScope ambient nextLocal pats =
   let (nextLocal', scopedEntries, pats') = foldl' step (nextLocal, [], []) pats
-   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty Map.empty Map.empty, reverse pats')
+   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty Map.empty Map.empty Map.empty, reverse pats')
   where
     step (currentId, entries, acc) pat =
       let (nextId, scope, pat') = bindPattern typeScope ambient currentId pat
@@ -599,13 +602,13 @@ bindPattern typeScope lastSeen nextLocal pat =
       let sp = peelPatternSpan lastSeen pat
           resolvedName = ResolvedLocal nextLocal name
           annotation = ResolutionAnnotation sp (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty Map.empty Map.empty, annotatePattern annotation (PVar name))
+       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty, annotatePattern annotation (PVar name))
     PTypeBinder binder ->
       let scoped = unionScope emptyScope typeScope
           binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
           resolvedName = ResolvedLocal nextLocal binderName
           binder' = binder {tyVarBinderKind = fmap (resolveTypeAt scoped NoSourceSpan) (tyVarBinderKind binder)}
-          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty
+          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty
        in (nextLocal + 1, binderScope, PTypeBinder binder')
     PTypeSyntax form ty ->
       let here = peelPatternSpan lastSeen pat
@@ -638,7 +641,7 @@ bindPattern typeScope lastSeen nextLocal pat =
           aliasAnnotation =
             ResolutionAnnotation (spanStartNameSpan here aliasKey) aliasKey ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern typeScope here (nextLocal + 1) inner
-          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty Map.empty Map.empty
+          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty Map.empty Map.empty Map.empty
        in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
     PStrict inner ->
       let here = peelPatternSpan lastSeen pat
@@ -662,12 +665,27 @@ bindPattern typeScope lastSeen nextLocal pat =
               )
               (nextLocal, [], [])
               fields
-       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty Map.empty Map.empty, PRecord name (reverse fields') wildcard)
+          (nextLocal'', wildcardEntries) = bindRecordWildcardFields typeScope nextLocal' name fields wildcard
+       in (nextLocal'', Scope (Map.fromList (wildcardEntries <> entries)) Map.empty Map.empty Map.empty Map.empty Map.empty, PRecord name (reverse fields') wildcard)
     PTypeSig inner ty ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
        in (nextLocal', scope, PTypeSig inner' (resolveTypeAt typeScope here ty))
     _ -> (nextLocal, emptyScope, pat)
+
+bindRecordWildcardFields :: Scope -> Int -> Name -> [RecordField Pattern] -> Bool -> (Int, [(Text, ResolvedName)])
+bindRecordWildcardFields scope nextLocal conName fields wildcard
+  | not wildcard = (nextLocal, [])
+  | otherwise =
+      let explicitFields = map (nameText . recordFieldName) fields
+          wildcardFields =
+            filter (`notElem` explicitFields) $
+              Map.findWithDefault [] (nameText conName) (scopeRecordFields scope)
+       in mapAccumL bindField nextLocal wildcardFields
+  where
+    bindField currentId fieldName =
+      let binder = mkUnqualifiedName NameVarId fieldName
+       in (currentId + 1, (fieldName, ResolvedLocal currentId binder))
 
 resolveDataDecl :: Scope -> DataDecl -> DataDecl
 resolveDataDecl scope dataDecl =
@@ -976,13 +994,14 @@ topLevelScope modu =
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel . (`mkQualifiedName` Just moduleKeyText)
     addDecl scope decl =
-      let DeclExports termNames typeNames constructors methods = declExportedNames decl
+      let DeclExports termNames typeNames constructors recordFields methods = declExportedNames decl
           scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
           scope'' = foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
           scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
-       in scope''' {scopeMethods = methods `Map.union` scopeMethods scope'''}
+          scope'''' = scope''' {scopeRecordFields = recordFields `Map.union` scopeRecordFields scope'''}
+       in scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
 
-data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text])
+data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text])
 
 declExportedNames :: Decl -> DeclExports
 declExportedNames decl =
@@ -990,16 +1009,17 @@ declExportedNames decl =
     DeclAnn _ inner -> declExportedNames inner
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty
+        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty
-    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty
+    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty
     DeclClass classDecl ->
       let className = binderHeadName (classDeclHead classDecl)
           methodNames = classDeclMethodNames (classDeclItems classDecl)
        in DeclExports
             methodNames
             [className]
+            Map.empty
             Map.empty
             (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName methodNames))
     DeclTypeData dataDecl ->
@@ -1010,9 +1030,9 @@ declExportedNames decl =
       let typeName = binderHeadName (newtypeDeclHead newtypeDecl)
           termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
           constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
-       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) Map.empty
-    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty
-    _ -> DeclExports [] [] Map.empty Map.empty
+       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty
+    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty
+    _ -> DeclExports [] [] Map.empty Map.empty Map.empty
 
 dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports
 dataDeclExports headBinder constructors =
@@ -1021,11 +1041,19 @@ dataDeclExports headBinder constructors =
         (dataDeclConstructorNames constructors)
         [typeName]
         (constructorMap typeName (concatMap dataConDeclConstructorNames constructors))
+        (recordFieldMap constructors)
         Map.empty
 
 constructorMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
 constructorMap typeName constructors =
   Map.singleton (renderUnqualifiedName typeName) (map renderUnqualifiedName constructors)
+
+recordFieldMap :: [DataConDecl] -> Map.Map Text [Text]
+recordFieldMap constructors =
+  Map.fromList
+    [ (renderUnqualifiedName conName, concatMap (map renderUnqualifiedName . fieldNames) fields)
+    | (conName, fields) <- concatMap dataConDeclRecordFields constructors
+    ]
 
 classDeclMethodNames :: [ClassDeclItem] -> [UnqualifiedName]
 classDeclMethodNames = concatMap go
@@ -1065,6 +1093,16 @@ dataConDeclConstructorNames dataConDecl =
           TupleCon _ _ flavor fields -> [tupleConName flavor (length fields)]
           UnboxedSumCon _ _ pos arity _ -> [unboxedSumConName pos arity]
           ListCon {} -> [listConName]
+   in go dataConDecl
+
+dataConDeclRecordFields :: DataConDecl -> [(UnqualifiedName, [FieldDecl])]
+dataConDeclRecordFields dataConDecl =
+  let go d =
+        case d of
+          DataConAnn _ inner -> go inner
+          RecordCon _ _ name fields -> [(name, fields)]
+          GadtCon _ _ names (GadtRecordBody fields _) -> [(name, fields) | name <- names]
+          _ -> []
    in go dataConDecl
 
 tupleConName :: TupleFlavor -> Int -> UnqualifiedName
@@ -1126,6 +1164,7 @@ filterImportSpec maybeSpec scope =
                 Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeTerms scope),
               scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeTypes scope),
               scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
+              scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeRecordFields scope),
               scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
@@ -1194,7 +1233,7 @@ moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Scope containing all wired-in Haskell built-ins that have no defining
 -- source module but act like regular names during name resolution.
@@ -1219,6 +1258,7 @@ builtinScope =
     { scopeTerms = Map.fromList (map mkBuiltinTerm builtinTermNames),
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
       scopeConstructors = Map.empty,
+      scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
       scopeQualifiedModules = Map.empty
     }
@@ -1276,6 +1316,7 @@ unionScope left right =
     { scopeTerms = scopeTerms left `Map.union` scopeTerms right,
       scopeTypes = scopeTypes left `Map.union` scopeTypes right,
       scopeConstructors = scopeConstructors left `Map.union` scopeConstructors right,
+      scopeRecordFields = scopeRecordFields left `Map.union` scopeRecordFields right,
       scopeMethods = scopeMethods left `Map.union` scopeMethods right,
       scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
@@ -1310,6 +1351,7 @@ filterScopeByNames keep scope =
     { scopeTerms = Map.filterWithKey (\name _ -> keep name) (scopeTerms scope),
       scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope),
       scopeConstructors = Map.filterWithKey (\name _ -> keep name) (scopeConstructors scope),
+      scopeRecordFields = Map.filterWithKey (\name _ -> keep name) (scopeRecordFields scope),
       scopeMethods = Map.filterWithKey (\name _ -> keep name) (scopeMethods scope),
       scopeQualifiedModules = scopeQualifiedModules scope
     }

@@ -115,6 +115,7 @@ mkScope terms types =
     { scopeTerms = Map.fromList [(name, resolve name) | name <- terms],
       scopeTypes = Map.fromList [(name, resolve name) | name <- types],
       scopeConstructors = Map.empty,
+      scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
       scopeQualifiedModules = Map.empty
     }
