@@ -1522,6 +1522,7 @@ addPatternInfixOperandParens :: Pattern -> Pattern
 addPatternInfixOperandParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
+    PNegLit _ -> addPatternParens pat
     PCon {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
