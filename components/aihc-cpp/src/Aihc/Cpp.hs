@@ -44,6 +44,7 @@ import Aihc.Cpp.Cursor
     peekByteAt,
     skipNewline,
     skipWhile,
+    sliceText,
     toText,
   )
 import Aihc.Cpp.Evaluator (evalCondition)
@@ -71,6 +72,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Lazy as BSL
+import Data.Char (isSpace)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
@@ -231,7 +233,11 @@ nextLine cur =
         && isDirectiveLine cur lineEnd
         then -- Backslash continuation: join lines, stripping '\' and '\n'
           joinContinuationLines cur lineStart lineEnd rest
-        else (lineSlice lineEnd cur, 1, rest)
+        else
+          let lineText = sliceText lineStart lineEnd cur
+           in if hasGccStringContinuation emptyQuoteState lineText
+                then joinStringContinuationLines cur lineStart lineEnd rest
+                else (lineSlice lineEnd cur, 1, rest)
 
 -- | Check if the bytes from curPos to lineEnd start with '#' after
 -- optional whitespace. This determines whether backslash-continuation
@@ -280,6 +286,86 @@ joinContinuationLines origCur lineStart firstLineEnd firstRest =
 sliceBS :: Int -> Int -> ByteString -> ByteString
 sliceBS start end bs = BS.take (end - start) (BS.drop start bs)
 {-# INLINE sliceBS #-}
+
+data QuoteState = QuoteState
+  { qsInString :: !Bool,
+    qsInChar :: !Bool,
+    qsEscaped :: !Bool
+  }
+
+emptyQuoteState :: QuoteState
+emptyQuoteState = QuoteState False False False
+
+-- | GCC removes @\<newline>@ before the Haskell lexer sees the file.  Some
+-- Haskell packages rely on that inside string gaps by writing lines that end
+-- in @\\@: one backslash remains as the Haskell string-gap opener and the
+-- final backslash is the CPP continuation marker.  GHC's default CPP-like
+-- handling also accepts the single-backslash spelling, so only the double
+-- spelling is spliced here.
+hasGccStringContinuation :: QuoteState -> Text -> Bool
+hasGccStringContinuation st lineText =
+  qsInString (scanQuoteState st lineText) && "\\\\" `T.isSuffixOf` lineText
+
+joinStringContinuationLines :: Cursor -> Int -> Int -> Cursor -> (Cursor, Int, Cursor)
+joinStringContinuationLines origCur lineStart firstLineEnd firstRest =
+  let buf = curBuf origCur
+      firstSegment = sliceText lineStart (firstLineEnd - 1) origCur
+      firstBytes = BSB.byteString (sliceBS lineStart (firstLineEnd - 1) buf)
+   in go firstBytes 1 firstRest (scanQuoteState emptyQuoteState firstSegment)
+  where
+    go !acc !spanCount !rest !quoteState
+      | atEnd rest =
+          let joined = BSL.toStrict (BSB.toLazyByteString acc)
+           in (fromByteString joined, spanCount, rest)
+      | otherwise =
+          let eol = findNewline rest
+              segStart = curPos rest
+              segEnd = curPos eol
+              rest' = fromMaybe eol (skipNewline eol)
+              segmentText = sliceText segStart segEnd origCur
+           in if hasGccStringContinuation quoteState segmentText
+                then
+                  let segmentBytes = BSB.byteString (sliceBS segStart (segEnd - 1) (curBuf origCur))
+                      scannedText = sliceText segStart (segEnd - 1) origCur
+                   in go (acc <> segmentBytes) (spanCount + 1) rest' (scanQuoteState quoteState scannedText)
+                else
+                  let segmentBytes = BSB.byteString (sliceBS segStart segEnd (curBuf origCur))
+                      joined = BSL.toStrict (BSB.toLazyByteString (acc <> segmentBytes))
+                   in (fromByteString joined, spanCount + 1, rest')
+
+scanQuoteState :: QuoteState -> Text -> QuoteState
+scanQuoteState = go
+  where
+    go st txt =
+      case T.uncons txt of
+        Nothing -> st
+        Just (c, rest)
+          | qsInString st ->
+              if qsEscaped st && isSpace c
+                then go st {qsEscaped = False} (dropStringGapClose rest)
+                else
+                  go
+                    st
+                      { qsInString = qsEscaped st || c /= '"',
+                        qsEscaped = c == '\\' && not (qsEscaped st)
+                      }
+                    rest
+          | qsInChar st ->
+              go
+                st
+                  { qsInChar = qsEscaped st || c /= '\'',
+                    qsEscaped = c == '\\' && not (qsEscaped st)
+                  }
+                rest
+          | c == '"' -> go (QuoteState True False False) rest
+          | c == '\'' -> go (QuoteState False True False) rest
+          | otherwise -> go st {qsEscaped = False} rest
+
+    dropStringGapClose txt =
+      let afterSpace = T.dropWhile isSpace txt
+       in case T.uncons afterSpace of
+            Just ('\\', rest) -> rest
+            _ -> afterSpace
 
 -- | Process a file from a cursor. The @trailingNewline@ flag controls
 -- whether a trailing newline in the input produces an extra empty line

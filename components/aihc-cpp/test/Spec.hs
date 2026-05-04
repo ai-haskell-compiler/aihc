@@ -19,7 +19,7 @@ main = do
     ( testGroup
         "cpp-oracle"
         ( checks
-            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, tokenPastingTests, ccallLineCommentTest]
+            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest, stringContinuationTests, tokenPastingTests, ccallLineCommentTest]
             <> [pragmaOnceTest]
             <> [QC.testProperty "dummy quickcheck property" prop_dummy]
         )
@@ -122,6 +122,42 @@ definedConditionSpacingTest =
           then pure ()
           else assertFailure ("expected ok branch to be active, output was: " <> show (resultOutput result))
       _ -> assertFailure "expected Done"
+
+stringContinuationTests :: TestTree
+stringContinuationTests =
+  testGroup
+    "Haskell string continuations"
+    [ testCase "ordinary string accepts GCC double-backslash continuation" $
+        assertPreprocessOutput
+          gccStringContinuationInput
+          (T.unlines ["#line 1 \"<input>\"", "x = \"a\\       \\b\""]),
+      testCase "ordinary string preserves GHC single-backslash gap" $
+        assertPreprocessOutput
+          ghcStringGapInput
+          (T.unlines ["#line 1 \"<input>\"", "x = \"a\\", "       \\b\""]),
+      testCase "function macro argument accepts GCC double-backslash continuation" $
+        assertPreprocessOutput
+          gccStringContinuationMacroInput
+          (T.unlines ["#line 1 \"<input>\"", "", "x = \"a\\       \\b\""]),
+      testCase "function macro argument preserves GHC single-backslash gap" $
+        assertPreprocessOutput
+          ghcStringGapMacroInput
+          (T.unlines ["#line 1 \"<input>\"", "", "x = \"a\\", "       \\b\""]),
+      testCase "GCC continuation tracks string gaps across concatenation" $
+        assertPreprocessOutput
+          gccStringContinuationConcatInput
+          (T.unlines ["#line 1 \"<input>\"", "x = \"a\\       \\\" <> y <> \"\\n\\       \\b\""]),
+      testCase "double backslash outside strings is not line-spliced" $
+        assertPreprocessOutput
+          nonStringDoubleBackslashInput
+          (T.unlines ["#line 1 \"<input>\"", "", "x = foo \\\\", "       bar"])
+    ]
+
+assertPreprocessOutput :: T.Text -> T.Text -> Assertion
+assertPreprocessOutput input expected =
+  case preprocess defaultConfig (TE.encodeUtf8 input) of
+    Done result -> resultOutput result @?= expected
+    _ -> assertFailure "expected Done"
 
 tokenPastingTests :: TestTree
 tokenPastingTests =
@@ -245,4 +281,50 @@ tokenPasteHsCommentInput =
   T.unlines
     [ "#define LENS(S,F,A) {-# INLINE _/**/F #-}; _/**/F :: LensP S A; _/**/F = lens F $ \\ S {..} F/**/_ -> S {F = F/**/_, ..}",
       "LENS(Foo,bar,Baz{-comment-})"
+    ]
+
+gccStringContinuationInput :: T.Text
+gccStringContinuationInput =
+  T.unlines
+    [ "x = \"a\\\\",
+      "       \\b\""
+    ]
+
+ghcStringGapInput :: T.Text
+ghcStringGapInput =
+  T.unlines
+    [ "x = \"a\\",
+      "       \\b\""
+    ]
+
+gccStringContinuationMacroInput :: T.Text
+gccStringContinuationMacroInput =
+  T.unlines
+    [ "#define ID(x) x",
+      "x = ID(\"a\\\\",
+      "       \\b\")"
+    ]
+
+ghcStringGapMacroInput :: T.Text
+ghcStringGapMacroInput =
+  T.unlines
+    [ "#define ID(x) x",
+      "x = ID(\"a\\",
+      "       \\b\")"
+    ]
+
+gccStringContinuationConcatInput :: T.Text
+gccStringContinuationConcatInput =
+  T.unlines
+    [ "x = \"a\\\\",
+      "       \\\" <> y <> \"\\n\\\\",
+      "       \\b\""
+    ]
+
+nonStringDoubleBackslashInput :: T.Text
+nonStringDoubleBackslashInput =
+  T.unlines
+    [ "#define ID(x) x",
+      "x = ID(foo \\\\",
+      "       bar)"
     ]
