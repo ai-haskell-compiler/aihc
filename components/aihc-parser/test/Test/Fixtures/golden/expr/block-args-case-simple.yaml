@@ -2,5 +2,5 @@ extensions: [BlockArguments]
 input: |
   id case x of
     _ -> ()
-ast: EApp (EVar "id") (ECase (EVar "x") [CaseAlt (PWildcard) (UnguardedRhs (ETuple []))])
+ast: "EApp (EVar Name {\"id\"}) (ECase (EVar Name {\"x\"}) [CaseAlt (PWildcard) (UnguardedRhs (ETuple Boxed []))])"
 status: pass

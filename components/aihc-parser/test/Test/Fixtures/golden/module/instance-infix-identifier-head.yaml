@@ -3,6 +3,5 @@ input: |
   module M where
   class xs `Infix` ys
   instance as `Infix` bs
-ast: |
-  Module {name = "M", decls = [DeclClass (ClassDecl {headForm = TypeHeadInfix, name = "Infix", params = [TyVarBinder {name = "xs"}, TyVarBinder {name = "ys"}]}), DeclInstance (InstanceDecl {head = TInfix (TVar "as") "Infix" (TVar "bs")})]}
+ast: "Module {ModuleHead {\"M\"}, [DeclClass (ClassDecl {InfixBinderHead (TyVarBinder {\"xs\"}) (UnqualifiedName {\"Infix\"}) (TyVarBinder {\"ys\"}) []}), DeclInstance (InstanceDecl {TInfix (TVar UnqualifiedName {\"as\"}) Name {\"Infix\"} (TVar UnqualifiedName {\"bs\"})})]}"
 status: pass

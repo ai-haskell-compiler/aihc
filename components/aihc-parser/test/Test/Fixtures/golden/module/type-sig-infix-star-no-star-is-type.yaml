@@ -1,5 +1,5 @@
 extensions: [NoStarIsType]
 input: |
   fn :: a * b
-ast: 'Module {decls = [DeclTypeSig {names = ["fn"], type = TInfix (TVar "a") "*" (TVar "b")}]}'
+ast: "Module {[DeclTypeSig [UnqualifiedName {\"fn\"}] (TInfix (TVar UnqualifiedName {\"a\"}) Name {\"*\"} (TVar UnqualifiedName {\"b\"}))]}"
 status: pass

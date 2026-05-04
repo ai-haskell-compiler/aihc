@@ -1,5 +1,5 @@
 extensions: []
 input: |
   42
-ast: EInt 42 TInteger
+ast: "EInt 42 TInteger"
 status: pass

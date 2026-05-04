@@ -3,7 +3,7 @@ input: |
   """
       "Hello"
       """
-ast: 'EString ""Hello""'
+ast: "EString \"\\\"Hello\\\"\""
 status: pass
 comment: |
   Double quotes don't need escaping inside multiline strings unless

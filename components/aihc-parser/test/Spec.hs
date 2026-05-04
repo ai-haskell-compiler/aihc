@@ -44,6 +44,12 @@ import Test.Properties.Identifiers
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
+import Test.Properties.ShorthandSubset
+  ( prop_shorthandDeclSubsetOfShow,
+    prop_shorthandExprSubsetOfShow,
+    prop_shorthandModuleSubsetOfShow,
+    prop_shorthandTypeSubsetOfShow,
+  )
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
@@ -134,6 +140,7 @@ buildTests = do
             testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
+            testCase "pretty-prints type signature guards in multi-way if" test_prettyTypeSigGuardInMultiWayIf,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
             testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
             testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
@@ -180,7 +187,11 @@ buildTests = do
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated module AST validator" prop_moduleValidator,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
-              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
+              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
+              QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
+              QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
+              QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
+              QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow
             ],
         oracle,
         extensionMappingTests,
@@ -937,6 +948,23 @@ test_prettyLayoutLetGuardInMultiWayIf = do
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" expected rendered
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyTypeSigGuardInMultiWayIf :: Assertion
+test_prettyTypeSigGuardInMultiWayIf = do
+  let config = defaultConfig {parserExtensions = [MultiWayIf]}
+      expr =
+        EMultiWayIf
+          [ GuardedRhs
+              []
+              [GuardExpr (ETypeSig (ETuple Boxed []) (TCon (mkName Nothing NameConId "C") Unpromoted))]
+              (EList [])
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   case parseExpr config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)

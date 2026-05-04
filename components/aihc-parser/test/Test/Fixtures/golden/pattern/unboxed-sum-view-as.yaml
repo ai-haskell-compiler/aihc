@@ -1,5 +1,5 @@
 extensions: [UnboxedSums, ViewPatterns]
 input: |
   (# | a -> b@c | #)
-ast: PUnboxedSum 1 3 PView (EVar "a") (PAs "b" (PVar "c"))
+ast: "PUnboxedSum 1 3 PView (EVar Name {\"a\"}) (PAs UnqualifiedName {\"b\"} (PVar UnqualifiedName {\"c\"}))"
 status: pass

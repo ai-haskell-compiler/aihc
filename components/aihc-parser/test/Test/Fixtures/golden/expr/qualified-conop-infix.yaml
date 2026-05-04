@@ -1,5 +1,5 @@
 extensions: []
 input: |
   x Data.List.:++ y
-ast: EInfix (EVar "x") "Data.List.:++" (EVar "y")
+ast: "EInfix (EVar Name {\"x\"}) Name {Just \"Data.List\", \":++\"} (EVar Name {\"y\"})"
 status: pass

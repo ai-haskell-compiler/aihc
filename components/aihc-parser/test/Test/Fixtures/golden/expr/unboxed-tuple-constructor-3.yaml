@@ -1,5 +1,5 @@
 extensions: [UnboxedTuples]
 input: |
   (#,,#)
-ast: ETupleUnboxed [_, _, _]
+ast: "ETuple Unboxed [Nothing, Nothing, Nothing]"
 status: pass

@@ -1,6 +1,5 @@
 extensions: []
 input: |
   type role M
-ast: |
-  Module {decls = [DeclRoleAnnotation (RoleAnnotation {name = "M", roles = []})]}
+ast: "Module {[DeclRoleAnnotation (RoleAnnotation {UnqualifiedName {\"M\"}, []})]}"
 status: pass

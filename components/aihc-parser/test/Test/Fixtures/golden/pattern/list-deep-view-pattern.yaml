@@ -1,5 +1,5 @@
 extensions: [ViewPatterns]
 input: |
   [a -> b -> c]
-ast: PList [PView (EVar "a") (PView (EVar "b") (PVar "c"))]
+ast: "PList [PView (EVar Name {\"a\"}) (PView (EVar Name {\"b\"}) (PVar UnqualifiedName {\"c\"}))]"
 status: pass

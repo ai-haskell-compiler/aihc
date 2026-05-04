@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (,a)
-ast: ETuple [_, EVar "a"]
+ast: "ETuple Boxed [Nothing, Just (EVar Name {\"a\"})]"
 status: pass

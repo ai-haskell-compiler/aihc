@@ -1,5 +1,5 @@
 extensions: []
 input: |
   data A deriving ()
-ast: Module {decls = [DeclData (DataDecl {name = "A", deriving = [DerivingClause {classes = []}]})]}
+ast: "Module {[DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"A\"}) [], [DerivingClause {[]}]})]}"
 status: pass

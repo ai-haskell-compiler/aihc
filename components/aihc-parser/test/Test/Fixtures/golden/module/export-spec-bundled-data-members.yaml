@@ -5,4 +5,4 @@ input: |
   module Demo (Nat (data Zero, data Succ)) where
   x = 1
 status: pass
-ast: Module {name = "Demo", exports = [ExportWith{name = "Nat", members = [ExportMember{namespace = "data", name = "Zero"}, ExportMember{namespace = "data", name = "Succ"}]}], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: "Module {ModuleHead {\"Demo\", [ExportWith{Name {\"Nat\"}, [IEBundledMember{IEBundledNamespaceData, Name {\"Zero\"}}, IEBundledMember{IEBundledNamespaceData, Name {\"Succ\"}}]}]}, [DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"x\"} UnguardedRhs (EInt 1 TInteger))]}"

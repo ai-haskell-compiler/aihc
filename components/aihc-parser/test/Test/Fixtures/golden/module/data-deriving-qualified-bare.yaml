@@ -1,5 +1,5 @@
 extensions: []
 input: |
   data X = X deriving Mod.ClassName
-ast: Module {decls = [DeclData (DataDecl {name = "X", constructors = [PrefixCon {name = "X"}], deriving = [DerivingClause {classes = "Mod.ClassName"}]})]}
+ast: "Module {[DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"X\"}) [], [PrefixCon {UnqualifiedName {\"X\"}}], [DerivingClause {Name {Just \"Mod\", \"ClassName\"}}]})]}"
 status: pass

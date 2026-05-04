@@ -2,5 +2,5 @@ extensions: [BlockArguments]
 input: |
   f (case x of
        _ -> ()) arg2
-ast: EApp (EApp (EVar "f") (EParen (ECase (EVar "x") [CaseAlt (PWildcard) (UnguardedRhs (ETuple []))]))) (EVar "arg2")
+ast: "EApp (EApp (EVar Name {\"f\"}) (EParen (ECase (EVar Name {\"x\"}) [CaseAlt (PWildcard) (UnguardedRhs (ETuple Boxed []))]))) (EVar Name {\"arg2\"})"
 status: pass

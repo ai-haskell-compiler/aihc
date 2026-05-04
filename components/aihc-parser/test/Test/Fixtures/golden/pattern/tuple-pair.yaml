@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (a,b)
-ast: PTuple [PVar "a", PVar "b"]
+ast: "PTuple Boxed [PVar UnqualifiedName {\"a\"}, PVar UnqualifiedName {\"b\"}]"
 status: pass

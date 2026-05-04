@@ -5,7 +5,7 @@ input: |
       
       Line 2
       """
-ast: "EString \"Line 1\n\nLine 2\""
+ast: "EString \"Line 1\\n\\nLine 2\""
 status: pass
 comment: |
   Common indentation stripped. Whitespace-only lines become empty.

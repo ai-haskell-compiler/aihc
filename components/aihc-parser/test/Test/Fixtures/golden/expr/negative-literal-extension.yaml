@@ -2,5 +2,5 @@ extensions:
   - NegativeLiterals
 input: |
   -1
-ast: EInt -1 TInteger
+ast: "EInt -1 TInteger"
 status: pass

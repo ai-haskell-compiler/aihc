@@ -1,6 +1,6 @@
 extensions: [MultilineStrings]
 input: |
   """single line"""
-ast: EString "single line"
+ast: "EString \"single line\""
 status: pass
 comment: Triple-quoted string on single line (no newlines)

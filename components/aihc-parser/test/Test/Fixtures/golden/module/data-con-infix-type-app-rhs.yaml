@@ -1,6 +1,5 @@
 extensions: []
 input: |
   data A a b = b `Infix` a b
-ast: |
-  Module {decls = [DeclData (DataDecl {name = "A", params = [TyVarBinder {name = "a"}, TyVarBinder {name = "b"}], constructors = [InfixCon {op = "Infix", lhs = BangType {type = TVar "b"}, rhs = BangType {type = TApp (TVar "a") (TVar "b")}}]})]}
+ast: "Module {[DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"A\"}) [TyVarBinder {\"a\"}, TyVarBinder {\"b\"}], [InfixCon {BangType {TVar UnqualifiedName {\"b\"}}, UnqualifiedName {\"Infix\"}, BangType {TApp (TVar UnqualifiedName {\"a\"}) (TVar UnqualifiedName {\"b\"})}}]})]}"
 status: pass

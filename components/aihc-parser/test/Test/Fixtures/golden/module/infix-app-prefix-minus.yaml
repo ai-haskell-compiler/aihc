@@ -2,5 +2,5 @@ extensions: []
 input: |
   module Demo where
   f = id $ - 1
-ast: Module {name = "Demo", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "f" UnguardedRhs (EInfix (EVar "id") "$" (ENegate (EInt 1 TInteger))))]}
+ast: "Module {ModuleHead {\"Demo\"}, [DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"f\"} UnguardedRhs (EInfix (EVar Name {\"id\"}) Name {\"$\"} (ENegate (EInt 1 TInteger))))]}"
 status: pass

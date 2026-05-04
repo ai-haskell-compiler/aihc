@@ -1,4 +1,4 @@
 input: "x = 1"
 output: |
-  Module {decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+  Module {[DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {"x"} UnguardedRhs (EInt 1 TInteger))]}
 status: pass
