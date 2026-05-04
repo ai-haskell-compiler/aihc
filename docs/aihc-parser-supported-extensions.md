@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Total Extensions: 82
-- Supported: 81
-- In Progress: 1
+- Total Extensions: 83
+- Supported: 83
+- In Progress: 0
 
 ## Extension Status
 
@@ -15,14 +15,14 @@
 | BinaryLiterals            |   🟢    | 3/3           |
 | BlockArguments            |   🟢    | 8/8           |
 | CApiFFI                   |   🟢    | 4/4           |
-| ConstraintKinds           |   🟢    | 7/7           |
+| ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 56/56         |
+| DataKinds                 |   🟢    | 59/59         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
 | DoAndIfThenElse           |   🟢    | 15/15         |
-| EmptyCase                 |   🟢    | 4/4           |
+| EmptyCase                 |   🟢    | 6/6           |
 | EmptyDataDecls            |   🟢    | 8/8           |
 | EmptyDataDeriving         |   🟢    | 4/4           |
 | ExistentialQuantification |   🟢    | 7/7           |
@@ -34,11 +34,11 @@
 | FlexibleInstances         |   🟢    | 18/18         |
 | ForeignFunctionInterface  |   🟢    | 40/40         |
 | FunctionalDependencies    |   🟢    | 7/7           |
-| GADTs                     |   🟢    | 13/13         |
+| GADTs                     |   🟢    | 14/14         |
 | GADTSyntax                |   🟢    | 10/10         |
-| GHC2021                   |   🟢    | 37/37         |
+| GHC2021                   |   🟢    | 43/43         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
-| Haskell2010               |   🟢    | 13/13         |
+| Haskell2010               |   🟢    | 15/15         |
 | HexFloatLiterals          |   🟢    | 3/3           |
 | ImplicitParams            |   🟢    | 11/11         |
 | ImportQualifiedPost       |   🟢    | 5/5           |
@@ -47,7 +47,7 @@
 | KindSignatures            |   🟢    | 29/29         |
 | LambdaCase                |   🟢    | 15/15         |
 | LinearTypes               |   🟢    | 14/14         |
-| MagicHash                 |   🟢    | 19/19         |
+| MagicHash                 |   🟢    | 21/21         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
 | MultiWayIf                |   🟢    | 7/7           |
@@ -65,9 +65,9 @@
 | PatternSynonyms           |   🟢    | 33/33         |
 | PolyKinds                 |   🟢    | 14/14         |
 | QualifiedDo               |   🟢    | 4/4           |
-| QuantifiedConstraints     |   🟢    | 1/1           |
-| QuasiQuotes               |   🟢    | 8/8           |
-| RankNTypes                |   🟢    | 3/3           |
+| QuantifiedConstraints     |   🟢    | 2/2           |
+| QuasiQuotes               |   🟢    | 10/10         |
+| RankNTypes                |   🟢    | 4/4           |
 | RecordWildCards           |   🟢    | 10/10         |
 | RecursiveDo               |   🟢    | 4/4           |
 | RequiredTypeArguments     |   🟢    | 3/3           |
@@ -77,19 +77,20 @@
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
 | StarIsType                |   🟢    | 3/3           |
-| TemplateHaskell           |   🟡    | 45/47         |
-| TemplateHaskellQuotes     |   🟢    | 13/13         |
+| TemplateHaskell           |   🟢    | 48/48         |
+| TemplateHaskellQuotes     |   🟢    | 14/14         |
 | TransformListComp         |   🟢    | 13/13         |
 | TupleSections             |   🟢    | 4/4           |
 | TypeAbstractions          |   🟢    | 5/5           |
 | TypeApplications          |   🟢    | 12/12         |
 | TypeData                  |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 56/56         |
+| TypeFamilies              |   🟢    | 58/58         |
 | TypeFamilyDependencies    |   🟢    | 3/3           |
-| TypeOperators             |   🟢    | 67/67         |
+| TypeOperators             |   🟢    | 70/70         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 8/8           |
 | UnboxedTuples             |   🟢    | 19/19         |
+| UndecidableInstances      |   🟢    | 1/1           |
 | UnicodeSyntax             |   🟢    | 19/19         |
 | ViewPatterns              |   🟢    | 19/19         |
 
