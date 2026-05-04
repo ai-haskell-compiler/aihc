@@ -2,5 +2,5 @@ extensions: [BlockArguments]
 input: |
   id do
     pure ()
-ast: EApp (EVar "id") (EDo [DoExpr (EApp (EVar "pure") (ETuple []))])
+ast: "EApp (EVar Name {\"id\"}) (EDo [DoExpr (EApp (EVar Name {\"pure\"}) (ETuple Boxed []))] (DoPlain))"
 status: pass

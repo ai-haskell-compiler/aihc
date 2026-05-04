@@ -4,5 +4,5 @@ input: |
   infixl 5 `foo`
   foo :: a -> a -> a
   foo = undefined
-ast: Module {name = "D9", decls = [DeclFixity {assoc = InfixL, prec = 5, ops = ["foo"]}, DeclTypeSig {names = ["foo"], type = TFun ArrowUnrestricted (TVar "a") (TFun ArrowUnrestricted (TVar "a") (TVar "a"))}, DeclValue (PatternBind NoMultiplicityTag PVar "foo" UnguardedRhs (EVar "undefined"))]}
+ast: "Module {ModuleHead {\"D9\"}, [DeclFixity InfixL Nothing 5 [UnqualifiedName {\"foo\"}], DeclTypeSig [UnqualifiedName {\"foo\"}] (TFun ArrowUnrestricted (TVar UnqualifiedName {\"a\"}) (TFun ArrowUnrestricted (TVar UnqualifiedName {\"a\"}) (TVar UnqualifiedName {\"a\"}))), DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"foo\"} UnguardedRhs (EVar Name {\"undefined\"}))]}"
 status: pass

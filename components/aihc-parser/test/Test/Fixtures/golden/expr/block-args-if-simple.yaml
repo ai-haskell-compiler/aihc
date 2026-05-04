@@ -1,5 +1,5 @@
 extensions: [BlockArguments]
 input: |
   id if x then y else z
-ast: EApp (EVar "id") (EIf (EVar "x") (EVar "y") (EVar "z"))
+ast: "EApp (EVar Name {\"id\"}) (EIf (EVar Name {\"x\"}) (EVar Name {\"y\"}) (EVar Name {\"z\"}))"
 status: pass

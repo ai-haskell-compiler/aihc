@@ -3,5 +3,5 @@ input: |
   mapM f do
     x <- get
     return x
-ast: EApp (EApp (EVar "mapM") (EVar "f")) (EDo [DoBind (PVar "x") (EVar "get"), DoExpr (EApp (EVar "return") (EVar "x"))])
+ast: "EApp (EApp (EVar Name {\"mapM\"}) (EVar Name {\"f\"})) (EDo [DoBind (PVar UnqualifiedName {\"x\"}) (EVar Name {\"get\"}), DoExpr (EApp (EVar Name {\"return\"}) (EVar Name {\"x\"}))] (DoPlain))"
 status: pass

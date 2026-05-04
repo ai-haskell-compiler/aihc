@@ -1,5 +1,5 @@
 extensions: []
 input: |
   data X = X deriving (Class a b c, forall n. OtherClass n a)
-ast: Module {decls = [DeclData (DataDecl {name = "X", constructors = [PrefixCon {name = "X"}], deriving = [DerivingClause {classes = [TApp (TApp (TApp (TCon "Class") (TVar "a")) (TVar "b")) (TVar "c"), TForall [TyVarBinder {name = "n"}] (TApp (TApp (TCon "OtherClass") (TVar "n")) (TVar "a"))]}]})]}
+ast: "Module {[DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"X\"}) [], [PrefixCon {UnqualifiedName {\"X\"}}], [DerivingClause {[TApp (TApp (TApp (TCon Name {\"Class\"}) (TVar UnqualifiedName {\"a\"})) (TVar UnqualifiedName {\"b\"})) (TVar UnqualifiedName {\"c\"}), TForall [TyVarBinder {\"n\"}] (TApp (TApp (TCon Name {\"OtherClass\"}) (TVar UnqualifiedName {\"n\"})) (TVar UnqualifiedName {\"a\"}))]}]})]}"
 status: pass

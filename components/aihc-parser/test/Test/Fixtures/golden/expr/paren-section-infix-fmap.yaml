@@ -1,5 +1,5 @@
 extensions: [GHC2021]
 input: |
   (a . b <$>)
-ast: EParen (ESectionL (EInfix (EVar "a") "." (EVar "b")) "<$>")
+ast: "EParen (ESectionL (EInfix (EVar Name {\"a\"}) Name {\".\"} (EVar Name {\"b\"})) Name {\"<$>\"})"
 status: pass

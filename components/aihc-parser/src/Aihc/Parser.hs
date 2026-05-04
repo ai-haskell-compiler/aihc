@@ -86,10 +86,10 @@ defaultConfig =
 -- | Parse a Haskell expression.
 --
 -- >>> shorthand $ parseExpr defaultConfig "1 + 2"
--- ParseOk (EInfix (EInt 1 TInteger) "+" (EInt 2 TInteger))
+-- ParseOk (EInfix (EInt 1 TInteger) Name {"+"} (EInt 2 TInteger))
 --
 -- >>> shorthand $ parseExpr defaultConfig "\\x -> x + 1"
--- ParseOk (ELambdaPats [PVar "x"] (EInfix (EVar "x") "+" (EInt 1 TInteger)))
+-- ParseOk (ELambdaPats [PVar UnqualifiedName {"x"}] (EInfix (EVar Name {"x"}) Name {"+"} (EInt 1 TInteger)))
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -105,10 +105,10 @@ parseExpr cfg input =
 -- | Parse a Haskell pattern.
 --
 -- >>> shorthand $ parsePattern defaultConfig "(x, y)"
--- ParseOk (PTuple [PVar "x", PVar "y"])
+-- ParseOk (PTuple Boxed [PVar UnqualifiedName {"x"}, PVar UnqualifiedName {"y"}])
 --
 -- >>> shorthand $ parsePattern defaultConfig "Just x"
--- ParseOk (PCon "Just" [PVar "x"])
+-- ParseOk (PCon Name {"Just"} [PVar UnqualifiedName {"x"}])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
@@ -119,10 +119,10 @@ parsePattern cfg input =
 -- | Parse a Haskell type.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
--- ParseOk (TFun ArrowUnrestricted (TCon "Int") (TCon "Bool"))
+-- ParseOk (TFun ArrowUnrestricted (TCon Name {"Int"}) (TCon Name {"Bool"}))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
--- ParseOk (TApp (TCon "Maybe") (TVar "a"))
+-- ParseOk (TApp (TCon Name {"Maybe"}) (TVar UnqualifiedName {"a"}))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
@@ -133,7 +133,7 @@ parseType cfg input =
 -- | Parse a single Haskell declaration.
 --
 -- >>> shorthand $ parseDecl defaultConfig "f x = x + 1"
--- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1 TInteger))}]))
+-- ParseOk (DeclValue (FunctionBind UnqualifiedName {"f"} [Match {MatchHeadPrefix, [PVar UnqualifiedName {"x"}], UnguardedRhs (EInfix (EVar Name {"x"}) Name {"+"} (EInt 1 TInteger))}]))
 parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
@@ -148,7 +148,7 @@ parseDecl cfg input =
 -- returning the error and the successfully parsed declarations.
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- Module {name = "Main", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "main" UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello")))]}
+-- Module {ModuleHead {"Main"}, [DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {"main"} UnguardedRhs (EApp (EVar Name {"putStrLn"}) (EString "Hello")))]}
 --
 -- Modules without a header are also supported:
 --

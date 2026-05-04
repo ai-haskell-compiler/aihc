@@ -1,5 +1,5 @@
 extensions: []
 input: |
   -1 + 2
-ast: EInfix (ENegate (EInt 1 TInteger)) "+" (EInt 2 TInteger)
+ast: "EInfix (ENegate (EInt 1 TInteger)) Name {\"+\"} (EInt 2 TInteger)"
 status: pass

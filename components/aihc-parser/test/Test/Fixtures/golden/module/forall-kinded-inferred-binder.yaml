@@ -9,5 +9,4 @@ input: |
   f :: forall {a :: Type}. a -> a
   f x = x
 status: pass
-ast: |
-  Module {name = "ForallKindedInferredBinder", imports = [ImportDecl {module = "Data.Kind", spec = ImportSpec {items = [ImportItemAbs{name = "Type"}]}}], decls = [DeclTypeSig {names = ["f"], type = TForall [TyVarBinder {name = "a", specificity = TyVarBInferred, kind = TCon "Type"}] (TFun ArrowUnrestricted (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])]} 
+ast: "Module {ModuleHead {\"ForallKindedInferredBinder\"}, [ImportDecl {\"Data.Kind\", ImportSpec {[ImportItemAbs{UnqualifiedName {\"Type\"}}]}}], [DeclTypeSig [UnqualifiedName {\"f\"}] (TForall [TyVarBinder {\"a\", Just (TCon Name {\"Type\"}), TyVarBInferred}] (TFun ArrowUnrestricted (TVar UnqualifiedName {\"a\"}) (TVar UnqualifiedName {\"a\"}))), DeclValue (FunctionBind UnqualifiedName {\"f\"} [Match {MatchHeadPrefix, [PVar UnqualifiedName {\"x\"}], UnguardedRhs (EVar Name {\"x\"})}])]}"

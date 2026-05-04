@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (!a, ~b)
-ast: PTuple [PStrict (PVar "a"), PIrrefutable (PVar "b")]
+ast: "PTuple Boxed [PStrict (PVar UnqualifiedName {\"a\"}), PIrrefutable (PVar UnqualifiedName {\"b\"})]"
 status: pass

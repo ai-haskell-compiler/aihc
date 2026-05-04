@@ -1,5 +1,5 @@
 extensions: [LexicalNegation]
 input: |
   -a % b
-ast: EInfix (ENegate (EVar "a")) "%" (EVar "b")
+ast: "EInfix (ENegate (EVar Name {\"a\"})) Name {\"%\"} (EVar Name {\"b\"})"
 status: pass

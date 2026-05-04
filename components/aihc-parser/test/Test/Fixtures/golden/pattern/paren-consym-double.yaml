@@ -1,5 +1,5 @@
 extensions: []
 input: |
   ((:+))
-ast: PParen (PCon ":+" [])
+ast: "PParen (PCon Name {\":+\"} [])"
 status: pass

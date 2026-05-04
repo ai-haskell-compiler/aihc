@@ -1,5 +1,5 @@
 extensions: [BlockArguments]
 input: |
   f (if x then y else z) arg2
-ast: EApp (EApp (EVar "f") (EParen (EIf (EVar "x") (EVar "y") (EVar "z")))) (EVar "arg2")
+ast: "EApp (EApp (EVar Name {\"f\"}) (EParen (EIf (EVar Name {\"x\"}) (EVar Name {\"y\"}) (EVar Name {\"z\"})))) (EVar Name {\"arg2\"})"
 status: pass

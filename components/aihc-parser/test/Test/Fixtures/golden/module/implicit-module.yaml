@@ -2,5 +2,5 @@ extensions: []
 input: |
   x = 1
   y = x
-ast: Module {decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger)), DeclValue (PatternBind NoMultiplicityTag PVar "y" UnguardedRhs (EVar "x"))]}
+ast: "Module {[DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"x\"} UnguardedRhs (EInt 1 TInteger)), DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"y\"} UnguardedRhs (EVar Name {\"x\"}))]}"
 status: pass

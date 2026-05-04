@@ -1,5 +1,5 @@
 extensions: [ViewPatterns]
 input: |
   (f . g -> x)
-ast: PParen (PView (EInfix (EVar "f") "." (EVar "g")) (PVar "x"))
+ast: "PParen (PView (EInfix (EVar Name {\"f\"}) Name {\".\"} (EVar Name {\"g\"})) (PVar UnqualifiedName {\"x\"}))"
 status: pass

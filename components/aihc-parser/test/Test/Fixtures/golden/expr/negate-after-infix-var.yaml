@@ -1,5 +1,5 @@
 extensions: []
 input: |
   f $ - x
-ast: EInfix (EVar "f") "$" (ENegate (EVar "x"))
+ast: "EInfix (EVar Name {\"f\"}) Name {\"$\"} (ENegate (EVar Name {\"x\"}))"
 status: pass

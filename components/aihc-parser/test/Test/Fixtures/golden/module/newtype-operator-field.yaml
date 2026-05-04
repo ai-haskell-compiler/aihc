@@ -1,6 +1,5 @@
 extensions: []
 input: |
   newtype T = MkT { ($$) :: Int }
-ast: |
-  Module {decls = [DeclNewtype (NewtypeDecl {name = "T", constructor = RecordCon {name = "MkT", fields = [FieldDecl {names = ["$$"], type = BangType {type = TCon "Int"}}]}})]}
+ast: "Module {[DeclNewtype (NewtypeDecl {PrefixBinderHead (UnqualifiedName {\"T\"}) [], RecordCon {UnqualifiedName {\"MkT\"}, [FieldDecl {[UnqualifiedName {\"$$\"}], BangType {TCon Name {\"Int\"}}}]}})]}"
 status: pass

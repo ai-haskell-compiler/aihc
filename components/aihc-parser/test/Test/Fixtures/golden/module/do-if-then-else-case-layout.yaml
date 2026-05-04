@@ -10,5 +10,5 @@ input: |
         Right obj -> return obj
       else do
       return ()
-ast: Module {name = "DoAndIfThenElseCaseLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "toCaseLayout" UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoExpr (ECase (EVar "undefined") [CaseAlt (PCon "Left" [PVar "err"]) (UnguardedRhs (EApp (EVar "error") (EVar "err"))), CaseAlt (PCon "Right" [PVar "obj"]) (UnguardedRhs (EApp (EVar "return") (EVar "obj")))])]) (EDo [DoExpr (EApp (EVar "return") (ETuple []))]))]))]}
+ast: "Module {ModuleHead {\"DoAndIfThenElseCaseLayout\"}, [EnableExtension DoAndIfThenElse], [DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"toCaseLayout\"} UnguardedRhs (EDo [DoExpr (EIf (EVar Name {\"True\"}) (EDo [DoExpr (ECase (EVar Name {\"undefined\"}) [CaseAlt (PCon Name {\"Left\"} [PVar UnqualifiedName {\"err\"}]) (UnguardedRhs (EApp (EVar Name {\"error\"}) (EVar Name {\"err\"}))), CaseAlt (PCon Name {\"Right\"} [PVar UnqualifiedName {\"obj\"}]) (UnguardedRhs (EApp (EVar Name {\"return\"}) (EVar Name {\"obj\"})))])] (DoPlain)) (EDo [DoExpr (EApp (EVar Name {\"return\"}) (ETuple Boxed []))] (DoPlain)))] (DoPlain)))]}"
 status: pass

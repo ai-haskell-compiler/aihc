@@ -1,5 +1,5 @@
 extensions: [OverloadedRecordDot]
 input: |
   (f x).field
-ast: EGetField (EParen (EApp (EVar "f") (EVar "x"))) "field"
+ast: "EGetField (EParen (EApp (EVar Name {\"f\"}) (EVar Name {\"x\"}))) Name {\"field\"}"
 status: pass

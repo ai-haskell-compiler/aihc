@@ -1,6 +1,5 @@
 extensions: []
 input: |
   infix ^, +
-ast: |
-  Module {decls = [DeclFixity {assoc = Infix, ops = ["^", "+"]}]}
+ast: "Module {[DeclFixity Infix Nothing Nothing [UnqualifiedName {\"^\"}, UnqualifiedName {\"+\"}]]}"
 status: pass

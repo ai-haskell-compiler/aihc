@@ -4,5 +4,5 @@ input: |
   module InfixFunlhsThSplicePattern where
 
   $splice `fn` () = ()
-ast: Module {name = "InfixFunlhsThSplicePattern", languagePragmas = [EnableExtension TemplateHaskell], decls = [DeclValue (FunctionBind "fn" [Match {headForm = Infix, pats = [PSplice (EVar "splice"), PTuple []], rhs = UnguardedRhs (ETuple [])}])]}
+ast: "Module {ModuleHead {\"InfixFunlhsThSplicePattern\"}, [EnableExtension TemplateHaskell], [DeclValue (FunctionBind UnqualifiedName {\"fn\"} [Match {MatchHeadInfix, [PSplice (EVar Name {\"splice\"}), PTuple Boxed []], UnguardedRhs (ETuple Boxed [])}])]}"
 status: pass

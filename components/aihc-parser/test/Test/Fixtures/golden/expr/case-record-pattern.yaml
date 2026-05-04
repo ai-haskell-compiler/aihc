@@ -1,5 +1,5 @@
 extensions: []
 input: |
   case x of Foo { bar = baz } -> baz
-ast: ECase (EVar "x") [CaseAlt (PRecord "Foo" {"bar" = PVar "baz"}) (UnguardedRhs (EVar "baz"))]
+ast: "ECase (EVar Name {\"x\"}) [CaseAlt (PRecord Name {\"Foo\"} {Name {\"bar\"} = PVar UnqualifiedName {\"baz\"}}) (UnguardedRhs (EVar Name {\"baz\"}))]"
 status: pass

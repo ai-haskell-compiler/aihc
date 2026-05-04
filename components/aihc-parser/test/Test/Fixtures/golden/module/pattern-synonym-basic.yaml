@@ -2,6 +2,5 @@ extensions:
   - PatternSynonyms
 input: |
   pattern Pair x y = (x, y)
-ast: |
-  Module {decls = [DeclPatSyn (PatSynDecl {name = "Pair", args = PrefixArgs ["x", "y"], dir = Bidirectional, pat = PTuple [PVar "x", PVar "y"]})]}
+ast: "Module {[DeclPatSyn (PatSynDecl {UnqualifiedName {\"Pair\"}, PatSynPrefixArgs [\"x\", \"y\"], PTuple Boxed [PVar UnqualifiedName {\"x\"}, PVar UnqualifiedName {\"y\"}], PatSynBidirectional})]}"
 status: pass

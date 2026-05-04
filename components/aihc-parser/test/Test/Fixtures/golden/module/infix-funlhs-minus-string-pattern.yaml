@@ -1,5 +1,5 @@
 extensions: []
 input: |
   M.H - "" = x
-ast: Module {decls = [DeclValue (FunctionBind "-" [Match {headForm = Infix, pats = [PCon "M.H" [], PLit (LitString "")], rhs = UnguardedRhs (EVar "x")}])]}
+ast: "Module {[DeclValue (FunctionBind UnqualifiedName {\"-\"} [Match {MatchHeadInfix, [PCon Name {Just \"M\", \"H\"} [], PLit (LitString \"\")], UnguardedRhs (EVar Name {\"x\"})}])]}"
 status: pass

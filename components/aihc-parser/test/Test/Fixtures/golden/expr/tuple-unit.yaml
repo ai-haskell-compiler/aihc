@@ -1,5 +1,5 @@
 extensions: []
 input: |
   ()
-ast: ETuple []
+ast: "ETuple Boxed []"
 status: pass

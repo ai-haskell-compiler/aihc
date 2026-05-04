@@ -1,5 +1,5 @@
 extensions: []
 input: |
   if x then y :: T else z
-ast: EIf (EVar "x") (ETypeSig (EVar "y") (TCon "T")) (EVar "z")
+ast: "EIf (EVar Name {\"x\"}) (ETypeSig (EVar Name {\"y\"}) (TCon Name {\"T\"})) (EVar Name {\"z\"})"
 status: pass

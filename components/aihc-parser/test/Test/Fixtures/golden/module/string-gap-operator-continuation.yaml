@@ -3,7 +3,7 @@ input: |
   module StringGapLayout where
   f = "hello\
       \world" ++ "!"
-ast: Module {name = "StringGapLayout", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "f" UnguardedRhs (EInfix (EString "helloworld") "++" (EString "!")))]}
+ast: "Module {ModuleHead {\"StringGapLayout\"}, [DeclValue (PatternBind NoMultiplicityTag PVar UnqualifiedName {\"f\"} UnguardedRhs (EInfix (EString \"helloworld\") Name {\"++\"} (EString \"!\")))]}"
 status: pass
 comment: |
   Operator continuation after a string gap must not trigger

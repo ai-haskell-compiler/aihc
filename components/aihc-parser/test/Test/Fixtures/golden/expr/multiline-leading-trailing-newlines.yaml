@@ -4,6 +4,6 @@ input: |
   first line
   second line
   """
-ast: "EString \"first line\nsecond line\""
+ast: "EString \"first line\\nsecond line\""
 status: pass
 comment: Leading and trailing newlines are removed per GHC MultilineStrings spec.

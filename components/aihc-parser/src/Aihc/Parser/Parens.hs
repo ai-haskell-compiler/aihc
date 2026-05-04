@@ -493,7 +493,7 @@ needsTypeParens ctx ty =
 -- Guard contexts
 -- ---------------------------------------------------------------------------
 
-data GuardArrow = GuardArrow | GuardEquals
+data GuardArrow = GuardCaseArrow | GuardMultiWayIfArrow | GuardEquals
 
 guardExprNeedsParens :: GuardArrow -> Expr -> Bool
 guardExprNeedsParens arrow = \case
@@ -501,7 +501,8 @@ guardExprNeedsParens arrow = \case
   EProc {} -> True
   ETypeSig _ ty ->
     case arrow of
-      GuardArrow -> typeHasFunctionArrow ty
+      GuardCaseArrow -> typeHasFunctionArrow ty
+      GuardMultiWayIfArrow -> True
       GuardEquals -> False
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
   _ -> False
@@ -1010,7 +1011,7 @@ addExprParensPrec prec expr =
         (prec > 0)
         (EIf (addExprParens cond) (addExprParens yes) (addExprParens no))
     EMultiWayIf rhss ->
-      wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
+      wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardMultiWayIfArrow) rhss))
     ELambdaPats pats body ->
       wrapExpr (prec > 0) (ELambdaPats (map addArrowBndrPatternParens pats) (addExprParens body))
     ELambdaCase alts ->
@@ -1158,7 +1159,7 @@ addCaseAltRhsParens rhs =
     UnguardedRhs sp body whereDecls ->
       UnguardedRhs sp (addExprParens body) (fmap (map addDeclParens) whereDecls)
     GuardedRhss sp guards whereDecls ->
-      GuardedRhss sp (map (addGuardedRhsParens GuardArrow) guards) (fmap (map addDeclParens) whereDecls)
+      GuardedRhss sp (map (addGuardedRhsParens GuardCaseArrow) guards) (fmap (map addDeclParens) whereDecls)
 
 addDoStmtParens :: DoStmt Expr -> DoStmt Expr
 addDoStmtParens stmt =
@@ -1693,6 +1694,6 @@ addCmdCaseAltRhsParens rhs =
 addCmdGuardedRhsParens :: GuardedRhs Cmd -> GuardedRhs Cmd
 addCmdGuardedRhsParens grhs =
   grhs
-    { guardedRhsGuards = map (addGuardQualifierParens GuardArrow) (guardedRhsGuards grhs),
+    { guardedRhsGuards = map (addGuardQualifierParens GuardCaseArrow) (guardedRhsGuards grhs),
       guardedRhsBody = addCmdParens (guardedRhsBody grhs)
     }

@@ -1,5 +1,5 @@
 extensions: [RecursiveDo]
 input: |
   mdo { pure x }
-ast: EMdo [DoExpr (EApp (EVar "pure") (EVar "x"))]
+ast: "EDo [DoExpr (EApp (EVar Name {\"pure\"}) (EVar Name {\"x\"}))] (DoMdo)"
 status: pass

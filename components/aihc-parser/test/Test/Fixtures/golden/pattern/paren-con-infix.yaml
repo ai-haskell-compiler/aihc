@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (a :+: b)
-ast: PParen (PInfix (PVar "a") ":+:" (PVar "b"))
+ast: "PParen (PInfix (PVar UnqualifiedName {\"a\"}) Name {\":+:\"} (PVar UnqualifiedName {\"b\"}))"
 status: pass

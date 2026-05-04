@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (,,)
-ast: ETuple [_, _, _]
+ast: "ETuple Boxed [Nothing, Nothing, Nothing]"
 status: pass

@@ -1,5 +1,5 @@
 extensions: [GHC2021]
 input: |
   (n-1-)
-ast: EParen (ESectionL (EInfix (EVar "n") "-" (EInt 1 TInteger)) "-")
+ast: "EParen (ESectionL (EInfix (EVar Name {\"n\"}) Name {\"-\"} (EInt 1 TInteger)) Name {\"-\"})"
 status: pass

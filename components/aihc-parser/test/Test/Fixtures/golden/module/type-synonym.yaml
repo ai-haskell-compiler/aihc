@@ -2,6 +2,5 @@ extensions: []
 input: |
   module D6 where
   type Pair a = (a, a)
-ast: |
-  Module {name = "D6", decls = [DeclTypeSyn (TypeSynDecl {name = "Pair", params = [TyVarBinder {name = "a"}], body = TTuple [TVar "a", TVar "a"]})]}
+ast: "Module {ModuleHead {\"D6\"}, [DeclTypeSyn (TypeSynDecl {PrefixBinderHead (UnqualifiedName {\"Pair\"}) [TyVarBinder {\"a\"}], TTuple Boxed Unpromoted [TVar UnqualifiedName {\"a\"}, TVar UnqualifiedName {\"a\"}]})]}"
 status: pass

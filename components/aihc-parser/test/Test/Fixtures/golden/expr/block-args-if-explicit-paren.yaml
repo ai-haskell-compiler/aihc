@@ -1,5 +1,5 @@
 extensions: [BlockArguments]
 input: |
   f (if x then y else z)
-ast: EApp (EVar "f") (EParen (EIf (EVar "x") (EVar "y") (EVar "z")))
+ast: "EApp (EVar Name {\"f\"}) (EParen (EIf (EVar Name {\"x\"}) (EVar Name {\"y\"}) (EVar Name {\"z\"})))"
 status: pass

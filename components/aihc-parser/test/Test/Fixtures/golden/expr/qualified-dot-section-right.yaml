@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (Foo.. x)
-ast: EParen (ESectionR "Foo.." (EVar "x"))
+ast: "EParen (ESectionR Name {Just \"Foo\", \".\"} (EVar Name {\"x\"}))"
 status: pass
