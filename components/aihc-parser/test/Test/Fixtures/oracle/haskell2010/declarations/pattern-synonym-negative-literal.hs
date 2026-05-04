@@ -1,4 +1,4 @@
-{-# ORACLE_TEST pass #-}
+{- ORACLE_TEST pass -}
 module PatternSynNegativeLiteral where
 
 pattern GL_NEXT_BUFFER_NV = -2 :: GLenum

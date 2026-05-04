@@ -498,10 +498,23 @@ guardExprNeedsParens :: GuardArrow -> Expr -> Bool
 guardExprNeedsParens arrow = \case
   ELambdaPats {} -> True
   EProc {} -> True
+  ETypeSig _ ty ->
+    case arrow of
+      GuardArrow -> typeHasFunctionArrow ty
+      GuardEquals -> False
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
-  _ -> case arrow of
-    GuardArrow -> False
-    GuardEquals -> False
+  _ -> False
+
+typeHasFunctionArrow :: Type -> Bool
+typeHasFunctionArrow ty =
+  case ty of
+    TAnn _ sub -> typeHasFunctionArrow sub
+    TParen sub -> typeHasFunctionArrow sub
+    TForall _ inner -> typeHasFunctionArrow inner
+    TContext _ inner -> typeHasFunctionArrow inner
+    TKindSig lhs rhs -> typeHasFunctionArrow lhs || typeHasFunctionArrow rhs
+    TFun {} -> True
+    _ -> False
 
 -- ---------------------------------------------------------------------------
 -- Module
