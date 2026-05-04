@@ -275,7 +275,14 @@ missingImportMemberAnnotation :: Scope -> ImportItem -> [IEBundledMember] -> May
 missingImportMemberAnnotation originScope item members =
   missingMemberAnnotation <$> find missingMember members
   where
-    missingMember member = Map.notMember (nameText (ieBundledMemberName member)) (scopeTerms originScope)
+    missingMember member = nameText (ieBundledMemberName member) `notElem` exportedMembers
+    exportedMembers =
+      case importItemTypeName item of
+        Nothing -> []
+        Just itemName ->
+          let parentName = renderUnqualifiedName itemName
+           in Map.findWithDefault [] parentName (scopeConstructors originScope)
+                <> Map.findWithDefault [] parentName (scopeMethods originScope)
     missingMemberAnnotation member =
       let memberName = nameText (ieBundledMemberName member)
        in ResolutionAnnotation
@@ -1017,9 +1024,8 @@ dataDeclExports headBinder constructors =
         Map.empty
 
 constructorMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
-constructorMap typeName constructors
-  | null constructors = Map.empty
-  | otherwise = Map.singleton (renderUnqualifiedName typeName) (map renderUnqualifiedName constructors)
+constructorMap typeName constructors =
+  Map.singleton (renderUnqualifiedName typeName) (map renderUnqualifiedName constructors)
 
 classDeclMethodNames :: [ClassDeclItem] -> [UnqualifiedName]
 classDeclMethodNames = concatMap go
@@ -1113,41 +1119,51 @@ filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      let allowed = allowedNames importSpecItems
-          -- When any T(..) import is present, all terms are allowed (we can't
-          -- enumerate class methods / constructors without full type info).
-          allTerms = any isAllImport importSpecItems
+      let allowedTypes = allowedTypeNames importSpecItems
+          allowedTerms = allowedTermNames scope importSpecItems
        in Scope
             { scopeTerms =
-                if allTerms
-                  then scopeTerms scope
-                  else Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTerms scope),
-              scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeTypes scope),
-              scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeConstructors scope),
-              scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowed) (scopeMethods scope),
+                Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeTerms scope),
+              scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeTypes scope),
+              scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
+              scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
-      filterScopeByNames (`notElem` allowedNames importSpecItems) scope
+      filterScopeByNames (`notElem` (allowedTypeNames importSpecItems <> allowedTermNames scope importSpecItems)) scope
 
-isAllImport :: ImportItem -> Bool
-isAllImport (ImportItemAll {}) = True
-isAllImport (ImportItemAllWith {}) = True
-isAllImport (ImportAnn _ sub) = isAllImport sub
-isAllImport _ = False
+allowedTypeNames :: [ImportItem] -> [Text]
+allowedTypeNames = mapMaybe (fmap renderUnqualifiedName . importItemTypeName)
 
-allowedNames :: [ImportItem] -> [Text]
-allowedNames items =
-  [ name
-  | item <- items,
-    name <- case item of
-      ImportItemVar _ itemName -> [renderUnqualifiedName itemName]
-      ImportItemAbs _ itemName -> [renderUnqualifiedName itemName]
-      ImportItemAll _ itemName -> [renderUnqualifiedName itemName]
-      ImportItemWith _ itemName _ -> [renderUnqualifiedName itemName]
-      ImportItemAllWith _ itemName _ _ -> [renderUnqualifiedName itemName]
-      ImportAnn _ sub -> allowedNames [sub]
-  ]
+allowedTermNames :: Scope -> [ImportItem] -> [Text]
+allowedTermNames scope = concatMap (allowedTermNamesForItem scope)
+
+allowedTermNamesForItem :: Scope -> ImportItem -> [Text]
+allowedTermNamesForItem scope item =
+  case item of
+    ImportAnn _ sub -> allowedTermNamesForItem scope sub
+    ImportItemVar _ itemName -> [renderUnqualifiedName itemName]
+    ImportItemAll _ itemName -> allBundledMembers itemName
+    ImportItemWith _ _ members -> map bundledMemberName members
+    ImportItemAllWith _ itemName _ members -> map bundledMemberName members <> allBundledMembers itemName
+    ImportItemAbs {} -> []
+  where
+    bundledMemberName = nameText . ieBundledMemberName
+    allBundledMembers itemName =
+      let parentName = renderUnqualifiedName itemName
+          constructors = Map.lookup parentName (scopeConstructors scope)
+          methods = Map.lookup parentName (scopeMethods scope)
+       in fromMaybe [parentName] (constructors <> methods)
+
+importItemTypeName :: ImportItem -> Maybe UnqualifiedName
+importItemTypeName item =
+  case item of
+    ImportAnn _ sub -> importItemTypeName sub
+    ImportItemVar {} -> Nothing
+    ImportItemAbs _ itemName -> Just itemName
+    ImportItemAll _ itemName -> Just itemName
+    ImportItemWith _ itemName _ -> Just itemName
+    ImportItemAllWith _ itemName _ _ -> Just itemName
 
 resolveTermName :: Scope -> Name -> ResolvedName
 resolveTermName scope name =
