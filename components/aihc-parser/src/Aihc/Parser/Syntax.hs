@@ -91,6 +91,7 @@ module Aihc.Parser.Syntax
     FloatType (..),
     NumericType (..),
     TypeLiteral (..),
+    TypeBuiltinCon (..),
     TypePromotion (..),
     ForallVis (..),
     ForallTelescope (..),
@@ -1178,6 +1179,7 @@ data Type
   = TAnn Annotation Type
   | TVar UnqualifiedName
   | TCon Name TypePromotion
+  | TBuiltinCon TypeBuiltinCon
   | TImplicitParam Text Type
   | TTypeLit TypeLiteral
   | TStar
@@ -1197,6 +1199,13 @@ data Type
   | -- \$typ or $(typ) (TH type splice)
     -- \_ (wildcard type, used in type family instance patterns)
     TWildcard
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data TypeBuiltinCon
+  = TBuiltinTuple Int
+  | TBuiltinArrow
+  | TBuiltinList
+  | TBuiltinCons
   deriving (Data, Eq, Show, Generic, NFData)
 
 getTypeSourceSpan :: Type -> SourceSpan

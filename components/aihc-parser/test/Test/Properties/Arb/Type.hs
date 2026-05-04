@@ -40,6 +40,7 @@ genType = scale (`div` 2) $ do
         [ TVar <$> genTypeVarName,
           (`TCon` Unpromoted) <$> genConName,
           (`TCon` Promoted) <$> genConName,
+          TBuiltinCon <$> genTypeBuiltinCon,
           TTypeLit <$> genTypeLiteral,
           pure TStar,
           pure TWildcard,
@@ -54,6 +55,7 @@ genType = scale (`div` 2) $ do
         [ TVar <$> genTypeVarName,
           (`TCon` Unpromoted) <$> genConName,
           (`TCon` Promoted) <$> genConName,
+          TBuiltinCon <$> genTypeBuiltinCon,
           TTypeLit <$> genTypeLiteral,
           pure TStar,
           pure TWildcard,
@@ -285,6 +287,16 @@ genTypeLiteral =
         pure (TypeLitChar c (T.pack (show c)))
     ]
 
+genTypeBuiltinCon :: Gen TypeBuiltinCon
+genTypeBuiltinCon =
+  elements
+    [ TBuiltinTuple 2,
+      TBuiltinTuple 3,
+      TBuiltinArrow,
+      TBuiltinList,
+      TBuiltinCons
+    ]
+
 genSymbolText :: Gen Text
 genSymbolText = do
   len <- chooseInt (0, 8)
@@ -301,6 +313,8 @@ shrinkType ty =
       [ TCon shrunk promoted
       | shrunk <- shrinkName name
       ]
+    TBuiltinCon {} ->
+      []
     TImplicitParam name inner ->
       [inner]
         <> [TImplicitParam name' inner | name' <- shrinkImplicitParamName name]

@@ -162,7 +162,7 @@ genTypeNameQuoteType :: Gen Type
 genTypeNameQuoteType =
   oneof
     [ TCon <$> genConName <*> pure Unpromoted,
-      pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted),
+      pure (TBuiltinCon TBuiltinList),
       pure (TTuple Boxed Unpromoted []),
       pure (TTuple Unboxed Unpromoted [])
     ]

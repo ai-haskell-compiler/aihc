@@ -436,6 +436,7 @@ prettyType ty =
             | T.any (== '\'') rendered = "' "
             | otherwise = "'"
        in if promoted == Promoted then promoteTick <> base else base
+    TBuiltinCon con -> prettyTypeBuiltinCon con
     TImplicitParam name inner -> pretty name <+> "::" <+> prettyType inner
     TTypeLit lit -> prettyTypeLiteral lit
     TStar -> "*"
@@ -485,6 +486,14 @@ prettyArrowKind :: ArrowKind -> Doc ann
 prettyArrowKind ArrowUnrestricted = "->"
 prettyArrowKind ArrowLinear = "%1" <+> "->"
 prettyArrowKind (ArrowExplicit ty) = "%" <> prettyType ty <+> "->"
+
+prettyTypeBuiltinCon :: TypeBuiltinCon -> Doc ann
+prettyTypeBuiltinCon con =
+  case con of
+    TBuiltinTuple arity -> parens (pretty (T.replicate (max 0 (arity - 1)) ","))
+    TBuiltinArrow -> "(->)"
+    TBuiltinList -> "[]"
+    TBuiltinCons -> "(:)"
 
 prettyContext :: [Type] -> Doc ann
 prettyContext constraints =
