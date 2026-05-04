@@ -1,5 +1,5 @@
 extensions: [BlockArguments]
 input: |
   id \x -> x
-ast: EApp (EVar "id") (ELambdaPats [PVar "x"] (EVar "x"))
+ast: "EApp (EVar Name {\"id\"}) (ELambdaPats [PVar \"x\"] (EVar Name {\"x\"}))"
 status: pass

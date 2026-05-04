@@ -4,5 +4,5 @@ input: |
   testDoWhereLayout a = do
     action
     where action = a
-ast: Module {name = "DoWhereLayout", decls = [DeclValue (FunctionBind "testDoWhereLayout" [Match {headForm = Prefix, pats = [PVar "a"], rhs = UnguardedRhs (EDo [DoExpr (EVar "action")]) where [DeclValue (PatternBind NoMultiplicityTag PVar "action" UnguardedRhs (EVar "a"))]}])]}
+ast: "Module {ModuleHead {\"DoWhereLayout\"}, [DeclValue (FunctionBind UnqualifiedName {\"testDoWhereLayout\"} [Match {MatchHeadPrefix, [PVar \"a\"], EDo [DoExpr (EVar Name {\"action\"})] (DoPlain) Just [DeclValue (PatternBind (PVar \"action\") (EVar Name {\"a\"}))]}])]}"
 status: pass

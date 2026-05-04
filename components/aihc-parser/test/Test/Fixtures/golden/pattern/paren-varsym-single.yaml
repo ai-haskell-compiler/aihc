@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (+)
-ast: PVar "+"
+ast: "PVar \"+\""
 status: pass

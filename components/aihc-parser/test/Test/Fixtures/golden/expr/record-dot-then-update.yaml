@@ -1,5 +1,5 @@
 extensions: [OverloadedRecordDot]
 input: |
   r.field { x = 1 }
-ast: ERecordUpd (EGetField (EVar "r") "field") {"x" = EInt 1 TInteger}
+ast: "ERecordUpd (EGetField (EVar Name {\"r\"}) Name {\"field\"}) {Name {\"x\"} = EInt 1 TInteger}"
 status: pass

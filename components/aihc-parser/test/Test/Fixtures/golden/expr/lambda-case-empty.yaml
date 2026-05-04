@@ -2,6 +2,5 @@ extensions:
   - LambdaCase
 input: |
   \case {}
-ast: |
-  ELambdaCase []
+ast: "ELambdaCase []"
 status: pass

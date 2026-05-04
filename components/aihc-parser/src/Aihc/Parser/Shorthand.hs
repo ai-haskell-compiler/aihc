@@ -9,14 +9,15 @@
 -- AST structures via the 'Shorthand' typeclass. Key features:
 --
 -- * Source spans are omitted to reduce noise
--- * Empty fields (Nothing, [], False, etc.) are omitted
+-- * Empty fields (Nothing, [], False, etc.) and field labels are omitted
+-- * Remaining constructor/value tokens are a subsequence of the derived 'Show' output
 -- * Output is on a single line by default
 -- * Uses the prettyprinter library for consistent formatting
 --
 -- Example:
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Demo where x = 1"
--- Module {name = "Demo", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+-- Module {ModuleHead {"Demo"}, [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )
@@ -25,7 +26,6 @@ where
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
-import Data.Ratio (denominator, numerator)
 import Data.Text (Text)
 import Prettyprinter
   ( Doc,
@@ -33,7 +33,6 @@ import Prettyprinter
     braces,
     brackets,
     comma,
-    dquotes,
     hsep,
     parens,
     punctuate,
@@ -70,12 +69,10 @@ instance Shorthand Module where
     "Module" <+> braces (hsep (punctuate comma fields))
     where
       fields =
-        optionalField "name" docText (moduleName modu)
-          <> listField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
-          <> optionalField "warningText" docPragma (moduleWarningPragma modu)
-          <> optionalField "exports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleExports modu)
-          <> listField "imports" docImportDecl (moduleImports modu)
-          <> listField "decls" docDecl (moduleDecls modu)
+        optionalField "moduleHead" docModuleHead (moduleHead modu)
+          <> listField "moduleLanguagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
+          <> listField "moduleImports" docImportDecl (moduleImports modu)
+          <> listField "moduleDecls" docDecl (moduleDecls modu)
 
 instance Shorthand Decl where
   shorthand = docDecl
@@ -95,11 +92,14 @@ instance Shorthand LexToken where
 instance Shorthand LexTokenKind where
   shorthand = docTokenKind
 
-showRationalAsFloat :: Rational -> String
-showRationalAsFloat value =
-  case denominator value of
-    1 -> show (numerator value) <> ".0"
-    _ -> show (fromRational value :: Double)
+docModuleHead :: ModuleHead -> Doc ann
+docModuleHead head' =
+  "ModuleHead" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "moduleHeadName" (docText (moduleHeadName head'))]
+        <> optionalField "moduleHeadWarningPragma" docPragma (moduleHeadWarningPragma head')
+        <> optionalField "moduleHeadExports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleHeadExports head')
 
 docExtensionSetting :: ExtensionSetting -> Doc ann
 docExtensionSetting setting =
@@ -189,19 +189,19 @@ docImportItem item =
 docIENamespace :: IEEntityNamespace -> Doc ann
 docIENamespace namespace =
   case namespace of
-    IEEntityNamespaceType -> docText "type"
-    IEEntityNamespacePattern -> docText "pattern"
-    IEEntityNamespaceData -> docText "data"
+    IEEntityNamespaceType -> "IEEntityNamespaceType"
+    IEEntityNamespacePattern -> "IEEntityNamespacePattern"
+    IEEntityNamespaceData -> "IEEntityNamespaceData"
 
 docIEBundledNamespace :: IEBundledNamespace -> Doc ann
 docIEBundledNamespace namespace =
   case namespace of
-    IEBundledNamespaceType -> docText "type"
-    IEBundledNamespaceData -> docText "data"
+    IEBundledNamespaceType -> "IEBundledNamespaceType"
+    IEBundledNamespaceData -> "IEBundledNamespaceData"
 
 docExportMember :: IEBundledMember -> Doc ann
 docExportMember (IEBundledMember mNamespace name) =
-  "ExportMember" <> braces (hsep (punctuate comma (optionalField "namespace" docIEBundledNamespace mNamespace <> [field "name" (docName name)])))
+  "IEBundledMember" <> braces (hsep (punctuate comma (optionalField "namespace" docIEBundledNamespace mNamespace <> [field "name" (docName name)])))
 
 -- Declarations
 
@@ -210,11 +210,11 @@ docDecl decl =
   case decl of
     DeclAnn _ sub -> docDecl sub
     DeclValue vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
-    DeclTypeSig names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
+    DeclTypeSig names ty -> "DeclTypeSig" <+> brackets (hsep (punctuate comma (map docUnqualifiedName names))) <+> parens (docType ty)
     DeclPatSyn ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
-    DeclPatSynSig names ty -> "DeclPatSynSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
-    DeclStandaloneKindSig name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docUnqualifiedName name), field "kind" (docType kind)]))
-    DeclFixity assoc mNamespace mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
+    DeclPatSynSig names ty -> "DeclPatSynSig" <+> brackets (hsep (punctuate comma (map docUnqualifiedName names))) <+> parens (docType ty)
+    DeclStandaloneKindSig name kind -> "DeclStandaloneKindSig" <+> parens (docUnqualifiedName name) <+> parens (docType kind)
+    DeclFixity assoc mNamespace mPrec ops -> "DeclFixity" <+> docFixityAssoc assoc <+> maybe "Nothing" docIENamespace mNamespace <+> maybe "Nothing" pretty mPrec <+> brackets (hsep (punctuate comma (map docUnqualifiedName ops)))
     DeclRoleAnnotation ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
     DeclTypeSyn syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
     DeclData dd -> "DeclData" <+> parens (docDataDecl dd)
@@ -236,7 +236,16 @@ docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
   case vdecl of
     FunctionBind name matches -> "FunctionBind" <+> docUnqualifiedName name <+> brackets (hsep (punctuate comma (map docMatch matches)))
-    PatternBind multTag pat rhs -> "PatternBind" <+> docMultiplicityTag multTag <+> docPattern pat <+> docRhs rhs
+    PatternBind multTag pat rhs -> "PatternBind" <+> hsep (docPatternBindFields multTag pat rhs)
+
+docPatternBindFields :: MultiplicityTag -> Pattern -> Rhs Expr -> [Doc ann]
+docPatternBindFields multTag pat rhs =
+  multiplicityFields <> [parens (docPattern pat), parens (docRhs rhs)]
+  where
+    multiplicityFields =
+      case multTag of
+        NoMultiplicityTag -> []
+        _ -> [docMultiplicityTag multTag]
 
 docMultiplicityTag :: MultiplicityTag -> Doc ann
 docMultiplicityTag NoMultiplicityTag = "NoMultiplicityTag"
@@ -255,23 +264,23 @@ docPatSynDecl ps =
     fields =
       [field "name" (docUnqualifiedName (patSynDeclName ps))]
         <> [field "args" (docPatSynArgs (patSynDeclArgs ps))]
-        <> [field "dir" (docPatSynDir (patSynDeclDir ps))]
         <> [field "pat" (docPattern (patSynDeclPat ps))]
+        <> [field "dir" (docPatSynDir (patSynDeclDir ps))]
 
 docPatSynDir :: PatSynDir -> Doc ann
 docPatSynDir dir =
   case dir of
-    PatSynUnidirectional -> "Unidirectional"
-    PatSynBidirectional -> "Bidirectional"
+    PatSynUnidirectional -> "PatSynUnidirectional"
+    PatSynBidirectional -> "PatSynBidirectional"
     PatSynExplicitBidirectional matches ->
-      "ExplicitBidirectional" <+> brackets (hsep (punctuate comma (map docMatch matches)))
+      "PatSynExplicitBidirectional" <+> brackets (hsep (punctuate comma (map docMatch matches)))
 
 docPatSynArgs :: PatSynArgs -> Doc ann
 docPatSynArgs args =
   case args of
-    PatSynPrefixArgs vars -> "PrefixArgs" <+> docTextList vars
-    PatSynInfixArgs lhs rhs -> "InfixArgs" <+> docText lhs <+> docText rhs
-    PatSynRecordArgs fields' -> "RecordArgs" <+> docTextList fields'
+    PatSynPrefixArgs vars -> "PatSynPrefixArgs" <+> docTextList vars
+    PatSynInfixArgs lhs rhs -> "PatSynInfixArgs" <+> docText lhs <+> docText rhs
+    PatSynRecordArgs fields' -> "PatSynRecordArgs" <+> docTextList fields'
 
 docMatch :: Match -> Doc ann
 docMatch m =
@@ -286,16 +295,16 @@ docMatch m =
 docMatchHeadForm :: MatchHeadForm -> Doc ann
 docMatchHeadForm headForm =
   case headForm of
-    MatchHeadPrefix -> "Prefix"
-    MatchHeadInfix -> "Infix"
+    MatchHeadPrefix -> "MatchHeadPrefix"
+    MatchHeadInfix -> "MatchHeadInfix"
 
 docRhsWith :: (body -> Doc ann) -> Rhs body -> Doc ann
 docRhsWith docBody rhs =
   case rhs of
-    UnguardedRhs _ body Nothing -> "UnguardedRhs" <+> parens (docBody body)
-    UnguardedRhs _ body (Just decls) -> "UnguardedRhs" <+> parens (docBody body) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    UnguardedRhs _ body Nothing -> docBody body
+    UnguardedRhs _ body (Just decls) -> docBody body <+> "Just" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     GuardedRhss _ grhss Nothing -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss)))
-    GuardedRhss _ grhss (Just decls) -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss))) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    GuardedRhss _ grhss (Just decls) -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss))) <+> "Just" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
 docRhs :: Rhs Expr -> Doc ann
 docRhs = docRhsWith docExpr
@@ -320,8 +329,8 @@ docTypeSynDecl syn =
   "TypeSynDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      docBinderHead (typeSynHead syn)
-        <> [field "body" (docType (typeSynBody syn))]
+      [field "typeSynHead" (docBinderHeadValue (typeSynHead syn))]
+        <> [field "typeSynBody" (docType (typeSynBody syn))]
 
 docRoleAnnotation :: RoleAnnotation -> Doc ann
 docRoleAnnotation ann =
@@ -374,11 +383,11 @@ docDataConDecl dcd =
     PrefixCon forallVars constraints name fields' ->
       "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> listField "fields" docBangType fields')))
     InfixCon forallVars constraints lhs op rhs ->
-      "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docUnqualifiedName op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints)))
+      "InfixCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> [field "lhs" (docBangType lhs), field "op" (docUnqualifiedName op), field "rhs" (docBangType rhs)])))
     RecordCon forallVars constraints name fields' ->
       "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
     GadtCon forallBinders constraints names body ->
-      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docUnqualifiedName names <> listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> [field "body" (docGadtBody body)])))
+      "GadtCon" <+> braces (hsep (punctuate comma (listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> listField "names" docUnqualifiedName names <> [field "body" (docGadtBody body)])))
     TupleCon forallVars constraints flavor fields' ->
       "TupleCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> [field "flavor" (pretty (show flavor))] <> listField "fields" docBangType fields')))
     UnboxedSumCon forallVars constraints pos arity field' ->
@@ -439,10 +448,8 @@ docClassDecl cd =
   "ClassDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (binderHeadForm (classDeclHead cd)))]
-        <> take 1 binderFields
-        <> optionalField "context" (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)
-        <> drop 1 binderFields
+      optionalField "context" (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)
+        <> binderFields
         <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
         <> listField "items" docClassDeclItem (classDeclItems cd)
     binderFields = docBinderHead (classDeclHead cd)
@@ -514,11 +521,11 @@ docStandaloneDerivingDecl sd =
   "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      listField "pragmas" docPragma (standaloneDerivingPragmas sd)
-        <> optionalField "warning" docPragma (standaloneDerivingWarning sd)
-        <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
-        <> listField "context" docType (standaloneDerivingContext sd)
-        <> [field "head" (docType (standaloneDerivingHead sd))]
+      optionalField "standaloneDerivingStrategy" docDerivingStrategy (standaloneDerivingStrategy sd)
+        <> listField "standaloneDerivingPragmas" docPragma (standaloneDerivingPragmas sd)
+        <> optionalField "standaloneDerivingWarning" docPragma (standaloneDerivingWarning sd)
+        <> listField "standaloneDerivingContext" docType (standaloneDerivingContext sd)
+        <> [field "standaloneDerivingHead" (docType (standaloneDerivingHead sd))]
 
 docInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
 docInstanceOverlapPragma pragma' =
@@ -607,9 +614,9 @@ docType ty =
   case ty of
     TVar name -> "TVar" <+> docUnqualifiedName name
     TCon name promoted ->
-      if promoted == Promoted
-        then "TConPromoted" <+> docName name
-        else "TCon" <+> docName name
+      "TCon"
+        <+> docName name
+        <> (if promoted == Promoted then " Promoted" else "")
     TBuiltinCon con -> "TBuiltinCon" <+> pretty (show con)
     TImplicitParam name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
     TTypeLit lit -> "TTypeLit" <+> docTypeLiteral lit
@@ -628,22 +635,20 @@ docType ty =
       "TInfix"
         <+> parens (docType lhs)
         <+> docName op
-        <> (if promoted == Promoted then "'" else "")
+        <> (if promoted == Promoted then " Promoted" else "")
         <+> parens (docType rhs)
     TFun arrowKind a b -> "TFun" <+> docArrowKind arrowKind <+> parens (docType a) <+> parens (docType b)
     TTuple tupleFlavor promoted elems ->
-      ( case (tupleFlavor, promoted) of
-          (Boxed, Promoted) -> "TTuplePromoted"
-          (Boxed, Unpromoted) -> "TTuple"
-          (Unboxed, Promoted) -> "TTuplePromotedUnboxed"
-          (Unboxed, Unpromoted) -> "TTupleUnboxed"
-      )
+      "TTuple"
+        <+> pretty (show tupleFlavor)
+        <+> pretty (show promoted)
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TUnboxedSum elems ->
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TList promoted elems ->
-      (if promoted == Promoted then "TListPromoted" else "TList")
+      "TList"
+        <+> pretty (show promoted)
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TParen inner -> "TParen" <+> parens (docType inner)
     TKindSig ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
@@ -665,9 +670,9 @@ docTyVarBinder tvb =
   where
     fields =
       [field "name" (docText (tyVarBinderName tvb))]
+        <> optionalField "kind" (\kind -> "Just" <+> parens (docType kind)) (tyVarBinderKind tvb)
         <> optionalField "specificity" docTyVarBSpecificity (specificityField tvb)
         <> optionalField "visibility" docTyVarBVisibility (visibilityField tvb)
-        <> optionalField "kind" docType (tyVarBinderKind tvb)
 
     specificityField binder =
       case tyVarBinderSpecificity binder of
@@ -716,14 +721,15 @@ docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
     PAnn _ sub -> docPattern sub
-    PVar name -> "PVar" <+> docUnqualifiedName name
+    PVar name -> "PVar" <+> docUnqualifiedNameText name
     PTypeBinder binder -> "PTypeBinder" <+> parens (docTyVarBinder binder)
     PTypeSyntax form ty -> "PTypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
     PWildcard -> "PWildcard"
     PLit lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
     PTuple tupleFlavor elems ->
-      (if tupleFlavor == Boxed then "PTuple" else "PTupleUnboxed")
+      "PTuple"
+        <+> pretty (show tupleFlavor)
         <+> brackets (hsep (punctuate comma (map docPattern elems)))
     PUnboxedSum altIdx arity inner ->
       "PUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docPattern inner
@@ -758,7 +764,7 @@ docLiteral :: Literal -> Doc ann
 docLiteral lit =
   case peelLiteralAnn lit of
     LitInt n nt _ -> "LitInt" <+> pretty n <+> docNumericType nt
-    LitFloat n ft _ -> "LitFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
+    LitFloat n ft _ -> "LitFloat" <+> pretty (show n) <+> docFloatType ft
     LitChar c _ -> "LitChar" <+> pretty (show c)
     LitCharHash c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
     LitString s _ -> "LitString" <+> docText s
@@ -773,7 +779,7 @@ docExpr expr =
     EVar name -> "EVar" <+> docName name
     ETypeSyntax form ty -> "ETypeSyntax" <+> docTypeSyntaxForm form <+> parens (docType ty)
     EInt n nt _ -> "EInt" <+> pretty n <+> docNumericType nt
-    EFloat n ft _ -> "EFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
+    EFloat n ft _ -> "EFloat" <+> pretty (show n) <+> docFloatType ft
     EChar c _ -> "EChar" <+> pretty (show c)
     ECharHash c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
     EString s _ -> "EString" <+> docText s
@@ -800,7 +806,7 @@ docExpr expr =
     ESectionR op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
     ELetDecls decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EDo stmts flavor -> docDoFlavorTag flavor <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    EDo stmts flavor -> "EDo" <+> brackets (hsep (punctuate comma (map docDoStmt stmts))) <+> parens (docDoFlavor flavor)
     EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
@@ -812,8 +818,9 @@ docExpr expr =
     EParen inner -> "EParen" <+> parens (docExpr inner)
     EList elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
     ETuple tupleFlavor elems ->
-      (if tupleFlavor == Boxed then "ETuple" else "ETupleUnboxed")
-        <+> brackets (hsep (punctuate comma (map (maybe "_" docExpr) elems)))
+      "ETuple"
+        <+> pretty (show tupleFlavor)
+        <+> brackets (hsep (punctuate comma (map docMaybeExpr elems)))
     EUnboxedSum altIdx arity inner ->
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
@@ -834,6 +841,10 @@ docExprRecordField recordField =
     <+> (if recordFieldPun recordField then "~pun" else "=")
     <+> docExpr (recordFieldValue recordField)
 
+docMaybeExpr :: Maybe Expr -> Doc ann
+docMaybeExpr Nothing = "Nothing"
+docMaybeExpr (Just expr) = "Just" <+> parens (docExpr expr)
+
 docCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
 docCaseAltWith docBody (CaseAlt _ pat rhs) =
   "CaseAlt" <+> parens (docPattern pat) <+> parens (docRhsWith docBody rhs)
@@ -845,11 +856,11 @@ docLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
 docLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
   "LambdaCaseAlt" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docRhs rhs)
 
-docDoFlavorTag :: DoFlavor -> Doc ann
-docDoFlavorTag DoPlain = "EDo"
-docDoFlavorTag DoMdo = "EMdo"
-docDoFlavorTag (DoQualified m) = "EQualifiedDo" <+> pretty m
-docDoFlavorTag (DoQualifiedMdo m) = "EQualifiedMdo" <+> pretty m
+docDoFlavor :: DoFlavor -> Doc ann
+docDoFlavor DoPlain = "DoPlain"
+docDoFlavor DoMdo = "DoMdo"
+docDoFlavor (DoQualified m) = "DoQualified" <+> docText m
+docDoFlavor (DoQualifiedMdo m) = "DoQualifiedMdo" <+> docText m
 
 docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =
@@ -975,7 +986,7 @@ docTokenKind kind =
     TkQVarSym modName name -> "TkQVarSym" <+> docText modName <+> docText name
     TkQConSym modName name -> "TkQConSym" <+> docText modName <+> docText name
     TkInteger n nt -> "TkInteger" <+> pretty n <+> docNumericType nt
-    TkFloat n ft -> "TkFloat" <+> pretty (showRationalAsFloat n) <+> docFloatType ft
+    TkFloat n ft -> "TkFloat" <+> pretty (show n) <+> docFloatType ft
     TkChar c -> "TkChar" <+> pretty (show c)
     TkCharHash c repr -> "TkCharHash" <+> pretty (show c) <+> docText repr
     TkString s -> "TkString" <+> docText s
@@ -1044,7 +1055,7 @@ docFloatType ft =
 -- Helpers
 
 field :: Text -> Doc ann -> Doc ann
-field name val = pretty name <+> "=" <+> val
+field _ val = val
 
 optionalField :: Text -> (a -> Doc ann) -> Maybe a -> [Doc ann]
 optionalField name f mVal =
@@ -1067,13 +1078,22 @@ boolField _ False = []
 boolField name True = [field name "True"]
 
 docText :: Text -> Doc ann
-docText t = dquotes (pretty t)
+docText = pretty . show
 
 docName :: Name -> Doc ann
-docName = docText . renderName
+docName name =
+  "Name" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      optionalField "nameQualifier" (\qualifier -> "Just" <+> docText qualifier) (nameQualifier name)
+        <> [field "nameText" (docText (nameText name))]
 
 docUnqualifiedName :: UnqualifiedName -> Doc ann
-docUnqualifiedName = docText . renderUnqualifiedName
+docUnqualifiedName name =
+  "UnqualifiedName" <+> braces (field "unqualifiedNameText" (docText (unqualifiedNameText name)))
+
+docUnqualifiedNameText :: UnqualifiedName -> Doc ann
+docUnqualifiedNameText = docText . unqualifiedNameText
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))
@@ -1106,14 +1126,20 @@ docDataFamilyDecl df =
   "DataFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "headForm" (docTypeHeadForm (binderHeadForm (dataFamilyDeclHead df)))]
-        <> docBinderHead (dataFamilyDeclHead df)
-        <> optionalField "kind" docType (dataFamilyDeclKind df)
+      [field "dataFamilyDeclHead" (docBinderHeadValue (dataFamilyDeclHead df))]
+        <> optionalField "dataFamilyDeclKind" docType (dataFamilyDeclKind df)
 
 docBinderHead :: BinderHead UnqualifiedName -> [Doc ann]
 docBinderHead head' =
-  [field "name" (docUnqualifiedName (binderHeadName head'))]
-    <> listField "params" docTyVarBinder (binderHeadParams head')
+  [field "head" (docBinderHeadValue head')]
+
+docBinderHeadValue :: BinderHead UnqualifiedName -> Doc ann
+docBinderHeadValue head' =
+  case head' of
+    PrefixBinderHead name params ->
+      "PrefixBinderHead" <+> parens (docUnqualifiedName name) <+> brackets (hsep (punctuate comma (map docTyVarBinder params)))
+    InfixBinderHead lhs name rhs params ->
+      "InfixBinderHead" <+> parens (docTyVarBinder lhs) <+> parens (docUnqualifiedName name) <+> parens (docTyVarBinder rhs) <+> brackets (hsep (punctuate comma (map docTyVarBinder params)))
 
 docTypeFamilyInst :: TypeFamilyInst -> Doc ann
 docTypeFamilyInst tfi =

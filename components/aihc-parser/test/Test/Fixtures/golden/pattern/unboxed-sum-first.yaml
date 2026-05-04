@@ -1,5 +1,5 @@
 extensions: [UnboxedSums]
 input: |
   (# a | #)
-ast: PUnboxedSum 0 2 PVar "a"
+ast: "PUnboxedSum 0 2 PVar \"a\""
 status: pass

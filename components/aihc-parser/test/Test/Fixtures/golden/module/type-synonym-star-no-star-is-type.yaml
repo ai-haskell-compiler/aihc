@@ -1,5 +1,5 @@
 extensions: [NoStarIsType]
 input: |
   type X = (*)
-ast: 'Module {decls = [DeclTypeSyn (TypeSynDecl {name = "X", body = TCon "*"})]}'
+ast: "Module {[DeclTypeSyn (TypeSynDecl {PrefixBinderHead (UnqualifiedName {\"X\"}) [], TCon Name {\"*\"}})]}"
 status: pass

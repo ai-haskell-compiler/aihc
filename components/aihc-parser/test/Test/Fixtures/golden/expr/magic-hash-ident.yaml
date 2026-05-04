@@ -1,5 +1,5 @@
 extensions: [MagicHash]
 input: |
   x#
-ast: EVar "x#"
+ast: "EVar Name {\"x#\"}"
 status: pass

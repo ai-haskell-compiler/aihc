@@ -3,5 +3,5 @@ input: |
   module Demo where
   id1 = f x
   id2 = f (g 3)
-ast: Module {name = "Demo", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "id1" UnguardedRhs (EApp (EVar "f") (EVar "x"))), DeclValue (PatternBind NoMultiplicityTag PVar "id2" UnguardedRhs (EApp (EVar "f") (EParen (EApp (EVar "g") (EInt 3 TInteger)))))]}
+ast: "Module {ModuleHead {\"Demo\"}, [DeclValue (PatternBind (PVar \"id1\") (EApp (EVar Name {\"f\"}) (EVar Name {\"x\"}))), DeclValue (PatternBind (PVar \"id2\") (EApp (EVar Name {\"f\"}) (EParen (EApp (EVar Name {\"g\"}) (EInt 3 TInteger)))))]}"
 status: pass

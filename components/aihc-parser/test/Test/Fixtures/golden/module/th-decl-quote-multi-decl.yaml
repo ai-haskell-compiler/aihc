@@ -7,6 +7,5 @@ input: |
     data Nat = Z | S Nat
     f x = x
     |])
-ast: |
-  Module {name = "TH_Decl_Quote_MultiDecl", languagePragmas = [EnableExtension TemplateHaskell, EnableExtension QuasiQuotes], decls = [DeclSplice (ETHSplice (EParen (EApp (EVar "undefined") (ETHDeclQuote [DeclData (DataDecl {name = "Nat", constructors = [PrefixCon {name = "Z"}, PrefixCon {name = "S", fields = [BangType {type = TCon "Nat"}]}]}), DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])]))))]}
+ast: "Module {ModuleHead {\"TH_Decl_Quote_MultiDecl\"}, [EnableExtension TemplateHaskell, EnableExtension QuasiQuotes], [DeclSplice (ETHSplice (EParen (EApp (EVar Name {\"undefined\"}) (ETHDeclQuote [DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"Nat\"}) [], [PrefixCon {UnqualifiedName {\"Z\"}}, PrefixCon {UnqualifiedName {\"S\"}, [BangType {TCon Name {\"Nat\"}}]}]}), DeclValue (FunctionBind UnqualifiedName {\"f\"} [Match {MatchHeadPrefix, [PVar \"x\"], EVar Name {\"x\"}}])]))))]}"
 status: pass

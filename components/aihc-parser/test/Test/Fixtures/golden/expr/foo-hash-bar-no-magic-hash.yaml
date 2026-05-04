@@ -1,5 +1,5 @@
 extensions: []
 input: |
   foo#bar
-ast: EInfix (EVar "foo") "#" (EVar "bar")
+ast: "EInfix (EVar Name {\"foo\"}) Name {\"#\"} (EVar Name {\"bar\"})"
 status: pass

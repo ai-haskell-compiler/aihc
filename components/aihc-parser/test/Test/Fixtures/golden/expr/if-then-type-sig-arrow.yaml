@@ -1,5 +1,5 @@
 extensions: []
 input: |
   if x then y :: T -> U else z
-ast: EIf (EVar "x") (ETypeSig (EVar "y") (TFun ArrowUnrestricted (TCon "T") (TCon "U"))) (EVar "z")
+ast: "EIf (EVar Name {\"x\"}) (ETypeSig (EVar Name {\"y\"}) (TFun ArrowUnrestricted (TCon Name {\"T\"}) (TCon Name {\"U\"}))) (EVar Name {\"z\"})"
 status: pass

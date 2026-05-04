@@ -2,5 +2,5 @@ extensions: [PatternGuards, ViewPatterns]
 input: |
   module GuardViewPattern where
   f x | (view -> Just y) <- x = y
-ast: Module {name = "GuardViewPattern", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = GuardedRhss [GuardedRhs {guards = [GuardPat (PParen (PView (EVar "view") (PCon "Just" [PVar "y"]))) (EVar "x")], body = EVar "y"}]}])]}
+ast: "Module {ModuleHead {\"GuardViewPattern\"}, [DeclValue (FunctionBind UnqualifiedName {\"f\"} [Match {MatchHeadPrefix, [PVar \"x\"], GuardedRhss [GuardedRhs {[GuardPat (PParen (PView (EVar Name {\"view\"}) (PCon Name {\"Just\"} [PVar \"y\"]))) (EVar Name {\"x\"})], EVar Name {\"y\"}}]}])]}"
 status: pass

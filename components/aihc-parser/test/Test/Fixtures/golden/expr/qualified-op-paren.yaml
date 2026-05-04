@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (Prelude.+)
-ast: EVar "Prelude.+"
+ast: "EVar Name {Just \"Prelude\", \"+\"}"
 status: pass

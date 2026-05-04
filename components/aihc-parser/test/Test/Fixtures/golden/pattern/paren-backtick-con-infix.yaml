@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (x `Cons` xs)
-ast: PParen (PInfix (PVar "x") "Cons" (PVar "xs"))
+ast: "PParen (PInfix (PVar \"x\") Name {\"Cons\"} (PVar \"xs\"))"
 status: pass

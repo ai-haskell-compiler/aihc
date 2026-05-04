@@ -1,5 +1,5 @@
 extensions: [ExtendedLiterals, MagicHash]
 input: |
   10.3#
-ast: EFloat 10.3 TFloatHash
+ast: "EFloat 103 % 10 TFloatHash"
 status: pass

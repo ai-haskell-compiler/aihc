@@ -1,5 +1,5 @@
 extensions: [ViewPatterns]
 input: |
   Box {field = id -> x}
-ast: PRecord "Box" {"field" = PView (EVar "id") (PVar "x")}
+ast: "PRecord Name {\"Box\"} {Name {\"field\"} = PView (EVar Name {\"id\"}) (PVar \"x\")}"
 status: pass

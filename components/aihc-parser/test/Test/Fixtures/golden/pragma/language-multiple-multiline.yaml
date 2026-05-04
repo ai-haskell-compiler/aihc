@@ -5,5 +5,5 @@ input: |
   {-# LANGUAGE ScopedTypeVariables #-}
   module Demo where
   x = 1
-ast: Module {name = "Demo", languagePragmas = [EnableExtension BangPatterns, EnableExtension GADTs, EnableExtension ScopedTypeVariables], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: Module {name = "Demo", languagePragmas = [EnableExtension BangPatterns, EnableExtension GADTs, EnableExtension ScopedTypeVariables], decls = [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 status: pass

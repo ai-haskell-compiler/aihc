@@ -2,5 +2,5 @@ extensions: []
 input: |
   module CaseGuardedInRecordField where
   x = R { f = case y of A | p -> 1 | q -> 2, g = 3 }
-ast: Module {name = "CaseGuardedInRecordField", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (GuardedRhss [GuardedRhs {guards = [GuardExpr (EVar "p")], body = EInt 1 TInteger}, GuardedRhs {guards = [GuardExpr (EVar "q")], body = EInt 2 TInteger}])], "g" = EInt 3 TInteger}))]}
+ast: "Module {ModuleHead {\"CaseGuardedInRecordField\"}, [DeclValue (PatternBind (PVar \"x\") (ERecordCon Name {\"R\"} {Name {\"f\"} = ECase (EVar Name {\"y\"}) [CaseAlt (PCon Name {\"A\"} []) (GuardedRhss [GuardedRhs {[GuardExpr (EVar Name {\"p\"})], EInt 1 TInteger}, GuardedRhs {[GuardExpr (EVar Name {\"q\"})], EInt 2 TInteger}])], Name {\"g\"} = EInt 3 TInteger}))]}"
 status: pass

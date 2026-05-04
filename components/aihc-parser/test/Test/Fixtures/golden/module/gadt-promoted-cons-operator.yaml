@@ -2,6 +2,5 @@ extensions: [GHC2021, TypeOperators, GADTSyntax]
 input: |
   data Union f as where
     This :: !(f a) -> Union f (a : as)
-ast: |
-  Module {decls = [DeclData (DataDecl {name = "Union", params = [TyVarBinder {name = "f"}, TyVarBinder {name = "as"}], constructors = [GadtCon {names = ["This"], body = GadtPrefixBody {args = [(BangType {strict = True, type = TParen (TApp (TVar "f") (TVar "a"))} , ArrowUnrestricted)], result = TApp (TApp (TCon "Union") (TVar "f")) (TParen (TInfix (TVar "a") ":" (TVar "as")))}}]})]}
+ast: "Module {[DeclData (DataDecl {PrefixBinderHead (UnqualifiedName {\"Union\"}) [TyVarBinder {\"f\"}, TyVarBinder {\"as\"}], [GadtCon {[UnqualifiedName {\"This\"}], GadtPrefixBody {[(BangType {True, TParen (TApp (TVar UnqualifiedName {\"f\"}) (TVar UnqualifiedName {\"a\"}))} , ArrowUnrestricted)], TApp (TApp (TCon Name {\"Union\"}) (TVar UnqualifiedName {\"f\"})) (TParen (TInfix (TVar UnqualifiedName {\"a\"}) Name {\":\"} (TVar UnqualifiedName {\"as\"})))}}]})]}"
 status: pass

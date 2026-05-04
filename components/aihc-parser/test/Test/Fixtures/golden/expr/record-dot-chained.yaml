@@ -1,5 +1,5 @@
 extensions: [OverloadedRecordDot]
 input: |
   a.b.c
-ast: EGetField (EGetField (EVar "a") "b") "c"
+ast: "EGetField (EGetField (EVar Name {\"a\"}) Name {\"b\"}) Name {\"c\"}"
 status: pass

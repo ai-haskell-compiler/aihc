@@ -2,5 +2,5 @@ extensions: []
 input: |
   module DatasetPrefix where
   dataset = 5
-ast: Module {name = "DatasetPrefix", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "dataset" UnguardedRhs (EInt 5 TInteger))]}
+ast: "Module {ModuleHead {\"DatasetPrefix\"}, [DeclValue (PatternBind (PVar \"dataset\") (EInt 5 TInteger))]}"
 status: pass

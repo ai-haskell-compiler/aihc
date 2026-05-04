@@ -5,4 +5,4 @@ input: |
   import PatternSynonymsSource (data Zero)
   x = 1
 status: pass
-ast: Module {name = "Demo", imports = [ImportDecl {module = "PatternSynonymsSource", spec = ImportSpec {items = [ImportItemAbs{namespace = "data", name = "Zero"}]}}], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: "Module {ModuleHead {\"Demo\"}, [ImportDecl {\"PatternSynonymsSource\", ImportSpec {[ImportItemAbs{IEEntityNamespaceData, UnqualifiedName {\"Zero\"}}]}}], [DeclValue (PatternBind (PVar \"x\") (EInt 1 TInteger))]}"

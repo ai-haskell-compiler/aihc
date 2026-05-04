@@ -1,6 +1,5 @@
 extensions: []
 input: |
   deriving instance ((C) '()) :+ ()
-ast: |
-  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {head = TInfix (TParen (TApp (TParen (TCon "C")) (TTuplePromoted []))) ":+" (TTuple [])})]}
+ast: "Module {[DeclStandaloneDeriving (StandaloneDerivingDecl {TInfix (TParen (TApp (TParen (TCon Name {\"C\"})) (TTuple Boxed Promoted []))) Name {\":+\"} (TTuple Boxed Unpromoted [])})]}"
 status: pass

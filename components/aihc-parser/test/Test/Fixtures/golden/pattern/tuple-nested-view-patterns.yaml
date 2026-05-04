@@ -1,5 +1,5 @@
 extensions: [ViewPatterns]
 input: |
   (a, fn arg -> Just (v -> t@Nothing), _)
-ast: PTuple [PVar "a", PView (EApp (EVar "fn") (EVar "arg")) (PCon "Just" [PParen (PView (EVar "v") (PAs "t" (PCon "Nothing" [])))]), PWildcard]
+ast: "PTuple Boxed [PVar \"a\", PView (EApp (EVar Name {\"fn\"}) (EVar Name {\"arg\"})) (PCon Name {\"Just\"} [PParen (PView (EVar Name {\"v\"}) (PAs UnqualifiedName {\"t\"} (PCon Name {\"Nothing\"} [])))]), PWildcard]"
 status: pass

@@ -6,5 +6,5 @@ input: |
   f x
     | x :: Bool = True
     | otherwise = False
-ast: Module {name = "GuardExpressionTypeSignature", decls = [DeclTypeSig {names = ["f"], type = TFun ArrowUnrestricted (TCon "Bool") (TCon "Bool")}, DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = GuardedRhss [GuardedRhs {guards = [GuardExpr (ETypeSig (EVar "x") (TCon "Bool"))], body = EVar "True"}, GuardedRhs {guards = [GuardExpr (EVar "otherwise")], body = EVar "False"}]}])]}
+ast: "Module {ModuleHead {\"GuardExpressionTypeSignature\"}, [DeclTypeSig [UnqualifiedName {\"f\"}] (TFun ArrowUnrestricted (TCon Name {\"Bool\"}) (TCon Name {\"Bool\"})), DeclValue (FunctionBind UnqualifiedName {\"f\"} [Match {MatchHeadPrefix, [PVar \"x\"], GuardedRhss [GuardedRhs {[GuardExpr (ETypeSig (EVar Name {\"x\"}) (TCon Name {\"Bool\"}))], EVar Name {\"True\"}}, GuardedRhs {[GuardExpr (EVar Name {\"otherwise\"})], EVar Name {\"False\"}}]}])]}"
 status: pass

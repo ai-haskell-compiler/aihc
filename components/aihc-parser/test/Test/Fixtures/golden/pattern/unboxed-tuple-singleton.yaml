@@ -1,5 +1,5 @@
 extensions: [UnboxedTuples]
 input: |
   (# x #)
-ast: PTupleUnboxed [PVar "x"]
+ast: "PTuple Unboxed [PVar \"x\"]"
 status: pass

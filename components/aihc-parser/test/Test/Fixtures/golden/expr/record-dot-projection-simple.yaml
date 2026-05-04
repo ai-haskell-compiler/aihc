@@ -1,5 +1,5 @@
 extensions: [OverloadedRecordDot]
 input: |
   (.field)
-ast: EParen (EGetFieldProjection ["field"])
+ast: "EParen (EGetFieldProjection [Name {\"field\"}])"
 status: pass

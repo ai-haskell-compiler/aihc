@@ -2,5 +2,5 @@ extensions: [Arrows]
 input: |
   serveIndexHtml = proc _request ->
     returnA -< "response"
-ast: Module {decls = [DeclValue (PatternBind NoMultiplicityTag PVar "serveIndexHtml" UnguardedRhs (EProc (PVar "_request") (CmdArrApp (EVar "returnA") HsFirstOrderApp (EString "response"))))]}
+ast: "Module {[DeclValue (PatternBind (PVar \"serveIndexHtml\") (EProc (PVar \"_request\") (CmdArrApp (EVar Name {\"returnA\"}) HsFirstOrderApp (EString \"response\"))))]}"
 status: pass

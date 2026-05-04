@@ -1,6 +1,5 @@
 extensions: []
 input: |
   default ()
-ast: |
-  Module {decls = [DeclDefault []]}
+ast: "Module {[DeclDefault []]}"
 status: pass

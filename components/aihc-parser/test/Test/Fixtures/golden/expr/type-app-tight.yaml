@@ -1,5 +1,5 @@
 extensions: [TypeApplications]
 input: |
   f @a
-ast: ETypeApp (EVar "f") (TVar "a")
+ast: "ETypeApp (EVar Name {\"f\"}) (TVar UnqualifiedName {\"a\"})"
 status: pass

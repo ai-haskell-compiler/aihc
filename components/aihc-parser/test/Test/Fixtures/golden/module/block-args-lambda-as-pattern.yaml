@@ -1,5 +1,5 @@
 extensions: [GHC2021, BlockArguments]
 input: |
   f = g \x@(Y a) -> z
-ast: Module {decls = [DeclValue (PatternBind NoMultiplicityTag PVar "f" UnguardedRhs (EApp (EVar "g") (ELambdaPats [PAs "x" (PParen (PCon "Y" [PVar "a"]))] (EVar "z"))))]}
+ast: "Module {[DeclValue (PatternBind (PVar \"f\") (EApp (EVar Name {\"g\"}) (ELambdaPats [PAs UnqualifiedName {\"x\"} (PParen (PCon Name {\"Y\"} [PVar \"a\"]))] (EVar Name {\"z\"}))))]}"
 status: pass

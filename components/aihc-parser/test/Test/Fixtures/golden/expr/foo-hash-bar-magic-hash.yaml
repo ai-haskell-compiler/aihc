@@ -1,5 +1,5 @@
 extensions: [MagicHash]
 input: |
   foo#bar
-ast: EApp (EVar "foo#") (EVar "bar")
+ast: "EApp (EVar Name {\"foo#\"}) (EVar Name {\"bar\"})"
 status: pass

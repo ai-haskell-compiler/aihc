@@ -8,5 +8,5 @@ input: |
     #-}
   module Demo where
   x = 1
-ast: Module {name = "Demo", languagePragmas = [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings], decls = [DeclValue (PatternBind NoMultiplicityTag PVar "x" UnguardedRhs (EInt 1 TInteger))]}
+ast: Module {name = "Demo", languagePragmas = [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings], decls = [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 status: pass
