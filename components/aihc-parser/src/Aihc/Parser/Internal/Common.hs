@@ -77,6 +77,7 @@ import Control.Monad (guard)
 import Data.Char (isUpper)
 import Data.Functor (($>))
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -521,22 +522,11 @@ closeAndExpectRBrace =
 skipSemicolons :: TokParser ()
 skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
-layoutSemicolons1 :: TokParser ()
-layoutSemicolons1 = layoutSep (expectedTok TkSpecialSemicolon)
-
 bracedSemiSep :: TokParser a -> TokParser [a]
-bracedSemiSep parser = do
-  expectedTok TkSpecialLBrace
-  items <- layoutSemiSep parser
-  closeAndExpectRBrace
-  pure items
+bracedSemiSep = braces . layoutSemiSep
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
-bracedSemiSep1 parser = do
-  expectedTok TkSpecialLBrace
-  items <- layoutSemiSep1 parser
-  closeAndExpectRBrace
-  pure items
+bracedSemiSep1 = braces . layoutSemiSep1
 
 -- | Zero-or-more variant of 'plainSemiSep1'.
 -- Parses zero or more items separated by semicolons (no surrounding braces).
@@ -548,30 +538,14 @@ plainSemiSep1 = layoutSemiSep1
 
 layoutSemiSep :: TokParser a -> TokParser [a]
 layoutSemiSep parser =
-  MP.option [] $
-    layoutSemiSepItem parser
-      <|> do
-        layoutSemicolons1
-        layoutSemiSep parser
+  catMaybes <$> MP.sepBy (MP.optional parser) (expectedTok TkSpecialSemicolon)
 
 layoutSemiSep1 :: TokParser a -> TokParser [a]
-layoutSemiSep1 parser =
-  layoutSemiSepItem parser
-    <|> do
-      layoutSemicolons1
-      layoutSemiSep1 parser
-
-layoutSemiSepItem :: TokParser a -> TokParser [a]
-layoutSemiSepItem parser = do
-  item <- parser
-  rest <- layoutSemiSepAfterItem parser
-  pure (item : rest)
-
-layoutSemiSepAfterItem :: TokParser a -> TokParser [a]
-layoutSemiSepAfterItem parser =
-  MP.option [] $ do
-    layoutSemicolons1
-    layoutSemiSep parser
+layoutSemiSep1 parser = do
+  items <- layoutSemiSep parser
+  case items of
+    [] -> MP.empty
+    _ -> pure items
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
