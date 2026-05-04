@@ -10,6 +10,7 @@ import Aihc.Dev.Snippet
     renderSnippetReport,
   )
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
+import Test.ParserCLI.Suite (cliTests)
 import Test.ResolvePackage (resolvePackageTests)
 import Test.ResolveStackageProgress.PathsModule (resolveStackagePathsModuleTests)
 import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
@@ -19,7 +20,8 @@ import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Test.Tasty.QuickCheck qualified as QC
 
 main :: IO ()
-main =
+main = do
+  cliTestsTree <- cliTests
   defaultMain . testGroup "aihc-dev" $
     [ testCase "reports both parsers rejecting a snippet" $ do
         let report = buildSnippetReport BothReject Nothing Nothing
@@ -43,7 +45,8 @@ main =
       resolvePackageTests,
       resolveStackagePathsModuleTests,
       stackageProgressFileCheckerTests,
-      stackageProgressFileCheckerTimingTests
+      stackageProgressFileCheckerTimingTests,
+      cliTestsTree
     ]
 
 prop_dummy :: Bool

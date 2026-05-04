@@ -46,8 +46,8 @@ This project uses [Just](https://just.systems) as a command runner. Common comma
 ## Cheatsheet
 
 - Test whether a file is accepted by GHC: `ghc -v0 -fno-code -ddump-parsed file.hs`. Return code 0 means the snippet is valid, non-zero means it is invalid.
-- Test whether a snippet is accepted by AIHC: `echo snippet | cabal run -v0 exe:aihc-parser`
-- Test how the lexer interprets a string: `echo string | cabal run -v0 exe:aihc-parser -- --lex`
+- Test whether a snippet is accepted by AIHC: `echo snippet | cabal run -v0 exe:aihc-dev -- parser`
+- Test how the lexer interprets a string: `echo string | cabal run -v0 exe:aihc-dev -- parser --lex`
 
 ## Gotchas
 

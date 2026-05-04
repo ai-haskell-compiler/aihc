@@ -495,15 +495,15 @@ needsTypeParens ctx ty =
 
 data GuardArrow = GuardArrow | GuardEquals
 
-guardExprNeedsParens :: GuardArrow -> Expr -> Bool
-guardExprNeedsParens arrow = \case
+guardExprNeedsParensWith :: (Type -> Bool) -> GuardArrow -> Expr -> Bool
+guardExprNeedsParensWith typeSigNeedsParens arrow = \case
   ELambdaPats {} -> True
   EProc {} -> True
   ETypeSig _ ty ->
     case arrow of
-      GuardArrow -> typeHasFunctionArrow ty
+      GuardArrow -> typeSigNeedsParens ty
       GuardEquals -> False
-  EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
+  EApp _ arg | isBlockExpr arg -> guardExprNeedsParensWith typeSigNeedsParens arrow arg
   _ -> False
 
 typeHasFunctionArrow :: Type -> Bool
@@ -634,12 +634,16 @@ addGuardQualifierParens arrow qual =
   case qual of
     GuardAnn ann inner -> GuardAnn ann (addGuardQualifierParens arrow inner)
     GuardExpr expr -> GuardExpr (addGuardExprParens arrow expr)
-    GuardPat pat expr -> GuardPat (addPatternParens pat) (addGuardExprParens arrow expr)
+    GuardPat pat expr -> GuardPat (addPatternParens pat) (addPatternGuardExprParens arrow expr)
     GuardLet decls -> GuardLet (map addDeclParens decls)
 
 addGuardExprParens :: GuardArrow -> Expr -> Expr
 addGuardExprParens arrow expr =
-  wrapExpr (guardExprNeedsParens arrow expr) (addExprParens expr)
+  wrapExpr (guardExprNeedsParensWith (const True) arrow expr) (addExprParens expr)
+
+addPatternGuardExprParens :: GuardArrow -> Expr -> Expr
+addPatternGuardExprParens arrow expr =
+  wrapExpr (guardExprNeedsParensWith typeHasFunctionArrow arrow expr) (addExprParens expr)
 
 addPatSynDeclParens :: PatSynDecl -> PatSynDecl
 addPatSynDeclParens ps =

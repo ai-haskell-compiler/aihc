@@ -1140,10 +1140,7 @@ prettyExpr expr =
     EIf cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no
     EMultiWayIf rhss ->
-      "if"
-        <+> "{"
-        <+> prettyMultiWayIfRhss rhss
-        <+> "}"
+      hang 3 ("if" <+> prettyMultiWayIfRhss rhss)
     ELambdaPats pats body ->
       "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExpr body
     ELambdaCase alts ->

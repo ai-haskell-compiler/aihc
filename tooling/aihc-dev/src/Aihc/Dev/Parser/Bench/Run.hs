@@ -1,29 +1,26 @@
--- | CLI entry point for aihc-parser-bench.
-module Aihc.Parser.CLI.Bench
-  ( main,
+-- | Runner for @aihc-dev parser-bench@.
+module Aihc.Dev.Parser.Bench.Run
+  ( run,
   )
 where
 
-import Aihc.Parser.Bench.Benchmark (runBenchmark)
-import Aihc.Parser.Bench.CLI
+import Aihc.Dev.Parser.Bench.Benchmark (runBenchmark)
+import Aihc.Dev.Parser.Bench.CLI
   ( BenchOptions (..),
     Command (..),
     GenerateOptions (..),
     Options (..),
     OutputFormat (..),
-    parseOptionsIO,
   )
-import Aihc.Parser.Bench.Metrics (computeMetrics, formatBytes, formatCsv, formatCsvHeader, formatHuman, formatJson)
-import Aihc.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), PackageSpec (..), formatPackage, generateTarball)
+import Aihc.Dev.Parser.Bench.Metrics (computeMetrics, formatBytes, formatCsv, formatCsvHeader, formatHuman, formatJson)
+import Aihc.Dev.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), PackageSpec (..), formatPackage, generateTarball)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 
--- | Main entry point.
-main :: IO ()
-main = do
-  opts <- parseOptionsIO
+run :: Options -> IO ()
+run opts =
   case optCommand opts of
     CmdGenerate genOpts -> runGenerate genOpts
     CmdBench benchOpts -> runBench benchOpts

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Metrics computation and formatting for benchmark results.
-module Aihc.Parser.Bench.Metrics
+module Aihc.Dev.Parser.Bench.Metrics
   ( -- * Types
     Metrics (..),
 
@@ -19,8 +19,8 @@ module Aihc.Parser.Bench.Metrics
   )
 where
 
-import Aihc.Parser.Bench.Benchmark (BenchmarkResult (..), GCStatsSnapshot (..), IterationResult (..))
-import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
+import Aihc.Dev.Parser.Bench.Benchmark (BenchmarkResult (..), GCStatsSnapshot (..), IterationResult (..))
+import Aihc.Dev.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
