@@ -1,5 +1,6 @@
 extensions: []
 input: |
   x Prelude.+ y
-ast: EInfix (EVar "x") "Prelude.+" (EVar "y")
+ast: |-
+  EInfix (EVar "x") "Prelude" "+" (EVar "y")
 status: pass

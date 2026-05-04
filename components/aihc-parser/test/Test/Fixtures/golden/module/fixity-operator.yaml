@@ -4,6 +4,6 @@ input: |
   infixr 5 <++>
   (<++>) :: [a] -> [a] -> [a]
   (<++>) = (++ )
-ast: |
-  Module {name = "D9", decls = [DeclFixity {assoc = InfixR, prec = 5, ops = ["<++>"]}, DeclTypeSig {names = ["<++>"], type = TFun ArrowUnrestricted (TList [TVar "a"]) (TFun ArrowUnrestricted (TList [TVar "a"]) (TList [TVar "a"]))}, DeclValue (PatternBind NoMultiplicityTag PVar "<++>" UnguardedRhs (EVar "++"))]}
+ast: |-
+  Module {ModuleHead {"D9"}, [DeclFixity InfixR Nothing 5 [UnqualifiedName {"<++>"}], DeclTypeSig ["<++>"] (TFun (TList Unpromoted [TVar "a"]) (TFun (TList Unpromoted [TVar "a"]) (TList Unpromoted [TVar "a"]))), DeclValue (PatternBind (PVar "<++>") (EVar "++"))]}
 status: pass

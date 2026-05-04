@@ -2,5 +2,6 @@ extensions:
   - TemplateHaskell
 input: |
   ('M.v, '(M.+))
-ast: ETuple [ETHNameQuote (EVar "M.v"), ETHNameQuote (EVar "M.+")]
+ast: |-
+  ETuple [Just (ETHNameQuote (EVar "M" "v")), Just (ETHNameQuote (EVar "M" "+"))]
 status: pass

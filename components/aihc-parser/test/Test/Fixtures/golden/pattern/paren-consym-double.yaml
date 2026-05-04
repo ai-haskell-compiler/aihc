@@ -1,5 +1,6 @@
 extensions: []
 input: |
   ((:+))
-ast: PParen (PCon ":+" [])
+ast: |-
+  PParen (PCon ":+" [])
 status: pass

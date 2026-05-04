@@ -2,6 +2,6 @@ extensions: []
 input: |
   data a :+: b
   data A b = (Int :+: Int) `Infix` b
-ast: |
-  Module {decls = [DeclData (DataDecl {name = ":+:", params = [TyVarBinder {name = "a"}, TyVarBinder {name = "b"}]}), DeclData (DataDecl {name = "A", params = [TyVarBinder {name = "b"}], constructors = [InfixCon {op = "Infix", lhs = BangType {type = TParen (TInfix (TCon "Int") ":+:" (TCon "Int"))}, rhs = BangType {type = TVar "b"}}]})]}
+ast: |-
+  Module {[DeclData (DataDecl {Infix "a" ":+:" "b"}), DeclData (DataDecl {Prefix "A" [TyVarBinder {"b"}], [InfixCon {BangType {TParen (TInfix (TCon "Int") ":+:" (TCon "Int"))}, UnqualifiedName {"Infix"}, BangType {TVar "b"}}]})]}
 status: pass

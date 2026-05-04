@@ -1,5 +1,6 @@
 extensions: []
 input: |
   (,a)
-ast: ETuple [_, EVar "a"]
+ast: |-
+  ETuple [Nothing, Just (EVar "a")]
 status: pass

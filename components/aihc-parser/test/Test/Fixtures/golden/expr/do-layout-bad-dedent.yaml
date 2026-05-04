@@ -3,6 +3,6 @@ input: |
   do
     x
    y
-ast: ""
+ast: |-
 status: fail
 reason: invalid do-notation dedent

@@ -5,6 +5,6 @@ input: |
   module M where
   type family T a
   type instance T '() = ()
-ast: |
-  Module {name = "M", languagePragmas = [EnableExtension DataKinds, EnableExtension TypeFamilies], decls = [DeclTypeFamilyDecl (TypeFamilyDecl {headForm = TypeHeadPrefix, explicitFamilyKeyword = True, head = TCon "T", params = [TyVarBinder {name = "a"}]}), DeclTypeFamilyInst (TypeFamilyInst {headForm = TypeHeadPrefix, lhs = TApp (TCon "T") (TTuplePromoted []), rhs = TTuple []})]}
+ast: |-
+  Module {ModuleHead {"M"}, [DataKinds, TypeFamilies], [DeclTypeFamilyDecl (TypeFamilyDecl {TypeHeadPrefix, True, TCon "T", [TyVarBinder {"a"}]}), DeclTypeFamilyInst (TypeFamilyInst {TypeHeadPrefix, TApp (TCon "T") (TTuple Boxed Promoted []), TTuple Boxed Unpromoted []})]}
 status: pass

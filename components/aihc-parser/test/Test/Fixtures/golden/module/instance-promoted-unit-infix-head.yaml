@@ -6,6 +6,6 @@ input: |
   module M where
   class Infix a b
   instance '() `Infix` ()
-ast: |
-  Module {name = "M", languagePragmas = [EnableExtension DataKinds, EnableExtension FlexibleInstances, EnableExtension TypeOperators], decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Infix", params = [TyVarBinder {name = "a"}, TyVarBinder {name = "b"}]}), DeclInstance (InstanceDecl {head = TInfix (TTuplePromoted []) "Infix" (TTuple [])})]}
+ast: |-
+  Module {ModuleHead {"M"}, [DataKinds, FlexibleInstances, TypeOperators], [DeclClass (ClassDecl {Prefix "Infix" [TyVarBinder {"a"}, TyVarBinder {"b"}]}), DeclInstance (InstanceDecl {TInfix (TTuple Boxed Promoted []) "Infix" (TTuple Boxed Unpromoted [])})]}
 status: pass

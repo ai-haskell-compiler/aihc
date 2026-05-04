@@ -1,6 +1,6 @@
 extensions: []
 input: |
   read@Int 5
-ast: ""
+ast: |-
 status: fail
 reason: type application requires space before @
