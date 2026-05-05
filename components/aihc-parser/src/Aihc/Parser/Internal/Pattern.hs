@@ -83,18 +83,21 @@ conOperatorParser =
 appPatternParser :: TokParser Pattern
 appPatternParser =
   negativeLiteralPatternParser <|> do
-    first <- patternAtomParser
-    if isPatternAppHead first
-      then foldl buildPatternApp first <$> MP.many patternAtomParser
-      else pure first
+    withSpan $ do
+      first <- patternAtomParser
+      if isPatternAppHead first
+        then do
+          args <- MP.many patternAtomParser
+          case args of
+            [] -> pure (const first)
+            _ -> pure (\span' -> PAnn (mkAnnotation span') (foldl buildPatternApp first args))
+        else pure (const first)
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
     PCon name typeArgs args ->
-      PAnn
-        (mkAnnotation (mergeSourceSpans (getPatternSourceSpan lhs) (getPatternSourceSpan rhs)))
-        (PCon name typeArgs (args <> [rhs]))
+      PCon name typeArgs (args <> [rhs])
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).

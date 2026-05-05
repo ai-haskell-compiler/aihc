@@ -155,11 +155,19 @@ importSections modu =
 declSections :: Module -> [Section]
 declSections modu =
   [ Section
-      { sectionSpan = Just (getDeclSourceSpan decl),
+      { sectionSpan = declSpan decl,
         sectionLines = textLines (renderPretty decl)
       }
   | decl <- moduleDecls modu
   ]
+
+declSpan :: Decl -> Maybe SourceSpan
+declSpan (DeclAnn ann inner) =
+  case fromAnnotation ann of
+    Just NoSourceSpan -> declSpan inner
+    Just sp -> Just sp
+    Nothing -> declSpan inner
+declSpan _ = Nothing
 
 singletonSection :: Maybe SourceSpan -> Text -> [Section]
 singletonSection _ "" = []

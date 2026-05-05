@@ -62,7 +62,6 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     fromAnnotation,
-    getImportItemSourceSpan,
     mkAnnotation,
     mkQualifiedName,
     mkUnqualifiedName,
@@ -122,6 +121,10 @@ peelGuardQualifierSpan ambient _ = ambient
 peelDataConSpan :: SourceSpan -> DataConDecl -> SourceSpan
 peelDataConSpan ambient (DataConAnn ann inner) = peelDataConSpan (pushSpanFromAnn ambient ann) inner
 peelDataConSpan ambient _ = ambient
+
+peelImportItemSpan :: SourceSpan -> ImportItem -> SourceSpan
+peelImportItemSpan ambient (ImportAnn ann inner) = peelImportItemSpan (pushSpanFromAnn ambient ann) inner
+peelImportItemSpan ambient _ = ambient
 
 rhsSpan :: Rhs body -> SourceSpan
 rhsSpan rhs =
@@ -289,7 +292,7 @@ missingImportMemberAnnotation originScope item members =
     missingMemberAnnotation member =
       let memberName = nameText (ieBundledMemberName member)
        in ResolutionAnnotation
-            (importMemberNameSpan (getImportItemSourceSpan item) memberName)
+            (importMemberNameSpan (peelImportItemSpan NoSourceSpan item) memberName)
             memberName
             ResolutionNamespaceTerm
             (ResolvedError "not exported")
@@ -300,7 +303,7 @@ missingImportedName item namespace itemName candidates
   | otherwise =
       Just
         ( ResolutionAnnotation
-            (spanStartNameSpan (getImportItemSourceSpan item) rendered)
+            (spanStartNameSpan (peelImportItemSpan NoSourceSpan item) rendered)
             rendered
             namespace
             (ResolvedError "not exported")
