@@ -38,6 +38,20 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-prim = {
+      src = sources.primSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-internal = {
+      src = sources.internalSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-dev = {
       src = sources.devSrc;
       disableProfiling = true;

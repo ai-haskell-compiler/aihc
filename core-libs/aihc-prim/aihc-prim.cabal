@@ -1,0 +1,27 @@
+cabal-version: 3.8
+name: aihc-prim
+version: 0.13.0
+build-type: Simple
+license: NONE
+synopsis: Empty API-compatible standin for a GHC boot library
+
+library
+  exposed-modules:
+    GHC.CString
+    GHC.Classes
+    GHC.Debug
+    GHC.Magic
+    GHC.Magic.Dict
+    GHC.Prim
+    GHC.Prim.Exception
+    GHC.Prim.Ext
+    GHC.Prim.Panic
+    GHC.Prim.PtrEq
+    GHC.PrimopWrappers
+    GHC.Tuple
+    GHC.Types
+
+  hs-source-dirs: src
+  default-extensions: NoImplicitPrelude
+  ghc-options: -Wall
+  default-language: GHC2021

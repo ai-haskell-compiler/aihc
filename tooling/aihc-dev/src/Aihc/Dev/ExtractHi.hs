@@ -37,9 +37,10 @@ import GHC.Unit.Module.ModIface (ModIface, mi_decls, mi_exports, mi_fixities)
 import GHC.Unit.Types (moduleName, moduleUnit, unitString)
 import GHC.Utils.Outputable (showSDocUnsafe)
 import Language.Haskell.Syntax.Basic qualified as GHC
-import System.Directory (doesFileExist)
-import System.FilePath ((<.>), (</>))
-import System.Process (readProcess)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory)
+import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory, (<.>), (</>))
+import System.Process (readProcess, readProcessWithExitCode)
 
 -- | Cached module data: declarations and fixities from a single .hi file.
 data CachedModule = CachedModule
@@ -402,25 +403,64 @@ renderKind _binders resKind =
 -- Returns (package-id, import-dir, [exposed-module-names]).
 queryPackage :: String -> IO (String, FilePath, [String])
 queryPackage pkgName = do
-  pkgId <- trim <$> readProcess "ghc-pkg" ["field", pkgName, "id", "--simple-output"] ""
-  importDir <- trim <$> readProcess "ghc-pkg" ["field", pkgName, "import-dirs", "--simple-output"] ""
-  exposedModsRaw <- readProcess "ghc-pkg" ["field", pkgName, "exposed-modules", "--simple-output"] ""
+  pkgId <- trim <$> readGhcPkg ["field", pkgName, "id", "--simple-output"]
+  importDir <- trim <$> readGhcPkg ["field", pkgName, "import-dirs", "--simple-output"]
+  exposedModsRaw <- readGhcPkg ["field", pkgName, "exposed-modules", "--simple-output"]
   let exposedMods = map stripComma (words exposedModsRaw)
   pure (pkgId, importDir, exposedMods)
 
 -- | Query @ghc-pkg@ for a package's import directory by unit id.
 queryImportDir :: String -> IO (Maybe FilePath)
 queryImportDir unitId = do
-  result <- tryReadProcess "ghc-pkg" ["field", unitId, "import-dirs", "--simple-output"]
+  result <- tryReadGhcPkg ["field", unitId, "import-dirs", "--simple-output"]
   case result of
     Just dir -> pure (Just (trim dir))
     Nothing -> pure Nothing
 
--- | Try to run a process, returning Nothing on failure.
-tryReadProcess :: FilePath -> [String] -> IO (Maybe String)
-tryReadProcess prog args =
-  (Just <$> readProcess prog args "")
+readGhcPkg :: [String] -> IO String
+readGhcPkg args = do
+  result <- tryReadGhcPkgRaw args
+  case result of
+    Just output -> pure output
+    Nothing -> do
+      mPackageDb <- findLocalPackageDb
+      case mPackageDb of
+        Nothing -> readProcess "ghc-pkg" args ""
+        Just packageDb -> do
+          fallbackResult <- tryReadGhcPkgRaw ("--package-db" : packageDb : args)
+          case fallbackResult of
+            Just output -> pure output
+            Nothing -> readProcess "ghc-pkg" args ""
+
+tryReadGhcPkg :: [String] -> IO (Maybe String)
+tryReadGhcPkg args =
+  (Just <$> readGhcPkg args)
     `catch` (\(_ :: IOException) -> pure Nothing)
+
+tryReadGhcPkgRaw :: [String] -> IO (Maybe String)
+tryReadGhcPkgRaw args = do
+  (code, output, _) <- readProcessWithExitCode "ghc-pkg" args ""
+  pure $
+    case code of
+      ExitSuccess -> Just output
+      ExitFailure _ -> Nothing
+
+findLocalPackageDb :: IO (Maybe FilePath)
+findLocalPackageDb = do
+  cwd <- getCurrentDirectory
+  ghcVersion <- trim <$> readProcess "ghc" ["--numeric-version"] ""
+  findAncestorContaining ("dist-newstyle" </> "packagedb" </> ("ghc-" <> ghcVersion)) cwd
+  where
+    findAncestorContaining rel dir = do
+      let packageDb = dir </> rel
+      exists <- doesDirectoryExist packageDb
+      if exists
+        then pure (Just packageDb)
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then pure Nothing
+            else findAncestorContaining rel parent
 
 -- | Strip trailing commas from ghc-pkg output tokens.
 stripComma :: String -> String

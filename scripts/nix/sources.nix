@@ -56,6 +56,16 @@ in rec {
     ".cabal"
   ];
 
+  primSrc = mkComponentSrc "/core-libs/aihc-prim" [
+    ".hs"
+    ".cabal"
+  ];
+
+  internalSrc = mkComponentSrc "/core-libs/aihc-internal" [
+    ".hs"
+    ".cabal"
+  ];
+
   devSrc = mkComponentSrc "/tooling/aihc-dev" [
     ".hs"
     ".cabal"
@@ -99,8 +109,9 @@ in rec {
         inComponents = pkgs.lib.hasInfix "/components/" pathStr;
         inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
         inBin = pkgs.lib.hasInfix "/bin/" pathStr;
+        inCoreLibs = pkgs.lib.hasInfix "/core-libs/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling || inBin) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Filtered source for scripts - only shell scripts.
