@@ -30,16 +30,17 @@
       inherit (coverage) mkCoverageReport;
     };
     mkApps = import ./scripts/nix/apps.nix {
-      inherit (core) projectHsPackages;
+      inherit (core) toolHsPackages;
       inherit (haskell) mkHsPkgs;
       inherit (coverage) mkCoverageReport;
     };
     mkChecks = import ./scripts/nix/checks.nix {
-      inherit (core) projectHsPackages;
+      inherit (core) toolHsPackages;
       inherit sources;
       inherit (haskell) mkHsPkgsForChecks;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {
+      inherit (core) toolHsPackages;
       inherit (haskell) mkHsPkgs;
     };
   in {

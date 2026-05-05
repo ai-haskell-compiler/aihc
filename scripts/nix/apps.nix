@@ -1,9 +1,10 @@
 {
-  projectHsPackages,
+  toolHsPackages,
   mkHsPkgs,
   mkCoverageReport,
 }: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
+  toolHsPkgs = toolHsPackages pkgs;
   parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-progress";
   lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "lexer-progress";
   extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
@@ -30,10 +31,10 @@
     meta.description = "aihc app: ${name}";
   };
 
-  mkApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.cabal-install hsPkgs.ghc] text;
+  mkApp = name: text: mkAppWithInputs name [pkgs.bash toolHsPkgs.cabal-install hsPkgs.ghc] text;
 
   mkFmtApp = name: text:
-    mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra (projectHsPackages pkgs).ormolu] text;
+    mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra toolHsPkgs.ormolu] text;
 
   mkReportsApp = name: text: {
     type = "app";

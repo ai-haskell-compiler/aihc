@@ -1,14 +1,18 @@
-{mkHsPkgs}: pkgs: let
+{
+  toolHsPackages,
+  mkHsPkgs,
+}: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
+  toolHsPkgs = toolHsPackages pkgs;
 in {
   default = pkgs.mkShell {
     buildInputs = [
       hsPkgs.ghc
-      pkgs.cabal-install
-      pkgs.ormolu
-      pkgs.haskellPackages.cabal-gild
+      toolHsPkgs.cabal-install
+      toolHsPkgs.ormolu
+      toolHsPkgs.cabal-gild
       pkgs.alejandra
-      pkgs.hlint
+      toolHsPkgs.hlint
     ];
   };
 }

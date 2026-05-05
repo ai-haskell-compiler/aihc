@@ -1,9 +1,10 @@
 {
-  projectHsPackages,
+  toolHsPackages,
   sources,
   mkHsPkgsForChecks,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
+  toolHsPkgs = toolHsPackages pkgs;
 
   addHiddenSuccesses = old: {
     # Hide passing tests so failures are visible in Nix's truncated output.
@@ -44,17 +45,17 @@
     alejandra --check .
   '';
 
-  haskellLint = mkSourceCheck "aihc-haskell-lint" (sources.haskellSrc pkgs) [pkgs.hlint pkgs.findutils] ''
+  haskellLint = mkSourceCheck "aihc-haskell-lint" (sources.haskellSrc pkgs) [toolHsPkgs.hlint pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r hlint
   '';
 
-  haskellFormat = mkSourceCheck "aihc-haskell-format" (sources.haskellSrc pkgs) [pkgs.ormolu pkgs.findutils] ''
+  haskellFormat = mkSourceCheck "aihc-haskell-format" (sources.haskellSrc pkgs) [toolHsPkgs.ormolu pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r ormolu --mode check
   '';
 
-  cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
+  cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [toolHsPkgs.cabal-gild pkgs.findutils] ''
     failed=0
     while IFS= read -r -d "" file; do
       cabal-gild --mode check --input "$file" || failed=1
@@ -80,8 +81,8 @@
 
   cppDoctest =
     mkSourceCheck "aihc-cpp-doctest" (sources.cppSrc pkgs) [
-      (projectHsPackages pkgs).doctest
-      (projectHsPackages pkgs).ghc
+      toolHsPkgs.doctest
+      hsPkgs.ghc
       hsPkgs.aihc-cpp
     ] ''
       # Run doctest on the Aihc.Cpp module.

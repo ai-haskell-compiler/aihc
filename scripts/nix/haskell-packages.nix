@@ -12,7 +12,7 @@
     };
     aihc-cpp = {
       src = sources.cppSrc;
-      disableProfiling = false;
+      disableProfiling = true;
       optimizeForChecks = false;
       supportsDocs = true;
       supportsCoverage = true;
@@ -105,7 +105,17 @@
     else drv;
 
   isOverridableHaskellDrv = pkgs: drv:
-    pkgs.lib.isDerivation drv && drv.isHaskellLibrary or false;
+    pkgs.lib.isDerivation drv && drv ? isHaskellLibrary;
+
+  disableProfiling = hsLib: drv:
+    hsLib.overrideCabal
+    (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv))
+    (_old: {
+      # Nixpkgs' Haskell builder pulls HsColour into library builds when
+      # source hyperlinking is enabled. Disable it so the build-tool path does
+      # not reintroduce a profiled HsColour derivation.
+      hyperlinkSource = false;
+    });
 
   disableUpstreamChecks = pkgs: hsLib: localPackageNames: _final: prev:
     builtins.mapAttrs (
@@ -114,14 +124,15 @@
         then drv
         else
           hsLib.dontCheck
-          (hsLib.dontHaddock
-            (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)))
+          (hsLib.dontHaddock (disableProfiling hsLib drv))
     )
     prev;
 in rec {
   # Hackage dependencies whose build settings need manual adjustment.
-  hackageDepTestFixes = pkgs: _final: prev: {
-    network = pkgs.haskell.lib.dontCheck prev.network;
+  hackageDepTestFixes = _pkgs: hsLib: _final: prev: {
+    network =
+      hsLib.dontCheck
+      (hsLib.dontHaddock (disableProfiling hsLib prev.network));
   };
 
   mkHsPkgsVariant = pkgs: {
@@ -144,7 +155,7 @@ in rec {
       baseDrv = final.callCabal2nix name (spec.src pkgs) {};
       profilingAdjusted =
         if spec.disableProfiling
-        then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)
+        then disableProfiling hsLib baseDrv
         else baseDrv;
       optimizationAdjusted =
         if disableOptimization && spec.optimizeForChecks
@@ -167,18 +178,21 @@ in rec {
       applyHaddockMode hsLib haddockMode checksAdjusted;
   in
     (projectHsPackages pkgs).override {
+      buildHaskellPackages = projectHsPackages pkgs;
       overrides = final: prev:
         disableUpstreamChecks pkgs hsLib localPackageNames final prev
-        // hackageDepTestFixes pkgs final prev
+        // hackageDepTestFixes pkgs hsLib final prev
         // {
           ghc-lib-parser = hsLib.dontCheck (hsLib.dontHaddock (
-            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling
-              final.ghc-lib-parser_9_14_1_20251220)
+            disableProfiling hsLib final.ghc-lib-parser_9_14_1_20251220
+          ));
+          ghc-lib-parser-ex = hsLib.dontCheck (hsLib.dontHaddock (
+            disableProfiling hsLib final.ghc-lib-parser-ex_9_14_2_0
           ));
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
-            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
+            disableProfiling hsLib (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
-            ))
+            )
           ));
         }
         // builtins.mapAttrs (mkComponent final) componentSpecs;
