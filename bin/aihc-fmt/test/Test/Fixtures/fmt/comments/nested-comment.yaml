@@ -1,0 +1,40 @@
+extensions: []
+input: |
+  module Main where
+  f = x {- nested -}
+    where
+      x = 1
+formatters:
+  aihc-fmt:
+    status: xfail
+    reason: MVP only places comments near top-level sections; nested comments are preserved but not attached in place yet
+    output: |
+      module Main where
+      f =
+        x {- nested -}
+        where
+          x =
+            1
+  ormolu:
+    status: pass
+    output: |
+      module Main where
+
+      f = x {- nested -}
+        where
+          x = 1
+  hindent:
+    status: pass
+    output: |
+      module Main where
+
+      f = x {- nested -}
+        where
+          x = 1
+  stylish-haskell:
+    status: pass
+    output: |
+      module Main where
+      f = x {- nested -}
+        where
+          x = 1

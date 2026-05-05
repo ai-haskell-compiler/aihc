@@ -68,6 +68,13 @@ in rec {
     ".cabal"
   ];
 
+  fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
+    ".hs"
+    ".cabal"
+    ".yaml"
+    ".yml"
+  ];
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {
@@ -78,7 +85,7 @@ in rec {
         type == "directory" || pkgs.lib.hasSuffix ".nix" baseName;
     };
 
-  # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components and tooling.
+  # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components, tooling, and bin.
   # (.cabal files needed for ormolu to detect language settings like GHC2021)
   haskellSrc = pkgs:
     pkgs.lib.cleanSourceWith {
@@ -91,8 +98,9 @@ in rec {
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
         inComponents = pkgs.lib.hasInfix "/components/" pathStr;
         inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
+        inBin = pkgs.lib.hasInfix "/bin/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || ((inComponents || inTooling || inBin) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Filtered source for scripts - only shell scripts.

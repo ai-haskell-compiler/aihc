@@ -1,0 +1,28 @@
+extensions: []
+input: |
+  module Main where
+  x=1
+formatters:
+  aihc-fmt:
+    status: pass
+    output: |
+      module Main where
+      x =
+        1
+  ormolu:
+    status: pass
+    output: |
+      module Main where
+
+      x = 1
+  hindent:
+    status: pass
+    output: |
+      module Main where
+
+      x = 1
+  stylish-haskell:
+    status: pass
+    output: |
+      module Main where
+      x=1
