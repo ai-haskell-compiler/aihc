@@ -260,11 +260,9 @@ type BindingAnnotation = Scope -> Decl -> Maybe ResolutionAnnotation
 resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveTopLevelDecls _ [] = pure []
 resolveTopLevelDecls signatureScopes (decl : rest) = do
-  scope <- currentScope
   (signatureScopes', decl') <- resolveBindingDecl (flip topLevelBinderAnnotation) signatureScopes decl
-  let decl'' = annotateTopLevelIntroducedNames scope decl'
   decls' <- resolveTopLevelDecls signatureScopes' rest
-  pure (decl'' : decls')
+  pure (decl' : decls')
 
 resolveBindingGroup :: BindingAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBindingGroup _ _ [] = pure []
@@ -323,16 +321,14 @@ resolveDeclCore decl =
     DeclStandaloneKindSig {} ->
       annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeData dataDecl ->
-      DeclTypeData <$> resolveDataDecl dataDecl
+      DeclTypeData <$> resolveDataDecl "type data " dataDecl
     DeclData dataDecl ->
-      DeclData <$> resolveDataDecl dataDecl
+      DeclData <$> resolveDataDecl "data " dataDecl
     DeclTypeSyn {} ->
       annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclSplice expr -> DeclSplice <$> resolveExpr expr
-    DeclNewtype newtypeDecl -> do
-      kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
-      constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
-      pure (DeclNewtype (newtypeDecl {newtypeDeclKind = kind', newtypeDeclConstructor = constructor'}))
+    DeclNewtype newtypeDecl ->
+      DeclNewtype <$> resolveNewtypeDecl newtypeDecl
     DeclClass classDecl ->
       DeclClass <$> resolveClassDecl classDecl
     DeclDefault tys ->
@@ -360,11 +356,17 @@ resolveValueDecl valueDecl =
 
 resolveClassDecl :: ClassDecl -> ResolveM ClassDecl
 resolveClassDecl classDecl = do
+  scope <- currentScope
+  declSpan <- currentSpan
   context' <- traverse (mapM resolveType) (classDeclContext classDecl)
   items' <- mapM resolveClassDeclItem (classDeclItems classDecl)
   pure
     classDecl
-      { classDeclContext = context',
+      { classDeclHead =
+          annotateBinderHeadName
+            (classNameAnnotation scope declSpan)
+            (classDeclHead classDecl),
+        classDeclContext = context',
         classDeclItems = items'
       }
 
@@ -796,16 +798,38 @@ bindRecordWildcardFields conName fields wildcard
       resolvedName <- freshLocal binder
       pure (fieldName, resolvedName)
 
-resolveDataDecl :: DataDecl -> ResolveM DataDecl
-resolveDataDecl dataDecl = do
+resolveDataDecl :: Text -> DataDecl -> ResolveM DataDecl
+resolveDataDecl keyword dataDecl = do
+  scope <- currentScope
+  declSpan <- currentSpan
   context' <- mapM resolveType (dataDeclContext dataDecl)
   kind' <- traverse resolveType (dataDeclKind dataDecl)
   constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl)
   pure
     dataDecl
-      { dataDeclContext = context',
+      { dataDeclHead =
+          annotateBinderHeadName
+            (dataDeclNameAnnotation scope keyword declSpan)
+            (dataDeclHead dataDecl),
+        dataDeclContext = context',
         dataDeclKind = kind',
-        dataDeclConstructors = constructors'
+        dataDeclConstructors = map (annotateDataConDeclName scope) constructors'
+      }
+
+resolveNewtypeDecl :: NewtypeDecl -> ResolveM NewtypeDecl
+resolveNewtypeDecl newtypeDecl = do
+  scope <- currentScope
+  declSpan <- currentSpan
+  kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
+  constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
+  pure
+    newtypeDecl
+      { newtypeDeclHead =
+          annotateBinderHeadName
+            (newtypeDeclNameAnnotation scope declSpan)
+            (newtypeDeclHead newtypeDecl),
+        newtypeDeclKind = kind',
+        newtypeDeclConstructor = annotateDataConDeclName scope <$> constructor'
       }
 
 resolveDataConDecl :: DataConDecl -> ResolveM DataConDecl
@@ -1010,52 +1034,6 @@ declBinderCandidate decl =
           Just (spanStartNameSpan outerSp (renderUnqualifiedName name), name)
         _ -> Nothing
 
-annotateTopLevelIntroducedNames :: Scope -> Decl -> Decl
-annotateTopLevelIntroducedNames scope =
-  go NoSourceSpan
-  where
-    go ambient current =
-      case current of
-        DeclAnn ann inner -> DeclAnn ann (go (pushSpanFromAnn ambient ann) inner)
-        DeclClass classDecl ->
-          DeclClass (annotateClassDeclName scope ambient classDecl)
-        DeclTypeData dataDecl ->
-          DeclTypeData (annotateDataDeclNames scope ambient "type data " dataDecl)
-        DeclData dataDecl ->
-          DeclData (annotateDataDeclNames scope ambient "data " dataDecl)
-        DeclNewtype newtypeDecl ->
-          DeclNewtype (annotateNewtypeDeclNames scope ambient newtypeDecl)
-        _ -> current
-
-annotateClassDeclName :: Scope -> SourceSpan -> ClassDecl -> ClassDecl
-annotateClassDeclName scope declSpan classDecl =
-  classDecl
-    { classDeclHead =
-        annotateBinderHeadName
-          (classNameAnnotation scope declSpan (classDeclHead classDecl))
-          (classDeclHead classDecl)
-    }
-
-annotateDataDeclNames :: Scope -> SourceSpan -> Text -> DataDecl -> DataDecl
-annotateDataDeclNames scope declSpan keyword dataDecl =
-  dataDecl
-    { dataDeclHead =
-        annotateBinderHeadName
-          (dataDeclNameAnnotation scope keyword declSpan (dataDeclHead dataDecl))
-          (dataDeclHead dataDecl),
-      dataDeclConstructors = map (annotateDataConDeclName scope) (dataDeclConstructors dataDecl)
-    }
-
-annotateNewtypeDeclNames :: Scope -> SourceSpan -> NewtypeDecl -> NewtypeDecl
-annotateNewtypeDeclNames scope declSpan newtypeDecl =
-  newtypeDecl
-    { newtypeDeclHead =
-        annotateBinderHeadName
-          (newtypeDeclNameAnnotation scope declSpan (newtypeDeclHead newtypeDecl))
-          (newtypeDeclHead newtypeDecl),
-      newtypeDeclConstructor = annotateDataConDeclName scope <$> newtypeDeclConstructor newtypeDecl
-    }
-
 annotateBinderHeadName :: (UnqualifiedName -> ResolutionAnnotation) -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName annotationFor head' =
   case head' of
@@ -1090,24 +1068,24 @@ annotateUnqualifiedName :: ResolutionAnnotation -> UnqualifiedName -> Unqualifie
 annotateUnqualifiedName annotation name =
   name {unqualifiedNameAnns = mkAnnotation annotation : unqualifiedNameAnns name}
 
-classNameAnnotation :: Scope -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
-classNameAnnotation scope declSpan _ name =
+classNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
+classNameAnnotation scope declSpan name =
   ResolutionAnnotation
     (declKeywordNameSpan "class " declSpan (renderUnqualifiedName name))
     (renderUnqualifiedName name)
     ResolutionNamespaceType
     (resolveTopLevelType scope name)
 
-dataDeclNameAnnotation :: Scope -> Text -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
-dataDeclNameAnnotation scope keyword declSpan _ name =
+dataDeclNameAnnotation :: Scope -> Text -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
+dataDeclNameAnnotation scope keyword declSpan name =
   ResolutionAnnotation
     (declKeywordNameSpan keyword declSpan (renderUnqualifiedName name))
     (renderUnqualifiedName name)
     ResolutionNamespaceType
     (resolveTopLevelType scope name)
 
-newtypeDeclNameAnnotation :: Scope -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
-newtypeDeclNameAnnotation scope declSpan _ name =
+newtypeDeclNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
+newtypeDeclNameAnnotation scope declSpan name =
   ResolutionAnnotation
     (declKeywordNameSpan "newtype " declSpan (renderUnqualifiedName name))
     (renderUnqualifiedName name)
