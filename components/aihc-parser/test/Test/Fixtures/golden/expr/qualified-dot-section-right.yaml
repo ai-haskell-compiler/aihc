@@ -1,5 +1,6 @@
 extensions: []
 input: |
   (Foo.. x)
-ast: EParen (ESectionR "Foo.." (EVar "x"))
+ast: |-
+  EParen (ESectionR "Foo" "." (EVar "x"))
 status: pass

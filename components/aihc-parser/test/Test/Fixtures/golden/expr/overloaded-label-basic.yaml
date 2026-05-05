@@ -1,5 +1,6 @@
 extensions: [OverloadedLabels]
 input: |
   #typeUrl
-ast: EOverloadedLabel "typeUrl" "#typeUrl"
+ast: |-
+  EOverloadedLabel "typeUrl" "#typeUrl"
 status: pass

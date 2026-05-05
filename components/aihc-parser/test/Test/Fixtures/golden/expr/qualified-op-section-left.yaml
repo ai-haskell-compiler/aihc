@@ -1,5 +1,6 @@
 extensions: []
 input: |
   (x Prelude.+)
-ast: EParen (ESectionL (EVar "x") "Prelude.+")
+ast: |-
+  EParen (ESectionL (EVar "x") "Prelude" "+")
 status: pass

@@ -1,5 +1,6 @@
 extensions: []
 input: |
   ()
-ast: ETuple []
+ast: |-
+  ETuple []
 status: pass

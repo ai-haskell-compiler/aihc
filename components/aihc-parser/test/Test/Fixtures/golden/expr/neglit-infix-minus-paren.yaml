@@ -1,5 +1,6 @@
 extensions: [NegativeLiterals]
 input: |
   f -(x*2)
-ast: EInfix (EVar "f") "-" (EParen (EInfix (EVar "x") "*" (EInt 2 TInteger)))
+ast: |-
+  EInfix (EVar "f") "-" (EParen (EInfix (EVar "x") "*" (EInt 2 TInteger)))
 status: pass

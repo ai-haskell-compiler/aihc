@@ -1,6 +1,7 @@
 extensions: [MultilineStrings]
 input: |
   """"""
-ast: EString ""
+ast: |-
+  EString ""
 status: pass
 comment: Empty multiline string

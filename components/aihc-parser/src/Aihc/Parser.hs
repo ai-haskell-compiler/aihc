@@ -119,7 +119,7 @@ parsePattern cfg input =
 -- | Parse a Haskell type.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
--- ParseOk (TFun ArrowUnrestricted (TCon "Int") (TCon "Bool"))
+-- ParseOk (TFun (TCon "Int") (TCon "Bool"))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
@@ -133,7 +133,7 @@ parseType cfg input =
 -- | Parse a single Haskell declaration.
 --
 -- >>> shorthand $ parseDecl defaultConfig "f x = x + 1"
--- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1 TInteger))}]))
+-- ParseOk (DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PVar "x"], EInfix (EVar "x") "+" (EInt 1 TInteger)}]))
 parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
@@ -148,7 +148,7 @@ parseDecl cfg input =
 -- returning the error and the successfully parsed declarations.
 --
 -- >>> shorthand $ snd $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- Module {name = "Main", decls = [DeclValue (PatternBind NoMultiplicityTag PVar "main" UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello")))]}
+-- Module {ModuleHead {"Main"}, [DeclValue (PatternBind (PVar "main") (EApp (EVar "putStrLn") (EString "Hello")))]}
 --
 -- Modules without a header are also supported:
 --

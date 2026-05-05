@@ -2,6 +2,6 @@ extensions: []
 input: |
   module where
   x = 1
-ast: ""
+ast: |-
 status: fail
 reason: invalid module header

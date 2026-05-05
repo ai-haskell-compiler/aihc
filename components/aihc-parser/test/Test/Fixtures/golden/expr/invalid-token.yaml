@@ -1,6 +1,6 @@
 extensions: []
 input: |
   f @
-ast: ""
+ast: |-
 status: fail
 reason: invalid token

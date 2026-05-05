@@ -1,5 +1,6 @@
 extensions: [NegativeLiterals]
 input: |
   f-5
-ast: EInfix (EVar "f") "-" (EInt 5 TInteger)
+ast: |-
+  EInfix (EVar "f") "-" (EInt 5 TInteger)
 status: pass

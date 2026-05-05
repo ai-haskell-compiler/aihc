@@ -1,5 +1,6 @@
 extensions: []
 input: |
   (Prelude.+)
-ast: EVar "Prelude.+"
+ast: |-
+  EVar "Prelude" "+"
 status: pass

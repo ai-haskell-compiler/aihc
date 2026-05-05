@@ -2,6 +2,6 @@ extensions: []
 input: |
   module M where
   class xs `Infix` ys
-ast: |
-  Module {name = "M", decls = [DeclClass (ClassDecl {headForm = TypeHeadInfix, name = "Infix", params = [TyVarBinder {name = "xs"}, TyVarBinder {name = "ys"}]})]}
+ast: |-
+  Module {ModuleHead {"M"}, [DeclClass (ClassDecl {Infix "xs" "Infix" "ys"})]}
 status: pass

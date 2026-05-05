@@ -2,6 +2,6 @@ extensions: []
 input: |
   id do
     pure ()
-ast: ~
+ast: |-
 status: fail
 reason: BlockArguments extension not enabled

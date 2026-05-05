@@ -1,6 +1,6 @@
 extensions: []
 input: |
   (f x
-ast: ""
+ast: |-
 status: fail
 reason: missing right parenthesis

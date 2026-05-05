@@ -1,5 +1,6 @@
 extensions: []
 input: |
   (A.B.C.+)
-ast: EVar "A.B.C.+"
+ast: |-
+  EVar "A.B.C" "+"
 status: pass

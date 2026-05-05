@@ -3,6 +3,6 @@ input: |
   module Inst where
   class Foo
   instance Foo
-ast: |
-  Module {name = "Inst", decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo"}), DeclInstance (InstanceDecl {head = TCon "Foo"})]}
+ast: |-
+  Module {ModuleHead {"Inst"}, [DeclClass (ClassDecl {Prefix "Foo"}), DeclInstance (InstanceDecl {TCon "Foo"})]}
 status: pass
