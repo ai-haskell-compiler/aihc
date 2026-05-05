@@ -504,7 +504,22 @@ guardExprNeedsParensWith typeSigNeedsParens arrow = \case
       GuardArrow -> typeSigNeedsParens ty
       GuardEquals -> False
   EApp _ arg | isBlockExpr arg -> guardExprNeedsParensWith typeSigNeedsParens arrow arg
-  _ -> False
+  expr ->
+    case arrow of
+      GuardArrow -> trailingTypeSigNeedsParens typeSigNeedsParens expr
+      GuardEquals -> False
+
+trailingTypeSigNeedsParens :: (Type -> Bool) -> Expr -> Bool
+trailingTypeSigNeedsParens typeSigNeedsParens expr =
+  case expr of
+    EAnn _ sub -> trailingTypeSigNeedsParens typeSigNeedsParens sub
+    ETypeSig _ ty -> typeSigNeedsParens ty
+    ELetDecls _ body -> trailingTypeSigNeedsParens typeSigNeedsParens body
+    ELambdaPats _ body -> trailingTypeSigNeedsParens typeSigNeedsParens body
+    EInfix _ _ rhs -> trailingTypeSigNeedsParens typeSigNeedsParens rhs
+    EApp _ arg -> trailingTypeSigNeedsParens typeSigNeedsParens arg
+    EIf _ _ no -> trailingTypeSigNeedsParens typeSigNeedsParens no
+    _ -> False
 
 typeHasFunctionArrow :: Type -> Bool
 typeHasFunctionArrow ty =
@@ -625,25 +640,35 @@ addRhsParens rhs =
 addGuardedRhsParens :: GuardArrow -> GuardedRhs Expr -> GuardedRhs Expr
 addGuardedRhsParens arrow grhs =
   grhs
-    { guardedRhsGuards = map (addGuardQualifierParens arrow) (guardedRhsGuards grhs),
+    { guardedRhsGuards = addGuardQualifiersParens arrow (guardedRhsGuards grhs),
       guardedRhsBody = addExprParens (guardedRhsBody grhs)
     }
 
-addGuardQualifierParens :: GuardArrow -> GuardQualifier -> GuardQualifier
-addGuardQualifierParens arrow qual =
+addGuardQualifiersParens :: GuardArrow -> [GuardQualifier] -> [GuardQualifier]
+addGuardQualifiersParens arrow quals =
+  case quals of
+    [] -> []
+    [qual] -> [addGuardQualifierParens arrow True qual]
+    qual : rest -> addGuardQualifierParens arrow False qual : addGuardQualifiersParens arrow rest
+
+addGuardQualifierParens :: GuardArrow -> Bool -> GuardQualifier -> GuardQualifier
+addGuardQualifierParens arrow isLast qual =
   case qual of
-    GuardAnn ann inner -> GuardAnn ann (addGuardQualifierParens arrow inner)
+    GuardAnn ann inner -> GuardAnn ann (addGuardQualifierParens arrow isLast inner)
     GuardExpr expr -> GuardExpr (addGuardExprParens arrow expr)
-    GuardPat pat expr -> GuardPat (addPatternParens pat) (addPatternGuardExprParens arrow expr)
+    GuardPat pat expr -> GuardPat (addPatternParens pat) (addPatternGuardExprParens arrow isLast expr)
     GuardLet decls -> GuardLet (map addDeclParens decls)
 
 addGuardExprParens :: GuardArrow -> Expr -> Expr
 addGuardExprParens arrow expr =
   wrapExpr (guardExprNeedsParensWith (const True) arrow expr) (addExprParens expr)
 
-addPatternGuardExprParens :: GuardArrow -> Expr -> Expr
-addPatternGuardExprParens arrow expr =
-  wrapExpr (guardExprNeedsParensWith typeHasFunctionArrow arrow expr) (addExprParens expr)
+addPatternGuardExprParens :: GuardArrow -> Bool -> Expr -> Expr
+addPatternGuardExprParens arrow isLast expr =
+  let typeSigNeedsParens
+        | isLast = const True
+        | otherwise = typeHasFunctionArrow
+   in wrapExpr (guardExprNeedsParensWith typeSigNeedsParens arrow expr) (addExprParens expr)
 
 addPatSynDeclParens :: PatSynDecl -> PatSynDecl
 addPatSynDeclParens ps =
@@ -1697,6 +1722,6 @@ addCmdCaseAltRhsParens rhs =
 addCmdGuardedRhsParens :: GuardedRhs Cmd -> GuardedRhs Cmd
 addCmdGuardedRhsParens grhs =
   grhs
-    { guardedRhsGuards = map (addGuardQualifierParens GuardArrow) (guardedRhsGuards grhs),
+    { guardedRhsGuards = addGuardQualifiersParens GuardArrow (guardedRhsGuards grhs),
       guardedRhsBody = addCmdParens (guardedRhsBody grhs)
     }
