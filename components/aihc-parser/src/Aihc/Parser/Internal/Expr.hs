@@ -854,10 +854,15 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
           pure (EParen (EGetFieldProjection fields))
 
         parseSectionR forbidden = do
-          op <- infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
+          op <- reservedAtSectionOperatorParser forbidden <|> infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
           rhs <- exprParser
           expectedTok closeTok
           pure (EParen (ESectionR op rhs))
+
+        reservedAtSectionOperatorParser forbidden = do
+          guard ("@" `notElem` forbidden)
+          expectedTok TkReservedAt
+          pure (qualifyName Nothing (mkUnqualifiedName NameVarSym "@"))
 
         arrowSectionOperatorParser =
           tokenSatisfy "operator" $ \tok ->
