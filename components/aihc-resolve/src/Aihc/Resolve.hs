@@ -254,50 +254,38 @@ missingImportedName item namespace itemName candidates
   where
     rendered = renderUnqualifiedName itemName
 
-data BindingGroupPolicy = BindingGroupPolicy
-  { bindingDeclAnnotation :: Scope -> Decl -> Maybe ResolutionAnnotation,
-    bindingExtraAnnotations :: Scope -> Decl -> [ResolutionAnnotation]
-  }
-
-topLevelBindingPolicy :: BindingGroupPolicy
-topLevelBindingPolicy =
-  BindingGroupPolicy
-    { bindingDeclAnnotation = flip topLevelBinderAnnotation,
-      bindingExtraAnnotations = flip topLevelDeclAnnotations
-    }
-
-localBindingPolicy :: Map.Map Text ResolutionAnnotation -> BindingGroupPolicy
-localBindingPolicy binderAnnotations =
-  BindingGroupPolicy
-    { bindingDeclAnnotation = \_ decl -> declBinderAnnotation decl binderAnnotations,
-      bindingExtraAnnotations = \_ _ -> []
-    }
+type BindingAnnotation = Scope -> Decl -> Maybe ResolutionAnnotation
 
 resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveTopLevelDecls = resolveBindingGroup topLevelBindingPolicy
-
-resolveBindingGroup :: BindingGroupPolicy -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveBindingGroup _ _ [] = pure []
-resolveBindingGroup policy signatureScopes (decl : rest) = do
-  (signatureScopes', decl') <- resolveBindingDecl policy signatureScopes decl
-  decls' <- resolveBindingGroup policy signatureScopes' rest
+resolveTopLevelDecls _ [] = pure []
+resolveTopLevelDecls signatureScopes (decl : rest) = do
+  scope <- currentScope
+  emitAnnotations (topLevelIntroducedNameAnnotations scope decl)
+  (signatureScopes', decl') <- resolveBindingDecl (flip topLevelBinderAnnotation) signatureScopes decl
+  decls' <- resolveTopLevelDecls signatureScopes' rest
   pure (decl' : decls')
 
-resolveBindingDecl :: BindingGroupPolicy -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveBindingDecl policy signatureScopes decl = do
+resolveBindingGroup :: BindingAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
+resolveBindingGroup _ _ [] = pure []
+resolveBindingGroup bindingAnnotation signatureScopes (decl : rest) = do
+  (signatureScopes', decl') <- resolveBindingDecl bindingAnnotation signatureScopes decl
+  decls' <- resolveBindingGroup bindingAnnotation signatureScopes' rest
+  pure (decl' : decls')
+
+resolveBindingDecl :: BindingAnnotation -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveBindingDecl bindingAnnotation signatureScopes decl = do
   scope <- currentScope
   let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-  (signatureScopes', decl') <- withScope scoped (resolveDeclWithSignatureScope policy signatureScopes decl)
-  emitAnnotations (bindingExtraAnnotations policy scope decl)
-  let decl'' = maybe decl' (`annotateDecl` decl') (bindingDeclAnnotation policy scope decl)
+  (signatureScopes', decl') <- withScope scoped (resolveDeclWithSignatureScope signatureScopes decl)
+  let decl'' = maybe decl' (`annotateDecl` decl') (bindingAnnotation scope decl)
   pure (signatureScopes', decl'')
 
-resolveDeclWithSignatureScope :: BindingGroupPolicy -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScope policy signatureScopes decl =
+resolveDeclWithSignatureScope :: Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveDeclWithSignatureScope signatureScopes decl =
   case decl of
     DeclAnn ann inner ->
       withPushedSpan ann $ do
-        (signatureScopes', inner') <- resolveDeclWithSignatureScope policy signatureScopes inner
+        (signatureScopes', inner') <- resolveDeclWithSignatureScope signatureScopes inner
         pure (signatureScopes', DeclAnn ann inner')
     DeclTypeSig names ty -> do
       (binderScope, ty') <- resolveTypeSignature ty
@@ -635,7 +623,7 @@ resolveArithSeq arithSeq =
 
 resolveBoundDecls :: Map.Map Text ResolutionAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBoundDecls binderAnnotations =
-  resolveBindingGroup (localBindingPolicy binderAnnotations)
+  resolveBindingGroup (\_ decl -> declBinderAnnotation decl binderAnnotations)
 
 declSignatureScope :: Decl -> Map.Map Text Scope -> Maybe Scope
 declSignatureScope decl signatureScopes =
@@ -1021,8 +1009,8 @@ declBinderCandidate decl =
           Just (spanStartNameSpan outerSp (renderUnqualifiedName name), name)
         _ -> Nothing
 
-topLevelDeclAnnotations :: Decl -> Scope -> [ResolutionAnnotation]
-topLevelDeclAnnotations decl scope =
+topLevelIntroducedNameAnnotations :: Scope -> Decl -> [ResolutionAnnotation]
+topLevelIntroducedNameAnnotations scope decl =
   case peelDeclSpan NoSourceSpan decl of
     (declSpan, DeclClass classDecl) -> [classAnnotation scope declSpan classDecl]
     (declSpan, DeclTypeData dataDecl) -> dataDeclAnnotations declSpan "type data " dataDecl
