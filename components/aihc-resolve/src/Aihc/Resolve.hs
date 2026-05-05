@@ -254,29 +254,55 @@ missingImportedName item namespace itemName candidates
   where
     rendered = renderUnqualifiedName itemName
 
+data BindingGroupPolicy = BindingGroupPolicy
+  { bindingPreserveDeclAnn :: !Bool,
+    bindingDeclAnnotation :: Scope -> Decl -> Maybe ResolutionAnnotation,
+    bindingExtraAnnotations :: Scope -> Decl -> [ResolutionAnnotation]
+  }
+
+topLevelBindingPolicy :: BindingGroupPolicy
+topLevelBindingPolicy =
+  BindingGroupPolicy
+    { bindingPreserveDeclAnn = True,
+      bindingDeclAnnotation = flip topLevelBinderAnnotation,
+      bindingExtraAnnotations = flip topLevelDeclAnnotations
+    }
+
+localBindingPolicy :: Map.Map Text ResolutionAnnotation -> BindingGroupPolicy
+localBindingPolicy binderAnnotations =
+  BindingGroupPolicy
+    { bindingPreserveDeclAnn = False,
+      bindingDeclAnnotation = \_ decl -> declBinderAnnotation decl binderAnnotations,
+      bindingExtraAnnotations = \_ _ -> []
+    }
+
 resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveTopLevelDecls _ [] = pure []
-resolveTopLevelDecls signatureScopes (decl : rest) = do
-  (signatureScopes', decl') <- resolveTopLevelDecl signatureScopes decl
-  decls' <- resolveTopLevelDecls signatureScopes' rest
+resolveTopLevelDecls = resolveBindingGroup topLevelBindingPolicy
+
+resolveBindingGroup :: BindingGroupPolicy -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
+resolveBindingGroup _ _ [] = pure []
+resolveBindingGroup policy signatureScopes (decl : rest) = do
+  (signatureScopes', decl') <- resolveBindingDecl policy signatureScopes decl
+  decls' <- resolveBindingGroup policy signatureScopes' rest
   pure (decl' : decls')
 
-resolveTopLevelDecl :: Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveTopLevelDecl signatureScopes decl = do
+resolveBindingDecl :: BindingGroupPolicy -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveBindingDecl policy signatureScopes decl = do
   scope <- currentScope
   let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-  (signatureScopes', decl') <- withScope scoped (resolveDeclWithSignatureScope signatureScopes decl)
-  emitAnnotations (topLevelDeclAnnotations decl scope)
-  let decl'' = maybe decl' (`annotateDecl` decl') (topLevelBinderAnnotation decl scope)
+  (signatureScopes', decl') <- withScope scoped (resolveDeclWithSignatureScope policy signatureScopes decl)
+  emitAnnotations (bindingExtraAnnotations policy scope decl)
+  let decl'' = maybe decl' (`annotateDecl` decl') (bindingDeclAnnotation policy scope decl)
   pure (signatureScopes', decl'')
 
-resolveDeclWithSignatureScope :: Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScope signatureScopes decl =
+resolveDeclWithSignatureScope :: BindingGroupPolicy -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveDeclWithSignatureScope policy signatureScopes decl =
   case decl of
-    DeclAnn ann inner ->
-      withPushedSpan ann $ do
-        (signatureScopes', inner') <- resolveDeclWithSignatureScope signatureScopes inner
-        pure (signatureScopes', DeclAnn ann inner')
+    DeclAnn ann inner
+      | bindingPreserveDeclAnn policy ->
+          withPushedSpan ann $ do
+            (signatureScopes', inner') <- resolveDeclWithSignatureScope policy signatureScopes inner
+            pure (signatureScopes', DeclAnn ann inner')
     DeclTypeSig names ty -> do
       (binderScope, ty') <- resolveTypeSignature ty
       let signatureScopes' =
@@ -611,40 +637,9 @@ resolveArithSeq arithSeq =
     ArithSeqFromThenTo from then' to ->
       ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
 
-resolveBoundDecl :: Map.Map Text ResolutionAnnotation -> Decl -> ResolveM Decl
-resolveBoundDecl binderAnnotations decl = do
-  decl' <- resolveDecl decl
-  pure (maybe decl' (`annotateDecl` decl') (declBinderAnnotation decl binderAnnotations))
-
 resolveBoundDecls :: Map.Map Text ResolutionAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveBoundDecls _ _ [] = pure []
-resolveBoundDecls binderAnnotations signatureScopes (decl : rest) = do
-  scope <- currentScope
-  let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-  (signatureScopes', decl') <- withScope scoped (resolveBoundDeclWithSignatureScope binderAnnotations signatureScopes decl)
-  decls' <- resolveBoundDecls binderAnnotations signatureScopes' rest
-  pure (decl' : decls')
-
-resolveBoundDeclWithSignatureScope :: Map.Map Text ResolutionAnnotation -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveBoundDeclWithSignatureScope binderAnnotations signatureScopes decl =
-  case decl of
-    DeclTypeSig names ty -> do
-      (binderScope, ty') <- resolveTypeSignature ty
-      let signatureScopes' =
-            foldl'
-              (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
-              signatureScopes
-              names
-          resolvedDecl = DeclTypeSig names ty'
-          annotatedDecl = maybe resolvedDecl (`annotateDecl` resolvedDecl) (declBinderAnnotation decl binderAnnotations)
-      pure (signatureScopes', annotatedDecl)
-    _ -> do
-      decl' <- resolveBoundDecl binderAnnotations decl
-      let signatureScopes' =
-            case declBinderCandidate decl of
-              Just (_, name) -> Map.delete (renderUnqualifiedName name) signatureScopes
-              Nothing -> signatureScopes
-      pure (signatureScopes', decl')
+resolveBoundDecls binderAnnotations =
+  resolveBindingGroup (localBindingPolicy binderAnnotations)
 
 declSignatureScope :: Decl -> Map.Map Text Scope -> Maybe Scope
 declSignatureScope decl signatureScopes =
