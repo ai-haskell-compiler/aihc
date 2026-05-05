@@ -1,0 +1,1 @@
+module GHC.Natural () where

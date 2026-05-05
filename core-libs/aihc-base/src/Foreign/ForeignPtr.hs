@@ -1,0 +1,1 @@
+module Foreign.ForeignPtr () where
