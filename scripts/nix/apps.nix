@@ -13,8 +13,6 @@
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
   tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
-  aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
-  aihcParserBenchExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser-bench";
 
   repoRootGuard = ''
     test -d components/aihc-parser || {
@@ -205,18 +203,6 @@ in {
     set -euo pipefail
     ${repoRootGuard}
     bash ./scripts/update-generated-content.sh --check
-  '';
-
-  aihc-lexer = mkAppWithInputs "aihc-lexer" [pkgs.bash] ''
-    exec ${aihcParserExe} --lex "$@"
-  '';
-
-  aihc-parser = mkAppWithInputs "aihc-parser" [pkgs.bash] ''
-    exec ${aihcParserExe} "$@"
-  '';
-
-  aihc-parser-bench = mkAppWithInputs "aihc-parser-bench" [pkgs.bash] ''
-    exec ${aihcParserBenchExe} "$@"
   '';
 
   coverage = let

@@ -3,6 +3,10 @@ module Main (main) where
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
+import Aihc.Dev.Parser.Bench.CLI qualified as ParserBenchCLI
+import Aihc.Dev.Parser.Bench.Run qualified as ParserBenchRun
+import Aihc.Dev.Parser.CLI qualified as ParserCLI
+import Aihc.Dev.Parser.Run qualified as ParserRun
 import Aihc.Dev.Snippet (SnippetOpts (..), parseExtensionSettingArg, runSnippet)
 import Aihc.Parser.Syntax (ExtensionSetting)
 import Data.Aeson (encode)
@@ -35,6 +39,8 @@ data Command
   = ExtractHi ExtractHiOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Snippet SnippetOpts
+  | Parser ParserRun.Options
+  | ParserBench ParserBenchCLI.Options
   | HackageTester HackageTesterCLI.Options
   | ParserStackageProgress ParserStackageProgressCLI.Options
   | ResolvePackage RP.Options
@@ -73,6 +79,18 @@ commandParser =
           ( info
               (Snippet <$> snippetParser <**> helper)
               (progDesc "Analyze a Haskell snippet using GHC and aihc-parser")
+          )
+        <> command
+          "parser"
+          ( info
+              (Parser <$> ParserCLI.optionsParser <**> helper)
+              (progDesc "Parse, lex, or preprocess Haskell source")
+          )
+        <> command
+          "parser-bench"
+          ( info
+              (ParserBench <$> ParserBenchCLI.optionsParser <**> helper)
+              (progDesc "Generate parser benchmark tarballs and run parser benchmarks")
           )
         <> command
           "hackage-tester"
@@ -164,6 +182,10 @@ runCommand (ExtractResolveIface opts) = do
   BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Snippet opts) =
   runSnippet opts
+runCommand (Parser opts) =
+  ParserCLI.run opts
+runCommand (ParserBench opts) =
+  ParserBenchRun.run opts
 runCommand (HackageTester opts) =
   HackageTesterRun.run opts
 runCommand (ParserStackageProgress opts) =

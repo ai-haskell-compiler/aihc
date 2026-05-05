@@ -28,7 +28,6 @@
     mkSourceCheck name src [package] command;
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
-  parserCliTests = mkPackageTest hsPkgs.aihc-parser-cli;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
   fcTests = mkPackageTest hsPkgs.aihc-fc;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -103,7 +102,6 @@
     '';
 in {
   parser-tests = parserTests;
-  parser-cli-tests = parserCliTests;
   cpp-tests = cppTests;
   fc-tests = fcTests;
   resolve-tests = resolveTests;
@@ -125,10 +123,6 @@ in {
     {
       name = "parser-tests";
       path = parserTests;
-    }
-    {
-      name = "parser-cli-tests";
-      path = parserCliTests;
     }
     {
       name = "cpp-tests";

@@ -10,13 +10,6 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
-    aihc-parser-cli = {
-      src = sources.parserCliSrc;
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
     aihc-cpp = {
       src = sources.cppSrc;
       disableProfiling = false;

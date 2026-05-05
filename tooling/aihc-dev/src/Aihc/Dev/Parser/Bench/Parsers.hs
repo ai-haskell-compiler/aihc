@@ -5,7 +5,7 @@
 -- 2. If CPP is enabled, preprocess the source
 -- 3. Re-scan the preprocessed source for LANGUAGE pragmas
 -- 4. Parse with the final extension set
-module Aihc.Parser.Bench.Parsers
+module Aihc.Dev.Parser.Bench.Parsers
   ( ParseResult (..),
 
     -- * CPP include collection

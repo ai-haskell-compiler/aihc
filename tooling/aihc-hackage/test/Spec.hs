@@ -33,6 +33,7 @@ main =
               PackageSpec "custom-package" "installed"
             ],
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
+      testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       QC.testProperty "dummy quickcheck property" prop_dummy
     ]
 
@@ -79,6 +80,26 @@ test_generatesPathsModule =
       [info] -> assertEqual "expected generated module to depend on base" [T.pack "base"] (HC.fileInfoDependencies info)
       _ -> assertFailure "expected exactly one FileInfo for generated Paths module"
 
+test_collectsConditionalExposedModules :: Assertion
+test_collectsConditionalExposedModules =
+  withTempDir "aihc-hackage-conditional-exposed" $ \root -> do
+    let cabalFile = root </> "conditional-exposed.cabal"
+        srcDir = root </> "src" </> "Control" </> "Category"
+        sourceFile = srcDir </> "Unicode.hs"
+    createDirectoryIfMissing True srcDir
+    writeFile cabalFile conditionalExposedCabal
+    writeFile sourceFile "module Control.Category.Unicode where\n"
+
+    cabalBytes <- BS.readFile cabalFile
+    gpd <-
+      case snd (runParseResult (parseGenericPackageDescription cabalBytes)) of
+        Right parsed -> pure parsed
+        Left (_, errs) -> assertFailure ("failed to parse test cabal file: " <> show errs)
+
+    files <- HC.collectComponentFiles gpd root
+    let paths = map HC.fileInfoPath files
+    assertBool "expected conditionally exposed module to be selected" (any ("src/Control/Category/Unicode.hs" `isSuffixOf`) paths)
+
 pathsDemoCabal :: String
 pathsDemoCabal =
   unlines
@@ -101,6 +122,27 @@ pathsUserSource =
       "pathsVersion = version",
       "pathsDataDir = getDataDir",
       "pathsDataFileName = getDataFileName"
+    ]
+
+conditionalExposedCabal :: String
+conditionalExposedCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: conditional-exposed",
+      "version: 0.1.0.0",
+      "",
+      "flag old-base",
+      "  default: False",
+      "  manual: True",
+      "",
+      "library",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010",
+      "  if flag(old-base)",
+      "    build-depends: base >= 3.0 && < 3.0.3.1",
+      "  else",
+      "    exposed-modules: Control.Category.Unicode",
+      "    build-depends: base >= 3.0.3.1 && < 5"
     ]
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a

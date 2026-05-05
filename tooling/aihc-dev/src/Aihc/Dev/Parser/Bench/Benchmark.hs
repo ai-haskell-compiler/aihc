@@ -1,5 +1,5 @@
 -- | Benchmark runner for parser performance testing.
-module Aihc.Parser.Bench.Benchmark
+module Aihc.Dev.Parser.Bench.Benchmark
   ( -- * Types
     BenchmarkResult (..),
     IterationResult (..),
@@ -11,15 +11,15 @@ module Aihc.Parser.Bench.Benchmark
   )
 where
 
-import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
-import Aihc.Parser.Bench.Parsers
+import Aihc.Dev.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
+import Aihc.Dev.Parser.Bench.Parsers
   ( ParseResult (..),
     lexWithAihcExtsWithCpp,
     parseWithAihcExtsWithCpp,
     parseWithGhcExtsWithCpp,
     parseWithHseExtsWithCpp,
   )
-import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, isIncludeEntry, streamTarball)
+import Aihc.Dev.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, isIncludeEntry, streamTarball)
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import Control.Monad (replicateM)

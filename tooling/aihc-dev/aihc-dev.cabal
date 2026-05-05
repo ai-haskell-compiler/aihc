@@ -57,6 +57,45 @@ library snippet
   ghc-options: -Wall
   default-language: GHC2021
 
+library parser-tools
+  hs-source-dirs: src
+  exposed-modules:
+    Aihc.Dev.Parser.Bench.Benchmark
+    Aihc.Dev.Parser.Bench.CLI
+    Aihc.Dev.Parser.Bench.Metrics
+    Aihc.Dev.Parser.Bench.Parsers
+    Aihc.Dev.Parser.Bench.Run
+    Aihc.Dev.Parser.Bench.Tarball
+    Aihc.Dev.Parser.CLI
+    Aihc.Dev.Parser.Run
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aeson,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc-lib-parser,
+    haskell-src-exts,
+    http-client,
+    http-client-tls,
+    optparse-applicative,
+    prettyprinter,
+    tar,
+    text >=1.2,
+    time,
+    zlib,
+
+  default-extensions: OverloadedStrings
+  ghc-options: -Wall
+  default-language: GHC2021
+
 executable aihc-dev
   main-is: Main.hs
   hs-source-dirs:
@@ -82,6 +121,7 @@ executable aihc-dev
     aeson-pretty >=0.8 && <0.9,
     aihc-cpp,
     aihc-dev:extract-hi,
+    aihc-dev:parser-tools,
     aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,
@@ -126,6 +166,8 @@ test-suite spec
     StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
+    Test.ParserCLI.Golden
+    Test.ParserCLI.Suite
     Test.ResolvePackage
     Test.ResolveStackageProgress.PathsModule
     Test.StackageProgress.FileChecker
@@ -136,6 +178,7 @@ test-suite spec
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc-cpp,
+    aihc-dev:parser-tools,
     aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,

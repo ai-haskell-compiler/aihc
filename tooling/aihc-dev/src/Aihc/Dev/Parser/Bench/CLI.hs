@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
--- | Command-line interface for aihc-parser-bench.
-module Aihc.Parser.Bench.CLI
+-- | Command-line interface for @aihc-dev parser-bench@.
+module Aihc.Dev.Parser.Bench.CLI
   ( Options (..),
     Command (..),
     GenerateOptions (..),
@@ -9,6 +9,8 @@ module Aihc.Parser.Bench.CLI
     ParserChoice (..),
     OutputFormat (..),
     FilterOptions (..),
+    optionsParser,
+    optionsParserInfo,
     parseOptionsIO,
   )
 where
@@ -77,15 +79,16 @@ newtype Options = Options
 
 -- | Parse command-line options.
 parseOptionsIO :: IO Options
-parseOptionsIO = execParser opts
-  where
-    opts =
-      info
-        (optionsParser <**> helper)
-        ( fullDesc
-            <> progDesc "Generate stackage tarballs and benchmark Haskell parsers"
-            <> header "aihc-parser-bench - Haskell parser benchmarking tool"
-        )
+parseOptionsIO = execParser optionsParserInfo
+
+optionsParserInfo :: ParserInfo Options
+optionsParserInfo =
+  info
+    (optionsParser <**> helper)
+    ( fullDesc
+        <> progDesc "Generate stackage tarballs and benchmark Haskell parsers"
+        <> header "aihc-dev parser-bench - Haskell parser benchmarking tool"
+    )
 
 optionsParser :: Parser Options
 optionsParser = Options <$> commandParser

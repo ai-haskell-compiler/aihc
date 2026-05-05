@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Tarball generation for Stackage packages.
-module Aihc.Parser.Bench.Tarball
+module Aihc.Dev.Parser.Bench.Tarball
   ( -- * Types
     TarballEntry (..),
     GenerateResult (..),
@@ -28,14 +28,14 @@ module Aihc.Parser.Bench.Tarball
 where
 
 import Aihc.Cpp qualified as Cpp
+import Aihc.Dev.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
+import Aihc.Dev.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp qualified as HackageCpp
 import Aihc.Hackage.Download qualified as HD
 import Aihc.Hackage.Stackage qualified as HS
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HU
-import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
-import Aihc.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Aihc.Parser.Syntax
   ( Extension (CPP),
@@ -159,6 +159,33 @@ data PackageInfo = PackageInfo
 -- | Generate a tarball from a Stackage snapshot.
 generateTarball :: GenerateOptions -> IO (Either String GenerateResult)
 generateTarball opts = do
+  result <- generateTarballData opts
+  case result of
+    Left err -> pure (Left err)
+    Right (allEntries, summary) ->
+      if genDryRun opts
+        then do
+          when (genVerbose opts) $ do
+            hPutStrLn stderr "\nDry run - packages that would be included:"
+            mapM_
+              ( \case
+                  e : _ -> hPutStrLn stderr ("  " ++ formatPackage (entryPackage e))
+                  [] -> pure ()
+              )
+              (take 10 (groupEntriesByPackage allEntries))
+          pure (Right summary)
+        else do
+          let outputPath = case genOutput opts of
+                Just p -> p
+                Nothing -> "stackage-" ++ sanitizeName (genSnapshot opts) ++ ".tar.gz"
+          when (genVerbose opts) $
+            hPutStrLn stderr $
+              "Writing " ++ show (resultTotalFiles summary) ++ " Haskell files to " ++ outputPath
+          writeTarball outputPath allEntries
+          pure (Right summary)
+
+generateTarballData :: GenerateOptions -> IO (Either String ([TarballEntry], GenerateResult))
+generateTarballData opts = do
   -- Create a single HTTP manager to reuse for all requests
   manager <- newManager tlsManagerSettings
   snapshotResult <- HS.loadStackageSnapshot (Just manager) (genSnapshot opts) (genOffline opts)
@@ -186,26 +213,10 @@ generateTarball opts = do
                 resultFilteredOut = failures
               }
 
-      if genDryRun opts
-        then do
-          when (genVerbose opts) $ do
-            hPutStrLn stderr "\nDry run - packages that would be included:"
-            mapM_
-              ( \case
-                  e : _ -> hPutStrLn stderr ("  " ++ formatPackage (entryPackage e))
-                  [] -> pure ()
-              )
-              (take 10 successes)
-          pure (Right summary)
-        else do
-          let outputPath = case genOutput opts of
-                Just p -> p
-                Nothing -> "stackage-" ++ sanitizeName (genSnapshot opts) ++ ".tar.gz"
-          when (genVerbose opts) $
-            hPutStrLn stderr $
-              "Writing " ++ show totalFiles ++ " Haskell files to " ++ outputPath
-          writeTarball outputPath allEntries
-          pure (Right summary)
+      pure (Right (allEntries, summary))
+
+groupEntriesByPackage :: [TarballEntry] -> [[TarballEntry]]
+groupEntriesByPackage = Map.elems . Map.fromListWith (<>) . map (\entry -> (formatPackage (entryPackage entry), [entry]))
 
 sanitizeName :: String -> String
 sanitizeName = map sanitizeChar
@@ -496,11 +507,7 @@ checkPackageFilters includeMap opts entries
 
 -- | Generate tarball entries without writing (for testing).
 generateTarballEntries :: GenerateOptions -> IO (Either String ([TarballEntry], GenerateResult))
-generateTarballEntries opts = do
-  result <- generateTarball (opts {genDryRun = True})
-  case result of
-    Left err -> pure (Left err)
-    Right summary -> pure (Right ([], summary))
+generateTarballEntries opts = generateTarballData (opts {genDryRun = True})
 
 -- | Write entries to a gzipped tarball.
 writeTarball :: FilePath -> [TarballEntry] -> IO ()

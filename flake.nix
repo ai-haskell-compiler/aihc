@@ -3,13 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    ghc-wasm-meta.url = "git+https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta.git";
   };
 
   outputs = {
     self,
     nixpkgs,
-    ghc-wasm-meta,
   }: let
     root = ./.;
     core = import ./scripts/nix/core.nix {inherit nixpkgs;};
@@ -27,14 +25,9 @@
       inherit sources;
       inherit (haskell) mkHsPkgsWithCoverage;
     };
-    wasm = import ./scripts/nix/wasm.nix {
-      inherit ghc-wasm-meta;
-      inherit (sources) wasmBuildSrc;
-    };
     mkPackages = import ./scripts/nix/packages.nix {
       inherit (docs) mkCombinedDocs;
       inherit (coverage) mkCoverageReport;
-      inherit (wasm) mkParserWasmWasi;
     };
     mkApps = import ./scripts/nix/apps.nix {
       inherit (core) projectHsPackages;

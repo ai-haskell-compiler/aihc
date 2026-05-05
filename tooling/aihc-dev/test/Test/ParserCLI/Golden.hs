@@ -8,7 +8,7 @@
 --
 -- Tests are organized into lexer and parser directories. Lexer tests use
 -- the @--lex@ flag to switch the CLI to lexer mode.
-module CLIGolden
+module Test.ParserCLI.Golden
   ( ExpectedStatus (..),
     Outcome (..),
     CLICase (..),
@@ -21,17 +21,17 @@ module CLIGolden
   )
 where
 
-import qualified Aihc.Parser.Run as Run
+import Aihc.Dev.Parser.Run qualified as Run
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
-import qualified Data.Text.IO as TIO
-import qualified Data.Yaml as Y
+import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (normalise, takeDirectory, takeExtension, (</>))
