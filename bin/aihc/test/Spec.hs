@@ -4,8 +4,10 @@ import Aihc.Cli.Install
   ( DependencyResolver (..),
     InstallResult (..),
     PackagePlan (..),
+    buildDryRunPackagePlanWithResolver,
     buildPackagePlanFromSource,
     buildPackagePlanWithResolver,
+    dryRunInstallScaffold,
     writeInstallScaffold,
   )
 import Aihc.Cli.Options (Command (..), InstallOptions (..), parseCommandPure)
@@ -17,6 +19,7 @@ import Data.List (isInfixOf, isPrefixOf)
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
+    doesDirectoryExist,
     doesFileExist,
     getTemporaryDirectory,
     removeDirectoryRecursive,
@@ -36,18 +39,23 @@ main =
         [ testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
+          testCase "parses install dry run" $
+            assertEqual
+              "command"
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True)))
+              (parseCommandPure ["install", "text", "--dry-run"]),
           testCase "rejects explicit dependency variants" $
             assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
@@ -75,7 +83,9 @@ main =
         "install"
         [ testCase "builds stable store paths" test_stableStorePath,
           testCase "recursive dependencies affect store paths" test_recursiveDependenciesAffectStorePaths,
-          testCase "writes scaffold artifacts" test_writeInstallScaffold
+          testCase "writes scaffold artifacts" test_writeInstallScaffold,
+          testCase "dry run writes no scaffold artifacts" test_dryRunWritesNoScaffoldArtifacts,
+          testCase "dry run planner does not generate source files" test_dryRunPlannerDoesNotGenerateSourceFiles
         ],
       QC.testProperty "dummy quickcheck property" prop_dummy
     ]
@@ -148,10 +158,50 @@ test_writeInstallScaffold =
     fcJson <- BL8.readFile (resultFcPath result)
     assertBool "fc placeholder includes system-fc" ("system-fc" `isInfixOf` BL8.unpack fcJson)
 
+test_dryRunWritesNoScaffoldArtifacts :: Assertion
+test_dryRunWritesNoScaffoldArtifacts =
+  withDependencyFixture $ \sourceRoot depRoot _ storeRoot -> do
+    plan <-
+      buildDryRunPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+    result <- dryRunInstallScaffold plan
+
+    assertEqual "store path" (planStorePath plan) (resultStorePath result)
+    assertFileDoesNotExist (resultManifestPath result)
+    assertFileDoesNotExist (resultInterfacePath result)
+    assertFileDoesNotExist (resultFcPath result)
+    storePathExists <- doesDirectoryExist (resultStorePath result)
+    assertBool ("expected dry-run store path not to exist: " <> resultStorePath result) (not storePathExists)
+
+test_dryRunPlannerDoesNotGenerateSourceFiles :: Assertion
+test_dryRunPlannerDoesNotGenerateSourceFiles =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+        autogenDir = sourceRoot </> ".aihc-autogen"
+    createFixturePackageWithOtherModules sourceRoot "demo" "0.1.0.0" "Demo" ["Paths_demo"] []
+    createDirectoryIfMissing True storeRoot
+
+    _ <-
+      buildDryRunPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+
+    autogenExists <- doesDirectoryExist autogenDir
+    assertBool ("expected dry-run planner not to create " <> autogenDir) (not autogenExists)
+
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
   exists <- doesFileExist path
   assertBool ("expected file to exist: " <> path) exists
+
+assertFileDoesNotExist :: FilePath -> Assertion
+assertFileDoesNotExist path = do
+  exists <- doesFileExist path
+  assertBool ("expected file not to exist: " <> path) (not exists)
 
 withFixturePackage :: (FilePath -> FilePath -> IO a) -> IO a
 withFixturePackage action =
@@ -196,14 +246,18 @@ fixtureDependencyResolver sourceRoot dependencies =
 
 createFixturePackage :: FilePath -> String -> String -> String -> [String] -> IO ()
 createFixturePackage sourceRoot name version moduleName dependencies = do
+  createFixturePackageWithOtherModules sourceRoot name version moduleName [] dependencies
+
+createFixturePackageWithOtherModules :: FilePath -> String -> String -> String -> [String] -> [String] -> IO ()
+createFixturePackageWithOtherModules sourceRoot name version moduleName otherModules dependencies = do
   let srcDir = sourceRoot </> "src"
   createDirectoryIfMissing True srcDir
-  writeFile (sourceRoot </> name <> ".cabal") (fixtureCabal name version moduleName dependencies)
+  writeFile (sourceRoot </> name <> ".cabal") (fixtureCabal name version moduleName otherModules dependencies)
   writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
   writeFile (srcDir </> moduleName <> ".hs") ("module " <> moduleName <> " where\nx = ()\n")
 
-fixtureCabal :: String -> String -> String -> [String] -> String
-fixtureCabal name version moduleName dependencies =
+fixtureCabal :: String -> String -> String -> [String] -> [String] -> String
+fixtureCabal name version moduleName otherModules dependencies =
   unlines $
     [ "cabal-version: 3.0",
       "name: " <> name,
@@ -213,6 +267,7 @@ fixtureCabal name version moduleName dependencies =
       "  exposed-modules: " <> moduleName,
       "  hs-source-dirs: src"
     ]
+      <> ["  other-modules: " <> unwords otherModules | not (null otherModules)]
       <> ["  build-depends: " <> dependency | dependency <- dependencies]
       <> ["  default-language: Haskell2010"]
 

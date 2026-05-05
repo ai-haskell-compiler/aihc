@@ -8,9 +8,11 @@ module Aihc.Cli.Install
     PhaseManifest (..),
     PhaseStatus (..),
     ResolvedDependency (..),
+    buildDryRunPackagePlanWithResolver,
     buildPackagePlanFromSource,
     buildPackagePlanWithResolver,
     defaultStoreRoot,
+    dryRunInstallScaffold,
     runInstall,
     writeInstallScaffold,
   )
@@ -23,6 +25,7 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
+import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Bits (xor)
@@ -32,7 +35,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.List (nub, sort, sortOn)
 import Data.Text qualified as T
 import Data.Word (Word64)
-import Distribution.PackageDescription (genPackageFlags)
+import Distribution.PackageDescription (buildInfo, buildable, condExecutables, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
@@ -124,6 +127,10 @@ data SourceAnalysis = SourceAnalysis
     sourceDependencyNames :: ![String]
   }
 
+data SourceAnalysisMode
+  = AllowSourceWrites
+  | AvoidSourceWrites
+
 instance ToJSON ArtifactManifest where
   toJSON manifest =
     object
@@ -162,12 +169,20 @@ runInstall opts = do
   version <- resolveVersion opts
   let spec = PackageSpec (installPackageName opts) version
       resolver = hackageDependencyResolver opts
-  plan <- buildPackagePlanWithResolver resolver storeRoot spec
-  result <- writeInstallScaffold plan
+  plan <-
+    if installDryRun opts
+      then buildDryRunPackagePlanWithResolver resolver storeRoot spec
+      else buildPackagePlanWithResolver resolver storeRoot spec
+  result <-
+    if installDryRun opts
+      then dryRunInstallScaffold plan
+      else writeInstallScaffold plan
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
   putStrLn ("interfaces: " <> resultInterfacePath result <> " (unimplemented)")
   putStrLn ("system-fc: " <> resultFcPath result <> " (unimplemented)")
+  when (installDryRun opts) $
+    putStrLn "dry-run: no files written"
 
 hackageDependencyResolver :: InstallOptions -> DependencyResolver
 hackageDependencyResolver opts =
@@ -176,7 +191,7 @@ hackageDependencyResolver opts =
       resolverSourcePath =
         HackageDownload.downloadPackageWithOptions
           HackageDownload.defaultDownloadOptions
-            { HackageDownload.downloadAllowNetwork = not (installOffline opts)
+            { HackageDownload.downloadAllowNetwork = not (installOffline opts || installDryRun opts)
             }
     }
 
@@ -210,17 +225,21 @@ defaultStoreRoot = do
 
 buildPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
 buildPackagePlanWithResolver resolver storeRoot spec =
-  snd <$> buildPackagePlanRecursive resolver storeRoot [] spec
+  snd <$> buildPackagePlanRecursive AllowSourceWrites resolver storeRoot [] spec
 
-buildPackagePlanRecursive :: DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanRecursive resolver storeRoot stack spec
+buildDryRunPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
+buildDryRunPackagePlanWithResolver resolver storeRoot spec =
+  snd <$> buildPackagePlanRecursive AvoidSourceWrites resolver storeRoot [] spec
+
+buildPackagePlanRecursive :: SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
+buildPackagePlanRecursive mode resolver storeRoot stack spec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = do
       sourcePath <- resolverSourcePath resolver spec
-      analysis <- analyzeSource sourcePath
+      analysis <- analyzeSourceWith mode sourcePath
       dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
-      dependencyPlans <- mapM (buildPackagePlanRecursive resolver storeRoot (spec : stack)) dependencySpecs
+      dependencyPlans <- mapM (buildPackagePlanRecursive mode resolver storeRoot (spec : stack)) dependencySpecs
       let plan =
             buildPackagePlanFromAnalysis
               storeRoot
@@ -249,7 +268,7 @@ resolvedDependencyFromPlan plan =
 
 buildPackagePlanFromSource :: FilePath -> PackageSpec -> FilePath -> IO PackagePlan
 buildPackagePlanFromSource storeRoot spec sourcePath = do
-  analysis <- analyzeSource sourcePath
+  analysis <- analyzeSourceWith AllowSourceWrites sourcePath
   pure (buildPackagePlanFromAnalysis storeRoot spec sourcePath [] analysis)
 
 buildPackagePlanFromAnalysis :: FilePath -> PackageSpec -> FilePath -> [ResolvedDependency] -> SourceAnalysis -> PackagePlan
@@ -279,8 +298,8 @@ buildPackagePlanFromAnalysis storeRoot spec sourcePath dependencies analysis =
           planSourceFileCount = sourceFileCount analysis
         }
 
-analyzeSource :: FilePath -> IO SourceAnalysis
-analyzeSource sourcePath = do
+analyzeSourceWith :: SourceAnalysisMode -> FilePath -> IO SourceAnalysis
+analyzeSourceWith mode sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
@@ -291,7 +310,7 @@ analyzeSource sourcePath = do
     case runParseResult (parseGenericPackageDescription cabalBytes) of
       (_, Right parsed) -> pure parsed
       (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-  sourceFiles <- HackageCabal.collectComponentFiles gpd sourcePath
+  sourceFileCount <- analyzeSourceFileCount mode gpd sourcePath
   setupFile <- findSetupFile sourcePath
   setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
   pure
@@ -300,47 +319,63 @@ analyzeSource sourcePath = do
         sourceCabalBytes = cabalBytes,
         sourceSetupFile = setupFile,
         sourceSetupBytes = setupBytes,
-        sourceFileCount = length sourceFiles,
+        sourceFileCount = sourceFileCount,
         sourceFlagAssignments = packageFlagAssignments gpd,
-        sourceDependencyNames =
-          sort . nub $
-            [ T.unpack dependency
-            | file <- sourceFiles,
-              dependency <- HackageCabal.fileInfoDependencies file
-            ]
+        sourceDependencyNames = packageDependencyNames gpd
       }
+
+analyzeSourceFileCount :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO Int
+analyzeSourceFileCount mode gpd sourcePath =
+  case mode of
+    AllowSourceWrites -> length <$> HackageCabal.collectComponentFiles gpd sourcePath
+    AvoidSourceWrites -> pure 0
 
 writeInstallScaffold :: PackagePlan -> IO InstallResult
 writeInstallScaffold plan = do
-  let storePath = planStorePath plan
-      manifestPath = storePath </> "manifest.json"
-      interfacePath = storePath </> "interfaces" </> "package-interface.json"
-      fcPath = storePath </> "fc" </> "package-fc.json"
-      manifest =
-        ArtifactManifest
-          { manifestPackageKey = planPackageKey plan,
-            manifestSourcePath = planSourcePath plan,
-            manifestCabalFile = planCabalFile plan,
-            manifestSetupFile = planSetupFile plan,
-            manifestStorePath = storePath,
-            manifestInterfacePath = interfacePath,
-            manifestFcPath = fcPath,
-            manifestSourceFileCount = planSourceFileCount plan,
-            manifestPhases = plannedPhases
-          }
+  let result = installResultForPlan plan
+      manifest = artifactManifestForPlan result plan
+      manifestPath = resultManifestPath result
+      interfacePath = resultInterfacePath result
+      fcPath = resultFcPath result
   createDirectoryIfMissing True (takeDirectory manifestPath)
   createDirectoryIfMissing True (takeDirectory interfacePath)
   createDirectoryIfMissing True (takeDirectory fcPath)
   BL.writeFile manifestPath (Aeson.encode manifest)
   BL.writeFile interfacePath (Aeson.encode (interfacePlaceholder plan))
   BL.writeFile fcPath (Aeson.encode (fcPlaceholder plan))
-  pure
-    InstallResult
-      { resultStorePath = storePath,
-        resultManifestPath = manifestPath,
-        resultInterfacePath = interfacePath,
-        resultFcPath = fcPath
-      }
+  pure result
+
+dryRunInstallScaffold :: PackagePlan -> IO InstallResult
+dryRunInstallScaffold =
+  pure . installResultForPlan
+
+installResultForPlan :: PackagePlan -> InstallResult
+installResultForPlan plan =
+  InstallResult
+    { resultStorePath = storePath,
+      resultManifestPath = manifestPath,
+      resultInterfacePath = interfacePath,
+      resultFcPath = fcPath
+    }
+  where
+    storePath = planStorePath plan
+    manifestPath = storePath </> "manifest.json"
+    interfacePath = storePath </> "interfaces" </> "package-interface.json"
+    fcPath = storePath </> "fc" </> "package-fc.json"
+
+artifactManifestForPlan :: InstallResult -> PackagePlan -> ArtifactManifest
+artifactManifestForPlan result plan =
+  ArtifactManifest
+    { manifestPackageKey = planPackageKey plan,
+      manifestSourcePath = planSourcePath plan,
+      manifestCabalFile = planCabalFile plan,
+      manifestSetupFile = planSetupFile plan,
+      manifestStorePath = resultStorePath result,
+      manifestInterfacePath = resultInterfacePath result,
+      manifestFcPath = resultFcPath result,
+      manifestSourceFileCount = planSourceFileCount plan,
+      manifestPhases = plannedPhases
+    }
 
 plannedPhases :: [PhaseManifest]
 plannedPhases =
@@ -434,6 +469,29 @@ flagAssignmentValue (flag, enabled) =
 packageFlagAssignments :: GenericPackageDescription -> [(String, Bool)]
 packageFlagAssignments gpd =
   sort [(unFlagName (flagName flag), flagDefault flag) | flag <- genPackageFlags gpd]
+
+packageDependencyNames :: GenericPackageDescription -> [String]
+packageDependencyNames gpd =
+  sort . nub . map T.unpack $
+    concatMap libraryDependencies libraryTrees
+      <> concatMap (executableDependencies . snd) (condExecutables gpd)
+  where
+    evalCond = HackageCabal.conditionEvaluator gpd
+    libraryTrees =
+      maybe [] pure (condLibrary gpd)
+        <> map snd (condSubLibraries gpd)
+
+    libraryDependencies tree =
+      let build = HackageCabal.collectMergedBuildInfo evalCond libBuildInfo tree
+       in if buildable build
+            then HackageCabal.extractDependencies build
+            else []
+
+    executableDependencies tree =
+      let build = HackageCabal.collectMergedBuildInfo evalCond buildInfo tree
+       in if buildable build
+            then HackageCabal.extractDependencies build
+            else []
 
 sortDependencies :: [ResolvedDependency] -> [ResolvedDependency]
 sortDependencies =

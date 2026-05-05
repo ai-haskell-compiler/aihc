@@ -18,7 +18,8 @@ data InstallOptions = InstallOptions
   { installPackageName :: !String,
     installPackageVersion :: !(Maybe String),
     installStoreRoot :: !(Maybe FilePath),
-    installOffline :: !Bool
+    installOffline :: !Bool,
+    installDryRun :: !Bool
   }
   deriving (Eq, Show)
 
@@ -83,4 +84,8 @@ installOptionsParser =
     <*> OA.switch
       ( OA.long "offline"
           <> OA.help "Use only cached package data"
+      )
+    <*> OA.switch
+      ( OA.long "dry-run"
+          <> OA.help "Plan the install without writing store artifacts or package cache files"
       )
