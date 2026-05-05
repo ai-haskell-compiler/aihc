@@ -63,6 +63,11 @@ in rec {
     ".yml"
   ];
 
+  aihcSrc = mkComponentSrc "/bin/aihc" [
+    ".hs"
+    ".cabal"
+  ];
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {
@@ -86,8 +91,9 @@ in rec {
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
         inComponents = pkgs.lib.hasInfix "/components/" pathStr;
         inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
+        inBin = pkgs.lib.hasInfix "/bin/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || ((inComponents || inTooling || inBin) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Filtered source for scripts - only shell scripts.

@@ -1,4 +1,5 @@
 packages:
+  bin/aihc
   components/aihc-cpp
   components/aihc-parser
   components/aihc-resolve
