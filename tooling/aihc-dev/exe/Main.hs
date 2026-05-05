@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
+import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderInterfaceMismatch)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
 import Aihc.Dev.Parser.Bench.CLI qualified as ParserBenchCLI
@@ -20,6 +21,7 @@ import ResolveStackageProgress qualified as RSP
 import StackageProgress.CLI qualified as ParserStackageProgressCLI
 import StackageProgress.Run qualified as ParserStackageProgressRun
 import System.Directory (createDirectoryIfMissing)
+import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
 
 main :: IO ()
@@ -37,6 +39,7 @@ main = do
 -- | Top-level command type. New subcommands are added here.
 data Command
   = ExtractHi ExtractHiOpts
+  | CompareHiSubset CompareHiSubsetOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Snippet SnippetOpts
   | Parser ParserRun.Options
@@ -56,6 +59,11 @@ data ExtractResolveIfaceOpts = ExtractResolveIfaceOpts
     eriOutput :: FilePath
   }
 
+data CompareHiSubsetOpts = CompareHiSubsetOpts
+  { chsCandidate :: String,
+    chsOracle :: String
+  }
+
 data OutputFormat = YAML | JSON
   deriving (Show)
 
@@ -68,6 +76,12 @@ commandParser =
             (ExtractHi <$> extractHiParser <**> helper)
             (progDesc "Extract scoping and typing information from .hi interface files")
         )
+        <> command
+          "compare-hi-subset"
+          ( info
+              (CompareHiSubset <$> compareHiSubsetParser <**> helper)
+              (progDesc "Check that a candidate .hi interface is a subset of an oracle package")
+          )
         <> command
           "extract-resolve-iface"
           ( info
@@ -146,6 +160,20 @@ extractResolveIfaceParser =
           <> help "Output file path for the JSON interface"
       )
 
+compareHiSubsetParser :: Parser CompareHiSubsetOpts
+compareHiSubsetParser =
+  CompareHiSubsetOpts
+    <$> strOption
+      ( long "candidate"
+          <> metavar "PACKAGE"
+          <> help "Candidate package that must be a subset"
+      )
+    <*> strOption
+      ( long "oracle"
+          <> metavar "PACKAGE"
+          <> help "Oracle package that defines the compatible API"
+      )
+
 snippetParser :: Parser SnippetOpts
 snippetParser =
   SnippetOpts
@@ -174,6 +202,15 @@ runCommand (ExtractHi opts) = do
   case ehFormat opts of
     YAML -> BL.putStr (BL.fromStrict (Yaml.encode pkg))
     JSON -> BL.putStr (encode pkg)
+runCommand (CompareHiSubset opts) = do
+  candidate <- extractPackage (chsCandidate opts)
+  oracle <- extractPackage (chsOracle opts)
+  let mismatches = comparePackageSubset candidate oracle
+  if null mismatches
+    then putStrLn "OK"
+    else do
+      mapM_ (putStrLn . renderInterfaceMismatch) mismatches
+      exitFailure
 runCommand (ExtractResolveIface opts) = do
   pkg <- extractPackage (eriPackage opts)
   let resolveIface = toResolveIface pkg

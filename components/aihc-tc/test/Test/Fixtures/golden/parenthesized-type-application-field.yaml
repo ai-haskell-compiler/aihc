@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Chan a = Chan (Foo Int)
+expected:
+  - "Chan :: *"
+  - "Chan :: Foo Int -> Chan a"
+status: pass
+reason: ""

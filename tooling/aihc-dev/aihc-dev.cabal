@@ -13,6 +13,7 @@ library extract-hi
   hs-source-dirs: src
   exposed-modules:
     Aihc.Dev.ExtractHi
+    Aihc.Dev.ExtractHi.Compare
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
 
@@ -166,6 +167,7 @@ test-suite spec
     StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
+    Test.ExtractHiCompare
     Test.ParserCLI.Golden
     Test.ParserCLI.Suite
     Test.ResolvePackage
@@ -178,11 +180,14 @@ test-suite spec
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc-cpp,
+    aihc-dev:extract-hi,
     aihc-dev:parser-tools,
     aihc-dev:snippet,
     aihc-hackage,
+    aihc-internal,
     aihc-parser,
     aihc-parser:parser-tooling-common,
+    aihc-prim,
     aihc-resolve,
     async,
     base >=4.16 && <5,

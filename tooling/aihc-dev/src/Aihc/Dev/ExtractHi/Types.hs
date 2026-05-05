@@ -19,7 +19,7 @@ data PackageInterface = PackageInterface
   { piPackage :: Text,
     piModules :: [ModuleInterface]
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON PackageInterface where
   toJSON pi' =
@@ -36,7 +36,7 @@ data ModuleInterface = ModuleInterface
     miClasses :: [ExportedClass],
     miFixities :: [FixityInfo]
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON ModuleInterface where
   toJSON mi =
@@ -54,7 +54,7 @@ data ExportedType = ExportedType
     etKind :: Text,
     etConstructors :: [Text]
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON ExportedType where
   toJSON et =
@@ -69,7 +69,7 @@ data ExportedValue = ExportedValue
   { evName :: Text,
     evType :: Text
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON ExportedValue where
   toJSON ev =
@@ -83,7 +83,7 @@ data ExportedClass = ExportedClass
   { ecName :: Text,
     ecMethods :: [ClassMethod]
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON ExportedClass where
   toJSON ec =
@@ -97,7 +97,7 @@ data ClassMethod = ClassMethod
   { cmName :: Text,
     cmType :: Text
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON ClassMethod where
   toJSON cm =
@@ -112,7 +112,7 @@ data FixityInfo = FixityInfo
     fiDirection :: FixityDirection,
     fiPrecedence :: Int
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON FixityInfo where
   toJSON fi =
@@ -124,7 +124,7 @@ instance ToJSON FixityInfo where
 
 -- | Direction of a fixity declaration.
 data FixityDirection = InfixL | InfixR | InfixN
-  deriving (Show)
+  deriving (Eq, Show)
 
 instance ToJSON FixityDirection where
   toJSON InfixL = String "infixl"

@@ -114,7 +114,7 @@ freeTypeVars = nub . go
 -- | Convert a surface type to a TcType, using a map from variable names to
 -- TyVarIds for any type variables in scope.
 convertSurfaceType :: Map Text TyVarId -> Type -> TcType
-convertSurfaceType tvMap ty = case peelTypeHead ty of
+convertSurfaceType tvMap ty = case peeledTy of
   TVar name ->
     let n = unqualifiedNameText name
      in case Map.lookup n tvMap of
@@ -124,7 +124,7 @@ convertSurfaceType tvMap ty = case peelTypeHead ty of
     TcTyCon (TyCon (nameText name) 0) []
   TApp {} ->
     -- Collect the full application chain to get the arity right.
-    let (headTy, args) = collectTApps ty
+    let (headTy, args) = collectTApps peeledTy
         convertedArgs = map (convertSurfaceType tvMap) args
         arity = length args
      in case peelTypeHead headTy of
@@ -144,6 +144,8 @@ convertSurfaceType tvMap ty = case peelTypeHead ty of
         tc = TyCon ("(" <> mconcat (replicate (n - 1) ",") <> ")") n
      in TcTyCon tc tys
   _ -> TcMetaTv (Unique (-1))
+  where
+    peeledTy = peelTypeHead ty
 
 -- | Collect the head and all arguments from a chain of type applications.
 collectTApps :: Type -> (Type, [Type])
