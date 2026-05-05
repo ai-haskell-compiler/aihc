@@ -349,6 +349,8 @@ sourcePathForSpec resolver spec =
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
   case name of
+    "base" -> Just aihcBaseProvider
+    "aihc-base" -> Just aihcBaseProvider
     "ghc-prim" -> Just aihcPrimProvider
     "aihc-prim" -> Just aihcPrimProvider
     "ghc-internal" -> Just aihcInternalProvider
@@ -360,6 +362,14 @@ canonicalPackageSpec spec =
   case lookupCoreProvider (pkgName spec) of
     Just provider -> PackageSpec (coreProviderName provider) (coreProviderVersion provider)
     Nothing -> spec
+
+aihcBaseProvider :: CoreProvider
+aihcBaseProvider =
+  CoreProvider
+    { coreProviderName = "aihc-base",
+      coreProviderVersion = "4.21.2.0",
+      coreProviderSourceRel = "core-libs" </> "aihc-base"
+    }
 
 aihcPrimProvider :: CoreProvider
 aihcPrimProvider =

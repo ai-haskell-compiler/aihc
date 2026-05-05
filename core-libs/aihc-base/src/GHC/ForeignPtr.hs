@@ -1,0 +1,1 @@
+module GHC.ForeignPtr () where
