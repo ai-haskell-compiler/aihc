@@ -255,24 +255,21 @@ missingImportedName item namespace itemName candidates
     rendered = renderUnqualifiedName itemName
 
 data BindingGroupPolicy = BindingGroupPolicy
-  { bindingPreserveDeclAnn :: !Bool,
-    bindingDeclAnnotation :: Scope -> Decl -> Maybe ResolutionAnnotation,
+  { bindingDeclAnnotation :: Scope -> Decl -> Maybe ResolutionAnnotation,
     bindingExtraAnnotations :: Scope -> Decl -> [ResolutionAnnotation]
   }
 
 topLevelBindingPolicy :: BindingGroupPolicy
 topLevelBindingPolicy =
   BindingGroupPolicy
-    { bindingPreserveDeclAnn = True,
-      bindingDeclAnnotation = flip topLevelBinderAnnotation,
+    { bindingDeclAnnotation = flip topLevelBinderAnnotation,
       bindingExtraAnnotations = flip topLevelDeclAnnotations
     }
 
 localBindingPolicy :: Map.Map Text ResolutionAnnotation -> BindingGroupPolicy
 localBindingPolicy binderAnnotations =
   BindingGroupPolicy
-    { bindingPreserveDeclAnn = False,
-      bindingDeclAnnotation = \_ decl -> declBinderAnnotation decl binderAnnotations,
+    { bindingDeclAnnotation = \_ decl -> declBinderAnnotation decl binderAnnotations,
       bindingExtraAnnotations = \_ _ -> []
     }
 
@@ -298,11 +295,10 @@ resolveBindingDecl policy signatureScopes decl = do
 resolveDeclWithSignatureScope :: BindingGroupPolicy -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
 resolveDeclWithSignatureScope policy signatureScopes decl =
   case decl of
-    DeclAnn ann inner
-      | bindingPreserveDeclAnn policy ->
-          withPushedSpan ann $ do
-            (signatureScopes', inner') <- resolveDeclWithSignatureScope policy signatureScopes inner
-            pure (signatureScopes', DeclAnn ann inner')
+    DeclAnn ann inner ->
+      withPushedSpan ann $ do
+        (signatureScopes', inner') <- resolveDeclWithSignatureScope policy signatureScopes inner
+        pure (signatureScopes', DeclAnn ann inner')
     DeclTypeSig names ty -> do
       (binderScope, ty') <- resolveTypeSignature ty
       let signatureScopes' =
