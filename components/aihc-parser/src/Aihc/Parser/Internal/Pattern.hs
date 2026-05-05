@@ -84,22 +84,13 @@ appPatternParser :: TokParser Pattern
 appPatternParser =
   negativeLiteralPatternParser
     <|> withSpanAnn
-      annotateAppPattern
+      (PAnn . mkAnnotation)
       ( do
           first <- patternAtomParser
           if isPatternAppHead first
-            then do
-              args <- MP.many patternAtomParser
-              case args of
-                [] -> pure first
-                _ -> pure (foldl buildPatternApp first args)
+            then foldl buildPatternApp first <$> MP.many patternAtomParser
             else pure first
       )
-  where
-    annotateAppPattern span' pat =
-      case peelPatternAnn pat of
-        PCon _ _ (_ : _) -> PAnn (mkAnnotation span') pat
-        _ -> pat
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
