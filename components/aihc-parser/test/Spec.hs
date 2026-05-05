@@ -151,6 +151,7 @@ buildTests = do
             testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "pretty-prints reserved at right sections" test_prettyReservedAtRightSection,
             testCase "pretty-prints layout-ending operands inside left sections" test_prettyLayoutEndingOperandInsideLeftSection,
             testCase "pretty-prints type applications after layout-ending functions" test_prettyTypeAppAfterLayoutEndingFunction,
             testCase "pretty-prints type signatures after layout-ending functions" test_prettyTypeSigAfterLayoutEndingFunction,
@@ -1229,6 +1230,17 @@ test_prettyInfixRhsOpenEndedInsideSection = do
           op
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+
+test_prettyReservedAtRightSection :: Assertion
+test_prettyReservedAtRightSection = do
+  let expr = ESectionR (qualifyName Nothing (mkUnqualifiedName NameVarSym "@")) (ETuple Boxed [])
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertEqual "pretty-printed expression" "(@ ())" rendered
+  case parseExpr defaultConfig rendered of
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
