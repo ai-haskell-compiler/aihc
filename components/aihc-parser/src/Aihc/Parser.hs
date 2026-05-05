@@ -119,7 +119,7 @@ parsePattern cfg input =
 -- | Parse a Haskell type.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
--- ParseOk (TFun ArrowUnrestricted (TCon "Int") (TCon "Bool"))
+-- ParseOk (TFun (TCon "Int") (TCon "Bool"))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
@@ -133,7 +133,7 @@ parseType cfg input =
 -- | Parse a single Haskell declaration.
 --
 -- >>> shorthand $ parseDecl defaultConfig "f x = x + 1"
--- ParseOk (DeclValue (FunctionBind UnqualifiedName {"f"} [Match {MatchHeadPrefix, [PVar "x"], EInfix (EVar "x") "+" (EInt 1 TInteger)}]))
+-- ParseOk (DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PVar "x"], EInfix (EVar "x") "+" (EInt 1 TInteger)}]))
 parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
