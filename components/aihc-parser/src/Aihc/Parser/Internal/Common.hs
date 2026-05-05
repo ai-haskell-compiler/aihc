@@ -677,21 +677,12 @@ contextItemsParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextItemsParserWith typeParser typeAtomParser =
   MP.try parenthesizedContextItemsParser <|> fmap pure (contextItemParserWith typeParser typeAtomParser)
   where
-    parenthesizedContextItemsParser =
-      MP.try parenthesizedSingletonContextItemParser <|> parenthesizedMultipleContextItemsParser
-    parenthesizedSingletonContextItemParser =
-      fmap pure . withSpanAnn (TAnn . mkAnnotation) $ do
-        items <- parens (contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
-        guardNotFollowedByConstraintInfixOp
-        case items of
-          [item] -> pure (TParen item)
-          _ -> MP.empty
-    parenthesizedMultipleContextItemsParser = do
+    parenthesizedContextItemsParser = do
       items <- parens (contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
       guardNotFollowedByConstraintInfixOp
       case items of
         [] -> fail "empty constraint list in parens"
-        [_] -> MP.empty
+        [item] -> pure [typeAnnSpan NoSourceSpan (TParen item)]
         _ -> pure items
     guardNotFollowedByConstraintInfixOp = do
       isFollowed <-

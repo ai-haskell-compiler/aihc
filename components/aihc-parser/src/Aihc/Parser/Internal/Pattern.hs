@@ -82,21 +82,19 @@ conOperatorParser =
 -- @Con (-0)@ — the @-@ is not valid inside an @apat@.
 appPatternParser :: TokParser Pattern
 appPatternParser =
-  negativeLiteralPatternParser
-    <|> withSpanAnn
-      (PAnn . mkAnnotation)
-      ( do
-          first <- patternAtomParser
-          if isPatternAppHead first
-            then foldl buildPatternApp first <$> MP.many patternAtomParser
-            else pure first
-      )
+  negativeLiteralPatternParser <|> do
+    first <- patternAtomParser
+    if isPatternAppHead first
+      then foldl buildPatternApp first <$> MP.many patternAtomParser
+      else pure first
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
     PCon name typeArgs args ->
-      PCon name typeArgs (args <> [rhs])
+      PAnn
+        (mkAnnotation NoSourceSpan)
+        (PCon name typeArgs (args <> [rhs]))
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
