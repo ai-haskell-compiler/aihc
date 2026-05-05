@@ -6,7 +6,7 @@ import Aihc.Cli.Install
     buildPackagePlanFromSource,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), InstallOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), DependencyVariant (..), InstallOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplStep (..), evaluateExpression, handleReplInput)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (bracket)
@@ -34,18 +34,23 @@ main =
         [ testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False [])))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False [])))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True [])))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
+          testCase "parses dependency variants" $
+            assertEqual
+              "command"
+              (Right (CmdInstall (InstallOptions "a" Nothing Nothing False [DependencyVariant "b" "1.0.0" "abcdef"])))
+              (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
             assertEqual "command" (Right CmdRepl) (parseCommandPure ["repl"])
         ],
@@ -70,6 +75,7 @@ main =
       testGroup
         "install"
         [ testCase "builds stable store paths" test_stableStorePath,
+          testCase "dependency variants affect store paths" test_dependencyVariantsAffectStorePaths,
           testCase "writes scaffold artifacts" test_writeInstallScaffold
         ],
       QC.testProperty "dummy quickcheck property" prop_dummy
@@ -87,16 +93,33 @@ assertHelp other =
 test_stableStorePath :: Assertion
 test_stableStorePath =
   withFixturePackage $ \sourceRoot storeRoot -> do
-    plan1 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
-    plan2 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan1 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [] sourceRoot
+    plan2 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [] sourceRoot
     assertEqual "store path" (planStorePath plan1) (planStorePath plan2)
     assertBool "store path includes package" ("demo-0_1_0_0" `isInfixOf` takeFileName (planStorePath plan1))
     assertBool "store path starts below root" (storeRoot `isPrefixOf` planStorePath plan1)
 
+test_dependencyVariantsAffectStorePaths :: Assertion
+test_dependencyVariantsAffectStorePaths =
+  withFixturePackage $ \sourceRoot storeRoot -> do
+    plan1 <-
+      buildPackagePlanFromSource
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+        [DependencyVariant "dep" "1.0.0" "aaaaaaaa"]
+        sourceRoot
+    plan2 <-
+      buildPackagePlanFromSource
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+        [DependencyVariant "dep" "2.0.0" "bbbbbbbb"]
+        sourceRoot
+    assertBool "dependency variant should change store path" (planStorePath plan1 /= planStorePath plan2)
+
 test_writeInstallScaffold :: Assertion
 test_writeInstallScaffold =
   withFixturePackage $ \sourceRoot storeRoot -> do
-    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [DependencyVariant "dep" "1.0.0" "aaaaaaaa"] sourceRoot
     result <- writeInstallScaffold plan
     assertFileExists (resultManifestPath result)
     assertFileExists (resultInterfacePath result)
@@ -106,6 +129,8 @@ test_writeInstallScaffold =
     let renderedManifest = BL8.unpack manifest
     assertBool "manifest records setup phase" ("compile-setup" `isInfixOf` renderedManifest)
     assertBool "manifest omits GHC version" (not ("ghcVersion" `isInfixOf` renderedManifest))
+    assertBool "manifest records package key" ("packageKey" `isInfixOf` renderedManifest)
+    assertBool "manifest records dependency hashes" ("aaaaaaaa" `isInfixOf` renderedManifest)
     assertBool "manifest records source count" ("sourceFileCount" `isInfixOf` renderedManifest)
     assertBool "manifest records unimplemented phases" ("unimplemented" `isInfixOf` renderedManifest)
 

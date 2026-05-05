@@ -1,7 +1,9 @@
 module Aihc.Cli.Install
   ( ArtifactManifest (..),
     InstallResult (..),
+    PackageHash (..),
     PackagePlan (..),
+    PackageVariantKey (..),
     PhaseManifest (..),
     PhaseStatus (..),
     buildPackagePlanFromSource,
@@ -11,7 +13,7 @@ module Aihc.Cli.Install
   )
 where
 
-import Aihc.Cli.Options (InstallOptions (..))
+import Aihc.Cli.Options (DependencyVariant (..), InstallOptions (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Download qualified as HackageDownload
@@ -24,8 +26,12 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
+import Data.List (sort)
 import Data.Word (Word64)
+import Distribution.PackageDescription (genPackageFlags)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Numeric (showHex)
 import System.Directory
   ( XdgDirectory (XdgCache),
@@ -36,7 +42,7 @@ import System.Directory
 import System.FilePath (takeDirectory, (</>))
 
 data PackagePlan = PackagePlan
-  { planPackageSpec :: !PackageSpec,
+  { planPackageKey :: !PackageVariantKey,
     planSourcePath :: !FilePath,
     planCabalFile :: !FilePath,
     planSetupFile :: !(Maybe FilePath),
@@ -55,7 +61,7 @@ data InstallResult = InstallResult
   deriving (Eq, Show)
 
 data ArtifactManifest = ArtifactManifest
-  { manifestPackageSpec :: !PackageSpec,
+  { manifestPackageKey :: !PackageVariantKey,
     manifestSourcePath :: !FilePath,
     manifestCabalFile :: !FilePath,
     manifestSetupFile :: !(Maybe FilePath),
@@ -80,11 +86,25 @@ data PhaseStatus
   | Complete
   deriving (Eq, Show)
 
+newtype PackageHash = PackageHash
+  { unPackageHash :: String
+  }
+  deriving (Eq, Ord, Show)
+
+data PackageVariantKey = PackageVariantKey
+  { packageKeySpec :: !PackageSpec,
+    packageKeyHash :: !PackageHash,
+    packageKeyFlags :: ![(String, Bool)],
+    packageKeyDependencies :: ![DependencyVariant]
+  }
+  deriving (Eq, Show)
+
 instance ToJSON ArtifactManifest where
   toJSON manifest =
     object
       [ "schemaVersion" .= (1 :: Int),
-        "package" .= packageSpecValue (manifestPackageSpec manifest),
+        "package" .= packageSpecValue (packageKeySpec (manifestPackageKey manifest)),
+        "packageKey" .= packageVariantKeyValue (manifestPackageKey manifest),
         "sourcePath" .= manifestSourcePath manifest,
         "cabalFile" .= manifestCabalFile manifest,
         "setupFile" .= manifestSetupFile manifest,
@@ -122,7 +142,7 @@ runInstall opts = do
         { HackageDownload.downloadAllowNetwork = not (installOffline opts)
         }
       spec
-  plan <- buildPackagePlanFromSource storeRoot spec sourcePath
+  plan <- buildPackagePlanFromSource storeRoot spec (installDependencies opts) sourcePath
   result <- writeInstallScaffold plan
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
@@ -147,8 +167,8 @@ defaultStoreRoot = do
   cacheDir <- getXdgDirectory XdgCache "aihc"
   pure (cacheDir </> "store")
 
-buildPackagePlanFromSource :: FilePath -> PackageSpec -> FilePath -> IO PackagePlan
-buildPackagePlanFromSource storeRoot spec sourcePath = do
+buildPackagePlanFromSource :: FilePath -> PackageSpec -> [DependencyVariant] -> FilePath -> IO PackagePlan
+buildPackagePlanFromSource storeRoot spec dependencies sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
@@ -162,19 +182,20 @@ buildPackagePlanFromSource storeRoot spec sourcePath = do
   sourceFiles <- HackageCabal.collectComponentFiles gpd sourcePath
   setupFile <- findSetupFile sourcePath
   setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
-  let fingerprint =
-        stableHash
-          [ BSC.pack (pkgName spec),
-            BSC.pack (pkgVersion spec),
-            cabalBytes,
-            setupBytes,
-            BSC.pack "tools:happy,alex,c2hs:planned",
-            BSC.pack "phases:setup,configure,build,interfaces,system-fc"
-          ]
-      storePath = storeRoot </> (fingerprint <> "-" <> sanitizeName (formatPackage spec))
+  let flagAssignments = packageFlagAssignments gpd
+      sortedDependencies = sort dependencies
+      packageHash =
+        computePackageHash spec flagAssignments sortedDependencies cabalBytes setupBytes
+      storePath = storeRoot </> (unPackageHash packageHash <> "-" <> sanitizeName (formatPackage spec))
   pure
     PackagePlan
-      { planPackageSpec = spec,
+      { planPackageKey =
+          PackageVariantKey
+            { packageKeySpec = spec,
+              packageKeyHash = packageHash,
+              packageKeyFlags = flagAssignments,
+              packageKeyDependencies = sortedDependencies
+            },
         planSourcePath = sourcePath,
         planCabalFile = cabalFile,
         planSetupFile = setupFile,
@@ -191,7 +212,7 @@ writeInstallScaffold plan = do
       fcPath = storePath </> "fc" </> "package-fc.json"
       manifest =
         ArtifactManifest
-          { manifestPackageSpec = planPackageSpec plan,
+          { manifestPackageKey = planPackageKey plan,
             manifestSourcePath = planSourcePath plan,
             manifestCabalFile = planCabalFile plan,
             manifestSetupFile = planSetupFile plan,
@@ -228,7 +249,7 @@ interfacePlaceholder :: PackagePlan -> Aeson.Value
 interfacePlaceholder plan =
   object
     [ "schemaVersion" .= (1 :: Int),
-      "package" .= packageSpecValue (planPackageSpec plan),
+      "packageKey" .= packageVariantKeyValue (planPackageKey plan),
       "status" .= ("unimplemented" :: String),
       "contains" .= (["name-resolution", "types", "fixities"] :: [String])
     ]
@@ -237,7 +258,7 @@ fcPlaceholder :: PackagePlan -> Aeson.Value
 fcPlaceholder plan =
   object
     [ "schemaVersion" .= (1 :: Int),
-      "package" .= packageSpecValue (planPackageSpec plan),
+      "packageKey" .= packageVariantKeyValue (planPackageKey plan),
       "status" .= ("unimplemented" :: String),
       "contains" .= (["system-fc"] :: [String])
     ]
@@ -279,3 +300,46 @@ packageSpecValue spec =
     [ "name" .= pkgName spec,
       "version" .= pkgVersion spec
     ]
+
+packageVariantKeyValue :: PackageVariantKey -> Aeson.Value
+packageVariantKeyValue key =
+  object
+    [ "hash" .= unPackageHash (packageKeyHash key),
+      "package" .= packageSpecValue (packageKeySpec key),
+      "flags" .= map flagAssignmentValue (packageKeyFlags key),
+      "dependencies" .= map dependencyVariantValue (packageKeyDependencies key)
+    ]
+
+dependencyVariantValue :: DependencyVariant -> Aeson.Value
+dependencyVariantValue dependency =
+  object
+    [ "name" .= dependencyName dependency,
+      "version" .= dependencyVersion dependency,
+      "hash" .= dependencyHash dependency
+    ]
+
+flagAssignmentValue :: (String, Bool) -> Aeson.Value
+flagAssignmentValue (flag, enabled) =
+  object
+    [ "name" .= flag,
+      "enabled" .= enabled
+    ]
+
+packageFlagAssignments :: GenericPackageDescription -> [(String, Bool)]
+packageFlagAssignments gpd =
+  sort [(unFlagName (flagName flag), flagDefault flag) | flag <- genPackageFlags gpd]
+
+computePackageHash :: PackageSpec -> [(String, Bool)] -> [DependencyVariant] -> BS.ByteString -> BS.ByteString -> PackageHash
+computePackageHash spec flags dependencies cabalBytes setupBytes =
+  PackageHash $
+    stableHash
+      [ BSC.pack "aihc-package-hash-v1",
+        BSC.pack (pkgName spec),
+        BSC.pack (pkgVersion spec),
+        BSC.pack (show flags),
+        BSC.pack (show [(dependencyName dep, dependencyVersion dep, dependencyHash dep) | dep <- dependencies]),
+        cabalBytes,
+        setupBytes,
+        BSC.pack "tools:happy,alex,c2hs:planned",
+        BSC.pack "phases:setup,configure,build,interfaces,system-fc"
+      ]
