@@ -1694,7 +1694,27 @@ addCmdParens cmd =
 
 addCmdArrAppLhsParens :: Expr -> Expr
 addCmdArrAppLhsParens lhs =
-  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs || endsWithTypeSig lhs) (addExprParensPrec 1 lhs)
+  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs || endsWithTypeSig lhs || endsWithCmdLayoutTail lhs) (addExprParensPrec 1 lhs)
+
+-- | Arrow tails are parsed outside the expression grammar, so a command lhs that
+-- ends in a layout block needs explicit grouping even when the same expression
+-- can stay bare before ordinary expression suffixes like @::@ or @\@-type apps.
+endsWithCmdLayoutTail :: Expr -> Bool
+endsWithCmdLayoutTail = \case
+  EAnn _ sub -> endsWithCmdLayoutTail sub
+  EInfix _ _ rhs -> endsWithCmdLayoutTail rhs
+  ENegate inner -> endsWithCmdLayoutTail inner
+  EPragma _ inner -> endsWithCmdLayoutTail inner
+  EApp _ arg -> endsWithCmdLayoutBlock arg
+  _ -> False
+
+endsWithCmdLayoutBlock :: Expr -> Bool
+endsWithCmdLayoutBlock = \case
+  EAnn _ sub -> endsWithCmdLayoutBlock sub
+  EDo {} -> True
+  ELambdaCase {} -> True
+  EApp _ arg -> endsWithCmdLayoutBlock arg
+  _ -> False
 
 addCmdArrAppRhsParens :: Expr -> Expr
 addCmdArrAppRhsParens rhs =

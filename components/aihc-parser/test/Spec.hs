@@ -163,6 +163,7 @@ buildTests = do
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
+            testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1554,6 +1555,54 @@ test_viewExprArrowCommandTypeSigRhsParens = do
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_arrowCommandLhsLambdaCaseParens :: Assertion
+test_arrowCommandLhsLambdaCaseParens = do
+  let config = defaultConfig {parserExtensions = [Arrows, BlockArguments, LambdaCase]}
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              (PLit (LitInt 0 TInteger "0"))
+              ( UnguardedRhs
+                  []
+                  ( EProc
+                      (PVar (mkUnqualifiedName NameVarId "a"))
+                      ( CmdArrApp
+                          ( EApp
+                              (EList [])
+                              ( ELambdaCase
+                                  [ CaseAlt
+                                      []
+                                      (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) [] [])
+                                      (UnguardedRhs [] (EList []) Nothing)
+                                  ]
+                              )
+                          )
+                          HsFirstOrderApp
+                          (ETuple Boxed [])
+                      )
+                  )
+                  Nothing
+              )
+          )
+      parenthesized = addDeclParens decl
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+      expected =
+        T.intercalate
+          "\n"
+          [ "0 =",
+            "  proc a -> ([]",
+            "    \\case",
+            "      C ->",
+            "        []) -< ()"
+          ]
+  assertEqual "rendered declaration" expected rendered
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed declaration" (stripAnnotations parenthesized) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =
