@@ -45,6 +45,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc = {
+      src = sources.aihcSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-fmt = {
       src = sources.fmtSrc;
       disableProfiling = true;

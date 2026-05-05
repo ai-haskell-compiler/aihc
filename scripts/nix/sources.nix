@@ -63,6 +63,11 @@ in rec {
     ".yml"
   ];
 
+  aihcSrc = mkComponentSrc "/bin/aihc" [
+    ".hs"
+    ".cabal"
+  ];
+
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
     ".cabal"

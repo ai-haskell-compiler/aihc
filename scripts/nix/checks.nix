@@ -33,6 +33,7 @@
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   devTests = mkPackageTest hsPkgs.aihc-dev;
+  aihcTests = mkPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
@@ -108,6 +109,7 @@ in {
   resolve-tests = resolveTests;
   tc-tests = tcTests;
   dev-tests = devTests;
+  aihc-tests = aihcTests;
   fmt-tests = fmtTests;
   cpp-doctest = cppDoctest;
   parser-doctest = parserDoctest;
@@ -145,6 +147,10 @@ in {
     {
       name = "dev-tests";
       path = devTests;
+    }
+    {
+      name = "aihc-tests";
+      path = aihcTests;
     }
     {
       name = "fmt-tests";

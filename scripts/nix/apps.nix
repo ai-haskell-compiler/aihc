@@ -13,6 +13,7 @@
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
   tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
+  aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
   repoRootGuard = ''
     test -d components/aihc-parser || {
@@ -139,6 +140,10 @@ in {
 
   aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash hsPkgs.ghc] ''
     exec ${aihcDevExe} "$@"
+  '';
+
+  aihc = mkAppWithInputs "aihc" [pkgs.bash] ''
+    exec ${aihcExe} "$@"
   '';
 
   parser-progress-strict = mkComponentApp "parser-progress-strict" "components/aihc-parser" ''
