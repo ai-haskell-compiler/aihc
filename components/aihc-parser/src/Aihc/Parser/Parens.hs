@@ -1713,6 +1713,7 @@ endsWithCmdLayoutBlock = \case
   EAnn _ sub -> endsWithCmdLayoutBlock sub
   EDo {} -> True
   ELambdaCase {} -> True
+  ELambdaCases {} -> True
   EApp _ arg -> endsWithCmdLayoutBlock arg
   _ -> False
 
