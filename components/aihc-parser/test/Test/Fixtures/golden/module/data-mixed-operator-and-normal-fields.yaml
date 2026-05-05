@@ -2,5 +2,5 @@ extensions: []
 input: |
   data T = MkT { ($$) :: Int, (>>=) :: String, normalField :: Bool }
 ast: |-
-  Module {[DeclData (DataDecl {Prefix "T", [RecordCon {UnqualifiedName {"MkT"}, [FieldDecl {[UnqualifiedName {"$$"}], BangType {TCon "Int"}}, FieldDecl {[UnqualifiedName {">>="}], BangType {TCon "String"}}, FieldDecl {[UnqualifiedName {"normalField"}], BangType {TCon "Bool"}}]}]})]}
+  Module {[DeclData (DataDecl {Prefix "T", [RecordCon "MkT" [FieldDecl ["$$"] (TCon "Int"), FieldDecl [">>="] (TCon "String"), FieldDecl ["normalField"] (TCon "Bool")]]})]}
 status: pass

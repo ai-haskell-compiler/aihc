@@ -2,5 +2,5 @@ extensions: []
 input: |
   newtype Managed a = Managed { (>>-) :: a -> a }
 ast: |-
-  Module {[DeclNewtype (NewtypeDecl {Prefix "Managed" [TyVarBinder {"a"}], RecordCon {UnqualifiedName {"Managed"}, [FieldDecl {[UnqualifiedName {">>-"}], BangType {TFun (TVar "a") (TVar "a")}}]}})]}
+  Module {[DeclNewtype (NewtypeDecl {Prefix "Managed" [TyVarBinder {"a"}], RecordCon "Managed" [FieldDecl [">>-"] (TFun (TVar "a") (TVar "a"))]})]}
 status: pass

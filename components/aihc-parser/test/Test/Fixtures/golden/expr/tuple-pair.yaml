@@ -2,5 +2,5 @@ extensions: []
 input: |
   (a,b)
 ast: |-
-  ETuple [Just (EVar "a"), Just (EVar "b")]
+  ETuple [EVar "a", EVar "b"]
 status: pass

@@ -385,7 +385,7 @@ docDataConDecl dcd =
     InfixCon forallVars constraints lhs op rhs ->
       "InfixCon" <+> braces (hsep (punctuate comma (listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> [field "lhs" (docBangType lhs), field "op" (docUnqualifiedName op), field "rhs" (docBangType rhs)])))
     RecordCon forallVars constraints name fields' ->
-      "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docUnqualifiedName name)] <> listField "forallVars" docTyVarBinder forallVars <> listField "constraints" docType constraints <> listField "fields" docFieldDecl fields')))
+      "RecordCon" <+> hsep (docRecordConFields forallVars constraints name fields')
     GadtCon forallBinders constraints names body ->
       "GadtCon" <+> braces (hsep (punctuate comma (listField "forallBinders" docForallTelescope forallBinders <> listField "constraints" docType constraints <> listField "names" docUnqualifiedName names <> [field "body" (docGadtBody body)])))
     TupleCon forallVars constraints flavor fields' ->
@@ -420,7 +420,22 @@ docBangType bt =
 
 docFieldDecl :: FieldDecl -> Doc ann
 docFieldDecl fd =
-  "FieldDecl" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName (fieldNames fd))))), field "type" (docBangType (fieldType fd))]))
+  "FieldDecl" <+> brackets (hsep (punctuate comma (map docUnqualifiedNameText (fieldNames fd)))) <+> parens (docFieldDeclType (fieldType fd))
+
+docFieldDeclType :: BangType -> Doc ann
+docFieldDeclType bt
+  | null (bangPragmas bt),
+    not (bangStrict bt),
+    not (bangLazy bt) =
+      docType (bangType bt)
+  | otherwise = docBangType bt
+
+docRecordConFields :: [TyVarBinder] -> [Type] -> UnqualifiedName -> [FieldDecl] -> [Doc ann]
+docRecordConFields forallVars constraints name fields' =
+  docUnqualifiedNameText name
+    : listField "forallVars" docTyVarBinder forallVars
+      <> listField "constraints" docType constraints
+      <> [brackets (hsep (punctuate comma (map docFieldDecl fields')))]
 
 docDerivingClause :: DerivingClause -> Doc ann
 docDerivingClause dc =
@@ -648,9 +663,7 @@ docType ty =
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TList promoted elems ->
-      "TList"
-        <+> pretty (show promoted)
-        <+> brackets (hsep (punctuate comma (map docType elems)))
+      "TList" <+> hsep (docTypeListFields promoted elems)
     TParen inner -> "TParen" <+> parens (docType inner)
     TKindSig ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
     TContext constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docType constraints))) <+> parens (docType inner)
@@ -673,6 +686,15 @@ docFunctionTypeFields arrowKind a b =
       case arrowKind of
         ArrowUnrestricted -> []
         _ -> [docArrowKind arrowKind]
+
+docTypeListFields :: TypePromotion -> [Type] -> [Doc ann]
+docTypeListFields promoted elems =
+  promotedFields <> [brackets (hsep (punctuate comma (map docType elems)))]
+  where
+    promotedFields =
+      case promoted of
+        Unpromoted -> []
+        Promoted -> ["Promoted"]
 
 docTyVarBinder :: TyVarBinder -> Doc ann
 docTyVarBinder tvb =
@@ -858,7 +880,7 @@ docExprRecordField recordField =
 
 docMaybeExpr :: Maybe Expr -> Doc ann
 docMaybeExpr Nothing = "Nothing"
-docMaybeExpr (Just expr) = "Just" <+> parens (docExpr expr)
+docMaybeExpr (Just expr) = docExpr expr
 
 docCaseAltWith :: (body -> Doc ann) -> CaseAlt body -> Doc ann
 docCaseAltWith docBody (CaseAlt _ pat rhs) =

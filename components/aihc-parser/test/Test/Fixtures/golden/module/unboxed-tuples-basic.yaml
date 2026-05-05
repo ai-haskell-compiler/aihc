@@ -7,5 +7,5 @@ input: |
   h :: (# Int, Int #) -> (# Int, Int #)
   h t = t
 ast: |-
-  Module {ModuleHead {"UnboxedTuplesBasic"}, [UnboxedTuples], [DeclValue (PatternBind (PVar "x") (ETuple Unboxed [Just (EInt 1 TInteger), Just (EInt 2 TInteger)])), DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PTuple Unboxed [PVar "a", PVar "b"]], EVar "a"}]), DeclTypeSig ["h"] (TFun (TTuple Unboxed Unpromoted [TCon "Int", TCon "Int"]) (TTuple Unboxed Unpromoted [TCon "Int", TCon "Int"])), DeclValue (FunctionBind "h" [Match {MatchHeadPrefix, [PVar "t"], EVar "t"}])]}
+  Module {ModuleHead {"UnboxedTuplesBasic"}, [UnboxedTuples], [DeclValue (PatternBind (PVar "x") (ETuple Unboxed [EInt 1 TInteger, EInt 2 TInteger])), DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PTuple Unboxed [PVar "a", PVar "b"]], EVar "a"}]), DeclTypeSig ["h"] (TFun (TTuple Unboxed Unpromoted [TCon "Int", TCon "Int"]) (TTuple Unboxed Unpromoted [TCon "Int", TCon "Int"])), DeclValue (FunctionBind "h" [Match {MatchHeadPrefix, [PVar "t"], EVar "t"}])]}
 status: pass

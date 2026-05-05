@@ -2,5 +2,5 @@ extensions: []
 input: |
   newtype T = MkT { ($$) :: Int }
 ast: |-
-  Module {[DeclNewtype (NewtypeDecl {Prefix "T", RecordCon {UnqualifiedName {"MkT"}, [FieldDecl {[UnqualifiedName {"$$"}], BangType {TCon "Int"}}]}})]}
+  Module {[DeclNewtype (NewtypeDecl {Prefix "T", RecordCon "MkT" [FieldDecl ["$$"] (TCon "Int")]})]}
 status: pass

@@ -5,5 +5,5 @@ input: |
   x = (# 1 #)
   f (# y #) = y
 ast: |-
-  Module {ModuleHead {"UnboxedTuplesSingleton"}, [UnboxedTuples], [DeclValue (PatternBind (PVar "x") (ETuple Unboxed [Just (EInt 1 TInteger)])), DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PTuple Unboxed [PVar "y"]], EVar "y"}])]}
+  Module {ModuleHead {"UnboxedTuplesSingleton"}, [UnboxedTuples], [DeclValue (PatternBind (PVar "x") (ETuple Unboxed [EInt 1 TInteger])), DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PTuple Unboxed [PVar "y"]], EVar "y"}])]}
 status: pass
