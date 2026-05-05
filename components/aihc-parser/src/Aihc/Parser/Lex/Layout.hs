@@ -44,6 +44,8 @@ noteModuleLayoutBeforeToken st tok =
     ModuleLayoutSeekStart ->
       case lexTokenKind tok of
         TkPragma _ -> st
+        TkLineComment -> st
+        TkBlockComment -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
         _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
@@ -389,6 +391,8 @@ isBOL _ = lexTokenAtLineStart
 layoutTransition :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 layoutTransition st tok =
   case lexTokenKind tok of
+    TkLineComment -> ([tok], st)
+    TkBlockComment -> ([tok], st)
     TkEOF ->
       let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
           (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor

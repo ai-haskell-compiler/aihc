@@ -4,6 +4,7 @@ input: |
   y
 tokens:
   - 'TkVarId "x"'
+  - 'TkLineComment'
   - 'TkVarId "y"'
   - 'TkEOF'
 status: pass

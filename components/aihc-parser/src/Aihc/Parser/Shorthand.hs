@@ -1060,6 +1060,8 @@ docTokenKind kind =
     TkRecordDot -> "TkRecordDot"
     TkPragma pragma' -> "TkPragma" <+> docPragmaType (pragmaType pragma')
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
+    TkLineComment -> "TkLineComment"
+    TkBlockComment -> "TkBlockComment"
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"
     TkTHTypedQuoteOpen -> "TkTHTypedQuoteOpen"

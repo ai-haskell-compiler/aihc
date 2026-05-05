@@ -69,8 +69,8 @@ import Aihc.Parser.Lex.Quoted
     scanQuoted,
   )
 import Aihc.Parser.Lex.Trivia
-  ( consumeBlockCommentOrError,
-    consumeLineComment,
+  ( consumeBlockCommentTokenOrError,
+    consumeLineCommentToken,
     isHaskellWhitespace,
     isLineComment,
     tryConsumeControlPragma,
@@ -144,14 +144,12 @@ scanTokens :: LexerEnv -> LexerState -> [LexToken]
 scanTokens env st0 =
   case skipTrivia st0 of
     SkipToken tok st ->
-      let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-       in tok : scanTokens env st'
+      tok : scanTokens env (recordScannedToken tok st)
     SkipDone st
       | T.null (lexerInput st) -> [eofToken st]
       | otherwise ->
           let (tok, st') = nextToken env st
-              st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-           in tok : scanTokens env st''
+           in tok : scanTokens env (recordScannedToken tok st')
 
 data SkipResult = SkipDone !LexerState | SkipToken !LexToken !LexerState
 
@@ -171,7 +169,8 @@ skipTrivia = go
             _
               | Just rest <- T.stripPrefix "--" inp,
                 isLineComment rest ->
-                  go (markHadTrivia (consumeLineComment st))
+                  let (tok, st') = consumeLineCommentToken st
+                   in SkipToken tok (markHadTrivia st')
             -- Check {-# before {- so control pragmas are handled first and
             -- block comment handler does not eat pragma tokens.
             _
@@ -181,8 +180,8 @@ skipTrivia = go
                     Just (Just tok, st') -> SkipToken tok (markHadTrivia st')
                     Nothing -> SkipDone st -- not a control pragma; let nextToken handle it
               | "{-" `T.isPrefixOf` inp ->
-                  case consumeBlockCommentOrError st of
-                    Right st' -> go (markHadTrivia st')
+                  case consumeBlockCommentTokenOrError st of
+                    Right (tok, st') -> SkipToken tok (markHadTrivia st')
                     Left (tok, st') -> SkipToken tok (markHadTrivia st')
             _ ->
               case tryConsumeLineDirective st of
@@ -192,6 +191,18 @@ skipTrivia = go
 
 markHadTrivia :: LexerState -> LexerState
 markHadTrivia st = st {lexerHadTrivia = True}
+
+isCommentTokenKind :: LexTokenKind -> Bool
+isCommentTokenKind kind =
+  case kind of
+    TkLineComment -> True
+    TkBlockComment -> True
+    _ -> False
+
+recordScannedToken :: LexToken -> LexerState -> LexerState
+recordScannedToken tok st
+  | isCommentTokenKind (lexTokenKind tok) = st {lexerHadTrivia = True}
+  | otherwise = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
 
 -- | Lex a regular pragma token ({-# ... #-}).
 -- Control pragmas (LINE, COLUMN) are handled in 'skipTrivia' and never reach here.
@@ -254,8 +265,7 @@ scanOneToken :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 scanOneToken env st0 =
   case skipTrivia st0 of
     SkipToken tok st ->
-      let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-       in Just (tok, st')
+      Just (tok, recordScannedToken tok st)
     SkipDone st
       | T.null (lexerInput st) ->
           case lexerPrevTokenKind st of
@@ -266,8 +276,7 @@ scanOneToken env st0 =
                in Just (tok, st')
       | otherwise ->
           let (tok, st') = nextToken env st
-              st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-           in Just (tok, st'')
+           in Just (tok, recordScannedToken tok st')
 
 scanAllTokens :: LexerEnv -> LexerState -> [LexToken]
 scanAllTokens env st =

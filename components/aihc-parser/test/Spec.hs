@@ -110,6 +110,9 @@ buildTests = do
             testCase "sets lexTokenAtLineStart correctly" test_tokenAtLineStartWithoutDirective,
             testCase "hash line directive sets lexTokenAtLineStart" test_hashLineDirectiveSetsAtLineStart,
             testCase "hash line directive preserves layout" test_hashLineDirectivePreservesLayout,
+            testCase "comments are ignored in module headers" test_commentsIgnoredInModuleHeaders,
+            testCase "comments are ignored by layout" test_commentsIgnoredByLayout,
+            testCase "comments preserve trivia for negative literals" test_commentsPreserveTriviaForNegativeLiterals,
             testCase "indented hash-line is operator, not directive" test_indentedHashLineIsOperator,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
@@ -359,6 +362,45 @@ test_hashLineDirectivePreservesLayout =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         assertEqual "expected two declarations" 2 (length (moduleDecls modu))
+
+test_commentsIgnoredInModuleHeaders :: Assertion
+test_commentsIgnoredInModuleHeaders =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE OverloadedLabels #-}",
+            "-- comment between pragma and module header",
+            "module Test where",
+            "x = #foo"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        assertEqual "expected one declaration" 1 (length (moduleDecls modu))
+
+test_commentsIgnoredByLayout :: Assertion
+test_commentsIgnoredByLayout =
+  let source =
+        T.unlines
+          [ "module Test where",
+            "main = do",
+            "  -- comment inside layout block",
+            "  pure ()",
+            "  pure ()"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        assertEqual "expected one declaration" 1 (length (moduleDecls modu))
+
+test_commentsPreserveTriviaForNegativeLiterals :: Assertion
+test_commentsPreserveTriviaForNegativeLiterals =
+  case lexTokensWithExtensions [NegativeLiterals] "x -- comment\n-1" of
+    [ LexToken {lexTokenKind = TkVarId "x"},
+      LexToken {lexTokenKind = TkLineComment},
+      LexToken {lexTokenKind = TkInteger (-1) TInteger},
+      LexToken {lexTokenKind = TkEOF}
+      ] -> pure ()
+    other -> assertFailure ("expected comment trivia before negative literal, got: " <> show other)
 
 test_indentedHashLineIsOperator :: Assertion
 test_indentedHashLineIsOperator =
