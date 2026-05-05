@@ -18,6 +18,8 @@ readModuleHeaderExtensionsFromTokens = go
         LexToken {lexTokenKind = TkPragma Pragma {pragmaType = PragmaWarning _}} : rest -> go rest
         LexToken {lexTokenKind = TkPragma Pragma {pragmaType = PragmaDeprecated _}} : rest -> go rest
         LexToken {lexTokenKind = TkPragma Pragma {pragmaType = PragmaUnknown _}} : rest -> go rest
+        LexToken {lexTokenKind = TkLineComment} : rest -> go rest
+        LexToken {lexTokenKind = TkBlockComment} : rest -> go rest
         LexToken {lexTokenKind = TkError _} : _ -> []
         _ -> []
 

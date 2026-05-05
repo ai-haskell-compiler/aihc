@@ -214,6 +214,14 @@ pragmaFromToken tok =
     TkPragma pragma' -> Just pragma'
     _ -> Nothing
 
+isHiddenToken :: LexToken -> Bool
+isHiddenToken tok =
+  case lexTokenKind tok of
+    TkPragma _ -> True
+    TkLineComment -> True
+    TkBlockComment -> True
+    _ -> False
+
 normalizeTokStream :: TokStream -> TokStream
 normalizeTokStream ts0
   | tokStreamEOFEmitted ts0 = ts0
@@ -227,6 +235,11 @@ normalizeTokStream ts0
                 ts
                   { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest},
                     tokStreamPendingPragmas = tokStreamPendingPragmas ts <> [pragma']
+                  }
+          | isHiddenToken tok ->
+              go
+                ts
+                  { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest}
                   }
           | otherwise -> ts
         [] ->

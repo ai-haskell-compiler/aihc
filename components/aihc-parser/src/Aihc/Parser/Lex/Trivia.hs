@@ -3,8 +3,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Parser.Lex.Trivia
-  ( consumeBlockCommentOrError,
-    consumeLineComment,
+  ( consumeBlockCommentTokenOrError,
+    consumeLineCommentToken,
     isHaskellWhitespace,
     isLineComment,
     tryConsumeControlPragma,
@@ -77,29 +77,31 @@ tryConsumeControlPragma st =
            in Just (Just (mkToken st st' consumedT (TkError msg)), st')
         Nothing -> Nothing
 
-consumeLineComment :: LexerState -> LexerState
-consumeLineComment st =
+consumeLineCommentToken :: LexerState -> (LexToken, LexerState)
+consumeLineCommentToken st =
   let inp = lexerInput st
       rest = T.drop 2 inp
       consumed = "--" <> T.takeWhile (/= '\n') rest
-   in advanceChars consumed st
+      st' = advanceChars consumed st
+   in (mkToken st st' consumed TkLineComment, st')
 
-consumeBlockComment :: LexerState -> Maybe LexerState
-consumeBlockComment st =
+consumeBlockCommentToken :: LexerState -> Maybe (LexToken, LexerState)
+consumeBlockCommentToken st =
   case scanNestedBlockComment 1 (T.drop 2 (lexerInput st)) of
     Just consumedTail ->
       let consumed = "{-" <> consumedTail
           st' = advanceChars consumed st
-       in Just $
+          st'' =
             if T.any (== '\n') consumed
               then st'
               else st' {lexerAtLineStart = lexerAtLineStart st}
+       in Just (mkToken st st'' consumed TkBlockComment, st'')
     Nothing -> Nothing
 
-consumeBlockCommentOrError :: LexerState -> Either (LexToken, LexerState) LexerState
-consumeBlockCommentOrError st =
-  case consumeBlockComment st of
-    Just st' -> Right st'
+consumeBlockCommentTokenOrError :: LexerState -> Either (LexToken, LexerState) (LexToken, LexerState)
+consumeBlockCommentTokenOrError st =
+  case consumeBlockCommentToken st of
+    Just result -> Right result
     Nothing ->
       let consumed = lexerInput st
           st' = advanceChars consumed st

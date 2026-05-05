@@ -171,6 +171,8 @@ data LexTokenKind
   | TkTHTypedSplice
   | -- Other
     TkQuasiQuote Text Text
+  | TkLineComment
+  | TkBlockComment
   | TkError Text
   | TkEOF
   deriving (Eq, Ord, Show, Read, Generic, NFData)

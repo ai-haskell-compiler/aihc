@@ -1,0 +1,6 @@
+extensions: []
+input: "{- outer {- inner -} outer -}"
+tokens:
+  - 'TkBlockComment'
+  - 'TkEOF'
+status: pass
