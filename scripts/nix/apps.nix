@@ -142,7 +142,7 @@ in {
     exec ${aihcDevExe} "$@"
   '';
 
-  aihc = mkAppWithInputs "aihc" [pkgs.bash hsPkgs.ghc] ''
+  aihc = mkAppWithInputs "aihc" [pkgs.bash] ''
     exec ${aihcExe} "$@"
   '';
 

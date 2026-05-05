@@ -87,8 +87,8 @@ assertHelp other =
 test_stableStorePath :: Assertion
 test_stableStorePath =
   withFixturePackage $ \sourceRoot storeRoot -> do
-    plan1 <- buildPackagePlanFromSource storeRoot "9.12.4" (PackageSpec "demo" "0.1.0.0") sourceRoot
-    plan2 <- buildPackagePlanFromSource storeRoot "9.12.4" (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan1 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan2 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
     assertEqual "store path" (planStorePath plan1) (planStorePath plan2)
     assertBool "store path includes package" ("demo-0_1_0_0" `isInfixOf` takeFileName (planStorePath plan1))
     assertBool "store path starts below root" (storeRoot `isPrefixOf` planStorePath plan1)
@@ -96,7 +96,7 @@ test_stableStorePath =
 test_writeInstallScaffold :: Assertion
 test_writeInstallScaffold =
   withFixturePackage $ \sourceRoot storeRoot -> do
-    plan <- buildPackagePlanFromSource storeRoot "9.12.4" (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
     result <- writeInstallScaffold plan
     assertFileExists (resultManifestPath result)
     assertFileExists (resultInterfacePath result)
@@ -105,6 +105,7 @@ test_writeInstallScaffold =
     manifest <- BL8.readFile (resultManifestPath result)
     let renderedManifest = BL8.unpack manifest
     assertBool "manifest records setup phase" ("compile-setup" `isInfixOf` renderedManifest)
+    assertBool "manifest omits GHC version" (not ("ghcVersion" `isInfixOf` renderedManifest))
     assertBool "manifest records source count" ("sourceFileCount" `isInfixOf` renderedManifest)
     assertBool "manifest records unimplemented phases" ("unimplemented" `isInfixOf` renderedManifest)
 

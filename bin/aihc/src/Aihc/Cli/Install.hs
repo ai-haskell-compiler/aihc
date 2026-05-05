@@ -34,7 +34,6 @@ import System.Directory
     getXdgDirectory,
   )
 import System.FilePath (takeDirectory, (</>))
-import System.Process (readProcess)
 
 data PackagePlan = PackagePlan
   { planPackageSpec :: !PackageSpec,
@@ -43,7 +42,6 @@ data PackagePlan = PackagePlan
     planSetupFile :: !(Maybe FilePath),
     planStoreRoot :: !FilePath,
     planStorePath :: !FilePath,
-    planGhcVersion :: !String,
     planSourceFileCount :: !Int
   }
   deriving (Eq, Show)
@@ -58,7 +56,6 @@ data InstallResult = InstallResult
 
 data ArtifactManifest = ArtifactManifest
   { manifestPackageSpec :: !PackageSpec,
-    manifestGhcVersion :: !String,
     manifestSourcePath :: !FilePath,
     manifestCabalFile :: !FilePath,
     manifestSetupFile :: !(Maybe FilePath),
@@ -88,7 +85,6 @@ instance ToJSON ArtifactManifest where
     object
       [ "schemaVersion" .= (1 :: Int),
         "package" .= packageSpecValue (manifestPackageSpec manifest),
-        "ghcVersion" .= manifestGhcVersion manifest,
         "sourcePath" .= manifestSourcePath manifest,
         "cabalFile" .= manifestCabalFile manifest,
         "setupFile" .= manifestSetupFile manifest,
@@ -126,8 +122,7 @@ runInstall opts = do
         { HackageDownload.downloadAllowNetwork = not (installOffline opts)
         }
       spec
-  ghcVersion <- getGhcVersion
-  plan <- buildPackagePlanFromSource storeRoot ghcVersion spec sourcePath
+  plan <- buildPackagePlanFromSource storeRoot spec sourcePath
   result <- writeInstallScaffold plan
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
@@ -152,8 +147,8 @@ defaultStoreRoot = do
   cacheDir <- getXdgDirectory XdgCache "aihc"
   pure (cacheDir </> "store")
 
-buildPackagePlanFromSource :: FilePath -> String -> PackageSpec -> FilePath -> IO PackagePlan
-buildPackagePlanFromSource storeRoot ghcVersion spec sourcePath = do
+buildPackagePlanFromSource :: FilePath -> PackageSpec -> FilePath -> IO PackagePlan
+buildPackagePlanFromSource storeRoot spec sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
@@ -171,7 +166,6 @@ buildPackagePlanFromSource storeRoot ghcVersion spec sourcePath = do
         stableHash
           [ BSC.pack (pkgName spec),
             BSC.pack (pkgVersion spec),
-            BSC.pack ghcVersion,
             cabalBytes,
             setupBytes,
             BSC.pack "tools:happy,alex,c2hs:planned",
@@ -186,7 +180,6 @@ buildPackagePlanFromSource storeRoot ghcVersion spec sourcePath = do
         planSetupFile = setupFile,
         planStoreRoot = storeRoot,
         planStorePath = storePath,
-        planGhcVersion = ghcVersion,
         planSourceFileCount = length sourceFiles
       }
 
@@ -199,7 +192,6 @@ writeInstallScaffold plan = do
       manifest =
         ArtifactManifest
           { manifestPackageSpec = planPackageSpec plan,
-            manifestGhcVersion = planGhcVersion plan,
             manifestSourcePath = planSourcePath plan,
             manifestCabalFile = planCabalFile plan,
             manifestSetupFile = planSetupFile plan,
@@ -263,11 +255,6 @@ findSetupFile sourcePath = do
         if setupLhsExists
           then Just setupLhs
           else Nothing
-
-getGhcVersion :: IO String
-getGhcVersion = trimTrailingNewline <$> readProcess "ghc" ["--numeric-version"] ""
-  where
-    trimTrailingNewline = reverse . dropWhile (== '\n') . reverse
 
 stableHash :: [BS.ByteString] -> String
 stableHash chunks =
