@@ -82,16 +82,24 @@ conOperatorParser =
 -- @Con (-0)@ — the @-@ is not valid inside an @apat@.
 appPatternParser :: TokParser Pattern
 appPatternParser =
-  negativeLiteralPatternParser <|> do
-    withSpan $ do
-      first <- patternAtomParser
-      if isPatternAppHead first
-        then do
-          args <- MP.many patternAtomParser
-          case args of
-            [] -> pure (const first)
-            _ -> pure (\span' -> PAnn (mkAnnotation span') (foldl buildPatternApp first args))
-        else pure (const first)
+  negativeLiteralPatternParser
+    <|> withSpanAnn
+      annotateAppPattern
+      ( do
+          first <- patternAtomParser
+          if isPatternAppHead first
+            then do
+              args <- MP.many patternAtomParser
+              case args of
+                [] -> pure first
+                _ -> pure (foldl buildPatternApp first args)
+            else pure first
+      )
+  where
+    annotateAppPattern span' pat =
+      case peelPatternAnn pat of
+        PCon _ _ (_ : _) -> PAnn (mkAnnotation span') pat
+        _ -> pat
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =

@@ -678,13 +678,14 @@ contextItemsParserWith typeParser typeAtomParser =
   MP.try parenthesizedContextItemsParser <|> fmap pure (contextItemParserWith typeParser typeAtomParser)
   where
     parenthesizedContextItemsParser = do
-      withSpan $ do
+      withSpanAnn annotateParenthesizedItems $ do
         items <- parens (contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
         guardNotFollowedByConstraintInfixOp
         case items of
           [] -> fail "empty constraint list in parens"
-          [item] -> pure (\span' -> [typeAnnSpan span' (TParen item)])
-          _ -> pure (const items)
+          _ -> pure items
+    annotateParenthesizedItems span' [item] = [typeAnnSpan span' (TParen item)]
+    annotateParenthesizedItems _ items = items
     guardNotFollowedByConstraintInfixOp = do
       isFollowed <-
         fmap (either (const False) (const True))
