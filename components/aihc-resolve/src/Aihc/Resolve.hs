@@ -28,6 +28,7 @@ import Aihc.Parser.Syntax
   ( ArithSeq (..),
     ArrowKind (..),
     BangType (..),
+    BinderHead (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -59,7 +60,6 @@ import Aihc.Parser.Syntax
     Type (..),
     UnqualifiedName,
     ValueDecl (..),
-    binderHeadName,
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
@@ -68,6 +68,7 @@ import Aihc.Parser.Syntax
     recordFieldName,
     recordFieldValue,
     renderUnqualifiedName,
+    unqualifiedNameAnns,
   )
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
@@ -260,10 +261,10 @@ resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveTopLevelDecls _ [] = pure []
 resolveTopLevelDecls signatureScopes (decl : rest) = do
   scope <- currentScope
-  emitAnnotations (topLevelIntroducedNameAnnotations scope decl)
   (signatureScopes', decl') <- resolveBindingDecl (flip topLevelBinderAnnotation) signatureScopes decl
+  let decl'' = annotateTopLevelIntroducedNames scope decl'
   decls' <- resolveTopLevelDecls signatureScopes' rest
-  pure (decl' : decls')
+  pure (decl'' : decls')
 
 resolveBindingGroup :: BindingAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBindingGroup _ _ [] = pure []
@@ -1009,73 +1010,115 @@ declBinderCandidate decl =
           Just (spanStartNameSpan outerSp (renderUnqualifiedName name), name)
         _ -> Nothing
 
-topLevelIntroducedNameAnnotations :: Scope -> Decl -> [ResolutionAnnotation]
-topLevelIntroducedNameAnnotations scope decl =
-  case peelDeclSpan NoSourceSpan decl of
-    (declSpan, DeclClass classDecl) -> [classAnnotation scope declSpan classDecl]
-    (declSpan, DeclTypeData dataDecl) -> dataDeclAnnotations declSpan "type data " dataDecl
-    (declSpan, DeclData dataDecl) -> dataDeclAnnotations declSpan "data " dataDecl
-    (declSpan, DeclNewtype newtypeDecl) ->
-      let span' = declSpan
-          typeName = binderHeadName (newtypeDeclHead newtypeDecl)
-          typeAnnotation =
-            ResolutionAnnotation
-              (declKeywordNameSpan "newtype " span' (renderUnqualifiedName typeName))
-              (renderUnqualifiedName typeName)
-              ResolutionNamespaceType
-              (resolveTopLevelType scope typeName)
-          constructorAnnotations =
-            maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
-       in typeAnnotation : constructorAnnotations
-    _ -> []
+annotateTopLevelIntroducedNames :: Scope -> Decl -> Decl
+annotateTopLevelIntroducedNames scope =
+  go NoSourceSpan
   where
-    dataDeclAnnotations declSpan keyword dataDecl =
-      let span' = declSpan
-          typeName = binderHeadName (dataDeclHead dataDecl)
-          typeAnnotation =
-            ResolutionAnnotation
-              (declKeywordNameSpan keyword span' (renderUnqualifiedName typeName))
-              (renderUnqualifiedName typeName)
-              ResolutionNamespaceType
-              (resolveTopLevelType scope typeName)
-       in typeAnnotation : map (dataConAnnotation scope) (dataDeclConstructors dataDecl)
+    go ambient current =
+      case current of
+        DeclAnn ann inner -> DeclAnn ann (go (pushSpanFromAnn ambient ann) inner)
+        DeclClass classDecl ->
+          DeclClass (annotateClassDeclName scope ambient classDecl)
+        DeclTypeData dataDecl ->
+          DeclTypeData (annotateDataDeclNames scope ambient "type data " dataDecl)
+        DeclData dataDecl ->
+          DeclData (annotateDataDeclNames scope ambient "data " dataDecl)
+        DeclNewtype newtypeDecl ->
+          DeclNewtype (annotateNewtypeDeclNames scope ambient newtypeDecl)
+        _ -> current
 
-classAnnotation :: Scope -> SourceSpan -> ClassDecl -> ResolutionAnnotation
-classAnnotation scope declSpan classDecl =
-  let className = binderHeadName (classDeclHead classDecl)
-      span' = declSpan
-   in ResolutionAnnotation
-        (declKeywordNameSpan "class " span' (renderUnqualifiedName className))
-        (renderUnqualifiedName className)
-        ResolutionNamespaceType
-        (resolveTopLevelType scope className)
+annotateClassDeclName :: Scope -> SourceSpan -> ClassDecl -> ClassDecl
+annotateClassDeclName scope declSpan classDecl =
+  classDecl
+    { classDeclHead =
+        annotateBinderHeadName
+          (classNameAnnotation scope declSpan (classDeclHead classDecl))
+          (classDeclHead classDecl)
+    }
+
+annotateDataDeclNames :: Scope -> SourceSpan -> Text -> DataDecl -> DataDecl
+annotateDataDeclNames scope declSpan keyword dataDecl =
+  dataDecl
+    { dataDeclHead =
+        annotateBinderHeadName
+          (dataDeclNameAnnotation scope keyword declSpan (dataDeclHead dataDecl))
+          (dataDeclHead dataDecl),
+      dataDeclConstructors = map (annotateDataConDeclName scope) (dataDeclConstructors dataDecl)
+    }
+
+annotateNewtypeDeclNames :: Scope -> SourceSpan -> NewtypeDecl -> NewtypeDecl
+annotateNewtypeDeclNames scope declSpan newtypeDecl =
+  newtypeDecl
+    { newtypeDeclHead =
+        annotateBinderHeadName
+          (newtypeDeclNameAnnotation scope declSpan (newtypeDeclHead newtypeDecl))
+          (newtypeDeclHead newtypeDecl),
+      newtypeDeclConstructor = annotateDataConDeclName scope <$> newtypeDeclConstructor newtypeDecl
+    }
+
+annotateBinderHeadName :: (UnqualifiedName -> ResolutionAnnotation) -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
+annotateBinderHeadName annotationFor head' =
+  case head' of
+    PrefixBinderHead name params ->
+      PrefixBinderHead (annotateUnqualifiedName (annotationFor name) name) params
+    InfixBinderHead lhs name rhs params ->
+      InfixBinderHead lhs (annotateUnqualifiedName (annotationFor name) name) rhs params
+
+annotateDataConDeclName :: Scope -> DataConDecl -> DataConDecl
+annotateDataConDeclName scope =
+  go NoSourceSpan
+  where
+    go ambient current =
+      case current of
+        DataConAnn ann inner -> DataConAnn ann (go (pushSpanFromAnn ambient ann) inner)
+        PrefixCon forallVars context name bangTypes ->
+          PrefixCon forallVars context (annotateTopLevelName ambient name) bangTypes
+        RecordCon forallVars context name fields ->
+          RecordCon forallVars context (annotateTopLevelName ambient name) fields
+        InfixCon forallVars context lhs name rhs ->
+          InfixCon forallVars context lhs (annotateTopLevelName ambient name) rhs
+        GadtCon forallVars context names body ->
+          GadtCon forallVars context (map (annotateTopLevelName ambient) names) body
+        TupleCon {} -> current
+        UnboxedSumCon {} -> current
+        ListCon {} -> current
+
+    annotateTopLevelName span' name =
+      annotateUnqualifiedName (topLevelNameAnnotation scope span' name) name
+
+annotateUnqualifiedName :: ResolutionAnnotation -> UnqualifiedName -> UnqualifiedName
+annotateUnqualifiedName annotation name =
+  name {unqualifiedNameAnns = mkAnnotation annotation : unqualifiedNameAnns name}
+
+classNameAnnotation :: Scope -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
+classNameAnnotation scope declSpan _ name =
+  ResolutionAnnotation
+    (declKeywordNameSpan "class " declSpan (renderUnqualifiedName name))
+    (renderUnqualifiedName name)
+    ResolutionNamespaceType
+    (resolveTopLevelType scope name)
+
+dataDeclNameAnnotation :: Scope -> Text -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
+dataDeclNameAnnotation scope keyword declSpan _ name =
+  ResolutionAnnotation
+    (declKeywordNameSpan keyword declSpan (renderUnqualifiedName name))
+    (renderUnqualifiedName name)
+    ResolutionNamespaceType
+    (resolveTopLevelType scope name)
+
+newtypeDeclNameAnnotation :: Scope -> SourceSpan -> BinderHead UnqualifiedName -> UnqualifiedName -> ResolutionAnnotation
+newtypeDeclNameAnnotation scope declSpan _ name =
+  ResolutionAnnotation
+    (declKeywordNameSpan "newtype " declSpan (renderUnqualifiedName name))
+    (renderUnqualifiedName name)
+    ResolutionNamespaceType
+    (resolveTopLevelType scope name)
 
 resolveTopLevelType :: Scope -> UnqualifiedName -> ResolvedName
 resolveTopLevelType scope name = lookupType (renderUnqualifiedName name) scope
 
 resolveTopLevelTerm :: Scope -> UnqualifiedName -> ResolvedName
 resolveTopLevelTerm scope name = lookupTerm (renderUnqualifiedName name) scope
-
-dataConAnnotation :: Scope -> DataConDecl -> ResolutionAnnotation
-dataConAnnotation scope dataConDecl =
-  let span' = peelDataConSpan NoSourceSpan dataConDecl
-      go d =
-        case d of
-          DataConAnn _ inner -> go inner
-          PrefixCon _ _ name _ -> topLevelNameAnnotation scope span' name
-          RecordCon _ _ name _ -> topLevelNameAnnotation scope span' name
-          InfixCon _ _ _ name _ -> topLevelNameAnnotation scope span' name
-          GadtCon _ _ names _ ->
-            case names of
-              name : _ -> topLevelNameAnnotation scope span' name
-              [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
-          TupleCon _ _ flavor fields ->
-            topLevelNameAnnotation scope span' (tupleConName flavor (length fields))
-          UnboxedSumCon _ _ pos arity _ ->
-            topLevelNameAnnotation scope span' (unboxedSumConName pos arity)
-          ListCon {} ->
-            topLevelNameAnnotation scope span' listConName
-   in go dataConDecl
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
 topLevelNameAnnotation scope span' name =

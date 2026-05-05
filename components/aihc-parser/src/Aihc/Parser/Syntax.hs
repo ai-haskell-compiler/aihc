@@ -671,13 +671,16 @@ data Name = Name
     -- | Whether this is a variable, constructor, or operator
     nameType :: NameType,
     -- | The local name (e.g., @\"map\"@, @\".+.\"@)
-    nameText :: Text
+    nameText :: Text,
+    -- | Metadata attached to this name occurrence.
+    nameAnns :: [Annotation]
   }
   deriving (Eq, Show, Generic, NFData, Data)
 
 data UnqualifiedName = UnqualifiedName
   { unqualifiedNameType :: NameType,
-    unqualifiedNameText :: Text
+    unqualifiedNameText :: Text,
+    unqualifiedNameAnns :: [Annotation]
   }
   deriving (Eq, Show, Generic, NFData, Data)
 
@@ -694,18 +697,18 @@ data NameType
   deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
 
 mkName :: Maybe Text -> NameType -> Text -> Name
-mkName = Name
+mkName qualifier ty txt = Name qualifier ty txt []
 
 mkQualifiedName :: UnqualifiedName -> Maybe Text -> Name
 mkQualifiedName name qualifier =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name)
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name)
 
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name)
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name)
 
 mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
-mkUnqualifiedName = UnqualifiedName
+mkUnqualifiedName ty txt = UnqualifiedName ty txt []
 
 renderName :: Name -> Text
 renderName name =
@@ -725,7 +728,7 @@ instance IsString UnqualifiedName where
 nameFromText :: Text -> Name
 nameFromText txt =
   let (qualifier, localName) = splitQualifiedIdentifierText txt
-   in Name qualifier (inferNameType localName) localName
+   in Name qualifier (inferNameType localName) localName []
   where
     splitQualifiedIdentifierText fullName =
       case T.splitOn "." fullName of
@@ -750,7 +753,7 @@ nameFromText txt =
             Nothing -> False
 
 unqualifiedNameFromText :: Text -> UnqualifiedName
-unqualifiedNameFromText txt = UnqualifiedName (inferNameType txt) txt
+unqualifiedNameFromText txt = UnqualifiedName (inferNameType txt) txt []
 
 inferNameType :: Text -> NameType
 inferNameType localName
@@ -1802,6 +1805,8 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
         `extT` sClassDeclItem
         `extT` sInstanceDeclItem
         `extT` sCmd
+        `extT` sName
+        `extT` sUnqualifiedName
         `extT` sExportSpec
         `extT` sImportItem
         `extT` sAnnotations
@@ -1862,6 +1867,12 @@ stripAnnotations x = applyStrip (gmapT stripAnnotations x)
     sCmd :: Cmd -> Cmd
     sCmd (CmdAnn _ c) = c
     sCmd c = c
+
+    sName :: Name -> Name
+    sName name = name {nameAnns = []}
+
+    sUnqualifiedName :: UnqualifiedName -> UnqualifiedName
+    sUnqualifiedName name = name {unqualifiedNameAnns = []}
 
     sExportSpec :: ExportSpec -> ExportSpec
     sExportSpec (ExportAnn _ e) = e

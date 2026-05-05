@@ -29,7 +29,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     SourceSpan (..),
     Type (..),
-    UnqualifiedName,
+    UnqualifiedName (..),
     fromAnnotation,
     moduleName,
     renderName,
@@ -171,6 +171,8 @@ ownAnnotation node =
   declResolution (cast node)
     <> classDeclItemResolution (cast node)
     <> importResolution (cast node)
+    <> nameResolution (cast node)
+    <> unqualifiedNameResolution (cast node)
     <> patternResolution (cast node)
     <> typeResolution (cast node)
     <> exprResolution (cast node)
@@ -191,6 +193,18 @@ importResolution :: Maybe ImportDecl -> [ResolutionAnnotation]
 importResolution maybeImport =
   case maybeImport of
     Just importDecl -> importResolutionAnnotations importDecl
+    _ -> []
+
+nameResolution :: Maybe Name -> [ResolutionAnnotation]
+nameResolution maybeName =
+  case maybeName of
+    Just name -> mapMaybe fromAnnotation (nameAnns name)
+    _ -> []
+
+unqualifiedNameResolution :: Maybe UnqualifiedName -> [ResolutionAnnotation]
+unqualifiedNameResolution maybeName =
+  case maybeName of
+    Just name -> mapMaybe fromAnnotation (unqualifiedNameAnns name)
     _ -> []
 
 patternResolution :: Maybe Pattern -> [ResolutionAnnotation]
