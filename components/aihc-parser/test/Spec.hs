@@ -162,6 +162,7 @@ buildTests = do
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
+            testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
@@ -1493,6 +1494,29 @@ test_viewExprAppliedTypeSigParens = do
       parenthesized = addPatternParens pat
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
   assertEqual "rendered pattern" "(([]\n  (if a then a else []\n   :: 'C -> C))\n -> C)" rendered
+  case parsePattern config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_viewExprArrowCommandTypeSigRhsParens :: Assertion
+test_viewExprArrowCommandTypeSigRhsParens = do
+  let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
+      pat =
+        PView
+          ( EProc
+              (PVar (mkUnqualifiedName NameVarId "a"))
+              ( CmdArrApp
+                  (ETuple Boxed [])
+                  HsHigherOrderApp
+                  (ETypeSig (ECharHash '7' "'7'#") (TQuasiQuote "a" ""))
+              )
+          )
+          (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "C")) [] False)
+      parenthesized = addPatternParens pat
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+  assertEqual "rendered pattern" "((proc a -> () -<< ('7'#\n :: [a||]))\n -> C {})" rendered
   case parsePattern config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)

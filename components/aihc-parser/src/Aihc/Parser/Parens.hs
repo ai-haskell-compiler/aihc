@@ -1653,7 +1653,7 @@ addCmdParens cmd =
   case cmd of
     CmdAnn ann inner -> CmdAnn ann (addCmdParens inner)
     CmdArrApp lhs appTy rhs ->
-      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addExprParens rhs)
+      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addCmdArrAppRhsParens rhs)
     CmdInfix l op r ->
       CmdInfix (wrapCmdInfixLhs (addCmdParens l)) op (wrapCmdInfixRhs (addCmdParens r))
     CmdDo stmts ->
@@ -1693,6 +1693,10 @@ addCmdParens cmd =
 addCmdArrAppLhsParens :: Expr -> Expr
 addCmdArrAppLhsParens lhs =
   wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs || endsWithTypeSig lhs) (addExprParensPrec 1 lhs)
+
+addCmdArrAppRhsParens :: Expr -> Expr
+addCmdArrAppRhsParens rhs =
+  wrapExpr (endsWithTypeSig rhs) (addExprParens rhs)
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
