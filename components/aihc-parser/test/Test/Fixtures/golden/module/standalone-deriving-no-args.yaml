@@ -1,6 +1,6 @@
 extensions: []
 input: |
   deriving instance Foo
-ast: |
-  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {head = TCon "Foo"})]}
+ast: |-
+  Module {[DeclStandaloneDeriving (StandaloneDerivingDecl {TCon "Foo"})]}
 status: pass

@@ -1,0 +1,71 @@
+cabal-version: 3.8
+name: aihc-fmt
+version: 0.1.0.0
+build-type: Simple
+license: MIT
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: Haskell formatter based on aihc-parser
+
+library
+  exposed-modules:
+    Aihc.Fmt
+    Aihc.Fmt.CLI
+    Aihc.Fmt.Comment
+
+  hs-source-dirs: src
+  build-depends:
+    aihc-parser,
+    base >=4.16 && <5,
+    containers,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    process,
+    text >=1.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable aihc-fmt
+  hs-source-dirs: app/aihc-fmt
+  main-is: Main.hs
+  build-depends:
+    aihc-fmt,
+    base >=4.16 && <5,
+    text,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  other-modules:
+    Test.Fmt.CLI
+    Test.Fmt.Golden
+
+  build-depends:
+    aeson,
+    aihc-fmt,
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    process,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+    yaml,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  default-language: GHC2021

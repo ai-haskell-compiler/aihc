@@ -129,7 +129,7 @@ exprDeclParser = DeclSplice <$> exprParser
 -- - @::@ → standalone kind signature (must have zero type parameters)
 -- - @=@ → type synonym
 typeDeclarationParser :: TokParser Decl
-typeDeclarationParser = do
+typeDeclarationParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   typeHead <- typeDeclHeadParser
   nextTok <- anySingle

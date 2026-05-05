@@ -1,0 +1,35 @@
+extensions: []
+input: |
+  {-# LANGUAGE OverloadedStrings #-}
+  module Main where
+  name = "x"
+formatters:
+  aihc-fmt:
+    status: pass
+    output: |
+      {-# LANGUAGE OverloadedStrings #-}
+      module Main where
+      name =
+        "x"
+  ormolu:
+    status: pass
+    output: |
+      {-# LANGUAGE OverloadedStrings #-}
+
+      module Main where
+
+      name = "x"
+  hindent:
+    status: pass
+    output: |
+      {-# LANGUAGE OverloadedStrings #-}
+
+      module Main where
+
+      name = "x"
+  stylish-haskell:
+    status: pass
+    output: |
+      {-# LANGUAGE OverloadedStrings #-}
+      module Main where
+      name = "x"

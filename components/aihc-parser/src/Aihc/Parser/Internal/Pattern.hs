@@ -93,7 +93,7 @@ buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
     PCon name typeArgs args ->
       PAnn
-        (mkAnnotation (mergeSourceSpans (getPatternSourceSpan lhs) (getPatternSourceSpan rhs)))
+        (mkAnnotation NoSourceSpan)
         (PCon name typeArgs (args <> [rhs]))
     _ -> lhs
 

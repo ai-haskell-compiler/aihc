@@ -1,5 +1,6 @@
 extensions: []
 input: |
   case x of Foo { bar = baz } -> baz
-ast: ECase (EVar "x") [CaseAlt (PRecord "Foo" {"bar" = PVar "baz"}) (UnguardedRhs (EVar "baz"))]
+ast: |-
+  ECase (EVar "x") [CaseAlt (PRecord "Foo" {"bar" = PVar "baz"}) (EVar "baz")]
 status: pass

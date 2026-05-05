@@ -44,6 +44,12 @@ import Test.Properties.Identifiers
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
+import Test.Properties.ShorthandSubset
+  ( prop_shorthandDeclSubsetOfShow,
+    prop_shorthandExprSubsetOfShow,
+    prop_shorthandModuleSubsetOfShow,
+    prop_shorthandTypeSubsetOfShow,
+  )
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
 import Test.QuickCheck.Gen qualified as QGen
@@ -180,7 +186,11 @@ buildTests = do
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated module AST validator" prop_moduleValidator,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
-              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
+              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
+              QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
+              QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
+              QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
+              QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow
             ],
         oracle,
         extensionMappingTests,

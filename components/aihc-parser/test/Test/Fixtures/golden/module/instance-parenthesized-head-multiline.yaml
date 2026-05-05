@@ -15,5 +15,5 @@ input: |
     where
       collect value = List.reverse [value]
 status: pass
-ast: |
-  Module {name = "ParenthesizedInstanceHead", imports = [ImportDecl {module = "Data.List", qualified = True, as = "List"}], decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Collect", params = [TyVarBinder {name = "a"}], items = [ClassItemTypeSig {names = ["collect"], type = TFun ArrowUnrestricted (TVar "a") (TList [TVar "a"])}]}), DeclData (DataDecl {name = "Box", params = [TyVarBinder {name = "a"}], constructors = [PrefixCon {name = "Box", fields = [BangType {type = TVar "a"}]}]}), DeclInstance (InstanceDecl {context = [TApp (TCon "Eq") (TVar "a")], head = TParen (TApp (TCon "Collect") (TParen (TApp (TCon "Box") (TVar "a")))), items = [InstanceItemBind (FunctionBind "collect" [Match {headForm = Prefix, pats = [PVar "value"], rhs = UnguardedRhs (EApp (EVar "List.reverse") (EList [EVar "value"]))}])]})]}
+ast: |-
+  Module {ModuleHead {"ParenthesizedInstanceHead"}, [ImportDecl {"Data.List", True, "List"}], [DeclClass (ClassDecl {Prefix "Collect" [TyVarBinder {"a"}], [ClassItemTypeSig {[UnqualifiedName {"collect"}], TFun (TVar "a") (TList [TVar "a"])}]}), DeclData (DataDecl {Prefix "Box" [TyVarBinder {"a"}], [PrefixCon {UnqualifiedName {"Box"}, [BangType {TVar "a"}]}]}), DeclInstance (InstanceDecl {[TApp (TCon "Eq") (TVar "a")], TParen (TApp (TCon "Collect") (TParen (TApp (TCon "Box") (TVar "a")))), [InstanceItemBind (FunctionBind "collect" [Match {MatchHeadPrefix, [PVar "value"], EApp (EVar "List" "reverse") (EList [EVar "value"])}])]})]}

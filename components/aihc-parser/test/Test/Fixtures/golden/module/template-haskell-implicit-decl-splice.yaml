@@ -4,5 +4,6 @@ input: |
   module TH_Implicit_Decl_Splice where
 
   return []
-ast: Module {name = "TH_Implicit_Decl_Splice", languagePragmas = [EnableExtension TemplateHaskell], decls = [DeclSplice (EApp (EVar "return") (EList []))]}
+ast: |-
+  Module {ModuleHead {"TH_Implicit_Decl_Splice"}, [TemplateHaskell], [DeclSplice (EApp (EVar "return") (EList []))]}
 status: pass

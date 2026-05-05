@@ -1,5 +1,6 @@
 extensions: [ViewPatterns]
 input: |
   [a -> b -> c]
-ast: PList [PView (EVar "a") (PView (EVar "b") (PVar "c"))]
+ast: |-
+  PList [PView (EVar "a") (PView (EVar "b") (PVar "c"))]
 status: pass

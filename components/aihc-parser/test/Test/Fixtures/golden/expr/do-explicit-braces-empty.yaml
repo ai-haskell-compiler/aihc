@@ -1,6 +1,6 @@
 extensions: []
 input: |
   do {}
-ast: ""
+ast: |-
 status: fail
 reason: empty do blocks are invalid

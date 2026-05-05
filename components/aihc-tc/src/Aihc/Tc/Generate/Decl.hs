@@ -35,7 +35,6 @@ import Aihc.Parser.Syntax
     binderHeadParams,
     fromAnnotation,
     gadtBodyResultType,
-    getDeclSourceSpan,
     peelDeclAnn,
     peelTypeHead,
     tyVarBinderName,
@@ -52,7 +51,7 @@ import Control.Monad (zipWithM)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 
 -- | Merge concrete source spans embedded in a list of annotations.
@@ -61,6 +60,11 @@ sourceSpanFromAnns anns =
   case mapMaybe (fromAnnotation @SourceSpan) anns of
     [] -> NoSourceSpan
     s : _ -> s
+
+peelDeclSpan :: SourceSpan -> Decl -> SourceSpan
+peelDeclSpan ambient (DeclAnn ann inner) =
+  peelDeclSpan (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
+peelDeclSpan ambient _ = ambient
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult
@@ -199,7 +203,7 @@ extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) ->
-      let sp = getDeclSourceSpan decl
+      let sp = peelDeclSpan NoSourceSpan decl
        in Just (sp, name, matches)
     _ -> Nothing
 

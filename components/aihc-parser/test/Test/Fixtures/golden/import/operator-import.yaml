@@ -3,7 +3,7 @@ extensions:
 input: |
   import Data.Type.Equality ((:~~:)(..))
 status: pass
-ast: |
+ast: |-
   Module
     { moduleSpan = SourceSpan 1 1 1 43
     , moduleHeader = Nothing
