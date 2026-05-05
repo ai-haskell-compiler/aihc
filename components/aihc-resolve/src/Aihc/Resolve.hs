@@ -421,14 +421,14 @@ resolveDeclCore scope nextLocal lastSeen decl =
     DeclTypeSig names ty ->
       let ty' = resolveTypeAt scope lastSeen ty
        in (nextLocal, DeclTypeSig names ty')
-    DeclStandaloneKindSig name ty ->
-      (nextLocal, DeclStandaloneKindSig name (resolveTypeAt scope lastSeen ty))
+    DeclStandaloneKindSig {} ->
+      (nextLocal, annotateUnhandledDecl lastSeen decl)
     DeclTypeData dataDecl ->
       (nextLocal, DeclTypeData (resolveDataDecl scope dataDecl))
     DeclData dataDecl ->
       (nextLocal, DeclData (resolveDataDecl scope dataDecl))
-    DeclTypeSyn typeSynDecl ->
-      (nextLocal, DeclTypeSyn (typeSynDecl {typeSynBody = resolveTypeAt scope lastSeen (typeSynBody typeSynDecl)}))
+    DeclTypeSyn {} ->
+      (nextLocal, annotateUnhandledDecl lastSeen decl)
     DeclSplice expr ->
       let (nextLocal', expr') = resolveExprAt scope nextLocal lastSeen expr
        in (nextLocal', DeclSplice expr')
@@ -1246,17 +1246,6 @@ topLevelDeclAnnotations decl scope =
           constructorAnnotations =
             maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
        in typeAnnotation : constructorAnnotations
-    (declSpan, DeclTypeSyn typeSynDecl) ->
-      let typeName = binderHeadName (typeSynHead typeSynDecl)
-       in case declSpan of
-            NoSourceSpan -> []
-            _ ->
-              [ ResolutionAnnotation
-                  (declKeywordNameSpan "type " declSpan (renderUnqualifiedName typeName))
-                  (renderUnqualifiedName typeName)
-                  ResolutionNamespaceType
-                  (resolveTopLevelType scope typeName)
-              ]
     _ -> []
   where
     dataDeclAnnotations declSpan keyword dataDecl =
