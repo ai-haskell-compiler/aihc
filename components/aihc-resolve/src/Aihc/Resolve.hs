@@ -144,7 +144,84 @@ unhandledSyntaxAnnotation namespace span' node =
 
 annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
 annotateUnhandledDecl span' decl =
-  annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' decl) decl
+  annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm (unhandledDeclSpan span' decl) decl) decl
+
+unhandledDeclSpan :: SourceSpan -> Decl -> SourceSpan
+unhandledDeclSpan ambient decl =
+  case ambient of
+    NoSourceSpan ->
+      case decl of
+        DeclStandaloneKindSig _ ty -> sourceLineStartSpan (typeSpanRange ty)
+        DeclTypeSyn typeSynDecl -> sourceLineStartSpan (typeSpanRange (typeSynBody typeSynDecl))
+        _ -> NoSourceSpan
+    _ -> ambient
+
+typeSpanRange :: Type -> SourceSpan
+typeSpanRange ty =
+  rangeSourceSpans (typeSourceSpans ty)
+
+typeSourceSpans :: Type -> [SourceSpan]
+typeSourceSpans ty =
+  case ty of
+    TAnn ann inner ->
+      maybeToList (fromAnnotation ann) <> typeSourceSpans inner
+    TVar {} -> []
+    TCon {} -> []
+    TBuiltinCon {} -> []
+    TImplicitParam _ inner -> typeSourceSpans inner
+    TTypeLit {} -> []
+    TStar -> []
+    TQuasiQuote {} -> []
+    TForall telescope inner ->
+      concatMap (maybe [] typeSourceSpans . tyVarBinderKind) (forallTelescopeBinders telescope)
+        <> typeSourceSpans inner
+    TApp left right -> typeSourceSpans left <> typeSourceSpans right
+    TTypeApp left right -> typeSourceSpans left <> typeSourceSpans right
+    TInfix left _ _ right -> typeSourceSpans left <> typeSourceSpans right
+    TFun arrowKind left right -> arrowKindSourceSpans arrowKind <> typeSourceSpans left <> typeSourceSpans right
+    TTuple _ _ items -> concatMap typeSourceSpans items
+    TUnboxedSum items -> concatMap typeSourceSpans items
+    TList _ items -> concatMap typeSourceSpans items
+    TParen inner -> typeSourceSpans inner
+    TKindSig inner kind -> typeSourceSpans inner <> typeSourceSpans kind
+    TContext constraints inner -> concatMap typeSourceSpans constraints <> typeSourceSpans inner
+    TSplice {} -> []
+    TWildcard -> []
+
+arrowKindSourceSpans :: ArrowKind -> [SourceSpan]
+arrowKindSourceSpans arrowKind =
+  case arrowKind of
+    ArrowUnrestricted -> []
+    ArrowLinear -> []
+    ArrowExplicit ty -> typeSourceSpans ty
+
+rangeSourceSpans :: [SourceSpan] -> SourceSpan
+rangeSourceSpans spans =
+  case filter (/= NoSourceSpan) spans of
+    [] -> NoSourceSpan
+    firstSpan : rest -> foldl' mergeSourceSpan firstSpan rest
+
+mergeSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+mergeSourceSpan left right =
+  case (left, right) of
+    (SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset, SourceSpan _ startLine' startCol' endLine' endCol' startOffset' endOffset') ->
+      SourceSpan
+        sourceName
+        (min startLine startLine')
+        (if startLine < startLine' then startCol else min startCol startCol')
+        (max endLine endLine')
+        (if endLine > endLine' then endCol else max endCol endCol')
+        (min startOffset startOffset')
+        (max endOffset endOffset')
+    (NoSourceSpan, span') -> span'
+    (span', NoSourceSpan) -> span'
+
+sourceLineStartSpan :: SourceSpan -> SourceSpan
+sourceLineStartSpan span' =
+  case span' of
+    SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset ->
+      SourceSpan sourceName startLine 1 endLine endCol (startOffset - max 0 (startCol - 1)) endOffset
+    NoSourceSpan -> NoSourceSpan
 
 annotateUnhandledClassDeclItem :: SourceSpan -> ClassDeclItem -> ClassDeclItem
 annotateUnhandledClassDeclItem span' item =
@@ -379,14 +456,18 @@ resolveTopLevelDecl scope nextLocal signatureScopes decl =
    in (nextLocal', signatureScopes', (extras, decl''))
 
 resolveDeclWithSignatureScope :: Scope -> Int -> Map.Map Text Scope -> Decl -> (Int, Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScope scope nextLocal signatureScopes decl =
+resolveDeclWithSignatureScope scope nextLocal signatureScopes =
+  resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes NoSourceSpan
+
+resolveDeclWithSignatureScopeAt :: Scope -> Int -> Map.Map Text Scope -> SourceSpan -> Decl -> (Int, Map.Map Text Scope, Decl)
+resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes ambient decl =
   case decl of
     DeclAnn ann inner ->
       let (nextLocal', signatureScopes', inner') =
-            resolveDeclWithSignatureScope scope nextLocal signatureScopes inner
+            resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes (pushSpanFromAnn ambient ann) inner
        in (nextLocal', signatureScopes', DeclAnn ann inner')
     DeclTypeSig names ty ->
-      let (nextLocal', binderScope, ty') = resolveTypeSignature scope nextLocal ty
+      let (nextLocal', binderScope, ty') = resolveTypeSignatureAt scope nextLocal ambient ty
           signatureScopes' =
             foldl'
               (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
@@ -394,7 +475,7 @@ resolveDeclWithSignatureScope scope nextLocal signatureScopes decl =
               names
        in (nextLocal', signatureScopes', DeclTypeSig names ty')
     _ ->
-      let (nextLocal', decl') = resolveDecl scope nextLocal decl
+      let (nextLocal', decl') = resolveDeclGo scope nextLocal ambient decl
           signatureScopes' =
             case declBinderCandidate decl of
               Just (_, name) -> Map.delete (renderUnqualifiedName name) signatureScopes
