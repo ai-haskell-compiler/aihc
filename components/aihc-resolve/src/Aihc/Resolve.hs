@@ -27,13 +27,17 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    ArithSeq (..),
+    ArrowKind (..),
     BangType (..),
     BinderHead,
+    CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    DoStmt (..),
     Expr (..),
     FieldDecl (..),
     ForallTelescope (..),
@@ -45,6 +49,7 @@ import Aihc.Parser.Syntax
     ImportItem (..),
     ImportLevel (..),
     ImportSpec (..),
+    LambdaCaseAlt (..),
     Match (..),
     Module (..),
     Name (..),
@@ -76,7 +81,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Data.Bifunctor
-import Data.Data (Data, cast, gmapQ)
+import Data.Data (Data, cast, gmapQ, showConstr, toConstr)
 import Data.List (find, mapAccumL)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
@@ -128,6 +133,30 @@ rhsSpan rhs =
   case rhs of
     UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
     GuardedRhss anns _ _ -> sourceSpanFromAnns anns
+
+unhandledSyntaxAnnotation :: (Data a) => ResolutionNamespace -> SourceSpan -> a -> ResolutionAnnotation
+unhandledSyntaxAnnotation namespace span' node =
+  ResolutionAnnotation
+    span'
+    (T.pack (showConstr (toConstr node)))
+    namespace
+    (ResolvedError "unhandled syntax")
+
+annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
+annotateUnhandledDecl span' decl =
+  annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' decl) decl
+
+annotateUnhandledExpr :: SourceSpan -> Expr -> Expr
+annotateUnhandledExpr span' expr =
+  annotateExpr (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' expr) expr
+
+annotateUnhandledPattern :: SourceSpan -> Pattern -> Pattern
+annotateUnhandledPattern span' pat =
+  annotatePattern (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' pat) pat
+
+annotateUnhandledType :: SourceSpan -> Type -> Type
+annotateUnhandledType span' ty =
+  annotateType (unhandledSyntaxAnnotation ResolutionNamespaceType span' ty) ty
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
@@ -374,23 +403,21 @@ resolveDeclGo scope nextLocal lastSeen decl =
 resolveDeclCore :: Scope -> Int -> SourceSpan -> Decl -> (Int, Decl)
 resolveDeclCore scope nextLocal lastSeen decl =
   case decl of
+    DeclAnn ann inner ->
+      resolveDeclCore scope nextLocal (pushSpanFromAnn lastSeen ann) inner
     DeclValue valueDecl ->
-      case valueDecl of
-        FunctionBind name matches ->
-          let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
-              (nextLocal', matches') = mapAccumL (resolveMatch scope ambient) nextLocal matches
-           in (nextLocal', DeclValue (FunctionBind name matches'))
-        PatternBind multTag pat rhs ->
-          let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
-              (nextLocal', rhs') = resolveRhs scope nextLocal ambient rhs
-           in (nextLocal', DeclValue (PatternBind multTag pat rhs'))
+      second DeclValue (resolveValueDecl scope lastSeen nextLocal valueDecl)
     DeclTypeSig names ty ->
       let ty' = resolveTypeAt scope lastSeen ty
        in (nextLocal, DeclTypeSig names ty')
+    DeclStandaloneKindSig name ty ->
+      (nextLocal, DeclStandaloneKindSig name (resolveTypeAt scope lastSeen ty))
     DeclTypeData dataDecl ->
       (nextLocal, DeclTypeData (resolveDataDecl scope dataDecl))
     DeclData dataDecl ->
       (nextLocal, DeclData (resolveDataDecl scope dataDecl))
+    DeclTypeSyn typeSynDecl ->
+      (nextLocal, DeclTypeSyn (typeSynDecl {typeSynBody = resolveTypeAt scope lastSeen (typeSynBody typeSynDecl)}))
     DeclSplice expr ->
       let (nextLocal', expr') = resolveExprAt scope nextLocal lastSeen expr
        in (nextLocal', DeclSplice expr')
@@ -403,7 +430,55 @@ resolveDeclCore scope nextLocal lastSeen decl =
               }
           )
       )
-    _ -> (nextLocal, decl)
+    DeclClass classDecl ->
+      (nextLocal, DeclClass (resolveClassDecl scope lastSeen classDecl))
+    DeclDefault tys ->
+      (nextLocal, DeclDefault (map (resolveTypeAt scope lastSeen) tys))
+    DeclFixity {} -> (nextLocal, decl)
+    DeclRoleAnnotation {} -> (nextLocal, decl)
+    DeclPragma {} -> (nextLocal, decl)
+    DeclPatSyn {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclPatSynSig {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclInstance {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclStandaloneDeriving {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclForeign {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclTypeFamilyDecl {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclDataFamilyDecl {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclTypeFamilyInst {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclDataFamilyInst {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+
+resolveValueDecl :: Scope -> SourceSpan -> Int -> ValueDecl -> (Int, ValueDecl)
+resolveValueDecl scope lastSeen nextLocal valueDecl =
+  case valueDecl of
+    FunctionBind name matches ->
+      let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
+          (nextLocal', matches') = mapAccumL (resolveMatch scope ambient) nextLocal matches
+       in (nextLocal', FunctionBind name matches')
+    PatternBind multTag pat rhs ->
+      let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
+          pat' = resolvePatternSyntax scope ambient pat
+          (nextLocal', rhs') = resolveRhs scope nextLocal ambient rhs
+       in (nextLocal', PatternBind multTag pat' rhs')
+
+resolveClassDecl :: Scope -> SourceSpan -> ClassDecl -> ClassDecl
+resolveClassDecl scope lastSeen classDecl =
+  classDecl
+    { classDeclContext = fmap (map (resolveTypeAt scope lastSeen)) (classDeclContext classDecl),
+      classDeclItems = map (resolveClassDeclItem scope lastSeen) (classDeclItems classDecl)
+    }
+
+resolveClassDeclItem :: Scope -> SourceSpan -> ClassDeclItem -> ClassDeclItem
+resolveClassDeclItem scope lastSeen classDeclItem =
+  case classDeclItem of
+    ClassItemAnn ann inner -> ClassItemAnn ann (resolveClassDeclItem scope (pushSpanFromAnn lastSeen ann) inner)
+    ClassItemTypeSig names ty -> ClassItemTypeSig names (resolveTypeAt scope lastSeen ty)
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (resolveTypeAt scope lastSeen ty)
+    ClassItemDefault valueDecl -> ClassItemDefault (snd (resolveValueDecl scope lastSeen 0 valueDecl))
+    ClassItemFixity {} -> classDeclItem
+    ClassItemPragma {} -> classDeclItem
+    ClassItemTypeFamilyDecl {} -> classDeclItem
+    ClassItemDataFamilyDecl {} -> classDeclItem
+    ClassItemDefaultTypeInst {} -> classDeclItem
 
 resolveMatch :: Scope -> SourceSpan -> Int -> Match -> (Int, Match)
 resolveMatch scope ambient nextLocal match =
@@ -492,12 +567,40 @@ resolveExprAt scope nextLocal lastSeen expr =
               (ResolutionAnnotation sp (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
               (EVar name)
           )
+    ETypeSyntax form ty ->
+      let here = peelExprSpan lastSeen expr
+       in (nextLocal, ETypeSyntax form (resolveTypeAt scope here ty))
+    EInt {} -> (nextLocal, expr)
+    EFloat {} -> (nextLocal, expr)
+    EChar {} -> (nextLocal, expr)
+    ECharHash {} -> (nextLocal, expr)
+    EString {} -> (nextLocal, expr)
+    EStringHash {} -> (nextLocal, expr)
+    EOverloadedLabel {} -> (nextLocal, expr)
     EIf cond trueBranch falseBranch ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', cond') = resolveExprAt scope nextLocal here cond
           (nextLocal'', trueBranch') = resolveExprAt scope nextLocal' here trueBranch
           (nextLocal''', falseBranch') = resolveExprAt scope nextLocal'' here falseBranch
        in (nextLocal''', EIf cond' trueBranch' falseBranch')
+    EMultiWayIf guardedRhss ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', guardedRhss') = mapAccumL (resolveGuardedRhs scope here) nextLocal guardedRhss
+       in (nextLocal', EMultiWayIf guardedRhss')
+    ELambdaPats pats body ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', patScope, pats') = bindPatterns scope here nextLocal pats
+          scoped = unionScope patScope scope
+          (nextLocal'', body') = resolveExprAt scoped nextLocal' here body
+       in (nextLocal'', ELambdaPats pats' body')
+    ELambdaCase alts ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', alts') = mapAccumL (resolveCaseAlt scope here) nextLocal alts
+       in (nextLocal', ELambdaCase alts')
+    ELambdaCases alts ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', alts') = mapAccumL (resolveLambdaCaseAlt scope here) nextLocal alts
+       in (nextLocal', ELambdaCases alts')
     EInfix left op right ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', left') = resolveExprAt scope nextLocal here left
@@ -522,17 +625,49 @@ resolveExprAt scope nextLocal lastSeen expr =
           (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
           (nextLocal''', body') = resolveExprAt scoped nextLocal'' here body
        in (nextLocal''', ELetDecls decls' body')
+    ECase scrutinee alts ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', scrutinee') = resolveExprAt scope nextLocal here scrutinee
+          (nextLocal'', alts') = mapAccumL (resolveCaseAlt scope here) nextLocal' alts
+       in (nextLocal'', ECase scrutinee' alts')
+    EArithSeq arithSeq ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', arithSeq') = resolveArithSeq scope here nextLocal arithSeq
+       in (nextLocal', EArithSeq arithSeq')
+    ERecordCon name fields wildcard ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', fields') = resolveRecordFields scope here nextLocal fields
+       in (nextLocal', ERecordCon name fields' wildcard)
+    ERecordUpd record fields ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', record') = resolveExprAt scope nextLocal here record
+          (nextLocal'', fields') = resolveRecordFields scope here nextLocal' fields
+       in (nextLocal'', ERecordUpd record' fields')
+    EGetField record name ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', record') = resolveExprAt scope nextLocal here record
+       in (nextLocal', EGetField record' name)
+    EGetFieldProjection {} -> (nextLocal, expr)
     ETypeSig inner ty ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
        in (nextLocal', ETypeSig inner' (resolveTypeAt scope here ty))
-    ETypeSyntax form ty ->
-      let here = peelExprSpan lastSeen expr
-       in (nextLocal, ETypeSyntax form (resolveTypeAt scope here ty))
     EParen inner ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
        in (nextLocal', EParen inner')
+    EList items ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', items') = mapAccumL (\current item -> resolveExprAt scope current here item) nextLocal items
+       in (nextLocal', EList items')
+    ETuple flavor items ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', items') = mapAccumL (resolveMaybeExprAt scope here) nextLocal items
+       in (nextLocal', ETuple flavor items')
+    EUnboxedSum alt arity inner ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
+       in (nextLocal', EUnboxedSum alt arity inner')
     ETypeApp fun ty ->
       let here = peelExprSpan lastSeen expr
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
@@ -542,7 +677,112 @@ resolveExprAt scope nextLocal lastSeen expr =
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
           (nextLocal'', arg') = resolveExprAt scope nextLocal' here arg
        in (nextLocal'', EApp fun' arg')
-    _ -> (nextLocal, expr)
+    ETHSplice inner ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
+       in (nextLocal', ETHSplice inner')
+    ETHTypedSplice inner ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
+       in (nextLocal', ETHTypedSplice inner')
+    EPragma pragma inner ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
+       in (nextLocal', EPragma pragma inner')
+    EDo stmts flavor ->
+      let here = peelExprSpan lastSeen expr
+          (nextLocal', _, stmts') = resolveDoStmts scope here nextLocal stmts
+       in (nextLocal', EDo stmts' flavor)
+    EQuasiQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    EListComp {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    EListCompParallel {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHExpQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHTypedQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHDeclQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHTypeQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHPatQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHNameQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    ETHTypeNameQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+    EProc {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+
+resolveMaybeExprAt :: Scope -> SourceSpan -> Int -> Maybe Expr -> (Int, Maybe Expr)
+resolveMaybeExprAt _ _ nextLocal Nothing = (nextLocal, Nothing)
+resolveMaybeExprAt scope here nextLocal (Just inner) =
+  second Just (resolveExprAt scope nextLocal here inner)
+
+resolveCaseAlt :: Scope -> SourceSpan -> Int -> CaseAlt Expr -> (Int, CaseAlt Expr)
+resolveCaseAlt scope ambient nextLocal alt =
+  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (caseAltAnns alt))
+      (nextLocal', patScope, pat') = bindPattern scope here nextLocal (caseAltPattern alt)
+      scoped = unionScope patScope scope
+      (nextLocal'', rhs') = resolveRhs scoped nextLocal' here (caseAltRhs alt)
+   in (nextLocal'', alt {caseAltPattern = pat', caseAltRhs = rhs'})
+
+resolveLambdaCaseAlt :: Scope -> SourceSpan -> Int -> LambdaCaseAlt -> (Int, LambdaCaseAlt)
+resolveLambdaCaseAlt scope ambient nextLocal alt =
+  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (lambdaCaseAltAnns alt))
+      (nextLocal', patScope, pats') = bindPatterns scope here nextLocal (lambdaCaseAltPats alt)
+      scoped = unionScope patScope scope
+      (nextLocal'', rhs') = resolveRhs scoped nextLocal' here (lambdaCaseAltRhs alt)
+   in (nextLocal'', alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'})
+
+resolveRecordFields :: Scope -> SourceSpan -> Int -> [RecordField Expr] -> (Int, [RecordField Expr])
+resolveRecordFields scope here =
+  mapAccumL
+    ( \current field ->
+        let (nextLocal, value') = resolveExprAt scope current here (recordFieldValue field)
+         in (nextLocal, field {recordFieldValue = value'})
+    )
+
+resolveDoStmts :: Scope -> SourceSpan -> Int -> [DoStmt Expr] -> (Int, Scope, [DoStmt Expr])
+resolveDoStmts scope _ nextLocal [] = (nextLocal, scope, [])
+resolveDoStmts scope here nextLocal (stmt : rest) =
+  let (nextLocal', scope', stmt') = resolveDoStmt scope here nextLocal stmt
+      (nextLocal'', scope'', rest') = resolveDoStmts scope' here nextLocal' rest
+   in (nextLocal'', scope'', stmt' : rest')
+
+resolveDoStmt :: Scope -> SourceSpan -> Int -> DoStmt Expr -> (Int, Scope, DoStmt Expr)
+resolveDoStmt scope here nextLocal stmt =
+  case stmt of
+    DoAnn ann inner ->
+      let (nextLocal', scope', inner') = resolveDoStmt scope (pushSpanFromAnn here ann) nextLocal inner
+       in (nextLocal', scope', DoAnn ann inner')
+    DoExpr body ->
+      let (nextLocal', body') = resolveExprAt scope nextLocal here body
+       in (nextLocal', scope, DoExpr body')
+    DoBind pat body ->
+      let (nextLocal', body') = resolveExprAt scope nextLocal here body
+          (nextLocal'', patScope, pat') = bindPattern scope here nextLocal' pat
+       in (nextLocal'', unionScope patScope scope, DoBind pat' body')
+    DoLetDecls decls ->
+      let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
+          scoped = unionScope localScope scope
+          (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
+       in (nextLocal'', scoped, DoLetDecls decls')
+    DoRecStmt stmts ->
+      let (nextLocal', _, stmts') = resolveDoStmts scope here nextLocal stmts
+       in (nextLocal', scope, DoRecStmt stmts')
+
+resolveArithSeq :: Scope -> SourceSpan -> Int -> ArithSeq -> (Int, ArithSeq)
+resolveArithSeq scope here nextLocal arithSeq =
+  case arithSeq of
+    ArithSeqAnn ann inner ->
+      second (ArithSeqAnn ann) (resolveArithSeq scope (pushSpanFromAnn here ann) nextLocal inner)
+    ArithSeqFrom from ->
+      second ArithSeqFrom (resolveExprAt scope nextLocal here from)
+    ArithSeqFromThen from then' ->
+      let (nextLocal', from') = resolveExprAt scope nextLocal here from
+          (nextLocal'', then'') = resolveExprAt scope nextLocal' here then'
+       in (nextLocal'', ArithSeqFromThen from' then'')
+    ArithSeqFromTo from to ->
+      let (nextLocal', from') = resolveExprAt scope nextLocal here from
+          (nextLocal'', to') = resolveExprAt scope nextLocal' here to
+       in (nextLocal'', ArithSeqFromTo from' to')
+    ArithSeqFromThenTo from then' to ->
+      let (nextLocal', from') = resolveExprAt scope nextLocal here from
+          (nextLocal'', then'') = resolveExprAt scope nextLocal' here then'
+          (nextLocal''', to') = resolveExprAt scope nextLocal'' here to
+       in (nextLocal''', ArithSeqFromThenTo from' then'' to')
 
 resolveBoundDecl :: Scope -> Map.Map Text ResolutionAnnotation -> Int -> Decl -> (Int, Decl)
 resolveBoundDecl scope binderAnnotations nextLocal decl =
@@ -613,10 +853,16 @@ bindPattern typeScope lastSeen nextLocal pat =
     PTypeSyntax form ty ->
       let here = peelPatternSpan lastSeen pat
        in (nextLocal, emptyScope, PTypeSyntax form (resolveTypeAt typeScope here ty))
+    PWildcard -> (nextLocal, emptyScope, pat)
+    PLit {} -> (nextLocal, emptyScope, pat)
     PTuple flavor pats ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
        in (nextLocal', scope, PTuple flavor pats')
+    PUnboxedSum alt arity inner ->
+      let here = peelPatternSpan lastSeen pat
+          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
+       in (nextLocal', scope, PUnboxedSum alt arity inner')
     PList pats ->
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
@@ -632,8 +878,9 @@ bindPattern typeScope lastSeen nextLocal pat =
        in (nextLocal'', unionScope rightScope leftScope, PInfix left' name right')
     PView expr inner ->
       let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PView expr inner')
+          (nextLocal', expr') = resolveExprAt typeScope nextLocal here expr
+          (nextLocal'', scope, inner') = bindPattern typeScope here nextLocal' inner
+       in (nextLocal'', scope, PView expr' inner')
     PAs alias inner ->
       let here = peelPatternSpan lastSeen pat
           aliasKey = renderUnqualifiedName alias
@@ -671,7 +918,56 @@ bindPattern typeScope lastSeen nextLocal pat =
       let here = peelPatternSpan lastSeen pat
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
        in (nextLocal', scope, PTypeSig inner' (resolveTypeAt typeScope here ty))
-    _ -> (nextLocal, emptyScope, pat)
+    PNegLit {} -> (nextLocal, emptyScope, pat)
+    PSplice expr ->
+      let here = peelPatternSpan lastSeen pat
+          (nextLocal', expr') = resolveExprAt typeScope nextLocal here expr
+       in (nextLocal', emptyScope, PSplice expr')
+    PQuasiQuote {} -> (nextLocal, emptyScope, annotateUnhandledPattern (peelPatternSpan lastSeen pat) pat)
+
+resolvePatternSyntax :: Scope -> SourceSpan -> Pattern -> Pattern
+resolvePatternSyntax scope lastSeen pat =
+  case pat of
+    PAnn ann inner ->
+      resolvePatternSyntax scope (pushSpanFromAnn lastSeen ann) inner
+    PVar {} -> pat
+    PTypeBinder binder ->
+      PTypeBinder (binder {tyVarBinderKind = fmap (resolveTypeAt scope lastSeen) (tyVarBinderKind binder)})
+    PTypeSyntax form ty ->
+      PTypeSyntax form (resolveTypeAt scope lastSeen ty)
+    PWildcard -> pat
+    PLit {} -> pat
+    PQuasiQuote {} -> annotateUnhandledPattern (peelPatternSpan lastSeen pat) pat
+    PTuple flavor pats ->
+      PTuple flavor (map (resolvePatternSyntax scope lastSeen) pats)
+    PUnboxedSum alt arity inner ->
+      PUnboxedSum alt arity (resolvePatternSyntax scope lastSeen inner)
+    PList pats ->
+      PList (map (resolvePatternSyntax scope lastSeen) pats)
+    PCon name typeArgs pats ->
+      PCon name (map (resolveTypeAt scope lastSeen) typeArgs) (map (resolvePatternSyntax scope lastSeen) pats)
+    PInfix left name right ->
+      PInfix (resolvePatternSyntax scope lastSeen left) name (resolvePatternSyntax scope lastSeen right)
+    PView expr inner ->
+      PView (snd (resolveExprAt scope 0 lastSeen expr)) (resolvePatternSyntax scope lastSeen inner)
+    PAs alias inner ->
+      PAs alias (resolvePatternSyntax scope lastSeen inner)
+    PStrict inner ->
+      PStrict (resolvePatternSyntax scope lastSeen inner)
+    PIrrefutable inner ->
+      PIrrefutable (resolvePatternSyntax scope lastSeen inner)
+    PNegLit {} -> pat
+    PParen inner ->
+      PParen (resolvePatternSyntax scope lastSeen inner)
+    PRecord name fields wildcard ->
+      PRecord
+        name
+        (map (\field -> field {recordFieldValue = resolvePatternSyntax scope lastSeen (recordFieldValue field)}) fields)
+        wildcard
+    PTypeSig inner ty ->
+      PTypeSig (resolvePatternSyntax scope lastSeen inner) (resolveTypeAt scope lastSeen ty)
+    PSplice expr ->
+      PSplice (snd (resolveExprAt scope 0 lastSeen expr))
 
 bindRecordWildcardFields :: Scope -> Int -> Name -> [RecordField Pattern] -> Bool -> (Int, [(Text, ResolvedName)])
 bindRecordWildcardFields scope nextLocal conName fields wildcard
@@ -744,9 +1040,12 @@ resolveTypeAt scope lastSeen ty =
        in annotateType
             (ResolutionAnnotation sp (nameText name) ResolutionNamespaceType (resolveTypeName scope name))
             (TCon name promoted)
+    TBuiltinCon {} -> ty
     TImplicitParam name inner ->
       let here = lastSeen
        in TImplicitParam name (resolveTypeAt scope here inner)
+    TTypeLit {} -> ty
+    TStar -> ty
     TForall telescope inner ->
       let here = lastSeen
           (binderScope, binders') = bindTyVarBinders scope (forallTelescopeBinders telescope)
@@ -755,9 +1054,15 @@ resolveTypeAt scope lastSeen ty =
     TApp left right ->
       let here = lastSeen
        in TApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+    TTypeApp left right ->
+      let here = lastSeen
+       in TTypeApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+    TInfix left name promoted right ->
+      let here = lastSeen
+       in TInfix (resolveTypeAt scope here left) name promoted (resolveTypeAt scope here right)
     TFun arrowKind left right ->
       let here = lastSeen
-       in TFun arrowKind (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+       in TFun (resolveArrowKind scope here arrowKind) (resolveTypeAt scope here left) (resolveTypeAt scope here right)
     TTuple flavor promoted items ->
       let here = lastSeen
        in TTuple flavor promoted (map (resolveTypeAt scope here) items)
@@ -779,7 +1084,15 @@ resolveTypeAt scope lastSeen ty =
     TSplice expr ->
       let here = lastSeen
        in TSplice (snd (resolveExprAt scope 0 here expr))
-    _ -> ty
+    TWildcard -> ty
+    TQuasiQuote {} -> annotateUnhandledType lastSeen ty
+
+resolveArrowKind :: Scope -> SourceSpan -> ArrowKind -> ArrowKind
+resolveArrowKind scope here arrowKind =
+  case arrowKind of
+    ArrowUnrestricted -> arrowKind
+    ArrowLinear -> arrowKind
+    ArrowExplicit ty -> ArrowExplicit (resolveTypeAt scope here ty)
 
 resolveScopedTypeVarAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> Maybe ResolutionAnnotation
 resolveScopedTypeVarAnnotation scope span' name =
@@ -922,6 +1235,17 @@ topLevelDeclAnnotations decl scope =
           constructorAnnotations =
             maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
        in typeAnnotation : constructorAnnotations
+    (declSpan, DeclTypeSyn typeSynDecl) ->
+      let typeName = binderHeadName (typeSynHead typeSynDecl)
+       in case declSpan of
+            NoSourceSpan -> []
+            _ ->
+              [ ResolutionAnnotation
+                  (declKeywordNameSpan "type " declSpan (renderUnqualifiedName typeName))
+                  (renderUnqualifiedName typeName)
+                  ResolutionNamespaceType
+                  (resolveTopLevelType scope typeName)
+              ]
     _ -> []
   where
     dataDeclAnnotations declSpan keyword dataDecl =

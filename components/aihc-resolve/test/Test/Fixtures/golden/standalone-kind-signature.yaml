@@ -9,6 +9,8 @@ modules:
     x = 42
 expected:
   Main:
+    - "2:18-2:22 Type => (type) Error unbound"
+    - "2:26-2:30 Type => (type) Error unbound"
     - "4:1-4:2 x => (value) Main.x"
     - "4:6-4:14 Identity => (type) Main.Identity"
     - "4:15-4:18 Int => (type) Error unbound"
@@ -17,6 +19,8 @@ annotated:
   - |
     module Main where
     type Identity :: Type -> Type
+                     │       └─ t Error unbound
+                     └─ t Error unbound
     type Identity a = a
     x :: Identity Int
     │    │        └─ t Error unbound

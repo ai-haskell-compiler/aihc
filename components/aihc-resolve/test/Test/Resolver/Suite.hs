@@ -162,5 +162,37 @@ resolveErrorsTests =
             assertEqual
               "missing module imports should remain annotated and also populate resolveErrors"
               1
+              (length actual),
+      testCase "collects unhandled declarations into ResolveResult" $ do
+        let source = "module Main where\ndata A = A\ninstance Show A where\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "DeclInstance" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled declarations should remain annotated and also populate resolveErrors"
+              1
+              (length actual),
+      testCase "collects unhandled expressions into ResolveResult" $ do
+        let source = "module Main where\nx = [y | y <- ys]\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "EListComp" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled expressions should remain annotated and also populate resolveErrors"
+              1
               (length actual)
     ]
