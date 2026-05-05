@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 59/59         |
+| DataKinds                 |   🟢    | 60/60         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
@@ -84,8 +84,8 @@
 | TypeAbstractions          |   🟢    | 5/5           |
 | TypeApplications          |   🟢    | 12/12         |
 | TypeData                  |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 58/58         |
-| TypeFamilyDependencies    |   🟢    | 3/3           |
+| TypeFamilies              |   🟢    | 60/60         |
+| TypeFamilyDependencies    |   🟢    | 4/4           |
 | TypeOperators             |   🟢    | 70/70         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 8/8           |
