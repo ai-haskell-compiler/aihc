@@ -121,7 +121,7 @@ convertSurfaceType tvMap ty = case peeledTy of
           Just tvId -> TcTyVar tvId
           Nothing -> TcTyCon (TyCon n 0) []
   TCon name _ ->
-    TcTyCon (TyCon (nameText name) 0) []
+    namedTypeCon (nameText name)
   TApp {} ->
     -- Collect the full application chain to get the arity right.
     let (headTy, args) = collectTApps peeledTy
@@ -143,6 +143,12 @@ convertSurfaceType tvMap ty = case peeledTy of
         n = length tys
         tc = TyCon ("(" <> mconcat (replicate (n - 1) ",") <> ")") n
      in TcTyCon tc tys
+  TList _ args ->
+    case args of
+      [arg] ->
+        listType (convertSurfaceType tvMap arg)
+      _ ->
+        TcMetaTv (Unique (-1))
   _ -> TcMetaTv (Unique (-1))
   where
     peeledTy = peelTypeHead ty
@@ -153,6 +159,13 @@ collectTApps ty = go ty []
   where
     go (TApp f a) acc = go (peelTypeHead f) (a : acc)
     go t acc = (t, acc)
+
+namedTypeCon :: Text -> TcType
+namedTypeCon "String" = listType (TcTyCon (TyCon "Char" 0) [])
+namedTypeCon name = TcTyCon (TyCon name 0) []
+
+listType :: TcType -> TcType
+listType ty = TcTyCon (TyCon "[]" 1) [ty]
 
 -- | Convert a surface type signature to a TypeScheme.
 -- Free type variables become universally quantified type variables.
@@ -235,6 +248,7 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
 -- constraints using the signature's skolems as given equalities.
 tcFunctionWithSig :: Text -> Text -> TypeScheme -> [Match] -> TcM [TcBindingResult]
 tcFunctionWithSig displayName name scheme matches = do
+  extendTermEnvPermanent name (TcIdBinder name scheme)
   -- Open the scheme with skolems (not metas) for checking.
   sigTy <- skolemize scheme
   let nArgs = case matches of
@@ -250,7 +264,6 @@ tcFunctionWithSig displayName name scheme matches = do
   -- Report the declared scheme as the binding's type.
   let declaredTy = schemeToType scheme
   zonkedTy <- zonkType declaredTy
-  extendTermEnvPermanent name (TcIdBinder name scheme)
   pure [TcBindingResult displayName zonkedTy]
 
 -- | Type-check a function without a type signature (infer).
@@ -561,9 +574,19 @@ extractPatternBindings (pat, ty) = case pat of
   PIrrefutable inner -> extractPatternBindings (inner, ty)
   PCon _name _typeArgs subPats ->
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix lhs _name rhs ->
-    extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
+  PInfix lhs op rhs
+    | nameText op == ":" ->
+        let elemTy = listElementType ty
+         in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
+    | otherwise ->
+        extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
+
+listElementType :: TcType -> TcType
+listElementType ty =
+  case ty of
+    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
+    _ -> ty
 
 -- | Run a computation with pattern bindings in scope.
 withPatBindings :: [(Text, TcType)] -> TcM a -> TcM a

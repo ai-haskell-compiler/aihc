@@ -15,6 +15,7 @@ module Aihc.Tc
     typecheck,
     typecheckExpr,
     typecheckModule,
+    typecheckModuleWithEnv,
 
     -- * Result types
     TcResult (..),
@@ -45,6 +46,8 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 
 -- | Result of type checking.
 data TcResult = TcResult
@@ -105,8 +108,13 @@ data TcModuleResult = TcModuleResult
 -- | Type-check a single module, processing data declarations and
 -- value bindings.
 typecheckModule :: Module -> TcModuleResult
-typecheckModule m =
-  case runTcM emptyTcEnv initTcState (tcModule m) of
+typecheckModule =
+  typecheckModuleWithEnv []
+
+-- | Type-check a single module with preloaded top-level term bindings.
+typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> TcModuleResult
+typecheckModuleWithEnv importedTerms m =
+  case runTcM emptyTcEnv initState (tcModule m) of
     Left _abort ->
       TcModuleResult
         { tcmBindings = [],
@@ -122,6 +130,15 @@ typecheckModule m =
               tcmSuccess = not hasErrors
             }
   where
+    initState =
+      initTcState
+        { tcsGlobalTerms =
+            Map.fromList
+              [ (name, TcIdBinder name scheme)
+              | (name, scheme) <- importedTerms
+              ]
+              <> tcsGlobalTerms initTcState
+        }
     isError d = diagSeverity d == TcError
 
 -- | Type-check a list of modules.

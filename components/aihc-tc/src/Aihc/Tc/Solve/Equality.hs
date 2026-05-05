@@ -51,13 +51,11 @@ solveEq ct t1 t2 = case (t1, t2) of
   -- Same type constructor: decompose.
   (TcTyCon tc1 args1, TcTyCon tc2 args2)
     | tc1 == tc2,
-      length args1 == length args2 -> do
-        bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
-        pure EqSolved
-  -- Same function type shape: already decomposed by canonicalization.
-  (TcFunTy _ _, TcFunTy _ _) -> do
-    bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
-    pure EqSolved
+      length args1 == length args2 ->
+        solveDecomposed ct t1 (zip args1 args2)
+  -- Same function type shape: decompose.
+  (TcFunTy a1 b1, TcFunTy a2 b2) ->
+    solveDecomposed ct t1 [(a1, a2), (b1, b2)]
   -- Incompatible types.
   _ -> pure (EqError ct)
 
@@ -69,6 +67,23 @@ solveMetaEq ct u ty
       writeMetaTv u ty
       bindEvidence (ctEvVar ct) (EvCoercion (Refl ty))
       pure EqSolved
+
+solveDecomposed :: Ct -> TcType -> [(TcType, TcType)] -> TcM EqResult
+solveDecomposed ct witness pairs = do
+  results <- mapM solvePair pairs
+  case firstUnsolved results of
+    Nothing -> do
+      bindEvidence (ctEvVar ct) (EvCoercion (Refl witness))
+      pure EqSolved
+    Just result -> pure result
+  where
+    solvePair (left, right) =
+      solveEquality (ct {ctPred = EqPred left right})
+
+firstUnsolved :: [EqResult] -> Maybe EqResult
+firstUnsolved [] = Nothing
+firstUnsolved (EqSolved : rest) = firstUnsolved rest
+firstUnsolved (result : _) = Just result
 
 -- | Occurs check: does meta-variable u appear in the type?
 occursIn :: Unique -> TcType -> Bool

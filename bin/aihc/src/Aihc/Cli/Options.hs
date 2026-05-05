@@ -1,6 +1,8 @@
 module Aihc.Cli.Options
   ( Command (..),
+    InstallErrorFormat (..),
     InstallOptions (..),
+    ReplOptions (..),
     parseCommandIO,
     parseCommandPure,
     parserInfo,
@@ -11,7 +13,12 @@ import Options.Applicative qualified as OA
 
 data Command
   = CmdInstall !InstallOptions
-  | CmdRepl
+  | CmdRepl !ReplOptions
+  deriving (Eq, Show)
+
+newtype ReplOptions = ReplOptions
+  { replStoreRoot :: Maybe FilePath
+  }
   deriving (Eq, Show)
 
 data InstallOptions = InstallOptions
@@ -19,8 +26,15 @@ data InstallOptions = InstallOptions
     installPackageVersion :: !(Maybe String),
     installStoreRoot :: !(Maybe FilePath),
     installOffline :: !Bool,
-    installDryRun :: !Bool
+    installDryRun :: !Bool,
+    installFirstErrorModule :: !Bool,
+    installErrorFormat :: !InstallErrorFormat
   }
+  deriving (Eq, Show)
+
+data InstallErrorFormat
+  = InstallErrorsJson
+  | InstallErrorsHuman
   deriving (Eq, Show)
 
 parseCommandIO :: IO Command
@@ -55,10 +69,21 @@ commandParser =
         <> OA.command
           "repl"
           ( OA.info
-              (pure CmdRepl OA.<**> OA.helper)
+              (CmdRepl <$> replOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Start the aihc expression REPL")
           )
     )
+
+replOptionsParser :: OA.Parser ReplOptions
+replOptionsParser =
+  ReplOptions
+    <$> OA.optional
+      ( OA.strOption
+          ( OA.long "store"
+              <> OA.metavar "DIR"
+              <> OA.help "Override the aihc store root"
+          )
+      )
 
 installOptionsParser :: OA.Parser InstallOptions
 installOptionsParser =
@@ -89,3 +114,19 @@ installOptionsParser =
       ( OA.long "dry-run"
           <> OA.help "Plan the install without writing store artifacts or package cache files"
       )
+    <*> OA.switch
+      ( OA.long "first-error-module"
+          <> OA.help "Only print diagnostics from the module or file that produced the first install error"
+      )
+    <*> humanErrorFormatParser
+
+humanErrorFormatParser :: OA.Parser InstallErrorFormat
+humanErrorFormatParser =
+  flagFromSwitch
+    <$> OA.switch
+      ( OA.long "human-errors"
+          <> OA.help "Print install interface diagnostics in a human-readable format instead of JSON"
+      )
+  where
+    flagFromSwitch True = InstallErrorsHuman
+    flagFromSwitch False = InstallErrorsJson

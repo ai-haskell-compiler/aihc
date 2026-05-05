@@ -7,6 +7,7 @@
 module Aihc.Fc.Desugar
   ( -- * Entry point
     desugarModule,
+    desugarModuleWithTcResult,
     DesugarResult (..),
   )
 where
@@ -41,23 +42,28 @@ data DesugarResult = DesugarResult
 
 -- | Desugar a module: parse, typecheck, then translate to Core.
 desugarModule :: Module -> DesugarResult
-desugarModule m =
-  let tcResult = typecheckModule m
-   in if not (tcmSuccess tcResult)
-        then
-          DesugarResult
-            { dsProgram = FcProgram [],
-              dsSuccess = False,
-              dsErrors = map showBinding (tcmBindings tcResult)
+desugarModule m = desugarModuleWithTcResult (typecheckModule m) m
+
+-- | Desugar a module using a type-checking result already computed by
+-- the caller. This is useful for clients such as the REPL that preload
+-- imported bindings into the type-checker environment.
+desugarModuleWithTcResult :: TcModuleResult -> Module -> DesugarResult
+desugarModuleWithTcResult tcResult m =
+  if not (tcmSuccess tcResult)
+    then
+      DesugarResult
+        { dsProgram = FcProgram [],
+          dsSuccess = False,
+          dsErrors = map showBinding (tcmBindings tcResult)
+        }
+    else
+      let typeEnv = Map.fromList [(tbName b, tbType b) | b <- tcmBindings tcResult]
+          binds = evalState (dsModule m) (DsState 1000 typeEnv Map.empty)
+       in DesugarResult
+            { dsProgram = FcProgram binds,
+              dsSuccess = True,
+              dsErrors = []
             }
-        else
-          let typeEnv = Map.fromList [(tbName b, tbType b) | b <- tcmBindings tcResult]
-              binds = evalState (dsModule m) (DsState 1000 typeEnv Map.empty)
-           in DesugarResult
-                { dsProgram = FcProgram binds,
-                  dsSuccess = True,
-                  dsErrors = []
-                }
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String

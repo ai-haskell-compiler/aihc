@@ -170,6 +170,7 @@ renderTypePrec :: Bool -> TcType -> String
 renderTypePrec _ (TcTyVar tv) = T.unpack (tvName tv)
 renderTypePrec _ (TcMetaTv _) = "?"
 renderTypePrec _ (TcTyCon tc []) = T.unpack (tyConName tc)
+renderTypePrec _ (TcTyCon (TyCon "[]" 1) [arg]) = "[" ++ renderTypePrec False arg ++ "]"
 renderTypePrec parens (TcTyCon tc args) =
   paren parens $
     unwords (T.unpack (tyConName tc) : map (renderTypePrec True) args)

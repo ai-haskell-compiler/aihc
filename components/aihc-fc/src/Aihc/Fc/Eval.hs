@@ -1,0 +1,218 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Small evaluator for the System FC subset used by the REPL MVP.
+module Aihc.Fc.Eval
+  ( EvalError (..),
+    Value (..),
+    evalProgramBinding,
+    evalExpr,
+    renderValue,
+  )
+where
+
+import Aihc.Fc.Syntax
+import Control.Monad ((<=<))
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as T
+
+data EvalError
+  = EvalUnboundVariable Text
+  | EvalMissingBinding Text
+  | EvalApplyNonFunction Value
+  | EvalNoMatchingAlternative Value
+  | EvalPrimitiveArity Text Int
+  | EvalPrimitiveTypeError Text Value
+  deriving (Eq, Show)
+
+data Value
+  = VLit Literal
+  | VClosure Env Var FcExpr
+  | VConstructor Text [Value]
+  | VPrim Text Int [Value]
+  | VThunk Env FcExpr
+  deriving (Eq, Show)
+
+type Env = Map Text Value
+
+evalProgramBinding :: Text -> FcProgram -> Either EvalError Value
+evalProgramBinding name program =
+  case Map.lookup name env of
+    Just value -> forceValue value
+    Nothing -> Left (EvalMissingBinding name)
+  where
+    env = topEnv `Map.union` primitiveEnv
+    topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
+    topBindingValues (FcTopBind (FcNonRec var expr)) =
+      [(varName var, VThunk env expr)]
+    topBindingValues (FcTopBind (FcRec bindings)) =
+      [(varName var, VThunk env expr) | (var, expr) <- bindings]
+    topBindingValues FcData {} = []
+
+evalExpr :: FcExpr -> Either EvalError Value
+evalExpr = evalWithEnv primitiveEnv
+
+primitiveEnv :: Env
+primitiveEnv =
+  Map.fromList
+    [ ("[]", VConstructor "[]" []),
+      (":", VConstructor ":" []),
+      ("++", VPrim "++" 2 [])
+    ]
+
+evalWithEnv :: Env -> FcExpr -> Either EvalError Value
+evalWithEnv env expr =
+  case expr of
+    FcVar var ->
+      case Map.lookup (varName var) env of
+        Just value -> forceValue value
+        Nothing -> Left (EvalUnboundVariable (varName var))
+    FcLit lit ->
+      Right (VLit lit)
+    FcApp fun arg -> do
+      funValue <- evalWithEnv env fun
+      applyValue funValue (VThunk env arg)
+    FcTyApp inner _ ->
+      evalWithEnv env inner
+    FcLam var body ->
+      Right (VClosure env var body)
+    FcTyLam _ body ->
+      evalWithEnv env body
+    FcLet bind body ->
+      evalWithEnv (extendBind env bind) body
+    FcCase scrut _ _ alts -> do
+      value <- evalWithEnv env scrut
+      matchAlternative env value alts
+    FcCast inner _ ->
+      evalWithEnv env inner
+
+forceValue :: Value -> Either EvalError Value
+forceValue value =
+  case value of
+    VThunk env expr -> evalWithEnv env expr
+    _ -> Right value
+
+applyValue :: Value -> Value -> Either EvalError Value
+applyValue value arg = do
+  forced <- forceValue value
+  case forced of
+    VClosure closureEnv var body ->
+      evalWithEnv (Map.insert (varName var) arg closureEnv) body
+    VConstructor name args ->
+      Right (VConstructor name (args <> [arg]))
+    VPrim name arity args ->
+      applyPrimitive name arity (args <> [arg])
+    _ ->
+      Left (EvalApplyNonFunction forced)
+
+applyPrimitive :: Text -> Int -> [Value] -> Either EvalError Value
+applyPrimitive name arity args
+  | length args < arity = Right (VPrim name arity args)
+  | length args == arity = evalPrimitive name args
+  | otherwise = Left (EvalPrimitiveArity name (length args))
+
+evalPrimitive :: Text -> [Value] -> Either EvalError Value
+evalPrimitive "++" [left, right] =
+  appendValues left right
+evalPrimitive name args =
+  Left (EvalPrimitiveArity name (length args))
+
+appendValues :: Value -> Value -> Either EvalError Value
+appendValues left right = do
+  forcedLeft <- forceValue left
+  case forcedLeft of
+    VConstructor "[]" [] ->
+      forceValue right
+    VConstructor ":" [headValue, tailValue] -> do
+      appendedTail <- appendValues tailValue right
+      pure (VConstructor ":" [headValue, appendedTail])
+    other ->
+      Left (EvalPrimitiveTypeError "++" other)
+
+extendBind :: Env -> FcBind -> Env
+extendBind env bind =
+  case bind of
+    FcNonRec var expr ->
+      Map.insert (varName var) (VThunk env expr) env
+    FcRec bindings ->
+      recEnv
+      where
+        recEnv = foldr insertBinding env bindings
+        insertBinding (var, expr) = Map.insert (varName var) (VThunk recEnv expr)
+
+matchAlternative :: Env -> Value -> [FcAlt] -> Either EvalError Value
+matchAlternative env value =
+  go
+  where
+    go [] = Left (EvalNoMatchingAlternative value)
+    go (alt : rest) =
+      case matchAlt value alt of
+        Just bindings -> evalWithEnv (bindings <> env) (altRhs alt)
+        Nothing -> go rest
+
+matchAlt :: Value -> FcAlt -> Maybe Env
+matchAlt value alt =
+  case (altCon alt, value) of
+    (DefaultAlt, _) ->
+      Just Map.empty
+    (LitAlt expected, VLit actual)
+      | expected == actual ->
+          Just Map.empty
+    (DataAlt expected, VConstructor actual args)
+      | expected == actual,
+        length args == length (altBinders alt) ->
+          Just (Map.fromList (zipWith (\var arg -> (varName var, arg)) (altBinders alt) args))
+    _ ->
+      Nothing
+
+renderValue :: Value -> Either EvalError Text
+renderValue value = do
+  forced <- forceValue value
+  case collectString forced of
+    Just text -> pure (T.pack (show (T.unpack text)))
+    Nothing -> renderForcedValue forced
+
+renderForcedValue :: Value -> Either EvalError Text
+renderForcedValue value =
+  case value of
+    VLit lit -> pure (renderLiteral lit)
+    VConstructor name [] -> pure name
+    VConstructor ":" _ | Just elems <- collectList value -> do
+      renderedElems <- mapM (renderValue <=< forceValue) elems
+      pure ("[" <> T.intercalate ", " renderedElems <> "]")
+    VConstructor name args -> do
+      renderedArgs <- mapM (renderValue <=< forceValue) args
+      pure (T.unwords (name : renderedArgs))
+    VClosure {} -> pure "<function>"
+    VPrim {} -> pure "<function>"
+    VThunk {} -> renderValue value
+
+collectString :: Value -> Maybe Text
+collectString value = do
+  values <- collectList value
+  chars <- traverse charValue values
+  pure (T.pack chars)
+  where
+    charValue item =
+      case item of
+        VLit (LitChar c) -> Just c
+        VThunk {} -> either (const Nothing) charValue (forceValue item)
+        _ -> Nothing
+
+collectList :: Value -> Maybe [Value]
+collectList value =
+  case value of
+    VConstructor "[]" [] -> Just []
+    VConstructor ":" [headValue, tailValue] -> do
+      tailValue' <- either (const Nothing) Just (forceValue tailValue)
+      (headValue :) <$> collectList tailValue'
+    VThunk {} -> either (const Nothing) collectList (forceValue value)
+    _ -> Nothing
+
+renderLiteral :: Literal -> Text
+renderLiteral lit =
+  case lit of
+    LitInt i -> T.pack (show i)
+    LitChar c -> T.pack (show c)
+    LitString s -> T.pack (show (T.unpack s))

@@ -50,7 +50,9 @@ inferExpr expr = case expr of
   EFloat {} -> pure (doubleTyCon, [])
   -- Char literals.
   EChar _ _ -> pure (charTyCon, [])
-  -- String literals.
+  -- String literals are lists of Char. The Prelude exposes
+  -- @type String = [Char]@ at the source level, but FC should not see a
+  -- primitive String type constructor.
   EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
   ELambdaPats pats body -> inferLambda NoSourceSpan pats body
@@ -60,6 +62,8 @@ inferExpr expr = case expr of
   ELambdaCases alts -> inferLambdaCases NoSourceSpan alts
   -- Application: f x
   EApp fun arg -> inferApp NoSourceSpan fun arg
+  -- Infix application: a `op` b
+  EInfix lhs op rhs -> inferExpr (EApp (EApp (EVar op) lhs) rhs)
   -- If-then-else
   EIf cond thenE elseE -> inferIf NoSourceSpan cond thenE elseE
   -- Case expression
@@ -317,7 +321,7 @@ charTyCon :: TcType
 charTyCon = TcTyCon (TyCon "Char" 0) []
 
 stringTyCon :: TcType
-stringTyCon = TcTyCon (TyCon "String" 0) []
+stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]
 
 boolTyCon :: TcType
 boolTyCon = TcTyCon (TyCon "Bool" 0) []
@@ -348,9 +352,19 @@ extractPatternBindings (pat, ty) = case pat of
     -- to assign proper types). For the MVP, they're not needed since
     -- constructor pattern matching in function heads is handled by tcMatches.
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix lhs _name rhs ->
-    extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
+  PInfix lhs op rhs
+    | nameText op == ":" ->
+        let elemTy = listElementType ty
+         in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
+    | otherwise ->
+        extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
+
+listElementType :: TcType -> TcType
+listElementType ty =
+  case ty of
+    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
+    _ -> ty
 
 -- | Run a computation with pattern bindings in scope.
 withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a

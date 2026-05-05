@@ -234,11 +234,15 @@ dsExpr (EVar name) = do
       pure (FcVar v)
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
 dsExpr (EChar c _) = pure (FcLit (LitChar c))
-dsExpr (EString s _) = pure (FcLit (LitString s))
+dsExpr (EString s _) = dsStringLiteral s
 dsExpr (EApp f a) = do
   f' <- dsExpr f
   a' <- dsExpr a
   pure (FcApp f' a')
+dsExpr (EInfix lhs op rhs) =
+  dsExpr (EApp (EApp (EVar op) lhs) rhs)
+dsExpr (EList elems) =
+  foldr consList nilList <$> mapM dsExpr elems
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (EIf cond thenE elseE) = do
@@ -272,6 +276,32 @@ dsExpr _ = do
   v <- freshVar "_unsupported" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
 
+dsStringLiteral :: Text -> DsM FcExpr
+dsStringLiteral text =
+  pure (T.foldr consChar nilList text)
+
+consChar :: Char -> FcExpr -> FcExpr
+consChar char =
+  consList (FcLit (LitChar char))
+
+consList :: FcExpr -> FcExpr -> FcExpr
+consList headExpr =
+  FcApp (FcApp consExpr headExpr)
+
+nilList :: FcExpr
+nilList =
+  FcVar (Var "[]" (Unique (-10)) (listType (TcTyCon (TyCon "?" 0) [])))
+
+consExpr :: FcExpr
+consExpr =
+  FcVar (Var ":" (Unique (-11)) (TcFunTy unknownTy (TcFunTy (listType unknownTy) (listType unknownTy))))
+  where
+    unknownTy = TcTyCon (TyCon "?" 0) []
+
+listType :: TcType -> TcType
+listType ty =
+  TcTyCon (TyCon "[]" 1) [ty]
+
 -- | Desugar a case alternative.
 dsCaseAlt :: CaseAlt Expr -> DsM FcAlt
 dsCaseAlt (CaseAlt _anns pat rhs) = do
@@ -291,5 +321,4 @@ exprType :: FcExpr -> TcType
 exprType (FcVar v) = varType v
 exprType (FcLit (LitInt _)) = TcTyCon (TyCon "Int" 0) []
 exprType (FcLit (LitChar _)) = TcTyCon (TyCon "Char" 0) []
-exprType (FcLit (LitString _)) = TcTyCon (TyCon "String" 0) []
 exprType _ = TcTyCon (TyCon "?" 0) []

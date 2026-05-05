@@ -83,6 +83,8 @@ renderTcType = go 0
     go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
     go _ (TcTyCon tc []) = T.unpack (tyConName tc)
+    go _ (TcTyCon (TyCon name 1) [arg])
+      | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
         unwords (T.unpack (tyConName tc) : map (go 2) args)

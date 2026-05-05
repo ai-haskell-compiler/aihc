@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | The type checker monad and state.
 module Aihc.Tc.Monad
   ( -- * Monad
@@ -125,9 +127,22 @@ initTcState =
       tcsMetaSolutions = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
-      tcsGlobalTerms = Map.empty,
+      tcsGlobalTerms = builtinTerms,
       tcsGadtCons = Set.empty
     }
+
+builtinTerms :: Map Text TcBinder
+builtinTerms =
+  Map.fromList
+    [ (":", TcIdBinder ":" consScheme),
+      ("[]", TcIdBinder "[]" nilScheme)
+    ]
+  where
+    aVar = TyVarId "a" (Unique (-1000))
+    aTy = TcTyVar aVar
+    listA = TcTyCon (TyCon "[]" 1) [aTy]
+    consScheme = ForAll [aVar] [] (TcFunTy aTy (TcFunTy listA listA))
+    nilScheme = ForAll [aVar] [] listA
 
 -- | Allocate a fresh 'Unique'.
 freshUnique :: TcM Unique
