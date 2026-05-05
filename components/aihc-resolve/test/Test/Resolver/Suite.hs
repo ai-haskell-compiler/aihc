@@ -179,6 +179,22 @@ resolveErrorsTests =
               "unhandled declarations should remain annotated and also populate resolveErrors"
               1
               (length actual),
+      testCase "collects unhandled class items into ResolveResult" $ do
+        let source = "module Main where\nclass C a where\n  infixl 5 `m`\n  m :: a -> a\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "ClassItemFixity" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled class items should remain annotated and also populate resolveErrors"
+              1
+              (length actual),
       testCase "collects unhandled expressions into ResolveResult" $ do
         let source = "module Main where\nx = [y | y <- ys]\n"
             config = defaultConfig {parserSourceName = "<test>"}

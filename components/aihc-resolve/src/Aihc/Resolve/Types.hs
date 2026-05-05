@@ -20,7 +20,8 @@ module Aihc.Resolve.Types
 where
 
 import Aihc.Parser.Syntax
-  ( Decl (..),
+  ( ClassDeclItem (..),
+    Decl (..),
     Expr (..),
     ImportDecl (..),
     Module (..),
@@ -168,6 +169,7 @@ collectAnnotations node =
 ownAnnotation :: (Data a) => a -> [ResolutionAnnotation]
 ownAnnotation node =
   declResolution (cast node)
+    <> classDeclItemResolution (cast node)
     <> importResolution (cast node)
     <> patternResolution (cast node)
     <> typeResolution (cast node)
@@ -177,6 +179,12 @@ declResolution :: Maybe Decl -> [ResolutionAnnotation]
 declResolution maybeDecl =
   case maybeDecl of
     Just (DeclResolution resolution) -> [resolution]
+    _ -> []
+
+classDeclItemResolution :: Maybe ClassDeclItem -> [ResolutionAnnotation]
+classDeclItemResolution maybeItem =
+  case maybeItem of
+    Just (ClassItemAnn (fromAnnotation -> Just resolution) _) -> [resolution]
     _ -> []
 
 importResolution :: Maybe ImportDecl -> [ResolutionAnnotation]

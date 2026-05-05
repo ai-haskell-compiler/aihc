@@ -146,6 +146,10 @@ annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
 annotateUnhandledDecl span' decl =
   annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' decl) decl
 
+annotateUnhandledClassDeclItem :: SourceSpan -> ClassDeclItem -> ClassDeclItem
+annotateUnhandledClassDeclItem span' item =
+  ClassItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
+
 annotateUnhandledExpr :: SourceSpan -> Expr -> Expr
 annotateUnhandledExpr span' expr =
   annotateExpr (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' expr) expr
@@ -179,6 +183,7 @@ collectResolveErrors node =
 ownResolveErrors :: (Data a) => a -> [ResolveError]
 ownResolveErrors node =
   declResolutionErrors (cast node)
+    <> classDeclItemResolutionErrors (cast node)
     <> importResolutionErrors (cast node)
     <> patternResolutionErrors (cast node)
     <> typeResolutionErrors (cast node)
@@ -188,6 +193,12 @@ declResolutionErrors :: Maybe Decl -> [ResolveError]
 declResolutionErrors maybeDecl =
   case maybeDecl of
     Just (DeclResolution resolution) -> maybeToList (annotationResolveError resolution)
+    _ -> []
+
+classDeclItemResolutionErrors :: Maybe ClassDeclItem -> [ResolveError]
+classDeclItemResolutionErrors maybeItem =
+  case maybeItem of
+    Just (ClassItemAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
     _ -> []
 
 importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
@@ -474,11 +485,11 @@ resolveClassDeclItem scope lastSeen classDeclItem =
     ClassItemTypeSig names ty -> ClassItemTypeSig names (resolveTypeAt scope lastSeen ty)
     ClassItemDefaultSig name ty -> ClassItemDefaultSig name (resolveTypeAt scope lastSeen ty)
     ClassItemDefault valueDecl -> ClassItemDefault (snd (resolveValueDecl scope lastSeen 0 valueDecl))
-    ClassItemFixity {} -> classDeclItem
-    ClassItemPragma {} -> classDeclItem
-    ClassItemTypeFamilyDecl {} -> classDeclItem
-    ClassItemDataFamilyDecl {} -> classDeclItem
-    ClassItemDefaultTypeInst {} -> classDeclItem
+    ClassItemFixity {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
+    ClassItemPragma {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
+    ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
+    ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
+    ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
 
 resolveMatch :: Scope -> SourceSpan -> Int -> Match -> (Int, Match)
 resolveMatch scope ambient nextLocal match =
