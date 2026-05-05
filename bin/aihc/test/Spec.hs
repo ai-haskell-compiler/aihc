@@ -1,12 +1,14 @@
 module Main (main) where
 
 import Aihc.Cli.Install
-  ( InstallResult (..),
+  ( DependencyResolver (..),
+    InstallResult (..),
     PackagePlan (..),
     buildPackagePlanFromSource,
+    buildPackagePlanWithResolver,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), DependencyVariant (..), InstallOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), InstallOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplStep (..), evaluateExpression, handleReplInput)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (bracket)
@@ -34,23 +36,20 @@ main =
         [ testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False [])))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False [])))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True [])))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
-          testCase "parses dependency variants" $
-            assertEqual
-              "command"
-              (Right (CmdInstall (InstallOptions "a" Nothing Nothing False [DependencyVariant "b" "1.0.0" "abcdef"])))
-              (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
+          testCase "rejects explicit dependency variants" $
+            assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
             assertEqual "command" (Right CmdRepl) (parseCommandPure ["repl"])
         ],
@@ -75,7 +74,7 @@ main =
       testGroup
         "install"
         [ testCase "builds stable store paths" test_stableStorePath,
-          testCase "dependency variants affect store paths" test_dependencyVariantsAffectStorePaths,
+          testCase "recursive dependencies affect store paths" test_recursiveDependenciesAffectStorePaths,
           testCase "writes scaffold artifacts" test_writeInstallScaffold
         ],
       QC.testProperty "dummy quickcheck property" prop_dummy
@@ -90,36 +89,44 @@ assertHelp (ReplContinue (Just output)) =
 assertHelp other =
   assertFailure ("expected help output, got " <> show other)
 
+assertLeftContains :: String -> Either String a -> Assertion
+assertLeftContains expected (Left actual) =
+  assertBool ("expected error to contain " <> show expected <> ", got " <> show actual) (expected `isInfixOf` actual)
+assertLeftContains _ (Right _) =
+  assertFailure "expected parse failure"
+
 test_stableStorePath :: Assertion
 test_stableStorePath =
   withFixturePackage $ \sourceRoot storeRoot -> do
-    plan1 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [] sourceRoot
-    plan2 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [] sourceRoot
+    plan1 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+    plan2 <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
     assertEqual "store path" (planStorePath plan1) (planStorePath plan2)
     assertBool "store path includes package" ("demo-0_1_0_0" `isInfixOf` takeFileName (planStorePath plan1))
     assertBool "store path starts below root" (storeRoot `isPrefixOf` planStorePath plan1)
 
-test_dependencyVariantsAffectStorePaths :: Assertion
-test_dependencyVariantsAffectStorePaths =
-  withFixturePackage $ \sourceRoot storeRoot -> do
+test_recursiveDependenciesAffectStorePaths :: Assertion
+test_recursiveDependenciesAffectStorePaths =
+  withDependencyFixture $ \sourceRoot depV1Root depV2Root storeRoot -> do
     plan1 <-
-      buildPackagePlanFromSource
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depV1Root)])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
-        [DependencyVariant "dep" "1.0.0" "aaaaaaaa"]
-        sourceRoot
     plan2 <-
-      buildPackagePlanFromSource
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "2.0.0", depV2Root)])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
-        [DependencyVariant "dep" "2.0.0" "bbbbbbbb"]
-        sourceRoot
     assertBool "dependency variant should change store path" (planStorePath plan1 /= planStorePath plan2)
 
 test_writeInstallScaffold :: Assertion
 test_writeInstallScaffold =
-  withFixturePackage $ \sourceRoot storeRoot -> do
-    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") [DependencyVariant "dep" "1.0.0" "aaaaaaaa"] sourceRoot
+  withDependencyFixture $ \sourceRoot depRoot _ storeRoot -> do
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
     result <- writeInstallScaffold plan
     assertFileExists (resultManifestPath result)
     assertFileExists (resultInterfacePath result)
@@ -130,7 +137,8 @@ test_writeInstallScaffold =
     assertBool "manifest records setup phase" ("compile-setup" `isInfixOf` renderedManifest)
     assertBool "manifest omits GHC version" (not ("ghcVersion" `isInfixOf` renderedManifest))
     assertBool "manifest records package key" ("packageKey" `isInfixOf` renderedManifest)
-    assertBool "manifest records dependency hashes" ("aaaaaaaa" `isInfixOf` renderedManifest)
+    assertBool "manifest records dependencies" ("dependencies" `isInfixOf` renderedManifest)
+    assertBool "manifest records dependency package" ("dep" `isInfixOf` renderedManifest)
     assertBool "manifest records source count" ("sourceFileCount" `isInfixOf` renderedManifest)
     assertBool "manifest records unimplemented phases" ("unimplemented" `isInfixOf` renderedManifest)
 
@@ -157,6 +165,56 @@ withFixturePackage action =
     writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
     writeFile (srcDir </> "Demo.hs") "module Demo where\nx = ()\n"
     action sourceRoot storeRoot
+
+withDependencyFixture :: (FilePath -> FilePath -> FilePath -> FilePath -> IO a) -> IO a
+withDependencyFixture action =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        depV1Root = root </> "dep-v1"
+        depV2Root = root </> "dep-v2"
+        storeRoot = root </> "store"
+    createFixturePackage sourceRoot "demo" "0.1.0.0" "Demo" ["dep >=1 && <3"]
+    createFixturePackage depV1Root "dep" "1.0.0" "Dep" []
+    createFixturePackage depV2Root "dep" "2.0.0" "Dep" []
+    createDirectoryIfMissing True storeRoot
+    action sourceRoot depV1Root depV2Root storeRoot
+
+fixtureDependencyResolver :: FilePath -> [(String, String, FilePath)] -> DependencyResolver
+fixtureDependencyResolver sourceRoot dependencies =
+  DependencyResolver
+    { resolverResolveVersion = \name ->
+        case [version | (dependencyName, version, _) <- dependencies, dependencyName == name] of
+          version : _ -> pure version
+          [] -> fail ("missing fixture dependency version for " <> name),
+      resolverSourcePath = \spec ->
+        if pkgName spec == "demo"
+          then pure sourceRoot
+          else case [path | (dependencyName, version, path) <- dependencies, dependencyName == pkgName spec, version == pkgVersion spec] of
+            path : _ -> pure path
+            [] -> fail ("missing fixture source for " <> show spec)
+    }
+
+createFixturePackage :: FilePath -> String -> String -> String -> [String] -> IO ()
+createFixturePackage sourceRoot name version moduleName dependencies = do
+  let srcDir = sourceRoot </> "src"
+  createDirectoryIfMissing True srcDir
+  writeFile (sourceRoot </> name <> ".cabal") (fixtureCabal name version moduleName dependencies)
+  writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
+  writeFile (srcDir </> moduleName <> ".hs") ("module " <> moduleName <> " where\nx = ()\n")
+
+fixtureCabal :: String -> String -> String -> [String] -> String
+fixtureCabal name version moduleName dependencies =
+  unlines $
+    [ "cabal-version: 3.0",
+      "name: " <> name,
+      "version: " <> version,
+      "",
+      "library",
+      "  exposed-modules: " <> moduleName,
+      "  hs-source-dirs: src"
+    ]
+      <> ["  build-depends: " <> dependency | dependency <- dependencies]
+      <> ["  default-language: Haskell2010"]
 
 demoCabal :: String
 demoCabal =

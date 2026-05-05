@@ -1,6 +1,5 @@
 module Aihc.Cli.Options
   ( Command (..),
-    DependencyVariant (..),
     InstallOptions (..),
     parseCommandIO,
     parseCommandPure,
@@ -8,7 +7,6 @@ module Aihc.Cli.Options
   )
 where
 
-import Data.Char (isHexDigit)
 import Options.Applicative qualified as OA
 
 data Command
@@ -20,17 +18,9 @@ data InstallOptions = InstallOptions
   { installPackageName :: !String,
     installPackageVersion :: !(Maybe String),
     installStoreRoot :: !(Maybe FilePath),
-    installOffline :: !Bool,
-    installDependencies :: ![DependencyVariant]
+    installOffline :: !Bool
   }
   deriving (Eq, Show)
-
-data DependencyVariant = DependencyVariant
-  { dependencyName :: !String,
-    dependencyVersion :: !String,
-    dependencyHash :: !String
-  }
-  deriving (Eq, Ord, Show)
 
 parseCommandIO :: IO Command
 parseCommandIO = OA.execParser parserInfo
@@ -94,31 +84,3 @@ installOptionsParser =
       ( OA.long "offline"
           <> OA.help "Use only cached package data"
       )
-    <*> OA.many
-      ( OA.option
-          parseDependencyVariant
-          ( OA.long "dependency"
-              <> OA.metavar "PACKAGE=VERSION:HASH"
-              <> OA.help "Direct dependency variant. HASH is that dependency's Merkle package hash; repeat for each direct dependency."
-          )
-      )
-
-parseDependencyVariant :: OA.ReadM DependencyVariant
-parseDependencyVariant =
-  OA.eitherReader $ \raw ->
-    case break (== '=') raw of
-      (name, '=' : rest)
-        | not (null name) ->
-            case break (== ':') rest of
-              (version, ':' : hash)
-                | not (null version) && validHash hash ->
-                    Right (DependencyVariant name version hash)
-              _ -> Left expectedDependencyFormat
-      _ -> Left expectedDependencyFormat
-  where
-    validHash hash =
-      not (null hash) && all isHexDigit hash
-
-expectedDependencyFormat :: String
-expectedDependencyFormat =
-  "expected PACKAGE=VERSION:HASH with a non-empty hex HASH"

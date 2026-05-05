@@ -1,19 +1,22 @@
 module Aihc.Cli.Install
   ( ArtifactManifest (..),
+    DependencyResolver (..),
     InstallResult (..),
     PackageHash (..),
     PackagePlan (..),
     PackageVariantKey (..),
     PhaseManifest (..),
     PhaseStatus (..),
+    ResolvedDependency (..),
     buildPackagePlanFromSource,
+    buildPackagePlanWithResolver,
     defaultStoreRoot,
     runInstall,
     writeInstallScaffold,
   )
 where
 
-import Aihc.Cli.Options (DependencyVariant (..), InstallOptions (..))
+import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Download qualified as HackageDownload
@@ -26,7 +29,8 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
-import Data.List (sort)
+import Data.List (nub, sort, sortOn)
+import Data.Text qualified as T
 import Data.Word (Word64)
 import Distribution.PackageDescription (genPackageFlags)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
@@ -86,18 +90,39 @@ data PhaseStatus
   | Complete
   deriving (Eq, Show)
 
+data DependencyResolver = DependencyResolver
+  { resolverResolveVersion :: String -> IO String,
+    resolverSourcePath :: PackageSpec -> IO FilePath
+  }
+
 newtype PackageHash = PackageHash
   { unPackageHash :: String
   }
   deriving (Eq, Ord, Show)
 
+data ResolvedDependency = ResolvedDependency
+  { resolvedDependencySpec :: !PackageSpec,
+    resolvedDependencyHash :: !PackageHash
+  }
+  deriving (Eq, Show)
+
 data PackageVariantKey = PackageVariantKey
   { packageKeySpec :: !PackageSpec,
     packageKeyHash :: !PackageHash,
     packageKeyFlags :: ![(String, Bool)],
-    packageKeyDependencies :: ![DependencyVariant]
+    packageKeyDependencies :: ![ResolvedDependency]
   }
   deriving (Eq, Show)
+
+data SourceAnalysis = SourceAnalysis
+  { sourceCabalFile :: !FilePath,
+    sourceCabalBytes :: !BS.ByteString,
+    sourceSetupFile :: !(Maybe FilePath),
+    sourceSetupBytes :: !BS.ByteString,
+    sourceFileCount :: !Int,
+    sourceFlagAssignments :: ![(String, Bool)],
+    sourceDependencyNames :: ![String]
+  }
 
 instance ToJSON ArtifactManifest where
   toJSON manifest =
@@ -136,18 +161,34 @@ runInstall opts = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot opts)
   version <- resolveVersion opts
   let spec = PackageSpec (installPackageName opts) version
-  sourcePath <-
-    HackageDownload.downloadPackageWithOptions
-      HackageDownload.defaultDownloadOptions
-        { HackageDownload.downloadAllowNetwork = not (installOffline opts)
-        }
-      spec
-  plan <- buildPackagePlanFromSource storeRoot spec (installDependencies opts) sourcePath
+      resolver = hackageDependencyResolver opts
+  plan <- buildPackagePlanWithResolver resolver storeRoot spec
   result <- writeInstallScaffold plan
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
   putStrLn ("interfaces: " <> resultInterfacePath result <> " (unimplemented)")
   putStrLn ("system-fc: " <> resultFcPath result <> " (unimplemented)")
+
+hackageDependencyResolver :: InstallOptions -> DependencyResolver
+hackageDependencyResolver opts =
+  DependencyResolver
+    { resolverResolveVersion = resolveDependencyVersion opts,
+      resolverSourcePath =
+        HackageDownload.downloadPackageWithOptions
+          HackageDownload.defaultDownloadOptions
+            { HackageDownload.downloadAllowNetwork = not (installOffline opts)
+            }
+    }
+
+resolveDependencyVersion :: InstallOptions -> String -> IO String
+resolveDependencyVersion opts packageName
+  | installOffline opts =
+      ioError (userError ("aihc install --offline cannot resolve dependency " <> packageName <> " without cached dependency-plan metadata"))
+  | otherwise = do
+      result <- getLatestVersion Nothing packageName
+      case result of
+        Right version -> pure version
+        Left err -> ioError (userError err)
 
 resolveVersion :: InstallOptions -> IO String
 resolveVersion opts =
@@ -167,8 +208,79 @@ defaultStoreRoot = do
   cacheDir <- getXdgDirectory XdgCache "aihc"
   pure (cacheDir </> "store")
 
-buildPackagePlanFromSource :: FilePath -> PackageSpec -> [DependencyVariant] -> FilePath -> IO PackagePlan
-buildPackagePlanFromSource storeRoot spec dependencies sourcePath = do
+buildPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
+buildPackagePlanWithResolver resolver storeRoot spec =
+  snd <$> buildPackagePlanRecursive resolver storeRoot [] spec
+
+buildPackagePlanRecursive :: DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
+buildPackagePlanRecursive resolver storeRoot stack spec
+  | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
+      ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
+  | otherwise = do
+      sourcePath <- resolverSourcePath resolver spec
+      analysis <- analyzeSource sourcePath
+      dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
+      dependencyPlans <- mapM (buildPackagePlanRecursive resolver storeRoot (spec : stack)) dependencySpecs
+      let plan =
+            buildPackagePlanFromAnalysis
+              storeRoot
+              spec
+              sourcePath
+              (map fst dependencyPlans)
+              analysis
+      pure (resolvedDependencyFromPlan plan, plan)
+  where
+    resolveDependencySpec dependencyName = do
+      version <- resolverResolveVersion resolver dependencyName
+      pure (PackageSpec dependencyName version)
+
+packageSpecIdentity :: PackageSpec -> (String, String)
+packageSpecIdentity spec =
+  (pkgName spec, pkgVersion spec)
+
+resolvedDependencyFromPlan :: PackagePlan -> ResolvedDependency
+resolvedDependencyFromPlan plan =
+  ResolvedDependency
+    { resolvedDependencySpec = packageKeySpec key,
+      resolvedDependencyHash = packageKeyHash key
+    }
+  where
+    key = planPackageKey plan
+
+buildPackagePlanFromSource :: FilePath -> PackageSpec -> FilePath -> IO PackagePlan
+buildPackagePlanFromSource storeRoot spec sourcePath = do
+  analysis <- analyzeSource sourcePath
+  pure (buildPackagePlanFromAnalysis storeRoot spec sourcePath [] analysis)
+
+buildPackagePlanFromAnalysis :: FilePath -> PackageSpec -> FilePath -> [ResolvedDependency] -> SourceAnalysis -> PackagePlan
+buildPackagePlanFromAnalysis storeRoot spec sourcePath dependencies analysis =
+  let sortedDependencies = sortDependencies dependencies
+      packageHash =
+        computePackageHash
+          spec
+          (sourceFlagAssignments analysis)
+          sortedDependencies
+          (sourceCabalBytes analysis)
+          (sourceSetupBytes analysis)
+      storePath = storeRoot </> (unPackageHash packageHash <> "-" <> sanitizeName (formatPackage spec))
+   in PackagePlan
+        { planPackageKey =
+            PackageVariantKey
+              { packageKeySpec = spec,
+                packageKeyHash = packageHash,
+                packageKeyFlags = sourceFlagAssignments analysis,
+                packageKeyDependencies = sortedDependencies
+              },
+          planSourcePath = sourcePath,
+          planCabalFile = sourceCabalFile analysis,
+          planSetupFile = sourceSetupFile analysis,
+          planStoreRoot = storeRoot,
+          planStorePath = storePath,
+          planSourceFileCount = sourceFileCount analysis
+        }
+
+analyzeSource :: FilePath -> IO SourceAnalysis
+analyzeSource sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
@@ -182,26 +294,20 @@ buildPackagePlanFromSource storeRoot spec dependencies sourcePath = do
   sourceFiles <- HackageCabal.collectComponentFiles gpd sourcePath
   setupFile <- findSetupFile sourcePath
   setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
-  let flagAssignments = packageFlagAssignments gpd
-      sortedDependencies = sort dependencies
-      packageHash =
-        computePackageHash spec flagAssignments sortedDependencies cabalBytes setupBytes
-      storePath = storeRoot </> (unPackageHash packageHash <> "-" <> sanitizeName (formatPackage spec))
   pure
-    PackagePlan
-      { planPackageKey =
-          PackageVariantKey
-            { packageKeySpec = spec,
-              packageKeyHash = packageHash,
-              packageKeyFlags = flagAssignments,
-              packageKeyDependencies = sortedDependencies
-            },
-        planSourcePath = sourcePath,
-        planCabalFile = cabalFile,
-        planSetupFile = setupFile,
-        planStoreRoot = storeRoot,
-        planStorePath = storePath,
-        planSourceFileCount = length sourceFiles
+    SourceAnalysis
+      { sourceCabalFile = cabalFile,
+        sourceCabalBytes = cabalBytes,
+        sourceSetupFile = setupFile,
+        sourceSetupBytes = setupBytes,
+        sourceFileCount = length sourceFiles,
+        sourceFlagAssignments = packageFlagAssignments gpd,
+        sourceDependencyNames =
+          sort . nub $
+            [ T.unpack dependency
+            | file <- sourceFiles,
+              dependency <- HackageCabal.fileInfoDependencies file
+            ]
       }
 
 writeInstallScaffold :: PackagePlan -> IO InstallResult
@@ -238,7 +344,8 @@ writeInstallScaffold plan = do
 
 plannedPhases :: [PhaseManifest]
 plannedPhases =
-  [ PhaseManifest "compile-setup" Unimplemented "Compile Setup.hs or Setup.lhs with ghc in an isolated work directory",
+  [ PhaseManifest "resolve-dependency-closure" Planned "Resolve dependency versions recursively and key each package variant by direct dependency hashes",
+    PhaseManifest "compile-setup" Unimplemented "Compile Setup.hs or Setup.lhs with ghc in an isolated work directory",
     PhaseManifest "configure-package" Unimplemented "Use the Cabal library to configure package components without invoking cabal-install",
     PhaseManifest "run-external-processors" Planned "Reserve processors such as happy, alex, and c2hs for reproducible generated sources",
     PhaseManifest "compile-interfaces" Unimplemented "Generate name-resolution, type, and fixity interface data",
@@ -307,15 +414,14 @@ packageVariantKeyValue key =
     [ "hash" .= unPackageHash (packageKeyHash key),
       "package" .= packageSpecValue (packageKeySpec key),
       "flags" .= map flagAssignmentValue (packageKeyFlags key),
-      "dependencies" .= map dependencyVariantValue (packageKeyDependencies key)
+      "dependencies" .= map resolvedDependencyValue (packageKeyDependencies key)
     ]
 
-dependencyVariantValue :: DependencyVariant -> Aeson.Value
-dependencyVariantValue dependency =
+resolvedDependencyValue :: ResolvedDependency -> Aeson.Value
+resolvedDependencyValue dependency =
   object
-    [ "name" .= dependencyName dependency,
-      "version" .= dependencyVersion dependency,
-      "hash" .= dependencyHash dependency
+    [ "package" .= packageSpecValue (resolvedDependencySpec dependency),
+      "hash" .= unPackageHash (resolvedDependencyHash dependency)
     ]
 
 flagAssignmentValue :: (String, Bool) -> Aeson.Value
@@ -329,7 +435,11 @@ packageFlagAssignments :: GenericPackageDescription -> [(String, Bool)]
 packageFlagAssignments gpd =
   sort [(unFlagName (flagName flag), flagDefault flag) | flag <- genPackageFlags gpd]
 
-computePackageHash :: PackageSpec -> [(String, Bool)] -> [DependencyVariant] -> BS.ByteString -> BS.ByteString -> PackageHash
+sortDependencies :: [ResolvedDependency] -> [ResolvedDependency]
+sortDependencies =
+  sortOn (\dependency -> (pkgName (resolvedDependencySpec dependency), pkgVersion (resolvedDependencySpec dependency), unPackageHash (resolvedDependencyHash dependency)))
+
+computePackageHash :: PackageSpec -> [(String, Bool)] -> [ResolvedDependency] -> BS.ByteString -> BS.ByteString -> PackageHash
 computePackageHash spec flags dependencies cabalBytes setupBytes =
   PackageHash $
     stableHash
@@ -337,7 +447,7 @@ computePackageHash spec flags dependencies cabalBytes setupBytes =
         BSC.pack (pkgName spec),
         BSC.pack (pkgVersion spec),
         BSC.pack (show flags),
-        BSC.pack (show [(dependencyName dep, dependencyVersion dep, dependencyHash dep) | dep <- dependencies]),
+        BSC.pack (show [(pkgName depSpec, pkgVersion depSpec, unPackageHash (resolvedDependencyHash dep)) | dep <- dependencies, let depSpec = resolvedDependencySpec dep]),
         cabalBytes,
         setupBytes,
         BSC.pack "tools:happy,alex,c2hs:planned",
