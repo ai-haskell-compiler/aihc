@@ -445,9 +445,9 @@ resolveDeclCore scope nextLocal lastSeen decl =
       (nextLocal, DeclClass (resolveClassDecl scope lastSeen classDecl))
     DeclDefault tys ->
       (nextLocal, DeclDefault (map (resolveTypeAt scope lastSeen) tys))
-    DeclFixity {} -> (nextLocal, decl)
-    DeclRoleAnnotation {} -> (nextLocal, decl)
-    DeclPragma {} -> (nextLocal, decl)
+    DeclFixity {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclRoleAnnotation {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+    DeclPragma {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
     DeclPatSyn {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
     DeclPatSynSig {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
     DeclInstance {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)

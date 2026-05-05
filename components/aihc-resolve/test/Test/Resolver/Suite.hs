@@ -179,6 +179,54 @@ resolveErrorsTests =
               "unhandled declarations should remain annotated and also populate resolveErrors"
               1
               (length actual),
+      testCase "collects unhandled fixity declarations into ResolveResult" $ do
+        let source = "module Main where\ninfixl 5 `m`\nm = m\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "DeclFixity" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled fixity declarations should remain annotated and also populate resolveErrors"
+              1
+              (length actual),
+      testCase "collects unhandled role annotations into ResolveResult" $ do
+        let source = "{-# LANGUAGE RoleAnnotations #-}\nmodule Main where\ntype role T nominal\ndata T a = T\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "DeclRoleAnnotation" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled role annotations should remain annotated and also populate resolveErrors"
+              1
+              (length actual),
+      testCase "collects unhandled pragmas into ResolveResult" $ do
+        let source = "module Main where\n{-# INLINE m #-}\nm = m\n"
+            config = defaultConfig {parserSourceName = "<test>"}
+            (errs, parsed) = parseModule config source
+            result = resolve [parsed]
+        assertEqual "parser errors" [] errs
+        case resolveErrors result of
+          [ResolveResolutionError _ name namespace msg] -> do
+            assertEqual "error name" "DeclPragma" name
+            assertEqual "error namespace" ResolutionNamespaceTerm namespace
+            assertEqual "error message" "unhandled syntax" msg
+          actual ->
+            assertEqual
+              "unhandled pragmas should remain annotated and also populate resolveErrors"
+              1
+              (length actual),
       testCase "collects unhandled class items into ResolveResult" $ do
         let source = "module Main where\nclass C a where\n  infixl 5 `m`\n  m :: a -> a\n"
             config = defaultConfig {parserSourceName = "<test>"}
