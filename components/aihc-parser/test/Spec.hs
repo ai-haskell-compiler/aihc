@@ -143,6 +143,7 @@ buildTests = do
             testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
+            testCase "pretty-prints multi-way if left operands with parentheses" test_prettyMultiWayIfInfixLhs,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
             testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
             testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
@@ -988,6 +989,37 @@ test_prettyLayoutLetGuardInMultiWayIf = do
             "     case '5' of",
             "       (+) ->",
             "         0"
+          ]
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertEqual "pretty-printed expression" expected rendered
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+
+test_prettyMultiWayIfInfixLhs :: Assertion
+test_prettyMultiWayIfInfixLhs = do
+  let config = defaultConfig {parserExtensions = [MultiWayIf]}
+      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      expr =
+        EInfix
+          ( EMultiWayIf
+              [ GuardedRhs
+                  []
+                  [GuardExpr (EVar (qualifyName Nothing (mkUnqualifiedName NameConId "True")))]
+                  (ETuple Boxed [])
+              ]
+          )
+          op
+          (EChar 'x' "'x'")
+      expected =
+        T.intercalate
+          "\n"
+          [ "(if | True",
+            "     ->",
+            "      ())",
+            " `a` 'x'"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" expected rendered

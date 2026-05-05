@@ -110,6 +110,7 @@ isGreedyExpr = \case
   EAnn _ sub -> isGreedyExpr sub
   ECase {} -> True
   EIf {} -> True
+  EMultiWayIf {} -> True
   ELambdaPats {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
@@ -130,7 +131,7 @@ isBracedExpr :: Expr -> Bool
 isBracedExpr = \case
   EAnn _ sub -> isBracedExpr sub
   ECase _ [] -> True
-  EMultiWayIf {} -> True
+  -- Multi-way if renders as layout-sensitive @if | ...@, not a braced form.
   EDo {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
@@ -143,6 +144,7 @@ isOpenEnded = \case
   EAnn _ sub -> isOpenEnded sub
   ECase _ alts -> not (null alts)
   EIf {} -> True
+  EMultiWayIf {} -> True
   ELambdaPats {} -> True
   ELambdaCases {} -> True
   ELetDecls {} -> True
