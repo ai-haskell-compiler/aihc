@@ -682,7 +682,7 @@ contextItemsParserWith typeParser typeAtomParser =
       guardNotFollowedByConstraintInfixOp
       case items of
         [] -> fail "empty constraint list in parens"
-        [item] -> pure [typeAnnSpan (getTypeSourceSpan item) (TParen item)]
+        [item] -> pure [typeAnnSpan NoSourceSpan (TParen item)]
         _ -> pure items
     guardNotFollowedByConstraintInfixOp = do
       isFollowed <-

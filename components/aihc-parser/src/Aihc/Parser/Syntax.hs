@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 --
@@ -154,21 +153,6 @@ module Aihc.Parser.Syntax
     literalAnnSpan,
     peelLiteralAnn,
     typeAnnSpan,
-    getArithSeqSourceSpan,
-    getClassDeclItemSourceSpan,
-    getCmdSourceSpan,
-    getCompStmtSourceSpan,
-    getDataConDeclSourceSpan,
-    getDeclSourceSpan,
-    getDoStmtSourceSpan,
-    getExportSpecSourceSpan,
-    getExprSourceSpan,
-    getGuardQualifierSourceSpan,
-    getImportItemSourceSpan,
-    getInstanceDeclItemSourceSpan,
-    getLiteralSourceSpan,
-    getPatternSourceSpan,
-    getTypeSourceSpan,
   )
 where
 
@@ -895,14 +879,6 @@ data ExportSpec
   | ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
-getExportSpecSourceSpan :: ExportSpec -> SourceSpan
-getExportSpecSourceSpan spec =
-  case spec of
-    ExportAnn ann sub
-      | Just srcSpan <- fromAnnotation ann -> srcSpan
-      | otherwise -> getExportSpecSourceSpan sub
-    _ -> NoSourceSpan
-
 data ImportDecl = ImportDecl
   { importDeclAnns :: [Annotation],
     importDeclLevel :: Maybe ImportLevel,
@@ -938,14 +914,6 @@ data ImportItem
   | ImportAnn Annotation ImportItem
   deriving (Data, Eq, Show, Generic, NFData)
 
-getImportItemSourceSpan :: ImportItem -> SourceSpan
-getImportItemSourceSpan item =
-  case item of
-    ImportAnn ann sub
-      | Just srcSpan <- fromAnnotation ann -> srcSpan
-      | otherwise -> getImportItemSourceSpan sub
-    _ -> NoSourceSpan
-
 data Decl
   = DeclAnn Annotation Decl
   | DeclValue ValueDecl
@@ -973,14 +941,6 @@ data Decl
   | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
     DeclPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
-
-getDeclSourceSpan :: Decl -> SourceSpan
-getDeclSourceSpan decl =
-  case decl of
-    DeclAnn ann sub
-      | Just srcSpan <- fromAnnotation ann -> srcSpan
-      | otherwise -> getDeclSourceSpan sub
-    _ -> NoSourceSpan
 
 -- | Peel nested 'DeclAnn' wrappers.
 peelDeclAnn :: Decl -> Decl
@@ -1066,14 +1026,6 @@ peelGuardQualifierAnn :: GuardQualifier -> GuardQualifier
 peelGuardQualifierAnn (GuardAnn _ inner) = peelGuardQualifierAnn inner
 peelGuardQualifierAnn q = q
 
-getGuardQualifierSourceSpan :: GuardQualifier -> SourceSpan
-getGuardQualifierSourceSpan qualifier =
-  case qualifier of
-    GuardAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getGuardQualifierSourceSpan sub
-    _ -> NoSourceSpan
-
 data Literal
   = LitAnn Annotation Literal
   | LitInt Integer NumericType Text
@@ -1083,14 +1035,6 @@ data Literal
   | LitString Text Text
   | LitStringHash Text Text
   deriving (Data, Eq, Show, Generic, NFData)
-
-getLiteralSourceSpan :: Literal -> SourceSpan
-getLiteralSourceSpan literal =
-  case literal of
-    LitAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getLiteralSourceSpan sub
-    _ -> NoSourceSpan
 
 literalAnnSpan :: SourceSpan -> Literal -> Literal
 literalAnnSpan sp = LitAnn (mkAnnotation sp)
@@ -1135,14 +1079,6 @@ data Pattern
   | PSplice Expr
   -- \$pat or $(pat) (TH pattern splice)
   deriving (Data, Eq, Show, Generic, NFData)
-
-getPatternSourceSpan :: Pattern -> SourceSpan
-getPatternSourceSpan pat =
-  case pat of
-    PAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getPatternSourceSpan sub
-    _ -> NoSourceSpan
 
 -- | Peel nested 'PAnn' wrappers.
 peelPatternAnn :: Pattern -> Pattern
@@ -1207,14 +1143,6 @@ data TypeBuiltinCon
   | TBuiltinList
   | TBuiltinCons
   deriving (Data, Eq, Show, Generic, NFData)
-
-getTypeSourceSpan :: Type -> SourceSpan
-getTypeSourceSpan ty =
-  case ty of
-    TAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getTypeSourceSpan sub
-    _ -> NoSourceSpan
 
 typeAnnSpan :: SourceSpan -> Type -> Type
 typeAnnSpan sp = TAnn (mkAnnotation sp)
@@ -1507,14 +1435,6 @@ gadtBodyResultType body =
     GadtPrefixBody _ ty -> ty
     GadtRecordBody _ ty -> ty
 
-getDataConDeclSourceSpan :: DataConDecl -> SourceSpan
-getDataConDeclSourceSpan dataConDecl =
-  case dataConDecl of
-    DataConAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getDataConDeclSourceSpan sub
-    _ -> NoSourceSpan
-
 data BangType = BangType
   { bangAnns :: [Annotation],
     bangPragmas :: [Pragma],
@@ -1584,14 +1504,6 @@ data ClassDeclItem
     ClassItemPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
-getClassDeclItemSourceSpan :: ClassDeclItem -> SourceSpan
-getClassDeclItemSourceSpan classDeclItem =
-  case classDeclItem of
-    ClassItemAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getClassDeclItemSourceSpan sub
-    _ -> NoSourceSpan
-
 peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
 peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
@@ -1628,14 +1540,6 @@ data InstanceDeclItem
 peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
 peelInstanceDeclItemAnn (InstanceItemAnn _ inner) = peelInstanceDeclItemAnn inner
 peelInstanceDeclItemAnn item = item
-
-getInstanceDeclItemSourceSpan :: InstanceDeclItem -> SourceSpan
-getInstanceDeclItemSourceSpan instanceDeclItem =
-  case instanceDeclItem of
-    InstanceItemAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getInstanceDeclItemSourceSpan sub
-    _ -> NoSourceSpan
 
 data FixityAssoc
   = Infix
@@ -1762,14 +1666,6 @@ data Expr
   | EPragma Pragma Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
-getExprSourceSpan :: Expr -> SourceSpan
-getExprSourceSpan expr =
-  case expr of
-    EAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getExprSourceSpan sub
-    _ -> NoSourceSpan
-
 -- | Peel nested 'EAnn' layers (e.g. span-only dynamic annotations).
 peelExprAnn :: Expr -> Expr
 peelExprAnn (EAnn _ x) = peelExprAnn x
@@ -1813,14 +1709,6 @@ peelDoStmtAnn :: DoStmt body -> DoStmt body
 peelDoStmtAnn (DoAnn _ inner) = peelDoStmtAnn inner
 peelDoStmtAnn s = s
 
-getDoStmtSourceSpan :: DoStmt body -> SourceSpan
-getDoStmtSourceSpan doStmt =
-  case doStmt of
-    DoAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getDoStmtSourceSpan sub
-    _ -> NoSourceSpan
-
 -- | Arrow command type (used inside 'proc' expressions).
 -- Commands mirror expressions but live in a separate namespace so the
 -- pretty-printer knows not to parenthesise @do { … }@ as an infix LHS.
@@ -1855,14 +1743,6 @@ peelCmdAnn c = c
 data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
   deriving (Data, Eq, Show, Generic, NFData)
 
-getCmdSourceSpan :: Cmd -> SourceSpan
-getCmdSourceSpan cmd =
-  case cmd of
-    CmdAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getCmdSourceSpan sub
-    _ -> NoSourceSpan
-
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkAnnotation').
     CompAnn Annotation CompStmt
@@ -1883,14 +1763,6 @@ peelCompStmtAnn :: CompStmt -> CompStmt
 peelCompStmtAnn (CompAnn _ inner) = peelCompStmtAnn inner
 peelCompStmtAnn s = s
 
-getCompStmtSourceSpan :: CompStmt -> SourceSpan
-getCompStmtSourceSpan compStmt =
-  case compStmt of
-    CompAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getCompStmtSourceSpan sub
-    _ -> NoSourceSpan
-
 data ArithSeq
   = -- | Metadata for the whole arithmetic sequence (typically a 'SourceSpan' via 'mkAnnotation').
     ArithSeqAnn Annotation ArithSeq
@@ -1903,14 +1775,6 @@ data ArithSeq
 peelArithSeqAnn :: ArithSeq -> ArithSeq
 peelArithSeqAnn (ArithSeqAnn _ inner) = peelArithSeqAnn inner
 peelArithSeqAnn s = s
-
-getArithSeqSourceSpan :: ArithSeq -> SourceSpan
-getArithSeqSourceSpan arithSeq =
-  case arithSeq of
-    ArithSeqAnn ann sub
-      | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
-      | otherwise -> getArithSeqSourceSpan sub
-    _ -> NoSourceSpan
 
 -- | Recursively strip all annotations from an AST value.
 --
