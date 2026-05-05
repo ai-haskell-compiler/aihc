@@ -79,7 +79,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
-import Data.Bifunctor
+import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ, showConstr, toConstr)
 import Data.List (find, mapAccumL)
 import Data.Map.Strict qualified as Map
@@ -110,10 +110,6 @@ sourceSpanFromAnns anns =
 peelDeclSpan :: SourceSpan -> Decl -> (SourceSpan, Decl)
 peelDeclSpan ambient (DeclAnn ann inner) = peelDeclSpan (pushSpanFromAnn ambient ann) inner
 peelDeclSpan ambient decl = (ambient, decl)
-
-peelExprSpan :: SourceSpan -> Expr -> SourceSpan
-peelExprSpan ambient (EAnn ann inner) = peelExprSpan (pushSpanFromAnn ambient ann) inner
-peelExprSpan ambient _ = ambient
 
 peelPatternSpan :: SourceSpan -> Pattern -> SourceSpan
 peelPatternSpan ambient (PAnn ann inner) = peelPatternSpan (pushSpanFromAnn ambient ann) inner
@@ -175,6 +171,110 @@ data Scope = Scope
   }
 
 type ModuleExports = Map.Map Text Scope
+
+data ResolveEnv = ResolveEnv
+  { envScope :: !Scope,
+    envSpan :: !SourceSpan
+  }
+
+data ResolveState = ResolveState
+  { stateNextLocal :: !Int,
+    stateGeneratedAnnotations :: [ResolutionAnnotation]
+  }
+
+newtype ResolveM a = ResolveM
+  { unResolveM :: ResolveEnv -> ResolveState -> (a, ResolveState)
+  }
+
+instance Functor ResolveM where
+  fmap f action =
+    ResolveM $ \env state ->
+      let (result, state') = unResolveM action env state
+       in (f result, state')
+
+instance Applicative ResolveM where
+  pure result = ResolveM $ \_ state -> (result, state)
+
+  fun <*> arg =
+    ResolveM $ \env state ->
+      let (f, state') = unResolveM fun env state
+          (result, state'') = unResolveM arg env state'
+       in (f result, state'')
+
+instance Monad ResolveM where
+  action >>= next =
+    ResolveM $ \env state ->
+      let (result, state') = unResolveM action env state
+       in unResolveM (next result) env state'
+
+runResolveM :: Scope -> Int -> ResolveM a -> (Int, [ResolutionAnnotation], a)
+runResolveM scope nextLocal action =
+  let initialEnv = ResolveEnv {envScope = scope, envSpan = NoSourceSpan}
+      initialState = ResolveState {stateNextLocal = nextLocal, stateGeneratedAnnotations = []}
+      (result, finalState) = unResolveM action initialEnv initialState
+   in (stateNextLocal finalState, reverse (stateGeneratedAnnotations finalState), result)
+
+asks :: (ResolveEnv -> a) -> ResolveM a
+asks f = ResolveM $ \env state -> (f env, state)
+
+gets :: (ResolveState -> a) -> ResolveM a
+gets f = ResolveM $ \_ state -> (f state, state)
+
+modify' :: (ResolveState -> ResolveState) -> ResolveM ()
+modify' f =
+  ResolveM $ \_ state ->
+    let state' = f state
+     in state' `seq` ((), state')
+
+local :: (ResolveEnv -> ResolveEnv) -> ResolveM a -> ResolveM a
+local f action =
+  ResolveM $ \env state -> unResolveM action (f env) state
+
+currentScope :: ResolveM Scope
+currentScope = asks envScope
+
+currentSpan :: ResolveM SourceSpan
+currentSpan = asks envSpan
+
+withScope :: Scope -> ResolveM a -> ResolveM a
+withScope scope = local (\env -> env {envScope = scope})
+
+extendScope :: Scope -> ResolveM a -> ResolveM a
+extendScope localScope = local (\env -> env {envScope = localScope `unionScope` envScope env})
+
+withAmbientSpan :: SourceSpan -> ResolveM a -> ResolveM a
+withAmbientSpan span' = local (\env -> env {envSpan = span'})
+
+withEffectiveSpan :: SourceSpan -> ResolveM a -> ResolveM a
+withEffectiveSpan localSpan action = do
+  ambient <- currentSpan
+  withAmbientSpan (effectiveResolutionSpan ambient localSpan) action
+
+withPushedSpan :: Annotation -> ResolveM a -> ResolveM a
+withPushedSpan ann action = do
+  ambient <- currentSpan
+  withAmbientSpan (pushSpanFromAnn ambient ann) action
+
+freshLocal :: UnqualifiedName -> ResolveM ResolvedName
+freshLocal name = do
+  currentId <- gets stateNextLocal
+  modify' (\state -> state {stateNextLocal = currentId + 1})
+  pure (ResolvedLocal currentId name)
+
+withLocalSupply :: Int -> ResolveM a -> ResolveM a
+withLocalSupply nextLocal action = do
+  savedNextLocal <- gets stateNextLocal
+  modify' (\state -> state {stateNextLocal = nextLocal})
+  result <- action
+  modify' (\state -> state {stateNextLocal = savedNextLocal})
+  pure result
+
+emitAnnotation :: ResolutionAnnotation -> ResolveM ()
+emitAnnotation annotation =
+  modify' (\state -> state {stateGeneratedAnnotations = annotation : stateGeneratedAnnotations state})
+
+emitAnnotations :: [ResolutionAnnotation] -> ResolveM ()
+emitAnnotations = mapM_ emitAnnotation
 
 resolve :: [Module] -> ResolveResult
 resolve = resolveWithDeps Map.empty
@@ -267,9 +367,7 @@ resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', resolvedDecls) = resolveTopLevelDecls scope nextLocal Map.empty (moduleDecls modu)
-      decls' = map snd resolvedDecls
-      annotations = concatMap fst resolvedDecls
+      (nextLocal', annotations, decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', annotations, modu' {moduleDecls = decls'})
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
@@ -366,475 +464,397 @@ importMemberNameSpan itemSpan memberName =
             endOffset
     NoSourceSpan -> NoSourceSpan
 
-resolveTopLevelDecls :: Scope -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [([ResolutionAnnotation], Decl)])
-resolveTopLevelDecls _ nextLocal _ [] = (nextLocal, [])
-resolveTopLevelDecls scope nextLocal signatureScopes (decl : rest) =
-  let (nextLocal', signatureScopes', resolvedDecl) = resolveTopLevelDecl scope nextLocal signatureScopes decl
-      (nextLocal'', resolvedDecls) = resolveTopLevelDecls scope nextLocal' signatureScopes' rest
-   in (nextLocal'', resolvedDecl : resolvedDecls)
+resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
+resolveTopLevelDecls _ [] = pure []
+resolveTopLevelDecls signatureScopes (decl : rest) = do
+  (signatureScopes', decl') <- resolveTopLevelDecl signatureScopes decl
+  decls' <- resolveTopLevelDecls signatureScopes' rest
+  pure (decl' : decls')
 
-resolveTopLevelDecl :: Scope -> Int -> Map.Map Text Scope -> Decl -> (Int, Map.Map Text Scope, ([ResolutionAnnotation], Decl))
-resolveTopLevelDecl scope nextLocal signatureScopes decl =
+resolveTopLevelDecl :: Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveTopLevelDecl signatureScopes decl = do
+  scope <- currentScope
   let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-      (nextLocal', signatureScopes', decl') = resolveDeclWithSignatureScope scoped nextLocal signatureScopes decl
-      extras = topLevelDeclAnnotations decl scope
-      decl'' = maybe decl' (`annotateDecl` decl') (topLevelBinderAnnotation decl scope)
-   in (nextLocal', signatureScopes', (extras, decl''))
+  (signatureScopes', decl') <- withScope scoped (resolveDeclWithSignatureScope signatureScopes decl)
+  emitAnnotations (topLevelDeclAnnotations decl scope)
+  let decl'' = maybe decl' (`annotateDecl` decl') (topLevelBinderAnnotation decl scope)
+  pure (signatureScopes', decl'')
 
-resolveDeclWithSignatureScope :: Scope -> Int -> Map.Map Text Scope -> Decl -> (Int, Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScope scope nextLocal signatureScopes =
-  resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes NoSourceSpan
-
-resolveDeclWithSignatureScopeAt :: Scope -> Int -> Map.Map Text Scope -> SourceSpan -> Decl -> (Int, Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes ambient decl =
+resolveDeclWithSignatureScope :: Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveDeclWithSignatureScope signatureScopes decl =
   case decl of
     DeclAnn ann inner ->
-      let (nextLocal', signatureScopes', inner') =
-            resolveDeclWithSignatureScopeAt scope nextLocal signatureScopes (pushSpanFromAnn ambient ann) inner
-       in (nextLocal', signatureScopes', DeclAnn ann inner')
-    DeclTypeSig names ty ->
-      let (nextLocal', binderScope, ty') = resolveTypeSignatureAt scope nextLocal ambient ty
-          signatureScopes' =
+      withPushedSpan ann $ do
+        (signatureScopes', inner') <- resolveDeclWithSignatureScope signatureScopes inner
+        pure (signatureScopes', DeclAnn ann inner')
+    DeclTypeSig names ty -> do
+      (binderScope, ty') <- resolveTypeSignature ty
+      let signatureScopes' =
             foldl'
               (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
               signatureScopes
               names
-       in (nextLocal', signatureScopes', DeclTypeSig names ty')
-    _ ->
-      let (nextLocal', decl') = resolveDeclGo scope nextLocal ambient decl
-          signatureScopes' =
+      pure (signatureScopes', DeclTypeSig names ty')
+    _ -> do
+      decl' <- resolveDecl decl
+      let signatureScopes' =
             case declBinderCandidate decl of
               Just (_, name) -> Map.delete (renderUnqualifiedName name) signatureScopes
               Nothing -> signatureScopes
-       in (nextLocal', signatureScopes', decl')
+      pure (signatureScopes', decl')
 
-resolveDecl :: Scope -> Int -> Decl -> (Int, Decl)
-resolveDecl scope nextLocal =
-  resolveDeclGo scope nextLocal NoSourceSpan
+resolveDecl :: Decl -> ResolveM Decl
+resolveDecl (DeclAnn ann inner) =
+  withPushedSpan ann (resolveDecl inner)
+resolveDecl decl =
+  resolveDeclCore decl
 
-resolveDeclGo :: Scope -> Int -> SourceSpan -> Decl -> (Int, Decl)
-resolveDeclGo scope nextLocal lastSeen (DeclAnn ann inner) =
-  resolveDeclGo scope nextLocal (pushSpanFromAnn lastSeen ann) inner
-resolveDeclGo scope nextLocal lastSeen decl =
-  resolveDeclCore scope nextLocal lastSeen decl
-
-resolveDeclCore :: Scope -> Int -> SourceSpan -> Decl -> (Int, Decl)
-resolveDeclCore scope nextLocal lastSeen decl =
+resolveDeclCore :: Decl -> ResolveM Decl
+resolveDeclCore decl =
   case decl of
     DeclAnn ann inner ->
-      resolveDeclCore scope nextLocal (pushSpanFromAnn lastSeen ann) inner
+      withPushedSpan ann (resolveDeclCore inner)
     DeclValue valueDecl ->
-      second DeclValue (resolveValueDecl scope lastSeen nextLocal valueDecl)
-    DeclTypeSig names ty ->
-      let ty' = resolveTypeAt scope lastSeen ty
-       in (nextLocal, DeclTypeSig names ty')
+      DeclValue <$> resolveValueDecl valueDecl
+    DeclTypeSig names ty -> do
+      ty' <- resolveType ty
+      pure (DeclTypeSig names ty')
     DeclStandaloneKindSig {} ->
-      (nextLocal, annotateUnhandledDecl lastSeen decl)
+      annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeData dataDecl ->
-      (nextLocal, DeclTypeData (resolveDataDecl scope dataDecl))
+      DeclTypeData <$> resolveDataDecl dataDecl
     DeclData dataDecl ->
-      (nextLocal, DeclData (resolveDataDecl scope dataDecl))
+      DeclData <$> resolveDataDecl dataDecl
     DeclTypeSyn {} ->
-      (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclSplice expr ->
-      let (nextLocal', expr') = resolveExprAt scope nextLocal lastSeen expr
-       in (nextLocal', DeclSplice expr')
-    DeclNewtype newtypeDecl ->
-      ( nextLocal,
-        DeclNewtype
-          ( newtypeDecl
-              { newtypeDeclKind = fmap (resolveType scope) (newtypeDeclKind newtypeDecl),
-                newtypeDeclConstructor = fmap (resolveDataConDecl scope) (newtypeDeclConstructor newtypeDecl)
-              }
-          )
-      )
+      annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclSplice expr -> DeclSplice <$> resolveExpr expr
+    DeclNewtype newtypeDecl -> do
+      kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
+      constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
+      pure (DeclNewtype (newtypeDecl {newtypeDeclKind = kind', newtypeDeclConstructor = constructor'}))
     DeclClass classDecl ->
-      (nextLocal, DeclClass (resolveClassDecl scope lastSeen classDecl))
+      DeclClass <$> resolveClassDecl classDecl
     DeclDefault tys ->
-      (nextLocal, DeclDefault (map (resolveTypeAt scope lastSeen) tys))
-    DeclFixity {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclRoleAnnotation {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclPragma {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclPatSyn {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclPatSynSig {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclInstance {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclStandaloneDeriving {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclForeign {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclTypeFamilyDecl {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclDataFamilyDecl {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclTypeFamilyInst {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
-    DeclDataFamilyInst {} -> (nextLocal, annotateUnhandledDecl lastSeen decl)
+      DeclDefault <$> mapM resolveType tys
+    DeclFixity {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclInstance {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclStandaloneDeriving {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclForeign {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclDataFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclTypeFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclDataFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
 
-resolveValueDecl :: Scope -> SourceSpan -> Int -> ValueDecl -> (Int, ValueDecl)
-resolveValueDecl scope lastSeen nextLocal valueDecl =
+resolveValueDecl :: ValueDecl -> ResolveM ValueDecl
+resolveValueDecl valueDecl =
   case valueDecl of
     FunctionBind name matches ->
-      let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
-          (nextLocal', matches') = mapAccumL (resolveMatch scope ambient) nextLocal matches
-       in (nextLocal', FunctionBind name matches')
+      FunctionBind name <$> mapM resolveMatch matches
     PatternBind multTag pat rhs ->
-      let ambient = effectiveResolutionSpan lastSeen NoSourceSpan
-          pat' = resolvePatternSyntax scope ambient pat
-          (nextLocal', rhs') = resolveRhs scope nextLocal ambient rhs
-       in (nextLocal', PatternBind multTag pat' rhs')
+      PatternBind multTag <$> resolvePatternSyntax pat <*> resolveRhs rhs
 
-resolveClassDecl :: Scope -> SourceSpan -> ClassDecl -> ClassDecl
-resolveClassDecl scope lastSeen classDecl =
-  classDecl
-    { classDeclContext = fmap (map (resolveTypeAt scope lastSeen)) (classDeclContext classDecl),
-      classDeclItems = map (resolveClassDeclItem scope lastSeen) (classDeclItems classDecl)
-    }
+resolveClassDecl :: ClassDecl -> ResolveM ClassDecl
+resolveClassDecl classDecl = do
+  context' <- traverse (mapM resolveType) (classDeclContext classDecl)
+  items' <- mapM resolveClassDeclItem (classDeclItems classDecl)
+  pure
+    classDecl
+      { classDeclContext = context',
+        classDeclItems = items'
+      }
 
-resolveClassDeclItem :: Scope -> SourceSpan -> ClassDeclItem -> ClassDeclItem
-resolveClassDeclItem scope lastSeen classDeclItem =
+resolveClassDeclItem :: ClassDeclItem -> ResolveM ClassDeclItem
+resolveClassDeclItem classDeclItem =
   case classDeclItem of
-    ClassItemAnn ann inner -> ClassItemAnn ann (resolveClassDeclItem scope (pushSpanFromAnn lastSeen ann) inner)
-    ClassItemTypeSig names ty -> ClassItemTypeSig names (resolveTypeAt scope lastSeen ty)
-    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (resolveTypeAt scope lastSeen ty)
-    ClassItemDefault valueDecl -> ClassItemDefault (snd (resolveValueDecl scope lastSeen 0 valueDecl))
-    ClassItemFixity {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
-    ClassItemPragma {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
-    ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
-    ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
-    ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem lastSeen classDeclItem
+    ClassItemAnn ann inner -> ClassItemAnn ann <$> withPushedSpan ann (resolveClassDeclItem inner)
+    ClassItemTypeSig names ty -> ClassItemTypeSig names <$> resolveType ty
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig name <$> resolveType ty
+    ClassItemDefault valueDecl -> ClassItemDefault <$> withLocalSupply 0 (resolveValueDecl valueDecl)
+    ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemPragma {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
 
-resolveMatch :: Scope -> SourceSpan -> Int -> Match -> (Int, Match)
-resolveMatch scope ambient nextLocal match =
-  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (matchAnns match))
-      (nextLocal', patScope, pats') = bindPatterns scope here nextLocal (matchPats match)
-      scoped = unionScope patScope scope
-      rhsHere = effectiveResolutionSpan here (rhsSpan (matchRhs match))
-      (nextLocal'', rhs') = resolveRhs scoped nextLocal' rhsHere (matchRhs match)
-   in (nextLocal'', match {matchPats = pats', matchRhs = rhs'})
+resolveMatch :: Match -> ResolveM Match
+resolveMatch match =
+  withEffectiveSpan (sourceSpanFromAnns (matchAnns match)) $ do
+    (patScope, pats') <- bindPatterns (matchPats match)
+    rhsHere <- effectiveResolutionSpan <$> currentSpan <*> pure (rhsSpan (matchRhs match))
+    rhs' <- extendScope patScope (withAmbientSpan rhsHere (resolveRhs (matchRhs match)))
+    pure match {matchPats = pats', matchRhs = rhs'}
 
-resolveRhs :: Scope -> Int -> SourceSpan -> Rhs Expr -> (Int, Rhs Expr)
-resolveRhs scope nextLocal ambient rhs =
+resolveRhs :: Rhs Expr -> ResolveM (Rhs Expr)
+resolveRhs rhs =
   case rhs of
     UnguardedRhs anns expr mDecls ->
-      let bodyHere = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
-          -- Pre-allocate where-clause binders so the body can reference them.
-          whereDecls = fromMaybe [] mDecls
-          (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal whereDecls
-          scoped = unionScope localScope scope
-          (nextLocal'', expr') = resolveExprAt scoped nextLocal' bodyHere expr
-          (nextLocal''', mDecls') = case mDecls of
-            Nothing -> (nextLocal'', Nothing)
-            Just decls ->
-              let (nl, ds) = resolveBoundDecls scoped binderAnnotations nextLocal'' Map.empty decls
-               in (nl, Just ds)
-       in (nextLocal''', UnguardedRhs anns expr' mDecls')
+      withEffectiveSpan (sourceSpanFromAnns anns) $ do
+        -- Pre-allocate where-clause binders so the body can reference them.
+        (binderAnnotations, localScope) <- allocateLocalDeclBinders (fromMaybe [] mDecls)
+        expr' <- extendScope localScope (resolveExpr expr)
+        mDecls' <- case mDecls of
+          Nothing -> pure Nothing
+          Just decls -> Just <$> extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+        pure (UnguardedRhs anns expr' mDecls')
     GuardedRhss anns guardedRhss mDecls ->
-      let here = effectiveResolutionSpan ambient (sourceSpanFromAnns anns)
-          -- Pre-allocate where-clause binders so guards can reference them.
-          whereDecls = fromMaybe [] mDecls
-          (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal whereDecls
-          scoped = unionScope localScope scope
-          (nextLocal'', guardedRhss') = mapAccumL (resolveGuardedRhs scoped here) nextLocal' guardedRhss
-          (nextLocal''', mDecls') = case mDecls of
-            Nothing -> (nextLocal'', Nothing)
-            Just decls ->
-              let (nl, ds) = resolveBoundDecls scoped binderAnnotations nextLocal'' Map.empty decls
-               in (nl, Just ds)
-       in (nextLocal''', GuardedRhss anns guardedRhss' mDecls')
+      withEffectiveSpan (sourceSpanFromAnns anns) $ do
+        -- Pre-allocate where-clause binders so guards can reference them.
+        (binderAnnotations, localScope) <- allocateLocalDeclBinders (fromMaybe [] mDecls)
+        guardedRhss' <- extendScope localScope (mapM resolveGuardedRhs guardedRhss)
+        mDecls' <- case mDecls of
+          Nothing -> pure Nothing
+          Just decls -> Just <$> extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+        pure (GuardedRhss anns guardedRhss' mDecls')
 
-resolveGuardedRhs :: Scope -> SourceSpan -> Int -> GuardedRhs Expr -> (Int, GuardedRhs Expr)
-resolveGuardedRhs scope ambient nextLocal guardedRhs =
-  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (guardedRhsAnns guardedRhs))
-      (nextLocal', scope', guards') = resolveGuardQualifiers scope nextLocal here (guardedRhsGuards guardedRhs)
-      (nextLocal'', body') = resolveExprAt scope' nextLocal' here (guardedRhsBody guardedRhs)
-   in (nextLocal'', guardedRhs {guardedRhsGuards = guards', guardedRhsBody = body'})
+resolveGuardedRhs :: GuardedRhs Expr -> ResolveM (GuardedRhs Expr)
+resolveGuardedRhs guardedRhs =
+  withEffectiveSpan (sourceSpanFromAnns (guardedRhsAnns guardedRhs)) $ do
+    (scope', guards') <- resolveGuardQualifiers (guardedRhsGuards guardedRhs)
+    body' <- withScope scope' (resolveExpr (guardedRhsBody guardedRhs))
+    pure guardedRhs {guardedRhsGuards = guards', guardedRhsBody = body'}
 
-resolveGuardQualifiers :: Scope -> Int -> SourceSpan -> [GuardQualifier] -> (Int, Scope, [GuardQualifier])
-resolveGuardQualifiers scope nextLocal ambient qualifiers =
-  case qualifiers of
-    [] -> (nextLocal, scope, [])
-    qualifier : rest ->
-      let (nextLocal', scope', qualifier') = resolveGuardQualifier scope nextLocal ambient qualifier
-          (nextLocal'', scope'', rest') = resolveGuardQualifiers scope' nextLocal' ambient rest
-       in (nextLocal'', scope'', qualifier' : rest')
+resolveGuardQualifiers :: [GuardQualifier] -> ResolveM (Scope, [GuardQualifier])
+resolveGuardQualifiers qualifiers = do
+  scope <- currentScope
+  go scope qualifiers
+  where
+    go scope qualifiers' =
+      withScope scope $
+        case qualifiers' of
+          [] -> pure (scope, [])
+          qualifier : rest -> do
+            (scope', qualifier') <- resolveGuardQualifier qualifier
+            (scope'', rest') <- go scope' rest
+            pure (scope'', qualifier' : rest')
 
-resolveGuardQualifier :: Scope -> Int -> SourceSpan -> GuardQualifier -> (Int, Scope, GuardQualifier)
-resolveGuardQualifier scope nextLocal ambient qualifier =
-  let qualifierSpan = peelGuardQualifierSpan NoSourceSpan qualifier
-      here = effectiveResolutionSpan ambient qualifierSpan
-      wrap = GuardAnn (mkAnnotation qualifierSpan)
-   in case peelGuardQualifierAnn qualifier of
-        GuardExpr expr ->
-          let (nextLocal', expr') = resolveExprAt scope nextLocal here expr
-           in (nextLocal', scope, wrap (GuardExpr expr'))
-        GuardPat pat expr ->
-          let (nextLocal', expr') = resolveExprAt scope nextLocal here expr
-              (nextLocal'', patScope, pat') = bindPattern scope here nextLocal' pat
-           in (nextLocal'', unionScope patScope scope, wrap (GuardPat pat' expr'))
-        GuardLet decls ->
-          let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-              scoped = unionScope localScope scope
-              (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
-           in (nextLocal'', scoped, wrap (GuardLet decls'))
-        GuardAnn _ _ -> (nextLocal, scope, qualifier)
+resolveGuardQualifier :: GuardQualifier -> ResolveM (Scope, GuardQualifier)
+resolveGuardQualifier qualifier =
+  withEffectiveSpan (peelGuardQualifierSpan NoSourceSpan qualifier) $ do
+    scope <- currentScope
+    let qualifierSpan = peelGuardQualifierSpan NoSourceSpan qualifier
+        wrap = GuardAnn (mkAnnotation qualifierSpan)
+    case peelGuardQualifierAnn qualifier of
+      GuardExpr expr -> do
+        expr' <- resolveExpr expr
+        pure (scope, wrap (GuardExpr expr'))
+      GuardPat pat expr -> do
+        expr' <- resolveExpr expr
+        (patScope, pat') <- bindPattern pat
+        pure (unionScope patScope scope, wrap (GuardPat pat' expr'))
+      GuardLet decls -> do
+        (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
+        decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+        pure (unionScope localScope scope, wrap (GuardLet decls'))
+      GuardAnn _ _ -> pure (scope, qualifier)
 
-resolveExprAt :: Scope -> Int -> SourceSpan -> Expr -> (Int, Expr)
-resolveExprAt scope nextLocal lastSeen expr =
+resolveExpr :: Expr -> ResolveM Expr
+resolveExpr expr =
   case expr of
     EAnn ann inner ->
-      resolveExprAt scope nextLocal (pushSpanFromAnn lastSeen ann) inner
-    EVar name ->
-      let sp = peelExprSpan lastSeen expr
-       in ( nextLocal,
-            annotateExpr
-              (ResolutionAnnotation sp (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
-              (EVar name)
-          )
-    ETypeSyntax form ty ->
-      let here = peelExprSpan lastSeen expr
-       in (nextLocal, ETypeSyntax form (resolveTypeAt scope here ty))
-    EInt {} -> (nextLocal, expr)
-    EFloat {} -> (nextLocal, expr)
-    EChar {} -> (nextLocal, expr)
-    ECharHash {} -> (nextLocal, expr)
-    EString {} -> (nextLocal, expr)
-    EStringHash {} -> (nextLocal, expr)
-    EOverloadedLabel {} -> (nextLocal, expr)
+      withPushedSpan ann (resolveExpr inner)
+    EVar name -> do
+      sp <- currentSpan
+      scope <- currentScope
+      pure
+        ( annotateExpr
+            (ResolutionAnnotation sp (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
+            (EVar name)
+        )
+    ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
+    EInt {} -> pure expr
+    EFloat {} -> pure expr
+    EChar {} -> pure expr
+    ECharHash {} -> pure expr
+    EString {} -> pure expr
+    EStringHash {} -> pure expr
+    EOverloadedLabel {} -> pure expr
     EIf cond trueBranch falseBranch ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', cond') = resolveExprAt scope nextLocal here cond
-          (nextLocal'', trueBranch') = resolveExprAt scope nextLocal' here trueBranch
-          (nextLocal''', falseBranch') = resolveExprAt scope nextLocal'' here falseBranch
-       in (nextLocal''', EIf cond' trueBranch' falseBranch')
+      EIf <$> resolveExpr cond <*> resolveExpr trueBranch <*> resolveExpr falseBranch
     EMultiWayIf guardedRhss ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', guardedRhss') = mapAccumL (resolveGuardedRhs scope here) nextLocal guardedRhss
-       in (nextLocal', EMultiWayIf guardedRhss')
-    ELambdaPats pats body ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', patScope, pats') = bindPatterns scope here nextLocal pats
-          scoped = unionScope patScope scope
-          (nextLocal'', body') = resolveExprAt scoped nextLocal' here body
-       in (nextLocal'', ELambdaPats pats' body')
+      EMultiWayIf <$> mapM resolveGuardedRhs guardedRhss
+    ELambdaPats pats body -> do
+      (patScope, pats') <- bindPatterns pats
+      body' <- extendScope patScope (resolveExpr body)
+      pure (ELambdaPats pats' body')
     ELambdaCase alts ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', alts') = mapAccumL (resolveCaseAlt scope here) nextLocal alts
-       in (nextLocal', ELambdaCase alts')
+      ELambdaCase <$> mapM resolveCaseAlt alts
     ELambdaCases alts ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', alts') = mapAccumL (resolveLambdaCaseAlt scope here) nextLocal alts
-       in (nextLocal', ELambdaCases alts')
+      ELambdaCases <$> mapM resolveLambdaCaseAlt alts
     EInfix left op right ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', left') = resolveExprAt scope nextLocal here left
-          (nextLocal'', right') = resolveExprAt scope nextLocal' here right
-       in (nextLocal'', EInfix left' op right')
+      EInfix <$> resolveExpr left <*> pure op <*> resolveExpr right
     ENegate inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ENegate inner')
+      ENegate <$> resolveExpr inner
     ESectionL inner op ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ESectionL inner' op)
+      ESectionL <$> resolveExpr inner <*> pure op
     ESectionR op inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ESectionR op inner')
-    ELetDecls decls body ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-          scoped = unionScope localScope scope
-          (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
-          (nextLocal''', body') = resolveExprAt scoped nextLocal'' here body
-       in (nextLocal''', ELetDecls decls' body')
+      ESectionR op <$> resolveExpr inner
+    ELetDecls decls body -> do
+      (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
+      decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+      body' <- extendScope localScope (resolveExpr body)
+      pure (ELetDecls decls' body')
     ECase scrutinee alts ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', scrutinee') = resolveExprAt scope nextLocal here scrutinee
-          (nextLocal'', alts') = mapAccumL (resolveCaseAlt scope here) nextLocal' alts
-       in (nextLocal'', ECase scrutinee' alts')
+      ECase <$> resolveExpr scrutinee <*> mapM resolveCaseAlt alts
     EArithSeq arithSeq ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', arithSeq') = resolveArithSeq scope here nextLocal arithSeq
-       in (nextLocal', EArithSeq arithSeq')
+      EArithSeq <$> resolveArithSeq arithSeq
     ERecordCon name fields wildcard ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', fields') = resolveRecordFields scope here nextLocal fields
-       in (nextLocal', ERecordCon name fields' wildcard)
+      ERecordCon name <$> resolveRecordFields fields <*> pure wildcard
     ERecordUpd record fields ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', record') = resolveExprAt scope nextLocal here record
-          (nextLocal'', fields') = resolveRecordFields scope here nextLocal' fields
-       in (nextLocal'', ERecordUpd record' fields')
+      ERecordUpd <$> resolveExpr record <*> resolveRecordFields fields
     EGetField record name ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', record') = resolveExprAt scope nextLocal here record
-       in (nextLocal', EGetField record' name)
-    EGetFieldProjection {} -> (nextLocal, expr)
+      EGetField <$> resolveExpr record <*> pure name
+    EGetFieldProjection {} -> pure expr
     ETypeSig inner ty ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ETypeSig inner' (resolveTypeAt scope here ty))
+      ETypeSig <$> resolveExpr inner <*> resolveType ty
     EParen inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', EParen inner')
+      EParen <$> resolveExpr inner
     EList items ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', items') = mapAccumL (\current item -> resolveExprAt scope current here item) nextLocal items
-       in (nextLocal', EList items')
+      EList <$> mapM resolveExpr items
     ETuple flavor items ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', items') = mapAccumL (resolveMaybeExprAt scope here) nextLocal items
-       in (nextLocal', ETuple flavor items')
+      ETuple flavor <$> mapM resolveMaybeExpr items
     EUnboxedSum alt arity inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', EUnboxedSum alt arity inner')
+      EUnboxedSum alt arity <$> resolveExpr inner
     ETypeApp fun ty ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', fun') = resolveExprAt scope nextLocal here fun
-       in (nextLocal', ETypeApp fun' (resolveTypeAt scope here ty))
+      ETypeApp <$> resolveExpr fun <*> resolveType ty
     EApp fun arg ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', fun') = resolveExprAt scope nextLocal here fun
-          (nextLocal'', arg') = resolveExprAt scope nextLocal' here arg
-       in (nextLocal'', EApp fun' arg')
+      EApp <$> resolveExpr fun <*> resolveExpr arg
     ETHSplice inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ETHSplice inner')
+      ETHSplice <$> resolveExpr inner
     ETHTypedSplice inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ETHTypedSplice inner')
+      ETHTypedSplice <$> resolveExpr inner
     EPragma pragma inner ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', EPragma pragma inner')
-    EDo stmts flavor ->
-      let here = peelExprSpan lastSeen expr
-          (nextLocal', _, stmts') = resolveDoStmts scope here nextLocal stmts
-       in (nextLocal', EDo stmts' flavor)
-    EQuasiQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    EListComp {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    EListCompParallel {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHExpQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHTypedQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHDeclQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHTypeQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHPatQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHNameQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    ETHTypeNameQuote {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
-    EProc {} -> (nextLocal, annotateUnhandledExpr (peelExprSpan lastSeen expr) expr)
+      EPragma pragma <$> resolveExpr inner
+    EDo stmts flavor -> do
+      (_, stmts') <- resolveDoStmts stmts
+      pure (EDo stmts' flavor)
+    EQuasiQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EListComp {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EListCompParallel {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHExpQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHTypedQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHDeclQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHTypeQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHPatQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
 
-resolveMaybeExprAt :: Scope -> SourceSpan -> Int -> Maybe Expr -> (Int, Maybe Expr)
-resolveMaybeExprAt _ _ nextLocal Nothing = (nextLocal, Nothing)
-resolveMaybeExprAt scope here nextLocal (Just inner) =
-  second Just (resolveExprAt scope nextLocal here inner)
+resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe Expr)
+resolveMaybeExpr = traverse resolveExpr
 
-resolveCaseAlt :: Scope -> SourceSpan -> Int -> CaseAlt Expr -> (Int, CaseAlt Expr)
-resolveCaseAlt scope ambient nextLocal alt =
-  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (caseAltAnns alt))
-      (nextLocal', patScope, pat') = bindPattern scope here nextLocal (caseAltPattern alt)
-      scoped = unionScope patScope scope
-      (nextLocal'', rhs') = resolveRhs scoped nextLocal' here (caseAltRhs alt)
-   in (nextLocal'', alt {caseAltPattern = pat', caseAltRhs = rhs'})
+resolveCaseAlt :: CaseAlt Expr -> ResolveM (CaseAlt Expr)
+resolveCaseAlt alt =
+  withEffectiveSpan (sourceSpanFromAnns (caseAltAnns alt)) $ do
+    (patScope, pat') <- bindPattern (caseAltPattern alt)
+    rhs' <- extendScope patScope (resolveRhs (caseAltRhs alt))
+    pure alt {caseAltPattern = pat', caseAltRhs = rhs'}
 
-resolveLambdaCaseAlt :: Scope -> SourceSpan -> Int -> LambdaCaseAlt -> (Int, LambdaCaseAlt)
-resolveLambdaCaseAlt scope ambient nextLocal alt =
-  let here = effectiveResolutionSpan ambient (sourceSpanFromAnns (lambdaCaseAltAnns alt))
-      (nextLocal', patScope, pats') = bindPatterns scope here nextLocal (lambdaCaseAltPats alt)
-      scoped = unionScope patScope scope
-      (nextLocal'', rhs') = resolveRhs scoped nextLocal' here (lambdaCaseAltRhs alt)
-   in (nextLocal'', alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'})
+resolveLambdaCaseAlt :: LambdaCaseAlt -> ResolveM LambdaCaseAlt
+resolveLambdaCaseAlt alt =
+  withEffectiveSpan (sourceSpanFromAnns (lambdaCaseAltAnns alt)) $ do
+    (patScope, pats') <- bindPatterns (lambdaCaseAltPats alt)
+    rhs' <- extendScope patScope (resolveRhs (lambdaCaseAltRhs alt))
+    pure alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}
 
-resolveRecordFields :: Scope -> SourceSpan -> Int -> [RecordField Expr] -> (Int, [RecordField Expr])
-resolveRecordFields scope here =
-  mapAccumL
-    ( \current field ->
-        let (nextLocal, value') = resolveExprAt scope current here (recordFieldValue field)
-         in (nextLocal, field {recordFieldValue = value'})
+resolveRecordFields :: [RecordField Expr] -> ResolveM [RecordField Expr]
+resolveRecordFields =
+  mapM
+    ( \field -> do
+        value' <- resolveExpr (recordFieldValue field)
+        pure field {recordFieldValue = value'}
     )
 
-resolveDoStmts :: Scope -> SourceSpan -> Int -> [DoStmt Expr] -> (Int, Scope, [DoStmt Expr])
-resolveDoStmts scope _ nextLocal [] = (nextLocal, scope, [])
-resolveDoStmts scope here nextLocal (stmt : rest) =
-  let (nextLocal', scope', stmt') = resolveDoStmt scope here nextLocal stmt
-      (nextLocal'', scope'', rest') = resolveDoStmts scope' here nextLocal' rest
-   in (nextLocal'', scope'', stmt' : rest')
+resolveDoStmts :: [DoStmt Expr] -> ResolveM (Scope, [DoStmt Expr])
+resolveDoStmts stmts = do
+  scope <- currentScope
+  go scope stmts
+  where
+    go scope stmts' =
+      withScope scope $
+        case stmts' of
+          [] -> pure (scope, [])
+          stmt : rest -> do
+            (scope', stmt') <- resolveDoStmt stmt
+            (scope'', rest') <- go scope' rest
+            pure (scope'', stmt' : rest')
 
-resolveDoStmt :: Scope -> SourceSpan -> Int -> DoStmt Expr -> (Int, Scope, DoStmt Expr)
-resolveDoStmt scope here nextLocal stmt =
+resolveDoStmt :: DoStmt Expr -> ResolveM (Scope, DoStmt Expr)
+resolveDoStmt stmt =
   case stmt of
-    DoAnn ann inner ->
-      let (nextLocal', scope', inner') = resolveDoStmt scope (pushSpanFromAnn here ann) nextLocal inner
-       in (nextLocal', scope', DoAnn ann inner')
-    DoExpr body ->
-      let (nextLocal', body') = resolveExprAt scope nextLocal here body
-       in (nextLocal', scope, DoExpr body')
-    DoBind pat body ->
-      let (nextLocal', body') = resolveExprAt scope nextLocal here body
-          (nextLocal'', patScope, pat') = bindPattern scope here nextLocal' pat
-       in (nextLocal'', unionScope patScope scope, DoBind pat' body')
-    DoLetDecls decls ->
-      let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-          scoped = unionScope localScope scope
-          (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
-       in (nextLocal'', scoped, DoLetDecls decls')
-    DoRecStmt stmts ->
-      let (nextLocal', _, stmts') = resolveDoStmts scope here nextLocal stmts
-       in (nextLocal', scope, DoRecStmt stmts')
+    DoAnn ann inner -> do
+      (scope', inner') <- withPushedSpan ann (resolveDoStmt inner)
+      pure (scope', DoAnn ann inner')
+    DoExpr body -> do
+      scope <- currentScope
+      body' <- resolveExpr body
+      pure (scope, DoExpr body')
+    DoBind pat body -> do
+      scope <- currentScope
+      body' <- resolveExpr body
+      (patScope, pat') <- bindPattern pat
+      pure (unionScope patScope scope, DoBind pat' body')
+    DoLetDecls decls -> do
+      scope <- currentScope
+      (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
+      decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+      pure (unionScope localScope scope, DoLetDecls decls')
+    DoRecStmt stmts -> do
+      scope <- currentScope
+      (_, stmts') <- resolveDoStmts stmts
+      pure (scope, DoRecStmt stmts')
 
-resolveArithSeq :: Scope -> SourceSpan -> Int -> ArithSeq -> (Int, ArithSeq)
-resolveArithSeq scope here nextLocal arithSeq =
+resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
+resolveArithSeq arithSeq =
   case arithSeq of
     ArithSeqAnn ann inner ->
-      second (ArithSeqAnn ann) (resolveArithSeq scope (pushSpanFromAnn here ann) nextLocal inner)
+      ArithSeqAnn ann <$> withPushedSpan ann (resolveArithSeq inner)
     ArithSeqFrom from ->
-      second ArithSeqFrom (resolveExprAt scope nextLocal here from)
+      ArithSeqFrom <$> resolveExpr from
     ArithSeqFromThen from then' ->
-      let (nextLocal', from') = resolveExprAt scope nextLocal here from
-          (nextLocal'', then'') = resolveExprAt scope nextLocal' here then'
-       in (nextLocal'', ArithSeqFromThen from' then'')
+      ArithSeqFromThen <$> resolveExpr from <*> resolveExpr then'
     ArithSeqFromTo from to ->
-      let (nextLocal', from') = resolveExprAt scope nextLocal here from
-          (nextLocal'', to') = resolveExprAt scope nextLocal' here to
-       in (nextLocal'', ArithSeqFromTo from' to')
+      ArithSeqFromTo <$> resolveExpr from <*> resolveExpr to
     ArithSeqFromThenTo from then' to ->
-      let (nextLocal', from') = resolveExprAt scope nextLocal here from
-          (nextLocal'', then'') = resolveExprAt scope nextLocal' here then'
-          (nextLocal''', to') = resolveExprAt scope nextLocal'' here to
-       in (nextLocal''', ArithSeqFromThenTo from' then'' to')
+      ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
 
-resolveBoundDecl :: Scope -> Map.Map Text ResolutionAnnotation -> Int -> Decl -> (Int, Decl)
-resolveBoundDecl scope binderAnnotations nextLocal decl =
-  let (nextLocal', decl') = resolveDecl scope nextLocal decl
-   in (nextLocal', maybe decl' (`annotateDecl` decl') (declBinderAnnotation decl binderAnnotations))
+resolveBoundDecl :: Map.Map Text ResolutionAnnotation -> Decl -> ResolveM Decl
+resolveBoundDecl binderAnnotations decl = do
+  decl' <- resolveDecl decl
+  pure (maybe decl' (`annotateDecl` decl') (declBinderAnnotation decl binderAnnotations))
 
-resolveBoundDecls :: Scope -> Map.Map Text ResolutionAnnotation -> Int -> Map.Map Text Scope -> [Decl] -> (Int, [Decl])
-resolveBoundDecls _ _ nextLocal _ [] = (nextLocal, [])
-resolveBoundDecls scope binderAnnotations nextLocal signatureScopes (decl : rest) =
+resolveBoundDecls :: Map.Map Text ResolutionAnnotation -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
+resolveBoundDecls _ _ [] = pure []
+resolveBoundDecls binderAnnotations signatureScopes (decl : rest) = do
+  scope <- currentScope
   let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-      (nextLocal', signatureScopes', decl') = resolveBoundDeclWithSignatureScope scoped binderAnnotations nextLocal signatureScopes decl
-      (nextLocal'', decls') = resolveBoundDecls scope binderAnnotations nextLocal' signatureScopes' rest
-   in (nextLocal'', decl' : decls')
+  (signatureScopes', decl') <- withScope scoped (resolveBoundDeclWithSignatureScope binderAnnotations signatureScopes decl)
+  decls' <- resolveBoundDecls binderAnnotations signatureScopes' rest
+  pure (decl' : decls')
 
-resolveBoundDeclWithSignatureScope :: Scope -> Map.Map Text ResolutionAnnotation -> Int -> Map.Map Text Scope -> Decl -> (Int, Map.Map Text Scope, Decl)
-resolveBoundDeclWithSignatureScope scope binderAnnotations nextLocal signatureScopes decl =
+resolveBoundDeclWithSignatureScope :: Map.Map Text ResolutionAnnotation -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveBoundDeclWithSignatureScope binderAnnotations signatureScopes decl =
   case decl of
-    DeclTypeSig names ty ->
-      let (nextLocal', binderScope, ty') = resolveTypeSignature scope nextLocal ty
-          signatureScopes' =
+    DeclTypeSig names ty -> do
+      (binderScope, ty') <- resolveTypeSignature ty
+      let signatureScopes' =
             foldl'
               (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
               signatureScopes
               names
           resolvedDecl = DeclTypeSig names ty'
           annotatedDecl = maybe resolvedDecl (`annotateDecl` resolvedDecl) (declBinderAnnotation decl binderAnnotations)
-       in (nextLocal', signatureScopes', annotatedDecl)
-    _ ->
-      let (nextLocal', decl') = resolveBoundDecl scope binderAnnotations nextLocal decl
-          signatureScopes' =
+      pure (signatureScopes', annotatedDecl)
+    _ -> do
+      decl' <- resolveBoundDecl binderAnnotations decl
+      let signatureScopes' =
             case declBinderCandidate decl of
               Just (_, name) -> Map.delete (renderUnqualifiedName name) signatureScopes
               Nothing -> signatureScopes
-       in (nextLocal', signatureScopes', decl')
+      pure (signatureScopes', decl')
 
 declSignatureScope :: Decl -> Map.Map Text Scope -> Maybe Scope
 declSignatureScope decl signatureScopes =
@@ -842,275 +862,283 @@ declSignatureScope decl signatureScopes =
     Just (_, name) -> Map.lookup (renderUnqualifiedName name) signatureScopes
     Nothing -> Nothing
 
-bindPatterns :: Scope -> SourceSpan -> Int -> [Pattern] -> (Int, Scope, [Pattern])
-bindPatterns typeScope ambient nextLocal pats =
-  let (nextLocal', scopedEntries, pats') = foldl' step (nextLocal, [], []) pats
-   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty Map.empty Map.empty Map.empty, reverse pats')
-  where
-    step (currentId, entries, acc) pat =
-      let (nextId, scope, pat') = bindPattern typeScope ambient currentId pat
-       in (nextId, Map.toList (scopeTerms scope) <> entries, pat' : acc)
+bindPatterns :: [Pattern] -> ResolveM (Scope, [Pattern])
+bindPatterns pats = do
+  (scopes, pats') <- mapAndUnzipM bindPattern pats
+  pure (foldr unionScope emptyScope scopes, pats')
 
-bindPattern :: Scope -> SourceSpan -> Int -> Pattern -> (Int, Scope, Pattern)
-bindPattern typeScope lastSeen nextLocal pat =
+bindPattern :: Pattern -> ResolveM (Scope, Pattern)
+bindPattern pat =
   case pat of
     PAnn ann inner ->
-      bindPattern typeScope (pushSpanFromAnn lastSeen ann) nextLocal inner
-    PVar name ->
-      let sp = peelPatternSpan lastSeen pat
-          resolvedName = ResolvedLocal nextLocal name
+      withPushedSpan ann (bindPattern inner)
+    PVar name -> do
+      sp <- currentSpan
+      resolvedName <- freshLocal name
+      let key = renderUnqualifiedName name
           annotation = ResolutionAnnotation sp (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty, annotatePattern annotation (PVar name))
-    PTypeBinder binder ->
-      let scoped = unionScope emptyScope typeScope
-          binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
-          resolvedName = ResolvedLocal nextLocal binderName
-          binder' = binder {tyVarBinderKind = fmap (resolveTypeAt scoped NoSourceSpan) (tyVarBinderKind binder)}
-          binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty
-       in (nextLocal + 1, binderScope, PTypeBinder binder')
-    PTypeSyntax form ty ->
-      let here = peelPatternSpan lastSeen pat
-       in (nextLocal, emptyScope, PTypeSyntax form (resolveTypeAt typeScope here ty))
-    PWildcard -> (nextLocal, emptyScope, pat)
-    PLit {} -> (nextLocal, emptyScope, pat)
-    PTuple flavor pats ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PTuple flavor pats')
-    PUnboxedSum alt arity inner ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PUnboxedSum alt arity inner')
-    PList pats ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PList pats')
-    PCon name typeArgs pats ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PCon name (map (resolveTypeAt typeScope here) typeArgs) pats')
-    PInfix left name right ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', leftScope, left') = bindPattern typeScope here nextLocal left
-          (nextLocal'', rightScope, right') = bindPattern typeScope here nextLocal' right
-       in (nextLocal'', unionScope rightScope leftScope, PInfix left' name right')
-    PView expr inner ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', expr') = resolveExprAt typeScope nextLocal here expr
-          (nextLocal'', scope, inner') = bindPattern typeScope here nextLocal' inner
-       in (nextLocal'', scope, PView expr' inner')
-    PAs alias inner ->
-      let here = peelPatternSpan lastSeen pat
-          aliasKey = renderUnqualifiedName alias
-          aliasResolved = ResolvedLocal nextLocal alias
-          aliasAnnotation =
+      pure (termScope key resolvedName, annotatePattern annotation (PVar name))
+    PTypeBinder binder -> do
+      let binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
+      resolvedName <- freshLocal binderName
+      binder' <- traverseTyVarBinderKind binder
+      let binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty
+      pure (binderScope, PTypeBinder binder')
+    PTypeSyntax form ty -> do
+      ty' <- resolveType ty
+      pure (emptyScope, PTypeSyntax form ty')
+    PWildcard -> pure (emptyScope, pat)
+    PLit {} -> pure (emptyScope, pat)
+    PTuple flavor pats -> do
+      (scope, pats') <- bindPatterns pats
+      pure (scope, PTuple flavor pats')
+    PUnboxedSum alt arity inner -> do
+      (scope, inner') <- bindPattern inner
+      pure (scope, PUnboxedSum alt arity inner')
+    PList pats -> do
+      (scope, pats') <- bindPatterns pats
+      pure (scope, PList pats')
+    PCon name typeArgs pats -> do
+      typeArgs' <- mapM resolveType typeArgs
+      (scope, pats') <- bindPatterns pats
+      pure (scope, PCon name typeArgs' pats')
+    PInfix left name right -> do
+      (leftScope, left') <- bindPattern left
+      (rightScope, right') <- bindPattern right
+      pure (unionScope rightScope leftScope, PInfix left' name right')
+    PView expr inner -> do
+      expr' <- resolveExpr expr
+      (scope, inner') <- bindPattern inner
+      pure (scope, PView expr' inner')
+    PAs alias inner -> do
+      here <- currentSpan
+      let aliasKey = renderUnqualifiedName alias
+      aliasResolved <- freshLocal alias
+      let aliasAnnotation =
             ResolutionAnnotation (spanStartNameSpan here aliasKey) aliasKey ResolutionNamespaceTerm aliasResolved
-          (nextLocal', innerScope, inner') = bindPattern typeScope here (nextLocal + 1) inner
-          aliasScope = Scope (Map.singleton aliasKey aliasResolved) Map.empty Map.empty Map.empty Map.empty Map.empty
-       in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
-    PStrict inner ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PStrict inner')
-    PIrrefutable inner ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PIrrefutable inner')
-    PParen inner ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PParen inner')
-    PRecord name fields wildcard ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', entries, fields') =
-            foldl'
-              ( \(currentId, currentEntries, acc) field ->
-                  let (nextId, fieldScope, fieldPat') = bindPattern typeScope here currentId (recordFieldValue field)
-                   in (nextId, Map.toList (scopeTerms fieldScope) <> currentEntries, field {recordFieldValue = fieldPat'} : acc)
-              )
-              (nextLocal, [], [])
-              fields
-          (nextLocal'', wildcardEntries) = bindRecordWildcardFields typeScope nextLocal' name fields wildcard
-       in (nextLocal'', Scope (Map.fromList (wildcardEntries <> entries)) Map.empty Map.empty Map.empty Map.empty Map.empty, PRecord name (reverse fields') wildcard)
-    PTypeSig inner ty ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PTypeSig inner' (resolveTypeAt typeScope here ty))
-    PNegLit {} -> (nextLocal, emptyScope, pat)
-    PSplice expr ->
-      let here = peelPatternSpan lastSeen pat
-          (nextLocal', expr') = resolveExprAt typeScope nextLocal here expr
-       in (nextLocal', emptyScope, PSplice expr')
-    PQuasiQuote {} -> (nextLocal, emptyScope, annotateUnhandledPattern (peelPatternSpan lastSeen pat) pat)
+          aliasScope = termScope aliasKey aliasResolved
+      (innerScope, inner') <- bindPattern inner
+      pure (unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
+    PStrict inner -> do
+      (scope, inner') <- bindPattern inner
+      pure (scope, PStrict inner')
+    PIrrefutable inner -> do
+      (scope, inner') <- bindPattern inner
+      pure (scope, PIrrefutable inner')
+    PParen inner -> do
+      (scope, inner') <- bindPattern inner
+      pure (scope, PParen inner')
+    PRecord name fields wildcard -> do
+      (fieldScopes, fields') <-
+        mapAndUnzipM
+          ( \field -> do
+              (fieldScope, fieldPat') <- bindPattern (recordFieldValue field)
+              pure (fieldScope, field {recordFieldValue = fieldPat'})
+          )
+          fields
+      wildcardEntries <- bindRecordWildcardFields name fields wildcard
+      let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty
+      pure (foldr unionScope wildcardScope fieldScopes, PRecord name fields' wildcard)
+    PTypeSig inner ty -> do
+      (scope, inner') <- bindPattern inner
+      ty' <- resolveType ty
+      pure (scope, PTypeSig inner' ty')
+    PNegLit {} -> pure (emptyScope, pat)
+    PSplice expr -> do
+      expr' <- resolveExpr expr
+      pure (emptyScope, PSplice expr')
+    PQuasiQuote {} -> do
+      sp <- currentSpan
+      pure (emptyScope, annotateUnhandledPattern sp pat)
+  where
+    traverseTyVarBinderKind binder = do
+      kind' <- traverse resolveType (tyVarBinderKind binder)
+      pure binder {tyVarBinderKind = kind'}
 
-resolvePatternSyntax :: Scope -> SourceSpan -> Pattern -> Pattern
-resolvePatternSyntax scope lastSeen pat =
+termScope :: Text -> ResolvedName -> Scope
+termScope key resolvedName =
+  Scope (Map.singleton key resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty
+
+resolvePatternSyntax :: Pattern -> ResolveM Pattern
+resolvePatternSyntax pat =
   case pat of
     PAnn ann inner ->
-      resolvePatternSyntax scope (pushSpanFromAnn lastSeen ann) inner
-    PVar {} -> pat
-    PTypeBinder binder ->
-      PTypeBinder (binder {tyVarBinderKind = fmap (resolveTypeAt scope lastSeen) (tyVarBinderKind binder)})
+      withPushedSpan ann (resolvePatternSyntax inner)
+    PVar {} -> pure pat
+    PTypeBinder binder -> do
+      kind' <- traverse resolveType (tyVarBinderKind binder)
+      pure (PTypeBinder (binder {tyVarBinderKind = kind'}))
     PTypeSyntax form ty ->
-      PTypeSyntax form (resolveTypeAt scope lastSeen ty)
-    PWildcard -> pat
-    PLit {} -> pat
-    PQuasiQuote {} -> annotateUnhandledPattern (peelPatternSpan lastSeen pat) pat
+      PTypeSyntax form <$> resolveType ty
+    PWildcard -> pure pat
+    PLit {} -> pure pat
+    PQuasiQuote {} -> annotateUnhandledPattern <$> currentSpan <*> pure pat
     PTuple flavor pats ->
-      PTuple flavor (map (resolvePatternSyntax scope lastSeen) pats)
+      PTuple flavor <$> mapM resolvePatternSyntax pats
     PUnboxedSum alt arity inner ->
-      PUnboxedSum alt arity (resolvePatternSyntax scope lastSeen inner)
+      PUnboxedSum alt arity <$> resolvePatternSyntax inner
     PList pats ->
-      PList (map (resolvePatternSyntax scope lastSeen) pats)
+      PList <$> mapM resolvePatternSyntax pats
     PCon name typeArgs pats ->
-      PCon name (map (resolveTypeAt scope lastSeen) typeArgs) (map (resolvePatternSyntax scope lastSeen) pats)
+      PCon name <$> mapM resolveType typeArgs <*> mapM resolvePatternSyntax pats
     PInfix left name right ->
-      PInfix (resolvePatternSyntax scope lastSeen left) name (resolvePatternSyntax scope lastSeen right)
+      PInfix <$> resolvePatternSyntax left <*> pure name <*> resolvePatternSyntax right
     PView expr inner ->
-      PView (snd (resolveExprAt scope 0 lastSeen expr)) (resolvePatternSyntax scope lastSeen inner)
+      PView <$> withLocalSupply 0 (resolveExpr expr) <*> resolvePatternSyntax inner
     PAs alias inner ->
-      PAs alias (resolvePatternSyntax scope lastSeen inner)
+      PAs alias <$> resolvePatternSyntax inner
     PStrict inner ->
-      PStrict (resolvePatternSyntax scope lastSeen inner)
+      PStrict <$> resolvePatternSyntax inner
     PIrrefutable inner ->
-      PIrrefutable (resolvePatternSyntax scope lastSeen inner)
-    PNegLit {} -> pat
+      PIrrefutable <$> resolvePatternSyntax inner
+    PNegLit {} -> pure pat
     PParen inner ->
-      PParen (resolvePatternSyntax scope lastSeen inner)
+      PParen <$> resolvePatternSyntax inner
     PRecord name fields wildcard ->
-      PRecord
-        name
-        (map (\field -> field {recordFieldValue = resolvePatternSyntax scope lastSeen (recordFieldValue field)}) fields)
-        wildcard
+      PRecord name
+        <$> mapM
+          ( \field -> do
+              value' <- resolvePatternSyntax (recordFieldValue field)
+              pure field {recordFieldValue = value'}
+          )
+          fields
+        <*> pure wildcard
     PTypeSig inner ty ->
-      PTypeSig (resolvePatternSyntax scope lastSeen inner) (resolveTypeAt scope lastSeen ty)
+      PTypeSig <$> resolvePatternSyntax inner <*> resolveType ty
     PSplice expr ->
-      PSplice (snd (resolveExprAt scope 0 lastSeen expr))
+      PSplice <$> withLocalSupply 0 (resolveExpr expr)
 
-bindRecordWildcardFields :: Scope -> Int -> Name -> [RecordField Pattern] -> Bool -> (Int, [(Text, ResolvedName)])
-bindRecordWildcardFields scope nextLocal conName fields wildcard
-  | not wildcard = (nextLocal, [])
+bindRecordWildcardFields :: Name -> [RecordField Pattern] -> Bool -> ResolveM [(Text, ResolvedName)]
+bindRecordWildcardFields conName fields wildcard
+  | not wildcard = pure []
   | otherwise =
+      mapM bindField =<< wildcardFields
+  where
+    wildcardFields = do
+      scope <- currentScope
       let explicitFields = map (nameText . recordFieldName) fields
-          wildcardFields =
-            filter (`notElem` explicitFields) $
-              Map.findWithDefault [] (nameText conName) (scopeRecordFields scope)
-       in mapAccumL bindField nextLocal wildcardFields
-  where
-    bindField currentId fieldName =
+      pure
+        ( filter (`notElem` explicitFields) $
+            Map.findWithDefault [] (nameText conName) (scopeRecordFields scope)
+        )
+    bindField fieldName = do
       let binder = mkUnqualifiedName NameVarId fieldName
-       in (currentId + 1, (fieldName, ResolvedLocal currentId binder))
+      resolvedName <- freshLocal binder
+      pure (fieldName, resolvedName)
 
-resolveDataDecl :: Scope -> DataDecl -> DataDecl
-resolveDataDecl scope dataDecl =
-  dataDecl
-    { dataDeclContext = map (resolveType scope) (dataDeclContext dataDecl),
-      dataDeclKind = fmap (resolveType scope) (dataDeclKind dataDecl),
-      dataDeclConstructors = map (resolveDataConDecl scope) (dataDeclConstructors dataDecl)
-    }
+resolveDataDecl :: DataDecl -> ResolveM DataDecl
+resolveDataDecl dataDecl = do
+  context' <- mapM resolveType (dataDeclContext dataDecl)
+  kind' <- traverse resolveType (dataDeclKind dataDecl)
+  constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl)
+  pure
+    dataDecl
+      { dataDeclContext = context',
+        dataDeclKind = kind',
+        dataDeclConstructors = constructors'
+      }
 
-resolveDataConDecl :: Scope -> DataConDecl -> DataConDecl
-resolveDataConDecl scope dataConDecl =
+resolveDataConDecl :: DataConDecl -> ResolveM DataConDecl
+resolveDataConDecl dataConDecl =
   case dataConDecl of
-    DataConAnn ann inner -> DataConAnn ann (resolveDataConDecl scope inner)
+    DataConAnn ann inner -> DataConAnn ann <$> withPushedSpan ann (resolveDataConDecl inner)
     PrefixCon forallVars context name bangTypes ->
-      PrefixCon forallVars (map (resolveType scope) context) name (map resolveBangType bangTypes)
+      PrefixCon forallVars <$> mapM resolveType context <*> pure name <*> mapM resolveBangType bangTypes
     InfixCon forallVars context lhs name rhs ->
-      InfixCon forallVars (map (resolveType scope) context) (resolveBangType lhs) name (resolveBangType rhs)
+      InfixCon forallVars <$> mapM resolveType context <*> resolveBangType lhs <*> pure name <*> resolveBangType rhs
     RecordCon forallVars context name fields ->
-      RecordCon forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
+      RecordCon forallVars <$> mapM resolveType context <*> pure name <*> mapM resolveFieldDecl fields
     GadtCon forallVars context names body ->
-      GadtCon forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
+      GadtCon forallVars <$> mapM resolveType context <*> pure names <*> resolveGadtBody body
     TupleCon forallVars context flavor fields ->
-      TupleCon forallVars (map (resolveType scope) context) flavor (map resolveBangType fields)
+      TupleCon forallVars <$> mapM resolveType context <*> pure flavor <*> mapM resolveBangType fields
     UnboxedSumCon forallVars context pos arity field ->
-      UnboxedSumCon forallVars (map (resolveType scope) context) pos arity (resolveBangType field)
+      UnboxedSumCon forallVars <$> mapM resolveType context <*> pure pos <*> pure arity <*> resolveBangType field
     ListCon forallVars context ->
-      ListCon forallVars (map (resolveType scope) context)
+      ListCon forallVars <$> mapM resolveType context
   where
-    resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
-    resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
+    resolveBangType bt = do
+      ty' <- resolveType (bangType bt)
+      pure bt {bangType = ty'}
+    resolveFieldDecl fieldDecl = do
+      fieldType' <- resolveBangType (fieldType fieldDecl)
+      pure fieldDecl {fieldType = fieldType'}
 
-resolveGadtBody :: Scope -> GadtBody -> GadtBody
-resolveGadtBody scope body =
+resolveGadtBody :: GadtBody -> ResolveM GadtBody
+resolveGadtBody body =
   case body of
     GadtPrefixBody bangTypes ty ->
-      GadtPrefixBody (map (Data.Bifunctor.first resolveBangType) bangTypes) (resolveType scope ty)
+      GadtPrefixBody <$> mapM resolveBangTypePair bangTypes <*> resolveType ty
     GadtRecordBody fields ty ->
-      GadtRecordBody (map resolveFieldDecl fields) (resolveType scope ty)
+      GadtRecordBody <$> mapM resolveFieldDecl fields <*> resolveType ty
   where
-    resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
-    resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
+    resolveBangTypePair (bt, arrowKind) = do
+      bt' <- resolveBangType bt
+      pure (bt', arrowKind)
+    resolveBangType bt = do
+      ty' <- resolveType (bangType bt)
+      pure bt {bangType = ty'}
+    resolveFieldDecl fieldDecl = do
+      fieldType' <- resolveBangType (fieldType fieldDecl)
+      pure fieldDecl {fieldType = fieldType'}
 
-resolveType :: Scope -> Type -> Type
-resolveType scope = resolveTypeAt scope NoSourceSpan
-
-resolveTypeAt :: Scope -> SourceSpan -> Type -> Type
-resolveTypeAt scope lastSeen ty =
+resolveType :: Type -> ResolveM Type
+resolveType ty =
   case ty of
-    TAnn ann inner -> resolveTypeAt scope (pushSpanFromAnn lastSeen ann) inner
-    TVar name ->
-      let sp = lastSeen
-          resolvedTyVar = TVar name
-       in maybe resolvedTyVar (`annotateType` resolvedTyVar) (resolveScopedTypeVarAnnotation scope sp name)
-    TCon name promoted ->
-      let sp = lastSeen
-       in annotateType
+    TAnn ann inner -> withPushedSpan ann (resolveType inner)
+    TVar name -> do
+      sp <- currentSpan
+      scope <- currentScope
+      let resolvedTyVar = TVar name
+      pure (maybe resolvedTyVar (`annotateType` resolvedTyVar) (resolveScopedTypeVarAnnotation scope sp name))
+    TCon name promoted -> do
+      sp <- currentSpan
+      scope <- currentScope
+      pure
+        ( annotateType
             (ResolutionAnnotation sp (nameText name) ResolutionNamespaceType (resolveTypeName scope name))
             (TCon name promoted)
-    TBuiltinCon {} -> ty
+        )
+    TBuiltinCon {} -> pure ty
     TImplicitParam name inner ->
-      let here = lastSeen
-       in TImplicitParam name (resolveTypeAt scope here inner)
-    TTypeLit {} -> ty
-    TStar -> ty
-    TForall telescope inner ->
-      let here = lastSeen
-          (binderScope, binders') = bindTyVarBinders scope (forallTelescopeBinders telescope)
-          scoped = unionScope binderScope scope
-       in TForall (telescope {forallTelescopeBinders = binders'}) (resolveTypeAt scoped here inner)
+      TImplicitParam name <$> resolveType inner
+    TTypeLit {} -> pure ty
+    TStar -> pure ty
+    TForall telescope inner -> do
+      (binderScope, binders') <- withLocalSupply 0 (bindTyVarBinders (forallTelescopeBinders telescope))
+      inner' <- extendScope binderScope (resolveType inner)
+      pure (TForall (telescope {forallTelescopeBinders = binders'}) inner')
     TApp left right ->
-      let here = lastSeen
-       in TApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+      TApp <$> resolveType left <*> resolveType right
     TTypeApp left right ->
-      let here = lastSeen
-       in TTypeApp (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+      TTypeApp <$> resolveType left <*> resolveType right
     TInfix left name promoted right ->
-      let here = lastSeen
-       in TInfix (resolveTypeAt scope here left) name promoted (resolveTypeAt scope here right)
+      TInfix <$> resolveType left <*> pure name <*> pure promoted <*> resolveType right
     TFun arrowKind left right ->
-      let here = lastSeen
-       in TFun (resolveArrowKind scope here arrowKind) (resolveTypeAt scope here left) (resolveTypeAt scope here right)
+      TFun <$> resolveArrowKind arrowKind <*> resolveType left <*> resolveType right
     TTuple flavor promoted items ->
-      let here = lastSeen
-       in TTuple flavor promoted (map (resolveTypeAt scope here) items)
+      TTuple flavor promoted <$> mapM resolveType items
     TUnboxedSum items ->
-      let here = lastSeen
-       in TUnboxedSum (map (resolveTypeAt scope here) items)
+      TUnboxedSum <$> mapM resolveType items
     TList promoted items ->
-      let here = lastSeen
-       in TList promoted (map (resolveTypeAt scope here) items)
+      TList promoted <$> mapM resolveType items
     TParen inner ->
-      let here = lastSeen
-       in TParen (resolveTypeAt scope here inner)
+      TParen <$> resolveType inner
     TKindSig inner kind ->
-      let here = lastSeen
-       in TKindSig (resolveTypeAt scope here inner) (resolveTypeAt scope here kind)
+      TKindSig <$> resolveType inner <*> resolveType kind
     TContext constraints inner ->
-      let here = lastSeen
-       in TContext (map (resolveTypeAt scope here) constraints) (resolveTypeAt scope here inner)
+      TContext <$> mapM resolveType constraints <*> resolveType inner
     TSplice expr ->
-      let here = lastSeen
-       in TSplice (snd (resolveExprAt scope 0 here expr))
-    TWildcard -> ty
-    TQuasiQuote {} -> annotateUnhandledType lastSeen ty
+      TSplice <$> withLocalSupply 0 (resolveExpr expr)
+    TWildcard -> pure ty
+    TQuasiQuote {} -> annotateUnhandledType <$> currentSpan <*> pure ty
 
-resolveArrowKind :: Scope -> SourceSpan -> ArrowKind -> ArrowKind
-resolveArrowKind scope here arrowKind =
+resolveArrowKind :: ArrowKind -> ResolveM ArrowKind
+resolveArrowKind arrowKind =
   case arrowKind of
-    ArrowUnrestricted -> arrowKind
-    ArrowLinear -> arrowKind
-    ArrowExplicit ty -> ArrowExplicit (resolveTypeAt scope here ty)
+    ArrowUnrestricted -> pure arrowKind
+    ArrowLinear -> pure arrowKind
+    ArrowExplicit ty -> ArrowExplicit <$> resolveType ty
 
 resolveScopedTypeVarAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> Maybe ResolutionAnnotation
 resolveScopedTypeVarAnnotation scope span' name =
@@ -1120,49 +1148,44 @@ resolveScopedTypeVarAnnotation scope span' name =
         ResolvedError _ -> Nothing
         _ -> Just (ResolutionAnnotation span' rendered ResolutionNamespaceType resolved)
 
-resolveTypeSignature :: Scope -> Int -> Type -> (Int, Scope, Type)
-resolveTypeSignature scope nextLocal = resolveTypeSignatureAt scope nextLocal NoSourceSpan
-
--- | Like 'resolveTypeSignature' but threads an ambient span from peeled 'TAnn' wrappers.
-resolveTypeSignatureAt :: Scope -> Int -> SourceSpan -> Type -> (Int, Scope, Type)
-resolveTypeSignatureAt scope nextLocal ambient ty =
+resolveTypeSignature :: Type -> ResolveM (Scope, Type)
+resolveTypeSignature ty =
   case ty of
     -- Type signatures may carry span-only 'TAnn' wrappers (see 'typeAnnSpan'); peel
     -- them so we still allocate scoped type variables and advance 'nextLocal'.
-    TAnn ann sub -> resolveTypeSignatureAt scope nextLocal (pushSpanFromAnn ambient ann) sub
-    TForall telescope inner ->
-      let (nextLocal', binderScope, binders') = bindTyVarBindersWithIds scope nextLocal (forallTelescopeBinders telescope)
-          scoped = unionScope binderScope scope
-       in (nextLocal', binderScope, TForall (telescope {forallTelescopeBinders = binders'}) (resolveTypeAt scoped ambient inner))
-    _ -> (nextLocal, emptyScope, resolveTypeAt scope ambient ty)
+    TAnn ann sub -> withPushedSpan ann (resolveTypeSignature sub)
+    TForall telescope inner -> do
+      (binderScope, binders') <- bindTyVarBinders (forallTelescopeBinders telescope)
+      inner' <- extendScope binderScope (resolveType inner)
+      pure (binderScope, TForall (telescope {forallTelescopeBinders = binders'}) inner')
+    _ -> do
+      ty' <- resolveType ty
+      pure (emptyScope, ty')
 
-bindTyVarBinders :: Scope -> [TyVarBinder] -> (Scope, [TyVarBinder])
-bindTyVarBinders scope binders =
-  let (_, binderScope, binders') = bindTyVarBindersWithIds scope 0 binders
-   in (binderScope, binders')
-
-bindTyVarBindersWithIds :: Scope -> Int -> [TyVarBinder] -> (Int, Scope, [TyVarBinder])
-bindTyVarBindersWithIds outerScope nextLocal =
-  foldl' step (nextLocal, emptyScope, [])
+bindTyVarBinders :: [TyVarBinder] -> ResolveM (Scope, [TyVarBinder])
+bindTyVarBinders =
+  foldM step (emptyScope, [])
   where
-    step (currentId, boundScope, acc) binder =
-      let scoped = unionScope boundScope outerScope
-          binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
-          resolvedName = ResolvedLocal currentId binderName
-          boundScope' = insertType (tyVarBinderName binder) resolvedName boundScope
-          binder' = binder {tyVarBinderKind = fmap (resolveTypeAt scoped NoSourceSpan) (tyVarBinderKind binder)}
-       in (currentId + 1, boundScope', acc <> [binder'])
+    step (boundScope, acc) binder = do
+      binder' <- extendScope boundScope (traverseTyVarBinderKind binder)
+      let binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
+      resolvedName <- freshLocal binderName
+      let boundScope' = insertType (tyVarBinderName binder) resolvedName boundScope
+      pure (boundScope', acc <> [binder'])
+    traverseTyVarBinderKind binder = do
+      kind' <- traverse resolveType (tyVarBinderKind binder)
+      pure binder {tyVarBinderKind = kind'}
 
-allocateLocalDeclBinders :: Int -> [Decl] -> (Int, Map.Map Text ResolutionAnnotation, Scope)
-allocateLocalDeclBinders nextLocal =
-  foldl' step (nextLocal, Map.empty, emptyScope)
+allocateLocalDeclBinders :: [Decl] -> ResolveM (Map.Map Text ResolutionAnnotation, Scope)
+allocateLocalDeclBinders =
+  foldM step (Map.empty, emptyScope)
   where
-    step acc decl = foldl' addBinder acc (declBinderCandidates decl)
-    addBinder (currentId, annotations, scope) (span', name) =
-      let resolvedName = ResolvedLocal currentId name
-          key = renderUnqualifiedName name
+    step acc decl = foldM addBinder acc (declBinderCandidates decl)
+    addBinder (annotations, scope) (span', name) = do
+      resolvedName <- freshLocal name
+      let key = renderUnqualifiedName name
           annotation = ResolutionAnnotation span' key ResolutionNamespaceTerm resolvedName
-       in (currentId + 1, Map.insert key annotation annotations, insertTerm key resolvedName scope)
+      pure (Map.insert key annotation annotations, insertTerm key resolvedName scope)
 
 -- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
 declBinderCandidates :: Decl -> [(SourceSpan, UnqualifiedName)]
