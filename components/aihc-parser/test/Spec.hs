@@ -119,7 +119,11 @@ assertParsedExprPrettyRoundTrip config source expected =
 
 assertParsedStrippedExprPrettyRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedExprPrettyRoundTrip config source =
-  assertParsedStrippedExprPrettyRoundTripAs config source source
+  case parseExpr config source of
+    ParseOk expr ->
+      assertExprPrettyRoundTrip config (stripParens expr) source
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 assertParsedStrippedExprPrettyRoundTripAs :: ParserConfig -> Text -> Text -> Assertion
 assertParsedStrippedExprPrettyRoundTripAs config source expected =
