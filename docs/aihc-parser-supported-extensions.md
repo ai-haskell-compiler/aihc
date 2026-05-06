@@ -38,7 +38,7 @@
 | GADTSyntax                |   🟢    | 10/10         |
 | GHC2021                   |   🟢    | 43/43         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
-| Haskell2010               |   🟢    | 15/15         |
+| Haskell2010               |   🟢    | 16/16         |
 | HexFloatLiterals          |   🟢    | 3/3           |
 | ImplicitParams            |   🟢    | 11/11         |
 | ImportQualifiedPost       |   🟢    | 5/5           |
@@ -50,7 +50,7 @@
 | MagicHash                 |   🟢    | 21/21         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
-| MultiWayIf                |   🟢    | 7/7           |
+| MultiWayIf                |   🟢    | 9/9           |
 | NamedFieldPuns            |   🟢    | 6/6           |
 | NamedWildCards            |   🟢    | 5/5           |
 | NegativeLiterals          |   🟢    | 1/1           |
@@ -66,7 +66,7 @@
 | PolyKinds                 |   🟢    | 14/14         |
 | QualifiedDo               |   🟢    | 4/4           |
 | QuantifiedConstraints     |   🟢    | 2/2           |
-| QuasiQuotes               |   🟢    | 10/10         |
+| QuasiQuotes               |   🟢    | 11/11         |
 | RankNTypes                |   🟢    | 4/4           |
 | RecordWildCards           |   🟢    | 10/10         |
 | RecursiveDo               |   🟢    | 4/4           |
@@ -88,8 +88,8 @@
 | TypeFamilyDependencies    |   🟢    | 4/4           |
 | TypeOperators             |   🟢    | 70/70         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
-| UnboxedSums               |   🟢    | 8/8           |
-| UnboxedTuples             |   🟢    | 19/19         |
+| UnboxedSums               |   🟢    | 9/9           |
+| UnboxedTuples             |   🟢    | 20/20         |
 | UndecidableInstances      |   🟢    | 1/1           |
 | UnicodeSyntax             |   🟢    | 19/19         |
 | ViewPatterns              |   🟢    | 19/19         |
