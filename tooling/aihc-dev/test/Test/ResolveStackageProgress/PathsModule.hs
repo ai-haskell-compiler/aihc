@@ -12,8 +12,8 @@ import Aihc.Parser.Syntax
     NameType (..),
     headerExtensionSettings,
     headerLanguageEdition,
-    mkQualifiedName,
     mkUnqualifiedName,
+    qualifyName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
@@ -119,7 +119,7 @@ mkScope moduleName terms types =
     }
   where
     resolve name =
-      ResolvedTopLevel (mkQualifiedName (mkUnqualifiedName (inferNameType name) name) (Just moduleName))
+      ResolvedTopLevel (qualifyName (Just moduleName) (mkUnqualifiedName (inferNameType name) name))
 
 inferNameType :: Text -> NameType
 inferNameType name =

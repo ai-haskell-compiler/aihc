@@ -20,7 +20,6 @@ module Aihc.Parser.Internal.Common
     constructorNameParser,
     constructorUnqualifiedNameParser,
     constructorOperatorUnqualifiedNameParser,
-    constructorIdentifierParser,
     binderNameParser,
     recordFieldNameParser,
     operatorNameParser,
@@ -32,7 +31,6 @@ module Aihc.Parser.Internal.Common
     withSpan,
     withSpanAnn,
     optionalSuffix,
-    sourceSpanFromPositions,
     parens,
     braces,
     thQuoteParser,
@@ -63,7 +61,6 @@ module Aihc.Parser.Internal.Common
     startsWithTypeBinder,
     isConLikeName,
     isConLikeNameType,
-    qualifiedVarName,
     liftCheck,
     infixOperatorParserExcept,
     foldInfixR,
@@ -84,7 +81,6 @@ import Data.Text qualified as T
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
-import Text.Megaparsec.Pos (SourcePos (..))
 
 type TokParser = Parsec ParserErrorComponent TokStream
 
@@ -308,9 +304,6 @@ implicitParamNameParser =
       TkImplicitParam name -> Just name
       _ -> Nothing
 
-constructorIdentifierParser :: TokParser Text
-constructorIdentifierParser = renderName <$> constructorNameParser
-
 constructorNameParser :: TokParser Name
 constructorNameParser =
   tokenSatisfy "constructor identifier" $ \tok ->
@@ -472,18 +465,6 @@ optionalSuffix suffixParser attach parser = do
     case mSuffix of
       Just suffix -> attach base suffix
       Nothing -> base
-
-sourceSpanFromPositions :: SourcePos -> SourcePos -> SourceSpan
-sourceSpanFromPositions start end =
-  SourceSpan
-    { sourceSpanSourceName = sourceName start,
-      sourceSpanStartLine = MP.unPos (sourceLine start),
-      sourceSpanStartCol = MP.unPos (sourceColumn start),
-      sourceSpanEndLine = MP.unPos (sourceLine end),
-      sourceSpanEndCol = MP.unPos (sourceColumn end),
-      sourceSpanStartOffset = 0,
-      sourceSpanEndOffset = 0
-    }
 
 parens :: TokParser a -> TokParser a
 parens parser = do
@@ -1008,14 +989,6 @@ isConLikeNameType :: NameType -> Bool
 isConLikeNameType NameConId = True
 isConLikeNameType NameConSym = True
 isConLikeNameType _ = False
-
--- | Reconstruct a possibly-qualified variable name from its textual representation.
-qualifiedVarName :: Text -> Name
-qualifiedVarName ident =
-  case T.breakOnEnd "." ident of
-    ("", _) -> qualifyName Nothing (mkUnqualifiedName NameVarId ident)
-    (qualifierWithDot, localName) ->
-      mkName (Just (T.dropEnd 1 qualifierWithDot)) NameVarId localName
 
 -- | Lift an @Either Text a@ into the parser, converting @Left@ into a parse error.
 liftCheck :: Either Text a -> TokParser a

@@ -28,8 +28,8 @@ import Aihc.Parser.Syntax
     NameType (..),
     Rhs (..),
     ValueDecl (..),
-    mkQualifiedName,
     mkUnqualifiedName,
+    qualifyName,
     unqualifiedNameFromText,
   )
 import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), resolveWithDeps)
@@ -406,7 +406,7 @@ interfaceModuleScope modu =
 
 resolvedTopLevel :: Text -> Text -> ResolvedName
 resolvedTopLevel moduleName name =
-  ResolvedTopLevel (mkQualifiedName (unqualifiedNameFromText name) (Just moduleName))
+  ResolvedTopLevel (qualifyName (Just moduleName) (unqualifiedNameFromText name))
 
 findInstalledBaseInterface :: FilePath -> IO FilePath
 findInstalledBaseInterface storeRoot = do

@@ -5,7 +5,7 @@ module Test.Properties.DeclRoundTrip
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseDecl)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrorBundle, parseDecl)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
@@ -15,7 +15,6 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
-import Text.Megaparsec.Error qualified as MPE
 
 declConfig :: ParserConfig
 declConfig =
@@ -38,7 +37,7 @@ prop_declPrettyRoundTrip decl =
             counterexample (T.unpack source) $
               case parseDecl declConfig source of
                 ParseErr err ->
-                  counterexample (MPE.errorBundlePretty err) False
+                  counterexample (formatParseErrorBundle (parserSourceName declConfig) (Just source) err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
                    in counterexample ("expected:\n" <> show expected <> "\nactual:\n" <> show actual) (expected == actual)

@@ -20,6 +20,7 @@ module Aihc.Parser
     -- * Parse results
     ParseResult (..),
     ParseErrorBundle,
+    formatParseErrorBundle,
     formatParseErrors,
 
     -- * Parsing expressions, patterns, types, and declarations
@@ -184,9 +185,13 @@ parseErrorsToSpannedText errs =
     (mSpan, doc) <- renderParseErrors err
   ]
 
+-- | Pretty-print a Megaparsec parse error bundle using the same source-context
+-- formatter as 'parseModule'.
+formatParseErrorBundle :: FilePath -> Maybe Text -> ParseErrorBundle -> String
+formatParseErrorBundle sourceName mSource bundle =
+  formatParseErrors sourceName mSource (parseErrorsToSpannedText (NE.toList (MPE.bundleErrors bundle)))
+
 -- | Pretty-print a list of spanned parse errors with source context.
--- This is the analogue of 'errorBundlePretty' for the new @(SourceSpan, Text)@
--- error representation returned by 'parseModule'.
 formatParseErrors :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String
 formatParseErrors sourceName mSource errs =
   let opts = defaultLayoutOptions
@@ -207,23 +212,16 @@ formatParseErrors sourceName mSource errs =
 
 -- | Turn a Megaparsec 'MPE.ParseError' into message blocks with optional spans.
 --
--- * 'MPE.TrivialError': text from 'MPE.parseErrorTextPretty' (Megaparsec\'s built-in
---   formatting for unexpected / expected items). A span is attached when the
---   unexpected item is token content ('ErrorItem.Tokens').
--- * 'MPE.FancyError': one block per fancy error. 'ErrorFail' and 'ErrorIndentation'
---   are formatted with 'MPE.parseErrorTextPretty' on a singleton fancy error (same
---   text Megaparsec uses internally). 'ErrorCustom' uses our unexpected line,
---   'MPE.showErrorComponent', and context lines.
+-- * 'MPE.TrivialError': unexpected and expected items are rendered from token
+--   text, with a span attached when the unexpected item is token content.
+-- * 'MPE.FancyError': one block per fancy error. 'ErrorCustom' uses our
+--   unexpected line, 'MPE.showErrorComponent', and context lines.
 renderParseErrors :: MPE.ParseError TokStream ParserErrorComponent -> [(Maybe SourceSpan, Doc ann)]
 renderParseErrors err =
   case err of
-    MPE.TrivialError _ mUnexpected _ ->
+    MPE.TrivialError _ mUnexpected expected ->
       let mSpan = trivialUnexpectedSpan mUnexpected
-          text =
-            List.dropWhileEnd
-              (`elem` ['\n', '\r'])
-              (MPE.parseErrorTextPretty err)
-       in [(mSpan, vcat (map pretty (lines text)))]
+       in [(mSpan, vcat (map pretty (renderTrivialError mUnexpected expected)))]
     MPE.FancyError _ fancySet ->
       map renderFancyError (Set.toAscList fancySet)
   where
@@ -240,17 +238,10 @@ renderParseErrors err =
           ( customFoundSpan custom,
             vcat (map pretty (customMessageLines custom))
           )
+        ErrorFail message -> (Nothing, pretty message)
         _ ->
           ( Nothing,
-            pretty
-              ( List.dropWhileEnd
-                  (`elem` ['\n', '\r'])
-                  ( MPE.parseErrorTextPretty
-                      ( MPE.FancyError 0 (Set.singleton fancy) ::
-                          MPE.ParseError TokStream ParserErrorComponent
-                      )
-                  )
-              )
+            pretty (show fancy)
           )
 
     customFoundSpan :: ParserErrorComponent -> Maybe SourceSpan
@@ -262,6 +253,26 @@ renderParseErrors err =
     customMessageLines e@(UnexpectedTokenExpecting mFound _ contexts) =
       [maybe "unexpected end of input" renderUnexpectedToken mFound, MPE.showErrorComponent e]
         <> map (\context -> "context: " <> T.unpack context) contexts
+
+renderTrivialError :: Maybe (ErrorItem LexToken) -> Set.Set (ErrorItem LexToken) -> [String]
+renderTrivialError mUnexpected expected =
+  maybe [] (\item -> ["unexpected " <> renderErrorItem item]) mUnexpected
+    <> ["expecting " <> renderExpectedItems (Set.toAscList expected) | not (Set.null expected)]
+
+renderErrorItem :: ErrorItem LexToken -> String
+renderErrorItem item =
+  case item of
+    Tokens toks -> unwords (map (T.unpack . lexTokenText) (NE.toList toks))
+    Label label -> NE.toList label
+    EndOfInput -> "end of input"
+
+renderExpectedItems :: [ErrorItem LexToken] -> String
+renderExpectedItems items =
+  case map renderErrorItem items of
+    [] -> ""
+    [item] -> item
+    [itemA, itemB] -> itemA <> " or " <> itemB
+    rendered -> List.intercalate ", " (init rendered) <> ", or " <> last rendered
 
 renderUnexpectedToken :: FoundToken -> String
 renderUnexpectedToken found =

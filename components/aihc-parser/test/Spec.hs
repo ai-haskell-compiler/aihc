@@ -43,10 +43,23 @@ import Test.Properties.Identifiers
     shrinkIdent,
   )
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
+import Test.Properties.NoExceptions
+  ( prop_declParserArbitraryTokensNoExceptions,
+    prop_exprParserArbitraryTokensNoExceptions,
+    prop_genLexTokenKindConstructorCoverage,
+    prop_importDeclParserArbitraryTokensNoExceptions,
+    prop_lexerArbitraryTextNoExceptions,
+    prop_moduleHeaderParserArbitraryTokensNoExceptions,
+    prop_moduleParserArbitraryTokensNoExceptions,
+    prop_patternParserArbitraryTokensNoExceptions,
+    prop_preprocessorArbitraryTextNoExceptions,
+    prop_typeParserArbitraryTokensNoExceptions,
+  )
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.ShorthandSubset
   ( prop_shorthandDeclSubsetOfShow,
     prop_shorthandExprSubsetOfShow,
+    prop_shorthandLexTokenSubsetOfShow,
     prop_shorthandModuleSubsetOfShow,
     prop_shorthandTypeSubsetOfShow,
   )
@@ -58,7 +71,6 @@ import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck qualified as QC
-import Text.Megaparsec.Error qualified as MPE
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
@@ -198,7 +210,21 @@ buildTests = do
               QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
               QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
               QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
-              QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow
+              QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow,
+              QC.testProperty "lex token shorthand is a subset of Show" prop_shorthandLexTokenSubsetOfShow,
+              QC.testProperty "lex token kind generator covers constructors" prop_genLexTokenKindConstructorCoverage,
+              testGroup
+                "no exceptions"
+                [ QC.testProperty "preprocessor accepts arbitrary text" prop_preprocessorArbitraryTextNoExceptions,
+                  QC.testProperty "lexer accepts arbitrary text" prop_lexerArbitraryTextNoExceptions,
+                  QC.testProperty "module parser accepts arbitrary tokens" prop_moduleParserArbitraryTokensNoExceptions,
+                  QC.testProperty "expr parser accepts arbitrary tokens" prop_exprParserArbitraryTokensNoExceptions,
+                  QC.testProperty "type parser accepts arbitrary tokens" prop_typeParserArbitraryTokensNoExceptions,
+                  QC.testProperty "pattern parser accepts arbitrary tokens" prop_patternParserArbitraryTokensNoExceptions,
+                  QC.testProperty "decl parser accepts arbitrary tokens" prop_declParserArbitraryTokensNoExceptions,
+                  QC.testProperty "import decl parser accepts arbitrary tokens" prop_importDeclParserArbitraryTokensNoExceptions,
+                  QC.testProperty "module header parser accepts arbitrary tokens" prop_moduleHeaderParserArbitraryTokensNoExceptions
+                ]
             ],
         oracle,
         extensionMappingTests,
@@ -289,7 +315,7 @@ test_unicodeSymbolIsNotOverloadedLabel = do
   case parseDecl config source of
     ParseOk _ -> pure ()
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_stringGapBeforeClosingQuoteLexes :: Assertion
 test_stringGapBeforeClosingQuoteLexes = do
@@ -314,7 +340,7 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
   mapM_
     ( \source ->
         case parseExpr config source of
-          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty err)
+          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
           ParseOk _ -> pure ()
     )
     rendered
@@ -500,7 +526,7 @@ test_dataDeclResultKindContextRoundTrips = do
   assertEqual "pretty-printed declaration" "data 𐖈 :: C => C" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
 
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity :: Assertion
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
@@ -511,7 +537,7 @@ test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
   assertEqual "pretty-printed declaration" "type (:+) :: ' A'.B.C" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
 
 test_promotedListSpacesInfixElementsStartingWithTicks :: Assertion
 test_promotedListSpacesInfixElementsStartingWithTicks = do
@@ -541,7 +567,7 @@ test_promotedListSpacesInfixElementsStartingWithTicks = do
   assertEqual "pretty-printed declaration" "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
 
 test_boxedTupleInfixConOperandStaysBare :: Assertion
 test_boxedTupleInfixConOperandStaysBare = do
@@ -609,7 +635,7 @@ test_prettySymbolicDerivingClass = do
   assertEqual "pretty-printed declaration" "newtype C = C {} deriving ((:+))" rendered
   case parseDecl defaultConfig rendered of
     ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> MPE.errorBundlePretty err)
+    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
 
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do
@@ -893,9 +919,9 @@ test_prettyCaseExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyLetExpressionUsesImplicitLayout :: Assertion
 test_prettyLetExpressionUsesImplicitLayout = do
@@ -909,9 +935,9 @@ test_prettyLetExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyNegatedLayoutEndingListCompBody :: Assertion
 test_prettyNegatedLayoutEndingListCompBody = do
@@ -949,7 +975,7 @@ test_prettyNegatedLayoutEndingListCompBody = do
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyLayoutLetGuardInMultiWayIf :: Assertion
 test_prettyLayoutLetGuardInMultiWayIf = do
@@ -998,7 +1024,7 @@ test_prettyLayoutLetGuardInMultiWayIf = do
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyMultiWayIfInfixLhs :: Assertion
 test_prettyMultiWayIfInfixLhs = do
@@ -1029,7 +1055,7 @@ test_prettyMultiWayIfInfixLhs = do
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyWhereClauseUsesImplicitLayout :: Assertion
 test_prettyWhereClauseUsesImplicitLayout = do
@@ -1051,9 +1077,9 @@ test_prettyWhereClauseUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyGadtConstructorsUseImplicitLayout :: Assertion
 test_prettyGadtConstructorsUseImplicitLayout = do
@@ -1083,9 +1109,9 @@ test_prettyGadtConstructorsUseImplicitLayout = do
               ParseOk reparsed ->
                 assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
               ParseErr bundle ->
-                assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+                assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
           ParseErr bundle ->
-            assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+            assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
   assertDecl gadtExpected gadtSource
   assertDecl typeFamilyExpected typeFamilySource
 
@@ -1102,9 +1128,9 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
   let declSource = "f = \\case { 0 -> 1 } where { g = 2 }"
       declExpected =
         T.intercalate
@@ -1125,9 +1151,9 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
   let guardedDeclSource = "a = \\case { 0 | let { a = () :: () } -> () }"
       guardedDeclExpected =
         T.intercalate
@@ -1150,9 +1176,9 @@ test_prettyLambdaCaseExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed guarded declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed guarded declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed guarded declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack guardedDeclSource <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack guardedDeclSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyLambdaCasesExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCasesExpressionUsesImplicitLayout = do
@@ -1167,9 +1193,9 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
   let declSource = "f = \\cases { 0 -> 1 } where { g = 2 }"
       declExpected =
         T.intercalate
@@ -1190,9 +1216,9 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyClassDeclarationUsesImplicitLayout :: Assertion
 test_prettyClassDeclarationUsesImplicitLayout = do
@@ -1219,9 +1245,9 @@ test_prettyClassDeclarationUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyInstanceDeclarationUsesImplicitLayout :: Assertion
 test_prettyInstanceDeclarationUsesImplicitLayout = do
@@ -1247,9 +1273,9 @@ test_prettyInstanceDeclarationUsesImplicitLayout = do
         ParseOk reparsed ->
           assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
@@ -1302,9 +1328,9 @@ test_prettyLayoutEndingOperandInsideLeftSection = do
         ParseOk reparsed ->
           assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
         ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyTypeAppAfterLayoutEndingFunction :: Assertion
 test_prettyTypeAppAfterLayoutEndingFunction = do
@@ -1339,7 +1365,7 @@ test_prettyTypeAppAfterLayoutEndingFunction = do
     ParseOk reparsed ->
       assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyTypeSigAfterLayoutEndingFunction :: Assertion
 test_prettyTypeSigAfterLayoutEndingFunction = do
@@ -1369,7 +1395,7 @@ test_prettyTypeSigAfterLayoutEndingFunction = do
     ParseOk reparsed ->
       assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyOperatorAfterLayoutDoBlock :: Assertion
 test_prettyOperatorAfterLayoutDoBlock = do
@@ -1427,7 +1453,7 @@ test_prettyOperatorAfterLayoutDoBlock = do
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettySpliceRecordDotBase :: Assertion
 test_prettySpliceRecordDotBase = do
@@ -1507,7 +1533,7 @@ test_thTypeQuoteBeforeConstraintExprSig = do
   case parseDecl config source of
     ParseOk _ -> pure ()
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_viewExprAppliedTypeSigParens :: Assertion
 test_viewExprAppliedTypeSigParens = do
@@ -1532,7 +1558,7 @@ test_viewExprAppliedTypeSigParens = do
     ParseOk reparsed ->
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
@@ -1555,7 +1581,7 @@ test_viewExprArrowCommandTypeSigRhsParens = do
     ParseOk reparsed ->
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_arrowCommandLhsLambdaCaseParens :: Assertion
 test_arrowCommandLhsLambdaCaseParens = do
@@ -1603,7 +1629,7 @@ test_arrowCommandLhsLambdaCaseParens = do
     ParseOk reparsed ->
       assertEqual "reparsed declaration" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_arrowCommandLhsLambdaCasesParens :: Assertion
 test_arrowCommandLhsLambdaCasesParens = do
@@ -1651,7 +1677,7 @@ test_arrowCommandLhsLambdaCasesParens = do
     ParseOk reparsed ->
       assertEqual "reparsed declaration" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> MPE.errorBundlePretty bundle)
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =

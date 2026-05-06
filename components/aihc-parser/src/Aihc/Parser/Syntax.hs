@@ -119,7 +119,6 @@ module Aihc.Parser.Syntax
     noSourceSpan,
     mergeSourceSpans,
     mkName,
-    mkQualifiedName,
     mkUnqualifiedName,
     nameFromText,
     parseExtensionName,
@@ -698,10 +697,6 @@ data NameType
 
 mkName :: Maybe Text -> NameType -> Text -> Name
 mkName qualifier ty txt = Name qualifier ty txt []
-
-mkQualifiedName :: UnqualifiedName -> Maybe Text -> Name
-mkQualifiedName name qualifier =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name)
 
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =

@@ -411,8 +411,7 @@ layoutTransition st tok =
               else layoutPrevTokenEndSpan stAfterToken
           stNext =
             stAfterToken
-              { layoutPrevLine = Just (tokenEndLine tok),
-                layoutPrevTokenKind = Just (lexTokenKind tok),
+              { layoutPrevTokenKind = Just (lexTokenKind tok),
                 layoutPrevTokenEndSpan = newEndSpan,
                 layoutBuffer = []
               }

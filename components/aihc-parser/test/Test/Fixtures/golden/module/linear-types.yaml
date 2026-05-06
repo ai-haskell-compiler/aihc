@@ -1,0 +1,15 @@
+extensions: [LinearTypes, GADTSyntax]
+input: |
+  f :: a %1 -> b
+  f :: a %m -> b
+  f :: a %One -> b
+  f :: a %Many -> b
+  h :: A %1 -> C
+  h x = g y
+    where
+      %1 y = f x
+  x = let %1 f = u in f
+  data T3 a m where MkT3 :: a %m -> T3 a m
+ast: |-
+  Module {[DeclTypeSig ["f"] (TFun ArrowLinear (TVar "a") (TVar "b")), DeclTypeSig ["f"] (TFun ArrowExplicit (TVar "m") (TVar "a") (TVar "b")), DeclTypeSig ["f"] (TFun ArrowExplicit (TCon "One") (TVar "a") (TVar "b")), DeclTypeSig ["f"] (TFun ArrowExplicit (TCon "Many") (TVar "a") (TVar "b")), DeclTypeSig ["h"] (TFun ArrowLinear (TCon "A") (TCon "C")), DeclValue (FunctionBind "h" [Match {MatchHeadPrefix, [PVar "x"], EApp (EVar "g") (EVar "y") Just [DeclValue (PatternBind LinearMultiplicityTag (PVar "y") (EApp (EVar "f") (EVar "x")))]}]), DeclValue (PatternBind (PVar "x") (ELetDecls [DeclValue (PatternBind LinearMultiplicityTag (PVar "f") (EVar "u"))] (EVar "f"))), DeclData (DataDecl {Prefix "T3" [TyVarBinder {"a"}, TyVarBinder {"m"}], [GadtCon {[UnqualifiedName {"MkT3"}], GadtPrefixBody {[(BangType {TVar "a"} , ArrowExplicit (TVar "m"))], TApp (TApp (TCon "T3") (TVar "a")) (TVar "m")}}]})]}
+status: pass

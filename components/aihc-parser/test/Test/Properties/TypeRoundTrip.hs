@@ -14,7 +14,6 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
-import Text.Megaparsec.Error qualified as MPE
 
 typeConfig :: ParserConfig
 typeConfig =
@@ -32,7 +31,7 @@ prop_typePrettyRoundTrip ty =
             counterexample (T.unpack source) $
               case parseType typeConfig source of
                 ParseErr err ->
-                  counterexample (MPE.errorBundlePretty err) False
+                  counterexample (formatParseErrorBundle (parserSourceName typeConfig) (Just source) err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
                    in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

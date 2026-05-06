@@ -3,11 +3,13 @@
 module Test.Properties.ShorthandSubset
   ( prop_shorthandDeclSubsetOfShow,
     prop_shorthandExprSubsetOfShow,
+    prop_shorthandLexTokenSubsetOfShow,
     prop_shorthandModuleSubsetOfShow,
     prop_shorthandTypeSubsetOfShow,
   )
 where
 
+import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Char (isAlphaNum, isSpace)
@@ -16,6 +18,7 @@ import Test.Properties.Arb.Decl ()
 import Test.Properties.Arb.Expr ()
 import Test.Properties.Arb.Module ()
 import Test.Properties.Arb.Type ()
+import Test.Properties.NoExceptions (genLexToken, shrinkLexToken)
 import Test.QuickCheck
 
 prop_shorthandModuleSubsetOfShow :: Module -> Property
@@ -29,6 +32,10 @@ prop_shorthandExprSubsetOfShow = shorthandSubsetOfShow
 
 prop_shorthandTypeSubsetOfShow :: Type -> Property
 prop_shorthandTypeSubsetOfShow = shorthandSubsetOfShow
+
+prop_shorthandLexTokenSubsetOfShow :: Property
+prop_shorthandLexTokenSubsetOfShow =
+  forAllShrink genLexToken shrinkLexToken (shorthandSubsetOfShow :: LexToken -> Property)
 
 shorthandSubsetOfShow :: (Shorthand a, Show a) => a -> Property
 shorthandSubsetOfShow value =
@@ -55,6 +62,9 @@ normalizeTokens = map normalizeToken
 normalizeToken :: String -> String
 normalizeToken "Prefix" = "PrefixBinderHead"
 normalizeToken "Infix" = "InfixBinderHead"
+normalizeToken "DerivingVia" = "DerivingViaExtension"
+normalizeToken "Safe" = "SafeHaskell"
+normalizeToken "Unsafe" = "UnsafeHaskell"
 normalizeToken tok = tok
 
 tokens :: String -> [String]

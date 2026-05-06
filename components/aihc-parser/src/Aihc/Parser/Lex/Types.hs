@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -34,8 +35,6 @@ module Aihc.Parser.Lex.Types
     advanceChars,
     advanceN,
     consumeWhile,
-    tokenStartLine,
-    tokenEndLine,
     tokenStartCol,
     virtualSymbolToken,
     isSymbolicOpChar,
@@ -48,6 +47,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace, ord)
+import Data.Data (Data)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -175,7 +175,7 @@ data LexTokenKind
   | TkBlockComment
   | TkError Text
   | TkEOF
-  deriving (Eq, Ord, Show, Read, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 pattern TkVarRole :: LexTokenKind
 pattern TkVarRole = TkVarId "role"
@@ -265,7 +265,6 @@ data ModuleLayoutMode
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
     layoutPendingLayout :: !(Maybe PendingLayout),
-    layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
@@ -310,7 +309,6 @@ mkInitialLayoutState enableModuleLayout exts =
   LayoutState
     { layoutContexts = [],
       layoutPendingLayout = Nothing,
-      layoutPrevLine = Nothing,
       layoutPrevTokenKind = Nothing,
       layoutModuleMode =
         if enableModuleLayout
@@ -376,18 +374,6 @@ consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
 consumeWhile f st =
   let consumed = T.takeWhile f (lexerInput st)
    in advanceChars consumed st
-
-tokenStartLine :: LexToken -> Int
-tokenStartLine tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanStartLine = line} -> line
-    NoSourceSpan -> 1
-
-tokenEndLine :: LexToken -> Int
-tokenEndLine tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanEndLine = line} -> line
-    NoSourceSpan -> 1
 
 tokenStartCol :: LexToken -> Int
 tokenStartCol tok =
