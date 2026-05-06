@@ -179,7 +179,7 @@ coercionEndpoints (AxiomInstCo _ _) =
 litType :: Literal -> TcType
 litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
 litType (LitChar _) = TcTyCon (TyCon "Char" 0) []
-litType (LitString _) = TcTyCon (TyCon "String" 0) []
+litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 -- | Extend the term environment with a variable.
 extendTermEnv :: Var -> LintEnv -> LintEnv

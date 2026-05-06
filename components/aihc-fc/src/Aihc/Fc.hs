@@ -17,6 +17,13 @@ module Aihc.Fc
     renderType,
     renderTopBind,
 
+    -- * Evaluation
+    evalProgramBinding,
+    evalExpr,
+    renderValue,
+    EvalError (..),
+    Value (..),
+
     -- * Lint
     lintProgram,
     lintExpr,
@@ -26,11 +33,13 @@ module Aihc.Fc
 
     -- * Desugaring
     desugarModule,
+    desugarModuleWithTcResult,
     DesugarResult (..),
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModule)
+import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithTcResult)
+import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax

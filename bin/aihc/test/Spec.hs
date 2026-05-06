@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
 import Aihc.Cli.Install
@@ -12,14 +14,21 @@ import Aihc.Cli.Install
     buildPackagePlanWithResolver,
     dryRunInstallScaffold,
     renderInstallFailure,
+    renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), InstallOptions (..), parseCommandPure)
-import Aihc.Cli.Repl (ReplStep (..), evaluateExpression, handleReplInput)
+import Aihc.Cli.Options (Command (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
+import Data.Aeson (object, (.=))
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.List (isInfixOf, isPrefixOf, sort)
+import Data.IORef (newIORef)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
@@ -44,45 +53,98 @@ main =
         [ testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsJson)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False False InstallErrorsJson)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False False InstallErrorsJson)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
           testCase "parses install dry run" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True False InstallErrorsJson)))
               (parseCommandPure ["install", "text", "--dry-run"]),
+          testCase "parses first error module and human errors" $
+            assertEqual
+              "command"
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False True InstallErrorsHuman)))
+              (parseCommandPure ["install", "text", "--first-error-module", "--human-errors"]),
           testCase "rejects explicit dependency variants" $
             assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
-            assertEqual "command" (Right CmdRepl) (parseCommandPure ["repl"])
+            assertEqual "command" (Right (CmdRepl (ReplOptions Nothing))) (parseCommandPure ["repl"]),
+          testCase "parses repl store" $
+            assertEqual "command" (Right (CmdRepl (ReplOptions (Just "/tmp/aihc-store")))) (parseCommandPure ["repl", "--store", "/tmp/aihc-store"])
         ],
       testGroup
         "repl"
-        [ testCase "quits with long command" $
-            assertEqual "step" (ReplExit Nothing) (handleReplInput ":quit"),
-          testCase "quits with short command" $
-            assertEqual "step" (ReplExit Nothing) (handleReplInput ":q"),
+        [ testCase "quits with long command" $ do
+            session <- testReplSession
+            step <- handleReplInput session ":quit"
+            assertEqual "step" (ReplExit Nothing) step,
+          testCase "quits with short command" $ do
+            session <- testReplSession
+            step <- handleReplInput session ":q"
+            assertEqual "step" (ReplExit Nothing) step,
           testCase "prints help" $ do
-            assertHelp (handleReplInput ":help")
-            assertHelp (handleReplInput ":?"),
-          testCase "ignores empty input" $
-            assertEqual "step" (ReplContinue Nothing) (handleReplInput "   "),
-          testCase "reports unknown commands" $
-            assertEqual "step" (ReplContinue (Just "unknown command: :type")) (handleReplInput ":type"),
-          testCase "evaluates expressions through the scaffold" $
-            assertEqual "step" (ReplContinue (Just "unimplemented")) (handleReplInput "1 + 1"),
-          testCase "evaluateExpression is scaffolded" $
-            assertEqual "result" "unimplemented" (evaluateExpression "map id []")
+            session <- testReplSession
+            handleReplInput session ":help" >>= assertHelp
+            handleReplInput session ":?" >>= assertHelp,
+          testCase "ignores empty input" $ do
+            session <- testReplSession
+            step <- handleReplInput session "   "
+            assertEqual "step" (ReplContinue Nothing) step,
+          testCase "reports unknown commands" $ do
+            session <- testReplSession
+            step <- handleReplInput session ":type"
+            assertEqual "step" (ReplContinue (Just "unknown command: :type")) step,
+          testCase "evaluates string expressions through the pipeline" $ do
+            session <- testReplSession
+            step <- handleReplInput session "\"hello world\""
+            assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
+          testCase "evaluates let-bound strings through the pipeline" $ do
+            session <- testReplSession
+            step <- handleReplInput session "let a = \"hello world\" in a"
+            assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
+          testCase "evaluateExpression returns string values" $ do
+            session <- testReplSession
+            result <- evaluateExpression session "\"hello world\""
+            assertEqual "result" (Right "\"hello world\"") result,
+          testCase "evaluateExpression reports parse errors" $ do
+            session <- testReplSession
+            result <- evaluateExpression session "1 +"
+            assertEqual "result" (Left ReplParseError) result,
+          testCase "sets evaluation detail output from the repl" $ do
+            session <- testReplSession
+            setStep <- handleReplInput session ":set +pretty"
+            assertEqual "set step" (ReplContinue (Just "settings: +parsed-pretty -parsed-shorthand -type -system-fc")) setStep
+            setStep2 <- handleReplInput session ":set +shorthand"
+            assertEqual "set step" (ReplContinue (Just "settings: +parsed-pretty +parsed-shorthand -type -system-fc")) setStep2
+            step <- handleReplInput session "\"hello\""
+            case step of
+              ReplContinue (Just output) -> do
+                assertBool ("expected parsed output, got:\n" <> output) ("parsed:\n\"hello\"" `isInfixOf` output)
+                assertBool ("expected shorthand output, got:\n" <> output) ("shorthand:\nEString \"hello\"" `isInfixOf` output)
+                assertBool "expected final value" ("\"hello\"" `isSuffixOf` output)
+              other -> assertFailure ("expected output, got " <> show other),
+          testCase "sets type and system-fc output from the repl" $ do
+            session <- testReplSession
+            _ <- handleReplInput session ":set +type"
+            _ <- handleReplInput session ":set +fc"
+            result <- evaluateExpression session "\"hello\""
+            case result of
+              Right output -> do
+                assertBool ("expected type output, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
+                assertBool ("expected system-fc output, got:\n" <> T.unpack output) ("system-fc:\n__aihc_repl_it : [Char] =" `T.isInfixOf` output)
+                assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
+              Left err -> assertFailure ("expected success, got " <> show err),
+          testCase "loads installed base interface for Prelude MVP scope" test_loadsInstalledBaseInterfaceForRepl
         ],
       testGroup
         "install"
@@ -92,12 +154,14 @@ main =
           testCase "writes dependency scaffold artifacts first" test_writeInstallScaffoldWritesDependencies,
           testCase "reports rename errors and writes no artifacts" test_reportsRenameErrorsAndWritesNoArtifacts,
           testCase "reports type-check errors and writes no artifacts" test_reportsTypeCheckErrorsAndWritesNoArtifacts,
+          testCase "limits rendered install errors to first module" test_limitsRenderedInstallErrorsToFirstModule,
+          testCase "renders human install errors" test_rendersHumanInstallErrors,
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
-          testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
+          testCase "resolves base dependencies through resolver" test_resolvesBaseDependenciesThroughResolver,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
           testCase "uses local provider for ghc-internal dependencies" test_usesLocalProviderForGhcInternal,
           testCase "manifest records core provider dependency names" test_manifestRecordsCoreProviderDependencyNames,
-          testCase "installs base and core provider dependency closure" test_installsBaseAndCoreProviderDependencyClosure,
+          testCase "installs resolved base dependency closure" test_installsResolvedBaseDependencyClosure,
           testCase "dry run writes no scaffold artifacts" test_dryRunWritesNoScaffoldArtifacts,
           testCase "dry run planner does not generate source files" test_dryRunPlannerDoesNotGenerateSourceFiles
         ],
@@ -118,6 +182,67 @@ assertLeftContains expected (Left actual) =
   assertBool ("expected error to contain " <> show expected <> ", got " <> show actual) (expected `isInfixOf` actual)
 assertLeftContains _ (Right _) =
   assertFailure "expected parse failure"
+
+testReplSession :: IO ReplSession
+testReplSession = do
+  settingsRef <- newIORef defaultReplSettings
+  pure
+    ReplSession
+      { replModuleExports = Map.empty,
+        replImportedTerms = [],
+        replSettings = settingsRef
+      }
+
+test_loadsInstalledBaseInterfaceForRepl :: Assertion
+test_loadsInstalledBaseInterfaceForRepl =
+  withTempDir "aihc-repl" $ \root -> do
+    let storeRoot = root </> "store"
+        packageRoot = storeRoot </> "0000000000000000-base-4_22_0_0"
+        interfacePath = packageRoot </> "interfaces" </> "package-interface.json"
+        manifestPath = packageRoot </> "manifest.json"
+    createDirectoryIfMissing True (takeDirectory interfacePath)
+    BL8.writeFile
+      manifestPath
+      ( Aeson.encode
+          ( object
+              [ "package" .= object ["name" .= ("base" :: String), "version" .= ("4.22.0.0" :: String)],
+                "interfacePath" .= interfacePath
+              ]
+          )
+      )
+    BL8.writeFile
+      interfacePath
+      ( Aeson.encode
+          ( object
+              [ "modules"
+                  .= [ object
+                         [ "module" .= ("Prelude" :: String),
+                           "terms" .= ([] :: [String]),
+                           "types" .= ([] :: [String]),
+                           "constructors" .= object [],
+                           "recordFields" .= object [],
+                           "methods" .= object []
+                         ]
+                     ]
+              ]
+          )
+      )
+    session <- loadReplSession (Just storeRoot)
+    case Map.lookup "Prelude" (replModuleExports session) of
+      Nothing -> assertFailure "Prelude scope not loaded"
+      Just preludeScope -> do
+        assertBool "Prelude exposes Char" (Map.member "Char" (scopeTypes preludeScope))
+        assertBool "Prelude exposes String" (Map.member "String" (scopeTypes preludeScope))
+    result <- evaluateExpression session "\"hello\""
+    assertEqual "result" (Right "\"hello\"") result
+    concatResult <- evaluateExpression session "\"hello \" ++ \"world\""
+    assertEqual "concat result" (Right "\"hello world\"") concatResult
+    _ <- handleReplInput session ":set +type"
+    typedConcatResult <- evaluateExpression session "\"hello \" ++ \"world\""
+    case typedConcatResult of
+      Right output ->
+        assertBool ("expected [Char] type, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
+      Left err -> assertFailure ("expected typed concat success, got " <> show err)
 
 test_stableStorePath :: Assertion
 test_stableStorePath =
@@ -224,6 +349,79 @@ test_reportsTypeCheckErrorsAndWritesNoArtifacts =
     assertFileDoesNotExist (planStorePath plan </> "interfaces" </> "package-interface.json")
     assertFileDoesNotExist (planStorePath plan </> "fc" </> "package-fc.json")
 
+test_limitsRenderedInstallErrorsToFirstModule :: Assertion
+test_limitsRenderedInstallErrorsToFirstModule = do
+  let opts =
+        defaultInstallOptionsForTest
+          { installFirstErrorModule = True
+          }
+      err = renderInstallFailureWithOptions opts syntheticInstallFailure
+  assertBool "error includes first module" ("selected module failed" `isInfixOf` err)
+  assertBool "error omits other module" (not ("other module failed" `isInfixOf` err))
+
+test_rendersHumanInstallErrors :: Assertion
+test_rendersHumanInstallErrors = do
+  let opts =
+        defaultInstallOptionsForTest
+          { installErrorFormat = InstallErrorsHuman
+          }
+      err = renderInstallFailureWithOptions opts syntheticInstallFailure
+  assertBool ("error includes human location, got:\n" <> err) ("src/Demo.hs:2:3: error: [Demo] selected module failed" `isInfixOf` err)
+  assertBool ("error includes source line, got:\n" <> err) ("  2 | x = selected + problem" `isInfixOf` err)
+  assertBool ("error includes caret range, got:\n" <> err) ("    |   ^^^^^^^^" `isInfixOf` err)
+  assertBool "error omits JSON object syntax" (not ("{\"" `isInfixOf` err))
+
+defaultInstallOptionsForTest :: InstallOptions
+defaultInstallOptionsForTest =
+  InstallOptions "demo" Nothing Nothing False False False InstallErrorsJson
+
+syntheticInstallFailure :: InstallFailure
+syntheticInstallFailure =
+  InstallInterfaceFailure
+    (PackageSpec "demo" "0.1.0.0")
+    [ ( "type-check",
+        [ object
+            [ "module" .= ("Demo" :: String),
+              "span"
+                .= object
+                  [ "file" .= ("src/Demo.hs" :: String),
+                    "startLine" .= (2 :: Int),
+                    "startColumn" .= (3 :: Int),
+                    "endLine" .= (2 :: Int),
+                    "endColumn" .= (11 :: Int)
+                  ],
+              "severity" .= ("error" :: String),
+              "message" .= ("selected module failed" :: String),
+              "sourceLines"
+                .= [ object
+                       [ "line" .= (2 :: Int),
+                         "text" .= ("x = selected + problem" :: String)
+                       ]
+                   ]
+            ],
+          object
+            [ "module" .= ("Other" :: String),
+              "span"
+                .= object
+                  [ "file" .= ("src/Other.hs" :: String),
+                    "startLine" .= (4 :: Int),
+                    "startColumn" .= (5 :: Int),
+                    "endLine" .= (4 :: Int),
+                    "endColumn" .= (9 :: Int)
+                  ],
+              "severity" .= ("error" :: String),
+              "message" .= ("other module failed" :: String),
+              "sourceLines"
+                .= [ object
+                       [ "line" .= (4 :: Int),
+                         "text" .= ("y = other" :: String)
+                       ]
+                   ]
+            ]
+        ]
+      )
+    ]
+
 test_failedRootDoesNotInstallDependencies :: Assertion
 test_failedRootDoesNotInstallDependencies =
   withTempDir "aihc-cli" $ \root -> do
@@ -254,15 +452,15 @@ test_usesLocalProviderForGhcPrim =
         (PackageSpec "demo" "0.1.0.0")
     assertDependencySpec plan (PackageSpec "aihc-prim" "0.13.0")
 
-test_usesLocalProviderForBase :: Assertion
-test_usesLocalProviderForBase =
-  withCoreDependencyFixture "base" $ \sourceRoot storeRoot -> do
+test_resolvesBaseDependenciesThroughResolver :: Assertion
+test_resolvesBaseDependenciesThroughResolver =
+  withBaseDependencyFixture $ \sourceRoot baseRoot storeRoot -> do
     plan <-
       buildPackagePlanWithResolver
-        (fixtureDependencyResolver sourceRoot [])
+        (fixtureDependencyResolver sourceRoot [("base", "4.22.0.0", baseRoot)])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
-    assertDependencySpec plan (PackageSpec "aihc-base" "4.21.2.0")
+    assertDependencySpec plan (PackageSpec "base" "4.22.0.0")
 
 test_usesLocalProviderForGhcInternal :: Assertion
 test_usesLocalProviderForGhcInternal =
@@ -288,18 +486,18 @@ test_manifestRecordsCoreProviderDependencyNames =
     assertBool "manifest records provider dependency name" ("aihc-prim" `isInfixOf` renderedManifest)
     assertBool "manifest does not retain upstream boot package name" (not ("ghc-prim" `isInfixOf` renderedManifest))
 
-test_installsBaseAndCoreProviderDependencyClosure :: Assertion
-test_installsBaseAndCoreProviderDependencyClosure =
-  withCoreDependencyFixture "base" $ \sourceRoot storeRoot -> do
+test_installsResolvedBaseDependencyClosure :: Assertion
+test_installsResolvedBaseDependencyClosure =
+  withBaseDependencyFixture $ \sourceRoot baseRoot storeRoot -> do
     plan <-
       buildPackagePlanWithResolver
-        (fixtureDependencyResolver sourceRoot [])
+        (fixtureDependencyResolver sourceRoot [("base", "4.22.0.0", baseRoot)])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
     _ <- expectInstallSuccess (writeInstallScaffold plan)
     let plans = flattenPackagePlans plan
         installedNames = sort [pkgName (packageKeySpec (planPackageKey item)) | item <- plans]
-    assertEqual "installed packages" ["aihc-base", "demo"] installedNames
+    assertEqual "installed packages" ["base", "demo"] installedNames
     mapM_ (assertFileExists . (</> "manifest.json") . planStorePath) plans
 
 test_dryRunWritesNoScaffoldArtifacts :: Assertion
@@ -397,6 +595,17 @@ withCoreDependencyFixture dependencyName action =
     createCoreProviderFixtures coreLibsRoot
     createDirectoryIfMissing True storeRoot
     withCoreLibsRoot coreLibsRoot (action sourceRoot storeRoot)
+
+withBaseDependencyFixture :: (FilePath -> FilePath -> FilePath -> IO a) -> IO a
+withBaseDependencyFixture action =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        baseRoot = root </> "base"
+        storeRoot = root </> "store"
+    createFixturePackage sourceRoot "demo" "0.1.0.0" "Demo" ["base"]
+    createFixturePackage baseRoot "base" "4.22.0.0" "Base" []
+    createDirectoryIfMissing True storeRoot
+    action sourceRoot baseRoot storeRoot
 
 withCoreLibsRoot :: FilePath -> IO a -> IO a
 withCoreLibsRoot root action =

@@ -33,6 +33,11 @@ dsPatternPure (PCon name _typeArgs subPats) =
   let conName = nameToText name
       binderNames = map subPatName subPats
    in (DataAlt conName, binderNames)
+dsPatternPure (PList []) =
+  (DataAlt "[]", [])
+dsPatternPure (PInfix lhs op rhs)
+  | nameText op == ":" =
+      (DataAlt ":", [subPatName lhs, subPatName rhs])
 dsPatternPure (PVar uname) =
   (DefaultAlt, [unqualifiedNameText uname])
 dsPatternPure PWildcard =

@@ -29,6 +29,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -50,7 +51,9 @@ inferExpr expr = case expr of
   EFloat {} -> pure (doubleTyCon, [])
   -- Char literals.
   EChar _ _ -> pure (charTyCon, [])
-  -- String literals.
+  -- String literals are lists of Char. The Prelude exposes
+  -- @type String = [Char]@ at the source level, but FC should not see a
+  -- primitive String type constructor.
   EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
   ELambdaPats pats body -> inferLambda NoSourceSpan pats body
@@ -60,15 +63,15 @@ inferExpr expr = case expr of
   ELambdaCases alts -> inferLambdaCases NoSourceSpan alts
   -- Application: f x
   EApp fun arg -> inferApp NoSourceSpan fun arg
+  -- Infix application: a `op` b
+  EInfix lhs op rhs -> inferExpr (EApp (EApp (EVar op) lhs) rhs)
   -- If-then-else
   EIf cond thenE elseE -> inferIf NoSourceSpan cond thenE elseE
   -- Case expression
   ECase scrutinee alts -> inferCase NoSourceSpan scrutinee alts
   -- Let expression
-  ELetDecls _decls body -> do
-    -- MVP: infer body only (let bindings not yet processed).
-    -- Full version would typecheck declarations and extend env.
-    inferExpr body
+  ELetDecls decls body ->
+    inferLocalDecls inferExpr decls (inferExpr body)
   -- Parenthesized expression
   EParen inner -> inferExpr inner
   -- Type signature: (e :: T)
@@ -98,7 +101,7 @@ inferVar :: SourceSpan -> Text -> TcM (TcType, [Ct])
 inferVar sp name = do
   mBinder <- lookupTerm name
   case mBinder of
-    Just (TcIdBinder _ scheme) -> do
+    Just (TcIdBinder _ scheme _) -> do
       (ty, preds) <- instantiate scheme
       cts <- mapM (predToCt sp name) preds
       pure (ty, cts)
@@ -203,7 +206,7 @@ inferPatternConstraints sp scrutTy pat = case pat of
     let conName = nameToText name
     mBinder <- lookupTerm conName
     case mBinder of
-      Just (TcIdBinder _ scheme) -> do
+      Just (TcIdBinder _ scheme _) -> do
         (conTy, _preds) <- instantiate scheme
         -- For a nullary constructor (no args), conTy is the result type.
         -- For a constructor with args, conTy is a function type whose
@@ -235,10 +238,7 @@ combineSourceSpan span' _ = span'
 
 -- | Infer the type of a right-hand side (for case alternatives).
 inferRhs :: Rhs Expr -> TcM (TcType, [Ct])
-inferRhs (UnguardedRhs _sp expr _decls) = inferExpr expr
-inferRhs (GuardedRhss _sp _guards _decls) = do
-  ty <- freshMetaTv
-  pure (ty, [])
+inferRhs = inferRhsWithLocals inferExpr
 
 -- | Infer the type of a function application.
 inferApp :: SourceSpan -> Expr -> Expr -> TcM (TcType, [Ct])
@@ -317,7 +317,7 @@ charTyCon :: TcType
 charTyCon = TcTyCon (TyCon "Char" 0) []
 
 stringTyCon :: TcType
-stringTyCon = TcTyCon (TyCon "String" 0) []
+stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]
 
 boolTyCon :: TcType
 boolTyCon = TcTyCon (TyCon "Bool" 0) []
@@ -348,9 +348,19 @@ extractPatternBindings (pat, ty) = case pat of
     -- to assign proper types). For the MVP, they're not needed since
     -- constructor pattern matching in function heads is handled by tcMatches.
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix lhs _name rhs ->
-    extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
+  PInfix lhs op rhs
+    | nameText op == ":" ->
+        let elemTy = listElementType ty
+         in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
+    | otherwise ->
+        extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
+
+listElementType :: TcType -> TcType
+listElementType ty =
+  case ty of
+    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
+    _ -> ty
 
 -- | Run a computation with pattern bindings in scope.
 withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a

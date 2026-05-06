@@ -58,6 +58,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TyVarBinder (..),
     Type (..),
+    TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
     fromAnnotation,
@@ -336,8 +337,8 @@ resolveDeclCore termDefinition decl =
       DeclTypeData <$> resolveDataDecl "type data " dataDecl
     DeclData dataDecl ->
       DeclData <$> resolveDataDecl "data " dataDecl
-    DeclTypeSyn {} ->
-      annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclTypeSyn typeSynDecl ->
+      DeclTypeSyn <$> resolveTypeSynDecl typeSynDecl
     DeclSplice expr -> DeclSplice <$> resolveExpr expr
     DeclNewtype newtypeDecl ->
       DeclNewtype <$> resolveNewtypeDecl newtypeDecl
@@ -837,6 +838,21 @@ resolveDataDecl keyword dataDecl = do
         dataDeclKind = kind',
         dataDeclConstructors = map (resolveDataConDefinitions scope) constructors'
       }
+
+resolveTypeSynDecl :: TypeSynDecl -> ResolveM TypeSynDecl
+resolveTypeSynDecl typeSynDecl = do
+  scope <- currentScope
+  declSpan <- currentSpan
+  let resolveHeadName name =
+        let rendered = renderUnqualifiedName name
+            span' = declKeywordNameSpan "type " declSpan rendered
+         in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
+      head' =
+        case typeSynHead typeSynDecl of
+          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
+          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  body' <- resolveType (typeSynBody typeSynDecl)
+  pure typeSynDecl {typeSynHead = head', typeSynBody = body'}
 
 resolveNewtypeDecl :: NewtypeDecl -> ResolveM NewtypeDecl
 resolveNewtypeDecl newtypeDecl = do

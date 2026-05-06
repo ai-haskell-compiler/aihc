@@ -72,6 +72,11 @@ isTyCon :: Text -> TcType -> Bool
 isTyCon name (TcTyCon tyc []) = tyConName tyc == name
 isTyCon _ _ = False
 
+isListOf :: Text -> TcType -> Bool
+isListOf name (TcTyCon tyc [TcTyCon elemTyc []]) =
+  tyConName tyc == "[]" && tyConName elemTyc == name
+isListOf _ _ = False
+
 -- Helper to check function type
 isFunTy :: TcType -> Bool
 isFunTy (TcFunTy _ _) = True
@@ -92,10 +97,10 @@ literalTests =
       let result = tc "'a'"
       assertBool "should succeed" (tcResultSuccess result)
       assertBool "should be Char" (isTyCon "Char" (tcResultType result)),
-    testCase "string literal has type String" $ do
+    testCase "string literal has type [Char]" $ do
       let result = tc "\"hello\""
       assertBool "should succeed" (tcResultSuccess result)
-      assertBool "should be String" (isTyCon "String" (tcResultType result))
+      assertBool "should be [Char]" (isListOf "Char" (tcResultType result))
   ]
 
 -- | Tests for function application.

@@ -5,12 +5,14 @@
 -- as dictionary parameters.
 module Aihc.Tc.Generalize
   ( generalize,
+    generalizeIgnoring,
   )
 where
 
-import Aihc.Tc.Monad (TcM, freshSkolemTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, freshSkolemTv, getTermEnv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 -- | Generalize a monotype into a type scheme.
@@ -18,16 +20,26 @@ import Data.Text qualified as T
 -- Collects free meta-variables in the type (but not in the environment),
 -- promotes them to universally quantified type variables, and wraps
 -- any residual predicates.
---
--- For the MVP, the environment's free variables are not consulted
--- (we assume top-level generalization). This will be refined when
--- local let-generalization is implemented.
 generalize :: TcType -> [Pred] -> TcM TypeScheme
-generalize ty preds = do
+generalize = generalizeIgnoring []
+
+-- | Generalize a monotype while ignoring the named environment binders.
+--
+-- This is used for recursive local binding groups: the group's placeholder
+-- binders are in scope while the group is checked, but they are not part of
+-- the outer environment that should block generalization.
+generalizeIgnoring :: [T.Text] -> TcType -> [Pred] -> TcM TypeScheme
+generalizeIgnoring ignoredNames ty preds = do
+  env <- getTermEnv
+  envMetaVars <-
+    concat
+      <$> mapM
+        binderMetaVars
+        (Map.elems (foldr Map.delete env ignoredNames))
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
-      uniqueMetaVars = nubOrd freeMetaVars
+      uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd freeMetaVars)
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- sequence [metaToTyVar i u | (i, u) <- zip [0 ..] uniqueMetaVars]
@@ -86,6 +98,15 @@ substMetasPred subst (EqPred a b) = EqPred (substMetas subst a) (substMetas subs
 zonkPred :: Pred -> TcM Pred
 zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
+
+binderMetaVars :: TcBinder -> TcM [Unique]
+binderMetaVars (TcIdBinder _ (ForAll _ preds ty) _) =
+  do
+    ty' <- zonkType ty
+    preds' <- mapM zonkPred preds
+    pure (collectMetaVars ty' ++ concatMap predMetaVars preds')
+binderMetaVars (TcMonoIdBinder _ ty) =
+  collectMetaVars <$> zonkType ty
 
 -- | Remove duplicates from an ordered list.
 nubOrd :: (Ord a) => [a] -> [a]

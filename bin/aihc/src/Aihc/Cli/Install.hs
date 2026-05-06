@@ -15,12 +15,13 @@ module Aihc.Cli.Install
     defaultStoreRoot,
     dryRunInstallScaffold,
     renderInstallFailure,
+    renderInstallFailureWithOptions,
     runInstall,
     writeInstallScaffold,
   )
 where
 
-import Aihc.Cli.Options (InstallOptions (..))
+import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
@@ -52,21 +53,36 @@ import Aihc.Resolve
     extractInterface,
     resolveWithDeps,
   )
-import Aihc.Tc (TcBindingResult (..), TcDiagnostic (..), TcModuleResult (..), TcSeverity (..), renderTcType, typecheckModule)
+import Aihc.Tc
+  ( Pred (..),
+    TcBindingResult (..),
+    TcDiagnostic (..),
+    TcModuleResult (..),
+    TcSeverity (..),
+    TcType (..),
+    TyCon (..),
+    TyVarId (..),
+    Unique (..),
+    renderTcType,
+    typecheckModule,
+  )
+import Control.Applicative ((<|>))
 import Control.Exception (evaluate)
 import Control.Monad (when)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson (ToJSON (..), object, (.:), (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (rights)
+import Data.Foldable (toList)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -250,7 +266,7 @@ runInstall opts = do
         case writeResult of
           Right installResult -> pure installResult
           Left failure -> do
-            hPutStrLn stderr (renderInstallFailure failure)
+            hPutStrLn stderr (renderInstallFailureWithOptions opts failure)
             exitFailure
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
@@ -349,7 +365,6 @@ sourcePathForSpec resolver spec =
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
   case name of
-    "base" -> Just aihcBaseProvider
     "aihc-base" -> Just aihcBaseProvider
     "ghc-prim" -> Just aihcPrimProvider
     "aihc-prim" -> Just aihcPrimProvider
@@ -559,24 +574,324 @@ blockingInterfaceFailures result =
        ]
 
 renderInstallFailure :: InstallFailure -> String
-renderInstallFailure failure =
+renderInstallFailure =
+  renderInstallFailureWith False InstallErrorsJson
+
+renderInstallFailureWithOptions :: InstallOptions -> InstallFailure -> String
+renderInstallFailureWithOptions opts =
+  renderInstallFailureWith (installFirstErrorModule opts) (installErrorFormat opts)
+
+renderInstallFailureWith :: Bool -> InstallErrorFormat -> InstallFailure -> String
+renderInstallFailureWith limitToFirstModule errorFormat failure =
   case failure of
     InstallInterfaceFailure spec failures ->
-      renderInterfaceBuildFailure spec failures
+      renderInterfaceBuildFailure limitToFirstModule errorFormat spec failures
 
-renderInterfaceBuildFailure :: PackageSpec -> [(String, [Aeson.Value])] -> String
-renderInterfaceBuildFailure spec failures =
+renderInterfaceBuildFailure :: Bool -> InstallErrorFormat -> PackageSpec -> [(String, [Aeson.Value])] -> String
+renderInterfaceBuildFailure limitToFirstModule errorFormat spec failures =
   unlines $
     [ "failed to install " <> formatPackage spec <> ": interface compilation failed"
     ]
-      <> concatMap renderFailure failures
+      <> renderedFailures
   where
+    diagnosticScopeLimit =
+      if limitToFirstModule
+        then firstDiagnosticScope failures
+        else Nothing
+    filteredFailures =
+      [ (phase, filter (diagnosticMatchesScopeLimit diagnosticScopeLimit) diagnostics)
+      | (phase, diagnostics) <- failures
+      ]
+    nonEmptyFailures = filter (not . null . snd) filteredFailures
+    renderedFailures = concatMap renderFailure nonEmptyFailures
     renderFailure (phase, diagnostics) =
-      ("  " <> phase <> " errors:") : map (("    " <>) . renderDiagnosticValue) diagnostics
+      ("  " <> phase <> " errors:") : concatMap (indentLines . renderDiagnostic errorFormat phase) diagnostics
+
+indentLines :: String -> [String]
+indentLines =
+  map ("    " <>) . lines
+
+renderDiagnostic :: InstallErrorFormat -> String -> Aeson.Value -> String
+renderDiagnostic errorFormat phase diagnostic =
+  case errorFormat of
+    InstallErrorsJson -> renderDiagnosticValue diagnostic
+    InstallErrorsHuman -> renderHumanDiagnostic phase diagnostic
 
 renderDiagnosticValue :: Aeson.Value -> String
 renderDiagnosticValue =
   T.unpack . TE.decodeUtf8 . BL.toStrict . Aeson.encode
+
+renderHumanDiagnostic :: String -> Aeson.Value -> String
+renderHumanDiagnostic phase diagnostic =
+  unlines $
+    T.unpack (locationPrefix <> severityText <> ": " <> modulePrefix <> messageText)
+      : renderHumanDiagnosticExcerpt diagnostic
+  where
+    locationPrefix =
+      case diagnosticLocation diagnostic of
+        Just location -> location <> ": "
+        Nothing -> ""
+    modulePrefix =
+      case diagnosticModule diagnostic of
+        Just moduleName -> "[" <> moduleName <> "] "
+        Nothing -> ""
+    severityText = fromMaybe (T.pack phase) (stringField "severity" diagnostic)
+    messageText = fromMaybe (diagnosticSummary diagnostic) (stringField "message" diagnostic)
+
+renderHumanDiagnosticExcerpt :: Aeson.Value -> [String]
+renderHumanDiagnosticExcerpt diagnostic =
+  case (diagnosticSourceLines diagnostic, diagnosticSpanLines diagnostic) of
+    (sourceLines@(_ : _), Just (startLine, startColumn, endLine, endColumn)) ->
+      renderSourceExcerpt sourceLines startLine startColumn endLine endColumn
+    _ -> []
+
+renderSourceExcerpt :: [DiagnosticSourceLine] -> Int -> Int -> Int -> Int -> [String]
+renderSourceExcerpt sourceLines startLine startColumn endLine endColumn
+  | null selectedLines = []
+  | otherwise = concatMap renderLine selectedLines
+  where
+    selectedLines =
+      filter
+        ( \sourceLine ->
+            sourceLineNumber sourceLine >= startLine
+              && sourceLineNumber sourceLine <= endLine
+        )
+        sourceLines
+    width = length (show (maximum (map sourceLineNumber selectedLines)))
+    renderLine sourceLine =
+      [ "  " <> padLeft width ' ' (show lineNumber) <> " | " <> T.unpack lineText,
+        "  " <> replicate width ' ' <> " | " <> T.unpack (caretIndicator lineNumber lineText)
+      ]
+      where
+        lineNumber = sourceLineNumber sourceLine
+        lineText = sourceLineText sourceLine
+    caretIndicator lineNumber lineText =
+      T.replicate (max 0 (lineStartColumn lineNumber - 1)) " "
+        <> T.replicate (lineCaretWidth lineNumber lineText) "^"
+    lineStartColumn lineNumber
+      | lineNumber == startLine = max 1 startColumn
+      | otherwise = 1
+    lineCaretWidth lineNumber lineText
+      | startLine == endLine =
+          max 1 (endColumn - startColumn)
+      | lineNumber == startLine =
+          max 1 (T.length lineText - lineStartColumn lineNumber + 1)
+      | lineNumber == endLine =
+          max 1 (endColumn - 1)
+      | otherwise =
+          max 1 (T.length lineText)
+
+data DiagnosticScope = DiagnosticScope
+  { diagnosticScopeModule :: !(Maybe Text),
+    diagnosticScopeFile :: !(Maybe Text)
+  }
+
+firstDiagnosticScope :: [(String, [Aeson.Value])] -> Maybe DiagnosticScope
+firstDiagnosticScope =
+  listToMaybe . concatMap (mapMaybe diagnosticScope . snd)
+
+diagnosticScope :: Aeson.Value -> Maybe DiagnosticScope
+diagnosticScope diagnostic =
+  case (diagnosticModule diagnostic, diagnosticFile diagnostic) of
+    (Nothing, Nothing) -> Nothing
+    (moduleName, file) ->
+      Just
+        DiagnosticScope
+          { diagnosticScopeModule = moduleName,
+            diagnosticScopeFile = normalizeDiagnosticFile <$> file
+          }
+
+diagnosticMatchesScopeLimit :: Maybe DiagnosticScope -> Aeson.Value -> Bool
+diagnosticMatchesScopeLimit Nothing _ = True
+diagnosticMatchesScopeLimit (Just scope) diagnostic =
+  moduleMatches || fileMatches
+  where
+    moduleMatches =
+      case diagnosticScopeModule scope of
+        Just moduleName ->
+          diagnosticModule diagnostic == Just moduleName
+            || maybe False (fileMatchesModule moduleName) (diagnosticFile diagnostic)
+        Nothing -> False
+    fileMatches =
+      case diagnosticScopeFile scope of
+        Just file -> (normalizeDiagnosticFile <$> diagnosticFile diagnostic) == Just file
+        Nothing -> False
+
+diagnosticModule :: Aeson.Value -> Maybe Text
+diagnosticModule =
+  stringField "module"
+
+diagnosticFile :: Aeson.Value -> Maybe Text
+diagnosticFile diagnostic =
+  stringField "file" diagnostic
+    <|> (objectField "span" diagnostic >>= stringField "file")
+
+diagnosticLocation :: Aeson.Value -> Maybe Text
+diagnosticLocation diagnostic =
+  case diagnosticFile diagnostic of
+    Nothing -> Nothing
+    Just file ->
+      Just $
+        file
+          <> maybe "" (":" <>) lineText
+          <> maybe "" (":" <>) columnText
+  where
+    spanValue = objectField "span" diagnostic
+    lineText = scalarFieldText "line" diagnostic <|> (spanValue >>= scalarFieldText "startLine")
+    columnText = spanValue >>= scalarFieldText "startColumn"
+
+diagnosticSpanLines :: Aeson.Value -> Maybe (Int, Int, Int, Int)
+diagnosticSpanLines diagnostic = do
+  spanValue <- objectField "span" diagnostic
+  startLine <- intField "startLine" spanValue
+  startColumn <- intField "startColumn" spanValue
+  endLine <- intField "endLine" spanValue
+  endColumn <- intField "endColumn" spanValue
+  pure (startLine, startColumn, endLine, endColumn)
+
+data DiagnosticSourceLine = DiagnosticSourceLine
+  { sourceLineNumber :: !Int,
+    sourceLineText :: !Text
+  }
+
+instance Aeson.FromJSON DiagnosticSourceLine where
+  parseJSON =
+    Aeson.withObject "DiagnosticSourceLine" $ \obj ->
+      DiagnosticSourceLine
+        <$> obj .: "line"
+        <*> obj .: "text"
+
+diagnosticSourceLines :: Aeson.Value -> [DiagnosticSourceLine]
+diagnosticSourceLines diagnostic =
+  case objectField "sourceLines" diagnostic of
+    Just value ->
+      case Aeson.fromJSON value of
+        Aeson.Success sourceLines -> sourceLines
+        Aeson.Error {} -> []
+    Nothing -> []
+
+fileMatchesModule :: Text -> Text -> Bool
+fileMatchesModule moduleName file =
+  any (`T.isSuffixOf` normalizeDiagnosticFile file) suffixes
+  where
+    modulePath = T.map dotToSlash moduleName
+    suffixes = [modulePath <> ".hs", modulePath <> ".lhs"]
+    dotToSlash '.' = '/'
+    dotToSlash c = c
+
+normalizeDiagnosticFile :: Text -> Text
+normalizeDiagnosticFile =
+  T.map slash
+  where
+    slash '\\' = '/'
+    slash c = c
+
+stringField :: String -> Aeson.Value -> Maybe Text
+stringField name value =
+  case objectField name value of
+    Just (Aeson.String text) -> Just text
+    _ -> Nothing
+
+scalarFieldText :: String -> Aeson.Value -> Maybe Text
+scalarFieldText name value =
+  scalarValueText =<< objectField name value
+
+intField :: String -> Aeson.Value -> Maybe Int
+intField name value =
+  case objectField name value of
+    Just fieldValue ->
+      case Aeson.fromJSON fieldValue of
+        Aeson.Success int -> Just int
+        Aeson.Error {} -> Nothing
+    Nothing -> Nothing
+
+scalarValueText :: Aeson.Value -> Maybe Text
+scalarValueText value =
+  case value of
+    Aeson.String text -> Just text
+    Aeson.Number {} ->
+      let parsedInt :: Aeson.Result Int
+          parsedInt = Aeson.fromJSON value
+       in case parsedInt of
+            Aeson.Success int -> Just (T.pack (show int))
+            Aeson.Error {} -> Just (diagnosticSummary value)
+    _ -> Nothing
+
+objectField :: String -> Aeson.Value -> Maybe Aeson.Value
+objectField name value =
+  case value of
+    Aeson.Object obj -> KeyMap.lookup (Key.fromString name) obj
+    _ -> Nothing
+
+diagnosticSummary :: Aeson.Value -> Text
+diagnosticSummary =
+  TE.decodeUtf8 . BL.toStrict . Aeson.encode
+
+addTcModuleDiagnosticSourceLines :: Map.Map FilePath [Text] -> Aeson.Value -> Aeson.Value
+addTcModuleDiagnosticSourceLines sourceLinesByFile value =
+  case value of
+    Aeson.Object obj ->
+      case KeyMap.lookup "diagnostics" obj of
+        Just (Aeson.Array diagnostics) ->
+          Aeson.Object $
+            KeyMap.insert
+              "diagnostics"
+              (Aeson.toJSON (map (addDiagnosticSourceLines sourceLinesByFile) (toList diagnostics)))
+              obj
+        _ -> value
+    _ -> value
+
+addDiagnosticSourceLines :: Map.Map FilePath [Text] -> Aeson.Value -> Aeson.Value
+addDiagnosticSourceLines sourceLinesByFile diagnostic =
+  case (diagnostic, diagnosticFile diagnostic, diagnosticLineRange diagnostic) of
+    (Aeson.Object obj, Just file, Just (startLine, endLine)) ->
+      case lookupSourceLines file sourceLinesByFile of
+        Just sourceLines ->
+          Aeson.Object $
+            KeyMap.insert
+              "sourceLines"
+              (Aeson.toJSON (sourceLineExcerpt sourceLines startLine endLine))
+              obj
+        Nothing -> diagnostic
+    _ -> diagnostic
+
+lookupSourceLines :: Text -> Map.Map FilePath [Text] -> Maybe [Text]
+lookupSourceLines file sourceLinesByFile =
+  Map.lookup (T.unpack file) sourceLinesByFile
+    <|> lookupNormalized
+  where
+    normalizedFile = normalizeDiagnosticFile file
+    lookupNormalized =
+      snd
+        <$> listToMaybe
+          [ (path, sourceLines)
+          | (path, sourceLines) <- Map.toList sourceLinesByFile,
+            normalizeDiagnosticFile (T.pack path) == normalizedFile
+          ]
+
+diagnosticLineRange :: Aeson.Value -> Maybe (Int, Int)
+diagnosticLineRange diagnostic =
+  spanLineRange <|> lineOnlyRange
+  where
+    spanLineRange = do
+      spanValue <- objectField "span" diagnostic
+      startLine <- intField "startLine" spanValue
+      endLine <- intField "endLine" spanValue
+      pure (startLine, endLine)
+    lineOnlyRange = do
+      line <- intField "line" diagnostic
+      pure (line, line)
+
+sourceLineExcerpt :: [Text] -> Int -> Int -> [Aeson.Value]
+sourceLineExcerpt sourceLines startLine endLine =
+  [ object
+      [ "line" .= lineNumber,
+        "text" .= lineText
+      ]
+  | (lineNumber, lineText) <- zip [1 :: Int ..] sourceLines,
+    lineNumber >= startLine,
+    lineNumber <= endLine
+  ]
 
 dryRunInstallScaffold :: PackagePlan -> IO InstallResult
 dryRunInstallScaffold =
@@ -633,12 +948,17 @@ generatePackageInterface :: ModuleExports -> PackagePlan -> IO InterfaceBuildRes
 generatePackageInterface depExports plan = do
   files <- collectPlanFiles plan
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
-  let parsedModules = [modu | ParsedFileOk _ modu _ <- parsedFiles]
-      parseDiagnostics = concatMap parsedFileParseDiagnostics parsedFiles
-      cppDiagnostics = concatMap parsedFileCppDiagnostics parsedFiles
+  let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
+      sourceLinesByFile = Map.fromList (map parsedFileSourceLines parsedFiles)
+      enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
+      parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
+      cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
       resolveResult = resolveWithDeps depExports parsedModules
       ownExports = extractInterface resolveResult
   (tcModules, tcDiagnostics) <- typecheckInterfaceModules (resolvedModules resolveResult)
+  let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
+      enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
+      enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
   pure
     InterfaceBuildResult
       { interfaceModuleExports = ownExports,
@@ -646,9 +966,9 @@ generatePackageInterface depExports plan = do
         interfaceSourceFiles = map HackageCabal.fileInfoPath files,
         interfaceParseDiagnostics = parseDiagnostics,
         interfaceCppDiagnostics = cppDiagnostics,
-        interfaceResolveDiagnostics = map resolveErrorValue (resolveErrors resolveResult),
-        interfaceTcDiagnostics = tcDiagnostics,
-        interfaceTcModules = tcModules
+        interfaceResolveDiagnostics = resolveDiagnostics,
+        interfaceTcDiagnostics = enrichedTcDiagnostics,
+        interfaceTcModules = enrichedTcModules
       }
 
 typecheckInterfaceModules :: [Module] -> IO ([Aeson.Value], [Aeson.Value])
@@ -695,20 +1015,26 @@ typecheckTimeoutDiagnostic modu =
         ]
 
 data ParsedInterfaceFile
-  = ParsedFileOk !FilePath !Module ![Aeson.Value]
-  | ParsedFileFailed !FilePath ![Aeson.Value] ![Aeson.Value]
+  = ParsedFileOk !FilePath !Module ![Text] ![Aeson.Value]
+  | ParsedFileFailed !FilePath ![Text] ![Aeson.Value] ![Aeson.Value]
+
+parsedFileSourceLines :: ParsedInterfaceFile -> (FilePath, [Text])
+parsedFileSourceLines parsed =
+  case parsed of
+    ParsedFileOk path _ sourceLines _ -> (path, sourceLines)
+    ParsedFileFailed path sourceLines _ _ -> (path, sourceLines)
 
 parsedFileParseDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
 parsedFileParseDiagnostics parsed =
   case parsed of
     ParsedFileOk {} -> []
-    ParsedFileFailed _ parseDiagnostics _ -> parseDiagnostics
+    ParsedFileFailed _ _ parseDiagnostics _ -> parseDiagnostics
 
 parsedFileCppDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
 parsedFileCppDiagnostics parsed =
   case parsed of
-    ParsedFileOk _ _ cppDiagnostics -> cppDiagnostics
-    ParsedFileFailed _ _ cppDiagnostics -> cppDiagnostics
+    ParsedFileOk _ _ _ cppDiagnostics -> cppDiagnostics
+    ParsedFileFailed _ _ _ cppDiagnostics -> cppDiagnostics
 
 collectPlanFiles :: PackagePlan -> IO [HackageCabal.FileInfo]
 collectPlanFiles plan = do
@@ -739,10 +1065,11 @@ parseInterfaceFile packageRoot fileInfo = do
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
+      sourceLines = T.lines source
   pure $
     if null parseErrs
-      then ParsedFileOk path modu cppDiagnostics
-      else ParsedFileFailed path parseDiagnostics cppDiagnostics
+      then ParsedFileOk path modu sourceLines cppDiagnostics
+      else ParsedFileFailed path sourceLines parseDiagnostics cppDiagnostics
   where
     path = HackageCabal.fileInfoPath fileInfo
 
@@ -885,7 +1212,7 @@ tcModuleValue modu result =
     [ "module" .= moduleDisplayName modu,
       "success" .= tcmSuccess result,
       "bindings" .= map tcBindingValue (tcmBindings result),
-      "diagnostics" .= map tcDiagnosticValue (tcmDiagnostics result)
+      "diagnostics" .= map (tcDiagnosticValue (moduleDisplayName modu)) (tcmDiagnostics result)
     ]
 
 tcModuleDiagnostics :: Aeson.Value -> [Aeson.Value]
@@ -899,14 +1226,88 @@ tcBindingValue :: TcBindingResult -> Aeson.Value
 tcBindingValue binding =
   object
     [ "name" .= tbName binding,
-      "type" .= renderTcType (tbType binding)
+      "type" .= renderTcType (tbType binding),
+      "typeJson" .= tcTypeValue (tbType binding)
     ]
 
-tcDiagnosticValue :: TcDiagnostic -> Aeson.Value
-tcDiagnosticValue diag =
+tcTypeValue :: TcType -> Aeson.Value
+tcTypeValue ty =
+  case ty of
+    TcTyVar tv ->
+      object
+        [ "tag" .= ("var" :: String),
+          "name" .= tvName tv,
+          "unique" .= uniqueValue (tvUnique tv)
+        ]
+    TcMetaTv unique ->
+      object
+        [ "tag" .= ("meta" :: String),
+          "unique" .= uniqueValue unique
+        ]
+    TcTyCon tyCon args ->
+      object
+        [ "tag" .= ("con" :: String),
+          "name" .= tyConName tyCon,
+          "arity" .= tyConArity tyCon,
+          "args" .= map tcTypeValue args
+        ]
+    TcFunTy arg result ->
+      object
+        [ "tag" .= ("fun" :: String),
+          "arg" .= tcTypeValue arg,
+          "result" .= tcTypeValue result
+        ]
+    TcForAllTy tv body ->
+      object
+        [ "tag" .= ("forall" :: String),
+          "binder" .= tyVarValue tv,
+          "body" .= tcTypeValue body
+        ]
+    TcQualTy preds body ->
+      object
+        [ "tag" .= ("qual" :: String),
+          "predicates" .= map predValue preds,
+          "body" .= tcTypeValue body
+        ]
+    TcAppTy fun arg ->
+      object
+        [ "tag" .= ("app" :: String),
+          "fun" .= tcTypeValue fun,
+          "arg" .= tcTypeValue arg
+        ]
+
+predValue :: Pred -> Aeson.Value
+predValue pred' =
+  case pred' of
+    ClassPred cls args ->
+      object
+        [ "tag" .= ("class" :: String),
+          "class" .= cls,
+          "args" .= map tcTypeValue args
+        ]
+    EqPred left right ->
+      object
+        [ "tag" .= ("eq" :: String),
+          "left" .= tcTypeValue left,
+          "right" .= tcTypeValue right
+        ]
+
+tyVarValue :: TyVarId -> Aeson.Value
+tyVarValue tv =
+  object
+    [ "name" .= tvName tv,
+      "unique" .= uniqueValue (tvUnique tv)
+    ]
+
+uniqueValue :: Unique -> Int
+uniqueValue (Unique unique) = unique
+
+tcDiagnosticValue :: Text -> TcDiagnostic -> Aeson.Value
+tcDiagnosticValue moduleName diag =
   object
     [ "span" .= sourceSpanValue (diagLoc diag),
       "severity" .= tcSeverityText (diagSeverity diag),
+      "module" .= moduleName,
       "message" .= show (diagKind diag)
     ]
 

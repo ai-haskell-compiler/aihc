@@ -5,7 +5,7 @@ module Aihc.Cli
 where
 
 import Aihc.Cli.Install (runInstall)
-import Aihc.Cli.Options (Command (..), parseCommandIO)
+import Aihc.Cli.Options (Command (..), ReplOptions (..), parseCommandIO)
 import Aihc.Cli.Repl (runRepl)
 import Control.Exception (IOException, displayException, try)
 import System.Exit (exitFailure)
@@ -22,4 +22,4 @@ main = do
 
 runCommand :: Command -> IO ()
 runCommand (CmdInstall opts) = runInstall opts
-runCommand CmdRepl = runRepl
+runCommand (CmdRepl opts) = runRepl (replStoreRoot opts)

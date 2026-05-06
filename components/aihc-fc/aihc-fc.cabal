@@ -15,6 +15,7 @@ library
     Aihc.Fc.Desugar
     Aihc.Fc.Desugar.Expr
     Aihc.Fc.Desugar.Match
+    Aihc.Fc.Eval
     Aihc.Fc.Lint
     Aihc.Fc.Pretty
     Aihc.Fc.Subst
