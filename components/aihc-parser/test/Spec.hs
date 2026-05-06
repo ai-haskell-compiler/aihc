@@ -1,3 +1,4 @@
+{-# LANGUAGE MultilineStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -6,17 +7,18 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
-import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
-import Data.Maybe (isNothing)
-import Data.Ratio ((%))
+import Data.Data (Data (..), dataTypeConstrs, dataTypeOf, showConstr, toConstr)
+import Data.Dynamic (Typeable)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (cast)
 import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -77,6 +79,129 @@ tenMinutes = Timeout (10 * 60 * 1000000) "10m"
 
 sampleGen :: Int -> Gen a -> [a]
 sampleGen count gen = QGen.unGen (QC.vectorOf count gen) (QRandom.mkQCGen 20260415) 5
+
+renderPretty :: (Pretty a) => a -> Text
+renderPretty = renderStrict . layoutPretty defaultLayoutOptions . pretty
+
+stripParens :: (Data a) => a -> a
+stripParens x = applyStrip (gmapT stripParens x)
+  where
+    applyStrip :: (Data c) => c -> c
+    applyStrip =
+      id
+        `extT` stripExprParens
+        `extT` stripTypeParens
+        `extT` stripPatternParens
+
+    stripExprParens :: Expr -> Expr
+    stripExprParens (EParen expr) = expr
+    stripExprParens expr = expr
+
+    stripTypeParens :: Type -> Type
+    stripTypeParens (TParen typ) = typ
+    stripTypeParens typ = typ
+
+    stripPatternParens :: Pattern -> Pattern
+    stripPatternParens (PParen pat) = pat
+    stripPatternParens pat = pat
+
+    extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
+    extT f g y = fromMaybe (f y) (cast . g =<< cast y)
+
+assertParsedExprPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
+assertParsedExprPrettyRoundTrip config source expected =
+  case parseExpr config source of
+    ParseOk expr ->
+      assertExprPrettyRoundTrip config expr expected
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedStrippedExprShapeRoundTrip :: ParserConfig -> Text -> Assertion
+assertParsedStrippedExprShapeRoundTrip config source =
+  case parseExpr config source of
+    ParseOk expr ->
+      let stripped = stripParens expr
+          rendered = renderPretty stripped
+       in case parseExpr config rendered of
+            ParseOk reparsed ->
+              assertEqual "reparsed expression" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
+            ParseErr bundle ->
+              assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedStrippedPatternShapeRoundTrip :: ParserConfig -> Text -> Assertion
+assertParsedStrippedPatternShapeRoundTrip config source =
+  case parsePattern config source of
+    ParseOk pat ->
+      let stripped = stripParens pat
+          rendered = renderPretty stripped
+       in case parsePattern config rendered of
+            ParseOk reparsed ->
+              assertEqual "reparsed pattern" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
+            ParseErr bundle ->
+              assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedStrippedDeclShapeRoundTrip :: ParserConfig -> Text -> Assertion
+assertParsedStrippedDeclShapeRoundTrip config source =
+  case parseDecl config source of
+    ParseOk decl ->
+      let stripped = stripParens decl
+          rendered = renderPretty stripped
+       in case parseDecl config rendered of
+            ParseOk reparsed ->
+              assertEqual "reparsed declaration" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
+            ParseErr bundle ->
+              assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedModulePrettyContains :: Text -> Text -> Assertion
+assertParsedModulePrettyContains source expected =
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      let rendered = renderPretty modu
+       in assertBool ("expected rendered module to contain " <> T.unpack expected) (expected `T.isInfixOf` rendered)
+    (errs, _) ->
+      assertFailure ("expected parse success, got: " <> show errs)
+
+assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
+assertExprPrettyRoundTrip config expr expected = do
+  let rendered = renderPretty expr
+  assertEqual "pretty-printed expression" expected rendered
+  assertExprRenderingRoundTrip config expr rendered
+
+assertExprRenderingRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
+assertExprRenderingRoundTrip config expr rendered =
+  case parseExpr config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedDeclPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
+assertParsedDeclPrettyRoundTrip config source expected =
+  case parseDecl config source of
+    ParseOk decl ->
+      assertDeclPrettyRoundTrip config decl expected
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedDeclPrettyRoundTripSame :: ParserConfig -> Text -> Assertion
+assertParsedDeclPrettyRoundTripSame config source =
+  assertParsedDeclPrettyRoundTrip config source source
+
+assertDeclPrettyRoundTrip :: ParserConfig -> Decl -> Text -> Assertion
+assertDeclPrettyRoundTrip config decl expected = do
+  let rendered = renderPretty decl
+  assertEqual "pretty-printed declaration" expected rendered
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -507,154 +632,38 @@ test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
 
 test_dataDeclResultKindContextRoundTrips :: Assertion
 test_dataDeclResultKindContextRoundTrips = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "\66952") [],
-              dataDeclContext = [],
-              dataDeclKind =
-                Just
-                  ( TContext
-                      [TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted]
-                      (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted)
-                  ),
-              dataDeclConstructors = [],
-              dataDeclDeriving = []
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data 𐖈 :: C => C" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "data 𐖈 :: C => C"
 
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity :: Assertion
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
-  let promotedName = mkName (Just "A'.B") NameConId "C"
-      decl = DeclStandaloneKindSig (mkUnqualifiedName NameConSym ":+") (TCon promotedName Promoted)
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "type (:+) :: ' A'.B.C" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "type (:+) :: ' A'.B.C"
 
 test_promotedListSpacesInfixElementsStartingWithTicks :: Assertion
 test_promotedListSpacesInfixElementsStartingWithTicks = do
-  let textType lit =
-        TApp
-          (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Text")) Promoted)
-          (TTypeLit (TypeLitSymbol lit (T.pack (show (T.unpack lit)))))
-      messageType =
-        TInfix
-          (textType "alpha")
-          (qualifyName Nothing (mkUnqualifiedName NameConSym ":<>:"))
-          Promoted
-          (textType "beta")
-      decl =
-        DeclTypeSyn
-          TypeSynDecl
-            { typeSynHead = PrefixBinderHead (mkUnqualifiedName NameConId "M1") [],
-              typeSynBody =
-                TList
-                  Promoted
-                  [ messageType,
-                    textType "gamma"
-                  ]
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]"
 
 test_boxedTupleInfixConOperandStaysBare :: Assertion
 test_boxedTupleInfixConOperandStaysBare = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
-              dataDeclContext = [],
-              dataDeclKind = Nothing,
-              dataDeclConstructors =
-                [ InfixCon
-                    []
-                    []
-                    (BangType [] [] False False (TTuple Boxed Unpromoted []))
-                    (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted))
-                ],
-              dataDeclDeriving = []
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data D = () :. T" rendered
+  assertParsedDeclPrettyRoundTripSame defaultConfig "data D = () :. T"
 
 test_unboxedTupleInfixConOperandStaysBare :: Assertion
 test_unboxedTupleInfixConOperandStaysBare = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
-              dataDeclContext = [],
-              dataDeclKind = Nothing,
-              dataDeclConstructors =
-                [ InfixCon
-                    []
-                    []
-                    (BangType [] [] False False (TTuple Unboxed Unpromoted [TVar (mkUnqualifiedName NameVarId "a")]))
-                    (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted))
-                ],
-              dataDeclDeriving = []
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
+  let config = defaultConfig {parserExtensions = [UnboxedTuples]}
+  assertParsedDeclPrettyRoundTripSame config "data D = (# a #) :. Int"
 
 test_prettySymbolicDerivingClass :: Assertion
 test_prettySymbolicDerivingClass = do
-  let decl =
-        DeclNewtype
-          NewtypeDecl
-            { newtypeDeclCTypePragma = Nothing,
-              newtypeDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [],
-              newtypeDeclContext = [],
-              newtypeDeclKind = Nothing,
-              newtypeDeclConstructor = Just (RecordCon [] [] (mkUnqualifiedName NameConId "C") []),
-              newtypeDeclDeriving =
-                [ DerivingClause
-                    { derivingStrategy = Nothing,
-                      derivingClasses = Right [TCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":+")) Unpromoted]
-                    }
-                ]
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "newtype C = C {} deriving ((:+))" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "newtype C = C {} deriving ((:+))"
 
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "data {-# CTYPE \"termbox.h\" \"struct tb_cell\" #-} Tb_cell = Tb_cell"]
-  case parseModule defaultConfig source of
-    ([], modu) ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-       in assertBool "expected rendered module to preserve data CTYPE pragma" ("CTYPE \"termbox.h\" \"struct tb_cell\"" `T.isInfixOf` rendered)
-    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
+  assertParsedModulePrettyContains source "CTYPE \"termbox.h\" \"struct tb_cell\""
 
 test_newtypeCTypePragmaRoundTrips :: Assertion
 test_newtypeCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "import Foreign.C.Types (CInt (..))", "newtype {-# CTYPE \"signed int\" #-} Fixed = Fixed CInt"]
-  case parseModule defaultConfig source of
-    ([], modu) ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-       in assertBool "expected rendered module to preserve newtype CTYPE pragma" ("CTYPE \"signed int\"" `T.isInfixOf` rendered)
-    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
+  assertParsedModulePrettyContains source "CTYPE \"signed int\""
 
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
@@ -911,620 +920,311 @@ test_quasiQuotesDoNotEnableTHNameQuotes = do
 test_prettyCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyCaseExpressionUsesImplicitLayout = do
   let source = "case x of { 0 -> 1; _ -> 2 }"
-      expected = T.intercalate "\n" ["case x of", "  0 ->", "    1", "  _ ->", "    2"]
-  case parseExpr defaultConfig source of
-    ParseOk expr -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      assertEqual "pretty-printed expression" expected rendered
-      case parseExpr defaultConfig rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      expected =
+        """
+        case x of
+          0 ->
+            1
+          _ ->
+            2
+        """
+  assertParsedExprPrettyRoundTrip defaultConfig source expected
 
 test_prettyLetExpressionUsesImplicitLayout :: Assertion
 test_prettyLetExpressionUsesImplicitLayout = do
   let source = "let { x = 10 } in x + x"
-      expected = T.intercalate "\n" ["let", "  x =", "    10", "  in x", "   + x"]
-  case parseExpr defaultConfig source of
-    ParseOk expr -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      assertEqual "pretty-printed expression" expected rendered
-      case parseExpr defaultConfig rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      expected =
+        """
+        let
+          x =
+            10
+          in x
+           + x
+        """
+  assertParsedExprPrettyRoundTrip defaultConfig source expected
 
 test_prettyNegatedLayoutEndingListCompBody :: Assertion
 test_prettyNegatedLayoutEndingListCompBody = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
-      expr =
-        EListComp
-          ( ENegate
-              ( EApp
-                  (EFloat (0 % 1) TFractional "0.0")
-                  ( ECase
-                      (EFloat (0 % 1) TFractional "0.0")
-                      [ CaseAlt
-                          []
-                          (PLit (LitInt 0 TInteger "0"))
-                          (GuardedRhss [] [GuardedRhs [] [GuardLet []] (EString "" "\"\"")] Nothing)
-                      ]
-                  )
-              )
-          )
-          [CompLetDecls []]
-      expected =
-        T.intercalate
-          "\n"
-          [ "[-0.0",
-            "  case 0.0 of",
-            "    0",
-            "      | let {  }",
-            "       ->",
-            "        \"\"",
-            " | let {  }]"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  assertEqual "pretty-printed expression" expected rendered
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        [-0.0
+          case 0.0 of
+            0
+              | let {  }
+               ->
+                ""
+         | let {  }]
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyLayoutLetGuardInMultiWayIf :: Assertion
 test_prettyLayoutLetGuardInMultiWayIf = do
   let config = defaultConfig {parserExtensions = [BlockArguments, MultiWayIf]}
-      expr =
-        EMultiWayIf
-          [ GuardedRhs
-              []
-              [ GuardLet
-                  [ DeclValue
-                      ( PatternBind
-                          NoMultiplicityTag
-                          (PVar (mkUnqualifiedName NameVarId "x"))
-                          ( UnguardedRhs
-                              []
-                              (ETypeSig (ETuple Boxed []) (TVar (mkUnqualifiedName NameVarId "a")))
-                              Nothing
-                          )
-                      )
-                  ]
-              ]
-              ( ECase
-                  (EChar '5' "'5'")
-                  [ CaseAlt
-                      []
-                      (PVar (mkUnqualifiedName NameVarSym "+"))
-                      (UnguardedRhs [] (EInt 0 TInteger "0") Nothing)
-                  ]
-              )
-          ]
-      expected =
-        T.intercalate
-          "\n"
-          [ "if | let",
-            "     x =",
-            "       ()",
-            "        :: a",
-            "    ->",
-            "     case '5' of",
-            "       (+) ->",
-            "         0"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  assertEqual "pretty-printed expression" expected rendered
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        if | let
+             x =
+               ()
+                :: a
+            ->
+             case '5' of
+               (+) ->
+                 0
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyMultiWayIfInfixLhs :: Assertion
 test_prettyMultiWayIfInfixLhs = do
   let config = defaultConfig {parserExtensions = [MultiWayIf]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        EInfix
-          ( EMultiWayIf
-              [ GuardedRhs
-                  []
-                  [GuardExpr (EVar (qualifyName Nothing (mkUnqualifiedName NameConId "True")))]
-                  (ETuple Boxed [])
-              ]
-          )
-          op
-          (EChar 'x' "'x'")
-      expected =
-        T.intercalate
-          "\n"
-          [ "if | True",
-            "    ->",
-            "     ()",
-            " `a` 'x'"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  assertEqual "pretty-printed expression" expected rendered
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        if | True
+            ->
+             ()
+         `a` 'x'
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyWhereClauseUsesImplicitLayout :: Assertion
 test_prettyWhereClauseUsesImplicitLayout = do
   let source = "f x = x where { y = 1 }"
       expected =
-        T.intercalate
-          "\n"
-          [ "f x =",
-            "  x",
-            "  where",
-            "    y =",
-            "      1"
-          ]
-  case parseDecl defaultConfig source of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" expected rendered
-      case parseDecl defaultConfig rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        f x =
+          x
+          where
+            y =
+              1
+        """
+  assertParsedDeclPrettyRoundTrip defaultConfig source expected
 
 test_prettyGadtConstructorsUseImplicitLayout :: Assertion
 test_prettyGadtConstructorsUseImplicitLayout = do
   let config = defaultConfig {parserExtensions = [GADTs, TypeFamilies]}
       gadtSource = "data T where { MkT :: T; MkU :: T }"
       gadtExpected =
-        T.intercalate
-          "\n"
-          [ "data T where",
-            "  MkT :: T",
-            "  MkU :: T"
-          ]
+        """
+        data T where
+          MkT :: T
+          MkU :: T
+        """
       typeFamilySource = "type family F a where { F Int = Bool; F Bool = Int }"
       typeFamilyExpected =
-        T.intercalate
-          "\n"
-          [ "type family F a where",
-            "  F Int = Bool",
-            "  F Bool = Int"
-          ]
-      assertDecl expected source =
-        case parseDecl config source of
-          ParseOk decl -> do
-            let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-            assertEqual "pretty-printed declaration" expected rendered
-            case parseDecl config rendered of
-              ParseOk reparsed ->
-                assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-              ParseErr bundle ->
-                assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-          ParseErr bundle ->
-            assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-  assertDecl gadtExpected gadtSource
-  assertDecl typeFamilyExpected typeFamilySource
+        """
+        type family F a where
+          F Int = Bool
+          F Bool = Int
+        """
+  assertParsedDeclPrettyRoundTrip config gadtSource gadtExpected
+  assertParsedDeclPrettyRoundTrip config typeFamilySource typeFamilyExpected
 
 test_prettyLambdaCaseExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCaseExpressionUsesImplicitLayout = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
       source = "\\case { 0 -> 1; _ -> 2 }"
-      expected = T.intercalate "\n" ["\\case", "  0 ->", "    1", "  _ ->", "    2"]
-  case parseExpr config source of
-    ParseOk expr -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      assertEqual "pretty-printed expression" expected rendered
-      case parseExpr config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      expected =
+        """
+        \\case
+          0 ->
+            1
+          _ ->
+            2
+        """
+  assertParsedExprPrettyRoundTrip config source expected
   let declSource = "f = \\case { 0 -> 1 } where { g = 2 }"
       declExpected =
-        T.intercalate
-          "\n"
-          [ "f =",
-            "  \\case",
-            "    0 ->",
-            "      1",
-            "  where",
-            "    g =",
-            "      2"
-          ]
-  case parseDecl config declSource of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" declExpected rendered
-      case parseDecl config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        f =
+          \\case
+            0 ->
+              1
+          where
+            g =
+              2
+        """
+  assertParsedDeclPrettyRoundTrip config declSource declExpected
   let guardedDeclSource = "a = \\case { 0 | let { a = () :: () } -> () }"
       guardedDeclExpected =
-        T.intercalate
-          "\n"
-          [ "a =",
-            "  \\case",
-            "    0",
-            "      | let",
-            "        a =",
-            "          ()",
-            "           :: ()",
-            "       ->",
-            "        ()"
-          ]
-  case parseDecl config guardedDeclSource of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed guarded declaration" guardedDeclExpected rendered
-      case parseDecl config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed guarded declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed guarded declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack guardedDeclSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        a =
+          \\case
+            0
+              | let
+                a =
+                  ()
+                   :: ()
+               ->
+                ()
+        """
+  assertParsedDeclPrettyRoundTrip config guardedDeclSource guardedDeclExpected
 
 test_prettyLambdaCasesExpressionUsesImplicitLayout :: Assertion
 test_prettyLambdaCasesExpressionUsesImplicitLayout = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
       source = "\\cases { True False -> 0; _ _ -> 1 }"
-      expected = T.intercalate "\n" ["\\cases", "  True False ->", "    0", "  _ _ ->", "    1"]
-  case parseExpr config source of
-    ParseOk expr -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      assertEqual "pretty-printed expression" expected rendered
-      case parseExpr config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      expected =
+        """
+        \\cases
+          True False ->
+            0
+          _ _ ->
+            1
+        """
+  assertParsedExprPrettyRoundTrip config source expected
   let declSource = "f = \\cases { 0 -> 1 } where { g = 2 }"
       declExpected =
-        T.intercalate
-          "\n"
-          [ "f =",
-            "  \\cases",
-            "    0 ->",
-            "      1",
-            "  where",
-            "    g =",
-            "      2"
-          ]
-  case parseDecl config declSource of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" declExpected rendered
-      case parseDecl config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack declSource <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        f =
+          \\cases
+            0 ->
+              1
+          where
+            g =
+              2
+        """
+  assertParsedDeclPrettyRoundTrip config declSource declExpected
 
 test_prettyClassDeclarationUsesImplicitLayout :: Assertion
 test_prettyClassDeclarationUsesImplicitLayout = do
   let source = "class C a where { f :: a -> Int; f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
       expected =
-        T.intercalate
-          "\n"
-          [ "class C a where",
-            "  f :: a -> Int",
-            "  f x =",
-            "    case x of",
-            "      0 ->",
-            "        1",
-            "      _ ->",
-            "        2",
-            "  g =",
-            "    3"
-          ]
-  case parseDecl defaultConfig source of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" expected rendered
-      case parseDecl defaultConfig rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        class C a where
+          f :: a -> Int
+          f x =
+            case x of
+              0 ->
+                1
+              _ ->
+                2
+          g =
+            3
+        """
+  assertParsedDeclPrettyRoundTrip defaultConfig source expected
 
 test_prettyInstanceDeclarationUsesImplicitLayout :: Assertion
 test_prettyInstanceDeclarationUsesImplicitLayout = do
   let source = "instance C a where { f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
       expected =
-        T.intercalate
-          "\n"
-          [ "instance C a where",
-            "  f x =",
-            "    case x of",
-            "      0 ->",
-            "        1",
-            "      _ ->",
-            "        2",
-            "  g =",
-            "    3"
-          ]
-  case parseDecl defaultConfig source of
-    ParseOk decl -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      assertEqual "pretty-printed declaration" expected rendered
-      case parseDecl defaultConfig rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        instance C a where
+          f x =
+            case x of
+              0 ->
+                1
+              _ ->
+                2
+          g =
+            3
+        """
+  assertParsedDeclPrettyRoundTrip defaultConfig source expected
 
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        ESectionL
-          ( EInfix
-              (ELambdaCase [])
-              op
-              (ELambdaPats [PLit (LitInt 0 TInteger "0")] (EChar ' ' "' '"))
-          )
-          op
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+      source =
+        """
+        ((\\case {  })
+         `a` (\\ 0 -> ' ')
+         `a`)
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyReservedAtRightSection :: Assertion
 test_prettyReservedAtRightSection = do
   let expr = ESectionR (qualifyName Nothing (mkUnqualifiedName NameVarSym "@")) (ETuple Boxed [])
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" "(@ ())" rendered
-  case parseExpr defaultConfig rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertExprRenderingRoundTrip defaultConfig expr rendered
 
 test_prettyLayoutEndingOperandInsideLeftSection :: Assertion
 test_prettyLayoutEndingOperandInsideLeftSection = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
       source = "([0 ..] `a` \\case { [] -> a } `a`)"
       expected =
-        T.intercalate
-          "\n"
-          [ "([0 ..]",
-            " `a` \\case",
-            "  [] ->",
-            "    a",
-            " `a`)"
-          ]
-  case parseExpr config source of
-    ParseOk expr -> do
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      assertEqual "pretty-printed expression" expected rendered
-      case parseExpr config rendered of
-        ParseOk reparsed ->
-          assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-        ParseErr bundle ->
-          assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+        """
+        ([0 ..]
+         `a` \\case
+          [] ->
+            a
+         `a`)
+        """
+  assertParsedExprPrettyRoundTrip config source expected
 
 test_prettyTypeAppAfterLayoutEndingFunction :: Assertion
 test_prettyTypeAppAfterLayoutEndingFunction = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      expr =
-        ETypeApp
-          ( EApp
-              (EInt 0 TInteger "0")
-              ( ELambdaCase
-                  [ CaseAlt
-                      []
-                      (PLit (LitFloat (0 % 1) TFractional "0.0"))
-                      (UnguardedRhs [] (EStringHash "" "\"\"#") Nothing)
-                  ]
-              )
-          )
-          (TUnboxedSum [TWildcard, TStar])
-      decl = DeclValue (PatternBind NoMultiplicityTag (PVar (mkUnqualifiedName NameVarSym "+")) (UnguardedRhs [] expr Nothing))
-      expected =
-        T.intercalate
-          "\n"
-          [ "(+) =",
-            "  0",
-            "    \\case",
-            "      0.0 ->",
-            "        \"\"#",
-            "   @(# _ | * #)"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertEqual "pretty-printed declaration" expected rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        (+) =
+          0
+            \\case
+              0.0 ->
+                ""#
+           @(# _ | * #)
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyTypeSigAfterLayoutEndingFunction :: Assertion
 test_prettyTypeSigAfterLayoutEndingFunction = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      expr =
-        ETypeSig
-          ( EApp
-              (ETHDeclQuote [])
-              (ELambdaCase [CaseAlt [] PWildcard (UnguardedRhs [] (EChar '1' "'1'") Nothing)])
-          )
-          (TQuasiQuote "a" "")
-      decl = DeclValue (PatternBind NoMultiplicityTag (PCon (mkName Nothing NameConSym ":+") [] []) (UnguardedRhs [] expr Nothing))
-      expected =
-        T.intercalate
-          "\n"
-          [ "(:+) =",
-            "  [d|",
-            "    |]",
-            "    \\case",
-            "      _ ->",
-            "        '1'",
-            "   :: [a||]"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  assertEqual "pretty-printed declaration" expected rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        (:+) =
+          [d|
+            |]
+            \\case
+              _ ->
+                '1'
+           :: [a||]
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyOperatorAfterLayoutDoBlock :: Assertion
 test_prettyOperatorAfterLayoutDoBlock = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      plus = mkName Nothing NameVarSym "+"
-      expr =
-        EInfix
-          ( EDo
-              [ DoLetDecls
-                  [ DeclValue
-                      ( FunctionBind
-                          (mkUnqualifiedName NameVarId "f")
-                          [ Match
-                              []
-                              MatchHeadPrefix
-                              [PVar (mkUnqualifiedName NameVarId "x")]
-                              ( UnguardedRhs
-                                  []
-                                  ( ELambdaCase
-                                      [ CaseAlt
-                                          []
-                                          (PNegLit (LitInt 134 TInteger "134"))
-                                          (GuardedRhss [] [GuardedRhs [] [GuardPat (PTuple Unboxed []) (EChar 'n' "'n'")] (EFloat (853 % 10) TFractional "85.3")] Nothing)
-                                      ]
-                                  )
-                                  Nothing
-                              )
-                          ]
-                      )
-                  ]
-              ]
-              DoPlain
-          )
-          plus
-          (EUnboxedSum 3 4 (EInt 0 TInteger "0"))
-      expected =
-        T.intercalate
-          "\n"
-          [ "do",
-            "   let",
-            "      f x =",
-            "        \\case",
-            "          -134",
-            "            | (# #) <- 'n'",
-            "             ->",
-            "              85.3",
-            " + (# ",
-            "        | ",
-            "        | ",
-            "        | 0 #)"
-          ]
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  assertEqual "pretty-printed expression" expected rendered
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        (do
+           let f x = \\case
+                 -134 | (# #) <- 'n' -> 85.3)
+        + (# | | | 0 #)
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettySpliceRecordDotBase :: Assertion
 test_prettySpliceRecordDotBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, OverloadedRecordDot, MagicHash]}
-      field = qualifyName Nothing (mkUnqualifiedName NameVarId "adpE")
-      expr = EGetField (ETHSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "x#")))) field
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertParsedStrippedExprShapeRoundTrip config "($x#).adpE"
 
 test_prettyNegatedOpenEndedSectionLhs :: Assertion
 test_prettyNegatedOpenEndedSectionLhs = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        ESectionL
-          ( ENegate
-              ( EApp
-                  (EString "" "\"\"")
-                  (EIf (EChar 'N' "'N'") (ETuple Boxed []) (ETuple Boxed []))
-              )
-          )
-          op
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+      source =
+        """
+        ((-(""
+          (if 'N' then () else ())))
+         `a`)
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyNegatedOpenEndedTypeSigBody :: Assertion
 test_prettyNegatedOpenEndedTypeSigBody = do
   let config = defaultConfig {parserExtensions = [BlockArguments, MagicHash, UnboxedTuples]}
-      plus = qualifyName Nothing (mkUnqualifiedName NameVarSym "+")
-      tyCon = qualifyName Nothing (mkUnqualifiedName NameConId "C")
-      expr =
-        ETypeSig
-          ( ENegate
-              ( EApp
-                  (ETuple Unboxed [])
-                  (EIf (EStringHash "" "\"\"#") (EList []) (EVar plus))
-              )
-          )
-          (TCon tyCon Unpromoted)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+      source =
+        """
+        -((# #)
+          (if ""# then [] else (+)))
+         :: C
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyRecordDotTHSpliceBase :: Assertion
 test_prettyRecordDotTHSpliceBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
-      spliceName = qualifyName Nothing (mkUnqualifiedName NameVarId "q#")
-      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "j7Msfc")
-      assertRoundTrips expectedRendered expr = do
-        let parenthesized = addExprParens expr
-            rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-        assertEqual "rendered expression" expectedRendered rendered
-        case parseExpr config rendered of
-          ParseOk reparsed ->
-            assertEqual "reparsed expression" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-          ParseErr bundle ->
-            assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
-  assertRoundTrips "($q#).j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
-  assertRoundTrips "($$q#).j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
+  assertParsedStrippedExprShapeRoundTrip config "($q#).j7Msfc"
+  assertParsedStrippedExprShapeRoundTrip config "($$q#).j7Msfc"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
@@ -1539,192 +1239,67 @@ test_thTypeQuoteBeforeConstraintExprSig = do
 test_viewExprAppliedTypeSigParens :: Assertion
 test_viewExprAppliedTypeSigParens = do
   let config = defaultConfig {parserExtensions = [BlockArguments, DataKinds, ViewPatterns]}
-      varA = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      conC = qualifyName Nothing (mkUnqualifiedName NameConId "C")
-      pat =
-        PView
-          ( EApp
-              (EList [])
-              ( EIf
-                  (EVar varA)
-                  (EVar varA)
-                  (ETypeSig (EList []) (TFun ArrowUnrestricted (TCon conC Promoted) (TCon conC Unpromoted)))
-              )
-          )
-          (PCon conC [] [])
-      parenthesized = addPatternParens pat
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-  assertEqual "rendered pattern" "(([]\n  (if a then a else []\n   :: 'C -> C))\n -> C)" rendered
-  case parsePattern config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        (([]
+          (if a then a else []
+           :: 'C -> C))
+         -> C)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
 
 test_viewExprMultiWayIfTypeSigParens :: Assertion
 test_viewExprMultiWayIfTypeSigParens = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      decl =
-        DeclValue
-          ( PatternBind
-              NoMultiplicityTag
-              ( PUnboxedSum
-                  0
-                  3
-                  ( PView
-                      ( EMultiWayIf
-                          [ GuardedRhs
-                              []
-                              [GuardLet []]
-                              (ETypeSig (EChar 'G' "'G'") TStar)
-                          ]
-                      )
-                      (PLit (LitInt 0 TInteger "0"))
-                  )
-              )
-              (UnguardedRhs [] (EArithSeq (ArithSeqFrom (ELambdaCases []))) Nothing)
-          )
-      parenthesized = addDeclParens decl
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-  assertEqual
-    "rendered decl"
-    ( T.intercalate
-        "\n"
-        [ "(# (if | let {  }",
-          "        ->",
-          "         'G'",
-          "          :: *)",
-          "      -> 0",
-          "     | ",
-          "     |  #) =",
-          "  [(\\cases {  }) ..]"
-        ]
-    )
-    rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed decl" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed decl to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        (# (if | let {  }
+                ->
+                 'G'
+                  :: *)
+              -> 0
+             | 
+             |  #) =
+          [(\\cases {  }) ..]
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
-      pat =
-        PView
-          ( EProc
-              (PVar (mkUnqualifiedName NameVarId "a"))
-              ( CmdArrApp
-                  (ETuple Boxed [])
-                  HsHigherOrderApp
-                  (ETypeSig (ECharHash '7' "'7'#") (TQuasiQuote "a" ""))
-              )
-          )
-          (PRecord (qualifyName Nothing (mkUnqualifiedName NameConId "C")) [] False)
-      parenthesized = addPatternParens pat
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-  assertEqual "rendered pattern" "((proc a -> () -<< ('7'#\n :: [a||]))\n -> C {})" rendered
-  case parsePattern config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        ((proc a -> () -<< ('7'#
+         :: [a||]))
+         -> C {})
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
 
 test_arrowCommandLhsLambdaCaseParens :: Assertion
 test_arrowCommandLhsLambdaCaseParens = do
   let config = defaultConfig {parserExtensions = [Arrows, BlockArguments, LambdaCase]}
-      decl =
-        DeclValue
-          ( PatternBind
-              NoMultiplicityTag
-              (PLit (LitInt 0 TInteger "0"))
-              ( UnguardedRhs
-                  []
-                  ( EProc
-                      (PVar (mkUnqualifiedName NameVarId "a"))
-                      ( CmdArrApp
-                          ( EApp
-                              (EList [])
-                              ( ELambdaCase
-                                  [ CaseAlt
-                                      []
-                                      (PCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) [] [])
-                                      (UnguardedRhs [] (EList []) Nothing)
-                                  ]
-                              )
-                          )
-                          HsFirstOrderApp
-                          (ETuple Boxed [])
-                      )
-                  )
-                  Nothing
-              )
-          )
-      parenthesized = addDeclParens decl
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-      expected =
-        T.intercalate
-          "\n"
-          [ "0 =",
-            "  proc a -> ([]",
-            "    \\case",
-            "      C ->",
-            "        []) -< ()"
-          ]
-  assertEqual "rendered declaration" expected rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed declaration" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        0 =
+          proc a -> ([]
+            \\case
+              C ->
+                []) -< ()
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_arrowCommandLhsLambdaCasesParens :: Assertion
 test_arrowCommandLhsLambdaCasesParens = do
   let config = defaultConfig {parserExtensions = [Arrows, BlockArguments, LambdaCase]}
-      decl =
-        DeclValue
-          ( PatternBind
-              NoMultiplicityTag
-              (PLit (LitInt 0 TInteger "0"))
-              ( UnguardedRhs
-                  []
-                  ( EProc
-                      (PVar (mkUnqualifiedName NameVarId "a"))
-                      ( CmdArrApp
-                          ( EApp
-                              (EList [])
-                              ( ELambdaCases
-                                  [ LambdaCaseAlt
-                                      []
-                                      [PCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) [] []]
-                                      (UnguardedRhs [] (EList []) Nothing)
-                                  ]
-                              )
-                          )
-                          HsFirstOrderApp
-                          (ETuple Boxed [])
-                      )
-                  )
-                  Nothing
-              )
-          )
-      parenthesized = addDeclParens decl
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-      expected =
-        T.intercalate
-          "\n"
-          [ "0 =",
-            "  proc a -> ([]",
-            "    \\cases",
-            "      C ->",
-            "        []) -< ()"
-          ]
-  assertEqual "rendered declaration" expected rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed declaration" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      source =
+        """
+        0 =
+          proc a -> ([]
+            \\cases
+              C ->
+                []) -< ()
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_roundtripDiffIsMinimal :: Assertion
 test_roundtripDiffIsMinimal =
@@ -1820,46 +1395,25 @@ test_associatedDataFamilyInfixOperatorName = do
 
 test_prettyAssocDataFamilyOperatorName :: Assertion
 test_prettyAssocDataFamilyOperatorName = do
-  let decl =
-        DeclClass
-          ClassDecl
-            { classDeclContext = Nothing,
-              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
-              classDeclFundeps = [],
-              classDeclItems =
-                [ ClassItemDataFamilyDecl
-                    DataFamilyDecl
-                      { dataFamilyDeclHead = PrefixBinderHead (mkUnqualifiedName NameConSym ":*:") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
-                        dataFamilyDeclKind = Nothing
-                      }
-                ]
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered @?= T.intercalate "\n" ["class C a where", "  data (:*:) a"]
+  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
+  assertParsedDeclPrettyRoundTrip
+    config
+    "class C a where { data (:*:) a }"
+    """
+    class C a where
+      data (:*:) a
+    """
 
 test_prettyAssocDataFamilyInfixOperatorName :: Assertion
 test_prettyAssocDataFamilyInfixOperatorName = do
-  let decl =
-        DeclClass
-          ClassDecl
-            { classDeclContext = Nothing,
-              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "x" Nothing TyVarBSpecified TyVarBVisible],
-              classDeclFundeps = [],
-              classDeclItems =
-                [ ClassItemDataFamilyDecl
-                    DataFamilyDecl
-                      { dataFamilyDeclHead =
-                          InfixBinderHead
-                            (TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible)
-                            (mkUnqualifiedName NameConSym ":*:")
-                            (TyVarBinder [] "b" Nothing TyVarBSpecified TyVarBVisible)
-                            [],
-                        dataFamilyDeclKind = Just TStar
-                      }
-                ]
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered @?= T.intercalate "\n" ["class C x where", "  data a :*: b :: *"]
+  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
+  assertParsedDeclPrettyRoundTrip
+    config
+    "class C x where { data a :*: b :: * }"
+    """
+    class C x where
+      data a :*: b :: *
+    """
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
