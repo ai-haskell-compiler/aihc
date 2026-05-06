@@ -117,6 +117,18 @@ assertParsedExprPrettyRoundTrip config source expected =
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
+assertParsedStrippedExprPrettyRoundTrip :: ParserConfig -> Text -> Assertion
+assertParsedStrippedExprPrettyRoundTrip config source =
+  assertParsedStrippedExprPrettyRoundTripAs config source source
+
+assertParsedStrippedExprPrettyRoundTripAs :: ParserConfig -> Text -> Text -> Assertion
+assertParsedStrippedExprPrettyRoundTripAs config source expected =
+  case parseExpr config source of
+    ParseOk expr ->
+      assertExprPrettyRoundTrip config (stripParens expr) expected
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
 assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
 assertExprPrettyRoundTrip config expr expected = do
   let rendered = renderPretty expr
@@ -1351,67 +1363,52 @@ test_prettyOperatorAfterLayoutDoBlock = do
                 | 
                 | 0 #)
         """
-  case parseExpr config source of
-    ParseOk expr ->
-      assertExprPrettyRoundTrip config (stripParens expr) expected
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+  assertParsedStrippedExprPrettyRoundTripAs config source expected
 
 test_prettySpliceRecordDotBase :: Assertion
 test_prettySpliceRecordDotBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, OverloadedRecordDot, MagicHash]}
-      source = "($x#).adpE"
-      expected = "($x#).adpE"
-  case parseExpr config source of
-    ParseOk expr ->
-      assertExprPrettyRoundTrip config (stripParens expr) expected
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+  assertParsedStrippedExprPrettyRoundTrip config "($x#).adpE"
 
 test_prettyNegatedOpenEndedSectionLhs :: Assertion
 test_prettyNegatedOpenEndedSectionLhs = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        ESectionL
-          ( ENegate
-              ( EApp
-                  (EString "" "\"\"")
-                  (EIf (EChar 'N' "'N'") (ETuple Boxed []) (ETuple Boxed []))
-              )
-          )
-          op
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  assertExprRenderingRoundTrip config expr rendered
+      source =
+        """
+        ((-(""
+          (if 'N' then () else ())))
+         `a`)
+        """
+      expected =
+        """
+        ((-""
+          if 'N' then () else ())
+         `a`)
+        """
+  assertParsedStrippedExprPrettyRoundTripAs config source expected
 
 test_prettyNegatedOpenEndedTypeSigBody :: Assertion
 test_prettyNegatedOpenEndedTypeSigBody = do
   let config = defaultConfig {parserExtensions = [BlockArguments, MagicHash, UnboxedTuples]}
-      plus = qualifyName Nothing (mkUnqualifiedName NameVarSym "+")
-      tyCon = qualifyName Nothing (mkUnqualifiedName NameConId "C")
-      expr =
-        ETypeSig
-          ( ENegate
-              ( EApp
-                  (ETuple Unboxed [])
-                  (EIf (EStringHash "" "\"\"#") (EList []) (EVar plus))
-              )
-          )
-          (TCon tyCon Unpromoted)
-  assertPrettyExprRoundTrip config expr
+      source =
+        """
+        -((# #)
+          (if ""# then [] else (+)))
+         :: C
+        """
+      expected =
+        """
+        (-(# #)
+          if ""# then [] else (+))
+         :: C
+        """
+  assertParsedStrippedExprPrettyRoundTripAs config source expected
 
 test_prettyRecordDotTHSpliceBase :: Assertion
 test_prettyRecordDotTHSpliceBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
-      spliceName = qualifyName Nothing (mkUnqualifiedName NameVarId "q#")
-      fieldName = qualifyName Nothing (mkUnqualifiedName NameVarId "j7Msfc")
-      assertRoundTrips expectedRendered expr = do
-        let parenthesized = addExprParens expr
-            rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
-        assertEqual "rendered expression" expectedRendered rendered
-        assertExprRenderingRoundTrip config parenthesized rendered
-  assertRoundTrips "($q#).j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
-  assertRoundTrips "($$q#).j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
+  assertParsedStrippedExprPrettyRoundTrip config "($q#).j7Msfc"
+  assertParsedStrippedExprPrettyRoundTrip config "($$q#).j7Msfc"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
