@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+output: |
+  : 'x' []
+expression: |
+  ['x']
+status: pass
+reason: renders evaluated list literals in raw constructor form

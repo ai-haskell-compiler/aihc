@@ -1,0 +1,11 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    answer x = x
+output: |
+  'z'
+expression: |
+  answer 'z'
+status: pass
+reason: evaluates expressions that reference module bindings

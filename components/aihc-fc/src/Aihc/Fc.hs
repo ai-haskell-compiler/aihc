@@ -21,6 +21,7 @@ module Aihc.Fc
     evalProgramBinding,
     evalExpr,
     renderValue,
+    renderRawValue,
     EvalError (..),
     Value (..),
 
@@ -39,7 +40,7 @@ module Aihc.Fc
 where
 
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithTcResult)
-import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderValue)
+import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax

@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    (++) :: [a] -> [a] -> [a]
+    [] ++ bs = bs
+    (a:as) ++ bs = a : (as ++ bs)
+output: |
+  : 'a' (: 'b' [])
+expression: |
+  ['a'] ++ ['b']
+status: pass
+reason: evaluates a module-defined list append operator
