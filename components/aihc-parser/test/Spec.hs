@@ -15,7 +15,6 @@ import Data.Char (ord)
 import Data.Data (Data (..), dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import Data.Dynamic (Typeable)
 import Data.Maybe (fromMaybe, isNothing)
-import Data.Ratio ((%))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -159,6 +158,15 @@ assertParsedStrippedDeclShapeRoundTrip config source =
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
+assertParsedModulePrettyContains :: Text -> Text -> Assertion
+assertParsedModulePrettyContains source expected =
+  case parseModule defaultConfig source of
+    ([], modu) ->
+      let rendered = renderPretty modu
+       in assertBool ("expected rendered module to contain " <> T.unpack expected) (expected `T.isInfixOf` rendered)
+    (errs, _) ->
+      assertFailure ("expected parse success, got: " <> show errs)
+
 assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
 assertExprPrettyRoundTrip config expr expected = do
   let rendered = renderPretty expr
@@ -173,10 +181,6 @@ assertExprRenderingRoundTrip config expr rendered =
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
-assertPrettyExprRoundTrip :: ParserConfig -> Expr -> Assertion
-assertPrettyExprRoundTrip config expr =
-  assertExprRenderingRoundTrip config expr (renderPretty expr)
-
 assertParsedDeclPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
 assertParsedDeclPrettyRoundTrip config source expected =
   case parseDecl config source of
@@ -184,6 +188,10 @@ assertParsedDeclPrettyRoundTrip config source expected =
       assertDeclPrettyRoundTrip config decl expected
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertParsedDeclPrettyRoundTripSame :: ParserConfig -> Text -> Assertion
+assertParsedDeclPrettyRoundTripSame config source =
+  assertParsedDeclPrettyRoundTrip config source source
 
 assertDeclPrettyRoundTrip :: ParserConfig -> Decl -> Text -> Assertion
 assertDeclPrettyRoundTrip config decl expected = do
@@ -624,154 +632,38 @@ test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
 
 test_dataDeclResultKindContextRoundTrips :: Assertion
 test_dataDeclResultKindContextRoundTrips = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "\66952") [],
-              dataDeclContext = [],
-              dataDeclKind =
-                Just
-                  ( TContext
-                      [TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted]
-                      (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "C")) Unpromoted)
-                  ),
-              dataDeclConstructors = [],
-              dataDeclDeriving = []
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data 𐖈 :: C => C" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "data 𐖈 :: C => C"
 
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity :: Assertion
 test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
-  let promotedName = mkName (Just "A'.B") NameConId "C"
-      decl = DeclStandaloneKindSig (mkUnqualifiedName NameConSym ":+") (TCon promotedName Promoted)
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "type (:+) :: ' A'.B.C" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "type (:+) :: ' A'.B.C"
 
 test_promotedListSpacesInfixElementsStartingWithTicks :: Assertion
 test_promotedListSpacesInfixElementsStartingWithTicks = do
-  let textType lit =
-        TApp
-          (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Text")) Promoted)
-          (TTypeLit (TypeLitSymbol lit (T.pack (show (T.unpack lit)))))
-      messageType =
-        TInfix
-          (textType "alpha")
-          (qualifyName Nothing (mkUnqualifiedName NameConSym ":<>:"))
-          Promoted
-          (textType "beta")
-      decl =
-        DeclTypeSyn
-          TypeSynDecl
-            { typeSynHead = PrefixBinderHead (mkUnqualifiedName NameConId "M1") [],
-              typeSynBody =
-                TList
-                  Promoted
-                  [ messageType,
-                    textType "gamma"
-                  ]
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]"
 
 test_boxedTupleInfixConOperandStaysBare :: Assertion
 test_boxedTupleInfixConOperandStaysBare = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
-              dataDeclContext = [],
-              dataDeclKind = Nothing,
-              dataDeclConstructors =
-                [ InfixCon
-                    []
-                    []
-                    (BangType [] [] False False (TTuple Boxed Unpromoted []))
-                    (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted))
-                ],
-              dataDeclDeriving = []
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data D = () :. T" rendered
+  assertParsedDeclPrettyRoundTripSame defaultConfig "data D = () :. T"
 
 test_unboxedTupleInfixConOperandStaysBare :: Assertion
 test_unboxedTupleInfixConOperandStaysBare = do
-  let decl =
-        DeclData
-          DataDecl
-            { dataDeclCTypePragma = Nothing,
-              dataDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "D") [],
-              dataDeclContext = [],
-              dataDeclKind = Nothing,
-              dataDeclConstructors =
-                [ InfixCon
-                    []
-                    []
-                    (BangType [] [] False False (TTuple Unboxed Unpromoted [TVar (mkUnqualifiedName NameVarId "a")]))
-                    (mkUnqualifiedName NameConSym ":.")
-                    (BangType [] [] False False (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted))
-                ],
-              dataDeclDeriving = []
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "data D = (# a #) :. Int" rendered
+  let config = defaultConfig {parserExtensions = [UnboxedTuples]}
+  assertParsedDeclPrettyRoundTripSame config "data D = (# a #) :. Int"
 
 test_prettySymbolicDerivingClass :: Assertion
 test_prettySymbolicDerivingClass = do
-  let decl =
-        DeclNewtype
-          NewtypeDecl
-            { newtypeDeclCTypePragma = Nothing,
-              newtypeDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [],
-              newtypeDeclContext = [],
-              newtypeDeclKind = Nothing,
-              newtypeDeclConstructor = Just (RecordCon [] [] (mkUnqualifiedName NameConId "C") []),
-              newtypeDeclDeriving =
-                [ DerivingClause
-                    { derivingStrategy = Nothing,
-                      derivingClasses = Right [TCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":+")) Unpromoted]
-                    }
-                ]
-            }
-      expected = stripAnnotations (addDeclParens decl)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
-  assertEqual "pretty-printed declaration" "newtype C = C {} deriving ((:+))" rendered
-  case parseDecl defaultConfig rendered of
-    ParseOk parsed -> assertEqual "round-tripped declaration" expected (stripAnnotations parsed)
-    ParseErr err -> assertFailure ("expected parse success for " <> T.unpack rendered <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+  assertParsedDeclPrettyRoundTripSame defaultConfig "newtype C = C {} deriving ((:+))"
 
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "data {-# CTYPE \"termbox.h\" \"struct tb_cell\" #-} Tb_cell = Tb_cell"]
-  case parseModule defaultConfig source of
-    ([], modu) ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-       in assertBool "expected rendered module to preserve data CTYPE pragma" ("CTYPE \"termbox.h\" \"struct tb_cell\"" `T.isInfixOf` rendered)
-    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
+  assertParsedModulePrettyContains source "CTYPE \"termbox.h\" \"struct tb_cell\""
 
 test_newtypeCTypePragmaRoundTrips :: Assertion
 test_newtypeCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "import Foreign.C.Types (CInt (..))", "newtype {-# CTYPE \"signed int\" #-} Fixed = Fixed CInt"]
-  case parseModule defaultConfig source of
-    ([], modu) ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-       in assertBool "expected rendered module to preserve newtype CTYPE pragma" ("CTYPE \"signed int\"" `T.isInfixOf` rendered)
-    (errs, _) -> assertFailure ("expected parse success, got: " <> show errs)
+  assertParsedModulePrettyContains source "CTYPE \"signed int\""
 
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedConstructorIdentifiersAcceptMagicHashSuffixes = do
@@ -1054,23 +946,7 @@ test_prettyLetExpressionUsesImplicitLayout = do
 test_prettyNegatedLayoutEndingListCompBody :: Assertion
 test_prettyNegatedLayoutEndingListCompBody = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
-      expr =
-        EListComp
-          ( ENegate
-              ( EApp
-                  (EFloat (0 % 1) TFractional "0.0")
-                  ( ECase
-                      (EFloat (0 % 1) TFractional "0.0")
-                      [ CaseAlt
-                          []
-                          (PLit (LitInt 0 TInteger "0"))
-                          (GuardedRhss [] [GuardedRhs [] [GuardLet []] (EString "" "\"\"")] Nothing)
-                      ]
-                  )
-              )
-          )
-          [CompLetDecls []]
-      expected =
+      source =
         """
         [-0.0
           case 0.0 of
@@ -1080,38 +956,12 @@ test_prettyNegatedLayoutEndingListCompBody = do
                 ""
          | let {  }]
         """
-  assertExprPrettyRoundTrip config expr expected
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyLayoutLetGuardInMultiWayIf :: Assertion
 test_prettyLayoutLetGuardInMultiWayIf = do
   let config = defaultConfig {parserExtensions = [BlockArguments, MultiWayIf]}
-      expr =
-        EMultiWayIf
-          [ GuardedRhs
-              []
-              [ GuardLet
-                  [ DeclValue
-                      ( PatternBind
-                          NoMultiplicityTag
-                          (PVar (mkUnqualifiedName NameVarId "x"))
-                          ( UnguardedRhs
-                              []
-                              (ETypeSig (ETuple Boxed []) (TVar (mkUnqualifiedName NameVarId "a")))
-                              Nothing
-                          )
-                      )
-                  ]
-              ]
-              ( ECase
-                  (EChar '5' "'5'")
-                  [ CaseAlt
-                      []
-                      (PVar (mkUnqualifiedName NameVarSym "+"))
-                      (UnguardedRhs [] (EInt 0 TInteger "0") Nothing)
-                  ]
-              )
-          ]
-      expected =
+      source =
         """
         if | let
              x =
@@ -1122,31 +972,19 @@ test_prettyLayoutLetGuardInMultiWayIf = do
                (+) ->
                  0
         """
-  assertExprPrettyRoundTrip config expr expected
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyMultiWayIfInfixLhs :: Assertion
 test_prettyMultiWayIfInfixLhs = do
   let config = defaultConfig {parserExtensions = [MultiWayIf]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        EInfix
-          ( EMultiWayIf
-              [ GuardedRhs
-                  []
-                  [GuardExpr (EVar (qualifyName Nothing (mkUnqualifiedName NameConId "True")))]
-                  (ETuple Boxed [])
-              ]
-          )
-          op
-          (EChar 'x' "'x'")
-      expected =
+      source =
         """
         if | True
             ->
              ()
          `a` 'x'
         """
-  assertExprPrettyRoundTrip config expr expected
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyWhereClauseUsesImplicitLayout :: Assertion
 test_prettyWhereClauseUsesImplicitLayout = do
@@ -1285,16 +1123,13 @@ test_prettyInstanceDeclarationUsesImplicitLayout = do
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
-      op = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
-      expr =
-        ESectionL
-          ( EInfix
-              (ELambdaCase [])
-              op
-              (ELambdaPats [PLit (LitInt 0 TInteger "0")] (EChar ' ' "' '"))
-          )
-          op
-  assertPrettyExprRoundTrip config expr
+      source =
+        """
+        ((\\case {  })
+         `a` (\\ 0 -> ' ')
+         `a`)
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyReservedAtRightSection :: Assertion
 test_prettyReservedAtRightSection = do
@@ -1320,21 +1155,7 @@ test_prettyLayoutEndingOperandInsideLeftSection = do
 test_prettyTypeAppAfterLayoutEndingFunction :: Assertion
 test_prettyTypeAppAfterLayoutEndingFunction = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      expr =
-        ETypeApp
-          ( EApp
-              (EInt 0 TInteger "0")
-              ( ELambdaCase
-                  [ CaseAlt
-                      []
-                      (PLit (LitFloat (0 % 1) TFractional "0.0"))
-                      (UnguardedRhs [] (EStringHash "" "\"\"#") Nothing)
-                  ]
-              )
-          )
-          (TUnboxedSum [TWildcard, TStar])
-      decl = DeclValue (PatternBind NoMultiplicityTag (PVar (mkUnqualifiedName NameVarSym "+")) (UnguardedRhs [] expr Nothing))
-      expected =
+      source =
         """
         (+) =
           0
@@ -1343,20 +1164,12 @@ test_prettyTypeAppAfterLayoutEndingFunction = do
                 ""#
            @(# _ | * #)
         """
-  assertDeclPrettyRoundTrip config decl expected
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyTypeSigAfterLayoutEndingFunction :: Assertion
 test_prettyTypeSigAfterLayoutEndingFunction = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
-      expr =
-        ETypeSig
-          ( EApp
-              (ETHDeclQuote [])
-              (ELambdaCase [CaseAlt [] PWildcard (UnguardedRhs [] (EChar '1' "'1'") Nothing)])
-          )
-          (TQuasiQuote "a" "")
-      decl = DeclValue (PatternBind NoMultiplicityTag (PCon (mkName Nothing NameConSym ":+") [] []) (UnguardedRhs [] expr Nothing))
-      expected =
+      source =
         """
         (:+) =
           [d|
@@ -1366,7 +1179,7 @@ test_prettyTypeSigAfterLayoutEndingFunction = do
                 '1'
            :: [a||]
         """
-  assertDeclPrettyRoundTrip config decl expected
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyOperatorAfterLayoutDoBlock :: Assertion
 test_prettyOperatorAfterLayoutDoBlock = do
@@ -1582,54 +1395,25 @@ test_associatedDataFamilyInfixOperatorName = do
 
 test_prettyAssocDataFamilyOperatorName :: Assertion
 test_prettyAssocDataFamilyOperatorName = do
-  let decl =
-        DeclClass
-          ClassDecl
-            { classDeclContext = Nothing,
-              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
-              classDeclFundeps = [],
-              classDeclItems =
-                [ ClassItemDataFamilyDecl
-                    DataFamilyDecl
-                      { dataFamilyDeclHead = PrefixBinderHead (mkUnqualifiedName NameConSym ":*:") [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible],
-                        dataFamilyDeclKind = Nothing
-                      }
-                ]
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered
-    @?= """
-        class C a where
-          data (:*:) a
-        """
+  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
+  assertParsedDeclPrettyRoundTrip
+    config
+    "class C a where { data (:*:) a }"
+    """
+    class C a where
+      data (:*:) a
+    """
 
 test_prettyAssocDataFamilyInfixOperatorName :: Assertion
 test_prettyAssocDataFamilyInfixOperatorName = do
-  let decl =
-        DeclClass
-          ClassDecl
-            { classDeclContext = Nothing,
-              classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [TyVarBinder [] "x" Nothing TyVarBSpecified TyVarBVisible],
-              classDeclFundeps = [],
-              classDeclItems =
-                [ ClassItemDataFamilyDecl
-                    DataFamilyDecl
-                      { dataFamilyDeclHead =
-                          InfixBinderHead
-                            (TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible)
-                            (mkUnqualifiedName NameConSym ":*:")
-                            (TyVarBinder [] "b" Nothing TyVarBSpecified TyVarBVisible)
-                            [],
-                        dataFamilyDeclKind = Just TStar
-                      }
-                ]
-            }
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-  rendered
-    @?= """
-        class C x where
-          data a :*: b :: *
-        """
+  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
+  assertParsedDeclPrettyRoundTrip
+    config
+    "class C x where { data a :*: b :: * }"
+    """
+    class C x where
+      data a :*: b :: *
+    """
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =
