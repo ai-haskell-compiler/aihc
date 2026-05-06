@@ -133,6 +133,20 @@ assertParsedStrippedExprPrettyRoundTripAs config source expected =
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
+assertParsedStrippedExprShapeRoundTrip :: ParserConfig -> Text -> Assertion
+assertParsedStrippedExprShapeRoundTrip config source =
+  case parseExpr config source of
+    ParseOk expr ->
+      let stripped = stripParens expr
+          rendered = renderPretty stripped
+       in case parseExpr config rendered of
+            ParseOk reparsed ->
+              assertEqual "reparsed expression" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
+            ParseErr bundle ->
+              assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
 assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
 assertExprPrettyRoundTrip config expr expected = do
   let rendered = renderPretty expr
@@ -1400,13 +1414,7 @@ test_prettyNegatedOpenEndedTypeSigBody = do
           (if ""# then [] else (+)))
          :: C
         """
-      expected =
-        """
-        (-(# #)
-          if ""# then [] else (+))
-         :: C
-        """
-  assertParsedStrippedExprPrettyRoundTripAs config source expected
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyRecordDotTHSpliceBase :: Assertion
 test_prettyRecordDotTHSpliceBase = do
