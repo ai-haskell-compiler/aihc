@@ -1044,9 +1044,9 @@ test_prettyMultiWayIfInfixLhs = do
       expected =
         T.intercalate
           "\n"
-          [ "(if | True",
-            "     ->",
-            "      ())",
+          [ "if | True",
+            "    ->",
+            "     ()",
             " `a` 'x'"
           ]
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
