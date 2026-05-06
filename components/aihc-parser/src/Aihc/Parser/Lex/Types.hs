@@ -35,8 +35,6 @@ module Aihc.Parser.Lex.Types
     advanceChars,
     advanceN,
     consumeWhile,
-    tokenStartLine,
-    tokenEndLine,
     tokenStartCol,
     virtualSymbolToken,
     isSymbolicOpChar,
@@ -267,7 +265,6 @@ data ModuleLayoutMode
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
     layoutPendingLayout :: !(Maybe PendingLayout),
-    layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
@@ -312,7 +309,6 @@ mkInitialLayoutState enableModuleLayout exts =
   LayoutState
     { layoutContexts = [],
       layoutPendingLayout = Nothing,
-      layoutPrevLine = Nothing,
       layoutPrevTokenKind = Nothing,
       layoutModuleMode =
         if enableModuleLayout
@@ -378,18 +374,6 @@ consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
 consumeWhile f st =
   let consumed = T.takeWhile f (lexerInput st)
    in advanceChars consumed st
-
-tokenStartLine :: LexToken -> Int
-tokenStartLine tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanStartLine = line} -> line
-    NoSourceSpan -> 1
-
-tokenEndLine :: LexToken -> Int
-tokenEndLine tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanEndLine = line} -> line
-    NoSourceSpan -> 1
 
 tokenStartCol :: LexToken -> Int
 tokenStartCol tok =

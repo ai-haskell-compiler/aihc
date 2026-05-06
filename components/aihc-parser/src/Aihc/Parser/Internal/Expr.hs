@@ -296,7 +296,7 @@ doPatBindStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
 parseLetDeclsParser :: TokParser [Decl]
 parseLetDeclsParser = do
   expectedTok TkKeywordLet
-  bracedDeclsMaybeEmpty <|> plainDeclsMaybeEmpty
+  bracedDeclsMaybeEmpty
 
 parseLetDeclsStmtParser :: TokParser [Decl]
 parseLetDeclsStmtParser = do
@@ -310,9 +310,6 @@ parseLetDeclsStmtParser = do
 -- syntactically, even though they are semantically useless.
 bracedDeclsMaybeEmpty :: TokParser [Decl]
 bracedDeclsMaybeEmpty = concat <$> bracedSemiSep localDeclsParser
-
-plainDeclsMaybeEmpty :: TokParser [Decl]
-plainDeclsMaybeEmpty = concat <$> plainSemiSep localDeclsParser
 
 doLetStmtParser :: TokParser (DoStmt Expr)
 doLetStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
@@ -1133,7 +1130,7 @@ letExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 whereClauseParser :: TokParser [Decl]
 whereClauseParser = do
   expectedTok TkKeywordWhere
-  bracedDeclsMaybeEmpty <|> plainDeclsMaybeEmpty
+  bracedDeclsMaybeEmpty
 
 localDeclsParser :: TokParser [Decl]
 localDeclsParser =

@@ -47,10 +47,10 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     ValueDecl (..),
     binderHeadName,
-    mkQualifiedName,
     mkUnqualifiedName,
     moduleName,
     peelPatternAnn,
+    qualifyName,
     recordFieldValue,
     renderUnqualifiedName,
   )
@@ -84,7 +84,7 @@ topLevelScope modu =
   foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
-    qualify = ResolvedTopLevel . (`mkQualifiedName` Just moduleKeyText)
+    qualify = ResolvedTopLevel . qualifyName (Just moduleKeyText)
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods = declExportedNames decl
           scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames

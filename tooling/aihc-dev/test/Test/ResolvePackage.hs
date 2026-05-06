@@ -5,7 +5,7 @@ module Test.ResolvePackage
   )
 where
 
-import Aihc.Parser.Syntax (NameType (..), mkQualifiedName, mkUnqualifiedName)
+import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
 import Aihc.Resolve (ResolvedName (..), Scope (..))
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.List (isInfixOf)
@@ -121,4 +121,4 @@ mkScope terms types =
     }
   where
     resolve name =
-      ResolvedTopLevel (mkQualifiedName (mkUnqualifiedName NameVarId name) (Just "M"))
+      ResolvedTopLevel (qualifyName (Just "M") (mkUnqualifiedName NameVarId name))

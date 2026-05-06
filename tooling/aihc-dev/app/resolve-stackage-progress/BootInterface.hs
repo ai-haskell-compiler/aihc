@@ -29,7 +29,7 @@ module BootInterface
   )
 where
 
-import Aihc.Parser.Syntax (NameType (..), mkQualifiedName, mkUnqualifiedName)
+import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
 import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
@@ -188,7 +188,7 @@ bootModuleToScope bmi =
 
     resolve :: Text -> Text -> ResolvedName
     resolve qual n =
-      ResolvedTopLevel (mkQualifiedName (mkUnqualifiedName (inferNameType n) n) (Just qual))
+      ResolvedTopLevel (qualifyName (Just qual) (mkUnqualifiedName (inferNameType n) n))
 
 -- | Infer the NameType from a name's lexical form.
 inferNameType :: Text -> NameType
