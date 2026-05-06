@@ -175,6 +175,7 @@ buildTests = do
             testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
+            testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
@@ -1559,6 +1560,52 @@ test_viewExprAppliedTypeSigParens = do
       assertEqual "reparsed pattern" (stripAnnotations parenthesized) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_viewExprMultiWayIfTypeSigParens :: Assertion
+test_viewExprMultiWayIfTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              ( PUnboxedSum
+                  0
+                  3
+                  ( PView
+                      ( EMultiWayIf
+                          [ GuardedRhs
+                              []
+                              [GuardLet []]
+                              (ETypeSig (EChar 'G' "'G'") TStar)
+                          ]
+                      )
+                      (PLit (LitInt 0 TInteger "0"))
+                  )
+              )
+              (UnguardedRhs [] (EArithSeq (ArithSeqFrom (ELambdaCases []))) Nothing)
+          )
+      parenthesized = addDeclParens decl
+      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
+  assertEqual
+    "rendered decl"
+    ( T.intercalate
+        "\n"
+        [ "(# (if | let {  }",
+          "        ->",
+          "         'G'",
+          "          :: *)",
+          "      -> 0",
+          "     | ",
+          "     |  #) =",
+          "  [(\\cases {  }) ..]"
+        ]
+    )
+    rendered
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed decl" (stripAnnotations parenthesized) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected pretty-printed decl to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
