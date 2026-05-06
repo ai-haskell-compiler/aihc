@@ -301,6 +301,7 @@ needsExprParens ctx expr =
         -- correctly re-parsed as `(-x) + 1`.
         ENegate inner -> isOpenEnded inner
         ECase {} -> False
+        EMultiWayIf {} -> False
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -1110,7 +1111,7 @@ addExprParensPrec prec expr =
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
-      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParens body))
+      wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParensIn CtxCmdTop body))
     EPragma pragma inner ->
       -- EPragma is transparent w.r.t. precedence: wrapping decisions are made
       -- by the outer context via needsExprParens, not by a self-prec check.
@@ -1654,12 +1655,19 @@ addPatternAtomStrictParens pat =
 -- Arrow commands
 -- ---------------------------------------------------------------------------
 
+data CmdCtx
+  = CtxCmdTop
+  | CtxCmdDoStmt
+
 addCmdParens :: Cmd -> Cmd
-addCmdParens cmd =
+addCmdParens = addCmdParensIn CtxCmdTop
+
+addCmdParensIn :: CmdCtx -> Cmd -> Cmd
+addCmdParensIn ctx cmd =
   case cmd of
-    CmdAnn ann inner -> CmdAnn ann (addCmdParens inner)
+    CmdAnn ann inner -> CmdAnn ann (addCmdParensIn ctx inner)
     CmdArrApp lhs appTy rhs ->
-      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addCmdArrAppRhsParens rhs)
+      CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addCmdArrAppRhsParens ctx rhs)
     CmdInfix l op r ->
       CmdInfix (wrapCmdInfixLhs (addCmdParens l)) op (wrapCmdInfixRhs (addCmdParens r))
     CmdDo stmts ->
@@ -1721,17 +1729,22 @@ endsWithCmdLayoutBlock = \case
   EApp _ arg -> endsWithCmdLayoutBlock arg
   _ -> False
 
-addCmdArrAppRhsParens :: Expr -> Expr
-addCmdArrAppRhsParens rhs =
-  wrapExpr (endsWithTypeSig rhs) (addExprParens rhs)
+addCmdArrAppRhsParens :: CmdCtx -> Expr -> Expr
+addCmdArrAppRhsParens ctx rhs =
+  wrapExpr (cmdTopNeedsRhsParens && endsWithTypeSig rhs) (addExprParens rhs)
+  where
+    cmdTopNeedsRhsParens =
+      case ctx of
+        CtxCmdTop -> True
+        CtxCmdDoStmt -> False
 
 addCmdDoStmtParens :: DoStmt Cmd -> DoStmt Cmd
 addCmdDoStmtParens stmt =
   case stmt of
     DoAnn ann inner -> DoAnn ann (addCmdDoStmtParens inner)
-    DoBind pat cmd' -> DoBind (addPatternParens pat) (addCmdParens cmd')
+    DoBind pat cmd' -> DoBind (addPatternParens pat) (addCmdParensIn CtxCmdDoStmt cmd')
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr cmd' -> DoExpr (wrapCmd (isLetCmd cmd') (addCmdParens cmd'))
+    DoExpr cmd' -> DoExpr (wrapCmd (isLetCmd cmd') (addCmdParensIn CtxCmdDoStmt cmd'))
     DoRecStmt stmts -> DoRecStmt (map addCmdDoStmtParens stmts)
   where
     isLetCmd CmdLet {} = True
