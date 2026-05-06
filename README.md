@@ -18,13 +18,13 @@ Find more information here:
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`) ○○○○○                                                                                                              |
-| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `316/3427` (`9.22%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3426/3427` (`99.97%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `161/3427` (`4.70%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3424/3427` (`99.91%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `12/29` (`41.37%`) ●●○○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `26/28` (`92.85%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2143/2143` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
-| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `102/102` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `24/34` (`70.58%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `27/28` (`96.42%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2152/2152` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `103/103` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
@@ -34,11 +34,11 @@ Find more information here:
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
 | aihc-cpp     |   1823 |     790 |    2613 |
-| aihc-fc      |    887 |     262 |    1149 |
-| aihc-parser  |  12822 |   15263 |   28085 |
-| aihc-resolve |   1655 |    1419 |    3074 |
-| aihc-tc      |   1853 |    1004 |    2857 |
-| **Total**    |  19040 |   18738 |   37778 |
+| aihc-fc      |   1195 |     296 |    1491 |
+| aihc-parser  |  12858 |   15561 |   28419 |
+| aihc-resolve |   2138 |    1365 |    3503 |
+| aihc-tc      |   2559 |    1056 |    3615 |
+| **Total**    |  20573 |   19068 |   39641 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
