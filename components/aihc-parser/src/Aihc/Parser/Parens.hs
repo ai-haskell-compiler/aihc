@@ -160,6 +160,10 @@ endsWithTypeSig = \case
   ETypeSig {} -> True
   ELetDecls _ body -> endsWithTypeSig body
   ELambdaPats _ body -> endsWithTypeSig body
+  EMultiWayIf rhss ->
+    case reverse rhss of
+      grhs : _ -> endsWithTypeSig (guardedRhsBody grhs)
+      [] -> False
   EInfix _ _ rhs -> endsWithTypeSig rhs
   EApp _ arg -> endsWithTypeSig arg
   EIf _ _ no -> endsWithTypeSig no
