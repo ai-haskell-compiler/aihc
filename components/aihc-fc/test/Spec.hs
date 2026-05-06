@@ -1,17 +1,19 @@
 module Main (main) where
 
-import Test.Fc.Suite (fcEvalTests, fcGoldenTests)
+import Test.Fc.Suite (fcEvalFixtureTests, fcEvalTests, fcGoldenTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QC
 
 main :: IO ()
 main = do
   golden <- fcGoldenTests
+  evalFixtures <- fcEvalFixtureTests
   defaultMain
     ( testGroup
         "aihc-fc"
         [ golden,
           fcEvalTests,
+          evalFixtures,
           QC.testProperty "dummy quickcheck property" prop_dummy
         ]
     )

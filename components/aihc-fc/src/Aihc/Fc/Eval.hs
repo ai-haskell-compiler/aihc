@@ -7,6 +7,7 @@ module Aihc.Fc.Eval
     evalProgramBinding,
     evalExpr,
     renderValue,
+    renderRawValue,
   )
 where
 
@@ -216,3 +217,25 @@ renderLiteral lit =
     LitInt i -> T.pack (show i)
     LitChar c -> T.pack (show c)
     LitString s -> T.pack (show (T.unpack s))
+
+renderRawValue :: Value -> Either EvalError Text
+renderRawValue value = do
+  forced <- forceValue value
+  case forced of
+    VLit lit -> pure (renderLiteral lit)
+    VConstructor name [] -> pure name
+    VConstructor name args -> do
+      renderedArgs <- mapM renderRawArg args
+      pure (T.unwords (name : renderedArgs))
+    VClosure {} -> pure "<function>"
+    VPrim {} -> pure "<function>"
+    VThunk {} -> renderRawValue forced
+
+renderRawArg :: Value -> Either EvalError Text
+renderRawArg value = do
+  forced <- forceValue value
+  rendered <- renderRawValue forced
+  pure $
+    case forced of
+      VConstructor _ (_ : _) -> "(" <> rendered <> ")"
+      _ -> rendered

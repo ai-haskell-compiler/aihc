@@ -4,12 +4,14 @@
 module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalTests,
+    fcEvalFixtureTests,
   )
 where
 
 import Aihc.Fc
 import Aihc.Tc (TcType (..), TyCon (..), Unique (..))
 import Data.Text (Text)
+import FcEvalGolden qualified as EvalGolden
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
@@ -50,8 +52,28 @@ fcEvalTests =
                 [ FcTopBind
                     (FcNonRec (var "answer" stringTy) (FcLit (LitString "top")))
                 ]
-         in assertEqual "result" (Right "\"top\"") (evalProgramBinding "answer" program >>= renderValue)
+         in assertEqual "result" (Right "\"top\"") (evalProgramBinding "answer" program >>= renderValue),
+      testCase "renders raw constructor values" $
+        assertEqual
+          "raw result"
+          (Right ": 'x' []")
+          (renderRawValue (VConstructor ":" [VLit (LitChar 'x'), VConstructor "[]" []]))
     ]
+
+fcEvalFixtureTests :: IO TestTree
+fcEvalFixtureTests = do
+  cases <- EvalGolden.loadFcEvalCases
+  let tests = map mkEvalFixtureTest cases
+  pure (testGroup "FC evaluation fixtures" tests)
+
+mkEvalFixtureTest :: EvalGolden.FcEvalCase -> TestTree
+mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
+  let (outcome, details) = EvalGolden.evaluateFcEvalCase tc
+  case outcome of
+    EvalGolden.OutcomePass -> pure ()
+    EvalGolden.OutcomeXFail -> pure ()
+    EvalGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
+    EvalGolden.OutcomeFail -> assertFailure details
 
 assertEvalExpr :: Text -> FcExpr -> IO ()
 assertEvalExpr expected expr =

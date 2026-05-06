@@ -41,6 +41,7 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
+    FcEvalGolden
     FcGolden
     Test.Fc.Suite
 
