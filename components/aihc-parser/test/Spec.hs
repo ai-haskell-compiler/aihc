@@ -121,11 +121,19 @@ assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
 assertExprPrettyRoundTrip config expr expected = do
   let rendered = renderPretty expr
   assertEqual "pretty-printed expression" expected rendered
+  assertExprRenderingRoundTrip config expr rendered
+
+assertExprRenderingRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
+assertExprRenderingRoundTrip config expr rendered =
   case parseExpr config rendered of
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+assertPrettyExprRoundTrip :: ParserConfig -> Expr -> Assertion
+assertPrettyExprRoundTrip config expr =
+  assertExprRenderingRoundTrip config expr (renderPretty expr)
 
 assertParsedDeclPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
 assertParsedDeclPrettyRoundTrip config source expected =
@@ -1244,23 +1252,14 @@ test_prettyInfixRhsOpenEndedInsideSection = do
               (ELambdaPats [PLit (LitInt 0 TInteger "0")] (EChar ' ' "' '"))
           )
           op
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertPrettyExprRoundTrip config expr
 
 test_prettyReservedAtRightSection :: Assertion
 test_prettyReservedAtRightSection = do
   let expr = ESectionR (qualifyName Nothing (mkUnqualifiedName NameVarSym "@")) (ETuple Boxed [])
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" "(@ ())" rendered
-  case parseExpr defaultConfig rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertExprRenderingRoundTrip defaultConfig expr rendered
 
 test_prettyLayoutEndingOperandInsideLeftSection :: Assertion
 test_prettyLayoutEndingOperandInsideLeftSection = do
@@ -1364,11 +1363,7 @@ test_prettySpliceRecordDotBase = do
       field = qualifyName Nothing (mkUnqualifiedName NameVarId "adpE")
       expr = EGetField (ETHSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "x#")))) field
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertExprRenderingRoundTrip config expr rendered
 
 test_prettyNegatedOpenEndedSectionLhs :: Assertion
 test_prettyNegatedOpenEndedSectionLhs = do
@@ -1384,11 +1379,7 @@ test_prettyNegatedOpenEndedSectionLhs = do
           )
           op
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertExprRenderingRoundTrip config expr rendered
 
 test_prettyNegatedOpenEndedTypeSigBody :: Assertion
 test_prettyNegatedOpenEndedTypeSigBody = do
@@ -1404,12 +1395,7 @@ test_prettyNegatedOpenEndedTypeSigBody = do
               )
           )
           (TCon tyCon Unpromoted)
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-  case parseExpr config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+  assertPrettyExprRoundTrip config expr
 
 test_prettyRecordDotTHSpliceBase :: Assertion
 test_prettyRecordDotTHSpliceBase = do
@@ -1420,11 +1406,7 @@ test_prettyRecordDotTHSpliceBase = do
         let parenthesized = addExprParens expr
             rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parenthesized))
         assertEqual "rendered expression" expectedRendered rendered
-        case parseExpr config rendered of
-          ParseOk reparsed ->
-            assertEqual "reparsed expression" (stripAnnotations parenthesized) (stripAnnotations reparsed)
-          ParseErr bundle ->
-            assertFailure ("expected pretty-printed expression to reparse, got:\n" <> show bundle)
+        assertExprRenderingRoundTrip config parenthesized rendered
   assertRoundTrips "($q#).j7Msfc" (EGetField (ETHSplice (EVar spliceName)) fieldName)
   assertRoundTrips "($$q#).j7Msfc" (EGetField (ETHTypedSplice (EVar spliceName)) fieldName)
 
