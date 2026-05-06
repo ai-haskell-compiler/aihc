@@ -12,7 +12,6 @@ module Aihc.Parser.Types
     FoundToken (..),
     mkFoundToken,
     ParseErrorBundle,
-    lexerErrorBundle,
     ParseResult (..),
     ParserConfig (..),
   )
@@ -32,17 +31,14 @@ import Aihc.Parser.Lex
   )
 import Aihc.Parser.Syntax (Extension, SourceSpan (..), applyExtensionSetting, applyImpliedExtensions)
 import Control.DeepSeq (NFData (..))
-import Data.List.NonEmpty qualified as NE
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
-import Text.Megaparsec.Pos (SourcePos (..), mkPos)
-import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream (..))
+import Text.Megaparsec.Stream (Stream (..))
 
--- | Parse error from token parser. Use 'errorBundlePretty' from "Parser" to render.
+-- | Parse error from token parser. Use 'formatParseErrorBundle' from "Parser" to render.
 type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
 
 data FoundToken = FoundToken
@@ -73,18 +69,6 @@ mkFoundToken tok =
       foundTokenOrigin = lexTokenOrigin tok
     }
 
-lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
-lexerErrorBundle sourcePath message =
-  MPE.ParseErrorBundle
-    (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
-    MP.PosState
-      { MP.pstateInput = emptyTokStream sourcePath,
-        MP.pstateOffset = 0,
-        MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
-        MP.pstateTabWidth = mkPos 8,
-        MP.pstateLinePrefix = ""
-      }
-
 -- | Token stream backed by a shared lazy raw token list and a layout overlay.
 --
 -- The raw token list (@tokStreamRawTokens@) is produced lazily by scanning the
@@ -110,20 +94,20 @@ data TokStream = TokStream
     tokStreamEOFEmitted :: !Bool
   }
 
--- Manual Eq instance — we skip tokStreamRawTokens since list position is not
--- efficiently comparable and Megaparsec tracks offset separately.
-instance Eq TokStream where
-  a == b =
-    tokStreamLayoutState a == tokStreamLayoutState b
-      && tokStreamPendingPragmas a == tokStreamPendingPragmas b
-      && tokStreamPrevToken a == tokStreamPrevToken b
-      && tokStreamExtensions a == tokStreamExtensions b
-      && tokStreamEOFEmitted a == tokStreamEOFEmitted b
+-- -- Manual Eq instance — we skip tokStreamRawTokens since list position is not
+-- -- efficiently comparable and Megaparsec tracks offset separately.
+-- instance Eq TokStream where
+--   a == b =
+--     tokStreamLayoutState a == tokStreamLayoutState b
+--       && tokStreamPendingPragmas a == tokStreamPendingPragmas b
+--       && tokStreamPrevToken a == tokStreamPrevToken b
+--       && tokStreamExtensions a == tokStreamExtensions b
+--       && tokStreamEOFEmitted a == tokStreamEOFEmitted b
 
--- Manual Ord instance
-instance Ord TokStream where
-  compare a b =
-    compare (tokStreamEOFEmitted a) (tokStreamEOFEmitted b)
+-- -- Manual Ord instance
+-- instance Ord TokStream where
+--   compare a b =
+--     compare (tokStreamEOFEmitted a) (tokStreamEOFEmitted b)
 
 -- Manual Show instance
 instance Show TokStream where
@@ -145,18 +129,6 @@ instance NFData TokStream where
       rnf (tokStreamPrevToken ts) `seq`
         rnf (tokStreamExtensions ts) `seq`
           rnf (tokStreamEOFEmitted ts)
-
--- | An empty TokStream for error reporting purposes.
-emptyTokStream :: FilePath -> TokStream
-emptyTokStream _sourcePath =
-  TokStream
-    { tokStreamRawTokens = [],
-      tokStreamLayoutState = mkInitialLayoutState False [],
-      tokStreamPendingPragmas = [],
-      tokStreamPrevToken = Nothing,
-      tokStreamExtensions = [],
-      tokStreamEOFEmitted = True
-    }
 
 -- | Create a TokStream for parsing expressions/declarations (no module layout).
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
@@ -328,56 +300,6 @@ instance Stream TokStream where
                 -- Put the non-matching token back by using the pre-step state
                 (reverse acc, s)
 
-instance VisualStream TokStream where
-  showTokens _ toks =
-    T.unpack (T.intercalate (T.pack " ") [lexTokenText tok | tok <- NE.toList toks])
-
-instance TraversableStream TokStream where
-  reachOffset o pst =
-    let currOff = MP.pstateOffset pst
-        advance = max 0 (o - currOff)
-        -- Advance the stream by consuming 'advance' tokens, collecting them
-        (consumed, advancedStream) = advanceN advance (MP.pstateInput pst)
-        currPos = MP.pstateSourcePos pst
-        -- Compute new position from the next token or last consumed token
-        newPos = case stepOne advancedStream of
-          Just (tok, _) -> sourcePosFromStartSpan (sourceName currPos) (lexTokenSpan tok)
-          Nothing ->
-            case consumed of
-              _ : _ -> sourcePosFromEndSpan (sourceName currPos) (lexTokenSpan (last consumed))
-              [] -> currPos
-        pst' =
-          pst
-            { MP.pstateInput = advancedStream,
-              MP.pstateOffset = currOff + advance,
-              MP.pstateSourcePos = newPos
-            }
-     in (Nothing, pst')
-
--- | Advance a TokStream by n tokens, returning the consumed tokens.
-advanceN :: Int -> TokStream -> ([LexToken], TokStream)
-advanceN n = go n []
-  where
-    go 0 acc s = (reverse acc, s)
-    go k acc s =
-      case stepOne s of
-        Nothing -> (reverse acc, s)
-        Just (tok, s') -> go (k - 1) (tok : acc) s'
-
-sourcePosFromStartSpan :: FilePath -> SourceSpan -> SourcePos
-sourcePosFromStartSpan file span' =
-  case span' of
-    SourceSpan {sourceSpanSourceName, sourceSpanStartLine = line, sourceSpanStartCol = col} ->
-      SourcePos sourceSpanSourceName (mkPos (max 1 line)) (mkPos (max 1 col))
-    NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
-
-sourcePosFromEndSpan :: FilePath -> SourceSpan -> SourcePos
-sourcePosFromEndSpan file span' =
-  case span' of
-    SourceSpan {sourceSpanSourceName, sourceSpanEndLine = line, sourceSpanEndCol = col} ->
-      SourcePos sourceSpanSourceName (mkPos (max 1 line)) (mkPos (max 1 col))
-    NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
-
 data ParserConfig = ParserConfig
   { parserSourceName :: FilePath,
     parserExtensions :: [Extension]
@@ -387,7 +309,6 @@ data ParserConfig = ParserConfig
 data ParseResult a
   = ParseOk a
   | ParseErr ParseErrorBundle
-  deriving (Eq, Show)
 
 instance (NFData a) => NFData (ParseResult a) where
   rnf parseResult =

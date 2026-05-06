@@ -16,7 +16,6 @@ import Test.Properties.Arb.Expr ()
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.QuickCheck
-import Text.Megaparsec.Error qualified as MPE
 
 exprConfig :: ParserConfig
 exprConfig =
@@ -33,7 +32,7 @@ prop_exprPrettyRoundTrip expr =
         counterexample (T.unpack source) $
           case parseExpr exprConfig source of
             ParseErr err ->
-              counterexample (MPE.errorBundlePretty err) False
+              counterexample (formatParseErrorBundle (parserSourceName exprConfig) (Just source) err) False
             ParseOk parsed ->
               let actual = stripAnnotations parsed
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

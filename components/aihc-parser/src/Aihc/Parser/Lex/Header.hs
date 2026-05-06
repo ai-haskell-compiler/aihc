@@ -1,6 +1,5 @@
 module Aihc.Parser.Lex.Header
-  ( enabledExtensionsFromSettings,
-    readModuleHeaderExtensionsFromTokens,
+  ( readModuleHeaderExtensionsFromTokens,
     separateEditionAndExtensions,
   )
 where
@@ -52,13 +51,3 @@ extensionToEdition ext =
     GHC2021 -> Just GHC2021Edition
     GHC2024 -> Just GHC2024Edition
     _ -> Nothing
-
-enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
-enabledExtensionsFromSettings = List.foldl' apply []
-  where
-    apply exts setting =
-      case setting of
-        EnableExtension ext
-          | ext `elem` exts -> exts
-          | otherwise -> exts <> [ext]
-        DisableExtension ext -> filter (/= ext) exts

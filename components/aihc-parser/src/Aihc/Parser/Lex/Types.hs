@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -48,6 +49,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace, ord)
+import Data.Data (Data)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -175,7 +177,7 @@ data LexTokenKind
   | TkBlockComment
   | TkError Text
   | TkEOF
-  deriving (Eq, Ord, Show, Read, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 pattern TkVarRole :: LexTokenKind
 pattern TkVarRole = TkVarId "role"

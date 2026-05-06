@@ -39,13 +39,11 @@ module Aihc.Parser.Lex
     layoutTransition,
     stepNextToken,
     closeImplicitLayoutContext,
-    enabledExtensionsFromSettings,
   )
 where
 
 import Aihc.Parser.Lex.Header
-  ( enabledExtensionsFromSettings,
-    readModuleHeaderExtensionsFromTokens,
+  ( readModuleHeaderExtensionsFromTokens,
     separateEditionAndExtensions,
   )
 import Aihc.Parser.Lex.Layout

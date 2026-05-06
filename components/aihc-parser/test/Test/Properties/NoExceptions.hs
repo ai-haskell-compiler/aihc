@@ -11,6 +11,9 @@ module Test.Properties.NoExceptions
     prop_declParserArbitraryTokensNoExceptions,
     prop_importDeclParserArbitraryTokensNoExceptions,
     prop_moduleHeaderParserArbitraryTokensNoExceptions,
+    prop_genLexTokenKindConstructorCoverage,
+    genLexToken,
+    shrinkLexToken,
   )
 where
 
@@ -37,6 +40,7 @@ import Control.Exception (SomeException, evaluate, try)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Test.Properties.Coverage (assertAnyCtorCoverage)
 import Test.QuickCheck
 
 prop_preprocessorArbitraryTextNoExceptions :: Property
@@ -90,6 +94,12 @@ prop_moduleHeaderParserArbitraryTokensNoExceptions =
   forAllShrink genTokenStream shrinkTokenStream $ \tokens ->
     ioProperty (noExceptionProperty "parseModuleHeaderFromTokens" (parseModuleHeaderFromTokens "<quickcheck>" tokens))
 
+prop_genLexTokenKindConstructorCoverage :: Property
+prop_genLexTokenKindConstructorCoverage =
+  checkCoverage $
+    forAll (vectorOf 512 genLexTokenKind) $ \kinds ->
+      assertAnyCtorCoverage [] kinds (property True)
+
 noExceptionProperty :: forall a. (NFData a) => String -> a -> IO Property
 noExceptionProperty operation value = do
   outcome <- (try (evaluate (force value)) :: IO (Either SomeException a))
@@ -129,28 +139,80 @@ genLexTokenKind =
     [ pure TkKeywordModule,
       pure TkKeywordWhere,
       pure TkKeywordDo,
+      pure TkKeywordClass,
       pure TkKeywordData,
+      pure TkKeywordDefault,
+      pure TkKeywordDeriving,
       pure TkKeywordImport,
       pure TkKeywordCase,
+      pure TkKeywordForall,
+      pure TkKeywordForeign,
       pure TkKeywordOf,
       pure TkKeywordLet,
       pure TkKeywordIn,
       pure TkKeywordIf,
       pure TkKeywordThen,
       pure TkKeywordElse,
+      pure TkKeywordInfix,
+      pure TkKeywordInfixl,
+      pure TkKeywordInfixr,
+      pure TkKeywordInstance,
+      pure TkKeywordNewtype,
+      pure TkKeywordType,
+      pure TkKeywordUnderscore,
+      pure TkKeywordProc,
+      pure TkKeywordRec,
+      pure TkKeywordMdo,
+      pure TkKeywordPattern,
+      TkQualifiedDo <$> genModuleText,
+      TkQualifiedMdo <$> genModuleText,
+      pure TkReservedDotDot,
+      pure TkReservedColon,
+      pure TkReservedDoubleColon,
+      pure TkReservedEquals,
+      pure TkReservedBackslash,
+      pure TkReservedPipe,
+      pure TkReservedLeftArrow,
+      pure TkReservedRightArrow,
+      pure TkReservedAt,
+      pure TkReservedDoubleArrow,
+      pure TkPrefixPercent,
+      pure TkLinearArrow,
+      pure TkArrowTail,
+      pure TkArrowTailReverse,
+      pure TkDoubleArrowTail,
+      pure TkDoubleArrowTailReverse,
+      pure TkBananaOpen,
+      pure TkBananaClose,
       TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaLanguage <$> genExtensionSettings,
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaInstanceOverlap <$> genInstanceOverlapPragma,
       TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaWarning <$> genTokenText,
       TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaDeprecated <$> genTokenText,
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) <$> (Syntax.PragmaInline <$> genTokenText <*> genTokenText),
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaUnpack <$> genPragmaUnpackKind,
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) <$> (Syntax.PragmaSource <$> genTokenText <*> genTokenText),
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaSCC <$> genTokenText,
+      TkPragma . (\pt -> Syntax.Pragma {Syntax.pragmaType = pt, Syntax.pragmaRawText = ""}) . Syntax.PragmaUnknown <$> genTokenText,
       TkVarId <$> genIdentifierText,
       TkConId <$> genConstructorText,
+      TkQVarId <$> genModuleText <*> genIdentifierText,
+      TkQConId <$> genModuleText <*> genConstructorText,
+      TkImplicitParam <$> genIdentifierText,
       TkVarSym <$> genOperatorText,
       TkConSym <$> genConOperatorText,
-      (`TkInteger` TInteger) <$> arbitrary,
-      (`TkFloat` TFractional) <$> arbitrary,
+      TkQVarSym <$> genModuleText <*> genOperatorText,
+      TkQConSym <$> genModuleText <*> genConOperatorText,
+      TkInteger <$> arbitrary <*> genNumericType,
+      TkFloat <$> arbitrary <*> genFloatType,
       TkChar <$> arbitrary,
+      TkCharHash <$> arbitrary <*> genTokenText,
       TkString <$> genTokenText,
+      TkStringHash <$> genTokenText <*> genTokenText,
+      TkOverloadedLabel <$> genIdentifierText <*> genTokenText,
       pure TkSpecialLParen,
       pure TkSpecialRParen,
+      pure TkSpecialUnboxedLParen,
+      pure TkSpecialUnboxedRParen,
       pure TkSpecialComma,
       pure TkSpecialSemicolon,
       pure TkSpecialLBracket,
@@ -158,8 +220,28 @@ genLexTokenKind =
       pure TkSpecialBacktick,
       pure TkSpecialLBrace,
       pure TkSpecialRBrace,
+      pure TkMinusOperator,
+      pure TkPrefixMinus,
+      pure TkPrefixBang,
+      pure TkPrefixTilde,
+      pure TkRecordDot,
+      pure TkTypeApp,
+      pure TkTHExpQuoteOpen,
+      pure TkTHExpQuoteClose,
+      pure TkTHTypedQuoteOpen,
+      pure TkTHTypedQuoteClose,
+      pure TkTHDeclQuoteOpen,
+      pure TkTHTypeQuoteOpen,
+      pure TkTHPatQuoteOpen,
+      pure TkTHQuoteTick,
+      pure TkTHTypeQuoteTick,
+      pure TkTHSplice,
+      pure TkTHTypedSplice,
       TkQuasiQuote <$> genQuoterText <*> genTokenText,
-      TkError <$> genTokenText
+      pure TkLineComment,
+      pure TkBlockComment,
+      TkError <$> genTokenText,
+      pure TkEOF
     ]
 
 genConstructorText :: Gen Text
@@ -189,6 +271,22 @@ genExtensionSetting = do
   extension <- elements Syntax.allKnownExtensions
   oneof [pure (EnableExtension extension), pure (DisableExtension extension)]
 
+genInstanceOverlapPragma :: Gen Syntax.InstanceOverlapPragma
+genInstanceOverlapPragma =
+  elements [Syntax.Overlapping, Syntax.Overlappable, Syntax.Overlaps, Syntax.Incoherent]
+
+genPragmaUnpackKind :: Gen Syntax.PragmaUnpackKind
+genPragmaUnpackKind =
+  elements [Syntax.UnpackPragma, Syntax.NoUnpackPragma]
+
+genNumericType :: Gen NumericType
+genNumericType =
+  elements [TInteger, TIntHash, TWordHash, TInt8Hash, TInt16Hash, TInt32Hash, TInt64Hash, TWord8Hash, TWord16Hash, TWord32Hash, TWord64Hash]
+
+genFloatType :: Gen FloatType
+genFloatType =
+  elements [TFractional, TFloatHash, TDoubleHash]
+
 genTokenText :: Gen Text
 genTokenText = T.pack <$> sized (\size -> do n <- chooseInt (0, min 32 (size + 4)); vectorOf n arbitrary)
 
@@ -203,6 +301,14 @@ genIdentifierText =
       pure "_",
       pure "forall",
       genTokenText
+    ]
+
+genModuleText :: Gen Text
+genModuleText =
+  oneof
+    [ pure "M",
+      pure "Data.List",
+      genConstructorText
     ]
 
 genOperatorText :: Gen Text
