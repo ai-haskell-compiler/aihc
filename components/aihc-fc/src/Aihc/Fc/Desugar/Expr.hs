@@ -20,14 +20,19 @@ import Aihc.Fc.Desugar.Match (dsPatternPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
+    Decl (..),
     Expr (..),
     Match (..),
     Name (..),
     Pattern (..),
     Rhs (..),
     UnqualifiedName (..),
+    ValueDecl (..),
+    peelDeclAnn,
+    unqualifiedNameText,
   )
 import Aihc.Tc.Types (TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -215,7 +220,10 @@ buildAlt _scrutVar restVars resTy m = case matchPats m of
 
 -- | Desugar a right-hand side.
 dsRhs :: Rhs Expr -> DsM FcExpr
-dsRhs (UnguardedRhs _sp expr _decls) = dsExpr expr
+dsRhs (UnguardedRhs _sp expr maybeDecls) =
+  case maybeDecls of
+    Nothing -> dsExpr expr
+    Just decls -> dsLetDecls decls (dsExpr expr)
 dsRhs (GuardedRhss _sp _guards _decls) = do
   v <- freshVar "_unimplemented" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
@@ -272,9 +280,92 @@ dsExpr (ELambdaPats pats body) = do
   vars <- mapM (\_ -> freshVar "_lam" (TcTyCon (TyCon "?" 0) [])) pats
   body' <- dsExpr body
   pure (foldr FcLam body' vars)
+dsExpr (ELetDecls decls body) =
+  dsLetDecls decls (dsExpr body)
 dsExpr _ = do
   v <- freshVar "_unsupported" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
+
+-- | Desugar local let/where declarations as a recursive Core let.
+--
+-- Type checking has already validated the binding group. Here we only need
+-- stable Core variables so RHSs and the body refer to the same local binders.
+dsLetDecls :: [Decl] -> DsM FcExpr -> DsM FcExpr
+dsLetDecls decls bodyAction = do
+  let groups = groupLocalDecls decls
+      names = map localGroupName groups
+  vars <- mapM (`freshVar` unknownTy) names
+  let localBindings = zip names vars
+  withLocals localBindings $ do
+    rhsBindings <- zipWithM dsLocalGroup vars groups
+    body <- bodyAction
+    pure $
+      if null rhsBindings
+        then body
+        else FcLet (FcRec rhsBindings) body
+
+unknownTy :: TcType
+unknownTy = TcTyCon (TyCon "?" 0) []
+
+data LocalDeclGroup
+  = LocalFunction !Text ![Match]
+  | LocalPattern !Text !(Rhs Expr)
+
+localGroupName :: LocalDeclGroup -> Text
+localGroupName group =
+  case group of
+    LocalFunction name _ -> name
+    LocalPattern name _ -> name
+
+groupLocalDecls :: [Decl] -> [LocalDeclGroup]
+groupLocalDecls [] = []
+groupLocalDecls (decl : rest) =
+  case extractLocalFunction decl of
+    Just (name, matches) ->
+      let (sameNameDecls, rest') = span (hasSameLocalFunctionName name) rest
+          allMatches = matches ++ concatMap (maybe [] snd . extractLocalFunction) sameNameDecls
+       in LocalFunction name allMatches : groupLocalDecls rest'
+    Nothing ->
+      case extractLocalPattern decl of
+        Just group -> group : groupLocalDecls rest
+        Nothing -> groupLocalDecls rest
+
+extractLocalFunction :: Decl -> Maybe (Text, [Match])
+extractLocalFunction decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind name matches) -> Just (unqualifiedNameText name, matches)
+    _ -> Nothing
+
+hasSameLocalFunctionName :: Text -> Decl -> Bool
+hasSameLocalFunctionName name decl =
+  case extractLocalFunction decl of
+    Just (declName, _) -> declName == name
+    Nothing -> False
+
+extractLocalPattern :: Decl -> Maybe LocalDeclGroup
+extractLocalPattern decl =
+  case peelDeclAnn decl of
+    DeclValue (PatternBind _ pat rhs) ->
+      LocalPattern <$> barePatternName pat <*> pure rhs
+    _ -> Nothing
+
+barePatternName :: Pattern -> Maybe Text
+barePatternName pat =
+  case pat of
+    PVar name -> Just (unqualifiedNameText name)
+    PAnn _ inner -> barePatternName inner
+    PParen inner -> barePatternName inner
+    _ -> Nothing
+
+dsLocalGroup :: Var -> LocalDeclGroup -> DsM (Var, FcExpr)
+dsLocalGroup var group =
+  case group of
+    LocalFunction _ matches -> do
+      rhs <- dsMatches (varType var) matches
+      pure (var, rhs)
+    LocalPattern _ rhs -> do
+      rhs' <- dsRhs rhs
+      pure (var, rhs')
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
@@ -295,8 +386,6 @@ nilList =
 consExpr :: FcExpr
 consExpr =
   FcVar (Var ":" (Unique (-11)) (TcFunTy unknownTy (TcFunTy (listType unknownTy) (listType unknownTy))))
-  where
-    unknownTy = TcTyCon (TyCon "?" 0) []
 
 listType :: TcType -> TcType
 listType ty =

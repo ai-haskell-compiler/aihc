@@ -27,10 +27,15 @@ module Aihc.Tc.Monad
     -- * Environment
     TcEnv (..),
     TcBinder (..),
+    Closedness (..),
     emptyTcEnv,
     lookupTerm,
     extendTermEnv,
     extendTermEnvPermanent,
+    getTermEnv,
+    localTcOptions,
+    tcMonoLocalBinds,
+    tcMonomorphismRestriction,
     getTcLevel,
     withTcLevel,
 
@@ -81,15 +86,25 @@ runTcM env st m = runStateT (runReaderT m env) st
 data TcEnv = TcEnv
   { -- | Term bindings in scope (variables -> types).
     tcEnvTerms :: !(Map Text TcBinder),
+    -- | Whether local binding groups follow GHC's MonoLocalBinds rule.
+    tcEnvMonoLocalBinds :: !Bool,
+    -- | Whether the monomorphism restriction is active.
+    tcEnvMonomorphismRestriction :: !Bool,
     -- | Current implication nesting level.
     tcEnvTcLevel :: !TcLevel
   }
   deriving (Show)
 
+-- | Whether a polymorphic binding is known to have no free type variables.
+data Closedness
+  = Closed
+  | NotClosed
+  deriving (Eq, Show)
+
 -- | A binding in the term environment.
 data TcBinder
   = -- | Polymorphic binding (top-level or let with signature).
-    TcIdBinder !Text !TypeScheme
+    TcIdBinder !Text !TypeScheme !Closedness
   | -- | Monomorphic binding (lambda-bound, pattern-bound, local let).
     TcMonoIdBinder !Text !TcType
   deriving (Show)
@@ -99,6 +114,8 @@ emptyTcEnv :: TcEnv
 emptyTcEnv =
   TcEnv
     { tcEnvTerms = Map.empty,
+      tcEnvMonoLocalBinds = True,
+      tcEnvMonomorphismRestriction = True,
       tcEnvTcLevel = topTcLevel
     }
 
@@ -134,8 +151,8 @@ initTcState =
 builtinTerms :: Map Text TcBinder
 builtinTerms =
   Map.fromList
-    [ (":", TcIdBinder ":" consScheme),
-      ("[]", TcIdBinder "[]" nilScheme)
+    [ (":", TcIdBinder ":" consScheme Closed),
+      ("[]", TcIdBinder "[]" nilScheme Closed)
     ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -194,6 +211,13 @@ lookupTerm name = do
     Just _ -> pure localResult
     Nothing -> lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
 
+-- | Snapshot all visible term bindings, with local bindings shadowing globals.
+getTermEnv :: TcM (Map Text TcBinder)
+getTermEnv = do
+  locals <- asks tcEnvTerms
+  globals <- lift $ gets tcsGlobalTerms
+  pure (locals <> globals)
+
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
 extendTermEnv :: Text -> TcBinder -> TcM a -> TcM a
@@ -206,6 +230,21 @@ extendTermEnv name binder =
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+
+-- | Run a computation with adjusted local type-checker options.
+localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a
+localTcOptions monoLocal monomorphism =
+  local $ \env ->
+    env
+      { tcEnvMonoLocalBinds = monoLocal (tcEnvMonoLocalBinds env),
+        tcEnvMonomorphismRestriction = monomorphism (tcEnvMonomorphismRestriction env)
+      }
+
+tcMonoLocalBinds :: TcM Bool
+tcMonoLocalBinds = asks tcEnvMonoLocalBinds
+
+tcMonomorphismRestriction :: TcM Bool
+tcMonomorphismRestriction = asks tcEnvMonomorphismRestriction
 
 -- | Get the current implication nesting level.
 getTcLevel :: TcM TcLevel

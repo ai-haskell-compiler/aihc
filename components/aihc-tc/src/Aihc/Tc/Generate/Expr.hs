@@ -29,6 +29,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -69,10 +70,8 @@ inferExpr expr = case expr of
   -- Case expression
   ECase scrutinee alts -> inferCase NoSourceSpan scrutinee alts
   -- Let expression
-  ELetDecls _decls body -> do
-    -- MVP: infer body only (let bindings not yet processed).
-    -- Full version would typecheck declarations and extend env.
-    inferExpr body
+  ELetDecls decls body ->
+    inferLocalDecls inferExpr decls (inferExpr body)
   -- Parenthesized expression
   EParen inner -> inferExpr inner
   -- Type signature: (e :: T)
@@ -102,7 +101,7 @@ inferVar :: SourceSpan -> Text -> TcM (TcType, [Ct])
 inferVar sp name = do
   mBinder <- lookupTerm name
   case mBinder of
-    Just (TcIdBinder _ scheme) -> do
+    Just (TcIdBinder _ scheme _) -> do
       (ty, preds) <- instantiate scheme
       cts <- mapM (predToCt sp name) preds
       pure (ty, cts)
@@ -207,7 +206,7 @@ inferPatternConstraints sp scrutTy pat = case pat of
     let conName = nameToText name
     mBinder <- lookupTerm conName
     case mBinder of
-      Just (TcIdBinder _ scheme) -> do
+      Just (TcIdBinder _ scheme _) -> do
         (conTy, _preds) <- instantiate scheme
         -- For a nullary constructor (no args), conTy is the result type.
         -- For a constructor with args, conTy is a function type whose
@@ -239,10 +238,7 @@ combineSourceSpan span' _ = span'
 
 -- | Infer the type of a right-hand side (for case alternatives).
 inferRhs :: Rhs Expr -> TcM (TcType, [Ct])
-inferRhs (UnguardedRhs _sp expr _decls) = inferExpr expr
-inferRhs (GuardedRhss _sp _guards _decls) = do
-  ty <- freshMetaTv
-  pure (ty, [])
+inferRhs = inferRhsWithLocals inferExpr
 
 -- | Infer the type of a function application.
 inferApp :: SourceSpan -> Expr -> Expr -> TcM (TcType, [Ct])

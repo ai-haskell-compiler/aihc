@@ -11,6 +11,6 @@ expected:
   - "Bool :: *"
   - "True :: Bool"
   - "False :: Bool"
-  - "f :: forall a. a -> a -> a"
-status: xfail
-reason: "where-clauses with multiple bindings not yet supported"
+  - "f :: forall a b. a -> b -> a"
+status: pass
+reason: ""

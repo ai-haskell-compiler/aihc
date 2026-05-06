@@ -108,6 +108,10 @@ main =
             session <- testReplSession
             step <- handleReplInput session "\"hello world\""
             assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
+          testCase "evaluates let-bound strings through the pipeline" $ do
+            session <- testReplSession
+            step <- handleReplInput session "let a = \"hello world\" in a"
+            assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
           testCase "evaluateExpression returns string values" $ do
             session <- testReplSession
             result <- evaluateExpression session "\"hello world\""

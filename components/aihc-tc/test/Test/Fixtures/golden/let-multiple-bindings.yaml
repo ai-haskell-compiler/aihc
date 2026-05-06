@@ -5,5 +5,5 @@ modules:
     f x = let y = x; z = y in z
 expected:
   - "f :: forall a. a -> a"
-status: xfail
-reason: "let-expressions with multiple bindings not yet supported"
+status: pass
+reason: ""

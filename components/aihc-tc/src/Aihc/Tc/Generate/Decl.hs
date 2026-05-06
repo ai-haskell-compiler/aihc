@@ -13,10 +13,11 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
+    CaseAlt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
-    Expr,
+    Expr (..),
     FieldDecl (..),
     GadtBody (..),
     Match (..),
@@ -33,6 +34,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     binderHeadParams,
+    forallTelescopeBinders,
     fromAnnotation,
     gadtBodyResultType,
     peelDeclAnn,
@@ -41,6 +43,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalize)
+import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Monad
@@ -48,10 +51,13 @@ import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
-import Data.List (nub)
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Set qualified as Set
+import Data.String (fromString)
 import Data.Text (Text)
 
 -- | Merge concrete source spans embedded in a list of annotations.
@@ -85,7 +91,7 @@ tcModule m = do
   let rawSigs = collectRawSigs (moduleDecls m)
   schemes <- traverse sigToScheme rawSigs
   -- Phase 3: group and type-check value bindings using signatures.
-  let grouped = groupValueDecls (moduleDecls m)
+  let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
   pure (dataResults ++ valueResults)
 
@@ -108,7 +114,8 @@ freeTypeVars = nub . go
     go (TParen inner) = go inner
     go (TAnn _ inner) = go inner
     go (TContext _preds inner) = go inner
-    go (TForall _ inner) = go inner
+    go (TForall telescope inner) =
+      go inner \\ map tyVarBinderName (forallTelescopeBinders telescope)
     go _ = []
 
 -- | Convert a surface type to a TcType, using a map from variable names to
@@ -228,6 +235,115 @@ hasSameName name d = case extractFunctionBind d of
   Just (_, n, _) -> unqualifiedNameText n == unqualifiedNameText name
   Nothing -> False
 
+-- | Sort top-level groups so acyclic forward references are checked after
+-- their dependencies have been generalized into the global environment.
+sortDeclGroups :: [DeclGroup] -> [DeclGroup]
+sortDeclGroups groups =
+  concatMap flattenScc (stronglyConnComp nodes)
+  where
+    allBinders = Set.fromList (concatMap declGroupBinders groups)
+    nodes =
+      [ (group, groupKey ix group, Set.toList (Set.intersection allBinders (Set.fromList (freeVarsGroup group))))
+      | (ix, group) <- zip [(0 :: Int) ..] groups
+      ]
+    flattenScc (AcyclicSCC group) = [group]
+    flattenScc (CyclicSCC cyclicGroups) = cyclicGroups
+
+groupKey :: Int -> DeclGroup -> Text
+groupKey ix group =
+  case declGroupBinders group of
+    name : _ -> name
+    [] -> "<decl-" <> fromString (show ix) <> ">"
+
+declGroupBinders :: DeclGroup -> [Text]
+declGroupBinders group =
+  case group of
+    MergedFunctionBind _sp binder _matches -> [unqualifiedNameText binder]
+    SingleDecl decl ->
+      case peelDeclAnn decl of
+        DeclValue (FunctionBind binder _) -> [unqualifiedNameText binder]
+        DeclValue (PatternBind _ pat _) -> maybe [] ((: []) . snd) (patternBinderName pat)
+        _ -> []
+
+freeVarsGroup :: DeclGroup -> [Text]
+freeVarsGroup group =
+  case group of
+    MergedFunctionBind _sp binder matches ->
+      concatMap freeVarsMatch matches \\ [unqualifiedNameText binder]
+    SingleDecl decl -> freeVarsDecl decl
+
+freeVarsDecl :: Decl -> [Text]
+freeVarsDecl decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind binder matches) ->
+      concatMap freeVarsMatch matches \\ [unqualifiedNameText binder]
+    DeclValue (PatternBind _ pat rhs) ->
+      freeVarsRhs rhs \\ patternBinders pat
+    _ -> []
+
+freeVarsMatch :: Match -> [Text]
+freeVarsMatch match =
+  freeVarsRhs (matchRhs match) \\ concatMap patternBinders (matchPats match)
+
+freeVarsRhs :: Rhs Expr -> [Text]
+freeVarsRhs rhs =
+  case rhs of
+    UnguardedRhs _ expr maybeDecls ->
+      freeVarsExpr expr ++ maybe [] (concatMap freeVarsDecl) maybeDecls
+    GuardedRhss _ _ maybeDecls ->
+      maybe [] (concatMap freeVarsDecl) maybeDecls
+
+freeVarsExpr :: Expr -> [Text]
+freeVarsExpr expr =
+  case expr of
+    EVar name -> [patNameToText name]
+    EAnn _ inner -> freeVarsExpr inner
+    EIf cond trueBranch falseBranch ->
+      freeVarsExpr cond ++ freeVarsExpr trueBranch ++ freeVarsExpr falseBranch
+    ELambdaPats pats body ->
+      freeVarsExpr body \\ concatMap patternBinders pats
+    EInfix lhs op rhs ->
+      patNameToText op : freeVarsExpr lhs ++ freeVarsExpr rhs
+    ENegate inner -> freeVarsExpr inner
+    ESectionL inner op -> patNameToText op : freeVarsExpr inner
+    ESectionR op inner -> patNameToText op : freeVarsExpr inner
+    ELetDecls decls body ->
+      let localBinders = concatMap declBinders decls
+       in (concatMap freeVarsDecl decls ++ freeVarsExpr body) \\ localBinders
+    ECase scrut alts ->
+      freeVarsExpr scrut ++ concatMap freeVarsAlt alts
+    ETypeSig inner _ -> freeVarsExpr inner
+    EParen inner -> freeVarsExpr inner
+    EList items -> concatMap freeVarsExpr items
+    ETuple _ items -> concatMap (maybe [] freeVarsExpr) items
+    EApp fun arg -> freeVarsExpr fun ++ freeVarsExpr arg
+    _ -> []
+
+freeVarsAlt :: CaseAlt Expr -> [Text]
+freeVarsAlt (CaseAlt _ pat rhs) =
+  freeVarsRhs rhs \\ patternBinders pat
+
+declBinders :: Decl -> [Text]
+declBinders decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind binder _) -> [unqualifiedNameText binder]
+    DeclValue (PatternBind _ pat _) -> patternBinders pat
+    DeclTypeSig names _ -> map unqualifiedNameText names
+    _ -> []
+
+patternBinders :: Pattern -> [Text]
+patternBinders pat =
+  case pat of
+    PVar name -> [unqualifiedNameText name]
+    PAnn _ inner -> patternBinders inner
+    PParen inner -> patternBinders inner
+    PAs name inner -> unqualifiedNameText name : patternBinders inner
+    PStrict inner -> patternBinders inner
+    PIrrefutable inner -> patternBinders inner
+    PCon _ _ pats -> concatMap patternBinders pats
+    PInfix lhs _ rhs -> patternBinders lhs ++ patternBinders rhs
+    _ -> []
+
 -- | Type-check a declaration group.
 tcDeclGroup :: Map Text TypeScheme -> DeclGroup -> TcM [TcBindingResult]
 tcDeclGroup _ (SingleDecl d) = tcDecl d
@@ -248,7 +364,7 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
 -- constraints using the signature's skolems as given equalities.
 tcFunctionWithSig :: Text -> Text -> TypeScheme -> [Match] -> TcM [TcBindingResult]
 tcFunctionWithSig displayName name scheme matches = do
-  extendTermEnvPermanent name (TcIdBinder name scheme)
+  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
   -- Open the scheme with skolems (not metas) for checking.
   sigTy <- skolemize scheme
   let nArgs = case matches of
@@ -274,7 +390,7 @@ tcFunctionInfer displayName name matches = do
   scheme <- generalize ty []
   let schemeTy = schemeToType scheme
   zonkedTy <- zonkType schemeTy
-  extendTermEnvPermanent name (TcIdBinder name scheme)
+  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
   pure [TcBindingResult displayName zonkedTy]
 
 -- | Register a declaration in the environment (data types, etc.).
@@ -336,7 +452,7 @@ registerDataCon tc paramMap paramVarIds con = case con of
           mapM_
             ( \n -> do
                 let nm = unqualifiedNameText n
-                extendTermEnvPermanent nm (TcIdBinder nm gadtScheme)
+                extendTermEnvPermanent nm (TcIdBinder nm gadtScheme Closed)
                 markGadtCon nm
             )
             names
@@ -352,7 +468,7 @@ registerDataCon tc paramMap paramVarIds con = case con of
     registerNamedDataCon name argTys = do
       let conTy = foldr TcFunTy resTy argTys
           scheme = conScheme argTys
-      extendTermEnvPermanent name (TcIdBinder name scheme)
+      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       zonkedTy <- zonkType conTy
       pure (TcBindingResult name zonkedTy)
 
@@ -508,7 +624,7 @@ inferPatConstraints sp pat scrutTy = case pat of
     let conName = patNameToText name
     mBinder <- lookupTerm conName
     case mBinder of
-      Just (TcIdBinder _ scheme) -> do
+      Just (TcIdBinder _ scheme _) -> do
         (conTy, _preds) <- instantiateSch scheme
         let conResTy = resultType conTy
         ev <- freshEvVar
@@ -596,20 +712,14 @@ withPatBindings ((name, ty) : rest) m =
 
 -- | Infer the type of a right-hand side expression.
 inferRhsExpr :: Rhs Expr -> TcM (TcType, [Ct])
-inferRhsExpr (UnguardedRhs _sp expr _decls) = inferExpr expr
-inferRhsExpr (GuardedRhss _sp _guards _decls) = do
-  ty <- freshMetaTv
-  pure (ty, [])
+inferRhsExpr = inferRhsWithLocals inferExpr
 
 -- | Type-check a right-hand side (solving constraints immediately).
 tcRhs :: Rhs Expr -> TcM TcType
-tcRhs (UnguardedRhs _sp expr _decls) = do
-  (ty, cts) <- inferExpr expr
+tcRhs rhs = do
+  (ty, cts) <- inferRhsWithLocals inferExpr rhs
   _ <- solveConstraints cts
   pure ty
-tcRhs (GuardedRhss _sp _guards _decls) =
-  -- Guarded RHS not handled in MVP.
-  freshMetaTv
 
 -- | Render an unqualified name for display.
 -- Operators (NameVarSym, NameConSym) are wrapped in parentheses.

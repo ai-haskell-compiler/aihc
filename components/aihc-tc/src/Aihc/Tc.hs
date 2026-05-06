@@ -37,7 +37,7 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Expr, Module (..))
+import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
 import Aihc.Tc.Annotations (TcAnnotation (..), renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), tcModule)
@@ -114,7 +114,7 @@ typecheckModule =
 -- | Type-check a single module with preloaded top-level term bindings.
 typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> TcModuleResult
 typecheckModuleWithEnv importedTerms m =
-  case runTcM emptyTcEnv initState (tcModule m) of
+  case runTcM tcEnv initState (tcModule m) of
     Left _abort ->
       TcModuleResult
         { tcmBindings = [],
@@ -134,11 +134,19 @@ typecheckModuleWithEnv importedTerms m =
       initTcState
         { tcsGlobalTerms =
             Map.fromList
-              [ (name, TcIdBinder name scheme)
+              [ (name, TcIdBinder name scheme Closed)
               | (name, scheme) <- importedTerms
               ]
               <> tcsGlobalTerms initTcState
         }
+    tcEnv =
+      emptyTcEnv
+        { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
+          tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions
+        }
+    enabledExtensions =
+      applyImpliedExtensions $
+        foldr applyExtensionSetting [MonoLocalBinds, MonomorphismRestriction] (moduleLanguagePragmas m)
     isError d = diagSeverity d == TcError
 
 -- | Type-check a list of modules.

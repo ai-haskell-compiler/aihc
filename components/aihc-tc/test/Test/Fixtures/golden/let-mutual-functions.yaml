@@ -2,7 +2,7 @@ extensions: []
 modules:
   - |
     module Test where
-    f x = let g y = y in g x
+    f x = let g y = h y; h z = z in g x
 expected:
   - "f :: forall a. a -> a"
 status: pass

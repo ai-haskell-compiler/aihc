@@ -10,6 +10,8 @@ expected:
   - "Bool :: *"
   - "True :: Bool"
   - "False :: Bool"
+  - "one :: Bool"
+  - "(+) :: forall a b. a -> b -> a"
   - "f :: forall a. a -> a"
-status: xfail
-reason: "let with operators not yet supported"
+status: pass
+reason: ""
