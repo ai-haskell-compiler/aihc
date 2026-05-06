@@ -1360,10 +1360,13 @@ test_prettyOperatorAfterLayoutDoBlock = do
 test_prettySpliceRecordDotBase :: Assertion
 test_prettySpliceRecordDotBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, OverloadedRecordDot, MagicHash]}
-      field = qualifyName Nothing (mkUnqualifiedName NameVarId "adpE")
-      expr = EGetField (ETHSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "x#")))) field
-      rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty (addExprParens expr)))
-  assertExprRenderingRoundTrip config expr rendered
+      source = "($x#).adpE"
+      expected = "($x#).adpE"
+  case parseExpr config source of
+    ParseOk expr ->
+      assertExprPrettyRoundTrip config (stripParens expr) expected
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyNegatedOpenEndedSectionLhs :: Assertion
 test_prettyNegatedOpenEndedSectionLhs = do
