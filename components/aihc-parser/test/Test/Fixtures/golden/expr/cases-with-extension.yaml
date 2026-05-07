@@ -1,0 +1,6 @@
+extensions: [LambdaCase]
+input: |
+  \cases -> ()
+ast: |-
+  ELambdaCases [LambdaCaseAlt [] (ETuple [])]
+status: pass

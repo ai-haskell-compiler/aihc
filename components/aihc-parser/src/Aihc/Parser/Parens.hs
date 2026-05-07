@@ -1057,7 +1057,7 @@ addExprParensPrec prec expr =
       wrapExpr
         (prec > 1)
         ( EInfix
-            (addTopLevelInfixLhsParens prec lhs)
+            (addExprParensIn CtxInfixLhs lhs)
             op
             (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
         )
@@ -1098,7 +1098,7 @@ addExprParensPrec prec expr =
        in EGetField (wrapExpr (needsParensBeforeDot base') base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
-      wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
+      wrapExpr (prec > 1) (ETypeSig (addTypeSigBodyParens inner) (addTypeParens ty))
     EParen inner ->
       -- If inner is a section or projection, addExprParens(inner) already produces EParen(section/projection).
       -- Delegating avoids double-wrapping and maintains idempotency.
@@ -1109,7 +1109,9 @@ addExprParensPrec prec expr =
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
-    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
+    EUnboxedSum altIdx arity inner ->
+      let inner' = addExprParens inner
+       in EUnboxedSum altIdx arity (wrapExpr (startsWithMultiWayIf inner') inner')
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParensIn CtxCmdTop body))
     EPragma pragma inner ->
@@ -1170,6 +1172,21 @@ addNegateParens inner =
       -- Application and type-application bind tighter than negation, so `-f x`
       -- does not need parens around `f x`.
       _ -> addExprParensPrec 2 inner
+
+addTypeSigBodyParens :: Expr -> Expr
+addTypeSigBodyParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addTypeSigBodyParens sub)
+    EInfix lhs op rhs
+      | startsWithMultiWayIf lhs ->
+          wrapExpr
+            (needsExprParens CtxTypeSigBody expr)
+            ( EInfix
+                (wrapExpr True (addExprParensIn CtxInfixLhs lhs))
+                op
+                (addExprParensIn (CtxInfixRhs False) rhs)
+            )
+    _ -> addExprParensIn CtxTypeSigBody expr
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
@@ -1279,14 +1296,6 @@ addExprGuardedParens expr =
     EIf {} -> addExprParens expr
     EMultiWayIf {} -> addExprParens expr
     _ -> addExprParensIn CtxGuarded expr
-
--- | A top-level infix expression whose left operand starts with layout-sensitive
--- syntax like @if |@ needs that operand grouped; otherwise the operator can be
--- reparsed into the layout block's trailing body.
-addTopLevelInfixLhsParens :: Int -> Expr -> Expr
-addTopLevelInfixLhsParens prec lhs
-  | prec == 0 && startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
-  | otherwise = addExprParensIn CtxInfixLhs lhs
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case

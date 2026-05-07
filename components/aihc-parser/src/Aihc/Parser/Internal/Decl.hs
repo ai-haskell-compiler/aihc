@@ -36,9 +36,7 @@ anyPragmaParser :: String -> TokParser Pragma
 anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
 declParser :: TokParser Decl
-declParser = do
-  mPragmaDecl <- MP.optional pragmaDeclParser
-  maybe ordinaryDeclParser pure mPragmaDecl
+declParser = pragmaDeclParser <|> ordinaryDeclParser
 
 ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
@@ -59,9 +57,9 @@ ordinaryDeclParser = do
     TkKeywordDefault -> defaultDeclParser
     TkKeywordDeriving -> standaloneDerivingDeclParser
     TkKeywordForeign -> foreignDeclParser
-    TkKeywordInfix -> fixityDeclParser Infix
-    TkKeywordInfixl -> fixityDeclParser InfixL
-    TkKeywordInfixr -> fixityDeclParser InfixR
+    TkKeywordInfix -> fixityDeclParser
+    TkKeywordInfixl -> fixityDeclParser
+    TkKeywordInfixr -> fixityDeclParser
     TkKeywordInstance -> instanceDeclParser
     TkKeywordNewtype
       | nextTokKind == TkKeywordInstance -> newtypeFamilyInstParser
@@ -296,10 +294,9 @@ typeFamilyInjectivityParser = withSpan $ do
 
 -- | Parse @type family Name params [:: Kind] [where { equations }]@
 typeFamilyDeclParser :: TokParser Decl
-typeFamilyDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  tf <- typeFamilyDeclBodyParser FamilyKeywordRequired
-  pure $
-    DeclTypeFamilyDecl tf
+typeFamilyDeclParser =
+  withSpanAnn (DeclAnn . mkAnnotation) $
+    DeclTypeFamilyDecl <$> typeFamilyDeclBodyParser FamilyKeywordRequired
 
 -- | Parse the @where { eq; ... }@ block of a closed type family.
 closedTypeFamilyWhereParser :: TokParser [TypeFamilyEq]
@@ -408,9 +405,9 @@ newtypeFamilyInstParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- Callers must ensure the next token after @type@ is not @instance@
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
-classTypeFamilyDeclParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
-  tf <- typeFamilyDeclBodyParser FamilyKeywordOptional
-  pure (ClassItemTypeFamilyDecl tf)
+classTypeFamilyDeclParser =
+  withSpanAnn (ClassItemAnn . mkAnnotation) $
+    ClassItemTypeFamilyDecl <$> typeFamilyDeclBodyParser FamilyKeywordOptional
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -558,11 +555,9 @@ defaultDeclParser = do
   expectedTok TkKeywordDefault
   DeclDefault <$> parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
-fixityDeclParser :: FixityAssoc -> TokParser Decl
-fixityDeclParser assoc = withSpanAnn (DeclAnn . mkAnnotation) $ do
+fixityDeclParser :: TokParser Decl
+fixityDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   (parsedAssoc, prec, mNamespace, ops) <- fixityDeclPartsParser
-  when (assoc /= parsedAssoc) $
-    fail "internal fixity dispatch mismatch"
   pure (DeclFixity parsedAssoc mNamespace prec ops)
 
 fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, Maybe IEEntityNamespace, [UnqualifiedName])
@@ -668,14 +663,12 @@ classDeclItemParser =
         TkKeywordType
           | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
         TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
-        _ -> do
-          isSig <- startsWithTypeSig
-          if isSig then MP.try classTypeSigItemParser <|> classDefaultItemParser else classDefaultItemParser
+        _ -> MP.try classTypeSigItemParser <|> classDefaultItemParser
 
 classPragmaItemParser :: TokParser ClassDeclItem
-classPragmaItemParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
-  pragma <- anyPragmaParser "pragma declaration"
-  pure (ClassItemPragma pragma)
+classPragmaItemParser =
+  withSpanAnn (ClassItemAnn . mkAnnotation) $
+    ClassItemPragma <$> anyPragmaParser "pragma declaration"
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = typeSigItemParser (ClassItemAnn . mkAnnotation) ClassItemTypeSig
@@ -751,9 +744,7 @@ instanceDeclItemParser =
         TkKeywordData -> instanceDataFamilyInstParser
         TkKeywordNewtype -> instanceNewtypeFamilyInstParser
         TkKeywordType -> instanceTypeFamilyInstParser
-        _ -> do
-          isSig <- startsWithTypeSig
-          if isSig then instanceTypeSigItemParser else instanceValueItemParser
+        _ -> MP.try instanceTypeSigItemParser <|> instanceValueItemParser
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
@@ -1552,9 +1543,7 @@ valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- @pattern Name args = pat@ / @pattern Name args <- pat [where ...]@ (declaration).
 -- Uses a forward scan for @name(s) ::@ to avoid backtracking over a large parse.
 patternSynonymParser :: TokParser Decl
-patternSynonymParser = do
-  isSig <- MP.lookAhead (expectedTok TkKeywordPattern *> startsWithTypeSig)
-  if isSig then patternSynonymSigDeclParser else patternSynonymDeclParser
+patternSynonymParser = MP.try patternSynonymSigDeclParser <|> patternSynonymDeclParser
 
 -- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
 patternSynonymSigDeclParser :: TokParser Decl

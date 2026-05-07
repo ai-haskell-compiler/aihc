@@ -83,7 +83,8 @@ shrinkModuleHead head' =
        | shrunk <- shrinkMaybeExportSpecs (moduleHeadExports head')
        ]
     <> [ head' {moduleHeadWarningPragma = shrunk}
-       | shrunk <- (Nothing :) . map Just . maybe [] shrinkWarningPragma $ moduleHeadWarningPragma head'
+       | Just warning <- [moduleHeadWarningPragma head'],
+         shrunk <- Nothing : map Just (shrinkWarningPragma warning)
        ]
 
 genMaybeExportSpecs :: Gen (Maybe [ExportSpec])

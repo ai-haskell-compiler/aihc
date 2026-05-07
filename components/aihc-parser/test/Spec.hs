@@ -57,6 +57,13 @@ import Test.Properties.NoExceptions
     prop_preprocessorArbitraryTextNoExceptions,
     prop_typeParserArbitraryTokensNoExceptions,
   )
+import Test.Properties.ParensIdempotency
+  ( prop_declParensIdempotent,
+    prop_exprParensIdempotent,
+    prop_moduleParensIdempotent,
+    prop_patternParensIdempotent,
+    prop_typeParensIdempotent,
+  )
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.ShorthandSubset
   ( prop_shorthandDeclSubsetOfShow,
@@ -66,7 +73,7 @@ import Test.Properties.ShorthandSubset
     prop_shorthandTypeSubsetOfShow,
   )
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, counterexample, shrink)
 import Test.QuickCheck.Gen qualified as QGen
 import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
@@ -247,6 +254,7 @@ buildTests = do
             testCase "sets lexTokenAtLineStart correctly" test_tokenAtLineStartWithoutDirective,
             testCase "hash line directive sets lexTokenAtLineStart" test_hashLineDirectiveSetsAtLineStart,
             testCase "hash line directive preserves layout" test_hashLineDirectivePreservesLayout,
+            testCase "inserts empty case layout at EOF" test_emptyCaseLayoutAtEof,
             testCase "comments are ignored in module headers" test_commentsIgnoredInModuleHeaders,
             testCase "comments are ignored by layout" test_commentsIgnoredByLayout,
             testCase "comments preserve trivia for negative literals" test_commentsPreserveTriviaForNegativeLiterals,
@@ -258,6 +266,7 @@ buildTests = do
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
@@ -335,6 +344,11 @@ buildTests = do
               QC.testProperty "generated module AST validator" prop_moduleValidator,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
+              QC.testProperty "module paren insertion is idempotent" prop_moduleParensIdempotent,
+              QC.testProperty "decl paren insertion is idempotent" prop_declParensIdempotent,
+              QC.testProperty "expr paren insertion is idempotent" prop_exprParensIdempotent,
+              QC.testProperty "pattern paren insertion is idempotent" prop_patternParensIdempotent,
+              QC.testProperty "type paren insertion is idempotent" prop_typeParensIdempotent,
               QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
               QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
               QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
@@ -522,6 +536,24 @@ test_hashLineDirectivePreservesLayout =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         assertEqual "expected two declarations" 2 (length (moduleDecls modu))
 
+test_emptyCaseLayoutAtEof :: Assertion
+test_emptyCaseLayoutAtEof =
+  let source = "x = case () of"
+      kinds = map lexTokenKind (lexTokens source)
+   in assertEqual
+        "token kinds"
+        [ TkVarId "x",
+          TkReservedEquals,
+          TkKeywordCase,
+          TkSpecialLParen,
+          TkSpecialRParen,
+          TkKeywordOf,
+          TkSpecialLBrace,
+          TkSpecialRBrace,
+          TkEOF
+        ]
+        kinds
+
 test_commentsIgnoredInModuleHeaders :: Assertion
 test_commentsIgnoredInModuleHeaders =
   let source =
@@ -610,6 +642,27 @@ test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
 test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
+
+test_shrunkModuleHeaderWithoutWarningMakesProgress :: Assertion
+test_shrunkModuleHeaderWithoutWarningMakesProgress =
+  assertBool "module shrinker must not return the original module" $
+    modu `notElem` shrink modu
+  where
+    modu =
+      Module
+        { moduleAnns = [],
+          moduleHead =
+            Just
+              ModuleHead
+                { moduleHeadAnns = [],
+                  moduleHeadName = "A",
+                  moduleHeadWarningPragma = Nothing,
+                  moduleHeadExports = Nothing
+                },
+          moduleLanguagePragmas = [],
+          moduleImports = [],
+          moduleDecls = []
+        }
 
 test_generatedIdentifiersAcceptUnicodeVariableCharacters :: Assertion
 test_generatedIdentifiersAcceptUnicodeVariableCharacters = do

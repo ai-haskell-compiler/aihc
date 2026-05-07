@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  \cases -> ()
+ast: |-
+  ELambdaPats [PVar "cases"] (ETuple [])
+status: pass
