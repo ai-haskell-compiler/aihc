@@ -1714,6 +1714,7 @@ addCmdArrAppLhsParens lhs =
 endsWithCmdLayoutTail :: Expr -> Bool
 endsWithCmdLayoutTail = \case
   EAnn _ sub -> endsWithCmdLayoutTail sub
+  expr | endsWithCmdLayoutBlock expr -> True
   EInfix _ _ rhs -> endsWithCmdLayoutTail rhs
   ENegate inner -> endsWithCmdLayoutTail inner
   EPragma _ inner -> endsWithCmdLayoutTail inner
