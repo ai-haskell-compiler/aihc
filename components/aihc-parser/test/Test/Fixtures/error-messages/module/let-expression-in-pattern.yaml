@@ -1,0 +1,20 @@
+src: |
+  f n (let exp = x^2 in exp n) = True
+ghc: |
+  test.hs:1:6: error: [GHC-78892]
+      (let ... in ...)-syntax in pattern
+  |
+  1 | f n (let exp = x^2 in exp n) = True
+    |      ^^^^^^^^^^^^^^^^^^^^^^
+aihc: |
+  test.hs:1:6:
+  1 | f n (let exp = x^2 in exp n) = True
+    |      ^^^
+  unexpected 'let'
+  expecting pattern
+
+  test.hs:1:28:
+  1 | f n (let exp = x^2 in exp n) = True
+    |                            ^
+  unexpected )
+  expecting end of input

@@ -1,0 +1,16 @@
+src: |
+  f x y = case x of
+    case y of
+      _ -> 1
+ghc: |
+  test.hs:2:3: error: [GHC-53786]
+      (case ... of ...)-syntax in pattern
+  |
+  2 |   case y of
+    |   ^^^^^^^^^^^
+aihc: |
+  test.hs:2:3:
+  2 |   case y of
+    |   ^^^^
+  unexpected case
+  expecting end of input
