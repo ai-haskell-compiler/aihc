@@ -281,6 +281,7 @@ buildTests = do
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
             testCase "pretty-prints multi-way if left operands with parentheses" test_prettyMultiWayIfInfixLhs,
+            testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
             testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
             testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
@@ -986,6 +987,25 @@ test_prettyMultiWayIfInfixLhs = do
          `a` 'x'
         """
   assertParsedStrippedExprShapeRoundTrip config source
+
+test_prettyMultiWayIfInfixLhsInsideUnboxedSum :: Assertion
+test_prettyMultiWayIfInfixLhsInsideUnboxedSum = do
+  let config = defaultConfig {parserExtensions = [UnboxedSums, MultiWayIf]}
+      source =
+        """
+        (# ((if | let {  }
+                 ->
+                  0)
+             `a` ()) | #)
+        """
+  case parseExpr config source of
+    ParseOk expr -> do
+      let stripped = stripParens expr
+          rendered = renderPretty stripped
+      assertBool "expected rendered expression to preserve grouped multi-way if lhs" ("(# (if" `T.isInfixOf` rendered)
+      assertExprRenderingRoundTrip config stripped rendered
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_prettyWhereClauseUsesImplicitLayout :: Assertion
 test_prettyWhereClauseUsesImplicitLayout = do
