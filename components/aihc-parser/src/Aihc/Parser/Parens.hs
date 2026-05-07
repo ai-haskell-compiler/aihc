@@ -351,8 +351,8 @@ exprCtxPrec ctx expr =
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
--- | Parenthesize a left section operand while protecting any rightmost
--- open-ended infix RHS from absorbing the section operator.
+-- | Parenthesize a left section operand while protecting any rightmost infix
+-- RHS from reassociating with the section operator.
 addSectionLhsParens :: Expr -> Expr
 addSectionLhsParens expr =
   case peelExprAnn expr of
@@ -368,7 +368,7 @@ addSectionLhsParens expr =
   where
     addSectionInfixRhsParens rhs =
       case peelExprAnn rhs of
-        EInfix {} -> addSectionLhsParens rhs
+        EInfix {} -> wrapExpr True (addSectionLhsParens rhs)
         _ | isOpenEnded rhs -> wrapExpr True (addExprParens rhs)
         _ -> addExprParensIn (CtxInfixRhs False) rhs
 
@@ -1329,10 +1329,15 @@ addNestedInfixRhsLhsParens lhs
   | otherwise = addInfixLhsParens lhs
 
 absorbsFollowingInfix :: Expr -> Bool
-absorbsFollowingInfix = \case
-  EAnn _ sub -> absorbsFollowingInfix sub
-  EProc {} -> True
-  _ -> False
+absorbsFollowingInfix expr =
+  case expr of
+    EAnn _ sub -> absorbsFollowingInfix sub
+    EProc {} -> True
+    EIf {} -> True
+    ELambdaPats {} -> True
+    EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
+    EInfix _ _ rhs -> absorbsFollowingInfix rhs
+    _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case
