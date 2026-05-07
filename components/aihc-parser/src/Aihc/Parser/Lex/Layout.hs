@@ -19,9 +19,9 @@ applyLayoutTokens enableModuleLayout exts =
       case toks of
         [] ->
           let eofAnchor = NoSourceSpan
-              (pendingInserted, stAfterPending) = flushPendingImplicitLayout st eofAnchor
-              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF stAfterPending eofAnchor
-           in pendingInserted <> moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
+              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+              (pendingInserted, stAfterPending) = flushPendingCaseLayoutAtEOF stAfterModule eofAnchor
+           in moduleInserted <> pendingInserted <> closeAllImplicit (layoutContexts stAfterPending) eofAnchor
         tok : rest ->
           let (emitted, stNext) = layoutTransition st tok
            in emitted <> go stNext rest
@@ -192,6 +192,19 @@ flushPendingImplicitLayout :: LayoutState -> SourceSpan -> ([LexToken], LayoutSt
 flushPendingImplicitLayout st anchor =
   case layoutPendingLayout st of
     Just (PendingImplicitLayout _) ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutPendingLayout = Nothing}
+      )
+    _ -> ([], st)
+
+flushPendingCaseLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
+flushPendingCaseLayoutAtEOF st anchor =
+  case layoutPendingLayout st of
+    Just (PendingImplicitLayout LayoutCaseAlternative) ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutPendingLayout = Nothing}
+      )
+    Just PendingMaybeLambdaCases ->
       ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
         st {layoutPendingLayout = Nothing}
       )
@@ -395,8 +408,9 @@ layoutTransition st tok =
     TkEOF ->
       let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
           (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
-       in ( moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [tok],
-            stAfterModule {layoutContexts = [], layoutBuffer = []}
+          (pendingInserted, stAfterPending) = flushPendingCaseLayoutAtEOF stAfterModule eofAnchor
+       in ( moduleInserted <> pendingInserted <> closeAllImplicit (layoutContexts stAfterPending) eofAnchor <> [tok],
+            stAfterPending {layoutContexts = [], layoutBuffer = []}
           )
     _ ->
       let stModule = noteModuleLayoutBeforeToken st tok
