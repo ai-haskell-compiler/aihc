@@ -1,0 +1,10 @@
+src: |
+  f n (sq n) = True
+ghc: |
+  test.hs:1:6: error: [GHC-07626] Parse error in pattern: sq
+aihc: |
+  test.hs:1:9:
+  1 | f n (sq n) = True
+    |         ^
+  unexpected n
+  expecting constructor operator, operator '::', symbol ')', symbol ',', or symbol '`'
