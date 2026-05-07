@@ -19,7 +19,11 @@ module Aihc.Parser.Lex.Types
     hasExt,
     LexerState (..),
     LayoutContext (..),
-    ImplicitLayoutKind (..),
+    LayoutFrame (..),
+    LayoutSemicolons (..),
+    LayoutIndentPolicy (..),
+    LayoutBaseline (..),
+    ImplicitLayoutSpec (..),
     PendingLayout (..),
     ModuleLayoutMode (..),
     LayoutState (..),
@@ -230,22 +234,48 @@ data LexerState = LexerState
 
 data LayoutContext
   = LayoutExplicit
-  | LayoutImplicit !Int !ImplicitLayoutKind
+  | LayoutImplicit !LayoutFrame
   | LayoutDelimiter
   deriving (Eq, Show)
 
-data ImplicitLayoutKind
-  = LayoutOrdinary
-  | LayoutTHDeclQuote
-  | LayoutWhereBlock
-  | LayoutLetBlock
-  | LayoutMultiWayIf
-  | LayoutAfterThenElse !Int -- do-block opened directly by a preceding 'then'/'else'; tracks nested classic ifs inside the block
-  | LayoutCaseAlternative
+data LayoutFrame = LayoutFrame
+  { layoutFrameIndent :: !Int,
+    layoutFrameSemicolons :: !LayoutSemicolons,
+    layoutFrameChildBaseline :: !LayoutBaseline,
+    -- do-block opened directly by a preceding 'then'/'else'; tracks nested
+    -- classic ifs inside the block while the lexer still approximates this
+    -- parse-error close.
+    layoutFrameThenElseDepth :: !(Maybe Int)
+  }
+  deriving (Eq, Show)
+
+data LayoutSemicolons
+  = LayoutEmitSemicolons
+  | LayoutSuppressSemicolons
+  deriving (Eq, Show)
+
+data LayoutIndentPolicy
+  = LayoutStrictIndent
+  | LayoutAllowNondecreasingIndent
+  deriving (Eq, Show)
+
+data LayoutBaseline
+  = LayoutCurrentIndent
+  | LayoutColumnZero
+  deriving (Eq, Show)
+
+data ImplicitLayoutSpec = ImplicitLayoutSpec
+  { implicitLayoutSemicolons :: !LayoutSemicolons,
+    implicitLayoutIndentPolicy :: !LayoutIndentPolicy,
+    implicitLayoutBaseline :: !LayoutBaseline,
+    implicitLayoutChildBaseline :: !LayoutBaseline,
+    implicitLayoutThenElseDepth :: !(Maybe Int),
+    implicitLayoutFlushEmptyAtEOF :: !Bool
+  }
   deriving (Eq, Show)
 
 data PendingLayout
-  = PendingImplicitLayout !ImplicitLayoutKind
+  = PendingImplicitLayout !ImplicitLayoutSpec
   | PendingMaybeMultiWayIf
   | PendingMaybeLambdaCases
   deriving (Eq, Show)

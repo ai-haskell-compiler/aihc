@@ -11,6 +11,45 @@ import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Data.Maybe (fromMaybe)
 
+ordinaryLayout :: ImplicitLayoutSpec
+ordinaryLayout =
+  ImplicitLayoutSpec
+    { implicitLayoutSemicolons = LayoutEmitSemicolons,
+      implicitLayoutIndentPolicy = LayoutAllowNondecreasingIndent,
+      implicitLayoutBaseline = LayoutCurrentIndent,
+      implicitLayoutChildBaseline = LayoutCurrentIndent,
+      implicitLayoutThenElseDepth = Nothing,
+      implicitLayoutFlushEmptyAtEOF = False
+    }
+
+strictLayout :: ImplicitLayoutSpec
+strictLayout = ordinaryLayout {implicitLayoutIndentPolicy = LayoutStrictIndent}
+
+caseAlternativeLayout :: LayoutState -> ImplicitLayoutSpec
+caseAlternativeLayout st =
+  strictLayout
+    { implicitLayoutBaseline = currentChildBaseline (layoutContexts st),
+      implicitLayoutFlushEmptyAtEOF = True
+    }
+
+multiWayIfLayout :: ImplicitLayoutSpec
+multiWayIfLayout =
+  strictLayout
+    { implicitLayoutSemicolons = LayoutSuppressSemicolons
+    }
+
+thenElseDoLayout :: ImplicitLayoutSpec
+thenElseDoLayout =
+  ordinaryLayout
+    { implicitLayoutThenElseDepth = Just 0
+    }
+
+thDeclQuoteLayout :: ImplicitLayoutSpec
+thDeclQuoteLayout =
+  strictLayout
+    { implicitLayoutChildBaseline = LayoutColumnZero
+    }
+
 applyLayoutTokens :: Bool -> [Extension] -> [LexToken] -> [LexToken]
 applyLayoutTokens enableModuleLayout exts =
   go (mkInitialLayoutState enableModuleLayout exts)
@@ -47,7 +86,7 @@ noteModuleLayoutBeforeToken st tok =
         TkLineComment -> st
         TkBlockComment -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
-        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
     _ -> st
 
 {-# INLINE noteModuleLayoutAfterToken #-}
@@ -56,7 +95,7 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
     _ -> st
 
 {-# INLINE openPendingLayout #-}
@@ -68,13 +107,13 @@ openPendingLayout st tok =
       case pending of
         PendingMaybeMultiWayIf ->
           case lexTokenKind tok of
-            TkReservedPipe -> openImplicitLayout LayoutMultiWayIf st tok
+            TkReservedPipe -> openImplicitLayout multiWayIfLayout st tok
             _ -> ([], noteClassicIfInAfterThenElse (st {layoutPendingLayout = Nothing}), False)
         PendingMaybeLambdaCases ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
-            _ -> openImplicitLayout LayoutCaseAlternative st tok
-        PendingImplicitLayout kind ->
+            _ -> openImplicitLayout (caseAlternativeLayout st) st tok
+        PendingImplicitLayout spec ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
             tkKind
@@ -85,24 +124,30 @@ openPendingLayout st tok =
                       openTok = virtualSymbolToken "{" anchor
                       closeTok = virtualSymbolToken "}" anchor
                    in ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
-            _ -> openImplicitLayout kind st tok
+            _ -> openImplicitLayout spec st tok
 
-openImplicitLayout :: ImplicitLayoutKind -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
-openImplicitLayout kind st tok =
+openImplicitLayout :: ImplicitLayoutSpec -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
+openImplicitLayout spec st tok =
   let col = tokenStartCol tok
       parentIndent =
-        case (kind, layoutContexts st) of
-          (LayoutCaseAlternative, LayoutImplicit _ LayoutTHDeclQuote : _) -> 0
-          _ -> currentLayoutIndent (layoutContexts st)
+        case implicitLayoutBaseline spec of
+          LayoutCurrentIndent -> currentLayoutIndent (layoutContexts st)
+          LayoutColumnZero -> 0
       openTok = virtualSymbolToken "{" (lexTokenSpan tok)
       closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
-      newContext = LayoutImplicit col kind
-      -- Under NondecreasingIndentation, same-column nesting is allowed for
-      -- ordinary statement layouts (not declaration where-blocks).
+      newContext =
+        LayoutImplicit
+          LayoutFrame
+            { layoutFrameIndent = col,
+              layoutFrameSemicolons = implicitLayoutSemicolons spec,
+              layoutFrameChildBaseline = implicitLayoutChildBaseline spec,
+              layoutFrameThenElseDepth = implicitLayoutThenElseDepth spec
+            }
       opensEmpty =
-        if layoutNondecreasingIndent st && allowsNondecreasingLayout kind
-          then col < parentIndent
-          else col <= parentIndent
+        case implicitLayoutIndentPolicy spec of
+          LayoutAllowNondecreasingIndent
+            | layoutNondecreasingIndent st -> col < parentIndent
+          _ -> col <= parentIndent
    in if opensEmpty
         then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
         else
@@ -114,79 +159,37 @@ openImplicitLayout kind st tok =
             True
           )
 
-allowsNondecreasingLayout :: ImplicitLayoutKind -> Bool
-allowsNondecreasingLayout kind =
-  case kind of
-    LayoutOrdinary -> True
-    LayoutAfterThenElse {} -> True
-    _ -> False
-
 {-# INLINE closeBeforeToken #-}
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
   case lexTokenKind tok of
-    TkKeywordWhere -> closeBeforeWhere
-    TkKeywordIn
-      | layoutPrevTokenKind st == Just TkSpecialRBrace -> ([], st)
-      | otherwise ->
-          let (inserted, ctxs') = closeLeadingImplicitLet anchor (layoutContexts st)
-           in (inserted, st {layoutContexts = ctxs'})
     kind
       | closesImplicitBeforeDelimiter kind ->
           let (pendingInserted, st0) = flushPendingImplicitLayout st anchor
               (inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -> True) (layoutContexts st0)
            in (pendingInserted <> inserted, st0 {layoutContexts = ctxs'})
-    TkKeywordThen -> closeBeforeThenElse
-    TkKeywordElse -> closeBeforeThenElse
+      | closesImplicitBeforeLayoutKeyword kind ->
+          closeBeforeLayoutKeyword
     _ -> ([], st)
   where
     anchor = lexTokenSpan tok
-    closeTok = virtualSymbolToken "}" anchor
 
-    -- Close enclosing LayoutCaseAlternative contexts when 'where' appears
-    -- at or to the left of their indent column.  This loops through the
-    -- stack to handle nested case expressions (inner case inside outer
-    -- case alternative) where multiple LayoutCaseAlternative contexts
-    -- need closing.
-    closeBeforeWhere =
+    closeBeforeLayoutKeyword =
       let col = tokenStartCol tok
-          -- Flush any pending implicit layout as an empty block before
-          -- closing contexts.
-          (pendingInserted, st0) =
-            flushPendingImplicitLayout st anchor
-          go ctxs =
-            case ctxs of
-              LayoutImplicit indent LayoutCaseAlternative : rest
-                | col <= indent ->
-                    let (inner, rest') = go rest
-                     in (closeTok : inner, rest')
-              LayoutImplicit indent _ : rest
-                | col < indent ->
-                    let (inner, rest') = go rest
-                     in (closeTok : inner, rest')
-              _ -> ([], ctxs)
-          (closed, ctxs') = go (layoutContexts st0)
-       in (pendingInserted <> closed, st0 {layoutContexts = ctxs'})
+          (pendingInserted, st0) = flushPendingImplicitLayout st anchor
+          (inserted, ctxs') = closeImplicitLayouts anchor (shouldClose col) (layoutContexts st0)
+       in (pendingInserted <> inserted, st0 {layoutContexts = ctxs'})
 
-    -- Close implicit layouts before 'then'/'else'.
-    -- A `then do`/`else do` block stays open across nested conditionals inside
-    -- the block. Only a `then`/`else` at or to the left of the block's own
-    -- layout column can terminate it.
-    closeBeforeThenElse =
-      let col = tokenStartCol tok
-          go ctxs =
-            case ctxs of
-              LayoutImplicit indent kind : rest
-                | LayoutAfterThenElse nestedIfs <- kind,
-                  nestedIfs == 0,
-                  col <= indent ->
-                    ([closeTok], rest)
-                | col < indent ->
-                    let (inner, rest') = go rest
-                     in (closeTok : inner, rest')
-              _ -> ([], ctxs)
-          (closed, ctxs') = go (layoutContexts st)
-       in (closed, st {layoutContexts = ctxs'})
+    shouldClose col indent kind =
+      col < indent || (col == indent && closesSameColumnLayout kind)
+
+    closesSameColumnLayout kind =
+      case (lexTokenKind tok, kind) of
+        (TkKeywordThen, LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs}) -> nestedIfs == 0
+        (TkKeywordElse, LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs}) -> nestedIfs == 0
+        (TkKeywordThen, _) -> False
+        (TkKeywordElse, _) -> False
+        _ -> True
 
 flushPendingImplicitLayout :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
 flushPendingImplicitLayout st anchor =
@@ -200,10 +203,11 @@ flushPendingImplicitLayout st anchor =
 flushPendingCaseLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
 flushPendingCaseLayoutAtEOF st anchor =
   case layoutPendingLayout st of
-    Just (PendingImplicitLayout LayoutCaseAlternative) ->
-      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
-        st {layoutPendingLayout = Nothing}
-      )
+    Just (PendingImplicitLayout spec)
+      | implicitLayoutFlushEmptyAtEOF spec ->
+          ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+            st {layoutPendingLayout = Nothing}
+          )
     Just PendingMaybeLambdaCases ->
       ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
         st {layoutPendingLayout = Nothing}
@@ -231,30 +235,24 @@ bolLayout st tok
 currentLayoutAllowsSemicolon :: [LayoutContext] -> Bool
 currentLayoutAllowsSemicolon contexts =
   case contexts of
-    LayoutImplicit _ LayoutMultiWayIf : _ -> False
-    LayoutImplicit _ _ : _ -> True
+    LayoutImplicit LayoutFrame {layoutFrameSemicolons = LayoutSuppressSemicolons} : _ -> False
+    LayoutImplicit _ : _ -> True
     _ -> False
 
-closeImplicitLayouts :: SourceSpan -> (Int -> ImplicitLayoutKind -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeImplicitLayouts :: SourceSpan -> (Int -> LayoutFrame -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeImplicitLayouts anchor shouldClose = go []
   where
     closeTok = virtualSymbolToken "}" anchor
 
     go acc contexts =
       case contexts of
-        LayoutImplicit indent kind : rest
-          | shouldClose indent kind -> go (closeTok : acc) rest
+        LayoutImplicit frame : rest
+          | shouldClose (layoutFrameIndent frame) frame -> go (closeTok : acc) rest
         _ -> (reverse acc, contexts)
 
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
 closeAllImplicit contexts anchor =
   [virtualSymbolToken "}" anchor | ctx <- contexts, isImplicitLayoutContext ctx]
-
-closeLeadingImplicitLet :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeLeadingImplicitLet anchor contexts =
-  case contexts of
-    LayoutImplicit _ LayoutLetBlock : rest -> ([virtualSymbolToken "}" anchor], rest)
-    _ -> ([], contexts)
 
 {-# INLINE stepTokenContext #-}
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
@@ -263,33 +261,33 @@ stepTokenContext st tok =
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
-      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+          st {layoutPendingLayout = Just (PendingImplicitLayout thenElseDoLayout)}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
+    TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
     TkQualifiedDo {}
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse 0))}
-      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkQualifiedMdo {} -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
+          st {layoutPendingLayout = Just (PendingImplicitLayout thenElseDoLayout)}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
+    TkQualifiedMdo {} -> st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
+    TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout (caseAlternativeLayout st))}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
+          st {layoutPendingLayout = Just (PendingImplicitLayout (caseAlternativeLayout st))}
       | otherwise -> st
     TkVarId "cases"
       | layoutLambdaCase st && layoutPrevTokenKind st == Just TkReservedBackslash ->
           st {layoutPendingLayout = Just PendingMaybeLambdaCases}
       | otherwise -> st
-    TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
-    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutWhereBlock)}
+    TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout strictLayout)}
+    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}
+    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout strictLayout)}
     TkKeywordElse -> decrementAfterThenElseClassicIfDepth st
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     TkTHDeclQuoteOpen ->
       st
         { layoutContexts = LayoutDelimiter : layoutContexts st,
-          layoutPendingLayout = Just (PendingImplicitLayout LayoutTHDeclQuote)
+          layoutPendingLayout = Just (PendingImplicitLayout thDeclQuoteLayout)
         }
     kind
       | opensDelimiter kind ->
@@ -306,8 +304,8 @@ mapAfterThenElse f = go
   where
     go contexts =
       case contexts of
-        LayoutImplicit indent (LayoutAfterThenElse nestedIfs) : rest ->
-          LayoutImplicit indent (LayoutAfterThenElse (f nestedIfs)) : rest
+        LayoutImplicit frame@LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs} : rest ->
+          LayoutImplicit frame {layoutFrameThenElseDepth = Just (f nestedIfs)} : rest
         ctx : rest -> ctx : go rest
         [] -> []
 
@@ -336,13 +334,19 @@ currentLayoutIndent contexts = fromMaybe 0 (currentLayoutIndentMaybe contexts)
 currentLayoutIndentMaybe :: [LayoutContext] -> Maybe Int
 currentLayoutIndentMaybe contexts =
   case contexts of
-    LayoutImplicit indent _ : _ -> Just indent
+    LayoutImplicit LayoutFrame {layoutFrameIndent = indent} : _ -> Just indent
     _ -> Nothing
+
+currentChildBaseline :: [LayoutContext] -> LayoutBaseline
+currentChildBaseline contexts =
+  case contexts of
+    LayoutImplicit LayoutFrame {layoutFrameChildBaseline = baseline} : _ -> baseline
+    _ -> LayoutCurrentIndent
 
 isImplicitLayoutContext :: LayoutContext -> Bool
 isImplicitLayoutContext ctx =
   case ctx of
-    LayoutImplicit _ _ -> True
+    LayoutImplicit _ -> True
     LayoutExplicit -> False
     LayoutDelimiter -> False
 
@@ -397,6 +401,18 @@ closesImplicitBeforeDelimiter kind =
     TkSpecialRBrace -> True
     _ -> False
 
+-- | Reserved words that cannot start an item in the currently open layout list.
+-- At the same column as that layout they trigger the report's parse-error rule:
+-- inserting @}@ makes the keyword legal where inserting @;@ would not.
+closesImplicitBeforeLayoutKeyword :: LexTokenKind -> Bool
+closesImplicitBeforeLayoutKeyword kind =
+  case kind of
+    TkKeywordWhere -> True
+    TkKeywordIn -> True
+    TkKeywordThen -> True
+    TkKeywordElse -> True
+    _ -> False
+
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL _ = lexTokenAtLineStart
 
@@ -433,7 +449,7 @@ layoutTransition st tok =
 closeImplicitLayoutContext :: LayoutState -> Maybe LayoutState
 closeImplicitLayoutContext st =
   case layoutContexts st of
-    LayoutImplicit _ _ : rest -> Just (closeWith rest)
+    LayoutImplicit _ : rest -> Just (closeWith rest)
     _ -> Nothing
   where
     anchor = fromMaybe noSpan (layoutPrevTokenEndSpan st)
