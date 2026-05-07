@@ -57,6 +57,13 @@ import Test.Properties.NoExceptions
     prop_preprocessorArbitraryTextNoExceptions,
     prop_typeParserArbitraryTokensNoExceptions,
   )
+import Test.Properties.ParensIdempotency
+  ( prop_declParensIdempotent,
+    prop_exprParensIdempotent,
+    prop_moduleParensIdempotent,
+    prop_patternParensIdempotent,
+    prop_typeParensIdempotent,
+  )
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.ShorthandSubset
   ( prop_shorthandDeclSubsetOfShow,
@@ -335,6 +342,11 @@ buildTests = do
               QC.testProperty "generated module AST validator" prop_moduleValidator,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
+              QC.testProperty "module paren insertion is idempotent" prop_moduleParensIdempotent,
+              QC.testProperty "decl paren insertion is idempotent" prop_declParensIdempotent,
+              QC.testProperty "expr paren insertion is idempotent" prop_exprParensIdempotent,
+              QC.testProperty "pattern paren insertion is idempotent" prop_patternParensIdempotent,
+              QC.testProperty "type paren insertion is idempotent" prop_typeParensIdempotent,
               QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
               QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
               QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,

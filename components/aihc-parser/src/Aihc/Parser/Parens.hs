@@ -1280,12 +1280,12 @@ addExprGuardedParens expr =
     EMultiWayIf {} -> addExprParens expr
     _ -> addExprParensIn CtxGuarded expr
 
--- | A top-level infix expression whose left operand starts with layout-sensitive
+-- | A non-RHS infix expression whose left operand starts with layout-sensitive
 -- syntax like @if |@ needs that operand grouped; otherwise the operator can be
 -- reparsed into the layout block's trailing body.
 addTopLevelInfixLhsParens :: Int -> Expr -> Expr
 addTopLevelInfixLhsParens prec lhs
-  | prec == 0 && startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
+  | prec /= 1 && startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
   | otherwise = addExprParensIn CtxInfixLhs lhs
 
 startsWithMultiWayIf :: Expr -> Bool

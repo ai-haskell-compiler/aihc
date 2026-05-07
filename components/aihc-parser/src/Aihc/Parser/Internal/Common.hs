@@ -466,18 +466,10 @@ optionalSuffix suffixParser attach parser = do
       Nothing -> base
 
 parens :: TokParser a -> TokParser a
-parens parser = do
-  expectedTok TkSpecialLParen
-  res <- parser
-  expectedTok TkSpecialRParen
-  pure res
+parens parser = expectedTok TkSpecialLParen *> parser <* expectedTok TkSpecialRParen
 
 braces :: TokParser a -> TokParser a
-braces parser = do
-  expectedTok TkSpecialLBrace
-  res <- parser
-  closeAndExpectRBrace
-  pure res
+braces parser = expectedTok TkSpecialLBrace *> parser <* closeAndExpectRBrace
 
 -- | Parse a delimited construct with an annotation wrapper.
 -- Used for Template Haskell quotes: @open body close@.
