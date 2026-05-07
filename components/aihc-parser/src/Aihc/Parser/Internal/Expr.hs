@@ -253,11 +253,7 @@ doStmtParser = do
   case lexTokenKind tok of
     TkKeywordLet -> MP.try doLetStmtParser <|> doBindOrExprStmtParser
     TkKeywordRec -> doRecStmtParser
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then doPatBindStmtParser
-        else doBindOrExprStmtParser
+    _ -> MP.try doPatBindStmtParser <|> doBindOrExprStmtParser
 
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
@@ -914,7 +910,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
     parseUnboxedSumExprLeadingBars closeTok = do
       _ <- expectedTok TkReservedPipe
-      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      leadingBars <- MP.many (expectedTok TkReservedPipe)
       let altIdx = 1 + length leadingBars
       inner <- texprParser
       trailingBars <- MP.many (expectedTok TkReservedPipe)
