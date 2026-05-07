@@ -12,15 +12,13 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
-import Data.Data (Data (..), dataTypeConstrs, dataTypeOf, showConstr, toConstr)
-import Data.Dynamic (Typeable)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Typeable (cast)
 import Numeric (showHex, showOct)
-import ParserValidation (formatDiff, validateParser)
+import ParserValidation (formatDiff, stripParens, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.ErrorMessages.Suite (errorMessageTests)
@@ -89,31 +87,6 @@ sampleGen count gen = QGen.unGen (QC.vectorOf count gen) (QRandom.mkQCGen 202604
 
 renderPretty :: (Pretty a) => a -> Text
 renderPretty = renderStrict . layoutPretty defaultLayoutOptions . pretty
-
-stripParens :: (Data a) => a -> a
-stripParens x = applyStrip (gmapT stripParens x)
-  where
-    applyStrip :: (Data c) => c -> c
-    applyStrip =
-      id
-        `extT` stripExprParens
-        `extT` stripTypeParens
-        `extT` stripPatternParens
-
-    stripExprParens :: Expr -> Expr
-    stripExprParens (EParen expr) = expr
-    stripExprParens expr = expr
-
-    stripTypeParens :: Type -> Type
-    stripTypeParens (TParen typ) = typ
-    stripTypeParens typ = typ
-
-    stripPatternParens :: Pattern -> Pattern
-    stripPatternParens (PParen pat) = pat
-    stripPatternParens pat = pat
-
-    extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
-    extT f g y = fromMaybe (f y) (cast . g =<< cast y)
 
 assertParsedExprPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
 assertParsedExprPrettyRoundTrip config source expected =
