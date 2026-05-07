@@ -457,7 +457,7 @@ withSpan parser = do
   pure (out parserSpan)
 
 optionalSuffix :: TokParser b -> (a -> b -> a) -> TokParser a -> TokParser a
-optionalSuffix suffixParser attach parser = region "optional suffix" $ do
+optionalSuffix suffixParser attach parser = do
   base <- parser
   mSuffix <- MP.optional suffixParser
   pure $
