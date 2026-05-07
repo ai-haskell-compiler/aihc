@@ -270,13 +270,14 @@ needsExprParens :: ExprCtx -> Expr -> Bool
 needsExprParens ctx (EAnn _ sub) = needsExprParens ctx sub
 needsExprParens ctx expr =
   case ctx of
-    CtxInfixRhs _protectOpenEnded ->
+    CtxInfixRhs protectOpenEnded ->
       case expr of
-        -- EInfix on the RHS does NOT need parenthesization: the parser
-        -- builds right-associated chains, so nested infix on the RHS is
-        -- the natural nesting direction.  Printing without parens
-        -- produces the same text as the original source.
+        -- The expression parser builds left-associated chains, so a nested
+        -- infix expression on the RHS only appears when the source had
+        -- explicit parentheses.
+        EInfix {} -> True
         ETypeSig {} -> True
+        _ | protectOpenEnded && absorbsFollowingInfix expr -> True
         -- ENegate does NOT need parenthesization in infix RHS position.
         -- GHC already rejects `x + - 1` (precedence >= 6) at parse time,
         -- so any ENegate appearing as the RHS of an infix operator in a
@@ -286,11 +287,6 @@ needsExprParens ctx expr =
         _ -> False
     CtxInfixLhs ->
       case expr of
-        -- EInfix on the LHS needs parenthesization: the parser builds
-        -- right-associated chains, so a nested EInfix on the LHS can only
-        -- appear when the source had explicit parentheses.  Without the
-        -- wrapping, the re-parsed tree would right-associate differently.
-        EInfix {} -> True
         ETypeSig {} -> True
         -- ENegate needs parenthesization when its inner expression is
         -- open-ended (e.g. ends with a `let` body).  Without parens, the
@@ -456,11 +452,9 @@ needsTypeParens ctx ty =
         -- TStar renders as @*@, which merges with the preceding @\@@ in
         -- visible type application to form a single operator token @\@*@.
         TStar {} -> True
-        -- TSplice renders as @$name@ or @$(expr)@. Parenthesizing this form in
-        -- type-application argument positions changes the pretty output from
-        -- @$expr@ to @(@$expr)@ and can trigger avoidable roundtrip mismatches
-        -- in instance heads.
-        TSplice {} -> False
+        -- TSplice renders with a leading '$', which merges with the preceding
+        -- visible type-application '@' into an operator token.
+        TSplice {} -> True
         -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
         -- the surrounding -> U into the implicit param type.
         TImplicitParam {} -> True
@@ -1004,6 +998,8 @@ addExprParens :: Expr -> Expr
 addExprParens = addExprParensPrec 0
 
 addExprParensIn :: ExprCtx -> Expr -> Expr
+addExprParensIn ctx@(CtxInfixRhs protectOpenEnded) expr@EInfix {} =
+  wrapExpr (needsExprParens ctx expr) (addInfixRhsParens protectOpenEnded expr)
 addExprParensIn ctx expr =
   wrapExpr (needsExprParens ctx expr) (addExprParensPrec (exprCtxPrec ctx expr) expr)
 
@@ -1057,7 +1053,7 @@ addExprParensPrec prec expr =
       wrapExpr
         (prec > 1)
         ( EInfix
-            (addExprParensIn CtxInfixLhs lhs)
+            (addTopLevelInfixLhsParens prec lhs)
             op
             (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
         )
@@ -1296,6 +1292,47 @@ addExprGuardedParens expr =
     EIf {} -> addExprParens expr
     EMultiWayIf {} -> addExprParens expr
     _ -> addExprParensIn CtxGuarded expr
+
+-- | A top-level infix expression whose left operand starts with layout-sensitive
+-- syntax like @if |@ needs that operand grouped; otherwise the operator can be
+-- reparsed into the layout block's trailing body.
+addTopLevelInfixLhsParens :: Int -> Expr -> Expr
+addTopLevelInfixLhsParens prec lhs
+  | prec /= 1 && startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
+  | otherwise = addInfixLhsParens lhs
+
+addInfixLhsParens :: Expr -> Expr
+addInfixLhsParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addInfixLhsParens sub)
+    EInfix lhs op rhs ->
+      EInfix
+        (addInfixLhsParens lhs)
+        op
+        (addExprParensIn (CtxInfixRhs True) rhs)
+    _ -> addExprParensIn CtxInfixLhs expr
+
+addInfixRhsParens :: Bool -> Expr -> Expr
+addInfixRhsParens protectOpenEnded expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addInfixRhsParens protectOpenEnded sub)
+    EInfix lhs op rhs ->
+      EInfix
+        (addNestedInfixRhsLhsParens lhs)
+        op
+        (addExprParensIn (CtxInfixRhs protectOpenEnded) rhs)
+    _ -> addExprParensPrec (exprCtxPrec (CtxInfixRhs protectOpenEnded) expr) expr
+
+addNestedInfixRhsLhsParens :: Expr -> Expr
+addNestedInfixRhsLhsParens lhs
+  | startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
+  | otherwise = addInfixLhsParens lhs
+
+absorbsFollowingInfix :: Expr -> Bool
+absorbsFollowingInfix = \case
+  EAnn _ sub -> absorbsFollowingInfix sub
+  EProc {} -> True
+  _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case
@@ -1562,11 +1599,6 @@ addViewExprParens expr =
         EProc {} -> True
         _ -> False
 
--- | Check if an operator is the cons operator ':'.
-isConsOperator :: Name -> Bool
-isConsOperator name =
-  renderName name == ":"
-
 addPatternAtomParens :: Pattern -> Pattern
 addPatternAtomParens pat =
   case pat of
@@ -1589,11 +1621,7 @@ addPatternAtomParens pat =
     PSplice {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
-    PInfix _ op _
-      | isConsOperator op ->
-          -- Cons operator (:) is right-associative, so nested cons patterns
-          -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
-          addPatternParens pat
+    PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> wrapPat True (addPatternParens pat)
 
 -- | Add parens for a pattern in infix-pattern operand position.
@@ -1607,17 +1635,18 @@ addPatternInfixOperandParens pat =
     PAnn ann sub -> PAnn ann (addPatternInfixOperandParens sub)
     PNegLit _ -> addPatternParens pat
     PCon {} -> addPatternParens pat
+    PInfix {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
 -- | Add parens for the right operand of a 'PInfix' pattern.
--- Infix patterns in Haskell are right-recursive (@infixpat -> pat10 conop infixpat@),
--- so a nested 'PInfix' on the RHS is the natural parse and does not need wrapping.
+-- The parser builds left-associated chains, so a nested 'PInfix' on the RHS
+-- needs explicit grouping.
 addPatternInfixRhsOperandParens :: Pattern -> Pattern
 addPatternInfixRhsOperandParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternInfixRhsOperandParens sub)
     PCon {} -> addPatternParens pat
-    PInfix {} -> addPatternParens pat
+    PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in arrow binder position (lambda/proc).

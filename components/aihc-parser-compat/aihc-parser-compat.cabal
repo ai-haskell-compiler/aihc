@@ -1,0 +1,66 @@
+cabal-version: 3.8
+name: aihc-parser-compat
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Compilers
+synopsis: Compatibility conversion from aihc-parser ASTs to ghc-lib-parser ASTs
+
+library
+  exposed-modules:
+    Aihc.Parser.Compat
+
+  other-modules:
+    Aihc.Parser.Compat.Internal.Convert
+    Aihc.Parser.Compat.Internal.Ghc
+
+  hs-source-dirs: src
+  build-depends:
+    aihc-parser,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    ghc-lib-parser,
+    prettyprinter,
+    text >=1.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    test
+    src
+
+  main-is: Spec.hs
+  other-modules:
+    Aihc.Parser.Compat
+    Aihc.Parser.Compat.Internal.Convert
+    Aihc.Parser.Compat.Internal.Ghc
+    Test.Compat.Expr
+
+  build-depends:
+    QuickCheck,
+    aihc-parser,
+    aihc-parser:parser-test-support,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    ghc-lib-parser,
+    prettyprinter,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text >=1.2,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  default-language: GHC2021

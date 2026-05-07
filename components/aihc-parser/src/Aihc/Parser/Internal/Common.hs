@@ -62,6 +62,8 @@ module Aihc.Parser.Internal.Common
     isConLikeNameType,
     liftCheck,
     infixOperatorParser,
+    infixOperatorParserExcept,
+    foldInfixL,
     foldInfixR,
   )
 where
@@ -986,12 +988,16 @@ liftCheck :: Either Text a -> TokParser a
 liftCheck (Right a) = pure a
 liftCheck (Left msg) = fail (T.unpack msg)
 
--- | Parse an infix operator
+-- | Parse an infix operator.
 infixOperatorParser :: TokParser Name
-infixOperatorParser =
+infixOperatorParser = infixOperatorParserExcept []
+
+-- | Parse an infix operator, optionally excluding specified operators.
+infixOperatorParserExcept :: [Text] -> TokParser Name
+infixOperatorParserExcept forbidden =
   symbolicOperatorParser <|> backtickIdentifierOperatorParser
   where
-    allowed op = renderName op `notElem` []
+    allowed op = renderName op `notElem` forbidden
 
     symbolicOperatorParser =
       tokenSatisfy "infix operator" $ \tok ->
@@ -1027,14 +1033,20 @@ infixOperatorParser =
       expectedTok TkSpecialBacktick
       if allowed op then pure op else fail "forbidden infix operator"
 
+-- | Build a left-associated infix chain from a left operand and a list
+-- of @(operator, operand)@ pairs.  Given @lhs@ and
+-- @[(op1, a), (op2, b), (op3, c)]@ this produces
+-- @((lhs \`op1\` a) \`op2\` b) \`op3\` c@.
+--
+-- This matches GHC's parsed expression AST before any later fixity
+-- reassociation pass has run.
+foldInfixL :: (a -> (op, a) -> a) -> a -> [(op, a)] -> a
+foldInfixL = foldl
+
 -- | Build a right-associated infix chain from a left operand and a list
 -- of @(operator, operand)@ pairs.  Given @lhs@ and
 -- @[(op1, a), (op2, b), (op3, c)]@ this produces
 -- @lhs \`op1\` (a \`op2\` (b \`op3\` c))@.
---
--- Right-association is the correct default when no fixity information is
--- available: the end-user of the library is responsible for
--- re-associating the tree according to operator precedence.
 foldInfixR :: (a -> (op, a) -> a) -> a -> [(op, a)] -> a
 foldInfixR _ lhs [] = lhs
 foldInfixR build lhs ((op, rhs) : rest) =

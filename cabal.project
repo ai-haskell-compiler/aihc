@@ -5,6 +5,7 @@ packages:
   bin/aihc
   components/aihc-cpp
   components/aihc-parser
+  components/aihc-parser-compat
   components/aihc-resolve
   components/aihc-tc
   components/aihc-fc
