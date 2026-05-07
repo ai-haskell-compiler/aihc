@@ -990,48 +990,29 @@ liftCheck (Left msg) = fail (T.unpack msg)
 
 -- | Parse an infix operator.
 infixOperatorParser :: TokParser Name
-infixOperatorParser = infixOperatorParserExcept []
+infixOperatorParser = infixOperatorParserExcept
 
 -- | Parse an infix operator, optionally excluding specified operators.
-infixOperatorParserExcept :: [Text] -> TokParser Name
-infixOperatorParserExcept forbidden =
+infixOperatorParserExcept :: TokParser Name
+infixOperatorParserExcept =
   symbolicOperatorParser <|> backtickIdentifierOperatorParser
   where
-    allowed op = renderName op `notElem` forbidden
-
     symbolicOperatorParser =
       tokenSatisfy "infix operator" $ \tok ->
         case lexTokenKind tok of
-          TkVarSym op ->
-            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym op)
-             in if allowed name then Just name else Nothing
-          TkConSym op ->
-            let name = qualifyName Nothing (mkUnqualifiedName NameConSym op)
-             in if allowed name then Just name else Nothing
-          TkPrefixPercent ->
-            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym "%")
-             in if allowed name then Just name else Nothing
-          TkQVarSym modName op ->
-            let name = mkName (Just modName) NameVarSym op
-             in if allowed name then Just name else Nothing
-          TkQConSym modName op ->
-            let name = mkName (Just modName) NameConSym op
-             in if allowed name then Just name else Nothing
+          TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
+          TkPrefixPercent -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "%"))
+          TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
+          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
           -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
-          TkMinusOperator ->
-            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym "-")
-             in if allowed name then Just name else Nothing
+          TkMinusOperator -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-"))
           -- Reserved operators that can be used as infix operators
-          TkReservedColon ->
-            let name = qualifyName Nothing (mkUnqualifiedName NameConSym ":")
-             in if allowed name then Just name else Nothing
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
 
-    backtickIdentifierOperatorParser = do
-      expectedTok TkSpecialBacktick
-      op <- identifierNameParser
-      expectedTok TkSpecialBacktick
-      if allowed op then pure op else fail "forbidden infix operator"
+    backtickIdentifierOperatorParser =
+      expectedTok TkSpecialBacktick *> identifierNameParser <* expectedTok TkSpecialBacktick
 
 -- | Build a left-associated infix chain from a left operand and a list
 -- of @(operator, operand)@ pairs.  Given @lhs@ and

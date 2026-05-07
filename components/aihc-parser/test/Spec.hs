@@ -262,7 +262,7 @@ buildTests = do
             testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
-            testCase "pretty-prints multi-way if left operands with parentheses" test_prettyMultiWayIfInfixLhs,
+            testCase "pretty-prints multi-way if left operands using layout" test_prettyMultiWayIfInfixLhs,
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
             testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,

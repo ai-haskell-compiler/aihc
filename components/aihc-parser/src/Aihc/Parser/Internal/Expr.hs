@@ -3,25 +3,9 @@
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
-    exprParserWithTypeSigParser,
     atomExprParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,
-    -- Re-exports from Pattern
-    simplePatternParser,
-    appPatternParser,
-    asOrAppPatternParser,
-    patternParser,
-    -- Re-exports from Type
-    typeParser,
-    typeInfixParser,
-    typeInfixOperatorParser,
-    typeHeadInfixParser,
-    typeAppParser,
-    typeAtomParser,
-    -- Re-exports from Common
-    startsWithTypeSig,
-    startsWithContextType,
     -- Needed by Cmd.hs via SOURCE
     exprParserNoArrowTail,
     parseLetDeclsParser,
@@ -33,8 +17,8 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, asOrAppPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
+import Aihc.Parser.Internal.Type (typeAtomParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -240,12 +224,6 @@ exprCoreParserNoArrowTail =
         TkKeywordProc -> procExprParser
         TkReservedBackslash -> lambdaExprParser
         _ -> infixExprParser
-
-startsWithPatternBind :: TokParser Bool
-startsWithPatternBind =
-  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- patternParser
-    expectedTok TkReservedLeftArrow
 
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
@@ -644,11 +622,7 @@ guardQualifierParser arrowKind = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser arrowKind
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then guardPatBindParser
-        else guardBindOrExprParser arrowKind
+    _ -> MP.try guardPatBindParser <|> guardBindOrExprParser arrowKind
 
 -- | Parse a guard expression or pattern bind. The 'RhsArrowKind' selects the
 -- type parser for @::@ annotations: 'RhsArrowEquation' uses 'typeParser'
@@ -981,11 +955,7 @@ compStmtParser = do
   case lexTokenKind tok of
     TkKeywordLet -> MP.try compLetStmtParser <|> compGenOrGuardParser
     TkKeywordThen -> compTransformStmtParser <|> compGenOrGuardParser
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then compPatGenParser
-        else compGenOrGuardParser
+    _ -> MP.try compPatGenParser <|> compGenOrGuardParser
 
 -- | Parse a TransformListComp qualifier: @then f@, @then f by e@,
 -- @then group by e using f@, or @then group using f@.
