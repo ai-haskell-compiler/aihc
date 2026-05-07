@@ -207,7 +207,7 @@ classifySuccess meta actualAst =
       | actualAst == caseAst meta -> (OutcomePass, "")
       | otherwise ->
           ( OutcomeFail,
-            "AST mismatch (expected=" <> show (caseAst meta) <> ", actual=" <> show actualAst <> ")"
+            "AST mismatch.\nExpected:\n" <> show (caseAst meta) <> "\nActual:\n" <> show actualAst
           )
     StatusFail ->
       ( OutcomeFail,

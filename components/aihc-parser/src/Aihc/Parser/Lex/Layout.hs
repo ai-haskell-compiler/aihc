@@ -73,7 +73,6 @@ openPendingLayout st tok =
         PendingMaybeLambdaCases ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
-            TkReservedRightArrow -> ([], st {layoutPendingLayout = Nothing}, False)
             _ -> openImplicitLayout LayoutCaseAlternative st tok
         PendingImplicitLayout kind ->
           case lexTokenKind tok of
@@ -266,7 +265,7 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just (PendingImplicitLayout LayoutCaseAlternative)}
       | otherwise -> st
     TkVarId "cases"
-      | layoutPrevTokenKind st == Just TkReservedBackslash ->
+      | layoutLambdaCase st && layoutPrevTokenKind st == Just TkReservedBackslash ->
           st {layoutPendingLayout = Just PendingMaybeLambdaCases}
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}

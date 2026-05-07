@@ -10,7 +10,6 @@ module Aihc.Parser.Lex
     LexTokenKind (..),
     pattern TkVarRole,
     pattern TkVarFamily,
-    pattern TkVarInstance,
     pattern TkVarAs,
     pattern TkVarHiding,
     pattern TkVarQualified,

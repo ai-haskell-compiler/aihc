@@ -83,7 +83,7 @@ cmdInfixChain lhs = do
   rest <-
     MP.many
       ( (,)
-          <$> infixOperatorParserExcept []
+          <$> infixOperatorParser
           <*> cmdParser
       )
   pure (foldl buildCmdInfix lhs rest)

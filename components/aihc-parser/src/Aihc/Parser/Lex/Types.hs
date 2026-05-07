@@ -9,7 +9,6 @@ module Aihc.Parser.Lex.Types
   ( LexTokenKind (..),
     pattern TkVarRole,
     pattern TkVarFamily,
-    pattern TkVarInstance,
     pattern TkVarAs,
     pattern TkVarHiding,
     pattern TkVarQualified,
@@ -183,9 +182,6 @@ pattern TkVarRole = TkVarId "role"
 pattern TkVarFamily :: LexTokenKind
 pattern TkVarFamily = TkVarId "family"
 
-pattern TkVarInstance :: LexTokenKind
-pattern TkVarInstance = TkVarId "instance"
-
 pattern TkVarAs :: LexTokenKind
 pattern TkVarAs = TkVarId "as"
 
@@ -269,7 +265,8 @@ data LayoutState = LayoutState
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
     layoutBuffer :: [LexToken],
-    layoutNondecreasingIndent :: !Bool
+    layoutNondecreasingIndent :: !Bool,
+    layoutLambdaCase :: !Bool
   }
   deriving (Eq, Show)
 
@@ -316,7 +313,8 @@ mkInitialLayoutState enableModuleLayout exts =
           else ModuleLayoutOff,
       layoutPrevTokenEndSpan = Nothing,
       layoutBuffer = [],
-      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts
+      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,
+      layoutLambdaCase = Syntax.LambdaCase `elem` exts
     }
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken

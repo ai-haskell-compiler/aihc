@@ -25,7 +25,6 @@ module Aihc.Parser.Internal.Common
     operatorNameParser,
     operatorUnqualifiedNameParser,
     operatorTextParser,
-    infixOperatorNameParser,
     constructorInfixOperatorNameParser,
     stringTextParser,
     withSpan,
@@ -62,7 +61,7 @@ module Aihc.Parser.Internal.Common
     isConLikeName,
     isConLikeNameType,
     liftCheck,
-    infixOperatorParserExcept,
+    infixOperatorParser,
     foldInfixR,
   )
 where
@@ -458,7 +457,7 @@ withSpan parser = do
   pure (out parserSpan)
 
 optionalSuffix :: TokParser b -> (a -> b -> a) -> TokParser a -> TokParser a
-optionalSuffix suffixParser attach parser = do
+optionalSuffix suffixParser attach parser = region "optional suffix" $ do
   base <- parser
   mSuffix <- MP.optional suffixParser
   pure $
@@ -995,12 +994,12 @@ liftCheck :: Either Text a -> TokParser a
 liftCheck (Right a) = pure a
 liftCheck (Left msg) = fail (T.unpack msg)
 
--- | Parse an infix operator, optionally excluding specified operators.
-infixOperatorParserExcept :: [Text] -> TokParser Name
-infixOperatorParserExcept forbidden =
+-- | Parse an infix operator
+infixOperatorParser :: TokParser Name
+infixOperatorParser =
   symbolicOperatorParser <|> backtickIdentifierOperatorParser
   where
-    allowed op = renderName op `notElem` forbidden
+    allowed op = renderName op `notElem` []
 
     symbolicOperatorParser =
       tokenSatisfy "infix operator" $ \tok ->
