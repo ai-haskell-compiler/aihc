@@ -14,6 +14,7 @@ library
     Aihc.Parser
     Aihc.Parser.Lex
     Aihc.Parser.Parens
+    Aihc.Parser.Pretty
     Aihc.Parser.Shorthand
     Aihc.Parser.Syntax
 
@@ -35,7 +36,6 @@ library
     Aihc.Parser.Lex.Quoted
     Aihc.Parser.Lex.Trivia
     Aihc.Parser.Lex.Types
-    Aihc.Parser.Pretty
     Aihc.Parser.Types
 
   hs-source-dirs: src
@@ -93,6 +93,28 @@ library parser-tooling-common
     prettyprinter,
     text >=1.2.3 && <2.2,
     yaml,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+library parser-test-support
+  visibility: public
+  hs-source-dirs: test
+  exposed-modules:
+    Test.Properties.Arb.Decl
+    Test.Properties.Arb.Expr
+    Test.Properties.Arb.Identifiers
+    Test.Properties.Arb.Module
+    Test.Properties.Arb.Pattern
+    Test.Properties.Arb.Type
+    Test.Properties.Arb.Utils
+
+  build-depends:
+    QuickCheck,
+    aihc-parser,
+    base >=4.16 && <5,
+    containers,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021

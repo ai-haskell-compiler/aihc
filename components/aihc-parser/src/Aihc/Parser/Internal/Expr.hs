@@ -93,7 +93,7 @@ exprCoreParserWithoutTypeSigBody forbiddenInfix = do
     _ -> infixExprParserExcept forbiddenInfix
   rest <- MP.many ((,) <$> infixOperatorParserExcept forbiddenInfix <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
-  let withInfix = foldInfixR buildInfix base rest
+  let withInfix = foldInfixL buildInfix base rest
   pure $ case afterArrow of
     Just (op, rhs) -> EInfix withInfix op rhs
     Nothing -> withInfix
@@ -334,7 +334,7 @@ infixExprParserWith lexp forbidden = do
           <$> infixOperatorParserExcept forbidden
           <*> region "after infix operator" lexp
       )
-  pure (foldInfixR buildInfix lhs rest)
+  pure (foldInfixL buildInfix lhs rest)
 
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 lexpParser :: TokParser Expr
@@ -750,7 +750,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                   <*> region "after infix operator" lexpParser
               )
           )
-      let withInfix = foldInfixR buildInfix negBase rest
+      let withInfix = foldInfixL buildInfix negBase rest
       mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
       let typed = case mTypeSig of
             Just ty -> ETypeSig withInfix ty
@@ -824,7 +824,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                                   <*> region "after infix operator" lexpParser
                               )
                           )
-                      let fullInfix = foldInfixR buildInfix base ((op, rhs) : more)
+                      let fullInfix = foldInfixL buildInfix base ((op, rhs) : more)
                       mTrailingOp <- MP.optional (infixOperatorParserExcept [])
                       case mTrailingOp of
                         Just trailOp -> do
@@ -1061,7 +1061,7 @@ compTransformExprWithoutTypeSigParser = do
     TkReservedBackslash -> lambdaExprParser
     _ -> compTransformInfixExprParser
   rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
-  pure (foldInfixR buildInfix base rest)
+  pure (foldInfixL buildInfix base rest)
 
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser = lexpBaseParser compTransformAppExprParser

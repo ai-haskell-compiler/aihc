@@ -454,7 +454,7 @@ prettyType ty =
     TApp f x ->
       prettyType f <+> prettyType x
     TTypeApp f x ->
-      prettyType f <+> "@" <> prettyType x
+      prettyType f <+> prettyTypeAppArg x
     TFun arrowKind a b ->
       prettyType a <+> prettyArrowKind arrowKind <+> prettyType b
     TTuple tupleFlavor promoted elems ->
@@ -707,7 +707,19 @@ prettyForallTelescope telescope =
       ForallVisible -> " ->"
 
 prettyInvisibleTypeArg :: Type -> Doc ann
-prettyInvisibleTypeArg ty = "@" <> prettyType ty
+prettyInvisibleTypeArg = prettyTypeAppArg
+
+prettyTypeAppArg :: Type -> Doc ann
+prettyTypeAppArg ty
+  | typeStartsWithSplice ty = "@" <> parens (prettyType ty)
+  | otherwise = "@" <> prettyType ty
+
+typeStartsWithSplice :: Type -> Bool
+typeStartsWithSplice ty =
+  case ty of
+    TAnn _ sub -> typeStartsWithSplice sub
+    TSplice {} -> True
+    _ -> False
 
 prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
@@ -1116,7 +1128,7 @@ prettyExpr expr =
   case expr of
     EApp {} -> prettyApp expr
     ETypeApp fn ty ->
-      prettyExpr fn <> hardline <> " " <> "@" <> prettyType ty
+      prettyExpr fn <> hardline <> " " <> prettyTypeAppArg ty
     EVar name -> prettyName name
     ETypeSyntax TypeSyntaxExplicitNamespace ty -> "type" <+> prettyType ty
     ETypeSyntax TypeSyntaxInTerm ty -> prettyType ty
@@ -1377,7 +1389,7 @@ prettyExprAtStatementStart expr =
     EAnn _ sub -> prettyExprAtStatementStart sub
     EOverloadedLabel _ raw -> pretty raw
     EApp {} -> prettyAppWith prettyExprAtStatementStart expr
-    ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> "@" <> prettyType ty
+    ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> prettyTypeAppArg ty
     EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
     ESectionL lhs op -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op
     ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> " " <> "::" <+> prettyType ty

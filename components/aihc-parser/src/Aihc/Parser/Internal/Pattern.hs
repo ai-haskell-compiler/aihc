@@ -35,7 +35,7 @@ infixPatternParser :: TokParser Pattern
 infixPatternParser = do
   lhs <- asOrAppPatternParser
   rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
-  pure (foldInfixR buildInfixPattern lhs rest)
+  pure (foldInfixL buildInfixPattern lhs rest)
 
 -- | Parse either an as-pattern (name@atom) or an application pattern.
 -- As-patterns bind tighter than infix but looser than application,
