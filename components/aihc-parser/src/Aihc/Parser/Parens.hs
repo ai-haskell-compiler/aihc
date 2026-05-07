@@ -1057,7 +1057,7 @@ addExprParensPrec prec expr =
       wrapExpr
         (prec > 1)
         ( EInfix
-            (addExprParensIn CtxInfixLhs lhs)
+            (addTopLevelInfixLhsParens prec lhs)
             op
             (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
         )
@@ -1279,6 +1279,26 @@ addExprGuardedParens expr =
     EIf {} -> addExprParens expr
     EMultiWayIf {} -> addExprParens expr
     _ -> addExprParensIn CtxGuarded expr
+
+-- | A top-level infix expression whose left operand starts with layout-sensitive
+-- syntax like @if |@ needs that operand grouped; otherwise the operator can be
+-- reparsed into the layout block's trailing body.
+addTopLevelInfixLhsParens :: Int -> Expr -> Expr
+addTopLevelInfixLhsParens prec lhs
+  | prec == 0 && startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
+  | otherwise = addExprParensIn CtxInfixLhs lhs
+
+startsWithMultiWayIf :: Expr -> Bool
+startsWithMultiWayIf = \case
+  EAnn _ sub -> startsWithMultiWayIf sub
+  EInfix lhs _ _ -> startsWithMultiWayIf lhs
+  EApp fn _ -> startsWithMultiWayIf fn
+  ERecordUpd base _ -> startsWithMultiWayIf base
+  EGetField base _ -> startsWithMultiWayIf base
+  ETypeSig inner _ -> startsWithMultiWayIf inner
+  ETypeApp fn _ -> startsWithMultiWayIf fn
+  EMultiWayIf {} -> True
+  _ -> False
 
 -- ---------------------------------------------------------------------------
 -- Types
