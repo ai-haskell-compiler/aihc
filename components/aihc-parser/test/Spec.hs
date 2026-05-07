@@ -998,14 +998,7 @@ test_prettyMultiWayIfInfixLhsInsideUnboxedSum = do
                   0)
              `a` ()) | #)
         """
-  case parseExpr config source of
-    ParseOk expr -> do
-      let stripped = stripParens expr
-          rendered = renderPretty stripped
-      assertBool "expected rendered expression to preserve grouped multi-way if lhs" ("(# (if" `T.isInfixOf` rendered)
-      assertExprRenderingRoundTrip config stripped rendered
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+  assertParsedStrippedExprShapeRoundTrip config source
 
 test_prettyWhereClauseUsesImplicitLayout :: Assertion
 test_prettyWhereClauseUsesImplicitLayout = do
