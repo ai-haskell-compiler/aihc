@@ -10,7 +10,7 @@
 
 | Extension                 | Status | Tests Passing |
 |---------------------------|:------:|---------------|
-| Arrows                    |   🟢    | 21/21         |
+| Arrows                    |   🟢    | 22/22         |
 | BangPatterns              |   🟢    | 12/12         |
 | BinaryLiterals            |   🟢    | 3/3           |
 | BlockArguments            |   🟢    | 8/8           |
@@ -35,7 +35,7 @@
 | ForeignFunctionInterface  |   🟢    | 40/40         |
 | FunctionalDependencies    |   🟢    | 7/7           |
 | GADTs                     |   🟢    | 14/14         |
-| GADTSyntax                |   🟢    | 10/10         |
+| GADTSyntax                |   🟢    | 11/11         |
 | GHC2021                   |   🟢    | 43/43         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
 | Haskell2010               |   🟢    | 16/16         |
@@ -46,11 +46,11 @@
 | InterruptibleFFI          |   🟢    | 1/1           |
 | KindSignatures            |   🟢    | 29/29         |
 | LambdaCase                |   🟢    | 15/15         |
-| LinearTypes               |   🟢    | 14/14         |
+| LinearTypes               |   🟢    | 15/15         |
 | MagicHash                 |   🟢    | 21/21         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
-| MultiWayIf                |   🟢    | 9/9           |
+| MultiWayIf                |   🟢    | 10/10         |
 | NamedFieldPuns            |   🟢    | 6/6           |
 | NamedWildCards            |   🟢    | 5/5           |
 | NegativeLiterals          |   🟢    | 1/1           |
