@@ -5,6 +5,7 @@ module Test.Properties.Arb.Expr
   ( genExpr,
     genRhs,
     mkIntExpr,
+    mkStringExpr,
     shrinkExpr,
     shrinkGuardQualifier,
   )
@@ -72,8 +73,10 @@ genExpr = scale (`div` 2) $ do
         ERecordUpd <$> genExpr <*> genRecordFieldsWith,
         ETypeSig <$> genExpr <*> genType,
         ETypeApp <$> genExpr <*> genType,
+        EParen . ETypeSyntax TypeSyntaxExplicitNamespace <$> genTypeSyntaxType,
         EParen <$> genExpr,
         EProc <$> genPattern <*> genCmdWith,
+        EParen <$> (EPragma <$> genSccPragma <*> genPragmaExpr),
         -- OverloadedRecordDot
         EGetField <$> genExpr <*> genRecordFieldName,
         EGetFieldProjection <$> smallList1 genRecordFieldName,
@@ -118,6 +121,21 @@ genOverloadedLabel :: Gen Expr
 genOverloadedLabel = do
   labelName <- suchThat genVarId (not . T.isSuffixOf "#")
   pure (EOverloadedLabel labelName ("#" <> labelName))
+
+genSccPragma :: Gen Pragma
+genSccPragma = do
+  sccLabel <- suchThat genVarId (not . T.isSuffixOf "#")
+  pure Pragma {pragmaType = PragmaSCC sccLabel, pragmaRawText = ""}
+
+genPragmaExpr :: Gen Expr
+genPragmaExpr = EVar <$> genVarName
+
+genTypeSyntaxType :: Gen Type
+genTypeSyntaxType =
+  oneof
+    [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
+      (`TCon` Unpromoted) <$> genConName
+    ]
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).

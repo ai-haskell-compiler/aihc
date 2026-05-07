@@ -368,7 +368,7 @@ addSectionLhsParens expr =
   where
     addSectionInfixRhsParens rhs =
       case peelExprAnn rhs of
-        EInfix {} -> addSectionLhsParens rhs
+        EInfix {} -> wrapExpr True (addSectionLhsParens rhs)
         _ | isOpenEnded rhs -> wrapExpr True (addExprParens rhs)
         _ -> addExprParensIn (CtxInfixRhs False) rhs
 
@@ -1331,7 +1331,13 @@ addNestedInfixRhsLhsParens lhs
 absorbsFollowingInfix :: Expr -> Bool
 absorbsFollowingInfix = \case
   EAnn _ sub -> absorbsFollowingInfix sub
+  EIf {} -> True
+  ELambdaPats {} -> True
+  ELambdaCase {} -> True
+  ELambdaCases {} -> True
+  ELetDecls {} -> True
   EProc {} -> True
+  EInfix _ _ rhs -> absorbsFollowingInfix rhs
   _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
@@ -1590,13 +1596,17 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr || isProcExpr expr
+  if endsWithTypeSig expr || isProcExpr expr || isTypeSyntaxExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
   where
     isProcExpr e =
       case peelExprAnn e of
         EProc {} -> True
+        _ -> False
+    isTypeSyntaxExpr e =
+      case peelExprAnn e of
+        ETypeSyntax {} -> True
         _ -> False
 
 addPatternAtomParens :: Pattern -> Pattern

@@ -77,10 +77,25 @@ toGhcHsExpr expr =
     A.ETHSplice body -> HsUntypedSplice noExtField (HsUntypedSpliceExpr noAnn (toGhcLHsExpr body))
     A.ETHTypedSplice body -> HsTypedSplice noExtField (HsTypedSpliceExpr noAnn (toGhcLHsExpr body))
     A.EProc pat cmd -> HsProc noAnn (toLPat pat) (lA (HsCmdTop noExtField (toLHsCmd cmd)))
-    A.EPragma _ inner -> toGhcHsExpr inner
+    A.EPragma pragma inner -> pragmaExpr pragma inner
 
 toGhcLHsExpr :: A.Expr -> LHsExpr GhcPs
 toGhcLHsExpr = lA . toGhcHsExpr
+
+pragmaExpr :: A.Pragma -> A.Expr -> HsExpr GhcPs
+pragmaExpr pragma inner =
+  case A.pragmaType pragma of
+    A.PragmaSCC label ->
+      HsPragE noExtField (HsPragSCC noAnn (stringLiteral label)) (toGhcLHsExpr inner)
+    _ -> toGhcHsExpr inner
+
+stringLiteral :: T.Text -> StringLiteral
+stringLiteral label =
+  StringLiteral
+    { sl_st = NoSourceText,
+      sl_fs = mkFastString (T.unpack label),
+      sl_tc = Nothing
+    }
 
 integerExpr :: Integer -> A.NumericType -> T.Text -> HsExpr GhcPs
 integerExpr value numeric raw =
