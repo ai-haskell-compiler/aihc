@@ -1002,18 +1002,20 @@ shrinkValueDecl :: ValueDecl -> [ValueDecl]
 shrinkValueDecl vd =
   case vd of
     PatternBind multTag pat rhs ->
-      [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
+      [PatternBind multTag simpleVarPattern rhs | not (isSimpleVarPattern pat)]
+        <> [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
         <> [PatternBind multTag pat' rhs | pat' <- shrinkPattern pat]
     FunctionBind name matches ->
-      -- Shrink multiple matches to a single match
-      [FunctionBind name [m {matchAnns = []}] | length matches > 1, m <- matches]
+      [ PatternBind NoMultiplicityTag (PVar name) (matchRhs match)
+      | match <- matches
+      ]
+        <>
+        -- Shrink multiple matches to a single match
+        [FunctionBind name [m {matchAnns = []}] | length matches > 1, m <- matches]
         -- Shrink the list of matches
         <> [FunctionBind name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
         -- Shrink the function name
         <> [FunctionBind name' matches | name' <- shrinkBinderName name]
-        <> [ PatternBind NoMultiplicityTag (PVar name) (matchRhs match)
-           | match <- matches
-           ]
 
 -- | Shrink an individual match clause.
 shrinkMatch :: Match -> [Match]
@@ -1033,14 +1035,13 @@ shrinkRhs :: Rhs Expr -> [Rhs Expr]
 shrinkRhs rhs =
   case rhs of
     UnguardedRhs _ expr mWhere ->
-      -- Drop the where clause first (big win)
-      [UnguardedRhs [] expr Nothing | isJust mWhere]
+      -- Hoist failing where-bound RHSs before shrinking the surrounding layout.
+      whereValueRhss (fromMaybe [] mWhere)
+        <> [UnguardedRhs [] expr Nothing | isJust mWhere]
         -- Shrink the expression
         <> [UnguardedRhs [] expr' mWhere | expr' <- shrinkExpr expr]
         -- Shrink the where clause
         <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
-        -- Place where with let
-        <> [rhs' | DeclValue (PatternBind _mult _pat rhs') <- fromMaybe [] mWhere]
     GuardedRhss _ grhss mWhere ->
       -- Collapse to unguarded keeping the where clause (try both with and without)
       [UnguardedRhs [] (guardedRhsBody firstGrhs) mWhere | firstGrhs : _ <- [grhss]]
@@ -1052,10 +1053,28 @@ shrinkRhs rhs =
         -- Shrink the where clause
         <> [GuardedRhss [] grhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkWhereDecls ds]
 
+isSimpleVarPattern :: Pattern -> Bool
+isSimpleVarPattern pat =
+  case pat of
+    PVar name -> unqualifiedNameType name == NameVarId && unqualifiedNameText name == "a"
+    _ -> False
+
+simpleVarPattern :: Pattern
+simpleVarPattern = PVar (mkUnqualifiedName NameVarId "a")
+
 -- | Shrink a where-clause declaration list (keep at least one decl).
 shrinkWhereDecls :: [Decl] -> [[Decl]]
 shrinkWhereDecls ds =
   [ds' | ds' <- shrinkList shrinkDecl ds, not (null ds')]
+
+whereValueRhss :: [Decl] -> [Rhs Expr]
+whereValueRhss decls =
+  [ rhs
+  | DeclValue valueDecl <- decls,
+    rhs <- case valueDecl of
+      PatternBind _ _ patternRhs -> [patternRhs]
+      FunctionBind _ matches -> map matchRhs matches
+  ]
 
 -- | Shrink a guarded RHS: shrink the body and the guards.
 shrinkGuardedRhs :: GuardedRhs Expr -> [GuardedRhs Expr]
