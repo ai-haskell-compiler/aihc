@@ -302,6 +302,7 @@ buildTests = do
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
+            testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
@@ -1285,6 +1286,18 @@ test_arrowCommandLhsLambdaCaseParens = do
             \\case
               C ->
                 []) -< ()
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+
+test_arrowCommandLhsMdoParens :: Assertion
+test_arrowCommandLhsMdoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (:+) =
+          proc a -> (()
+            + mdo
+                "nerEAot"#) -< ()
         """
   assertParsedStrippedDeclShapeRoundTrip config source
 
