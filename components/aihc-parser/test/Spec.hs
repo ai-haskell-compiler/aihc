@@ -17,7 +17,6 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, stripParens, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -1176,7 +1175,13 @@ test_prettyInfixRhsOpenEndedInsideSection = do
 test_lambdaInfixRhsBeforeFollowingInfixParens :: Assertion
 test_lambdaInfixRhsBeforeFollowingInfixParens = do
   let config = defaultConfig {parserExtensions = [QuasiQuotes]}
-  source <- TIO.readFile "test/Test/Fixtures/parens/lambda-infix-rhs-followed-by-infix.hs"
+      source =
+        """
+        (+) =
+          []
+           `a` (\\ [a||] -> 0)
+           `a` ()
+        """
   assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyReservedAtRightSection :: Assertion
