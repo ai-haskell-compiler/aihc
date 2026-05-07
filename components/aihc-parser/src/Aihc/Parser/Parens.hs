@@ -1329,10 +1329,14 @@ addNestedInfixRhsLhsParens lhs
   | otherwise = addInfixLhsParens lhs
 
 absorbsFollowingInfix :: Expr -> Bool
-absorbsFollowingInfix = \case
-  EAnn _ sub -> absorbsFollowingInfix sub
-  EProc {} -> True
-  _ -> False
+absorbsFollowingInfix expr =
+  case expr of
+    EAnn _ sub -> absorbsFollowingInfix sub
+    EProc {} -> True
+    ELambdaPats {} -> True
+    EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
+    EInfix _ _ rhs -> absorbsFollowingInfix rhs
+    _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case

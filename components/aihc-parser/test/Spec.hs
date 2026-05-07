@@ -17,6 +17,7 @@ import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, stripParens, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -272,6 +273,7 @@ buildTests = do
             testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "pretty-prints reserved at right sections" test_prettyReservedAtRightSection,
             testCase "pretty-prints layout-ending operands inside left sections" test_prettyLayoutEndingOperandInsideLeftSection,
             testCase "pretty-prints type applications after layout-ending functions" test_prettyTypeAppAfterLayoutEndingFunction,
@@ -1170,6 +1172,12 @@ test_prettyInfixRhsOpenEndedInsideSection = do
          `a`)
         """
   assertParsedStrippedExprShapeRoundTrip config source
+
+test_lambdaInfixRhsBeforeFollowingInfixParens :: Assertion
+test_lambdaInfixRhsBeforeFollowingInfixParens = do
+  let config = defaultConfig {parserExtensions = [QuasiQuotes]}
+  source <- TIO.readFile "test/Test/Fixtures/parens/lambda-infix-rhs-followed-by-infix.hs"
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyReservedAtRightSection :: Assertion
 test_prettyReservedAtRightSection = do
