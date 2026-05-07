@@ -1,0 +1,6 @@
+extensions: []
+equivalent:
+  - a + b + c
+  - (a + b) + c
+status: xfail
+reason: parser currently preserves different infix grouping after stripping parens

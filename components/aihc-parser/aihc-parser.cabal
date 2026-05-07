@@ -64,6 +64,7 @@ library parser-tooling-common
     HackageTester.Model
     HseExtensions
     LexerGolden
+    ParserEquivalent
     ParserErrorGolden
     ParserGolden
     ParserValidation
@@ -138,6 +139,7 @@ test-suite spec
     HackageTester.Model
     HseExtensions
     LexerGolden
+    ParserEquivalent
     ParserErrorGolden
     ParserGolden
     ParserValidation
