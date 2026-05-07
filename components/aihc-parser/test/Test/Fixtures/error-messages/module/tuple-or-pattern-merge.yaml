@@ -5,11 +5,7 @@ src: |
       | a > b     = merge as (b:bs) (a:rest)
       | otherwise = merge (a:as) bs (b:rest)
 ghc: |
-  test.hs:3:1: error: [GHC-07626]
-      Parse error in pattern: merge
-  |
-  3 | merge a:as (b:bs) rest
-    | ^^^^^^^
+  test.hs:3:1: error: [GHC-07626] Parse error in pattern: merge
 aihc: |
   test.hs:3:8:
   3 | merge a:as (b:bs) rest

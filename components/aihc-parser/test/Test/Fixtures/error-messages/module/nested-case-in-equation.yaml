@@ -3,11 +3,7 @@ src: |
     case y of
       _ -> 1
 ghc: |
-  test.hs:2:3: error: [GHC-53786]
-      (case ... of ...)-syntax in pattern
-  |
-  2 |   case y of
-    |   ^^^^^^^^^^^
+  test.hs:2:3: error: [GHC-53786] (case ... of ...)-syntax in pattern
 aihc: |
   test.hs:2:3:
   2 |   case y of

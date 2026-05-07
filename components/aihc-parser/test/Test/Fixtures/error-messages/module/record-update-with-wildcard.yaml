@@ -3,9 +3,6 @@ src: |
 ghc: |
   test.hs:1:17: error: [GHC-70712]
       You cannot use `..' in a record update
-  |
-  1 | y = x {field=8, ..}
-    |                 ^^
 aihc: |
   test.hs:1:17:
   1 | y = x {field=8, ..}

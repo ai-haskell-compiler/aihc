@@ -3,11 +3,7 @@ src: |
     case x of
       \a -> a
 ghc: |
-  test.hs:3:5: error: [GHC-00482]
-      Illegal lambda-syntax in pattern
-  |
-  3 |     \a -> a
-    |     ^^^^^^^
+  test.hs:3:5: error: [GHC-00482] Illegal lambda-syntax in pattern
 aihc: |
   test.hs:3:5:
   3 |     \a -> a

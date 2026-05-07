@@ -4,9 +4,6 @@ src: |
 ghc: |
   test.hs:1:3: error: [GHC-04584]
       Expression syntax in pattern: [1 .. 10]
-  |
-  1 | f [1..10] = 0
-    |   ^^^^^^^
 aihc: |
   test.hs:1:5:
   1 | f [1..10] = 0
