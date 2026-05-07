@@ -1,0 +1,5 @@
+extensions: []
+equivalent:
+  - x = 10
+  - x = (10)
+status: pass

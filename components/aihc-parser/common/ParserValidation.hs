@@ -5,6 +5,7 @@ module ParserValidation
   ( ValidationErrorKind (..),
     ValidationError (..),
     formatDiff,
+    stripParens,
     validateParser,
   )
 where
@@ -13,8 +14,11 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseMo
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Algorithm.Diff (PolyDiff (..), getDiff)
+import Data.Data (Data (..))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (Typeable, cast)
 import GHC.Generics (Generic)
 import GhcOracle qualified
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -102,6 +106,31 @@ validateParser sourceTag edition extensionSettings source =
         { parserSourceName = sourceTag,
           parserExtensions = finalExts
         }
+
+stripParens :: (Data a) => a -> a
+stripParens x = applyStrip (gmapT stripParens x)
+  where
+    applyStrip :: (Data c) => c -> c
+    applyStrip =
+      id
+        `extT` stripExprParens
+        `extT` stripTypeParens
+        `extT` stripPatternParens
+
+    stripExprParens :: Syntax.Expr -> Syntax.Expr
+    stripExprParens (Syntax.EParen expr) = expr
+    stripExprParens expr = expr
+
+    stripTypeParens :: Syntax.Type -> Syntax.Type
+    stripTypeParens (Syntax.TParen typ) = typ
+    stripTypeParens typ = typ
+
+    stripPatternParens :: Syntax.Pattern -> Syntax.Pattern
+    stripPatternParens (Syntax.PParen pat) = pat
+    stripPatternParens pat = pat
+
+    extT :: (Typeable c, Typeable d) => (c -> c) -> (d -> d) -> c -> c
+    extT f g y = fromMaybe (f y) (cast . g =<< cast y)
 
 formatFingerprintMismatch :: Text -> Text -> String
 formatFingerprintMismatch sourceFp renderedFp =

@@ -64,6 +64,7 @@ library parser-tooling-common
     HackageTester.Model
     HseExtensions
     LexerGolden
+    ParserEquivalent
     ParserErrorGolden
     ParserGolden
     ParserValidation
@@ -160,6 +161,7 @@ test-suite spec
     HackageTester.Model
     HseExtensions
     LexerGolden
+    ParserEquivalent
     ParserErrorGolden
     ParserGolden
     ParserValidation
@@ -186,6 +188,7 @@ test-suite spec
     Test.Properties.Identifiers
     Test.Properties.ModuleRoundTrip
     Test.Properties.NoExceptions
+    Test.Properties.ParensIdempotency
     Test.Properties.PatternRoundTrip
     Test.Properties.ShorthandSubset
     Test.Properties.TypeRoundTrip

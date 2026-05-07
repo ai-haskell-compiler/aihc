@@ -270,13 +270,14 @@ needsExprParens :: ExprCtx -> Expr -> Bool
 needsExprParens ctx (EAnn _ sub) = needsExprParens ctx sub
 needsExprParens ctx expr =
   case ctx of
-    CtxInfixRhs _protectOpenEnded ->
+    CtxInfixRhs protectOpenEnded ->
       case expr of
         -- The expression parser builds left-associated chains, so a nested
         -- infix expression on the RHS only appears when the source had
         -- explicit parentheses.
         EInfix {} -> True
         ETypeSig {} -> True
+        _ | protectOpenEnded && absorbsFollowingInfix expr -> True
         -- ENegate does NOT need parenthesization in infix RHS position.
         -- GHC already rejects `x + - 1` (precedence >= 6) at parse time,
         -- so any ENegate appearing as the RHS of an infix operator in a
@@ -1093,7 +1094,7 @@ addExprParensPrec prec expr =
        in EGetField (wrapExpr (needsParensBeforeDot base') base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
-      wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
+      wrapExpr (prec > 1) (ETypeSig (addTypeSigBodyParens inner) (addTypeParens ty))
     EParen inner ->
       -- If inner is a section or projection, addExprParens(inner) already produces EParen(section/projection).
       -- Delegating avoids double-wrapping and maintains idempotency.
@@ -1104,7 +1105,9 @@ addExprParensPrec prec expr =
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
-    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
+    EUnboxedSum altIdx arity inner ->
+      let inner' = addExprParens inner
+       in EUnboxedSum altIdx arity (wrapExpr (startsWithMultiWayIf inner') inner')
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParensIn CtxCmdTop body))
     EPragma pragma inner ->
@@ -1165,6 +1168,21 @@ addNegateParens inner =
       -- Application and type-application bind tighter than negation, so `-f x`
       -- does not need parens around `f x`.
       _ -> addExprParensPrec 2 inner
+
+addTypeSigBodyParens :: Expr -> Expr
+addTypeSigBodyParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addTypeSigBodyParens sub)
+    EInfix lhs op rhs
+      | startsWithMultiWayIf lhs ->
+          wrapExpr
+            (needsExprParens CtxTypeSigBody expr)
+            ( EInfix
+                (wrapExpr True (addExprParensIn CtxInfixLhs lhs))
+                op
+                (addExprParensIn (CtxInfixRhs False) rhs)
+            )
+    _ -> addExprParensIn CtxTypeSigBody expr
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
@@ -1309,6 +1327,12 @@ addNestedInfixRhsLhsParens :: Expr -> Expr
 addNestedInfixRhsLhsParens lhs
   | startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
   | otherwise = addInfixLhsParens lhs
+
+absorbsFollowingInfix :: Expr -> Bool
+absorbsFollowingInfix = \case
+  EAnn _ sub -> absorbsFollowingInfix sub
+  EProc {} -> True
+  _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case

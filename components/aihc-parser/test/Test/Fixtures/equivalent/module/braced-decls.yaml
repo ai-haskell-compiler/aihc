@@ -1,0 +1,8 @@
+extensions: []
+equivalent:
+  - |
+    module X where
+    x = 10
+  - |
+    module X where { x = 10 }
+status: pass

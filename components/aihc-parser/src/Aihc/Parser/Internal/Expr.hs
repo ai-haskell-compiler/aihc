@@ -69,17 +69,17 @@ exprParser =
 exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprParserWithTypeSigParser typeSigParser =
   label "expression" $
-    exprCoreParserWithTypeSigParserExcept typeSigParser []
+    exprCoreParserWithTypeSigParser typeSigParser
 
-exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
-exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
+exprCoreParserWithoutTypeSig :: TokParser Expr
+exprCoreParserWithoutTypeSig = do
   mSCC <- optionalHiddenPragma getSCCPragma
   case mSCC of
-    Just sccPragma -> EPragma sccPragma <$> exprCoreParserWithoutTypeSigExcept forbiddenInfix
-    Nothing -> exprCoreParserWithoutTypeSigBody forbiddenInfix
+    Just sccPragma -> EPragma sccPragma <$> exprCoreParserWithoutTypeSig
+    Nothing -> exprCoreParserWithoutTypeSigBody
 
-exprCoreParserWithoutTypeSigBody :: [Text] -> TokParser Expr
-exprCoreParserWithoutTypeSigBody forbiddenInfix = do
+exprCoreParserWithoutTypeSigBody :: TokParser Expr
+exprCoreParserWithoutTypeSigBody = do
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
@@ -90,20 +90,20 @@ exprCoreParserWithoutTypeSigBody forbiddenInfix = do
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
-    _ -> infixExprParserExcept forbiddenInfix
-  rest <- MP.many ((,) <$> infixOperatorParserExcept forbiddenInfix <*> region "after infix operator" lexpParser)
+    _ -> infixExprParser
+  rest <- MP.many ((,) <$> infixOperatorParser <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
   let withInfix = foldInfixL buildInfix base rest
   pure $ case afterArrow of
     Just (op, rhs) -> EInfix withInfix op rhs
     Nothing -> withInfix
 
-exprCoreParserWithTypeSigParserExcept :: TokParser Type -> [Text] -> TokParser Expr
-exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix =
+exprCoreParserWithTypeSigParser :: TokParser Type -> TokParser Expr
+exprCoreParserWithTypeSigParser typeSigParser = do
   optionalSuffix
     (expectedTok TkReservedDoubleColon *> typeSigParser)
     ETypeSig
-    (exprCoreParserWithoutTypeSigExcept forbiddenInfix)
+    exprCoreParserWithoutTypeSig
 
 -- | The operator name used to represent @->@ in view-pattern expressions.
 viewPatArrowName :: Name
@@ -239,7 +239,7 @@ exprCoreParserNoArrowTail =
         TkKeywordLet -> letExprParser
         TkKeywordProc -> procExprParser
         TkReservedBackslash -> lambdaExprParser
-        _ -> infixExprParserExcept []
+        _ -> infixExprParser
 
 startsWithPatternBind :: TokParser Bool
 startsWithPatternBind =
@@ -253,11 +253,7 @@ doStmtParser = do
   case lexTokenKind tok of
     TkKeywordLet -> MP.try doLetStmtParser <|> doBindOrExprStmtParser
     TkKeywordRec -> doRecStmtParser
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then doPatBindStmtParser
-        else doBindOrExprStmtParser
+    _ -> MP.try doPatBindStmtParser <|> doBindOrExprStmtParser
 
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
@@ -309,7 +305,7 @@ parseLetDeclsStmtParser = do
 -- empty (e.g. @let {}@ or a bare @let@ with layout). GHC accepts these
 -- syntactically, even though they are semantically useless.
 bracedDeclsMaybeEmpty :: TokParser [Decl]
-bracedDeclsMaybeEmpty = concat <$> bracedSemiSep localDeclsParser
+bracedDeclsMaybeEmpty = bracedSemiSep localDeclsParser
 
 doLetStmtParser :: TokParser (DoStmt Expr)
 doLetStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
@@ -322,16 +318,16 @@ doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   stmts <- bracedSemiSep1 doStmtParser
   pure (DoRecStmt stmts)
 
-infixExprParserExcept :: [Text] -> TokParser Expr
-infixExprParserExcept = infixExprParserWith lexpParser
+infixExprParser :: TokParser Expr
+infixExprParser = infixExprParserWith lexpParser
 
-infixExprParserWith :: TokParser Expr -> [Text] -> TokParser Expr
-infixExprParserWith lexp forbidden = do
+infixExprParserWith :: TokParser Expr -> TokParser Expr
+infixExprParserWith lexp = do
   lhs <- MP.try negateExprParser <|> lexp
   rest <-
     MP.many
       ( (,)
-          <$> infixOperatorParserExcept forbidden
+          <$> infixOperatorParser
           <*> region "after infix operator" lexp
       )
   pure (foldInfixL buildInfix lhs rest)
@@ -699,7 +695,7 @@ caseAltParser = withSpan $ do
 
 lambdaCaseAltParser :: TokParser LambdaCaseAlt
 lambdaCaseAltParser = withSpan $ do
-  pats <- region "while parsing lambda-cases alternative" (MP.some simplePatternParser)
+  pats <- region "while parsing lambda-cases alternative" (MP.many simplePatternParser)
   rhs <- region "while parsing lambda-cases alternative" rhsParser
   pure $ \span' ->
     LambdaCaseAlt
@@ -713,10 +709,8 @@ caseExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordCase
   scrutinee <- region "while parsing case expression" exprParser
   expectedTok TkKeywordOf
-  alts <- bracedAlts <|> plainAlts <|> pure []
-  pure (ECase scrutinee alts)
+  ECase scrutinee <$> bracedAlts
   where
-    plainAlts = plainSemiSep1 caseAltParser
     bracedAlts = bracedSemiSep caseAltParser
 
 parenExprParser :: TokParser Expr
@@ -746,7 +740,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
         MP.many
           ( MP.try
               ( (,)
-                  <$> infixOperatorParserExcept []
+                  <$> infixOperatorParser
                   <*> region "after infix operator" lexpParser
               )
           )
@@ -783,14 +777,14 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
     parseBoxedContent closeTok =
       MP.try (parseProjectionSection closeTok)
-        <|> MP.try (parseSectionR [])
+        <|> MP.try parseSectionR
         <|> do
           mBase <- MP.optional (MP.try negateExprParser <|> lexpParser)
           case mBase of
             Nothing ->
               finishBoxed closeTok Nothing
             Just base -> do
-              mOp <- MP.optional (infixOperatorParserExcept [])
+              mOp <- MP.optional infixOperatorParser
               case mOp of
                 Nothing -> do
                   mArrowSection <- MP.optional (MP.try (arrowSectionOperatorParser <* expectedTok closeTok))
@@ -820,12 +814,12 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                         MP.many
                           ( MP.try
                               ( (,)
-                                  <$> infixOperatorParserExcept []
+                                  <$> infixOperatorParser
                                   <*> region "after infix operator" lexpParser
                               )
                           )
                       let fullInfix = foldInfixL buildInfix base ((op, rhs) : more)
-                      mTrailingOp <- MP.optional (infixOperatorParserExcept [])
+                      mTrailingOp <- MP.optional infixOperatorParser
                       case mTrailingOp of
                         Just trailOp -> do
                           expectedTok closeTok
@@ -850,14 +844,13 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
           expectedTok tok
           pure (EParen (EGetFieldProjection fields))
 
-        parseSectionR forbidden = do
-          op <- reservedAtSectionOperatorParser forbidden <|> infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
+        parseSectionR = do
+          op <- reservedAtSectionOperatorParser <|> infixOperatorParser <|> arrowSectionOperatorParser
           rhs <- exprParser
           expectedTok closeTok
           pure (EParen (ESectionR op rhs))
 
-        reservedAtSectionOperatorParser forbidden = do
-          guard ("@" `notElem` forbidden)
+        reservedAtSectionOperatorParser = do
           expectedTok TkReservedAt
           pure (qualifyName Nothing (mkUnqualifiedName NameVarSym "@"))
 
@@ -917,7 +910,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
     parseUnboxedSumExprLeadingBars closeTok = do
       _ <- expectedTok TkReservedPipe
-      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      leadingBars <- MP.many (expectedTok TkReservedPipe)
       let altIdx = 1 + length leadingBars
       inner <- texprParser
       trailingBars <- MP.many (expectedTok TkReservedPipe)
@@ -1060,14 +1053,14 @@ compTransformExprWithoutTypeSigParser = do
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> compTransformInfixExprParser
-  rest <- MP.many ((,) <$> infixOperatorParserExcept [] <*> compTransformLexpParser)
+  rest <- MP.many ((,) <$> infixOperatorParser <*> compTransformLexpParser)
   pure (foldInfixL buildInfix base rest)
 
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser = lexpBaseParser compTransformAppExprParser
 
 compTransformInfixExprParser :: TokParser Expr
-compTransformInfixExprParser = infixExprParserWith compTransformLexpParser []
+compTransformInfixExprParser = infixExprParserWith compTransformLexpParser
 
 compTransformAppExprParser :: TokParser Expr
 compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser
@@ -1101,15 +1094,17 @@ compLetStmtParser = withSpanAnn (CompAnn . mkAnnotation) $ do
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkReservedBackslash
-  MP.try lambdaCaseParser <|> MP.try lambdaCasesParser <|> lambdaPatsParser
+  lambdaCaseParser <|> lambdaCasesParser <|> lambdaPatsParser
   where
     lambdaCaseParser = do
       expectedTok TkKeywordCase
       ELambdaCase <$> bracedCaseAlts
 
     lambdaCasesParser = do
+      lambdaCaseEnabled <- isExtensionEnabled LambdaCase
+      guard lambdaCaseEnabled
       varIdTok "cases"
-      ELambdaCases <$> (bracedLambdaCaseAlts <|> plainLambdaCaseAlts)
+      ELambdaCases <$> bracedLambdaCaseAlts
 
     lambdaPatsParser = do
       pats <- MP.some simplePatternParser
@@ -1119,7 +1114,6 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 
     bracedCaseAlts = bracedSemiSep caseAltParser
     bracedLambdaCaseAlts = bracedSemiSep lambdaCaseAltParser
-    plainLambdaCaseAlts = plainSemiSep1 lambdaCaseAltParser
 
 letExprParser :: TokParser Expr
 letExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -1132,23 +1126,16 @@ whereClauseParser = do
   expectedTok TkKeywordWhere
   bracedDeclsMaybeEmpty
 
-localDeclsParser :: TokParser [Decl]
+localDeclsParser :: TokParser Decl
 localDeclsParser =
-  (pure <$> pragmaDeclParser)
-    <|> do
-      isTySig <- startsWithTypeSig
-      if isTySig
-        then localTypeSigDeclsParser
-        else do
-          tok <- lookAhead anySingle
-          case lexTokenKind tok of
-            TkImplicitParam {} -> pure <$> implicitParamDeclParser
-            TkKeywordInfix -> pure <$> fixityDeclParser Infix
-            TkKeywordInfixl -> pure <$> fixityDeclParser InfixL
-            TkKeywordInfixr -> pure <$> fixityDeclParser InfixR
-            _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
+  pragmaDeclParser
+    <|> implicitParamDeclParser
+    <|> fixityDeclParser
+    <|> MP.try localTypeSigDeclsParser
+    <|> MP.try localFunctionDeclParser
+    <|> localPatternDeclParser
 
-localTypeSigDeclsParser :: TokParser [Decl]
+localTypeSigDeclsParser :: TokParser Decl
 localTypeSigDeclsParser = do
   sig <- typeSigDeclParser
   let (names, ty) =
@@ -1161,10 +1148,10 @@ localTypeSigDeclsParser = do
       [name] -> do
         rhs <- equationRhsParser
         let pat = PTypeSig (PVar name) ty
-        pure [DeclValue (PatternBind NoMultiplicityTag pat rhs)]
+        pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
       _ ->
         fail "local typed bindings with '=' or guards require exactly one binder"
-    else pure [sig]
+    else pure sig
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

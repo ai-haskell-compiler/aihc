@@ -3,6 +3,7 @@
 module Main (main) where
 
 import ExtensionSupport
+import ParserEquivalent qualified as PE
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 
@@ -12,7 +13,9 @@ main = do
   let strict = "--strict" `elem` args
 
   cases <- loadOracleCases
-  outcomes <- mapM evaluateCaseFromFile cases
+  oracleOutcomes <- mapM evaluateCaseFromFile cases
+  equivalentOutcomes <- loadEquivalentOutcomes
+  let outcomes = oracleOutcomes <> equivalentOutcomes
 
   let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
@@ -69,3 +72,42 @@ printXPass (meta, details) =
         <> "] "
         <> details
     )
+
+loadEquivalentOutcomes :: IO [(CaseMeta, Outcome, String)]
+loadEquivalentOutcomes = do
+  exprCases <- PE.loadExprCases
+  moduleCases <- PE.loadModuleCases
+  declCases <- PE.loadDeclCases
+  patternCases <- PE.loadPatternCases
+  pure
+    ( map (evaluateEquivalentCase PE.evaluateExprCase) exprCases
+        <> map (evaluateEquivalentCase PE.evaluateModuleCase) moduleCases
+        <> map (evaluateEquivalentCase PE.evaluateDeclCase) declCases
+        <> map (evaluateEquivalentCase PE.evaluatePatternCase) patternCases
+    )
+
+evaluateEquivalentCase :: (PE.EquivalentCase -> (PE.Outcome, String)) -> PE.EquivalentCase -> (CaseMeta, Outcome, String)
+evaluateEquivalentCase evaluateCase equivalentCase =
+  let (outcome, details) = evaluateCase equivalentCase
+   in (equivalentCaseMeta equivalentCase, convertEquivalentOutcome outcome, details)
+
+equivalentCaseMeta :: PE.EquivalentCase -> CaseMeta
+equivalentCaseMeta equivalentCase =
+  CaseMeta
+    { caseId = "equivalent/" <> PE.caseId equivalentCase,
+      caseCategory = "equivalent/" <> PE.caseCategory equivalentCase,
+      casePath = PE.casePath equivalentCase,
+      caseExpected = convertEquivalentStatus (PE.caseStatus equivalentCase),
+      caseReason = PE.caseReason equivalentCase,
+      caseExtensions = PE.caseExtensions equivalentCase
+    }
+
+convertEquivalentStatus :: PE.ExpectedStatus -> Expected
+convertEquivalentStatus PE.StatusXFail = ExpectXFail
+convertEquivalentStatus _ = ExpectPass
+
+convertEquivalentOutcome :: PE.Outcome -> Outcome
+convertEquivalentOutcome PE.OutcomePass = OutcomePass
+convertEquivalentOutcome PE.OutcomeXFail = OutcomeXFail
+convertEquivalentOutcome PE.OutcomeXPass = OutcomeXPass
+convertEquivalentOutcome PE.OutcomeFail = OutcomeFail
