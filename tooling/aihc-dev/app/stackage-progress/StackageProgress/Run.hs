@@ -6,7 +6,7 @@ module StackageProgress.Run (run) where
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
-import Control.Monad (forM_, replicateM_, when)
+import Control.Monad (forM_, replicateM_, unless, when)
 import Data.List (sortBy)
 import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
@@ -17,7 +17,7 @@ import StackageProgress.CLI
     Parser (..),
     summaryOptionsFromOptions,
   )
-import StackageProgress.PackageRunner (runPackage)
+import StackageProgress.PackageRunner (packageDependsOnUnsupportedBuildTool, runPackage)
 import StackageProgress.Snapshot (loadStackageSnapshotWithMode)
 import StackageProgress.Summary
   ( FailedPackage (..),
@@ -53,8 +53,9 @@ run opts = do
         exitFailure
       Right specs -> pure specs
 
-  let total = length packages
   jobs <- maybe getNumProcessors pure (optJobs opts)
+  filteredPackages <- filterUnsupportedBuildToolPackages opts jobs packages
+  let total = length filteredPackages
   isStdoutTerminal <- hIsTerminalDevice stdout
   let showProgress = isStdoutTerminal && not (optPrompt opts)
   when showProgress (putProgressLine (ProgressState 0 0 total))
@@ -66,7 +67,7 @@ run opts = do
     foldConcurrentlyChunksWithProgress
       jobs
       (runPackage opts)
-      packages
+      filteredPackages
       total
       showProgress
       (summaryOptionsFromOptions opts)
@@ -136,6 +137,27 @@ run opts = do
       failed
 
   if successOursN == total then exitSuccess else exitFailure
+
+filterUnsupportedBuildToolPackages :: Options -> Int -> [PackageSpec] -> IO [PackageSpec]
+filterUnsupportedBuildToolPackages opts n packages = do
+  queue <- newChan
+  forM_ (zip [0 :: Int ..] packages) (writeChan queue . Just)
+  replicateM_ workerCount (writeChan queue Nothing)
+  keptVar <- newMVar []
+  let worker = do
+        next <- readChan queue
+        case next of
+          Nothing -> pure ()
+          Just (ix, spec) -> do
+            unsupported <- packageDependsOnUnsupportedBuildTool opts spec
+            unless unsupported $
+              modifyMVar_ keptVar (pure . ((ix, spec) :))
+            worker
+  replicateConcurrently_ workerCount worker
+  kept <- readMVar keptVar
+  pure (map snd (sortBy (\a b -> compare (fst a) (fst b)) kept))
+  where
+    workerCount = max 1 n
 
 foldConcurrentlyChunksWithProgress ::
   Int ->

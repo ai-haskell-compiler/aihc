@@ -13,6 +13,9 @@ module Aihc.Hackage.Cabal
     collectCondTreeData,
     collectMergedBuildInfo,
 
+    -- * Build tool dependency extraction
+    buildToolDependencyNames,
+
     -- * Extension / language extraction
     extractExtensions,
     extractLanguage,
@@ -37,11 +40,17 @@ import Distribution.PackageDescription
     Library,
     PackageDescription,
     autogenModules,
+    benchmarkBuildInfo,
     buildInfo,
+    buildToolDepends,
+    buildTools,
     buildable,
+    condBenchmarks,
     condExecutables,
+    condForeignLibs,
     condLibrary,
     condSubLibraries,
+    condTestSuites,
     cppOptions,
     defaultExtensions,
     defaultLanguage,
@@ -56,6 +65,7 @@ import Distribution.PackageDescription
     otherModules,
     package,
     packageDescription,
+    testBuildInfo,
   )
 import Distribution.Pretty (prettyShow)
 import Distribution.Simple.Build.PathsModule (generatePathsModule)
@@ -84,12 +94,15 @@ import Distribution.Types.CondTree
 import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Types.Dependency (depPkgName)
+import Distribution.Types.ExeDependency (ExeDependency (..))
+import Distribution.Types.ForeignLib (foreignLibBuildInfo)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
+import Distribution.Types.LegacyExeDependency (LegacyExeDependency (..))
 import Distribution.Types.LibraryName (LibraryName (..))
 import Distribution.Types.LocalBuildInfo (LocalBuildInfo (..))
 import Distribution.Types.MungedPackageName (MungedPackageName (..))
 import Distribution.Types.UnitId (mkUnitId)
-import Distribution.Types.UnqualComponentName (UnqualComponentName)
+import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComponentName)
 import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
 import System.Directory (createDirectoryIfMissing)
@@ -178,6 +191,38 @@ executableFilesFor pkgDescr evalCond packageRoot exeName tree = do
 
 libraryComponentName :: LibraryName -> ComponentName
 libraryComponentName = CLibName
+
+-- | Collect package and executable names referenced by active build-tool fields.
+buildToolDependencyNames :: GenericPackageDescription -> [Text]
+buildToolDependencyNames gpd =
+  nub $
+    concatMap buildInfoToolNames (activeComponentBuildInfos gpd)
+
+activeComponentBuildInfos :: GenericPackageDescription -> [BuildInfo]
+activeComponentBuildInfos gpd =
+  let evalCond = conditionEvaluator gpd
+      merged = collectMergedBuildInfo evalCond
+   in maybe [] (pure . merged libBuildInfo) (condLibrary gpd)
+        <> map (merged libBuildInfo . snd) (condSubLibraries gpd)
+        <> map (merged foreignLibBuildInfo . snd) (condForeignLibs gpd)
+        <> map (merged buildInfo . snd) (condExecutables gpd)
+        <> map (merged testBuildInfo . snd) (condTestSuites gpd)
+        <> map (merged benchmarkBuildInfo . snd) (condBenchmarks gpd)
+
+buildInfoToolNames :: BuildInfo -> [Text]
+buildInfoToolNames bi =
+  concatMap exeDependencyNames (buildToolDepends bi)
+    <> concatMap legacyExeDependencyNames (buildTools bi)
+
+exeDependencyNames :: ExeDependency -> [Text]
+exeDependencyNames (ExeDependency pkgName exeName _) =
+  [ T.pack (unPackageName pkgName),
+    T.pack (unUnqualComponentName exeName)
+  ]
+
+legacyExeDependencyNames :: LegacyExeDependency -> [Text]
+legacyExeDependencyNames (LegacyExeDependency toolName _) =
+  [T.pack toolName]
 
 generatedPathsFileInfo :: FilePath -> FileInfo
 generatedPathsFileInfo path =

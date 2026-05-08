@@ -3,6 +3,7 @@ module StackageProgress.PackageRunner
   ( -- * Running packages
     runPackage,
     runPackageOrThrow,
+    packageDependsOnUnsupportedBuildTool,
 
     -- * Source size calculation
     totalSourceSize,
@@ -12,9 +13,11 @@ where
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Control.Exception (IOException, SomeException, displayException, try)
 import Data.Maybe (isJust)
+import Data.Text (Text)
 import HackageSupport
   ( FileInfo (..),
     downloadPackageQuietWithNetwork,
+    findPackageBuildToolDependencyNames,
     findTargetFilesFromCabal,
   )
 import StackageProgress.CLI (Options (..))
@@ -31,6 +34,27 @@ import StackageProgress.Summary
     PackageSpec (..),
   )
 import System.Directory (getFileSize)
+
+unsupportedBuildToolNames :: [Text]
+unsupportedBuildToolNames = ["genprimopcode", "grimprimopcode"]
+
+-- | Return whether a package's active Cabal metadata requires an unsupported build tool.
+packageDependsOnUnsupportedBuildTool :: Options -> PackageSpec -> IO Bool
+packageDependsOnUnsupportedBuildTool opts spec = do
+  result <- try (packageDependsOnUnsupportedBuildToolOrThrow opts spec) :: IO (Either SomeException Bool)
+  pure $ case result of
+    Right depends -> depends
+    Left _ -> False
+
+packageDependsOnUnsupportedBuildToolOrThrow :: Options -> PackageSpec -> IO Bool
+packageDependsOnUnsupportedBuildToolOrThrow opts spec = do
+  versionResult <- resolveSpecVersion spec
+  case versionResult of
+    Left _ -> pure False
+    Right version -> do
+      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
+      toolNames <- findPackageBuildToolDependencyNames srcDir
+      pure (any (`elem` unsupportedBuildToolNames) toolNames)
 
 -- | Process a package, catching any exceptions.
 runPackage :: Options -> PackageSpec -> IO PackageResult
@@ -53,32 +77,11 @@ runPackage opts spec = do
 -- | Process a package, potentially throwing exceptions.
 runPackageOrThrow :: Options -> PackageSpec -> IO PackageResult
 runPackageOrThrow opts spec = do
-  versionResult <- resolveVersion
+  versionResult <- resolveSpecVersion spec
   case versionResult of
-    Left errResult -> pure errResult
+    Left err -> pure (versionFailure err)
     Right version -> runWithVersion version
   where
-    resolveVersion :: IO (Either PackageResult String)
-    resolveVersion =
-      if pkgVersion spec == "installed"
-        then do
-          latestResult <- getLatestVersion Nothing (pkgName spec)
-          pure $ case latestResult of
-            Left err ->
-              Left
-                PackageResult
-                  { package = spec,
-                    packageOursOk = False,
-                    packageHseOk = False,
-                    packageGhcOk = False,
-                    packageReason = "failed to resolve latest version for installed package: " ++ err,
-                    packageGhcError = Nothing,
-                    packageSourceSize = 0,
-                    packageFileErrors = []
-                  }
-            Right ver -> Right ver
-        else pure (Right (pkgVersion spec))
-
     runWithVersion :: String -> IO PackageResult
     runWithVersion version = do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
@@ -138,6 +141,25 @@ runPackageOrThrow opts spec = do
                     packageSourceSize = totalSize,
                     packageFileErrors = errors
                   }
+
+    versionFailure :: String -> PackageResult
+    versionFailure err =
+      PackageResult
+        { package = spec,
+          packageOursOk = False,
+          packageHseOk = False,
+          packageGhcOk = False,
+          packageReason = "failed to resolve latest version for installed package: " ++ err,
+          packageGhcError = Nothing,
+          packageSourceSize = 0,
+          packageFileErrors = []
+        }
+
+resolveSpecVersion :: PackageSpec -> IO (Either String String)
+resolveSpecVersion spec =
+  if pkgVersion spec == "installed"
+    then getLatestVersion Nothing (pkgName spec)
+    else pure (Right (pkgVersion spec))
 
 -- | Calculate total source size for a list of files.
 totalSourceSize :: [FileInfo] -> IO Integer
