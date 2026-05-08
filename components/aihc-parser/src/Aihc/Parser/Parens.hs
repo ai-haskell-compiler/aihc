@@ -288,6 +288,7 @@ needsExprParens ctx expr =
     CtxInfixLhs ->
       case expr of
         ETypeSig {} -> True
+        EMultiWayIf {} -> False
         -- ENegate needs parenthesization when its inner expression is
         -- open-ended (e.g. ends with a `let` body).  Without parens, the
         -- parser re-reads `- f let {} in x \`op\` y` as
@@ -297,7 +298,6 @@ needsExprParens ctx expr =
         -- correctly re-parsed as `(-x) + 1`.
         ENegate inner -> isOpenEnded inner
         ECase {} -> False
-        EMultiWayIf {} -> False
         _ -> isOpenEnded expr
     CtxAppFun ->
       case expr of
@@ -1104,7 +1104,7 @@ addExprParensPrec prec expr =
         EGetFieldProjection {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
-    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
+    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addTupleElemParens) values)
     EUnboxedSum altIdx arity inner ->
       let inner' = addExprParens inner
        in EUnboxedSum altIdx arity (wrapExpr (startsWithMultiWayIf inner') inner')
@@ -1348,6 +1348,13 @@ startsWithMultiWayIf = \case
   ETypeApp fn _ -> startsWithMultiWayIf fn
   EMultiWayIf {} -> True
   _ -> False
+
+addTupleElemParens :: Expr -> Expr
+addTupleElemParens expr =
+  let expr' = addExprParens expr
+   in case peelExprAnn expr' of
+        EInfix lhs _ _ | startsWithMultiWayIf lhs -> wrapExpr True expr'
+        _ -> expr'
 
 -- ---------------------------------------------------------------------------
 -- Types
