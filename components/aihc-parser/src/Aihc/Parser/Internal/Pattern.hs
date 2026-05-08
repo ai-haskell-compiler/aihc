@@ -41,7 +41,7 @@ infixPatternParser = do
 -- so they appear as operands of infix patterns.
 asOrAppPatternParser :: TokParser Pattern
 asOrAppPatternParser =
-  MP.try (asPatternParser patternAtomParser) <|> appPatternParser
+  asPatternParser patternAtomParser <|> appPatternParser
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
@@ -58,11 +58,9 @@ conOperatorParser =
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
           TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
-    backtickConOp = MP.try $ do
-      expectedTok TkSpecialBacktick
-      name <- constructorNameParser
-      expectedTok TkSpecialBacktick
-      pure name
+    backtickConOp =
+      MP.try $
+        expectedTok TkSpecialBacktick *> constructorNameParser <* expectedTok TkSpecialBacktick
 
 -- | Parse a left pattern (@lpat@ in the Haskell Report).
 --
@@ -98,7 +96,7 @@ buildPatternApp lhs rhs =
 -- This intentionally does NOT handle negative literals (@- integer@),
 -- which belong to the @lpat@ level ('appPatternParser').
 patternAtomParser :: TokParser Pattern
-patternAtomParser = do
+patternAtomParser = label "pattern atom" $ do
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
@@ -123,8 +121,7 @@ patternAtomParser = do
     TkSpecialLBracket -> listPatternParser
     TkSpecialLParen -> parenOrTuplePatternParser
     TkSpecialUnboxedLParen -> parenOrTuplePatternParser
-    _ ->
-      MP.try atomAsPatternParser <|> varOrConPatternParser
+    _ -> atomAsPatternParser <|> varOrConPatternParser
   where
     -- Parse an as-pattern as an atom: name@atom
     -- This allows as-patterns within constructor application patterns
@@ -228,7 +225,7 @@ simplePatternParser :: TokParser Pattern
 simplePatternParser = do
   typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
   let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
-  MP.try (asPatternParser patternAtomParser) <|> typeBinderParser <|> patternAtomParser
+  asPatternParser patternAtomParser <|> typeBinderParser <|> patternAtomParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =

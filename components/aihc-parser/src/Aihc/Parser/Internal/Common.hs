@@ -62,7 +62,6 @@ module Aihc.Parser.Internal.Common
     isConLikeNameType,
     liftCheck,
     infixOperatorParser,
-    infixOperatorParserExcept,
     foldInfixL,
     foldInfixR,
   )
@@ -774,8 +773,7 @@ thAnyEnabled = do
 
 asPatternParser :: TokParser Pattern -> TokParser Pattern
 asPatternParser bodyParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  name <- binderNameParser
-  expectedTok TkReservedAt
+  name <- MP.try (binderNameParser <* expectedTok TkReservedAt)
   PAs name <$> bodyParser
 
 tupleDelimsParser :: TokParser (TupleFlavor, LexTokenKind)
@@ -990,11 +988,7 @@ liftCheck (Left msg) = fail (T.unpack msg)
 
 -- | Parse an infix operator.
 infixOperatorParser :: TokParser Name
-infixOperatorParser = infixOperatorParserExcept
-
--- | Parse an infix operator, optionally excluding specified operators.
-infixOperatorParserExcept :: TokParser Name
-infixOperatorParserExcept =
+infixOperatorParser =
   symbolicOperatorParser <|> backtickIdentifierOperatorParser
   where
     symbolicOperatorParser =
