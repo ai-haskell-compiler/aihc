@@ -389,7 +389,11 @@ genDeclClass = do
   params <- genSimpleTyVarBinders
   ctx <- genOptionalSimpleContext
   items <- genClassDeclItems params
-  declHead <- oneof [pure $ PrefixBinderHead name params, InfixBinderHead <$> genSimpleTyVarBinder <*> pure name <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders]
+  declHead <-
+    oneof
+      [ pure $ PrefixBinderHead name params,
+        InfixBinderHead <$> genSimpleTyVarBinder <*> pure name <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders
+      ]
   pure $
     DeclClass $
       ClassDecl
