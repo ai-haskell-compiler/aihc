@@ -351,8 +351,8 @@ exprCtxPrec ctx expr =
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
--- | Parenthesize a left section operand while protecting any rightmost
--- open-ended infix RHS from absorbing the section operator.
+-- | Parenthesize a left section operand while protecting any rightmost infix
+-- RHS from reassociating with the section operator.
 addSectionLhsParens :: Expr -> Expr
 addSectionLhsParens expr =
   case peelExprAnn expr of
@@ -1337,6 +1337,7 @@ absorbsFollowingInfix = \case
   ELambdaCases {} -> True
   ELetDecls {} -> True
   EProc {} -> True
+  EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
   EInfix _ _ rhs -> absorbsFollowingInfix rhs
   _ -> False
 

@@ -474,8 +474,10 @@ shrinkExpr expr =
         <> [EApp fn arg' | arg' <- shrinkExpr arg]
     EInfix lhs op rhs ->
       [lhs, rhs]
-        <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
+        <> [EInfix lhs simpleVarName rhs | op /= simpleVarName]
+        <> [EInfix simpleVarExpr op rhs | not (isSimpleVarExpr lhs)]
         <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
+        <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
         <> [EInfix lhs op' rhs | op' <- shrinkName op]
     ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
     ESectionL inner op ->
@@ -509,11 +511,15 @@ shrinkExpr expr =
       [body | LambdaCaseAlt {lambdaCaseAltRhs = UnguardedRhs _ body _} <- alts]
         <> [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
     ELetDecls decls body ->
-      body
-        : [ELetDecls decls body' | body' <- shrinkExpr body]
-          <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
+      [ELetDecls [simpleLetDecl] simpleUnitExpr | decls /= [simpleLetDecl] || body /= simpleUnitExpr]
+        <> ( body
+               : [ELetDecls decls body' | body' <- shrinkExpr body]
+                 <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
+           )
     EDo stmts flavor ->
-      [EDo stmts' flavor | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+      [body | [DoExpr body] <- [stmts]]
+        <> [EDo stmts flavor' | flavor' <- shrinkDoFlavor flavor]
+        <> [EDo stmts' flavor | stmts' <- shrinkDoStmts stmts, not (null stmts')]
     EListComp body stmts ->
       body
         : [EListComp body' stmts | body' <- shrinkExpr body]
@@ -531,7 +537,8 @@ shrinkExpr expr =
     EArithSeq seq' ->
       [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
     ERecordCon con fields _ ->
-      [ERecordCon con' fields False | con' <- shrinkName con]
+      [simpleVarExpr]
+        <> [ERecordCon con' fields False | con' <- shrinkName con]
         <> [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
     ERecordUpd target fields ->
       target
@@ -675,14 +682,15 @@ shrinkLetDecl decl =
       [DeclValue (PatternBind multTag pat rhs') | rhs' <- shrinkLetRhs rhs]
         <> [DeclValue (PatternBind multTag pat' rhs) | pat' <- shrinkPattern pat]
     DeclValue (FunctionBind name matches) ->
-      -- Shrink multiple matches to a single match
-      [DeclValue (FunctionBind name [m {matchAnns = []}]) | length matches > 1, m <- matches]
+      [ DeclValue (PatternBind NoMultiplicityTag (PVar name) (matchRhs match))
+      | match <- matches
+      ]
+        <>
+        -- Shrink multiple matches to a single match
+        [DeclValue (FunctionBind name [m {matchAnns = []}]) | length matches > 1, m <- matches]
         -- Shrink individual matches
         <> [DeclValue (FunctionBind name ms') | ms' <- shrinkList shrinkLetMatch matches, not (null ms')]
         <> [DeclValue (FunctionBind name' matches) | name' <- shrinkUnqualifiedName name]
-        <> [ DeclValue (PatternBind NoMultiplicityTag (PVar name) (matchRhs match))
-           | match <- matches
-           ]
     DeclTypeSig names ty ->
       [DeclTypeSig names ty' | ty' <- shrinkType ty]
     _ -> []
@@ -698,7 +706,8 @@ shrinkLetRhs :: Rhs Expr -> [Rhs Expr]
 shrinkLetRhs rhs =
   case rhs of
     UnguardedRhs _ expr mWhere ->
-      [UnguardedRhs [] expr Nothing | isJust mWhere]
+      [rhs' | ds <- maybe [] pure mWhere, rhs' <- whereValueRhss ds]
+        <> [UnguardedRhs [] expr Nothing | isJust mWhere]
         <> [UnguardedRhs [] expr' mWhere | expr' <- shrinkExpr expr]
         <> [UnguardedRhs [] expr (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
     GuardedRhss _ rhss mWhere ->
@@ -721,11 +730,28 @@ shrinkCmdRhs rhs =
         <> [GuardedRhss [] rhss' mWhere | rhss' <- shrinkList shrinkCmdGuardedRhs rhss, not (null rhss')]
         <> [GuardedRhss [] rhss (Just ds') | Just ds <- [mWhere], ds' <- shrinkDecls ds, not (null ds')]
 
+whereValueRhss :: [Decl] -> [Rhs Expr]
+whereValueRhss decls =
+  [ rhs
+  | DeclValue valueDecl <- decls,
+    rhs <- case valueDecl of
+      PatternBind _ _ patternRhs -> [patternRhs]
+      FunctionBind _ matches -> map matchRhs matches
+  ]
+
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =
   case stmts of
     [_] -> [] -- Can't shrink a single-element do block
     _ -> shrinkList shrinkDoStmt stmts
+
+shrinkDoFlavor :: DoFlavor -> [DoFlavor]
+shrinkDoFlavor flavor =
+  case flavor of
+    DoPlain -> []
+    DoMdo -> [DoPlain]
+    DoQualified _ -> [DoPlain]
+    DoQualifiedMdo name -> [DoPlain, DoMdo, DoQualified name]
 
 shrinkDoStmt :: DoStmt Expr -> [DoStmt Expr]
 shrinkDoStmt stmt =
@@ -804,3 +830,27 @@ shrinkRecordField field =
 instance Arbitrary Expr where
   arbitrary = resize 5 genExpr
   shrink = shrinkExpr
+
+simpleVarExpr :: Expr
+simpleVarExpr = EVar simpleVarName
+
+simpleVarName :: Name
+simpleVarName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+
+isSimpleVarExpr :: Expr -> Bool
+isSimpleVarExpr expr =
+  case expr of
+    EVar name -> name == simpleVarName
+    _ -> False
+
+simpleUnitExpr :: Expr
+simpleUnitExpr = ETuple Boxed []
+
+simpleLetDecl :: Decl
+simpleLetDecl =
+  DeclValue
+    ( PatternBind
+        NoMultiplicityTag
+        (PVar (mkUnqualifiedName NameVarId "a"))
+        (UnguardedRhs [] simpleUnitExpr Nothing)
+    )

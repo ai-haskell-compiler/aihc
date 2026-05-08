@@ -33,10 +33,13 @@ instance Arbitrary Module where
         }
 
   shrink modu =
-    [ modu {moduleDecls = shrunk}
-    | shrunk <- shrinkList shrink (moduleDecls modu),
-      not (null shrunk)
-    ]
+    [modu {moduleHead = Nothing} | Just _ <- [moduleHead modu]]
+      <> [modu {moduleImports = []} | not (null (moduleImports modu))]
+      <> [modu {moduleDecls = []} | not (null (moduleDecls modu))]
+      <> [ modu {moduleDecls = shrunk}
+         | shrunk <- shrinkList shrink (moduleDecls modu),
+           not (null shrunk)
+         ]
       <> [ modu {moduleImports = shrunk}
          | shrunk <- shrinkList shrinkImportDecl (moduleImports modu)
          ]
