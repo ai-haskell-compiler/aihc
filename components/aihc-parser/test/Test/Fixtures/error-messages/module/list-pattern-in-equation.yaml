@@ -8,5 +8,5 @@ aihc: |
   test.hs:1:5:
   1 | f [1..10] = 0
     |     ^^
-  unexpected ..
-  expecting constructor operator, operator '::', symbol ',', symbol ']', or symbol '`'
+  unexpected '..'
+  expecting pattern atom

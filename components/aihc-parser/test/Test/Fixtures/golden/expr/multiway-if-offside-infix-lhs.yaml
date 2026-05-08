@@ -1,0 +1,9 @@
+extensions: [MultiWayIf, Arrows]
+input: |
+  if | 0
+       ->
+        ()
+   `a` proc p -> () -<< 0.0
+ast: |-
+  EInfix (EMultiWayIf [GuardedRhs {[GuardExpr (EInt 0 TInteger)], ETuple []}]) "a" (EProc (PVar "p") (CmdArrApp (ETuple []) HsHigherOrderApp (EFloat 0 % 1 TFractional)))
+status: pass

@@ -1,0 +1,6 @@
+extensions: [MultiWayIf]
+input: |
+  if | guard -> body `op` rhs
+ast: |-
+  EMultiWayIf [GuardedRhs {[GuardExpr (EVar "guard")], EInfix (EVar "body") "op" (EVar "rhs")}]
+status: pass

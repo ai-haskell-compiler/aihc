@@ -8,5 +8,4 @@ aihc: |
     |        ^^^^
   unexpected 'then'
   expecting expression
-  context: while parsing if condition
   context: while parsing equation right-hand side

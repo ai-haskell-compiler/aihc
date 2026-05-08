@@ -3,25 +3,9 @@
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
-    exprParserWithTypeSigParser,
     atomExprParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,
-    -- Re-exports from Pattern
-    simplePatternParser,
-    appPatternParser,
-    asOrAppPatternParser,
-    patternParser,
-    -- Re-exports from Type
-    typeParser,
-    typeInfixParser,
-    typeInfixOperatorParser,
-    typeHeadInfixParser,
-    typeAppParser,
-    typeAtomParser,
-    -- Re-exports from Common
-    startsWithTypeSig,
-    startsWithContextType,
     -- Needed by Cmd.hs via SOURCE
     exprParserNoArrowTail,
     parseLetDeclsParser,
@@ -33,8 +17,8 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, asOrAppPatternParser, patternParser, patternParserWithTypeSigParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeHeadInfixParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
+import Aihc.Parser.Internal.Type (typeAtomParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -80,17 +64,16 @@ exprCoreParserWithoutTypeSig = do
 
 exprCoreParserWithoutTypeSigBody :: TokParser Expr
 exprCoreParserWithoutTypeSigBody = do
-  tok <- lookAhead anySingle
-  base <- case lexTokenKind tok of
-    TkKeywordDo -> doExprParser
-    TkKeywordMdo -> mdoExprParser
-    TkQualifiedDo {} -> qualifiedDoExprParser
-    TkQualifiedMdo {} -> qualifiedMdoExprParser
-    TkKeywordIf -> ifExprParser
-    TkKeywordLet -> letExprParser
-    TkKeywordProc -> procExprParser
-    TkReservedBackslash -> lambdaExprParser
-    _ -> infixExprParser
+  base <-
+    doExprParser
+      <|> mdoExprParser
+      <|> qualifiedDoExprParser
+      <|> qualifiedMdoExprParser
+      <|> ifExprParser
+      <|> letExprParser
+      <|> procExprParser
+      <|> lambdaExprParser
+      <|> infixExprParser
   rest <- MP.many ((,) <$> infixOperatorParser <*> region "after infix operator" lexpParser)
   afterArrow <- MP.optional arrowTailParser
   let withInfix = foldInfixL buildInfix base rest
@@ -139,28 +122,22 @@ arrowTailParser = do
 
 ifExprParser :: TokParser Expr
 ifExprParser = do
-  nextTok <- lookAhead (anySingle *> anySingle)
-  case lexTokenKind nextTok of
-    TkSpecialLBrace -> multiWayIfExprParser
-    _ -> classicIfExprParser
+  expectedTok TkKeywordIf
+  multiWayIfExprParser <|> classicIfExprParser
 
 classicIfExprParser :: TokParser Expr
 classicIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkKeywordIf
-  cond <- region "while parsing if condition" exprParser
+  cond <- exprParser
   skipSemicolons
   expectedTok TkKeywordThen
-  yes <- region "while parsing then branch" exprParser
+  yes <- exprParser
   skipSemicolons
   expectedTok TkKeywordElse
-  no <- region "while parsing else branch" exprParser
-  pure (EIf cond yes no)
+  EIf cond yes <$> exprParser
 
 multiWayIfExprParser :: TokParser Expr
 multiWayIfExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkKeywordIf
-  rhss <- braces (MP.some multiWayIfAlternative)
-  pure (EMultiWayIf rhss)
+  EMultiWayIf <$> braces (MP.some multiWayIfAlternative)
 
 multiWayIfAlternative :: TokParser (GuardedRhs Expr)
 multiWayIfAlternative = withSpan $ do
@@ -228,24 +205,16 @@ exprCoreParserNoArrowTail =
     ETypeSig
     baseParser
   where
-    baseParser = do
-      tok <- lookAhead anySingle
-      case lexTokenKind tok of
-        TkKeywordDo -> doExprParser
-        TkKeywordMdo -> mdoExprParser
-        TkQualifiedDo {} -> qualifiedDoExprParser
-        TkQualifiedMdo {} -> qualifiedMdoExprParser
-        TkKeywordIf -> ifExprParser
-        TkKeywordLet -> letExprParser
-        TkKeywordProc -> procExprParser
-        TkReservedBackslash -> lambdaExprParser
-        _ -> infixExprParser
-
-startsWithPatternBind :: TokParser Bool
-startsWithPatternBind =
-  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- patternParser
-    expectedTok TkReservedLeftArrow
+    baseParser =
+      doExprParser
+        <|> mdoExprParser
+        <|> qualifiedDoExprParser
+        <|> qualifiedMdoExprParser
+        <|> ifExprParser
+        <|> letExprParser
+        <|> procExprParser
+        <|> lambdaExprParser
+        <|> infixExprParser
 
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
@@ -290,15 +259,10 @@ doPatBindStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   pure (DoBind pat expr)
 
 parseLetDeclsParser :: TokParser [Decl]
-parseLetDeclsParser = do
-  expectedTok TkKeywordLet
-  bracedDeclsMaybeEmpty
+parseLetDeclsParser = expectedTok TkKeywordLet *> bracedDeclsMaybeEmpty
 
 parseLetDeclsStmtParser :: TokParser [Decl]
-parseLetDeclsStmtParser = do
-  decls <- parseLetDeclsParser
-  MP.notFollowedBy (expectedTok TkKeywordIn)
-  pure decls
+parseLetDeclsStmtParser = parseLetDeclsParser <* MP.notFollowedBy (expectedTok TkKeywordIn)
 
 -- | Parse let bindings that may be empty.
 -- Unlike @where@ clauses and @case@ alternatives, @let@ bindings can be
@@ -315,8 +279,7 @@ doLetStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
 doRecStmtParser :: TokParser (DoStmt Expr)
 doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   expectedTok TkKeywordRec
-  stmts <- bracedSemiSep1 doStmtParser
-  pure (DoRecStmt stmts)
+  DoRecStmt <$> bracedSemiSep1 doStmtParser
 
 infixExprParser :: TokParser Expr
 infixExprParser = infixExprParserWith lexpParser
@@ -544,11 +507,9 @@ prefixMinusTokenParser =
       _ -> Nothing
 
 parenOperatorExprParser :: TokParser Expr
-parenOperatorExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkSpecialLParen
-  op <- operatorExprNameParser
-  expectedTok TkSpecialRParen
-  pure (EVar op)
+parenOperatorExprParser =
+  withSpanAnn (EAnn . mkAnnotation) $
+    EVar <$> parens operatorExprNameParser
 
 operatorExprNameParser :: TokParser Name
 operatorExprNameParser =
@@ -644,11 +605,7 @@ guardQualifierParser arrowKind = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser arrowKind
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then guardPatBindParser
-        else guardBindOrExprParser arrowKind
+    _ -> MP.try guardPatBindParser <|> guardBindOrExprParser arrowKind
 
 -- | Parse a guard expression or pattern bind. The 'RhsArrowKind' selects the
 -- type parser for @::@ annotations: 'RhsArrowEquation' uses 'typeParser'
@@ -981,11 +938,7 @@ compStmtParser = do
   case lexTokenKind tok of
     TkKeywordLet -> MP.try compLetStmtParser <|> compGenOrGuardParser
     TkKeywordThen -> compTransformStmtParser <|> compGenOrGuardParser
-    _ -> do
-      isPatternBind <- startsWithPatternBind
-      if isPatternBind
-        then compPatGenParser
-        else compGenOrGuardParser
+    _ -> MP.try compPatGenParser <|> compGenOrGuardParser
 
 -- | Parse a TransformListComp qualifier: @then f@, @then f by e@,
 -- @then group by e using f@, or @then group using f@.
@@ -1042,17 +995,16 @@ compTransformExprParser =
 -- | Parse the core of a TransformListComp expression (without type signature suffix).
 compTransformExprWithoutTypeSigParser :: TokParser Expr
 compTransformExprWithoutTypeSigParser = do
-  tok <- lookAhead anySingle
-  base <- case lexTokenKind tok of
-    TkKeywordDo -> doExprParser
-    TkKeywordMdo -> mdoExprParser
-    TkQualifiedDo {} -> qualifiedDoExprParser
-    TkQualifiedMdo {} -> qualifiedMdoExprParser
-    TkKeywordIf -> ifExprParser
-    TkKeywordLet -> letExprParser
-    TkKeywordProc -> procExprParser
-    TkReservedBackslash -> lambdaExprParser
-    _ -> compTransformInfixExprParser
+  base <-
+    doExprParser
+      <|> mdoExprParser
+      <|> qualifiedDoExprParser
+      <|> qualifiedMdoExprParser
+      <|> ifExprParser
+      <|> letExprParser
+      <|> procExprParser
+      <|> lambdaExprParser
+      <|> compTransformInfixExprParser
   rest <- MP.many ((,) <$> infixOperatorParser <*> compTransformLexpParser)
   pure (foldInfixL buildInfix base rest)
 

@@ -5,14 +5,13 @@ module Aihc.Parser.Internal.Pattern
     patternParserWithTypeSigParser,
     simplePatternParser,
     appPatternParser,
-    asOrAppPatternParser,
     literalParser,
   )
 where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser, exprParserWithTypeSigParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
 import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
@@ -41,11 +40,8 @@ infixPatternParser = do
 -- As-patterns bind tighter than infix but looser than application,
 -- so they appear as operands of infix patterns.
 asOrAppPatternParser :: TokParser Pattern
-asOrAppPatternParser = do
-  isAsPattern <- startsWithAsPattern
-  if isAsPattern
-    then asPatternParser patternAtomParser
-    else appPatternParser
+asOrAppPatternParser =
+  asPatternParser patternAtomParser <|> appPatternParser
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
@@ -62,11 +58,9 @@ conOperatorParser =
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
           TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
-    backtickConOp = MP.try $ do
-      expectedTok TkSpecialBacktick
-      name <- constructorNameParser
-      expectedTok TkSpecialBacktick
-      pure name
+    backtickConOp =
+      MP.try $
+        expectedTok TkSpecialBacktick *> constructorNameParser <* expectedTok TkSpecialBacktick
 
 -- | Parse a left pattern (@lpat@ in the Haskell Report).
 --
@@ -102,7 +96,7 @@ buildPatternApp lhs rhs =
 -- This intentionally does NOT handle negative literals (@- integer@),
 -- which belong to the @lpat@ level ('appPatternParser').
 patternAtomParser :: TokParser Pattern
-patternAtomParser = do
+patternAtomParser = label "pattern atom" $ do
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
@@ -127,9 +121,7 @@ patternAtomParser = do
     TkSpecialLBracket -> listPatternParser
     TkSpecialLParen -> parenOrTuplePatternParser
     TkSpecialUnboxedLParen -> parenOrTuplePatternParser
-    _ -> do
-      isAsPattern <- startsWithAsPattern
-      if isAsPattern then atomAsPatternParser else varOrConPatternParser
+    _ -> atomAsPatternParser <|> varOrConPatternParser
   where
     -- Parse an as-pattern as an atom: name@atom
     -- This allows as-patterns within constructor application patterns
@@ -233,10 +225,7 @@ simplePatternParser :: TokParser Pattern
 simplePatternParser = do
   typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
   let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
-  isAsPat <- startsWithAsPattern
-  if isAsPat
-    then asPatternParser patternAtomParser
-    else typeBinderParser <|> patternAtomParser
+  asPatternParser patternAtomParser <|> typeBinderParser <|> patternAtomParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =
@@ -309,14 +298,10 @@ listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 subpatternWithBareViewParser :: TokParser Pattern
 subpatternWithBareViewParser = do
   mView <- MP.optional . MP.try $ do
-    expr <- viewPatternExprParser
+    expr <- exprParser
     expectedTok TkReservedRightArrow
     PView expr <$> subpatternWithBareViewParser
   maybe patternParser pure mView
-
-viewPatternExprParser :: TokParser Expr
-viewPatternExprParser =
-  exprParserWithTypeSigParser typeParser
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
@@ -377,7 +362,7 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
     -- Returns Nothing if the content is not a view pattern.
     viewPatternParser :: LexTokenKind -> TokParser (Maybe Pattern)
     viewPatternParser closeTok = MP.optional . MP.try $ do
-      expr <- viewPatternExprParser <* lookAhead (expectedTok TkReservedRightArrow)
+      expr <- exprParser <* lookAhead (expectedTok TkReservedRightArrow)
       expectedTok TkReservedRightArrow
       inner <- subpatternWithBareViewParser
       expectedTok closeTok

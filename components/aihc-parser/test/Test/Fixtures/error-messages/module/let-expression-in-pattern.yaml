@@ -7,7 +7,7 @@ aihc: |
   1 | f n (let exp = x^2 in exp n) = True
     |      ^^^
   unexpected 'let'
-  expecting pattern
+  expecting pattern atom
 
   test.hs:1:28:
   1 | f n (let exp = x^2 in exp n) = True

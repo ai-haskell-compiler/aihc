@@ -6,5 +6,5 @@ aihc: |
   test.hs:1:9:
   1 | f n (sq n) = True
     |         ^
-  unexpected n
-  expecting constructor operator, operator '::', symbol ')', symbol ',', or symbol '`'
+  unexpected 'n'
+  expecting pattern atom
