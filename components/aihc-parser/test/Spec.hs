@@ -272,6 +272,9 @@ buildTests = do
             testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
+            testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
+            testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
             testCase "pretty-prints reserved at right sections" test_prettyReservedAtRightSection,
             testCase "pretty-prints layout-ending operands inside left sections" test_prettyLayoutEndingOperandInsideLeftSection,
             testCase "pretty-prints type applications after layout-ending functions" test_prettyTypeAppAfterLayoutEndingFunction,
@@ -1170,6 +1173,42 @@ test_prettyInfixRhsOpenEndedInsideSection = do
          `a`)
         """
   assertParsedStrippedExprShapeRoundTrip config source
+
+test_lambdaInfixRhsBeforeFollowingInfixParens :: Assertion
+test_lambdaInfixRhsBeforeFollowingInfixParens = do
+  let config = defaultConfig {parserExtensions = [QuasiQuotes]}
+      source =
+        """
+        (+) =
+          []
+           `a` (\\ [a||] -> 0)
+           `a` ()
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+
+test_ifInfixRhsBeforeFollowingInfixParens :: Assertion
+test_ifInfixRhsBeforeFollowingInfixParens = do
+  let config = defaultConfig {parserExtensions = [OverloadedLabels, OverloadedRecordDot]}
+      source =
+        """
+        (+) =
+          []
+           `a` (if () then #a else ())
+           `a` (.a)
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+
+test_infixRhsInsideLeftSectionParens :: Assertion
+test_infixRhsInsideLeftSectionParens = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell]}
+      source =
+        """
+        a =
+          ('' ()
+           + (0 `a` 0)
+           `a`)
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyReservedAtRightSection :: Assertion
 test_prettyReservedAtRightSection = do

@@ -1,0 +1,10 @@
+src: |
+  f x@(just a) = ()
+ghc: |
+  test.hs:1:6: error: [GHC-07626] Parse error in pattern: just
+aihc: |
+  test.hs:1:11:
+  1 | f x@(just a) = ()
+    |           ^
+  unexpected a
+  expecting constructor operator, operator '::', symbol ')', symbol ',', or symbol '`'

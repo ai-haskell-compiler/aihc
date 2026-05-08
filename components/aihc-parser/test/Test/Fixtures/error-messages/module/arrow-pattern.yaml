@@ -1,0 +1,11 @@
+src: |
+  {-# LANGUAGE Arrows #-}
+  f (y -< x) = 5
+ghc: |
+  test.hs:2:4: error: [GHC-98980] Command syntax in pattern: y -< x
+aihc: |
+  test.hs:2:6:
+  2 | f (y -< x) = 5
+    |      ^^
+  unexpected -<
+  expecting constructor operator, operator '::', symbol ')', symbol ',', or symbol '`'
