@@ -3,6 +3,7 @@
 
 module StackageProgress.Run (run) where
 
+import Aihc.Hackage.Types (PackageSpec)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
