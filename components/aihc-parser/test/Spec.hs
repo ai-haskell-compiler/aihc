@@ -12,7 +12,7 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
-import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
+import Data.Data (Data, dataTypeConstrs, dataTypeOf, gmapQl, isAlgType, showConstr, toConstr)
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -258,6 +258,8 @@ buildTests = do
             testCase "generated variable symbols reject reserved spellings" test_generatedVariableSymbolsRejectReservedSpellings,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
+            testCase "generated expressions can include SCC pragmas" test_generatedExpressionsCanIncludeSccPragmas,
+            testCase "generated expressions can include explicit type syntax" test_generatedExpressionsCanIncludeExplicitTypeSyntax,
             testCase "pretty-prints case expressions with implicit layout" test_prettyCaseExpressionUsesImplicitLayout,
             testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
@@ -272,6 +274,8 @@ buildTests = do
             testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
+            testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
+            testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -749,6 +753,25 @@ test_generatedExpressionsCanIncludeMdo =
     isMdo (EDo _ DoMdo) = True
     isMdo _ = False
 
+test_generatedExpressionsCanIncludeSccPragmas :: Assertion
+test_generatedExpressionsCanIncludeSccPragmas =
+  let samples = QGen.unGen (QC.vectorOf 4000 (QC.resize 5 (QC.arbitrary :: QC.Gen Expr))) (QRandom.mkQCGen 738) 5
+   in assertBool "expected expression generator to include at least one SCC pragma expression" $
+        any (Set.member "EPragma" . usedCtors) samples
+
+test_generatedExpressionsCanIncludeExplicitTypeSyntax :: Assertion
+test_generatedExpressionsCanIncludeExplicitTypeSyntax =
+  let samples = QGen.unGen (QC.vectorOf 4000 (QC.resize 5 (QC.arbitrary :: QC.Gen Expr))) (QRandom.mkQCGen 739) 5
+   in assertBool "expected expression generator to include at least one explicit type syntax expression" $
+        any (Set.member "ETypeSyntax" . usedCtors) samples
+
+usedCtors :: (Data a) => a -> Set.Set String
+usedCtors x =
+  let here
+        | isAlgType (dataTypeOf x) = Set.singleton (showConstr (toConstr x))
+        | otherwise = Set.empty
+   in here <> gmapQl (<>) Set.empty usedCtors x
+
 test_alternateCharLiteralSpellingsLexLikeGhc :: Assertion
 test_alternateCharLiteralSpellingsLexLikeGhc =
   mapM_ assertCharLiteralLexesLikeGhc finiteAlternateCharLiteralSpellings
@@ -1171,6 +1194,28 @@ test_prettyInfixRhsOpenEndedInsideSection = do
         ((\\case {  })
          `a` (\\ 0 -> ' ')
          `a`)
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
+
+test_prettyNestedInfixRhsInsideSection :: Assertion
+test_prettyNestedInfixRhsInsideSection = do
+  let source =
+        """
+        ([]
+         + (""
+            `a` ())
+         +)
+        """
+  assertParsedStrippedExprShapeRoundTrip defaultConfig source
+
+test_prettyInfixRhsOpenEndedBeforeFollowingInfix :: Assertion
+test_prettyInfixRhsOpenEndedBeforeFollowingInfix = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, QuasiQuotes]}
+      source =
+        """
+        [t| () |]
+         + (if [t| _ |] then [] else [])
+         `a` 0
         """
   assertParsedStrippedExprShapeRoundTrip config source
 

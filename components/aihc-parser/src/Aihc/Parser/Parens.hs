@@ -1329,15 +1329,17 @@ addNestedInfixRhsLhsParens lhs
   | otherwise = addInfixLhsParens lhs
 
 absorbsFollowingInfix :: Expr -> Bool
-absorbsFollowingInfix expr =
-  case expr of
-    EAnn _ sub -> absorbsFollowingInfix sub
-    EProc {} -> True
-    EIf {} -> True
-    ELambdaPats {} -> True
-    EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
-    EInfix _ _ rhs -> absorbsFollowingInfix rhs
-    _ -> False
+absorbsFollowingInfix = \case
+  EAnn _ sub -> absorbsFollowingInfix sub
+  EIf {} -> True
+  ELambdaPats {} -> True
+  ELambdaCase {} -> True
+  ELambdaCases {} -> True
+  ELetDecls {} -> True
+  EProc {} -> True
+  EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
+  EInfix _ _ rhs -> absorbsFollowingInfix rhs
+  _ -> False
 
 startsWithMultiWayIf :: Expr -> Bool
 startsWithMultiWayIf = \case
@@ -1595,13 +1597,17 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr || isProcExpr expr
+  if endsWithTypeSig expr || isProcExpr expr || isTypeSyntaxExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
   where
     isProcExpr e =
       case peelExprAnn e of
         EProc {} -> True
+        _ -> False
+    isTypeSyntaxExpr e =
+      case peelExprAnn e of
+        ETypeSyntax {} -> True
         _ -> False
 
 addPatternAtomParens :: Pattern -> Pattern
