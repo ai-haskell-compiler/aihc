@@ -5,9 +5,11 @@ import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
-import Data.List (isInfixOf, isSuffixOf)
+import Data.ByteString.Char8 qualified as BSC
+import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -34,6 +36,7 @@ main =
             ],
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
+      testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       QC.testProperty "dummy quickcheck property" prop_dummy
     ]
 
@@ -100,6 +103,20 @@ test_collectsConditionalExposedModules =
     let paths = map HC.fileInfoPath files
     assertBool "expected conditionally exposed module to be selected" (any ("src/Control/Category/Unicode.hs" `isSuffixOf`) paths)
 
+test_extractsBuildToolDependencyNames :: Assertion
+test_extractsBuildToolDependencyNames = do
+  gpd <- parseTestCabal buildToolDependsCabal
+  assertEqual
+    "expected active modern and legacy build tools"
+    (sort ["alex", "genprimopcode"])
+    (sort (map T.unpack (HC.buildToolDependencyNames gpd)))
+
+parseTestCabal :: String -> IO GenericPackageDescription
+parseTestCabal source =
+  case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
+    Right parsed -> pure parsed
+    Left (_, errs) -> assertFailure ("failed to parse test cabal file: " <> show errs)
+
 pathsDemoCabal :: String
 pathsDemoCabal =
   unlines
@@ -143,6 +160,27 @@ conditionalExposedCabal =
       "  else",
       "    exposed-modules: Control.Category.Unicode",
       "    build-depends: base >= 3.0.3.1 && < 5"
+    ]
+
+buildToolDependsCabal :: String
+buildToolDependsCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: build-tool-demo",
+      "version: 0.1.0.0",
+      "",
+      "flag generated",
+      "  default: False",
+      "  manual: True",
+      "",
+      "library",
+      "  exposed-modules: BuildToolDemo",
+      "  hs-source-dirs: src",
+      "  build-tool-depends: genprimopcode:genprimopcode >= 0",
+      "  build-tools: alex >= 3",
+      "  default-language: Haskell2010",
+      "  if flag(generated)",
+      "    build-tool-depends: inactive-tool:inactive-tool >= 0"
     ]
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a

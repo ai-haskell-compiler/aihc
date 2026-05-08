@@ -6,6 +6,7 @@ module HackageSupport
   ( downloadPackage,
     downloadPackageQuiet,
     downloadPackageQuietWithNetwork,
+    findPackageBuildToolDependencyNames,
     findTargetFilesFromCabal,
     FileInfo (..),
     readTextFileLenient,
@@ -27,6 +28,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import System.Directory (doesFileExist)
 import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (</>))
 
@@ -67,6 +69,18 @@ data FileInfo = FileInfo
 -- the string-typed results to the rich types used by @aihc-parser@.
 findTargetFilesFromCabal :: FilePath -> IO [FileInfo]
 findTargetFilesFromCabal extractedRoot = do
+  (gpd, cabalFile) <- parsePackageDescriptionFromRoot extractedRoot
+  rawFiles <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
+  pure (map convertFileInfo rawFiles)
+
+-- | Find active build-tool dependency names from a package's @.cabal@ file.
+findPackageBuildToolDependencyNames :: FilePath -> IO [Text]
+findPackageBuildToolDependencyNames extractedRoot = do
+  (gpd, _) <- parsePackageDescriptionFromRoot extractedRoot
+  pure (HC.buildToolDependencyNames gpd)
+
+parsePackageDescriptionFromRoot :: FilePath -> IO (GenericPackageDescription, FilePath)
+parsePackageDescriptionFromRoot extractedRoot = do
   cabalFiles <- HU.findCabalFiles extractedRoot
   cabalFile <-
     case cabalFiles of
@@ -87,8 +101,7 @@ findTargetFilesFromCabal extractedRoot = do
           ( userError
               ("Failed to parse cabal file " ++ cabalFile ++ ": " ++ show errs)
           )
-  rawFiles <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
-  pure (map convertFileInfo rawFiles)
+  pure (gpd, cabalFile)
 
 -- | Convert a string-typed 'HC.FileInfo' to the rich-typed local 'FileInfo'.
 convertFileInfo :: HC.FileInfo -> FileInfo
