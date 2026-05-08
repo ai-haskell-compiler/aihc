@@ -36,7 +36,7 @@ import StackageProgress.Summary
 import System.Directory (getFileSize)
 
 unsupportedBuildToolNames :: [Text]
-unsupportedBuildToolNames = ["genprimopcode", "grimprimopcode"]
+unsupportedBuildToolNames = ["genprimopcode"]
 
 -- | Return whether a package's active Cabal metadata requires an unsupported build tool.
 packageDependsOnUnsupportedBuildTool :: Options -> PackageSpec -> IO Bool
