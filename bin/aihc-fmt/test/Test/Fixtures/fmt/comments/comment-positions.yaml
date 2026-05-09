@@ -1,0 +1,13 @@
+extensions: []
+input: |
+  module Main where
+  -- before code
+  x {- middle -}= 1 -- after code
+formatters:
+  aihc-fmt:
+    status: pass
+    output: |
+      module Main where
+      -- before code
+      x {- middle -}=
+        1 -- after code

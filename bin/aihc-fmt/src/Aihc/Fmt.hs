@@ -9,7 +9,7 @@ module Aihc.Fmt
   )
 where
 
-import Aihc.Fmt.Comment
+import Aihc.Fmt.Comment (CommentScanError, formatCommentScanError)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -19,17 +19,20 @@ import Aihc.Parser
 import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
+    TokenOrigin (..),
     lexModuleTokensWithSourceNameAndExtensions,
     readModuleHeaderPragmas,
   )
 import Aihc.Parser.Parens (addModuleParens)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
-import Data.List (partition, unsnoc)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.ByteString qualified as BS
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Prettyprinter (Pretty (pretty), defaultLayoutOptions, layoutPretty, (<+>))
-import Prettyprinter.Render.String (renderString)
+import Data.Text.Encoding qualified as TE
+import Prettyprinter (Pretty (pretty), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 
 newtype FormatOptions = FormatOptions
   { formatExtensions :: [ExtensionSetting]
@@ -44,6 +47,7 @@ data FormatError
   | FormattedParseFailure !FilePath !Text
   | SemanticMismatch !FilePath !String
   | CommentScanFailure !FilePath !CommentScanError
+  | TokenStreamMismatch !FilePath
   | IdempotenceFailure !FilePath !Text !Text
   deriving (Eq, Show)
 
@@ -57,9 +61,13 @@ formatText opts sourceName input = do
 
 formatTextOnce :: FormatOptions -> FilePath -> Text -> Either FormatError Text
 formatTextOnce opts sourceName input = do
-  comments <- firstCommentError (collectComments sourceName input)
   original <- parseInput OriginalParseFailure sourceName opts input
-  let rendered = renderModuleWithComments sourceName input original comments
+  rendered <- mergePrettyLayout opts sourceName input original
+  let originalTokens = tokenFingerprint opts sourceName input
+      renderedTokens = tokenFingerprint opts sourceName rendered
+  if originalTokens == renderedTokens
+    then pure ()
+    else Left (TokenStreamMismatch sourceName)
   reparsed <- parseInput FormattedParseFailure sourceName opts rendered
   if normalizeModule original == normalizeModule reparsed
     then Right rendered
@@ -69,9 +77,6 @@ formatTextOnce opts sourceName input = do
             sourceName
             "formatted module reparsed to a different AST"
         )
-  where
-    firstCommentError =
-      either (Left . CommentScanFailure sourceName) Right
 
 parseInput :: (FilePath -> Text -> FormatError) -> FilePath -> FormatOptions -> Text -> Either FormatError Module
 parseInput mkErr sourceName opts input =
@@ -85,169 +90,160 @@ parserConfig :: FilePath -> FormatOptions -> Text -> ParserConfig
 parserConfig sourceName opts input =
   defaultConfig
     { parserSourceName = sourceName,
-      parserExtensions = finalExts
+      parserExtensions = formatBaseExtensions opts input
     }
+
+formatBaseExtensions :: FormatOptions -> Text -> [Extension]
+formatBaseExtensions opts input =
+  effectiveExtensions edition (formatExtensions opts <> headerExtensionSettings headerPragmas)
   where
     headerPragmas = readModuleHeaderPragmas input
     defaultEdition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (formatExtensions opts))
     edition = fromMaybe defaultEdition (headerLanguageEdition headerPragmas)
-    finalExts = effectiveExtensions edition (formatExtensions opts <> headerExtensionSettings headerPragmas)
 
 normalizeModule :: Module -> Module
 normalizeModule = stripAnnotations . addModuleParens
 
-renderModuleWithComments :: FilePath -> Text -> Module -> [SourceComment] -> Text
-renderModuleWithComments sourceName input modu comments =
-  ensureTrailingNewline . T.unlines . placeComments comments $ sections
-  where
-    sections =
-      languagePragmaSections sourceName input
-        <> moduleHeadSections modu
-        <> importSections modu
-        <> declSections modu
-
-data Section = Section
-  { sectionSpan :: !(Maybe SourceSpan),
-    sectionLines :: ![Text]
+data TokenFingerprint = TokenFingerprint
+  { tokenKind :: !LexTokenKind,
+    tokenText :: !Text,
+    tokenOrigin :: !TokenOrigin
   }
   deriving (Eq, Show)
 
-languagePragmaSections :: FilePath -> Text -> [Section]
-languagePragmaSections sourceName input =
-  case pragmaSpans of
-    [] -> []
-    spans ->
-      [ Section
-          { sectionSpan = Just (foldr1 mergeSourceSpans spans),
-            sectionLines = map renderLanguagePragma settings
-          }
-      ]
+tokenFingerprint :: FormatOptions -> FilePath -> Text -> [TokenFingerprint]
+tokenFingerprint opts sourceName input =
+  [ TokenFingerprint
+      { tokenKind = lexTokenKind tok,
+        tokenText = lexTokenText tok,
+        tokenOrigin = lexTokenOrigin tok
+      }
+  | tok <- lexModuleTokensWithSourceNameAndExtensions sourceName (formatBaseExtensions opts input) input
+  ]
+
+mergePrettyLayout :: FormatOptions -> FilePath -> Text -> Module -> Either FormatError Text
+mergePrettyLayout opts sourceName input modu = do
+  aligned <- alignTokenStreams sourceName sourceTokensAll prettyTokensAll
+  physical <- alignPhysicalSourceTokens sourceName prettyGaps aligned sourcePhysicalTokens
+  Right (renderFromSourceTokens input physical)
   where
-    tokens = lexModuleTokensWithSourceNameAndExtensions sourceName [] input
-    pragmaSpans =
-      [ sp
-      | LexToken {lexTokenKind = TkPragma Pragma {pragmaType = PragmaLanguage {}}, lexTokenSpan = sp} <- tokens
-      ]
-    headerPragmas = readModuleHeaderPragmas input
-    settings = headerExtensionSettings headerPragmas
-
-renderLanguagePragma :: ExtensionSetting -> Text
-renderLanguagePragma ext =
-  T.pack . renderString . layoutPretty defaultLayoutOptions $
-    "{-# LANGUAGE" <+> pretty (extensionSettingName ext) <+> "#-}"
-
-moduleHeadSections :: Module -> [Section]
-moduleHeadSections modu =
-  case moduleHead modu of
-    Nothing -> []
-    Just head' ->
-      singletonSection (annListSpan (moduleHeadAnns head')) (renderOnlyHeader modu)
-
-importSections :: Module -> [Section]
-importSections modu =
-  [ Section
-      { sectionSpan = annListSpan (importDeclAnns importDecl),
-        sectionLines = textLines (renderModuleWithoutPreamble modu {moduleHead = Nothing, moduleImports = [importDecl], moduleDecls = []})
-      }
-  | importDecl <- moduleImports modu
-  ]
-
-declSections :: Module -> [Section]
-declSections modu =
-  [ Section
-      { sectionSpan = declSpan decl,
-        sectionLines = textLines (renderPretty decl)
-      }
-  | decl <- moduleDecls modu
-  ]
-
-declSpan :: Decl -> Maybe SourceSpan
-declSpan (DeclAnn ann inner) =
-  case fromAnnotation ann of
-    Just NoSourceSpan -> declSpan inner
-    Just sp -> Just sp
-    Nothing -> declSpan inner
-declSpan _ = Nothing
-
-singletonSection :: Maybe SourceSpan -> Text -> [Section]
-singletonSection _ "" = []
-singletonSection sp txt = [Section sp (textLines txt)]
-
-renderOnlyHeader :: Module -> Text
-renderOnlyHeader modu =
-  renderModuleWithoutPreamble
-    modu
-      { moduleLanguagePragmas = [],
-        moduleImports = [],
-        moduleDecls = []
-      }
-
-renderModuleWithoutPreamble :: Module -> Text
-renderModuleWithoutPreamble modu =
-  renderPretty modu {moduleLanguagePragmas = []}
+    exts = formatBaseExtensions opts input
+    prettyInput = renderPretty modu
+    sourceTokensAll = lexModuleTokensWithSourceNameAndExtensions sourceName exts input
+    prettyTokensAll = lexModuleTokensWithSourceNameAndExtensions sourceName exts prettyInput
+    sourcePhysicalTokens = physicalSourceTokens sourceTokensAll
+    prettyGaps = tokenGaps prettyInput (physicalSourceTokens prettyTokensAll)
 
 renderPretty :: (Pretty a) => a -> Text
-renderPretty =
-  T.pack . renderString . layoutPretty defaultLayoutOptions . pretty
+renderPretty = renderStrict . layoutPretty defaultLayoutOptions . pretty
 
-textLines :: Text -> [Text]
-textLines txt = filter (not . T.null) (T.lines txt)
+physicalSourceTokens :: [LexToken] -> [LexToken]
+physicalSourceTokens tokens =
+  [ tok
+  | tok@LexToken {lexTokenOrigin = FromSource, lexTokenKind = kind} <- tokens,
+    kind /= TkEOF,
+    isRealSpan (lexTokenSpan tok)
+  ]
 
-annListSpan :: [Annotation] -> Maybe SourceSpan
-annListSpan = firstRealSpan . mapMaybe fromAnnotation
+data PhysicalToken = PhysicalToken
+  { physicalToken :: !LexToken,
+    physicalPrettyGap :: !(Maybe Text)
+  }
+  deriving (Eq, Show)
 
-firstRealSpan :: [SourceSpan] -> Maybe SourceSpan
-firstRealSpan spans =
-  case filter (/= NoSourceSpan) spans of
-    [] -> Nothing
-    sp : _ -> Just sp
+alignTokenStreams :: FilePath -> [LexToken] -> [LexToken] -> Either FormatError [(LexToken, LexToken)]
+alignTokenStreams sourceName source pretty' =
+  go (semanticTokens source) (semanticTokens pretty')
+  where
+    go [] [] = Right []
+    go (s : ss) (p : ps)
+      | tokenSemanticsMatch s p = ((s, p) :) <$> go ss ps
+      | otherwise = Left (TokenStreamMismatch sourceName)
+    go _ _ = Left (TokenStreamMismatch sourceName)
 
-placeComments :: [SourceComment] -> [Section] -> [Text]
-placeComments comments [] =
-  concatMap renderStandaloneComment comments
-placeComments comments (section : rest) =
-  let (sameLine, notSameLine) = partition (commentFollowsSection section) comments
-      (before, after) = partition (commentPrecedesSection section) notSameLine
-      current = renderSection section before sameLine
-   in current <> placeComments after rest
+semanticTokens :: [LexToken] -> [LexToken]
+semanticTokens =
+  filter
+    ( \tok ->
+        lexTokenKind tok /= TkEOF
+          && not (isCommentToken tok)
+    )
 
-renderSection :: Section -> [SourceComment] -> [SourceComment] -> [Text]
-renderSection section leading trailing =
-  concatMap renderStandaloneComment leading
-    <> appendTrailingComments (sectionLines section) trailing
+tokenSemanticsMatch :: LexToken -> LexToken -> Bool
+tokenSemanticsMatch source prettyTok =
+  lexTokenKind source == lexTokenKind prettyTok
 
-appendTrailingComments :: [Text] -> [SourceComment] -> [Text]
-appendTrailingComments [] comments = concatMap renderStandaloneComment comments
-appendTrailingComments lines0 [] = lines0
-appendTrailingComments lines0 comments =
-  let rendered = T.intercalate " " (map commentText comments)
-   in case unsnoc lines0 of
-        Nothing -> concatMap renderStandaloneComment comments
-        Just (prefix, lastLine) -> prefix <> [lastLine <> " " <> rendered]
+alignPhysicalSourceTokens :: FilePath -> [(LexToken, Text)] -> [(LexToken, LexToken)] -> [LexToken] -> Either FormatError [PhysicalToken]
+alignPhysicalSourceTokens sourceName prettyGaps =
+  go
+  where
+    go _ [] = Right []
+    go pairs (tok : toks)
+      | isCommentToken tok =
+          (PhysicalToken tok Nothing :) <$> go pairs toks
+      | otherwise =
+          case break ((== tok) . fst) pairs of
+            (_, []) -> Left (TokenStreamMismatch sourceName)
+            (_, (_, prettyTok) : restPairs) ->
+              (PhysicalToken tok (prettyGapBefore prettyGaps prettyTok) :) <$> go restPairs toks
 
-renderStandaloneComment :: SourceComment -> [Text]
-renderStandaloneComment comment =
-  T.lines (commentText comment)
+prettyGapBefore :: [(LexToken, Text)] -> LexToken -> Maybe Text
+prettyGapBefore prettyGaps tok
+  | lexTokenOrigin tok /= FromSource = Nothing
+  | not (isRealSpan (lexTokenSpan tok)) = Nothing
+  | otherwise = lookup tok prettyGaps
 
-commentPrecedesSection :: Section -> SourceComment -> Bool
-commentPrecedesSection section comment =
-  case sectionSpan section of
-    Nothing -> False
-    Just sp -> sourceSpanEndLine (commentSpan comment) < sourceSpanStartLine sp
+tokenGaps :: Text -> [LexToken] -> [(LexToken, Text)]
+tokenGaps input =
+  go 0
+  where
+    bytes = TE.encodeUtf8 input
 
-commentFollowsSection :: Section -> SourceComment -> Bool
-commentFollowsSection section comment =
-  case sectionSpan section of
-    Nothing -> False
-    Just sp ->
-      commentHasCodeBefore comment
-        && sourceSpanStartLine (commentSpan comment) == sourceSpanEndLine sp
+    go _offset [] = []
+    go offset (tok : rest) =
+      let (start, end) = tokenOffsets tok
+          gap = TE.decodeUtf8 (BS.take (start - offset) (BS.drop offset bytes))
+       in (tok, gap) : go end rest
 
-ensureTrailingNewline :: Text -> Text
-ensureTrailingNewline txt
-  | T.null txt = ""
-  | "\n" `T.isSuffixOf` txt = txt
-  | otherwise = txt <> "\n"
+renderFromSourceTokens :: Text -> [PhysicalToken] -> Text
+renderFromSourceTokens input tokens =
+  TE.decodeUtf8 (go Nothing 0 tokens)
+  where
+    bytes = TE.encodeUtf8 input
+    total = BS.length bytes
+
+    go _previous offset [] = sliceBytes offset total
+    go previous offset (PhysicalToken tok prettyGap : rest) =
+      let (start, end) = tokenOffsets tok
+          gap = TE.decodeUtf8 (sliceBytes offset start)
+       in TE.encodeUtf8 (renderGap previous tok prettyGap gap)
+            <> sliceBytes start end
+            <> go (Just tok) end rest
+
+    sliceBytes start end = BS.take (end - start) (BS.drop start bytes)
+
+renderGap :: Maybe LexToken -> LexToken -> Maybe Text -> Text -> Text
+renderGap Nothing _current _prettyGap originalGap = originalGap
+renderGap (Just previous) current prettyGap originalGap
+  | isCommentToken previous || isCommentToken current = originalGap
+  | otherwise = fromMaybe originalGap prettyGap
+
+isCommentToken :: LexToken -> Bool
+isCommentToken tok =
+  case lexTokenKind tok of
+    TkLineComment -> True
+    TkBlockComment -> True
+    _ -> False
+
+isRealSpan :: SourceSpan -> Bool
+isRealSpan SourceSpan {} = True
+isRealSpan NoSourceSpan = False
+
+tokenOffsets :: LexToken -> (Int, Int)
+tokenOffsets LexToken {lexTokenSpan = SourceSpan {sourceSpanStartOffset = start, sourceSpanEndOffset = end}} =
+  (start, end)
+tokenOffsets LexToken {lexTokenSpan = NoSourceSpan} =
+  error "tokenOffsets: expected source token with real span"
 
 formatErrorMessage :: FormatError -> Text
 formatErrorMessage err =
@@ -260,5 +256,7 @@ formatErrorMessage err =
       T.pack sourceName <> ": semantic sanity check failed: " <> T.pack msg
     CommentScanFailure sourceName scanErr ->
       T.pack sourceName <> ": comment scan failed: " <> T.pack (formatCommentScanError scanErr)
+    TokenStreamMismatch sourceName ->
+      T.pack sourceName <> ": token stream sanity check failed"
     IdempotenceFailure sourceName _ _ ->
       T.pack sourceName <> ": idempotence sanity check failed"

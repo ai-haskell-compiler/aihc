@@ -1,0 +1,13 @@
+extensions:
+  - UnicodeSyntax
+input: |
+  module Main where
+  f∷a→b
+  g :: a → b
+formatters:
+  aihc-fmt:
+    status: pass
+    output: |
+      module Main where
+      f ∷ a → b
+      g :: a → b
