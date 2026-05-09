@@ -1045,51 +1045,17 @@ test_prettyMultiWayIfInfixLhs = do
 test_prettyMultiWayIfInfixLhsInDecl :: Assertion
 test_prettyMultiWayIfInfixLhsInDecl = do
   let config = defaultConfig {parserExtensions = [MultiWayIf, OverloadedLabels]}
-      decl =
-        DeclValue
-          ( PatternBind
-              NoMultiplicityTag
-              (PVar (mkUnqualifiedName NameVarId "a"))
-              ( UnguardedRhs
-                  []
-                  ( EList
-                      [ EInfix
-                          ( EMultiWayIf
-                              [ GuardedRhs
-                                  { guardedRhsAnns = [],
-                                    guardedRhsGuards =
-                                      [ GuardLet
-                                          [ DeclValue
-                                              ( PatternBind
-                                                  NoMultiplicityTag
-                                                  (PVar (mkUnqualifiedName NameVarSym "+"))
-                                                  (UnguardedRhs [] (EOverloadedLabel "a" "#a") Nothing)
-                                              )
-                                          ]
-                                      ],
-                                    guardedRhsBody = ETuple Boxed []
-                                  }
-                              ]
-                          )
-                          (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))
-                          (ETuple Boxed [])
-                      ]
-                  )
-                  Nothing
-              )
-          )
-      expected =
-        T.intercalate
-          "\n"
-          [ "a =",
-            "  [if | let",
-            "        (+) =",
-            "           #a",
-            "       ->",
-            "        ()",
-            "    `a` ()]"
-          ]
-  assertDeclPrettyRoundTrip config decl expected
+      source =
+        """
+        a =
+          [if | let
+                (+) =
+                   #a
+               ->
+                ()
+              `a` ()]
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_prettyMultiWayIfInfixLhsInsideUnboxedTuple :: Assertion
 test_prettyMultiWayIfInfixLhsInsideUnboxedTuple = do
