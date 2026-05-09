@@ -29,6 +29,7 @@ import Test.Properties.Arb.Identifiers
     showHex,
     shrinkFloat,
     shrinkName,
+    shrinkQualifier,
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
@@ -415,8 +416,14 @@ mkFloatExpr value = EFloat value TFractional (renderFloat value)
 mkCharExpr :: Char -> Expr
 mkCharExpr value = EChar value (T.pack (show value))
 
+mkCharHashExpr :: Char -> Expr
+mkCharHashExpr value = ECharHash value (T.pack (show value) <> "#")
+
 mkStringExpr :: Text -> Expr
 mkStringExpr value = EString value (T.pack (show (T.unpack value)))
+
+mkStringHashExpr :: Text -> Expr
+mkStringHashExpr value = EStringHash value (T.pack (show (T.unpack value)) <> "#")
 
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
@@ -455,12 +462,16 @@ shrinkExpr expr =
   case expr of
     EVar name -> [EVar name' | name' <- shrinkName name]
     ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
-    EInt value _ _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EFloat value _ _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
-    EChar {} -> []
-    ECharHash {} -> []
-    EString value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
-    EStringHash value _ -> [EStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
+    EInt value _ _ -> simpleVarExpr : [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EFloat value _ _ -> simpleVarExpr : [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
+    EChar value _ ->
+      simpleVarExpr
+        : [mkCharExpr 'a' | value /= 'a']
+    ECharHash value _ ->
+      simpleVarExpr
+        : [mkCharHashExpr 'a' | value /= 'a']
+    EString value _ -> simpleVarExpr : [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+    EStringHash value _ -> simpleVarExpr : [mkStringHashExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
     EOverloadedLabel value raw ->
       [EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
     EPragma pragma inner -> inner : [EPragma pragma inner' | inner' <- shrinkExpr inner]
@@ -474,11 +485,10 @@ shrinkExpr expr =
         <> [EApp fn arg' | arg' <- shrinkExpr arg]
     EInfix lhs op rhs ->
       [lhs, rhs]
-        <> [EInfix lhs simpleVarName rhs | op /= simpleVarName]
+        <> [EInfix lhs op' rhs | op' <- shrinkName op]
         <> [EInfix simpleVarExpr op rhs | not (isSimpleVarExpr lhs)]
         <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
         <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
-        <> [EInfix lhs op' rhs | op' <- shrinkName op]
     ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
     ESectionL inner op ->
       inner
@@ -585,8 +595,8 @@ shrinkCmd cmd =
         <> [CmdArrApp lhs appTy rhs' | rhs' <- shrinkExpr rhs]
     CmdInfix lhs op rhs ->
       [lhs, rhs]
-        <> [CmdInfix lhs' op rhs | lhs' <- shrinkCmd lhs]
         <> [CmdInfix lhs op' rhs | op' <- shrinkName op]
+        <> [CmdInfix lhs' op rhs | lhs' <- shrinkCmd lhs]
         <> [CmdInfix lhs op rhs' | rhs' <- shrinkCmd rhs]
     CmdDo stmts -> [CmdDo stmts' | stmts' <- shrinkCmdDoStmts stmts, not (null stmts')]
     CmdIf cond yes no ->
@@ -742,7 +752,7 @@ whereValueRhss decls =
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =
   case stmts of
-    [_] -> [] -- Can't shrink a single-element do block
+    [stmt] -> [[stmt'] | stmt' <- shrinkDoStmt stmt]
     _ -> shrinkList shrinkDoStmt stmts
 
 shrinkDoFlavor :: DoFlavor -> [DoFlavor]
@@ -750,8 +760,10 @@ shrinkDoFlavor flavor =
   case flavor of
     DoPlain -> []
     DoMdo -> [DoPlain]
-    DoQualified _ -> [DoPlain]
-    DoQualifiedMdo name -> [DoPlain, DoMdo, DoQualified name]
+    DoQualified name ->
+      [DoQualified name' | name' <- shrinkQualifier name]
+    DoQualifiedMdo name ->
+      [DoQualifiedMdo name' | name' <- shrinkQualifier name]
 
 shrinkDoStmt :: DoStmt Expr -> [DoStmt Expr]
 shrinkDoStmt stmt =

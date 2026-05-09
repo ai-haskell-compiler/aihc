@@ -8,6 +8,7 @@ where
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrorBundle, parseDecl)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -40,4 +41,4 @@ prop_declPrettyRoundTrip decl =
                   counterexample (formatParseErrorBundle (parserSourceName declConfig) (Just source) err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
-                   in counterexample ("expected:\n" <> show expected <> "\nactual:\n" <> show actual) (expected == actual)
+                   in counterexample ("expected:\n" <> show (shorthand expected) <> "\nactual:\n" <> show (shorthand actual)) (expected == actual)

@@ -35,6 +35,7 @@ module Test.Properties.Arb.Identifiers
     genOptionalQualifier,
     genModuleQualifier,
     genModuleSegment,
+    shrinkQualifier,
 
     -- * Field names
     genFieldName,
@@ -469,17 +470,20 @@ shrinkNameText nt txt = case nt of
 -- | Shrink a module segment: try "A" as the minimal, replace unicode with
 -- ASCII where possible, then try dropping tail characters.
 shrinkModuleSegment :: Text -> [Text]
+shrinkModuleSegment "A" = []
 shrinkModuleSegment seg =
   filter (\s -> s /= seg && isValidConIdent s) $
     ["A"]
       <> [T.map (\c -> if c > '\x7f' then 'A' else c) seg | T.any (> '\x7f') seg]
-      <> shrinkConIdent seg
+      <> shrinkWithPreservedFirstChar isValidConIdent seg
 
 -- | Shrink a module qualifier by trying fewer or shorter segments.
 shrinkQualifier :: Text -> [Text]
 shrinkQualifier q =
   let segs = T.splitOn "." q
-   in [T.intercalate "." segs' | segs' <- shrinkList shrinkModuleSegment segs, not (null segs')]
+   in filter (/= q) $
+        ["A"]
+          <> [T.intercalate "." segs' | segs' <- shrinkList shrinkModuleSegment segs, not (null segs')]
 
 -- | Shrink a 'Name': try removing the module qualifier, shrink the qualifier
 -- itself, then shrink the local name text (replacing unicode symbols with ASCII where possible).

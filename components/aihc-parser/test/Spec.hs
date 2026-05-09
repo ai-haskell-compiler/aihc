@@ -9,6 +9,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
 import Aihc.Parser.Parens (addDeclParens, addExprParens)
 import Aihc.Parser.Pretty ()
+import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
@@ -96,6 +97,11 @@ assertParsedExprPrettyRoundTrip config source expected =
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
+assertEqualShorthand :: (Shorthand a, Eq a) => String -> a -> a -> Assertion
+assertEqualShorthand context expected actual
+  | expected == actual = return ()
+  | otherwise = assertFailure ("context: " <> context <> "\nexpected:\n" <> show (shorthand expected) <> "\nactual:\n" <> show (shorthand actual))
+
 assertParsedStrippedExprShapeRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedExprShapeRoundTrip config source =
   case parseExpr config source of
@@ -103,12 +109,12 @@ assertParsedStrippedExprShapeRoundTrip config source =
       let stripped = stripParens expr
           rendered = renderPretty stripped
        in case parseExpr config rendered of
-            ParseOk reparsed ->
-              assertEqual "reparsed expression" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
+            ParseOk reparsed -> do
+              assertEqualShorthand (T.unpack rendered) (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
             ParseErr bundle ->
               assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for:\n" <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 assertParsedStrippedPatternShapeRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedPatternShapeRoundTrip config source =
@@ -265,6 +271,7 @@ buildTests = do
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
             testCase "pretty-prints multi-way if left operands using layout" test_prettyMultiWayIfInfixLhs,
+            testCase "pretty-prints multi-way if left operands inside do using layout" test_prettyMultiWayIfInfixLhsInsideDo,
             testCase "pretty-prints multi-way if left operands inside unboxed tuples with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedTuple,
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
@@ -1036,10 +1043,23 @@ test_prettyMultiWayIfInfixLhs = do
   let config = defaultConfig {parserExtensions = [MultiWayIf]}
       source =
         """
-        if | True
+        (if | True
             ->
-             ()
+             ())
          `a` 'x'
+        """
+  assertParsedStrippedExprShapeRoundTrip config source
+
+test_prettyMultiWayIfInfixLhsInsideDo :: Assertion
+test_prettyMultiWayIfInfixLhsInsideDo = do
+  let config = defaultConfig {parserExtensions = [MultiWayIf]}
+      source =
+        """
+        do
+          (if | True
+              ->
+               ())
+            `a` 'x'
         """
   assertParsedStrippedExprShapeRoundTrip config source
 
