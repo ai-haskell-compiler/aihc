@@ -6,8 +6,7 @@ input: |
       x = 1
 formatters:
   aihc-fmt:
-    status: xfail
-    reason: MVP only places comments near top-level sections; nested comments are preserved but not attached in place yet
+    status: pass
     output: |
       module Main where
       f =

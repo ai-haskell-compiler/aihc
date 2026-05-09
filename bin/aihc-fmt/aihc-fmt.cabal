@@ -18,6 +18,7 @@ library
   build-depends:
     aihc-parser,
     base >=4.16 && <5,
+    bytestring,
     containers,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
