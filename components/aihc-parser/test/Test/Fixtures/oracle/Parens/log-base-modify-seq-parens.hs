@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail log-base-style section-appends keep rhs grouped when parenthesized by parser -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE OverloadedStrings #-}
 
 module MonoidAppendParen where

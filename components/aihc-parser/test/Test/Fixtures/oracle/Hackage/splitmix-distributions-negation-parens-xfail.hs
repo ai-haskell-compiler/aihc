@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail splitmix-distributions: parser inserts extra parentheses in mixed negation and exponentiation expressions -}
+{- ORACLE_TEST pass -}
 module SplitmixDistributionsNegationParensXFail where
 
 zipfLike a u =

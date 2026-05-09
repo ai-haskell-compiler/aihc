@@ -271,11 +271,13 @@ buildTests = do
             testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
             testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
             testCase "pretty-prints lambda-cases expressions with implicit layout" test_prettyLambdaCasesExpressionUsesImplicitLayout,
+            testCase "pretty-prints lambda-case applicative chains without extra parens" test_prettyLambdaCaseApplicativeChain,
             testCase "pretty-prints class declarations with implicit layout" test_prettyClassDeclarationUsesImplicitLayout,
             testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
+            testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
@@ -1165,6 +1167,21 @@ test_prettyLambdaCasesExpressionUsesImplicitLayout = do
         """
   assertParsedDeclPrettyRoundTrip config declSource declExpected
 
+test_prettyLambdaCaseApplicativeChain :: Assertion
+test_prettyLambdaCaseApplicativeChain = do
+  let config = defaultConfig {parserExtensions = [LambdaCase]}
+      source =
+        T.unlines
+          [ "f originalParsedOptions =",
+            "  (Options <$> __command",
+            "   <*> \\case",
+            "         f | __withFlake f -> Flake",
+            "         _ | otherwise -> Traditional",
+            "   <*> __prioritiseLocalPinnedSystem)",
+            "    originalParsedOptions"
+          ]
+  assertParsedStrippedDeclShapeRoundTrip config source
+
 test_prettyClassDeclarationUsesImplicitLayout :: Assertion
 test_prettyClassDeclarationUsesImplicitLayout = do
   let source = "class C a where { f :: a -> Int; f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
@@ -1221,6 +1238,20 @@ test_prettyNestedInfixRhsInsideSection = do
          +)
         """
   assertParsedStrippedExprShapeRoundTrip defaultConfig source
+
+test_prettyRightSectionInfixOperand :: Assertion
+test_prettyRightSectionInfixOperand = do
+  let config = defaultConfig {parserExtensions = [OverloadedStrings]}
+      sources =
+        [ "(/ 10 ^ (3 :: Int))",
+          "(<> msg <> \"\\n\")",
+          "(++ \" seconds\" ++ dir f)",
+          "(< sizeOf x * 8)",
+          "(<= m + 1 / 2)",
+          "(.+^ p ^. vel)",
+          "(<?> prettyIndentation ref ++ \" (started at line \" ++ prettyLine ref ++ \")\")"
+        ]
+  mapM_ (assertParsedStrippedExprShapeRoundTrip config) sources
 
 test_prettyInfixRhsOpenEndedBeforeFollowingInfix :: Assertion
 test_prettyInfixRhsOpenEndedBeforeFollowingInfix = do
