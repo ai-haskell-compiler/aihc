@@ -265,6 +265,7 @@ buildTests = do
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
             testCase "pretty-prints multi-way if left operands using layout" test_prettyMultiWayIfInfixLhs,
+            testCase "pretty-prints multi-way if left operands in declarations" test_prettyMultiWayIfInfixLhsInDecl,
             testCase "pretty-prints multi-way if left operands inside unboxed tuples with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedTuple,
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
@@ -1040,6 +1041,55 @@ test_prettyMultiWayIfInfixLhs = do
          `a` 'x'
         """
   assertParsedStrippedExprShapeRoundTrip config source
+
+test_prettyMultiWayIfInfixLhsInDecl :: Assertion
+test_prettyMultiWayIfInfixLhsInDecl = do
+  let config = defaultConfig {parserExtensions = [MultiWayIf, OverloadedLabels]}
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              (PVar (mkUnqualifiedName NameVarId "a"))
+              ( UnguardedRhs
+                  []
+                  ( EList
+                      [ EInfix
+                          ( EMultiWayIf
+                              [ GuardedRhs
+                                  { guardedRhsAnns = [],
+                                    guardedRhsGuards =
+                                      [ GuardLet
+                                          [ DeclValue
+                                              ( PatternBind
+                                                  NoMultiplicityTag
+                                                  (PVar (mkUnqualifiedName NameVarSym "+"))
+                                                  (UnguardedRhs [] (EOverloadedLabel "a" "#a") Nothing)
+                                              )
+                                          ]
+                                      ],
+                                    guardedRhsBody = ETuple Boxed []
+                                  }
+                              ]
+                          )
+                          (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))
+                          (ETuple Boxed [])
+                      ]
+                  )
+                  Nothing
+              )
+          )
+      expected =
+        T.intercalate
+          "\n"
+          [ "a =",
+            "  [if | let",
+            "        (+) =",
+            "           #a",
+            "       ->",
+            "        ()",
+            "    `a` ()]"
+          ]
+  assertDeclPrettyRoundTrip config decl expected
 
 test_prettyMultiWayIfInfixLhsInsideUnboxedTuple :: Assertion
 test_prettyMultiWayIfInfixLhsInsideUnboxedTuple = do

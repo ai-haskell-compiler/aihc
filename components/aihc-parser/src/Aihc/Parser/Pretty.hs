@@ -63,6 +63,19 @@ prettyRawText raw
   | T.isInfixOf "\n" raw = nesting $ \level -> nest (negate level) (pretty raw)
   | otherwise = pretty raw
 
+startsWithMultiWayIf :: Expr -> Bool
+startsWithMultiWayIf expr =
+  case expr of
+    EAnn _ sub -> startsWithMultiWayIf sub
+    EInfix lhs _ _ -> startsWithMultiWayIf lhs
+    EApp fn _ -> startsWithMultiWayIf fn
+    ERecordUpd base _ -> startsWithMultiWayIf base
+    EGetField base _ -> startsWithMultiWayIf base
+    ETypeSig inner _ -> startsWithMultiWayIf inner
+    ETypeApp fn _ -> startsWithMultiWayIf fn
+    EMultiWayIf {} -> True
+    _ -> False
+
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
   pretty = prettyModuleDoc . addModuleParens
@@ -1160,7 +1173,7 @@ prettyExpr expr =
     ELambdaCases alts ->
       "\\" <> "cases" <> prettyCaseLayout (map prettyLambdaCaseAlt alts)
     EInfix lhs op rhs ->
-      prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
+      (if startsWithMultiWayIf lhs then align else id) (prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs)
     ENegate inner -> "-" <> prettyExpr inner
     ESectionL lhs op ->
       prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
@@ -1390,7 +1403,8 @@ prettyExprAtStatementStart expr =
     EOverloadedLabel _ raw -> pretty raw
     EApp {} -> prettyAppWith prettyExprAtStatementStart expr
     ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> prettyTypeAppArg ty
-    EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs
+    EInfix lhs op rhs ->
+      (if startsWithMultiWayIf lhs then align else id) (prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op <+> prettyExpr rhs)
     ESectionL lhs op -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op
     ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> " " <> "::" <+> prettyType ty
     ERecordUpd base fields ->
