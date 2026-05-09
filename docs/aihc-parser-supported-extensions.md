@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Total Extensions: 83
-- Supported: 83
-- In Progress: 0
+- Total Extensions: 84
+- Supported: 82
+- In Progress: 2
 
 ## Extension Status
 
@@ -45,12 +45,12 @@
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
 | KindSignatures            |   🟢    | 29/29         |
-| LambdaCase                |   🟢    | 15/15         |
+| LambdaCase                |   🟡    | 15/16         |
 | LinearTypes               |   🟢    | 15/15         |
 | MagicHash                 |   🟢    | 21/21         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
-| MultiWayIf                |   🟢    | 10/10         |
+| MultiWayIf                |   🟢    | 11/11         |
 | NamedFieldPuns            |   🟢    | 6/6           |
 | NamedWildCards            |   🟢    | 5/5           |
 | NegativeLiterals          |   🟢    | 1/1           |
@@ -58,6 +58,7 @@
 | NumericUnderscores        |   🟢    | 4/4           |
 | OverlappingInstances      |   🟢    | 1/1           |
 | OverloadedLabels          |   🟢    | 5/5           |
+| OverloadedStrings         |   🔴    | 0/1           |
 | PackageImports            |   🟢    | 6/6           |
 | ParallelListComp          |   🟢    | 2/2           |
 | PartialTypeSignatures     |   🟢    | 11/11         |
