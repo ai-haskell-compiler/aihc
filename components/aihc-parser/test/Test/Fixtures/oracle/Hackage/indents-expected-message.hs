@@ -1,5 +1,5 @@
 {- ORACLE_TEST pass -}
-module IndentsExpectedMessageXFail where
+module IndentsExpectedMessage where
 
 f ref pos =
   (<?> prettyIndentation ref ++ " (started at line " ++ prettyLine ref ++ ")")

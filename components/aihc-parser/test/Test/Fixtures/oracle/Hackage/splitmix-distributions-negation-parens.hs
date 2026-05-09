@@ -1,5 +1,5 @@
 {- ORACLE_TEST pass -}
-module SplitmixDistributionsNegationParensXFail where
+module SplitmixDistributionsNegationParens where
 
 zipfLike a u =
   let xInt = floor (u ** (- 1 / (a - 1)))
