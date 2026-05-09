@@ -1,5 +1,4 @@
-{- ORACLE_TEST xfail Guard roundtrip due to parenthesized section on string concat rhs -}
+{- ORACLE_TEST pass -}
 module FriendlyTimeAppendSecondsLambda where
 
 secondsAgo = \f -> (++ " seconds" ++ dir f)
-

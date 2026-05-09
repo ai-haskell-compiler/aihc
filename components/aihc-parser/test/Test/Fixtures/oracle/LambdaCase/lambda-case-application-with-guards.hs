@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail shellify parse/pretty mismatch for \case in applicative chain -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase #-}
 
 module LambdaCaseInfixApplication where

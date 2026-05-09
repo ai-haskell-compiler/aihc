@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail monad-metrics-style section application emits extra parens around rhs precedence -}
+{- ORACLE_TEST pass -}
 module ParenSectionExponent where
 
 nsToUs = (/ 10^(3 :: Int))

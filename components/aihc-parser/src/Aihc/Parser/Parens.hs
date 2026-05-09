@@ -263,6 +263,7 @@ data ExprCtx
   | CtxAppArg
   | CtxAppArgNoParens
   | CtxAppArgGreedy
+  | CtxSectionRhs
   | CtxTypeSigBody
   | CtxGuarded
 
@@ -319,6 +320,10 @@ needsExprParens ctx expr =
         _ | isBracedExpr expr -> False
         EPragma {} -> True
         _ -> isGreedyExpr expr
+    CtxSectionRhs ->
+      case expr of
+        ETypeSig {} -> True
+        _ -> False
     CtxTypeSigBody ->
       case expr of
         ETypeSig {} -> True
@@ -348,6 +353,7 @@ exprCtxPrec ctx expr =
       | isBlockExpr expr -> 0
       | isBracedExpr expr -> 0
       | otherwise -> 3
+    CtxSectionRhs -> 0
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
@@ -1068,10 +1074,9 @@ addExprParensPrec prec expr =
               else addSectionLhsParens lhs
        in EParen (ESectionL lhs' op)
     ESectionR op rhs ->
-      -- The RHS operand is parsed as an infix RHS, so low-precedence forms
-      -- such as type signatures need their own parentheses:
-      -- @(`op` (x :: T))@, not @(`op` x :: T)@.
-      EParen (ESectionR op (addExprParensIn (CtxInfixRhs False) rhs))
+      -- Right sections accept ordinary expressions as operands. Only explicit
+      -- type signatures need extra grouping to avoid @(`op` x :: T)@.
+      EParen (ESectionR op (addExprParensIn CtxSectionRhs rhs))
     ELetDecls decls body ->
       wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
@@ -1329,8 +1334,6 @@ absorbsFollowingInfix = \case
   EAnn _ sub -> absorbsFollowingInfix sub
   EIf {} -> True
   ELambdaPats {} -> True
-  ELambdaCase {} -> True
-  ELambdaCases {} -> True
   ELetDecls {} -> True
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
