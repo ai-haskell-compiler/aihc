@@ -1159,7 +1159,7 @@ prettyExpr expr =
     ELambdaCases alts ->
       "\\" <> "cases" <> prettyCaseLayout (map prettyLambdaCaseAlt alts)
     EInfix lhs op rhs ->
-      prettyExpr lhs <> hardline <> prettyNameInfixOp op <+> (prettyExpr rhs)
+      prettyExpr lhs <> hardline <> prettyNameInfixOp op <+> prettyExpr rhs
     ENegate inner -> "-" <> prettyExpr inner
     ESectionL lhs op ->
       prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
@@ -1402,17 +1402,17 @@ prettyExprAtStatementStart expr =
 
 -- | Pretty-print an arrow command.
 prettyCmd :: Cmd -> Doc ann
-prettyCmd cmd =
+prettyCmd (CmdAnn _ inner) = prettyCmd inner
+prettyCmd cmd = nest 2 $
   case cmd of
-    CmdAnn _ inner -> prettyCmd inner
     CmdArrApp lhs HsFirstOrderApp rhs ->
       prettyExpr lhs <+> "-<" <+> prettyExpr rhs
     CmdArrApp lhs HsHigherOrderApp rhs ->
       prettyExpr lhs <+> "-<<" <+> prettyExpr rhs
     CmdInfix l op r ->
-      nest 2 (prettyCmd l) <> hardline <> " " <> prettyNameInfixOp op <+> prettyCmd r
+      prettyCmd l <> hardline <> " " <> prettyNameInfixOp op <+> prettyCmd r
     CmdDo stmts ->
-      "do" <> nest 2 (prettyDoLayout prettyCmdStmt stmts)
+      "do" <> prettyDoLayout prettyCmdStmt stmts
     CmdIf cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
     CmdCase scrut alts ->
@@ -1439,7 +1439,7 @@ prettyCmdStmt stmt =
     DoRecStmt stmts -> "rec" <> nest 2 (prettyDoLayout prettyCmdStmt stmts)
 
 prettyCmdAtStatementStart :: Cmd -> Doc ann
-prettyCmdAtStatementStart cmd =
+prettyCmdAtStatementStart cmd = nest 2 $
   case cmd of
     CmdAnn _ inner -> prettyCmdAtStatementStart inner
     CmdArrApp lhs HsFirstOrderApp rhs ->

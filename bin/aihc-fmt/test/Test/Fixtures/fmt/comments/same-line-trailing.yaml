@@ -7,8 +7,7 @@ formatters:
     status: pass
     output: |
       module Main where
-      x =
-        1 -- trailing
+      x = 1 -- trailing
   ormolu:
     status: pass
     output: |

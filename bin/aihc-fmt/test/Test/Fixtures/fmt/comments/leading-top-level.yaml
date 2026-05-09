@@ -9,8 +9,7 @@ formatters:
     output: |
       module Main where
       -- leading
-      x =
-        1
+      x = 1
   ormolu:
     status: pass
     output: |

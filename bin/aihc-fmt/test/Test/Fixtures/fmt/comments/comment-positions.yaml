@@ -9,5 +9,4 @@ formatters:
     output: |
       module Main where
       -- before code
-      x {- middle -}=
-        1 -- after code
+      x {- middle -}= 1 -- after code

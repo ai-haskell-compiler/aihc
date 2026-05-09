@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens)
+import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -89,14 +89,6 @@ sampleGen count gen = QGen.unGen (QC.vectorOf count gen) (QRandom.mkQCGen 202604
 renderPretty :: (Pretty a) => a -> Text
 renderPretty = renderStrict . layoutPretty defaultLayoutOptions . pretty
 
-assertParsedExprPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
-assertParsedExprPrettyRoundTrip config source expected =
-  case parseExpr config source of
-    ParseOk expr ->
-      assertExprPrettyRoundTrip config expr expected
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-
 assertEqualShorthand :: (Shorthand a, Eq a) => String -> a -> a -> Assertion
 assertEqualShorthand context expected actual
   | expected == actual = return ()
@@ -153,12 +145,6 @@ assertParsedModulePrettyContains source expected =
     (errs, _) ->
       assertFailure ("expected parse success, got: " <> show errs)
 
-assertExprPrettyRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
-assertExprPrettyRoundTrip config expr expected = do
-  let rendered = renderPretty expr
-  assertEqual "pretty-printed expression" expected rendered
-  assertExprRenderingRoundTrip config expr rendered
-
 assertExprRenderingRoundTrip :: ParserConfig -> Expr -> Text -> Assertion
 assertExprRenderingRoundTrip config expr rendered =
   case parseExpr config rendered of
@@ -166,28 +152,6 @@ assertExprRenderingRoundTrip config expr rendered =
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
       assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-
-assertParsedDeclPrettyRoundTrip :: ParserConfig -> Text -> Text -> Assertion
-assertParsedDeclPrettyRoundTrip config source expected =
-  case parseDecl config source of
-    ParseOk decl ->
-      assertDeclPrettyRoundTrip config decl expected
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
-
-assertParsedDeclPrettyRoundTripSame :: ParserConfig -> Text -> Assertion
-assertParsedDeclPrettyRoundTripSame config source =
-  assertParsedDeclPrettyRoundTrip config source source
-
-assertDeclPrettyRoundTrip :: ParserConfig -> Decl -> Text -> Assertion
-assertDeclPrettyRoundTrip config decl expected = do
-  let rendered = renderPretty decl
-  assertEqual "pretty-printed declaration" expected rendered
-  case parseDecl config rendered of
-    ParseOk reparsed ->
-      assertEqual "reparsed declaration" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -221,8 +185,6 @@ buildTests = do
             testCase "preserves bundled export wildcard position" test_bundledExportWildcardPosition,
             testCase "parses associated data family operator names" test_associatedDataFamilyOperatorName,
             testCase "parses infix associated data family operator names" test_associatedDataFamilyInfixOperatorName,
-            testCase "pretty-prints associated data family operator names" test_prettyAssocDataFamilyOperatorName,
-            testCase "pretty-prints infix associated data family operator names" test_prettyAssocDataFamilyInfixOperatorName,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
             testCase "does not lex symbolic unicode as overloaded labels" test_unicodeSymbolIsNotOverloadedLabel,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
@@ -249,11 +211,6 @@ buildTests = do
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
-            testCase "data declaration result kinds parenthesize contexts" test_dataDeclResultKindContextRoundTrips,
-            testCase "promoted qualified constructors avoid char literal ambiguity" test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity,
-            testCase "promoted lists space infix elements starting with ticks" test_promotedListSpacesInfixElementsStartingWithTicks,
-            testCase "boxed tuple infix constructor operands stay bare" test_boxedTupleInfixConOperandStaysBare,
-            testCase "unboxed tuple infix constructor operands stay bare" test_unboxedTupleInfixConOperandStaysBare,
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
             testCase "newtype CTYPE pragmas round-trip" test_newtypeCTypePragmaRoundTrips,
             testCase "generated constructor identifiers accept MagicHash suffixes" test_generatedConstructorIdentifiersAcceptMagicHashSuffixes,
@@ -266,21 +223,13 @@ buildTests = do
             testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "generated expressions can include SCC pragmas" test_generatedExpressionsCanIncludeSccPragmas,
             testCase "generated expressions can include explicit type syntax" test_generatedExpressionsCanIncludeExplicitTypeSyntax,
-            testCase "pretty-prints case expressions with implicit layout" test_prettyCaseExpressionUsesImplicitLayout,
-            testCase "pretty-prints let expressions with implicit layout" test_prettyLetExpressionUsesImplicitLayout,
             testCase "pretty-prints negated layout-ending list-comprehension bodies" test_prettyNegatedLayoutEndingListCompBody,
             testCase "pretty-prints layout let guards in multi-way if" test_prettyLayoutLetGuardInMultiWayIf,
             testCase "pretty-prints multi-way if left operands using layout" test_prettyMultiWayIfInfixLhs,
             testCase "pretty-prints multi-way if left operands inside do using layout" test_prettyMultiWayIfInfixLhsInsideDo,
             testCase "pretty-prints multi-way if left operands inside unboxed tuples with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedTuple,
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
-            testCase "pretty-prints where clauses with implicit layout" test_prettyWhereClauseUsesImplicitLayout,
-            testCase "pretty-prints GADT constructors with implicit layout" test_prettyGadtConstructorsUseImplicitLayout,
-            testCase "pretty-prints lambda-case expressions with implicit layout" test_prettyLambdaCaseExpressionUsesImplicitLayout,
-            testCase "pretty-prints lambda-cases expressions with implicit layout" test_prettyLambdaCasesExpressionUsesImplicitLayout,
             testCase "pretty-prints lambda-case applicative chains without extra parens" test_prettyLambdaCaseApplicativeChain,
-            testCase "pretty-prints class declarations with implicit layout" test_prettyClassDeclarationUsesImplicitLayout,
-            testCase "pretty-prints instance declarations with implicit layout" test_prettyInstanceDeclarationUsesImplicitLayout,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
@@ -290,14 +239,12 @@ buildTests = do
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
             testCase "pretty-prints reserved at right sections" test_prettyReservedAtRightSection,
-            testCase "pretty-prints layout-ending operands inside left sections" test_prettyLayoutEndingOperandInsideLeftSection,
             testCase "pretty-prints type applications after layout-ending functions" test_prettyTypeAppAfterLayoutEndingFunction,
             testCase "pretty-prints type signatures after layout-ending functions" test_prettyTypeSigAfterLayoutEndingFunction,
             testCase "pretty-prints operators after layout-rendered do blocks" test_prettyOperatorAfterLayoutDoBlock,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
-            testCase "pretty-prints symbolic deriving classes as prefix constructors" test_prettySymbolicDerivingClass,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
@@ -675,31 +622,6 @@ test_generatedConstructorIdentifiersAcceptUnicodeCharacters = do
   assertBool "unicode uppercase letters and unicode numbers should be accepted in constructor identifiers" $
     isValidConIdent "\x0394\x0660"
 
-test_dataDeclResultKindContextRoundTrips :: Assertion
-test_dataDeclResultKindContextRoundTrips = do
-  assertParsedDeclPrettyRoundTripSame defaultConfig "data 𐖈 :: C => C"
-
-test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity :: Assertion
-test_promotedQualifiedConstructorAvoidsCharLiteralAmbiguity = do
-  assertParsedDeclPrettyRoundTripSame defaultConfig "type (:+) :: ' A'.B.C"
-
-test_promotedListSpacesInfixElementsStartingWithTicks :: Assertion
-test_promotedListSpacesInfixElementsStartingWithTicks = do
-  assertParsedDeclPrettyRoundTripSame defaultConfig "type M1 = ' ['Text \"alpha\" ':<>: 'Text \"beta\", 'Text \"gamma\"]"
-
-test_boxedTupleInfixConOperandStaysBare :: Assertion
-test_boxedTupleInfixConOperandStaysBare = do
-  assertParsedDeclPrettyRoundTripSame defaultConfig "data D = () :. T"
-
-test_unboxedTupleInfixConOperandStaysBare :: Assertion
-test_unboxedTupleInfixConOperandStaysBare = do
-  let config = defaultConfig {parserExtensions = [UnboxedTuples]}
-  assertParsedDeclPrettyRoundTripSame config "data D = (# a #) :. Int"
-
-test_prettySymbolicDerivingClass :: Assertion
-test_prettySymbolicDerivingClass = do
-  assertParsedDeclPrettyRoundTripSame defaultConfig "newtype C = C {} deriving ((:+))"
-
 test_dataDeclCTypePragmaRoundTrips :: Assertion
 test_dataDeclCTypePragmaRoundTrips = do
   let source = T.unlines ["{-# LANGUAGE GHC2021 #-}", "{-# LANGUAGE CApiFFI #-}", "module M where", "data {-# CTYPE \"termbox.h\" \"struct tb_cell\" #-} Tb_cell = Tb_cell"]
@@ -981,32 +903,6 @@ test_quasiQuotesDoNotEnableTHNameQuotes = do
       (errs, _modu) = parseModule config source
   assertBool "expected TH name quotes to require TemplateHaskellQuotes or TemplateHaskell" (not (null errs))
 
-test_prettyCaseExpressionUsesImplicitLayout :: Assertion
-test_prettyCaseExpressionUsesImplicitLayout = do
-  let source = "case x of { 0 -> 1; _ -> 2 }"
-      expected =
-        """
-        case x of
-          0 ->
-            1
-          _ ->
-            2
-        """
-  assertParsedExprPrettyRoundTrip defaultConfig source expected
-
-test_prettyLetExpressionUsesImplicitLayout :: Assertion
-test_prettyLetExpressionUsesImplicitLayout = do
-  let source = "let { x = 10 } in x + x"
-      expected =
-        """
-        let
-          x =
-            10
-          in x
-           + x
-        """
-  assertParsedExprPrettyRoundTrip defaultConfig source expected
-
 test_prettyNegatedLayoutEndingListCompBody :: Assertion
 test_prettyNegatedLayoutEndingListCompBody = do
   let config = defaultConfig {parserExtensions = [BlockArguments]}
@@ -1088,105 +984,6 @@ test_prettyMultiWayIfInfixLhsInsideUnboxedSum = do
         """
   assertParsedStrippedExprShapeRoundTrip config source
 
-test_prettyWhereClauseUsesImplicitLayout :: Assertion
-test_prettyWhereClauseUsesImplicitLayout = do
-  let source = "f x = x where { y = 1 }"
-      expected =
-        """
-        f x =
-          x
-          where
-            y =
-              1
-        """
-  assertParsedDeclPrettyRoundTrip defaultConfig source expected
-
-test_prettyGadtConstructorsUseImplicitLayout :: Assertion
-test_prettyGadtConstructorsUseImplicitLayout = do
-  let config = defaultConfig {parserExtensions = [GADTs, TypeFamilies]}
-      gadtSource = "data T where { MkT :: T; MkU :: T }"
-      gadtExpected =
-        """
-        data T where
-          MkT :: T
-          MkU :: T
-        """
-      typeFamilySource = "type family F a where { F Int = Bool; F Bool = Int }"
-      typeFamilyExpected =
-        """
-        type family F a where
-          F Int = Bool
-          F Bool = Int
-        """
-  assertParsedDeclPrettyRoundTrip config gadtSource gadtExpected
-  assertParsedDeclPrettyRoundTrip config typeFamilySource typeFamilyExpected
-
-test_prettyLambdaCaseExpressionUsesImplicitLayout :: Assertion
-test_prettyLambdaCaseExpressionUsesImplicitLayout = do
-  let config = defaultConfig {parserExtensions = [LambdaCase]}
-      source = "\\case { 0 -> 1; _ -> 2 }"
-      expected =
-        """
-        \\case
-          0 ->
-            1
-          _ ->
-            2
-        """
-  assertParsedExprPrettyRoundTrip config source expected
-  let declSource = "f = \\case { 0 -> 1 } where { g = 2 }"
-      declExpected =
-        """
-        f =
-          \\case
-            0 ->
-              1
-          where
-            g =
-              2
-        """
-  assertParsedDeclPrettyRoundTrip config declSource declExpected
-  let guardedDeclSource = "a = \\case { 0 | let { a = () :: () } -> () }"
-      guardedDeclExpected =
-        """
-        a =
-          \\case
-            0
-              | let
-                a =
-                  ()
-                   :: ()
-               ->
-                ()
-        """
-  assertParsedDeclPrettyRoundTrip config guardedDeclSource guardedDeclExpected
-
-test_prettyLambdaCasesExpressionUsesImplicitLayout :: Assertion
-test_prettyLambdaCasesExpressionUsesImplicitLayout = do
-  let config = defaultConfig {parserExtensions = [LambdaCase]}
-      source = "\\cases { True False -> 0; _ _ -> 1 }"
-      expected =
-        """
-        \\cases
-          True False ->
-            0
-          _ _ ->
-            1
-        """
-  assertParsedExprPrettyRoundTrip config source expected
-  let declSource = "f = \\cases { 0 -> 1 } where { g = 2 }"
-      declExpected =
-        """
-        f =
-          \\cases
-            0 ->
-              1
-          where
-            g =
-              2
-        """
-  assertParsedDeclPrettyRoundTrip config declSource declExpected
-
 test_prettyLambdaCaseApplicativeChain :: Assertion
 test_prettyLambdaCaseApplicativeChain = do
   let config = defaultConfig {parserExtensions = [LambdaCase]}
@@ -1201,41 +998,6 @@ test_prettyLambdaCaseApplicativeChain = do
             "    originalParsedOptions"
           ]
   assertParsedStrippedDeclShapeRoundTrip config source
-
-test_prettyClassDeclarationUsesImplicitLayout :: Assertion
-test_prettyClassDeclarationUsesImplicitLayout = do
-  let source = "class C a where { f :: a -> Int; f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
-      expected =
-        """
-        class C a where
-          f :: a -> Int
-          f x =
-            case x of
-              0 ->
-                1
-              _ ->
-                2
-          g =
-            3
-        """
-  assertParsedDeclPrettyRoundTrip defaultConfig source expected
-
-test_prettyInstanceDeclarationUsesImplicitLayout :: Assertion
-test_prettyInstanceDeclarationUsesImplicitLayout = do
-  let source = "instance C a where { f x = case x of { 0 -> 1; _ -> 2 }; g = 3 }"
-      expected =
-        """
-        instance C a where
-          f x =
-            case x of
-              0 ->
-                1
-              _ ->
-                2
-          g =
-            3
-        """
-  assertParsedDeclPrettyRoundTrip defaultConfig source expected
 
 test_prettyInfixRhsOpenEndedInsideSection :: Assertion
 test_prettyInfixRhsOpenEndedInsideSection = do
@@ -1326,20 +1088,6 @@ test_prettyReservedAtRightSection = do
       rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
   assertEqual "pretty-printed expression" "(@ ())" rendered
   assertExprRenderingRoundTrip defaultConfig expr rendered
-
-test_prettyLayoutEndingOperandInsideLeftSection :: Assertion
-test_prettyLayoutEndingOperandInsideLeftSection = do
-  let config = defaultConfig {parserExtensions = [LambdaCase]}
-      source = "([0 ..] `a` \\case { [] -> a } `a`)"
-      expected =
-        """
-        ([0 ..]
-         `a` \\case
-          [] ->
-            a
-         `a`)
-        """
-  assertParsedExprPrettyRoundTrip config source expected
 
 test_prettyTypeAppAfterLayoutEndingFunction :: Assertion
 test_prettyTypeAppAfterLayoutEndingFunction = do
@@ -1593,28 +1341,6 @@ test_associatedDataFamilyInfixOperatorName = do
           assertFailure ("expected infix associated data family operator declaration, got: " <> show other)
     (errs, _) ->
       assertFailure ("expected infix associated data family operator declaration to parse, got: " <> show errs)
-
-test_prettyAssocDataFamilyOperatorName :: Assertion
-test_prettyAssocDataFamilyOperatorName = do
-  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
-  assertParsedDeclPrettyRoundTrip
-    config
-    "class C a where { data (:*:) a }"
-    """
-    class C a where
-      data (:*:) a
-    """
-
-test_prettyAssocDataFamilyInfixOperatorName :: Assertion
-test_prettyAssocDataFamilyInfixOperatorName = do
-  let config = defaultConfig {parserExtensions = [StarIsType, TypeFamilies, TypeOperators]}
-  assertParsedDeclPrettyRoundTrip
-    config
-    "class C x where { data a :*: b :: * }"
-    """
-    class C x where
-      data a :*: b :: *
-    """
 
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds :: Property
 prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds =

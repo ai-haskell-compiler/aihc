@@ -26,7 +26,7 @@ test_stdinStdout :: IO ()
 test_stdinStdout = do
   result <- runCLI missingReader missingWriter (Options ModeStdout [] []) "x=1\n"
   assertEqual "exit" ExitSuccess (cliExitCode result)
-  assertEqual "stdout" "x =\n  1\n" (cliStdout result)
+  assertEqual "stdout" "x = 1\n" (cliStdout result)
   assertEqual "stderr" "" (cliStderr result)
 
 test_checkStdin :: IO ()
@@ -46,7 +46,7 @@ test_inplace = do
   result <- runCLI reader writer (Options ModeInplace [] ["Example.hs"]) ""
   files <- readIORef ref
   assertEqual "exit" ExitSuccess (cliExitCode result)
-  assertEqual "file" (Just "x =\n  1\n") (M.lookup "Example.hs" files)
+  assertEqual "file" (Just "x = 1\n") (M.lookup "Example.hs" files)
 
 missingReader :: FilePath -> IO Text
 missingReader path = fail ("unexpected read: " <> path)

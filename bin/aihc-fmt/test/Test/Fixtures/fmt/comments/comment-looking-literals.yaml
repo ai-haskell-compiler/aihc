@@ -8,7 +8,5 @@ formatters:
     status: pass
     output: |
       module Main where
-      x =
-        "-- not a comment {- nope -}"
-      c =
-        '-'
+      x = "-- not a comment {- nope -}"
+      c = '-'
