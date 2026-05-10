@@ -1,0 +1,14 @@
+extensions: []
+equivalent:
+  - |
+    if | True
+        ->
+        1
+      + 2
+  - |
+    (if | True
+        ->
+        1)
+      + 2
+status: pass
+reason: With indentation of less than the bar, the infix operator is not part of the guard body.
