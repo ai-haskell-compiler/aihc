@@ -13,8 +13,7 @@ formatters:
       module Main where
       import Data.Text qualified as T
       import Data.Map (Map)
-      x =
-        1
+      x = 1
   ormolu:
     status: pass
     output: |

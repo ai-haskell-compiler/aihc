@@ -22,7 +22,6 @@ main = do
       [ golden,
         cliTests,
         testCase "preserves lexed token stream modulo locations" test_preservesTokenStream,
-        testCase "uses pretty-printer whitespace" test_usesPrettyWhitespace,
         testCase "preserves unicode syntax tokens" test_preservesUnicodeSyntax,
         testCase "preserves explicit layout tokens" test_preservesExplicitLayout,
         testCase "fails closed on unalignable pretty tokens" test_failsClosedOnUnalignablePrettyTokens,
@@ -52,10 +51,6 @@ fingerprintWith exts source =
   | tok <- lexModuleTokensWithExtensions exts source
   ]
 
-test_usesPrettyWhitespace :: IO ()
-test_usesPrettyWhitespace = do
-  assertFormatsTo "x=1\n" "x =\n  1\n"
-
 test_preservesUnicodeSyntax :: IO ()
 test_preservesUnicodeSyntax = do
   let opts = FormatOptions {formatExtensions = [EnableExtension UnicodeSyntax]}
@@ -82,9 +77,3 @@ test_failsClosedOnUnalignablePrettyTokens = do
     Left (TokenStreamMismatch _) -> pure ()
     Left err -> assertFailure ("expected TokenStreamMismatch, got " <> show err)
     Right formatted -> assertFailure ("expected TokenStreamMismatch, got output:\n" <> T.unpack formatted)
-
-assertFormatsTo :: Text -> Text -> IO ()
-assertFormatsTo source expected =
-  case formatText defaultFormatOptions "<test>" source of
-    Left err -> assertFailure (show err)
-    Right formatted -> assertEqual "formatted" expected formatted

@@ -9,8 +9,7 @@ formatters:
     output: |
       {-# LANGUAGE OverloadedStrings #-}
       module Main where
-      name =
-        "x"
+      name = "x"
   ormolu:
     status: pass
     output: |

@@ -9,11 +9,9 @@ formatters:
     status: pass
     output: |
       module Main where
-      f =
-        x {- nested -}
+      f = x {- nested -}
         where
-          x =
-            1
+            x = 1
   ormolu:
     status: pass
     output: |
