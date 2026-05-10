@@ -96,7 +96,21 @@ buildPatternApp lhs rhs =
 -- This intentionally does NOT handle negative literals (@- integer@),
 -- which belong to the @lpat@ level ('appPatternParser').
 patternAtomParser :: TokParser Pattern
-patternAtomParser = label "pattern atom" $ do
+patternAtomParser =
+  label "pattern atom" $
+    asPatternAtomParser <|> nonAsPatternAtomParser
+
+-- | Parse an as-pattern as an atomic pattern: @binder\@apat@.
+--
+-- The binder may be a parenthesized operator, e.g. @(+)\@C@.  Trying this
+-- before the parenthesized-pattern parser keeps @(+)\@(+)@C@ in the as-pattern
+-- grammar instead of prematurely committing to the bare operator pattern @(+)@.
+asPatternAtomParser :: TokParser Pattern
+asPatternAtomParser =
+  asPatternParser patternAtomParser
+
+nonAsPatternAtomParser :: TokParser Pattern
+nonAsPatternAtomParser = do
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
@@ -121,13 +135,7 @@ patternAtomParser = label "pattern atom" $ do
     TkSpecialLBracket -> listPatternParser
     TkSpecialLParen -> parenOrTuplePatternParser
     TkSpecialUnboxedLParen -> parenOrTuplePatternParser
-    _ -> atomAsPatternParser <|> varOrConPatternParser
-  where
-    -- Parse an as-pattern as an atom: name@atom
-    -- This allows as-patterns within constructor application patterns
-    -- (e.g., Con x@(Con' y z)).
-    atomAsPatternParser :: TokParser Pattern
-    atomAsPatternParser = asPatternParser patternAtomParser
+    _ -> varOrConPatternParser
 
 typeBinderPatternParser :: TokParser Pattern
 typeBinderPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do

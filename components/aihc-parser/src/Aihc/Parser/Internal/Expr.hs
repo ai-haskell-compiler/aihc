@@ -683,8 +683,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
-      nextTok <- lookAhead anySingle
-      guard (parenNegateAllowed minusTok nextTok)
+      guard (parenNegateAllowed minusTok)
       -- Parse only the application-level expression as the negation's
       -- immediate operand.  This matches GHC, where negation binds tighter
       -- than any infix operator, so @(-l - 1)@ is @((negate l) - 1)@, not
@@ -717,19 +716,11 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
           TkPrefixMinus -> finalExpr
           _ -> EParen finalExpr
 
-    parenNegateAllowed minusTok nextTok =
+    parenNegateAllowed minusTok =
       case lexTokenKind minusTok of
         TkPrefixMinus -> True
-        TkVarSym "-" -> tokensAdjacent minusTok nextTok
+        TkVarSym "-" -> True
         TkMinusOperator -> False
-        _ -> False
-
-    tokensAdjacent first second =
-      case (lexTokenSpan first, lexTokenSpan second) of
-        ( SourceSpan {sourceSpanEndLine = firstEndLine, sourceSpanEndCol = firstEndCol},
-          SourceSpan {sourceSpanStartLine = secondStartLine, sourceSpanStartCol = secondStartCol}
-          ) ->
-            firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
     parseBoxedContent closeTok =

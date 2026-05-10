@@ -30,7 +30,6 @@ module Aihc.Parser.Parens
 where
 
 import Aihc.Parser.Syntax
-import Control.Monad (guard)
 import Data.Bifunctor (bimap)
 import Data.Maybe (isJust, isNothing)
 import Data.Text qualified as T
@@ -68,24 +67,6 @@ wrapTy True t = TParen t
 wrapTy False t = t
 
 -- ---------------------------------------------------------------------------
--- Token classification helpers (mirrored from Pretty.hs)
--- ---------------------------------------------------------------------------
-
-isSymbolicName :: Name -> Bool
-isSymbolicName name =
-  case nameType name of
-    NameVarSym -> True
-    NameConSym -> True
-    _ -> False
-
-isSymbolicUName :: UnqualifiedName -> Bool
-isSymbolicUName name =
-  case unqualifiedNameType name of
-    NameVarSym -> True
-    NameConSym -> True
-    _ -> False
-
--- ---------------------------------------------------------------------------
 -- Expression classification helpers (mirrored from Pretty.hs)
 -- ---------------------------------------------------------------------------
 
@@ -119,22 +100,6 @@ isGreedyExpr = \case
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> isOpenEnded arg
   EApp _ arg -> isGreedyExpr arg
-  _ -> False
-
--- | Check if an expression is "braced" - i.e., the pretty-printer always
--- wraps it in explicit @{ }@ braces, making it self-delimiting, AND the parser
--- can parse the resulting @expr { ... } op rhs@ without parentheses.
--- Self-delimiting expressions do not need parentheses on the left-hand side of
--- an infix operator, because the closing @}@ unambiguously ends the expression.
--- Peel outer 'EAnn' annotations so @do@ / @case@ / @\\case@ nested under span metadata still count.
-isBracedExpr :: Expr -> Bool
-isBracedExpr = \case
-  EAnn _ sub -> isBracedExpr sub
-  ECase _ [] -> True
-  -- Multi-way if renders as layout-sensitive @if | ...@, not a braced form.
-  EDo {} -> True
-  ELambdaCase {} -> True
-  ELambdaCases {} -> True
   _ -> False
 
 -- | Check if an expression is "open-ended" - its rightmost component can
@@ -209,18 +174,6 @@ startsWithDollar (EGetField base _) = startsWithDollar base
 startsWithDollar (EApp fn _) = startsWithDollar fn
 startsWithDollar (ETypeApp fn _) = startsWithDollar fn
 startsWithDollar _ = False
-
-startsWithOverloadedLabel :: Expr -> Bool
-startsWithOverloadedLabel = \case
-  EOverloadedLabel {} -> True
-  EAnn _ sub -> startsWithOverloadedLabel sub
-  EApp fn _ -> startsWithOverloadedLabel fn
-  EInfix lhs _ _ -> startsWithOverloadedLabel lhs
-  ERecordUpd base _ -> startsWithOverloadedLabel base
-  EGetField base _ -> startsWithOverloadedLabel base
-  ETypeSig inner _ -> startsWithOverloadedLabel inner
-  ETypeApp fn _ -> startsWithOverloadedLabel fn
-  _ -> False
 
 startsWithBlockExpr :: Expr -> Bool
 startsWithBlockExpr = \case
@@ -317,7 +270,6 @@ needsExprParens ctx expr =
     CtxAppArgGreedy ->
       case expr of
         ECase {} -> False
-        _ | isBracedExpr expr -> False
         EPragma {} -> True
         _ -> isGreedyExpr expr
     CtxSectionRhs ->
@@ -338,11 +290,9 @@ exprCtxPrec ctx expr =
   case ctx of
     CtxInfixRhs _
       | isGreedyExpr expr -> 0
-      | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxInfixLhs
       | isBlockExpr expr -> 0
-      | isBracedExpr expr -> 0
       | otherwise -> 1
     CtxAppFun -> 2
     CtxAppArg
@@ -351,7 +301,6 @@ exprCtxPrec ctx expr =
     CtxAppArgNoParens -> 0
     CtxAppArgGreedy
       | isBlockExpr expr -> 0
-      | isBracedExpr expr -> 0
       | otherwise -> 3
     CtxSectionRhs -> 0
     CtxTypeSigBody -> 1
@@ -381,28 +330,6 @@ addSectionLhsParens expr =
 -- ---------------------------------------------------------------------------
 -- Type contexts
 -- ---------------------------------------------------------------------------
-
--- | @TApp@ view after peeling 'TAnn' / 'TParen' to the application head.
-typeTAppView :: Type -> Maybe (Type, Type)
-typeTAppView (TAnn _ sub) = typeTAppView sub
-typeTAppView (TApp a b) = Just (a, b)
-typeTAppView _ = Nothing
-
-typeTConView :: Type -> Maybe (Name, TypePromotion)
-typeTConView t =
-  case peelTypeHead t of
-    TCon n p -> Just (n, p)
-    _ -> Nothing
-
--- | @ty@ has shape @lhs \`op\` rhs@ with a symbolic type operator (modulo span
--- and 'TParen' wrappers).
-matchSymbolicInfixTypeApp :: Type -> Maybe (Type, Type, Type)
-matchSymbolicInfixTypeApp ty = do
-  (l, r) <- typeTAppView ty
-  (opAst, lhsAst) <- typeTAppView l
-  (opName, _) <- typeTConView opAst
-  guard (isSymbolicName opName && renderName opName /= "->")
-  pure (opAst, lhsAst, r)
 
 data TypeCtx
   = CtxTypeFunArg
@@ -594,13 +521,6 @@ addPatternBindLhsParens :: Pattern -> Rhs Expr -> Pattern
 addPatternBindLhsParens pat rhs =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternBindLhsParens sub rhs)
-    -- Bare @name :: ty = rhs@ is valid declaration syntax and is handled by a
-    -- dedicated decl parser path. Nullary constructors must stay grouped so the
-    -- parser does not reinterpret them as variable signatures, but composite
-    -- patterns such as @[x] :: [T] = rhs@ round-trip without an outer pattern
-    -- paren.
-    PTypeSig inner@(PVar name) ty ->
-      wrapPat (isSymbolicUName name) (PTypeSig (addPatternAtomParens inner) (addTypeParens ty))
     PTypeSig inner ty ->
       wrapPat
         (typedPatternBindLhsNeedsParens inner)
@@ -767,9 +687,7 @@ bangTypeNeedsPrefixParens :: Type -> Bool
 bangTypeNeedsPrefixParens (TAnn _ sub) = bangTypeNeedsPrefixParens sub
 bangTypeNeedsPrefixParens (TParen _) = False
 bangTypeNeedsPrefixParens TStar = True
-bangTypeNeedsPrefixParens (TCon name promoted)
-  | promoted == Promoted = True
-  | otherwise = isSymbolicName name
+bangTypeNeedsPrefixParens (TCon _ Promoted) = True
 bangTypeNeedsPrefixParens (TBuiltinCon TBuiltinCons) = True
 bangTypeNeedsPrefixParens (TBuiltinCon _) = False
 bangTypeNeedsPrefixParens TImplicitParam {} = True
@@ -1162,7 +1080,7 @@ addSpliceBodyParens body =
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =
-  if startsWithDollar inner || startsWithOverloadedLabel inner || startsWithPrimitiveLiteral inner
+  if startsWithDollar inner || startsWithPrimitiveLiteral inner
     then wrapExpr True (addExprParens inner)
     else case peelExprAnn inner of
       -- `-(518# {}).a` and similar forms must keep the field access grouped;
@@ -1390,9 +1308,7 @@ addTypeParensShared ctx prec ty =
    in case ty of
         TAnn ann sub -> TAnn ann (addTypeParensShared ctx prec sub)
         TVar {} -> ty
-        TCon name promoted
-          | isSymbolicName name, promoted /= Promoted -> TCon name promoted
-          | otherwise -> TCon name promoted
+        TCon name promoted -> TCon name promoted
         TBuiltinCon {} -> ty
         TImplicitParam name inner -> TImplicitParam name (addImplicitParamBodyParens inner)
         TTypeLit {} -> ty
@@ -1407,13 +1323,6 @@ addTypeParensShared ctx prec ty =
                 (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
                 (addForallBodyParens inner)
             )
-        tyInfix
-          | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
-              -- Prefix application of a symbolic type constructor still obeys
-              -- normal type-application precedence. In particular, an operand
-              -- like @A => B@ must stay parenthesized so it is not re-parsed as
-              -- an outer context.
-              TApp (TApp op (addTypeIn CtxTypeAppArg lhs)) (addTypeIn CtxTypeAppArg rhs)
         TInfix lhs op promoted rhs ->
           -- Type operators are right-associative in GHC, so the RHS can contain
           -- nested TInfix without parens (a `op1` b `op2` c = a `op1` (b `op2` c)).
@@ -1561,9 +1470,9 @@ addPatternParens pat =
     PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixRhsOperandParens rhs)
     PView viewExpr inner ->
       wrapPat True (PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner))
-    PAs name inner -> PAs name (addPatternAtomStrictParens inner)
-    PStrict inner -> PStrict (addPatternAtomStrictParens inner)
-    PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
+    PAs name inner -> PAs name (addApatParens inner)
+    PStrict inner -> PStrict (addApatParens inner)
+    PIrrefutable inner -> PIrrefutable (addApatParens inner)
     PNegLit lit -> PNegLit lit
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
@@ -1577,9 +1486,9 @@ addPatternInDelimited :: Pattern -> Pattern
 addPatternInDelimited pat =
   case peelPatternAnn pat of
     PView viewExpr inner -> PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner)
-    PAs name inner -> PAs name (addPatternAtomStrictParens inner)
-    PStrict inner -> PStrict (addPatternAtomStrictParens inner)
-    PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
+    PAs name inner -> PAs name (addApatParens inner)
+    PStrict inner -> PStrict (addApatParens inner)
+    PIrrefutable inner -> PIrrefutable (addApatParens inner)
     _ -> addPatternParens pat
 
 -- | Template Haskell pattern quotes accept typed patterns only when they are
@@ -1634,7 +1543,7 @@ addPatternAtomParens pat =
     PStrict {} -> addPatternParens pat
     PIrrefutable {} -> addPatternParens pat
     PView {} -> addPatternParens pat
-    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
+    PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat
     PCon _ [] [] -> addPatternParens pat
@@ -1701,7 +1610,7 @@ addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
+    PAs {} -> addPatternParens pat
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
@@ -1719,12 +1628,23 @@ addPatternAtomStrictParens pat =
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) [] -> wrapPat True (addPatternParens pat)
-    PAs name _ -> wrapPat (isSymbolicUName name) (addPatternParens pat)
+    PAs {} -> addPatternParens pat
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
     PSplice {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
+
+-- | Add parens for an atomic pattern (@apat@) context.
+--
+-- As-patterns and the @!@ / @~@ prefixes accept another @apat@ as their body,
+-- including symbolic binders such as @(+)\@C@.
+addApatParens :: Pattern -> Pattern
+addApatParens pat =
+  case pat of
+    PAnn ann sub -> PAnn ann (addApatParens sub)
+    PAs name inner -> PAs name (addApatParens inner)
+    _ -> addPatternAtomStrictParens pat
 
 -- ---------------------------------------------------------------------------
 -- Arrow commands
