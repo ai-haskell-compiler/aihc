@@ -1160,7 +1160,7 @@ prettyExpr expr =
       "\\" <> "cases" <> prettyCaseLayout (map prettyLambdaCaseAlt alts)
     EInfix lhs op rhs ->
       prettyExpr lhs <> hardline <> prettyNameInfixOp op <+> prettyExpr rhs
-    ENegate inner -> "-" <> prettyExpr inner
+    ENegate inner -> "-" <+> prettyExprAtStatementStart inner
     ESectionL lhs op ->
       prettyExpr lhs <> hardline <> " " <> prettyNameInfixOp op
     ESectionR op rhs -> prettyNameInfixOp op <+> prettyExpr rhs

@@ -165,16 +165,6 @@ needsParensBeforeDot = \case
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
-startsWithDollar :: Expr -> Bool
-startsWithDollar (EAnn _ sub) = startsWithDollar sub
-startsWithDollar (ETHSplice {}) = True
-startsWithDollar (ETHTypedSplice {}) = True
-startsWithDollar (ERecordUpd base _) = startsWithDollar base
-startsWithDollar (EGetField base _) = startsWithDollar base
-startsWithDollar (EApp fn _) = startsWithDollar fn
-startsWithDollar (ETypeApp fn _) = startsWithDollar fn
-startsWithDollar _ = False
-
 startsWithBlockExpr :: Expr -> Bool
 startsWithBlockExpr = \case
   EAnn _ sub -> startsWithBlockExpr sub
@@ -187,12 +177,9 @@ startsWithBlockExpr = \case
   expr -> isBlockExpr expr
 
 -- | Check whether an expression starts with a primitive (unboxed) numeric
--- literal.  When such an expression appears under 'ENegate', the preceding
--- @-@ merges with the literal at the lexer level, changing the parse.
--- For example, @ENegate (EInt 95 TIntHash "95#")@ pretty-prints as @-95#@
--- which the lexer merges into a single negative literal token, losing the
--- @ENegate@ wrapper.  Wrapping the inner expression in 'EParen' produces
--- @-(95#)@ which round-trips correctly.
+-- literal.  This matters before record-dot syntax: @10#.field@ is tokenized
+-- differently from @(10#).field@.  Negation itself prints with a separating
+-- space, so @- 10#@ does not merge into a negative primitive literal token.
 startsWithPrimitiveLiteral :: Expr -> Bool
 startsWithPrimitiveLiteral = go
   where
@@ -1080,17 +1067,15 @@ addSpliceBodyParens body =
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =
-  if startsWithDollar inner || startsWithPrimitiveLiteral inner
-    then wrapExpr True (addExprParens inner)
-    else case peelExprAnn inner of
-      -- `-(518# {}).a` and similar forms must keep the field access grouped;
-      -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
-      EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
-      -- Avoid `--` being lexed as a line comment: wrap nested negation.
-      ENegate {} -> wrapExpr True (addExprParens inner)
-      -- Application and type-application bind tighter than negation, so `-f x`
-      -- does not need parens around `f x`.
-      _ -> addExprParensPrec 2 inner
+  case peelExprAnn inner of
+    -- `-(518# {}).a` and similar forms must keep the field access grouped;
+    -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
+    EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
+    -- Avoid `--` being lexed as a line comment: wrap nested negation.
+    ENegate {} -> wrapExpr True (addExprParens inner)
+    -- Application and type-application bind tighter than negation, so `-f x`
+    -- does not need parens around `f x`.
+    _ -> addExprParensPrec 2 inner
 
 addTypeSigBodyParens :: Expr -> Expr
 addTypeSigBodyParens expr =
