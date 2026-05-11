@@ -245,6 +245,7 @@ buildTests = do
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
+            testCase "inserts required parentheses" test_parenthesesInsertion,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
@@ -1162,6 +1163,11 @@ test_prettyRecordDotTHSpliceBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
   assertParsedStrippedExprShapeRoundTrip config "($q#).j7Msfc"
   assertParsedStrippedExprShapeRoundTrip config "($$q#).j7Msfc"
+
+test_parenthesesInsertion :: Assertion
+test_parenthesesInsertion = do
+  let config = defaultConfig {parserExtensions = [TemplateHaskell]}
+  assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do

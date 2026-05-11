@@ -1071,7 +1071,7 @@ addNegateParens inner =
     -- `-(518# {}).a` and similar forms must keep the field access grouped;
     -- otherwise `-518# {}.a` is lexed as a negative primitive literal record update.
     EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
-    -- Avoid `--` being lexed as a line comment: wrap nested negation.
+    -- "- - x" is invalid. Tested by `test_parenthesesInsertion`
     ENegate {} -> wrapExpr True (addExprParens inner)
     -- Application and type-application bind tighter than negation, so `-f x`
     -- does not need parens around `f x`.
@@ -1123,13 +1123,8 @@ addDoStmtParens stmt =
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
     DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (wrapExpr (letExprNeedsDoStmtParens e) (addExprParens e))
+    DoExpr e -> DoExpr (addExprParens e)
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
-  where
-    letExprNeedsDoStmtParens (ELetDecls (_ : _) _) = False
-    letExprNeedsDoStmtParens (ELetDecls [] _) = True
-    letExprNeedsDoStmtParens (EAnn _ inner) = letExprNeedsDoStmtParens inner
-    letExprNeedsDoStmtParens _ = False
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
