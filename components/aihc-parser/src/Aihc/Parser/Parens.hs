@@ -1206,15 +1206,10 @@ addInfixRhsParens protectOpenEnded expr =
     EAnn ann sub -> EAnn ann (addInfixRhsParens protectOpenEnded sub)
     EInfix lhs op rhs ->
       EInfix
-        (addNestedInfixRhsLhsParens lhs)
+        (addInfixLhsParens lhs)
         op
         (addExprParensIn (CtxInfixRhs protectOpenEnded) rhs)
     _ -> addExprParensPrec (exprCtxPrec (CtxInfixRhs protectOpenEnded) expr) expr
-
-addNestedInfixRhsLhsParens :: Expr -> Expr
-addNestedInfixRhsLhsParens lhs
-  | startsWithMultiWayIf lhs = wrapExpr True (addExprParens lhs)
-  | otherwise = addInfixLhsParens lhs
 
 absorbsFollowingInfix :: Expr -> Bool
 absorbsFollowingInfix = \case
@@ -1225,18 +1220,6 @@ absorbsFollowingInfix = \case
   EProc {} -> True
   EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
   EInfix _ _ rhs -> absorbsFollowingInfix rhs
-  _ -> False
-
-startsWithMultiWayIf :: Expr -> Bool
-startsWithMultiWayIf = \case
-  EAnn _ sub -> startsWithMultiWayIf sub
-  EInfix lhs _ _ -> startsWithMultiWayIf lhs
-  EApp fn _ -> startsWithMultiWayIf fn
-  ERecordUpd base _ -> startsWithMultiWayIf base
-  EGetField base _ -> startsWithMultiWayIf base
-  ETypeSig inner _ -> startsWithMultiWayIf inner
-  ETypeApp fn _ -> startsWithMultiWayIf fn
-  EMultiWayIf {} -> True
   _ -> False
 
 -- ---------------------------------------------------------------------------

@@ -1168,6 +1168,7 @@ test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell]}
   assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
+  assertParsedStrippedExprShapeRoundTrip config "a + (b + c)"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
