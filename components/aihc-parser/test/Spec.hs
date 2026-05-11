@@ -30,11 +30,7 @@ import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst)
-import Test.Properties.Arb.Module (genTypeName)
-import Test.Properties.Arb.Utils (requiredExtensions)
-import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
-import Test.Properties.Identifiers
+import Test.Properties.Arb.Identifiers
   ( genConSym,
     genVarSym,
     isValidConIdent,
@@ -43,6 +39,10 @@ import Test.Properties.Identifiers
     isValidGeneratedVarSym,
     shrinkIdent,
   )
+import Test.Properties.Arb.Module (genTypeName)
+import Test.Properties.Arb.Utils (requiredExtensions)
+import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.NoExceptions
   ( prop_declParserArbitraryTokensNoExceptions,
