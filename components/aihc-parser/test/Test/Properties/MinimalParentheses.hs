@@ -32,13 +32,14 @@ prop_minimalParenthesesExpr expr = do
         ++ "\n"
         ++ T.unpack (renderStrict (layoutPretty defaultLayoutOptions (prettyExpr parenthesized)))
         ++ "\nSmaller:\n"
-        ++ show (shorthand expr)
+        ++ show (shorthand noParens)
         ++ "\n"
-        ++ T.unpack (renderStrict (layoutPretty defaultLayoutOptions (prettyExpr expr)))
+        ++ T.unpack (renderStrict (layoutPretty defaultLayoutOptions (prettyExpr noParens)))
     )
     (isMinimal || not exprIsValid)
   where
-    parenthesized = addExprParens (stripParens expr)
-    source = renderStrict (layoutPretty defaultLayoutOptions (prettyExpr expr))
-    isMinimal = parenthesized == expr
-    exprIsValid = case parseExpr config source of ParseOk parsed -> stripAnnotations parsed == stripAnnotations expr; ParseErr {} -> False
+    noParens = stripParens expr
+    parenthesized = addExprParens noParens
+    source = renderStrict (layoutPretty defaultLayoutOptions (prettyExpr noParens))
+    isMinimal = parenthesized == noParens
+    exprIsValid = case parseExpr config source of ParseOk parsed -> stripAnnotations parsed == stripAnnotations noParens; ParseErr {} -> False

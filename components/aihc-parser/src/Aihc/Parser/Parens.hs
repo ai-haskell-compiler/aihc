@@ -136,15 +136,14 @@ endsWithTypeSig = \case
 
 -- | Check whether an expression needs parenthesization before a record dot.
 -- Qualified variables (e.g., @A.x@), TH name quotes (@''C@, @'x@),
--- TH splices (@$x@, @$$x@), numeric literals, MagicHash literals, and
+-- TH splices (@$x@, @$$x@), primitive literals, MagicHash literals, and
 -- identifiers ending in @#@ all
 -- need parens to prevent ambiguity:
 -- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
 -- - TH quotes: @''C.field@ looks like quoting the qualified name @C.field@
 -- - TH splices: @$x.field@ and @$$x.field@ parse as a splice followed by an
 --   unexpected @.@
--- - Integers: @0xd9.field@ gets lexed as float @0xd9.d@ followed by @MQDc@
--- - Floats: @1.0.field@ gets lexed as @1.0@ followed by @.field@
+-- - Primitive numeric literals: @10#.field@ makes @#.@ part of an operator
 -- - MagicHash: @'c'#.field@ or @x#.field@ — the @#.@ merges into an operator
 needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
@@ -156,9 +155,8 @@ needsParensBeforeDot = \case
   -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
   ETHNameQuote {} -> True
   ETHTypeNameQuote {} -> True
-  -- Numeric literals: digits followed by .field is ambiguous with float syntax
-  EInt {} -> True
-  EFloat {} -> True
+  EInt _ nt _ -> nt /= TInteger
+  EFloat _ ft _ -> ft /= TFractional
   -- MagicHash literals: the trailing # merges with . to form an operator
   ECharHash {} -> True
   EStringHash {} -> True
