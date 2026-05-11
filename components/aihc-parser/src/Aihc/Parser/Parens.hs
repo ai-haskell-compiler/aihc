@@ -1079,15 +1079,6 @@ addTypeSigBodyParens :: Expr -> Expr
 addTypeSigBodyParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addTypeSigBodyParens sub)
-    EInfix lhs op rhs
-      | startsWithMultiWayIf lhs ->
-          wrapExpr
-            (needsExprParens CtxTypeSigBody expr)
-            ( EInfix
-                (wrapExpr True (addExprParensIn CtxInfixLhs lhs))
-                op
-                (addExprParensIn (CtxInfixRhs False) rhs)
-            )
     _ -> addExprParensIn CtxTypeSigBody expr
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr

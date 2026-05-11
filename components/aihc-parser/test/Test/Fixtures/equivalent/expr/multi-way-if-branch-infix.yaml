@@ -1,0 +1,6 @@
+extensions: []
+equivalent:
+  - if | True -> a + b
+  - if | True -> (a + b)
+status: pass
+reason: A same-line infix expression after a multi-way-if guard arrow belongs to the guard body.

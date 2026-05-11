@@ -1,0 +1,8 @@
+extensions: []
+equivalent:
+  - |
+    if | True -> a
+     + b
+  - (if | True -> a) + b
+status: pass
+reason: An infix operator indented less than the multi-way-if bar is outside the guard body.
