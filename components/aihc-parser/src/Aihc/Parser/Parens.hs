@@ -1014,7 +1014,7 @@ addExprParensPrec prec expr =
         EGetFieldProjection {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
-    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addTupleElemParens) values)
+    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
     EUnboxedSum altIdx arity inner ->
       let inner' = addExprParens inner
        in EUnboxedSum altIdx arity (wrapExpr (startsWithMultiWayIf inner') inner')
@@ -1249,13 +1249,6 @@ startsWithMultiWayIf = \case
   ETypeApp fn _ -> startsWithMultiWayIf fn
   EMultiWayIf {} -> True
   _ -> False
-
-addTupleElemParens :: Expr -> Expr
-addTupleElemParens expr =
-  let expr' = addExprParens expr
-   in case peelExprAnn expr' of
-        EInfix lhs _ _ | startsWithMultiWayIf lhs -> wrapExpr True expr'
-        _ -> expr'
 
 -- ---------------------------------------------------------------------------
 -- Types
