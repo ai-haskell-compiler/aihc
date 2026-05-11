@@ -1,6 +1,7 @@
 -- | XDG cache layout for downloaded Hackage packages and Stackage snapshots.
 module Aihc.Hackage.Cache
   ( getHackageCacheDir,
+    hackageIndexCacheFile,
     getStackageCacheDir,
     snapshotCacheFile,
     sanitizeName,
@@ -22,6 +23,15 @@ getHackageCacheDir :: IO FilePath
 getHackageCacheDir = do
   cacheBase <- getXdgDirectory XdgCache "aihc"
   pure (cacheBase </> "hackage")
+
+-- | Cache file for Hackage's package index.
+--
+-- @~\/.cache\/aihc\/hackage\/01-index.tar.gz@
+hackageIndexCacheFile :: IO FilePath
+hackageIndexCacheFile = do
+  dir <- getHackageCacheDir
+  createDirectoryIfMissing True dir
+  pure (dir </> "01-index.tar.gz")
 
 -- | XDG cache directory for Stackage snapshot data.
 --

@@ -101,12 +101,15 @@ executable aihc-dev
   main-is: Main.hs
   hs-source-dirs:
     exe
+    app/hackage-progress
     app/stackage-progress
     app/resolve-stackage-progress
 
   other-modules:
     Aihc.Dev.HackageTester.Run
     BootInterface
+    HackageProgress.CLI
+    HackageProgress.Run
     ResolvePackage
     ResolveStackageProgress
     StackageProgress.CLI
@@ -156,17 +159,23 @@ test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
+    app/hackage-progress
     app/stackage-progress
     app/resolve-stackage-progress
 
   main-is: Spec.hs
   other-modules:
     BootInterface
+    HackageProgress.CLI
+    HackageProgress.Run
     ResolvePackage
     ResolveStackageProgress
     StackageProgress.CLI
     StackageProgress.FileChecker
     StackageProgress.FileCheckerTiming
+    StackageProgress.PackageRunner
+    StackageProgress.Run
+    StackageProgress.Snapshot
     Test.ExtractHiCompare
     Test.ParserCLI.Golden
     Test.ParserCLI.Suite

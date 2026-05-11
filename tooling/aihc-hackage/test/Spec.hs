@@ -1,11 +1,16 @@
 module Main (main) where
 
 import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Index (parseHackageIndex)
 import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Codec.Archive.Tar qualified as Tar
+import Codec.Archive.Tar.Entry qualified as Tar
+import Codec.Compression.GZip qualified as GZip
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
+import Data.ByteString.Lazy qualified as LBS
 import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
@@ -34,6 +39,12 @@ main =
             [ PackageSpec "ghc-prim" "installed",
               PackageSpec "custom-package" "installed"
             ],
+      testCase "parses latest package versions from Hackage index tarball" $ do
+        parseHackageIndex testHackageIndex
+          @?= Right
+            [ PackageSpec "alpha" "1.2.0",
+              PackageSpec "beta" "0.1"
+            ],
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
@@ -50,6 +61,25 @@ actual @?= expected =
   if actual == expected
     then pure ()
     else assertFailure ("expected: " <> show expected <> "\n but got: " <> show actual)
+
+testHackageIndex :: LBS.ByteString
+testHackageIndex =
+  GZip.compress $
+    Tar.write
+      [ cabalEntry "alpha/1.0.0/alpha.cabal",
+        cabalEntry "alpha/1.2.0/alpha.cabal",
+        cabalEntry "alpha/1.1.0/alpha.cabal",
+        cabalEntry "beta/0.1/beta.cabal",
+        cabalEntry "beta/0.2/not-beta.cabal",
+        cabalEntry "preferred-versions"
+      ]
+  where
+    cabalEntry path =
+      case Tar.toTarPath False path of
+        Left err -> error ("invalid test tar path: " <> show err)
+        Right tarPath ->
+          let contents = LBS.fromStrict (BSC.pack "name: ignored\n")
+           in Tar.simpleEntry tarPath (Tar.NormalFile contents (LBS.length contents))
 
 test_generatesPathsModule :: Assertion
 test_generatesPathsModule =

@@ -1,6 +1,12 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Package-level processing for Stackage packages.
 module StackageProgress.PackageRunner
-  ( -- * Running packages
+  ( -- * Options
+    PackageRunOptions (..),
+    packageRunOptionsFromStackageOptions,
+
+    -- * Running packages
     runPackage,
     runPackageOrThrow,
     packageDependsOnUnsupportedBuildTool,
@@ -21,6 +27,7 @@ import HackageSupport
     findTargetFilesFromCabal,
   )
 import StackageProgress.CLI (Options (..))
+import StackageProgress.CLI qualified as StackageCLI
 import StackageProgress.FileChecker
   ( FileCheckOptions (..),
     PackageFileSummary (..),
@@ -35,29 +42,51 @@ import StackageProgress.Summary
   )
 import System.Directory (getFileSize)
 
+-- | Package-level runner options shared by Stackage and Hackage progress tools.
+data PackageRunOptions = PackageRunOptions
+  { runOptParsers :: ![StackageCLI.Parser],
+    runOptOffline :: !Bool,
+    runOptPrompt :: !Bool,
+    runOptPrintFailedTable :: !Bool,
+    runOptGhcErrorsFile :: !(Maybe FilePath),
+    runOptVerbose :: !Bool
+  }
+  deriving (Eq, Show)
+
+packageRunOptionsFromStackageOptions :: Options -> PackageRunOptions
+packageRunOptionsFromStackageOptions opts =
+  PackageRunOptions
+    { runOptParsers = optParsers opts,
+      runOptOffline = optOffline opts,
+      runOptPrompt = optPrompt opts,
+      runOptPrintFailedTable = optPrintFailedTable opts,
+      runOptGhcErrorsFile = optGhcErrorsFile opts,
+      runOptVerbose = optVerbose opts
+    }
+
 unsupportedBuildToolNames :: [Text]
 unsupportedBuildToolNames = ["genprimopcode"]
 
 -- | Return whether a package's active Cabal metadata requires an unsupported build tool.
-packageDependsOnUnsupportedBuildTool :: Options -> PackageSpec -> IO Bool
+packageDependsOnUnsupportedBuildTool :: PackageRunOptions -> PackageSpec -> IO Bool
 packageDependsOnUnsupportedBuildTool opts spec = do
   result <- try (packageDependsOnUnsupportedBuildToolOrThrow opts spec) :: IO (Either SomeException Bool)
   pure $ case result of
     Right depends -> depends
     Left _ -> False
 
-packageDependsOnUnsupportedBuildToolOrThrow :: Options -> PackageSpec -> IO Bool
+packageDependsOnUnsupportedBuildToolOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
 packageDependsOnUnsupportedBuildToolOrThrow opts spec = do
   versionResult <- resolveSpecVersion spec
   case versionResult of
     Left _ -> pure False
     Right version -> do
-      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
+      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
       toolNames <- findPackageBuildToolDependencyNames srcDir
       pure (any (`elem` unsupportedBuildToolNames) toolNames)
 
 -- | Process a package, catching any exceptions.
-runPackage :: Options -> PackageSpec -> IO PackageResult
+runPackage :: PackageRunOptions -> PackageSpec -> IO PackageResult
 runPackage opts spec = do
   result <- try (runPackageOrThrow opts spec)
   pure $ case result of
@@ -75,7 +104,7 @@ runPackage opts spec = do
     Right pkgResult -> pkgResult
 
 -- | Process a package, potentially throwing exceptions.
-runPackageOrThrow :: Options -> PackageSpec -> IO PackageResult
+runPackageOrThrow :: PackageRunOptions -> PackageSpec -> IO PackageResult
 runPackageOrThrow opts spec = do
   versionResult <- resolveSpecVersion spec
   case versionResult of
@@ -84,14 +113,14 @@ runPackageOrThrow opts spec = do
   where
     runWithVersion :: String -> IO PackageResult
     runWithVersion version = do
-      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
+      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
       files <- findTargetFilesFromCabal srcDir
-      totalSize <- if optPrintFailedTable opts then totalSourceSize files else pure 0
+      totalSize <- if runOptPrintFailedTable opts then totalSourceSize files else pure 0
       let checkOpts =
             FileCheckOptions
-              { fileCheckKeepFirstFailure = optPrompt opts || isJust (optGhcErrorsFile opts),
-                fileCheckKeepFileErrors = optPrintFailedTable opts,
-                fileCheckKeepGhcError = isJust (optGhcErrorsFile opts)
+              { fileCheckKeepFirstFailure = runOptPrompt opts || isJust (runOptGhcErrorsFile opts),
+                fileCheckKeepFileErrors = runOptPrintFailedTable opts,
+                fileCheckKeepGhcError = isJust (runOptGhcErrorsFile opts)
               }
       if null files
         then
@@ -107,7 +136,7 @@ runPackageOrThrow opts spec = do
                 packageFileErrors = []
               }
         else do
-          fileSummary <- foldFilesForPackage checkOpts (optParsers opts) (optVerbose opts) srcDir emptyFileSummary files
+          fileSummary <- foldFilesForPackage checkOpts (runOptParsers opts) (runOptVerbose opts) srcDir emptyFileSummary files
           let hseOk = packageFileHseOk fileSummary
               ghcOk = packageFileGhcOk fileSummary
               ghcError = packageFileGhcError fileSummary

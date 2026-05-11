@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module StackageProgress.Run (run) where
+module StackageProgress.Run (run, runPackages) where
 
 import Aihc.Hackage.Types (PackageSpec)
 import Control.Concurrent.Async (replicateConcurrently_)
@@ -18,7 +18,12 @@ import StackageProgress.CLI
     Parser (..),
     summaryOptionsFromOptions,
   )
-import StackageProgress.PackageRunner (packageDependsOnUnsupportedBuildTool, runPackage)
+import StackageProgress.PackageRunner
+  ( PackageRunOptions,
+    packageDependsOnUnsupportedBuildTool,
+    packageRunOptionsFromStackageOptions,
+    runPackage,
+  )
 import StackageProgress.Snapshot (loadStackageSnapshotWithMode)
 import StackageProgress.Summary
   ( FailedPackage (..),
@@ -53,9 +58,13 @@ run opts = do
         hPutStrLn stderr ("Failed to load snapshot: " ++ err)
         exitFailure
       Right specs -> pure specs
+  runPackages opts packages
 
+runPackages :: Options -> [PackageSpec] -> IO ()
+runPackages opts packages = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
-  filteredPackages <- filterUnsupportedBuildToolPackages opts jobs packages
+  let packageRunOpts = packageRunOptionsFromStackageOptions opts
+  filteredPackages <- filterUnsupportedBuildToolPackages packageRunOpts jobs packages
   let total = length filteredPackages
   isStdoutTerminal <- hIsTerminalDevice stdout
   let showProgress = isStdoutTerminal && not (optPrompt opts)
@@ -67,7 +76,7 @@ run opts = do
   (summary, promptCandidates) <-
     foldConcurrentlyChunksWithProgress
       jobs
-      (runPackage opts)
+      (runPackage packageRunOpts)
       filteredPackages
       total
       showProgress
@@ -139,7 +148,7 @@ run opts = do
 
   if successOursN == total then exitSuccess else exitFailure
 
-filterUnsupportedBuildToolPackages :: Options -> Int -> [PackageSpec] -> IO [PackageSpec]
+filterUnsupportedBuildToolPackages :: PackageRunOptions -> Int -> [PackageSpec] -> IO [PackageSpec]
 filterUnsupportedBuildToolPackages opts n packages = do
   queue <- newChan
   forM_ (zip [0 :: Int ..] packages) (writeChan queue . Just)

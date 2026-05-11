@@ -15,6 +15,7 @@ library
     Aihc.Hackage.Cache
     Aihc.Hackage.Cpp
     Aihc.Hackage.Download
+    Aihc.Hackage.Index
     Aihc.Hackage.Stackage
     Aihc.Hackage.Types
     Aihc.Hackage.Util
@@ -50,10 +51,12 @@ test-suite spec
     bytestring,
     directory,
     filepath,
+    tar,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
     text,
+    zlib,
 
   ghc-options: -Wall
   default-language: GHC2021
