@@ -31,7 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Bifunctor (bimap)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust)
 import Data.Text qualified as T
 
 -- ---------------------------------------------------------------------------
@@ -1053,10 +1053,10 @@ addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
     EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
-    -- Bare unqualified variables and operators use the compact splice syntax.
-    -- Qualified names require $(M.name) to remain parseable.
-    EVar name
-      | isNothing (nameQualifier name) -> body
+    -- Bare variable names, including qualified names like $A.a, use the
+    -- compact splice syntax. Symbolic names still render with their own
+    -- operator parentheses, e.g. $(A.+).
+    EVar {} -> body
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
     -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
@@ -1071,6 +1071,10 @@ addNegateParens inner =
     EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
     -- "- - x" is invalid. Tested by `test_parenthesesInsertion`
     ENegate {} -> wrapExpr True (addExprParens inner)
+    -- Prefix negation accepts the same block-shaped operands that can appear
+    -- as atoms under BlockArguments, so `- \x -> x` and `- do ...` do not need
+    -- an extra HsPar around the operand.
+    _ | isBlockExpr inner -> addExprParens inner
     -- Application and type-application bind tighter than negation, so `-f x`
     -- does not need parens around `f x`.
     _ -> addExprParensPrec 2 inner
