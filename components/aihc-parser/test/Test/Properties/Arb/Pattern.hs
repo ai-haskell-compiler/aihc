@@ -170,61 +170,62 @@ renderFloat value = T.pack (show (fromRational value :: Double))
 
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
-  case pat of
-    PAnn _ sub -> shrinkPattern sub
-    PVar name ->
-      [PVar shrunk | shrunk <- shrinkUnqualifiedName name]
-    PTypeBinder binder -> [PTypeBinder binder' | binder' <- shrinkTyVarBinder binder]
-    PTypeSyntax form ty -> [PTypeSyntax form ty' | ty' <- shrinkType ty]
-    PWildcard -> []
-    PLit lit ->
-      [PLit shrunk | shrunk <- shrinkLiteral lit]
-    PQuasiQuote quoter body ->
-      [PQuasiQuote q body | q <- shrinkQuoterName quoter]
-        <> [PQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
-    PTuple tupleFlavor elems ->
-      shrinkPatternTupleElems tupleFlavor elems
-    PList elems ->
-      [PList elems' | elems' <- shrinkList shrinkPattern elems]
-    PCon con typeArgs args ->
-      [PCon con' typeArgs args | con' <- shrinkName con]
-        <> [PCon con typeArgs [] | not (null args)]
-        <> [PCon con typeArgs args' | args' <- shrinkList shrinkPattern args]
-    PInfix lhs op rhs ->
-      [lhs, rhs]
-        <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]
-        <> [PInfix lhs op' rhs | op' <- shrinkName op]
-        <> [PInfix lhs op rhs' | rhs' <- shrinkPattern rhs]
-    PView expr inner ->
-      [inner]
-        <> [PView expr' inner | expr' <- shrinkExpr expr]
-        <> [PView expr inner' | inner' <- shrinkPattern inner]
-    PAs name inner ->
-      [inner]
-        <> [PAs name' inner | name' <- shrinkUnqualifiedName name]
-        <> [PAs name inner' | inner' <- shrinkPattern inner]
-    PStrict inner ->
-      [inner]
-        <> [PStrict inner' | inner' <- shrinkPattern inner]
-    PIrrefutable inner ->
-      [inner]
-        <> [PIrrefutable inner' | inner' <- shrinkPattern inner]
-    PNegLit lit ->
-      [PLit lit]
-        <> [PNegLit shrunk | shrunk <- shrinkNumericLiteral lit]
-    PParen inner ->
-      [inner] <> [PParen inner' | inner' <- shrinkPattern inner]
-    PUnboxedSum altIdx arity inner ->
-      [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
-    PRecord con fields _ ->
-      [PRecord con' fields False | con' <- shrinkName con]
-        <> [PRecord con [] False | not (null fields)]
-        <> [PRecord con fields' False | fields' <- shrinkList shrinkField fields]
-    PTypeSig inner ty ->
-      [inner]
-        <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
-    PSplice expr ->
-      [PSplice expr' | expr' <- shrinkExpr expr]
+  [PWildcard | pat /= PWildcard]
+    <> case pat of
+      PAnn _ sub -> shrinkPattern sub
+      PVar name ->
+        [PVar shrunk | shrunk <- shrinkUnqualifiedName name]
+      PTypeBinder binder -> [PTypeBinder binder' | binder' <- shrinkTyVarBinder binder]
+      PTypeSyntax form ty -> [PTypeSyntax form ty' | ty' <- shrinkType ty]
+      PWildcard -> []
+      PLit lit ->
+        [PLit shrunk | shrunk <- shrinkLiteral lit]
+      PQuasiQuote quoter body ->
+        [PQuasiQuote q body | q <- shrinkQuoterName quoter]
+          <> [PQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
+      PTuple tupleFlavor elems ->
+        shrinkPatternTupleElems tupleFlavor elems
+      PList elems ->
+        [PList elems' | elems' <- shrinkList shrinkPattern elems]
+      PCon con typeArgs args ->
+        [PCon con' typeArgs args | con' <- shrinkName con]
+          <> [PCon con typeArgs [] | not (null args)]
+          <> [PCon con typeArgs args' | args' <- shrinkList shrinkPattern args]
+      PInfix lhs op rhs ->
+        [lhs, rhs]
+          <> [PInfix lhs' op rhs | lhs' <- shrinkPattern lhs]
+          <> [PInfix lhs op' rhs | op' <- shrinkName op]
+          <> [PInfix lhs op rhs' | rhs' <- shrinkPattern rhs]
+      PView expr inner ->
+        [inner]
+          <> [PView expr' inner | expr' <- shrinkExpr expr]
+          <> [PView expr inner' | inner' <- shrinkPattern inner]
+      PAs name inner ->
+        [inner]
+          <> [PAs name' inner | name' <- shrinkUnqualifiedName name]
+          <> [PAs name inner' | inner' <- shrinkPattern inner]
+      PStrict inner ->
+        [inner]
+          <> [PStrict inner' | inner' <- shrinkPattern inner]
+      PIrrefutable inner ->
+        [inner]
+          <> [PIrrefutable inner' | inner' <- shrinkPattern inner]
+      PNegLit lit ->
+        [PLit lit]
+          <> [PNegLit shrunk | shrunk <- shrinkNumericLiteral lit]
+      PParen inner ->
+        [inner] <> [PParen inner' | inner' <- shrinkPattern inner]
+      PUnboxedSum altIdx arity inner ->
+        [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
+      PRecord con fields _ ->
+        [PRecord con' fields False | con' <- shrinkName con]
+          <> [PRecord con [] False | not (null fields)]
+          <> [PRecord con fields' False | fields' <- shrinkList shrinkField fields]
+      PTypeSig inner ty ->
+        [inner]
+          <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
+      PSplice expr ->
+        [PSplice expr' | expr' <- shrinkExpr expr]
 
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =

@@ -1516,6 +1516,9 @@ addPatternInfixRhsOperandParens :: Pattern -> Pattern
 addPatternInfixRhsOperandParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addPatternInfixRhsOperandParens sub)
+    -- Negative literal patterns are pat10/lpat forms, so they can appear
+    -- directly as either operand of an infix pattern.
+    PNegLit {} -> addPatternParens pat
     PCon {} -> addPatternParens pat
     PInfix {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
@@ -1554,7 +1557,9 @@ addInfixFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addInfixFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
-    PNegLit {} -> wrapPat True (addPatternParens pat)
+    -- Infix function heads use infix-pattern operand grammar, where negative
+    -- literal patterns do not require apat parentheses.
+    PNegLit {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PInfix {} -> wrapPat True (addPatternParens pat)
