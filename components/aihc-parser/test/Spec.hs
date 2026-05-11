@@ -41,6 +41,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
   )
 import Test.Properties.Arb.Module (genTypeName)
+import Test.Properties.Arb.Pattern (shrinkPattern)
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
@@ -160,7 +161,7 @@ main = buildTests >>= defaultMain
 
 buildTests :: IO TestTree
 buildTests = do
-  minEnabled <- fmap (== Just "ENABLE") $ lookupEnv "MINIMAL"
+  minEnabled <- (== Just "ENABLE") <$> lookupEnv "MINIMAL"
   parserGolden <- parserGoldenTests
   performance <- parserPerformanceTests
   errorMessages <- errorMessageTests
@@ -210,6 +211,7 @@ buildTests = do
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
@@ -584,6 +586,17 @@ test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
 test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
+
+test_shrunkPatternTypeSignaturesShrinkTypes :: Assertion
+test_shrunkPatternTypeSignaturesShrinkTypes =
+  assertBool "pattern type signatures should shrink names in their types" $
+    any shrinksTypeName (shrinkPattern pat)
+  where
+    pat = PTypeSig PWildcard (TCon originalName Unpromoted)
+    originalName = mkName (Just "\120613\120044\42565") NameConSym ":\118928\8690\10289"
+    shrinksTypeName (PTypeSig PWildcard (TCon name Unpromoted)) =
+      isNothing (nameQualifier name) || nameText name == ":+"
+    shrinksTypeName _ = False
 
 test_shrunkModuleHeaderWithoutWarningMakesProgress :: Assertion
 test_shrunkModuleHeaderWithoutWarningMakesProgress =

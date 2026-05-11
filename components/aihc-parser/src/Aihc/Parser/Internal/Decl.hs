@@ -12,7 +12,7 @@ where
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
-import Aihc.Parser.Internal.Pattern (appPatternParser, patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
@@ -778,7 +778,7 @@ valueItemParser :: (SourceSpan -> a -> a) -> (ValueDecl -> a) -> TokParser a
 valueItemParser ann ctor = withSpanAnn ann $ do
   -- Infix equations can use full operand patterns on both sides of the varop,
   -- e.g. @a :&: as == b :&: bs = ()@.
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser apatParser
   ctor . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
@@ -1532,7 +1532,7 @@ valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   -- Infix equations can use full operand patterns on both sides of the varop,
   -- e.g. @a :&: as == b :&: bs = ()@.
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser apatParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 -- ---------------------------------------------------------------------------
@@ -1638,9 +1638,9 @@ patSynWhereClauseParser :: Text -> TokParser [Match]
 patSynWhereClauseParser _name = whereClauseItemsParser patSynWhereMatch
 
 -- | Parse one equation in a pattern synonym where clause.
--- Uses 'appPatternParser' (not 'patternParser') for the infix head patterns
+-- Uses 'lpatParser' (not 'patternParser') for the infix head patterns
 -- because 'patternParser' would greedily consume the constructor operator
--- that serves as the function head — both 'infixPatternParser' and the infix
+-- that serves as the function head — both 'patParser' and the infix
 -- head parser compete for the same constructor operators.
 patSynWhereMatch :: TokParser Match
 patSynWhereMatch = withSpan $ do
@@ -1662,13 +1662,13 @@ patSynWhereHeadParser =
   where
     prefixHeadParser = do
       name <- patSynNameParser
-      pats <- MP.many simplePatternParser
+      pats <- MP.many apatParser
       pure (MatchHeadPrefix, name, pats)
 
     infixHeadParser = do
-      lhsPat <- appPatternParser
+      lhsPat <- lpatParser
       op <- constructorInfixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- lpatParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat])
 
     -- Prefer the plain infix form above so a parenthesized infix sub-pattern on
@@ -1676,9 +1676,9 @@ patSynWhereHeadParser =
     -- entire function head.
     parenthesizedInfixHeadParser = do
       expectedTok TkSpecialLParen
-      lhsPat <- appPatternParser
+      lhsPat <- lpatParser
       op <- constructorInfixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- lpatParser
       expectedTok TkSpecialRParen
-      tailPats <- MP.many simplePatternParser
+      tailPats <- MP.many apatParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)

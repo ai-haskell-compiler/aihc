@@ -3,8 +3,10 @@
 module Aihc.Parser.Internal.Pattern
   ( patternParser,
     patternParserWithTypeSigParser,
-    simplePatternParser,
-    appPatternParser,
+    caseAltPatternParser,
+    patParser,
+    lpatParser,
+    apatParser,
     literalParser,
   )
 where
@@ -28,20 +30,29 @@ patternParserWithTypeSigParser typeSigParser =
     optionalSuffix
       (expectedTok TkReservedDoubleColon *> typeSigParser)
       PTypeSig
-      infixPatternParser
+      patParser
 
-infixPatternParser :: TokParser Pattern
-infixPatternParser = do
-  lhs <- asOrAppPatternParser
-  rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
+-- | Parse the pattern position of a case alternative.
+--
+-- GHC does not accept a top-level pattern type signature before the alternative
+-- arrow: @case x of _ :: T -> rhs@ is rejected, while @case x of (_ :: T) ->
+-- rhs@ is accepted because the signature is parenthesized into an atomic
+-- pattern.  Use the report @pat@ level here so the outer @::@ is left for the
+-- case RHS parser, which then rejects it.
+caseAltPatternParser :: TokParser Pattern
+caseAltPatternParser = patParser
+
+-- | Parse a pattern (@pat@ in the Haskell Report).
+--
+-- @
+-- pat → lpat qconop pat
+--     | lpat
+-- @
+patParser :: TokParser Pattern
+patParser = do
+  lhs <- lpatParser
+  rest <- MP.many ((,) <$> conOperatorParser <*> lpatParser)
   pure (foldInfixL buildInfixPattern lhs rest)
-
--- | Parse either an as-pattern (name@atom) or an application pattern.
--- As-patterns bind tighter than infix but looser than application,
--- so they appear as operands of infix patterns.
-asOrAppPatternParser :: TokParser Pattern
-asOrAppPatternParser =
-  asPatternParser patternAtomParser <|> appPatternParser
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
@@ -71,15 +82,15 @@ conOperatorParser =
 -- @
 --
 -- Negative literals and constructor application live here, not in
--- 'patternAtomParser' (@apat@).  This distinction is critical: since
+-- 'apatParser' (@apat@).  This distinction is critical: since
 -- constructor arguments are @apat@s, @Con - 0@ cannot be misparsed as
 -- @Con (-0)@ — the @-@ is not valid inside an @apat@.
-appPatternParser :: TokParser Pattern
-appPatternParser =
+lpatParser :: TokParser Pattern
+lpatParser =
   negativeLiteralPatternParser <|> do
-    first <- patternAtomParser
+    first <- apatParser
     if isPatternAppHead first
-      then foldl buildPatternApp first <$> MP.many patternAtomParser
+      then foldl buildPatternApp first <$> MP.many apatParser
       else pure first
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
@@ -94,23 +105,23 @@ buildPatternApp lhs rhs =
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
 --
 -- This intentionally does NOT handle negative literals (@- integer@),
--- which belong to the @lpat@ level ('appPatternParser').
-patternAtomParser :: TokParser Pattern
-patternAtomParser =
+-- which belong to the @lpat@ level ('lpatParser').
+apatParser :: TokParser Pattern
+apatParser =
   label "pattern atom" $
-    asPatternAtomParser <|> nonAsPatternAtomParser
+    asApatParser <|> nonAsApatParser
 
 -- | Parse an as-pattern as an atomic pattern: @binder\@apat@.
 --
 -- The binder may be a parenthesized operator, e.g. @(+)\@C@.  Trying this
 -- before the parenthesized-pattern parser keeps @(+)\@(+)@C@ in the as-pattern
 -- grammar instead of prematurely committing to the bare operator pattern @(+)@.
-asPatternAtomParser :: TokParser Pattern
-asPatternAtomParser =
-  asPatternParser patternAtomParser
+asApatParser :: TokParser Pattern
+asApatParser =
+  asPatternParser apatParser
 
-nonAsPatternAtomParser :: TokParser Pattern
-nonAsPatternAtomParser = do
+nonAsApatParser :: TokParser Pattern
+nonAsApatParser = do
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
   requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
@@ -150,12 +161,12 @@ explicitTypePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkPrefixBang
-  PStrict <$> patternAtomParser
+  PStrict <$> apatParser
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkPrefixTilde
-  PIrrefutable <$> patternAtomParser
+  PIrrefutable <$> apatParser
 
 negativeLiteralPatternParser :: TokParser Pattern
 negativeLiteralPatternParser = MP.try $ withSpanAnn (PAnn . mkAnnotation) $ do
@@ -228,12 +239,6 @@ thSplicePatternParser :: TokParser Pattern
 thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
   PSplice <$> atomExprParser
-
-simplePatternParser :: TokParser Pattern
-simplePatternParser = do
-  typeAbstractionsEnabled <- isExtensionEnabled TypeAbstractions
-  let typeBinderParser = if typeAbstractionsEnabled then MP.try typeBinderPatternParser else MP.empty
-  asPatternParser patternAtomParser <|> typeBinderParser <|> patternAtomParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =

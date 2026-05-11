@@ -224,6 +224,7 @@ shrinkPattern pat =
       PTypeSig inner ty ->
         [inner]
           <> [PTypeSig inner' ty | inner' <- shrinkPattern inner]
+          <> [PTypeSig inner ty' | ty' <- shrinkType ty]
       PSplice expr ->
         [PSplice expr' | expr' <- shrinkExpr expr]
 

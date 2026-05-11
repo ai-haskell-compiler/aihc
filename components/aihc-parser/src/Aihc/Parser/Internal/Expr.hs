@@ -17,7 +17,7 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
+import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patternParser)
 import Aihc.Parser.Internal.Type (typeAtomParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -186,7 +186,7 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" simplePatternParser
+  pat <- region "while parsing proc pattern" apatParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
@@ -641,7 +641,7 @@ guardTypeSigParser RhsArrowCase = typeInfixParser
 
 caseAltParser :: TokParser (CaseAlt Expr)
 caseAltParser = withSpan $ do
-  pat <- region "while parsing case alternative" (patternParserWithTypeSigParser typeInfixParser)
+  pat <- region "while parsing case alternative" caseAltPatternParser
   rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
@@ -652,7 +652,7 @@ caseAltParser = withSpan $ do
 
 lambdaCaseAltParser :: TokParser LambdaCaseAlt
 lambdaCaseAltParser = withSpan $ do
-  pats <- region "while parsing lambda-cases alternative" (MP.many simplePatternParser)
+  pats <- region "while parsing lambda-cases alternative" (MP.many apatParser)
   rhs <- region "while parsing lambda-cases alternative" rhsParser
   pure $ \span' ->
     LambdaCaseAlt
@@ -1050,7 +1050,7 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       ELambdaCases <$> bracedLambdaCaseAlts
 
     lambdaPatsParser = do
-      pats <- MP.some simplePatternParser
+      pats <- MP.some apatParser
       expectedTok TkReservedRightArrow
       body <- region "while parsing lambda body" exprParser
       pure (ELambdaPats pats body)
@@ -1098,7 +1098,7 @@ localTypeSigDeclsParser = do
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser apatParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 localPatternDeclParser :: TokParser Decl
