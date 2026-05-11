@@ -182,11 +182,11 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   stmts <- bracedSemiSep1 doStmtParser
   pure (EDo stmts (DoQualifiedMdo modName))
 
--- | Parse a proc expression: @proc pat -> cmd@
+-- | Parse a proc expression: @proc apat -> cmd@
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" patternParser
+  pat <- region "while parsing proc pattern" simplePatternParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
