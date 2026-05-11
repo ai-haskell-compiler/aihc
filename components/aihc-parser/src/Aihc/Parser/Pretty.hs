@@ -22,7 +22,7 @@
 --
 -- __Provided instances:__ 'Pretty' for 'Module', 'Expr', 'Pattern', 'Type'.
 module Aihc.Parser.Pretty
-  (
+  ( prettyExpr,
   )
 where
 

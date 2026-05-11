@@ -184,6 +184,7 @@ test-suite spec
     Test.Properties.Coverage
     Test.Properties.DeclRoundTrip
     Test.Properties.ExprRoundTrip
+    Test.Properties.MinimalParentheses
     Test.Properties.ModuleRoundTrip
     Test.Properties.NoExceptions
     Test.Properties.ParensIdempotency
