@@ -1015,9 +1015,7 @@ addExprParensPrec prec expr =
         _ -> EParen (addExprParens inner)
     EList values -> EList (map addExprParens values)
     ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
-    EUnboxedSum altIdx arity inner ->
-      let inner' = addExprParens inner
-       in EUnboxedSum altIdx arity (wrapExpr (startsWithMultiWayIf inner') inner')
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParensIn CtxCmdTop body))
     EPragma pragma inner ->
