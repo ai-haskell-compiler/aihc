@@ -14,6 +14,8 @@ import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
+import HackageProgress.CLI qualified as ParserHackageProgressCLI
+import HackageProgress.Run qualified as ParserHackageProgressRun
 import HackageTester.CLI qualified as HackageTesterCLI
 import Options.Applicative
 import ResolvePackage qualified as RP
@@ -46,6 +48,7 @@ data Command
   | ParserBench ParserBenchCLI.Options
   | HackageTester HackageTesterCLI.Options
   | ParserStackageProgress ParserStackageProgressCLI.Options
+  | ParserHackageProgress ParserHackageProgressCLI.Options
   | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
 
@@ -117,6 +120,12 @@ commandParser =
           ( info
               (ParserStackageProgress <$> ParserStackageProgressCLI.optionsParser <**> helper)
               (progDesc "Test parser on Stackage snapshot packages")
+          )
+        <> command
+          "parser-hackage-progress"
+          ( info
+              (ParserHackageProgress <$> ParserHackageProgressCLI.optionsParser <**> helper)
+              (progDesc "Test parser on all packages in Hackage")
           )
         <> command
           "resolve"
@@ -227,6 +236,8 @@ runCommand (HackageTester opts) =
   HackageTesterRun.run opts
 runCommand (ParserStackageProgress opts) =
   ParserStackageProgressRun.run opts
+runCommand (ParserHackageProgress opts) =
+  ParserHackageProgressRun.run opts
 runCommand (ResolvePackage opts) =
   RP.run opts
 runCommand (ResolveStackageProgress opts) =
