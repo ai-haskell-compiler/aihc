@@ -1055,10 +1055,20 @@ addSpliceBodyParens body =
     -- compact splice syntax. Symbolic names still render with their own
     -- operator parentheses, e.g. $(A.+).
     EVar {} -> body
+    -- Tuple and unboxed-sum syntax is already delimited, so the splice marker
+    -- can attach directly: $(), $$(1, 2), $(# | x #).
+    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
     -- For everything else (including sections, which addExprParens now wraps
     -- in EParen): wrap in one outer EParen so the body prints as $(expr).
-    -- Sections become EParen(EParen(section)) which prints as $((lhs op)).
-    EParen inner -> EParen (addExprParens inner)
+    -- A body that was already parenthesized keeps exactly one wrapper for
+    -- sections/projections, whose addExprParens result is itself an EParen.
+    EParen inner ->
+      case peelExprAnn inner of
+        ESectionL {} -> addExprParens inner
+        ESectionR {} -> addExprParens inner
+        EGetFieldProjection {} -> addExprParens inner
+        _ -> EParen (addExprParens inner)
     _ -> EParen (addExprParens body)
 
 addNegateParens :: Expr -> Expr
