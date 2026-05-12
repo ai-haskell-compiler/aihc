@@ -312,6 +312,7 @@ needsExprParens ctx expr =
         ETypeSig {} -> True
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
+        ECase {} -> False
         ELambdaCase {} -> False
         ELambdaCases {} -> False
         _ -> isOpenEnded expr
@@ -335,7 +336,9 @@ exprCtxPrec ctx expr =
       | isBlockExpr expr -> 0
       | otherwise -> 3
     CtxSectionRhs -> 0
-    CtxTypeSigBody -> 1
+    CtxTypeSigBody
+      | ECase {} <- peelExprAnn expr -> 0
+      | otherwise -> 1
     CtxGuarded -> 0
 
 -- | Parenthesize a left section operand while protecting any rightmost infix
