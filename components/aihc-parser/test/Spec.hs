@@ -1184,10 +1184,13 @@ test_prettyRecordDotTHSpliceBase = do
 
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
-  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot, Arrows, BlockArguments, QuasiQuotes, ViewPatterns]}
   assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
   assertParsedStrippedExprShapeRoundTrip config "a + (b + c)"
   assertParsedStrippedExprShapeRoundTrip config "(' (p#)).a"
+  assertParsedStrippedExprShapeRoundTrip config "(A.+).a"
+  assertParsedStrippedExprShapeRoundTrip config "[t| (_ :: _) |]"
+  assertParsedStrippedExprShapeRoundTrip config "[p| _ |] (proc _ -> () -<< a)"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
