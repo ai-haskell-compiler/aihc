@@ -22,7 +22,6 @@ import Numeric (showHex, showOct)
 import ParserValidation (formatDiff, stripParens, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import System.Environment (lookupEnv)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.HackageTester.Suite (hackageTesterTests)
@@ -161,7 +160,6 @@ main = buildTests >>= defaultMain
 
 buildTests :: IO TestTree
 buildTests = do
-  minEnabled <- (== Just "ENABLE") <$> lookupEnv "MINIMAL"
   parserGolden <- parserGoldenTests
   performance <- parserPerformanceTests
   errorMessages <- errorMessageTests
@@ -275,44 +273,44 @@ buildTests = do
         adjustOption (const tenMinutes)
           $ testGroup
             "properties"
-          $ [QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr | minEnabled]
-            ++ [QC.testProperty "pattern paren insertion is minimal" prop_minimalParenthesesPattern | minEnabled]
-            ++ [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
-                 QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
-                 QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
-                 QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
-                 QC.testProperty "generated class items include explicit associated type family syntax" prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword,
-                 QC.testProperty "generated class declarations cover all class item constructors" prop_generatedClassDeclsCoverAllClassItemConstructors,
-                 QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
-                 QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
-                 QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
-                 QC.testProperty "generated module AST validator" prop_moduleValidator,
-                 QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
-                 QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
-                 QC.testProperty "module paren insertion is idempotent" prop_moduleParensIdempotent,
-                 QC.testProperty "decl paren insertion is idempotent" prop_declParensIdempotent,
-                 QC.testProperty "expr paren insertion is idempotent" prop_exprParensIdempotent,
-                 QC.testProperty "pattern paren insertion is idempotent" prop_patternParensIdempotent,
-                 QC.testProperty "type paren insertion is idempotent" prop_typeParensIdempotent,
-                 QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
-                 QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
-                 QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
-                 QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow,
-                 QC.testProperty "lex token shorthand is a subset of Show" prop_shorthandLexTokenSubsetOfShow,
-                 QC.testProperty "lex token kind generator covers constructors" prop_genLexTokenKindConstructorCoverage,
-                 testGroup
-                   "no exceptions"
-                   [ QC.testProperty "preprocessor accepts arbitrary text" prop_preprocessorArbitraryTextNoExceptions,
-                     QC.testProperty "lexer accepts arbitrary text" prop_lexerArbitraryTextNoExceptions,
-                     QC.testProperty "module parser accepts arbitrary tokens" prop_moduleParserArbitraryTokensNoExceptions,
-                     QC.testProperty "expr parser accepts arbitrary tokens" prop_exprParserArbitraryTokensNoExceptions,
-                     QC.testProperty "type parser accepts arbitrary tokens" prop_typeParserArbitraryTokensNoExceptions,
-                     QC.testProperty "pattern parser accepts arbitrary tokens" prop_patternParserArbitraryTokensNoExceptions,
-                     QC.testProperty "decl parser accepts arbitrary tokens" prop_declParserArbitraryTokensNoExceptions,
-                     QC.testProperty "import decl parser accepts arbitrary tokens" prop_importDeclParserArbitraryTokensNoExceptions,
-                     QC.testProperty "module header parser accepts arbitrary tokens" prop_moduleHeaderParserArbitraryTokensNoExceptions
-                   ]
-               ],
+          $ [ QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr,
+              QC.testProperty "pattern paren insertion is minimal" prop_minimalParenthesesPattern,
+              QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+              QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
+              QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
+              QC.testProperty "generated class declarations can include associated data family operators" prop_generatedClassDeclsCanIncludeAssociatedDataFamilyOperators,
+              QC.testProperty "generated class items include explicit associated type family syntax" prop_generatedAssociatedTypeFamiliesCanUseExplicitFamilyKeyword,
+              QC.testProperty "generated class declarations cover all class item constructors" prop_generatedClassDeclsCoverAllClassItemConstructors,
+              QC.testProperty "generated modules can include empty bundled imports" prop_generatedModulesCanIncludeEmptyBundledImports,
+              QC.testProperty "generated type names can appear in empty bundled import syntax" prop_generatedTypeNamesSupportEmptyBundledImports,
+              QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+              QC.testProperty "generated module AST validator" prop_moduleValidator,
+              QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
+              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip,
+              QC.testProperty "module paren insertion is idempotent" prop_moduleParensIdempotent,
+              QC.testProperty "decl paren insertion is idempotent" prop_declParensIdempotent,
+              QC.testProperty "expr paren insertion is idempotent" prop_exprParensIdempotent,
+              QC.testProperty "pattern paren insertion is idempotent" prop_patternParensIdempotent,
+              QC.testProperty "type paren insertion is idempotent" prop_typeParensIdempotent,
+              QC.testProperty "module shorthand is a subset of Show" prop_shorthandModuleSubsetOfShow,
+              QC.testProperty "decl shorthand is a subset of Show" prop_shorthandDeclSubsetOfShow,
+              QC.testProperty "expr shorthand is a subset of Show" prop_shorthandExprSubsetOfShow,
+              QC.testProperty "type shorthand is a subset of Show" prop_shorthandTypeSubsetOfShow,
+              QC.testProperty "lex token shorthand is a subset of Show" prop_shorthandLexTokenSubsetOfShow,
+              QC.testProperty "lex token kind generator covers constructors" prop_genLexTokenKindConstructorCoverage,
+              testGroup
+                "no exceptions"
+                [ QC.testProperty "preprocessor accepts arbitrary text" prop_preprocessorArbitraryTextNoExceptions,
+                  QC.testProperty "lexer accepts arbitrary text" prop_lexerArbitraryTextNoExceptions,
+                  QC.testProperty "module parser accepts arbitrary tokens" prop_moduleParserArbitraryTokensNoExceptions,
+                  QC.testProperty "expr parser accepts arbitrary tokens" prop_exprParserArbitraryTokensNoExceptions,
+                  QC.testProperty "type parser accepts arbitrary tokens" prop_typeParserArbitraryTokensNoExceptions,
+                  QC.testProperty "pattern parser accepts arbitrary tokens" prop_patternParserArbitraryTokensNoExceptions,
+                  QC.testProperty "decl parser accepts arbitrary tokens" prop_declParserArbitraryTokensNoExceptions,
+                  QC.testProperty "import decl parser accepts arbitrary tokens" prop_importDeclParserArbitraryTokensNoExceptions,
+                  QC.testProperty "module header parser accepts arbitrary tokens" prop_moduleHeaderParserArbitraryTokensNoExceptions
+                ]
+            ],
         oracle,
         extensionMappingTests,
         hackageTester,
