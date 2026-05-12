@@ -517,7 +517,23 @@ prevTokenAllowsTightPrefix kind =
 -- like @(.field)@.
 prevTokenAllowsRecordDot :: LexTokenKind -> Bool
 prevTokenAllowsRecordDot TkSpecialLParen = True
-prevTokenAllowsRecordDot kind = not (prevTokenAllowsTightPrefix kind)
+prevTokenAllowsRecordDot kind =
+  not (tokenEndsWithHash kind) && not (prevTokenAllowsTightPrefix kind)
+
+-- | Bare @#.@ is an operator continuation, not record-dot syntax.  Require
+-- parentheses around hash-ending tokens before field access, e.g. @('a'#).x@.
+tokenEndsWithHash :: LexTokenKind -> Bool
+tokenEndsWithHash kind =
+  case kind of
+    TkInteger _ nt -> nt /= TInteger
+    TkFloat _ ft -> ft /= TFractional
+    TkCharHash {} -> True
+    TkStringHash {} -> True
+    TkVarId name -> T.isSuffixOf "#" name
+    TkConId name -> T.isSuffixOf "#" name
+    TkQVarId _ name -> T.isSuffixOf "#" name
+    TkQConId _ name -> T.isSuffixOf "#" name
+    _ -> False
 
 canStartNegatedAtom :: Text -> Bool
 canStartNegatedAtom rest =
@@ -687,6 +703,15 @@ lexOperator env st =
               let bananaText = "|)"
                   st' = advanceChars bananaText st
                in Just (mkToken st st' bananaText TkBananaClose, st')
+            _
+              | opText == ".",
+                not (lexerHadTrivia st),
+                Just prevKind <- lexerPrevTokenKind st,
+                tokenEndsWithHash prevKind,
+                nextC :< _ <- T.drop 1 inp,
+                isVarIdentifierStartChar nextC ->
+                  let st' = advanceChars opText st
+                   in Just (mkErrorToken st st' opText "unexpected record-dot access after hash-ending token", st')
             _
               | hasExt OverloadedRecordDot env,
                 opText == ".",
