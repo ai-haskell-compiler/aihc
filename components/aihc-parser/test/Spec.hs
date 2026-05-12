@@ -45,7 +45,7 @@ import Test.Properties.Arb.Pattern (shrinkPattern)
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
-import Test.Properties.MinimalParentheses (prop_minimalParenthesesExpr)
+import Test.Properties.MinimalParentheses (prop_minimalParenthesesExpr, prop_minimalParenthesesPattern)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.NoExceptions
   ( prop_declParserArbitraryTokensNoExceptions,
@@ -276,6 +276,7 @@ buildTests = do
           $ testGroup
             "properties"
           $ [QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr | minEnabled]
+            ++ [QC.testProperty "pattern paren insertion is minimal" prop_minimalParenthesesPattern | minEnabled]
             ++ [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
                  QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
                  QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,

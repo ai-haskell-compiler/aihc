@@ -409,7 +409,7 @@ atomOrRecordExprParser = do
           applyRecordSuffixes result
         Nothing -> do
           recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
-          if not recordDotEnabled
+          if not recordDotEnabled || not (recordDotMayFollow e)
             then pure e
             else do
               mDot <- MP.optional (expectedTok TkRecordDot)
@@ -424,6 +424,15 @@ atomOrRecordExprParser = do
       case mExpr of
         Just expr' -> RecordField fieldName expr' False
         Nothing -> RecordField fieldName (EAnn (mkAnnotation sp) (EVar fieldName)) True
+
+    recordDotMayFollow :: Expr -> Bool
+    recordDotMayFollow expr =
+      case expr of
+        EAnn _ sub -> recordDotMayFollow sub
+        -- GHC rejects unparenthesized explicit namespace expressions before
+        -- record-dot syntax, e.g. @type (:+).a@.
+        ETypeSyntax TypeSyntaxExplicitNamespace _ -> False
+        _ -> True
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)
