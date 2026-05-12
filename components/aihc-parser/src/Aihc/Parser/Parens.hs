@@ -32,7 +32,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Bifunctor (bimap)
 import Data.Char (isHexDigit)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text qualified as T
 
 -- ---------------------------------------------------------------------------
@@ -584,7 +584,8 @@ addPatternBindLhsParens pat rhs =
 
 typedPatternBindLhsNeedsParens :: Pattern -> Bool
 typedPatternBindLhsNeedsParens (PAnn _ sub) = typedPatternBindLhsNeedsParens sub
-typedPatternBindLhsNeedsParens PCon {} = True
+typedPatternBindLhsNeedsParens (PCon name typeArgs args) =
+  not (null typeArgs) || not (null args) || isNothing (nameQualifier name)
 typedPatternBindLhsNeedsParens _ = False
 
 addMatchParens :: UnqualifiedName -> Match -> Match

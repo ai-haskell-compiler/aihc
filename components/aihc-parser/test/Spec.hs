@@ -1191,6 +1191,7 @@ test_parenthesesInsertion = do
   assertParsedStrippedExprShapeRoundTrip config "(A.+).a"
   assertParsedStrippedExprShapeRoundTrip config "[t| (_ :: _) |]"
   assertParsedStrippedExprShapeRoundTrip config "[p| _ |] (proc _ -> () -<< a)"
+  assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
