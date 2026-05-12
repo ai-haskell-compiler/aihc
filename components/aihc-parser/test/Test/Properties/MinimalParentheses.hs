@@ -46,7 +46,7 @@ prop_minimalParenthesesExpr expr = do
     exprIsValid = case parseExpr config source of ParseOk parsed -> stripAnnotations parsed == stripAnnotations noParens; ParseErr {} -> False
 
 prop_minimalParenthesesPattern :: Pattern -> Property
-prop_minimalParenthesesPattern pattern = do
+prop_minimalParenthesesPattern pat = do
   counterexample
     ( "Found smaller, valid pattern. "
         ++ "Original:\n"
@@ -60,7 +60,7 @@ prop_minimalParenthesesPattern pattern = do
     )
     (isMinimal || not patternIsValid)
   where
-    noParens = stripParens pattern
+    noParens = stripParens pat
     parenthesized = addPatternParens noParens
     source = renderStrict (layoutPretty defaultLayoutOptions (prettyPattern noParens))
     isMinimal = parenthesized == noParens

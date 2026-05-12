@@ -149,8 +149,8 @@ needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
-  ETHSplice {} -> True
-  ETHTypedSplice {} -> True
+  ETHSplice {} -> False
+  ETHTypedSplice {} -> False
   -- Most TH value name quotes are already delimited enough for record dot:
   -- @'x.field@, @'().field@, and @'(M.+).field@ parse as field access.
   -- Qualified identifiers are different: @'M.x.field@ quotes @M.x.field@.
@@ -441,7 +441,7 @@ data GuardArrow = GuardArrow | GuardEquals
 
 guardExprNeedsParensWith :: (Type -> Bool) -> GuardArrow -> Expr -> Bool
 guardExprNeedsParensWith typeSigNeedsParens arrow = \case
-  ELambdaPats {} -> True
+  EAnn _ sub -> guardExprNeedsParensWith typeSigNeedsParens arrow sub
   EProc {} -> True
   ETypeSig _ ty ->
     case arrow of
