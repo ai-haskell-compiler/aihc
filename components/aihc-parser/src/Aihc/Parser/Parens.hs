@@ -313,6 +313,7 @@ needsExprParens ctx expr =
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
         ECase {} -> False
+        EDo {} -> False
         ELambdaCase {} -> False
         ELambdaCases {} -> False
         _ -> isOpenEnded expr
@@ -338,6 +339,7 @@ exprCtxPrec ctx expr =
     CtxSectionRhs -> 0
     CtxTypeSigBody
       | ECase {} <- peelExprAnn expr -> 0
+      | EDo {} <- peelExprAnn expr -> 0
       | otherwise -> 1
     CtxGuarded -> 0
 
