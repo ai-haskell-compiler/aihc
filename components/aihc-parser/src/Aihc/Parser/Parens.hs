@@ -149,8 +149,8 @@ needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   ENegate inner -> startsWithPrimitiveLiteral inner
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
-  ETHSplice {} -> False
-  ETHTypedSplice {} -> False
+  ETHSplice body -> spliceBodyNeedsParensBeforeDot body
+  ETHTypedSplice body -> spliceBodyNeedsParensBeforeDot body
   -- Most TH value name quotes are already delimited enough for record dot:
   -- @'x.field@, @'().field@, and @'(M.+).field@ parse as field access.
   -- Qualified identifiers are different: @'M.x.field@ quotes @M.x.field@.
@@ -162,6 +162,24 @@ needsParensBeforeDot = \case
   EInt _ nt _ -> nt /= TInteger
   EFloat _ ft _ -> ft /= TFractional
   -- MagicHash literals: the trailing # merges with . to form an operator
+  ECharHash {} -> True
+  EStringHash {} -> True
+  _ -> False
+
+spliceBodyNeedsParensBeforeDot :: Expr -> Bool
+spliceBodyNeedsParensBeforeDot = \case
+  EAnn _ sub -> spliceBodyNeedsParensBeforeDot sub
+  EVar name ->
+    T.isSuffixOf "#" (nameText name)
+      || ( isJust (nameQualifier name)
+             && case nameType name of
+               NameVarId -> True
+               NameConId -> True
+               NameVarSym -> False
+               NameConSym -> False
+         )
+  EInt _ nt _ -> nt /= TInteger
+  EFloat _ ft _ -> ft /= TFractional
   ECharHash {} -> True
   EStringHash {} -> True
   _ -> False
@@ -1124,13 +1142,19 @@ addNegateParens inner =
     EGetField base _ | startsWithPrimitiveLiteral base -> wrapExpr True (addExprParens inner)
     -- "- - x" is invalid. Tested by `test_parenthesesInsertion`
     ENegate {} -> wrapExpr True (addExprParens inner)
-    -- Prefix negation accepts the same block-shaped operands that can appear
-    -- as atoms under BlockArguments, so `- \x -> x` and `- do ...` do not need
-    -- an extra HsPar around the operand.
-    _ | isBlockExpr inner -> addExprParens inner
+    -- Prefix negation accepts block-shaped operands directly, including
+    -- `proc`, so `- \x -> x`, `- do ...`, and `- proc ...` do not need an
+    -- extra HsPar around the operand.
+    _ | isBareNegateOperand inner -> addExprParens inner
     -- Application and type-application bind tighter than negation, so `-f x`
     -- does not need parens around `f x`.
     _ -> addExprParensPrec 2 inner
+
+isBareNegateOperand :: Expr -> Bool
+isBareNegateOperand = \case
+  EAnn _ sub -> isBareNegateOperand sub
+  EProc {} -> True
+  expr -> isBlockExpr expr
 
 addTypeSigBodyParens :: Expr -> Expr
 addTypeSigBodyParens expr =

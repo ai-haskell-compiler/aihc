@@ -305,6 +305,20 @@ lexpParser = do
 
 lexpBaseParser :: TokParser Expr -> TokParser Expr
 lexpBaseParser appParser =
+  lexpBlockParser
+    <|> MP.try negateExprParser
+    <|> appParser
+
+-- | The Haskell report's @lexp@ production: lambda, let, if, case, do, and
+-- function application.  GHC extensions add more forms at the same grammar
+-- level, such as @proc@ and qualified @do@.
+reportLexpParser :: TokParser Expr -> TokParser Expr
+reportLexpParser appParser =
+  lexpBlockParser
+    <|> appParser
+
+lexpBlockParser :: TokParser Expr
+lexpBlockParser =
   doExprParser
     <|> mdoExprParser
     <|> qualifiedDoExprParser
@@ -314,8 +328,6 @@ lexpBaseParser appParser =
     <|> letExprParser
     <|> procExprParser
     <|> lambdaExprParser
-    <|> MP.try negateExprParser
-    <|> appParser
 
 getSCCPragma :: Pragma -> Maybe Pragma
 getSCCPragma p = case pragmaType p of
@@ -497,7 +509,15 @@ prefixNegateAtomExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 negateExprParser :: TokParser Expr
 negateExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   _ <- minusTokenValueParser
-  ENegate <$> appExprParser
+  ENegate <$> negateOperandParser
+
+-- | Parse the immediate operand of prefix negation.  The Haskell report writes
+-- negation as @- infixexp@, but GHC's fixity parser treats prefix @-@ like a
+-- left-associative precedence-6 operator: it starts with another @lexp@-level
+-- operand and then lets the surrounding infix parser consume following
+-- operators.
+negateOperandParser :: TokParser Expr
+negateOperandParser = reportLexpParser appExprParser
 
 minusTokenValueParser :: TokParser LexToken
 minusTokenValueParser =
@@ -694,10 +714,10 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       minusTok <- minusTokenValueParser
       guard (parenNegateAllowed minusTok)
       -- Parse only the application-level expression as the negation's
-      -- immediate operand.  This matches GHC, where negation binds tighter
-      -- than any infix operator, so @(-l - 1)@ is @((negate l) - 1)@, not
-      -- @(negate (l - 1))@.
-      negOperand <- appExprParser
+      -- immediate operand, plus the block forms GHC permits after prefix
+      -- negation.  Negation still binds tighter than any infix operator, so
+      -- @(-l - 1)@ is @((negate l) - 1)@, not @(negate (l - 1))@.
+      negOperand <- negateOperandParser
       let negBase = ENegate negOperand
       -- Continue with any infix operator chain, type signature, and view
       -- pattern that may follow the negated expression inside the parens.
