@@ -112,7 +112,6 @@ isOpenEnded = \case
   EIf {} -> True
   EMultiWayIf {} -> True
   ELambdaPats {} -> True
-  ELambdaCases {} -> True
   ELetDecls {} -> True
   EProc {} -> True
   EInfix _ _ rhs -> isOpenEnded rhs
@@ -291,7 +290,8 @@ needsExprParens ctx expr =
         ETypeSig {} -> True
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
-        ELambdaCases {} -> True
+        ELambdaCase {} -> False
+        ELambdaCases {} -> False
         _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
 
@@ -1136,6 +1136,8 @@ addTypeSigBodyParens :: Expr -> Expr
 addTypeSigBodyParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addTypeSigBodyParens sub)
+    ELambdaCase alts -> ELambdaCase (map addCaseAltParens alts)
+    ELambdaCases alts -> ELambdaCases (map addLambdaCaseAltParens alts)
     _ -> addExprParensIn CtxTypeSigBody expr
 
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
