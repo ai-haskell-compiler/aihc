@@ -1,0 +1,5 @@
+extensions: [KindSignatures, PartialTypeSignatures]
+input: |
+  x = a :: _ :: _
+status: fail
+reason: GHC rejects a bare kind signature as the type in an expression signature

@@ -1,0 +1,5 @@
+extensions: [ExplicitNamespaces, RequiredTypeArguments, PartialTypeSignatures]
+input: |
+  x = a type _
+status: fail
+reason: GHC rejects bare explicit namespace syntax as a function argument

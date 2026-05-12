@@ -12,7 +12,7 @@ where
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
-import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patternParser)
+import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patParser, patternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
@@ -776,9 +776,7 @@ fixityItemParser ann ctor = withSpanAnn ann $ do
 
 valueItemParser :: (SourceSpan -> a -> a) -> (ValueDecl -> a) -> TokParser a
 valueItemParser ann ctor = withSpanAnn ann $ do
-  -- Infix equations can use full operand patterns on both sides of the varop,
-  -- e.g. @a :&: as == b :&: bs = ()@.
-  (headForm, name, pats) <- functionHeadParserWith patternParser apatParser
+  (headForm, name, pats) <- functionHeadParserWith patParser apatParser
   ctor . functionBindValue headForm name pats <$> equationRhsParser
 
 foreignDeclParser :: TokParser Decl
@@ -1530,9 +1528,7 @@ patternBindDeclParser = MP.try $ withSpanAnn (DeclAnn . mkAnnotation) $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  -- Infix equations can use full operand patterns on both sides of the varop,
-  -- e.g. @a :&: as == b :&: bs = ()@.
-  (headForm, name, pats) <- functionHeadParserWith patternParser apatParser
+  (headForm, name, pats) <- functionHeadParserWith patParser apatParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 -- ---------------------------------------------------------------------------

@@ -84,6 +84,7 @@ isBlockExpr = \case
   ELambdaCase {} -> True
   ELambdaCases {} -> True
   ELetDecls {} -> True
+  EProc {} -> True
   _ -> False
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
@@ -148,7 +149,7 @@ needsParensBeforeDot :: Expr -> Bool
 needsParensBeforeDot = \case
   EAnn _ sub -> needsParensBeforeDot sub
   ENegate inner -> startsWithPrimitiveLiteral inner
-  EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
+  EVar name -> nameNeedsParensBeforeDot name
   ETHSplice body -> spliceBodyNeedsParensBeforeDot body
   ETHTypedSplice body -> spliceBodyNeedsParensBeforeDot body
   -- Most TH value name quotes are already delimited enough for record dot:
@@ -186,6 +187,17 @@ spliceBodyNeedsParensBeforeDot = \case
   EStringHash {} -> True
   _ -> False
 
+nameNeedsParensBeforeDot :: Name -> Bool
+nameNeedsParensBeforeDot name =
+  T.isSuffixOf "#" (nameText name)
+    || ( isJust (nameQualifier name)
+           && case nameType name of
+             NameVarId -> True
+             NameConId -> True
+             NameVarSym -> False
+             NameConSym -> False
+       )
+
 thNameQuoteNeedsParensBeforeDot :: Expr -> Bool
 thNameQuoteNeedsParensBeforeDot = \case
   EAnn _ sub -> thNameQuoteNeedsParensBeforeDot sub
@@ -203,6 +215,11 @@ thNameQuoteNeedsParensBeforeDot = \case
 thTypeNameQuoteNeedsParensBeforeDot :: Type -> Bool
 thTypeNameQuoteNeedsParensBeforeDot = \case
   TAnn _ sub -> thTypeNameQuoteNeedsParensBeforeDot sub
+  TCon name _ ->
+    case nameType name of
+      NameVarSym -> False
+      NameConSym -> False
+      _ -> True
   TTuple {} -> False
   TBuiltinCon {} -> False
   TList _ [] -> False
@@ -313,6 +330,7 @@ needsExprParens ctx expr =
         ENegate inner -> isGreedyExpr inner || isOpenEnded inner || endsWithTypeSig inner
         ELambdaPats {} -> True
         ECase {} -> False
+        EMultiWayIf {} -> False
         EDo {} -> False
         ELambdaCase {} -> False
         ELambdaCases {} -> False
@@ -339,6 +357,7 @@ exprCtxPrec ctx expr =
     CtxSectionRhs -> 0
     CtxTypeSigBody
       | ECase {} <- peelExprAnn expr -> 0
+      | EMultiWayIf {} <- peelExprAnn expr -> 0
       | EDo {} <- peelExprAnn expr -> 0
       | otherwise -> 1
     CtxGuarded -> 0
@@ -469,7 +488,6 @@ data GuardArrow = GuardArrow | GuardEquals
 guardExprNeedsParensWith :: (Type -> Bool) -> GuardArrow -> Expr -> Bool
 guardExprNeedsParensWith typeSigNeedsParens arrow = \case
   EAnn _ sub -> guardExprNeedsParensWith typeSigNeedsParens arrow sub
-  EProc {} -> True
   ETypeSig _ ty ->
     case arrow of
       GuardArrow -> typeSigNeedsParens ty
@@ -992,7 +1010,7 @@ addExprParensPrec prec expr =
     ETHExpQuote body -> ETHExpQuote (addExprParens body)
     ETHTypedQuote body -> ETHTypedQuote (addExprParens body)
     ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
-    ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
+    ETHTypeQuote ty -> ETHTypeQuote (addTypeTopLevelParens ty)
     ETHPatQuote pat -> ETHPatQuote (addTHPatQuoteParens pat)
     ETHNameQuote body -> ETHNameQuote (addExprParens body)
     ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
@@ -1127,7 +1145,7 @@ needsParensBeforeDotField :: Expr -> Name -> Bool
 needsParensBeforeDotField base field =
   needsParensBeforeDot base || hexIntegerLiteralDotNeedsParens base field
 
--- @0x78.a@ is tokenized by GHC as a hexadecimal fractional literal, not as
+-- @0x5e.a@ is tokenized by GHC as a hexadecimal fractional literal, not as
 -- record-dot access. Other integer bases, and non-hex field initials, are safe.
 hexIntegerLiteralDotNeedsParens :: Expr -> Name -> Bool
 hexIntegerLiteralDotNeedsParens expr field =
@@ -1654,7 +1672,7 @@ addInfixFunctionHeadPatternAtomParens pat =
     PNegLit {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PTypeSig {} -> wrapPat True (addPatternParens pat)
-    PInfix {} -> wrapPat True (addPatternParens pat)
+    PInfix {} -> addPatternParens pat
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.

@@ -1,0 +1,6 @@
+extensions: []
+input: "0x5e.a"
+tokens:
+  - 'TkFloat 94.625 TFractional'
+  - 'TkEOF'
+status: pass

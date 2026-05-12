@@ -1,0 +1,5 @@
+extensions: [TemplateHaskell, PartialTypeSignatures]
+input: |
+  x = '' _
+status: fail
+reason: GHC rejects wildcard syntax as a TH type-name quote body

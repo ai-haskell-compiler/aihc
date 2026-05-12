@@ -1,0 +1,7 @@
+extensions: [TemplateHaskell, PartialTypeSignatures]
+input: |
+  x = [d|
+    _ + _ :: _ = a
+    |]
+status: fail
+reason: GHC rejects a bare pattern type signature as an infix function-head operand
