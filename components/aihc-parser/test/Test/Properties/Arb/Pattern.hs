@@ -216,7 +216,9 @@ shrinkPattern pat =
       PParen inner ->
         [inner] <> [PParen inner' | inner' <- shrinkPattern inner]
       PUnboxedSum altIdx arity inner ->
-        [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
+        [inner]
+          <> [PUnboxedSum (max 0 (altIdx - 1)) (arity - 1) inner | arity > 2]
+          <> [PUnboxedSum altIdx arity inner' | inner' <- shrinkPattern inner]
       PRecord con fields _ ->
         [PRecord con' fields False | con' <- shrinkName con]
           <> [PRecord con [] False | not (null fields)]
