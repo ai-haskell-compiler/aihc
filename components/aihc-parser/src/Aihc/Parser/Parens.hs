@@ -135,12 +135,11 @@ endsWithTypeSig = \case
   _ -> False
 
 -- | Check whether an expression needs parenthesization before a record dot.
--- Qualified variables (e.g., @A.x@), TH name quotes (@''C@, @'x@),
--- TH splices (@$x@, @$$x@), primitive literals, MagicHash literals, and
--- identifiers ending in @#@ all
+-- Qualified variables (e.g., @A.x@), ambiguous TH name quotes, TH splices
+-- (@$x@, @$$x@), primitive literals, MagicHash literals, and identifiers ending in @#@ all
 -- need parens to prevent ambiguity:
 -- - Qualified names: @A.x.field@ looks like the qualified name @A.x.field@
--- - TH quotes: @''C.field@ looks like quoting the qualified name @C.field@
+-- - TH quotes: @'M.x.field@ looks like quoting the qualified name @M.x.field@
 -- - TH splices: @$x.field@ and @$$x.field@ parse as a splice followed by an
 --   unexpected @.@
 -- - Primitive numeric literals: @10#.field@ makes @#.@ part of an operator
@@ -152,14 +151,28 @@ needsParensBeforeDot = \case
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
   ETHSplice {} -> True
   ETHTypedSplice {} -> True
-  -- TH name quotes: 'x.field would be 'x.field (quoting qualified name)
-  ETHNameQuote {} -> True
+  -- Most TH value quotes are already delimited enough for record dot:
+  -- @'x.field@, @'().field@, and @'(M.+).field@ parse as field access.
+  -- Qualified identifiers are different: @'M.x.field@ quotes @M.x.field@.
+  ETHNameQuote body -> thNameQuoteNeedsParensBeforeDot body
   ETHTypeNameQuote {} -> True
   EInt _ nt _ -> nt /= TInteger
   EFloat _ ft _ -> ft /= TFractional
   -- MagicHash literals: the trailing # merges with . to form an operator
   ECharHash {} -> True
   EStringHash {} -> True
+  _ -> False
+
+thNameQuoteNeedsParensBeforeDot :: Expr -> Bool
+thNameQuoteNeedsParensBeforeDot = \case
+  EAnn _ sub -> thNameQuoteNeedsParensBeforeDot sub
+  EVar name ->
+    isJust (nameQualifier name)
+      && case nameType name of
+        NameVarId -> True
+        NameConId -> True
+        NameVarSym -> False
+        NameConSym -> False
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
