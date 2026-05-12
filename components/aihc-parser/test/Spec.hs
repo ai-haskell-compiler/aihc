@@ -101,7 +101,7 @@ assertParsedStrippedExprShapeRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedExprShapeRoundTrip config source =
   case parseExpr config source of
     ParseOk expr ->
-      let stripped = stripParens expr
+      let stripped = stripParens (stripAnnotations expr)
           rendered = renderPretty stripped
        in case parseExpr config rendered of
             ParseOk reparsed -> do
@@ -1184,9 +1184,10 @@ test_prettyRecordDotTHSpliceBase = do
 
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
-  let config = defaultConfig {parserExtensions = [TemplateHaskell]}
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
   assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
   assertParsedStrippedExprShapeRoundTrip config "a + (b + c)"
+  assertParsedStrippedExprShapeRoundTrip config "(' (p#)).a"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do

@@ -154,6 +154,8 @@ needsParensBeforeDot = \case
   -- Most TH value name quotes are already delimited enough for record dot:
   -- @'x.field@, @'().field@, and @'(M.+).field@ parse as field access.
   -- Qualified identifiers are different: @'M.x.field@ quotes @M.x.field@.
+  -- Hash-ending names also need grouping because @'x#.field@ does not parse
+  -- as record-dot access on the quoted name.
   ETHNameQuote body -> thNameQuoteNeedsParensBeforeDot body
   -- TH type name quotes need the same distinction.  Built-in type
   -- constructors are accepted as @''().field@ and @''[].field@, while
@@ -188,12 +190,14 @@ thNameQuoteNeedsParensBeforeDot :: Expr -> Bool
 thNameQuoteNeedsParensBeforeDot = \case
   EAnn _ sub -> thNameQuoteNeedsParensBeforeDot sub
   EVar name ->
-    isJust (nameQualifier name)
-      && case nameType name of
-        NameVarId -> True
-        NameConId -> True
-        NameVarSym -> False
-        NameConSym -> False
+    T.isSuffixOf "#" (nameText name)
+      || ( isJust (nameQualifier name)
+             && case nameType name of
+               NameVarId -> True
+               NameConId -> True
+               NameVarSym -> False
+               NameConSym -> False
+         )
   _ -> False
 
 thTypeNameQuoteNeedsParensBeforeDot :: Type -> Bool
