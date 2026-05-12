@@ -31,6 +31,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Bifunctor (bimap)
+import Data.Char (isHexDigit)
 import Data.Maybe (isJust)
 import Data.Text qualified as T
 
@@ -151,11 +152,14 @@ needsParensBeforeDot = \case
   EVar name -> isJust (nameQualifier name) || T.isSuffixOf "#" (nameText name)
   ETHSplice {} -> True
   ETHTypedSplice {} -> True
-  -- Most TH value quotes are already delimited enough for record dot:
+  -- Most TH value name quotes are already delimited enough for record dot:
   -- @'x.field@, @'().field@, and @'(M.+).field@ parse as field access.
   -- Qualified identifiers are different: @'M.x.field@ quotes @M.x.field@.
   ETHNameQuote body -> thNameQuoteNeedsParensBeforeDot body
-  ETHTypeNameQuote {} -> True
+  -- TH type name quotes need the same distinction.  Built-in type
+  -- constructors are accepted as @''().field@ and @''[].field@, while
+  -- @''T.field@ and @''(T).field@ are rejected unless the quote is grouped.
+  ETHTypeNameQuote ty -> thTypeNameQuoteNeedsParensBeforeDot ty
   EInt _ nt _ -> nt /= TInteger
   EFloat _ ft _ -> ft /= TFractional
   -- MagicHash literals: the trailing # merges with . to form an operator
@@ -174,6 +178,14 @@ thNameQuoteNeedsParensBeforeDot = \case
         NameVarSym -> False
         NameConSym -> False
   _ -> False
+
+thTypeNameQuoteNeedsParensBeforeDot :: Type -> Bool
+thTypeNameQuoteNeedsParensBeforeDot = \case
+  TAnn _ sub -> thTypeNameQuoteNeedsParensBeforeDot sub
+  TTuple {} -> False
+  TBuiltinCon {} -> False
+  TList _ [] -> False
+  _ -> True
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
 startsWithBlockExpr :: Expr -> Bool
@@ -1012,7 +1024,7 @@ addExprParensPrec prec expr =
       -- Qualified names (A.a) must be parenthesized because A.a.field would be
       -- parsed as the qualified name A.a.field rather than field access on A.a.
       let base' = addExprParensPrec 3 base
-       in EGetField (wrapExpr (needsParensBeforeDot base') base') field
+       in EGetField (wrapExpr (needsParensBeforeDotField base' field) base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
       wrapExpr (prec > 1) (ETypeSig (addTypeSigBodyParens inner) (addTypeParens ty))
@@ -1083,6 +1095,26 @@ addSpliceBodyParens body =
         EGetFieldProjection {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
     _ -> EParen (addExprParens body)
+
+needsParensBeforeDotField :: Expr -> Name -> Bool
+needsParensBeforeDotField base field =
+  needsParensBeforeDot base || hexIntegerLiteralDotNeedsParens base field
+
+-- @0x78.a@ is tokenized by GHC as a hexadecimal fractional literal, not as
+-- record-dot access. Other integer bases, and non-hex field initials, are safe.
+hexIntegerLiteralDotNeedsParens :: Expr -> Name -> Bool
+hexIntegerLiteralDotNeedsParens expr field =
+  case expr of
+    EAnn _ sub -> hexIntegerLiteralDotNeedsParens sub field
+    EInt _ TInteger repr -> isHexIntegerLiteral repr && fieldStartsWithHexDigit field
+    _ -> False
+  where
+    isHexIntegerLiteral repr =
+      "0x" `T.isPrefixOf` repr || "0X" `T.isPrefixOf` repr
+    fieldStartsWithHexDigit name =
+      case T.uncons (nameText name) of
+        Just (c, _) -> isHexDigit c
+        Nothing -> False
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =
