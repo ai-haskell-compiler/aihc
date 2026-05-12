@@ -1,0 +1,5 @@
+extensions: [ExplicitNamespaces]
+input: |
+  x = type (:+) {}
+status: fail
+reason: GHC rejects record construction/update directly after an explicit namespace expression

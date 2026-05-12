@@ -401,12 +401,27 @@ appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
     applyArg fn (Left ty) = ETypeApp fn ty
     applyArg fn (Right arg) = EApp fn arg
 
--- | Parse an atom, optionally followed by one or more record construction/update syntax.
+-- | Parse an atomic expression, including record construction/update syntax.
+--
+-- Haskell 2010 makes record construction and update part of the @aexp@
+-- production:
+--
+-- > aexp -> qcon { fbind_1, ..., fbind_n }
+-- > aexp -> aexp<qcon> { fbind_1, ..., fbind_n }
+--
+-- So record braces are not a suffix on every expression form that this parser
+-- accepts as an application atom.  Extension forms such as bare explicit
+-- namespace expressions stay in 'atomExprParser'; they can be record-update
+-- bases only after parentheses make them an @aexp@.
 atomOrRecordExprParser :: TokParser Expr
-atomOrRecordExprParser = do
-  base <- atomExprParser
-  applyRecordSuffixes base
+atomOrRecordExprParser =
+  recordExprParser <|> atomExprParser
   where
+    recordExprParser :: TokParser Expr
+    recordExprParser = do
+      base <- recordBaseAtomExprParser
+      applyRecordSuffixes base
+
     applyRecordSuffixes :: Expr -> TokParser Expr
     applyRecordSuffixes e = do
       mRecordFields <- MP.optional recordBracesParser
@@ -419,17 +434,20 @@ atomOrRecordExprParser = do
                 _ ->
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
-        Nothing -> do
-          recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
-          if not recordDotEnabled || not (recordDotMayFollow e)
-            then pure e
-            else do
-              mDot <- MP.optional (expectedTok TkRecordDot)
-              case mDot of
-                Nothing -> pure e
-                Just () -> do
-                  fieldName <- recordFieldNameParser
-                  applyRecordSuffixes (EGetField e fieldName)
+        Nothing -> applyRecordDotSuffixes e
+
+    applyRecordDotSuffixes :: Expr -> TokParser Expr
+    applyRecordDotSuffixes e = do
+      recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
+      if not recordDotEnabled || not (recordDotMayFollow e)
+        then pure e
+        else do
+          mDot <- MP.optional (expectedTok TkRecordDot)
+          case mDot of
+            Nothing -> pure e
+            Just () -> do
+              fieldName <- recordFieldNameParser
+              applyRecordSuffixes (EGetField e fieldName)
 
     normalizeField :: (Name, Maybe Expr, SourceSpan) -> RecordField Expr
     normalizeField (fieldName, mExpr, sp) =
@@ -458,6 +476,33 @@ recordFieldBindingParser = withSpan $ do
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
 
+-- | Parse the expression forms that correspond to the report's @aexp@
+-- production and can therefore be record construction/update bases.
+recordBaseAtomExprParser :: TokParser Expr
+recordBaseAtomExprParser = do
+  thAny <- thAnyEnabled
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkImplicitParam {} -> implicitParamExprParser
+    _ ->
+      MP.try prefixNegateAtomExprParser
+        <|> MP.try parenOperatorExprParser
+        <|> (if thAny then thQuoteExprParser else MP.empty)
+        <|> (if thAny then thNameQuoteExprParser else MP.empty)
+        <|> (if thAny then thTypedSpliceParser else MP.empty)
+        <|> (if thAny then thUntypedSpliceParser else MP.empty)
+        <|> quasiQuoteExprParser
+        <|> parenExprParser
+        <|> listExprParser
+        <|> intExprParser
+        <|> floatExprParser
+        <|> charExprParser
+        <|> stringExprParser
+        <|> overloadedLabelExprParser
+        <|> wildcardExprParser
+        <|> varExprParser
+
+-- | Parse an atom without record construction/update syntax.
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
