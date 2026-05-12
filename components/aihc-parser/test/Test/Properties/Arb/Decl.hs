@@ -32,7 +32,7 @@ import Test.Properties.Arb.Identifiers
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
+import {-# SOURCE #-} Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
 import Test.Properties.Arb.Utils (optional, smallList0, smallList1)
 import Test.QuickCheck
 

@@ -31,7 +31,7 @@ import Test.Properties.Arb.Identifiers
     shrinkName,
     shrinkUnqualifiedName,
   )
-import Test.Properties.Arb.Type (shrinkType)
+import {-# SOURCE #-} Test.Properties.Arb.Type (shrinkType)
 import Test.Properties.Arb.Utils (smallList0, smallList2)
 import Test.QuickCheck
 
