@@ -1284,17 +1284,10 @@ addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
   case seqInfo of
     ArithSeqAnn ann inner -> ArithSeqAnn ann (addArithSeqParens inner)
-    ArithSeqFrom fromE -> ArithSeqFrom (addExprGuardedParens fromE)
-    ArithSeqFromThen fromE thenE -> ArithSeqFromThen (addExprGuardedParens fromE) (addExprGuardedParens thenE)
-    ArithSeqFromTo fromE toE -> ArithSeqFromTo (addExprGuardedParens fromE) (addExprParens toE)
-    ArithSeqFromThenTo fromE thenE toE -> ArithSeqFromThenTo (addExprGuardedParens fromE) (addExprGuardedParens thenE) (addExprParens toE)
-
-addExprGuardedParens :: Expr -> Expr
-addExprGuardedParens expr =
-  case peelExprAnn expr of
-    EIf {} -> addExprParens expr
-    EMultiWayIf {} -> addExprParens expr
-    _ -> addExprParensIn CtxGuarded expr
+    ArithSeqFrom fromE -> ArithSeqFrom (addExprParens fromE)
+    ArithSeqFromThen fromE thenE -> ArithSeqFromThen (addExprParens fromE) (addExprParens thenE)
+    ArithSeqFromTo fromE toE -> ArithSeqFromTo (addExprParens fromE) (addExprParens toE)
+    ArithSeqFromThenTo fromE thenE toE -> ArithSeqFromThenTo (addExprParens fromE) (addExprParens thenE) (addExprParens toE)
 
 -- | Parenthesize the left operand of a top-level infix expression.
 addTopLevelInfixLhsParens :: Int -> Expr -> Expr
@@ -1568,14 +1561,10 @@ addPatternViewInnerParens pat =
 
 addViewExprParens :: Expr -> Expr
 addViewExprParens expr =
-  if endsWithTypeSig expr || isProcExpr expr || isTypeSyntaxExpr expr
+  if endsWithTypeSig expr || isTypeSyntaxExpr expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
   where
-    isProcExpr e =
-      case peelExprAnn e of
-        EProc {} -> True
-        _ -> False
     isTypeSyntaxExpr e =
       case peelExprAnn e of
         ETypeSyntax {} -> True
@@ -1756,7 +1745,6 @@ addCmdParensIn ctx cmd =
         CmdArrApp {} -> CmdPar inner
         CmdLet {} -> CmdPar inner
         CmdIf {} -> CmdPar inner
-        CmdCase {} -> CmdPar inner
         CmdLam {} -> CmdPar inner
         _ -> inner
 

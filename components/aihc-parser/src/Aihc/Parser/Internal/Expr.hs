@@ -1249,12 +1249,27 @@ thPatQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHPatQuoteOpen TkTHExpQ
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  ETHSplice <$> atomExprParser
+  ETHSplice <$> compactSpliceBodyParser
 
 thTypedSpliceParser :: TokParser Expr
 thTypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypedSplice
-  ETHTypedSplice <$> atomExprParser
+  ETHTypedSplice <$> compactSpliceBodyParser
+
+compactSpliceBodyParser :: TokParser Expr
+compactSpliceBodyParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkReservedBackslash -> MP.empty
+    TkKeywordLet -> MP.empty
+    TkKeywordDo -> MP.empty
+    TkKeywordMdo -> MP.empty
+    TkQualifiedDo {} -> MP.empty
+    TkQualifiedMdo {} -> MP.empty
+    TkKeywordCase -> MP.empty
+    TkKeywordIf -> MP.empty
+    TkKeywordProc -> MP.empty
+    _ -> atomExprParser
 
 thNameQuoteExprParser :: TokParser Expr
 thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
