@@ -29,7 +29,7 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
-import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst)
+import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, shrinkDecl)
 import Test.Properties.Arb.Identifiers
   ( genConSym,
     genVarSym,
@@ -211,6 +211,12 @@ buildTests = do
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
+            testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
+            testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
+            testCase "shrunk wildcard pattern binds do not cycle" test_shrunkWildcardPatternBindsDoNotCycle,
+            testCase "shrunk infix expression left operands do not cycle" test_shrunkInfixExprLeftOperandsDoNotCycle,
+            testCase "shrunk let expressions do not cycle through simple lets" test_shrunkLetExpressionsDoNotCycleThroughSimpleLets,
+            testCase "shrunk wildcard let expressions do not cycle through simple lets" test_shrunkWildcardLetExpressionsDoNotCycleThroughSimpleLets,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
@@ -617,6 +623,118 @@ test_shrunkModuleHeaderWithoutWarningMakesProgress =
           moduleImports = [],
           moduleDecls = []
         }
+
+test_shrunkClassDefaultPatternBindMakesProgress :: Assertion
+test_shrunkClassDefaultPatternBindMakesProgress =
+  assertBool "class default pattern bind shrinker must not return the original declaration" $
+    decl `notElem` shrinkDecl decl
+  where
+    decl =
+      DeclClass
+        ClassDecl
+          { classDeclContext = Nothing,
+            classDeclHead = PrefixBinderHead (mkUnqualifiedName NameConId "C") [],
+            classDeclFundeps = [],
+            classDeclItems =
+              [ ClassItemDefault
+                  ( PatternBind
+                      NoMultiplicityTag
+                      (PVar (mkUnqualifiedName NameVarId "x"))
+                      (UnguardedRhs [] (EList []) Nothing)
+                  )
+              ]
+          }
+
+test_shrunkArrowCommandInfixLhsModuleMakesProgress :: Assertion
+test_shrunkArrowCommandInfixLhsModuleMakesProgress =
+  assertBool "module shrinker must not return the original arrow command module" $
+    modu `notElem` shrink modu
+  where
+    modu =
+      Module
+        { moduleAnns = [],
+          moduleHead = Nothing,
+          moduleLanguagePragmas = [],
+          moduleImports = [],
+          moduleDecls =
+            [ DeclValue
+                ( PatternBind
+                    NoMultiplicityTag
+                    (PVar (mkUnqualifiedName NameVarId "a"))
+                    (UnguardedRhs [] (EProc PWildcard command) Nothing)
+                )
+            ]
+        }
+    command =
+      CmdArrApp
+        (EInfix (EList []) (qualifyName Nothing (mkUnqualifiedName NameVarId "a")) (EList []))
+        HsFirstOrderApp
+        ( ELetDecls
+            [ DeclValue
+                ( PatternBind
+                    NoMultiplicityTag
+                    (PVar (mkUnqualifiedName NameVarId "x"))
+                    (UnguardedRhs [] (ETuple Unboxed []) Nothing)
+                )
+            ]
+            (EInt 846 TIntHash "846#")
+        )
+
+test_shrunkWildcardPatternBindsDoNotCycle :: Assertion
+test_shrunkWildcardPatternBindsDoNotCycle =
+  assertBool "pattern bind shrinker must not cycle between wildcard and simple variable patterns" $
+    all (\shrunk -> decl `notElem` shrinkDecl shrunk) (shrinkDecl decl)
+  where
+    decl =
+      DeclValue
+        ( PatternBind
+            NoMultiplicityTag
+            PWildcard
+            (UnguardedRhs [] (EList []) Nothing)
+        )
+
+test_shrunkInfixExprLeftOperandsDoNotCycle :: Assertion
+test_shrunkInfixExprLeftOperandsDoNotCycle =
+  assertBool "infix expression shrinker must not cycle between simple variables and empty lists on the lhs" $
+    all (\shrunk -> expr `notElem` shrink shrunk) (shrink expr)
+  where
+    expr =
+      EInfix
+        (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a")))
+        (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))
+        (EList [])
+
+test_shrunkLetExpressionsDoNotCycleThroughSimpleLets :: Assertion
+test_shrunkLetExpressionsDoNotCycleThroughSimpleLets =
+  assertBool "let expression shrinker must not cycle through its simple let target" $
+    all (\shrunk -> expr `notElem` shrink shrunk) (shrink expr)
+  where
+    expr =
+      ELetDecls
+        [ DeclValue
+            ( PatternBind
+                NoMultiplicityTag
+                (PVar (mkUnqualifiedName NameVarId "a"))
+                (UnguardedRhs [] (ETuple Boxed []) Nothing)
+            )
+        ]
+        (EList [])
+
+test_shrunkWildcardLetExpressionsDoNotCycleThroughSimpleLets :: Assertion
+test_shrunkWildcardLetExpressionsDoNotCycleThroughSimpleLets =
+  assertBool "let expression shrinker must not cycle between wildcard and simple variable let targets" $
+    all (\shrunk -> expr `notElem` shrink shrunk) (shrink expr)
+  where
+    expr =
+      ELetDecls
+        [ DeclValue
+            ( PatternBind
+                NoMultiplicityTag
+                PWildcard
+                (UnguardedRhs [] (EList []) Nothing)
+            )
+        ]
+        (EList [])
 
 test_generatedIdentifiersAcceptUnicodeVariableCharacters :: Assertion
 test_generatedIdentifiersAcceptUnicodeVariableCharacters = do
@@ -1182,7 +1300,7 @@ test_prettyRecordDotTHSpliceBase = do
 
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
-  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot, Arrows, BlockArguments, QuasiQuotes, ViewPatterns, UnboxedSums]}
+  let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot, Arrows, BlockArguments, QuasiQuotes, ViewPatterns, UnboxedSums, MultiWayIf, QualifiedDo]}
   assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
   assertParsedStrippedExprShapeRoundTrip config "a + (b + c)"
   assertParsedStrippedExprShapeRoundTrip config "(' (p#)).a"
@@ -1192,6 +1310,9 @@ test_parenthesesInsertion = do
   assertParsedStrippedPatternShapeRoundTrip config "(# | proc _ -> [] -< [] -> _ #)"
   assertParsedStrippedPatternShapeRoundTrip config "(:+) {a = [let a = () in [] ..] -> _}"
   assertParsedStrippedPatternShapeRoundTrip config "C {a = proc _ -> do ([] -<< []) + case [] of _ -> [] -<< [] -> _}"
+  assertParsedStrippedPatternShapeRoundTrip config "(proc _ -> (if [] then [] -<< [] else [] -<< []) + case [] of _ -> [] -< [] -> _)"
+  assertParsedStrippedDeclShapeRoundTrip config "a = ((if | [] -> []) :: _,)"
+  assertParsedStrippedPatternShapeRoundTrip config "((A.do (if | [] -> []) :: _) -> _)"
   assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion

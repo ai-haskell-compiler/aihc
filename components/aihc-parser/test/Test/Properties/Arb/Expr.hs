@@ -487,7 +487,7 @@ shrinkExpr expr =
       EInfix lhs op rhs ->
         [lhs, rhs]
           <> [EInfix lhs op' rhs | op' <- shrinkName op]
-          <> [EInfix simpleVarExpr op rhs | not (isSimpleVarExpr lhs)]
+          <> [EInfix simpleVarExpr op rhs | lhs /= EList [] && not (isSimpleVarExpr lhs)]
           <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
           <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
       ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
@@ -522,7 +522,7 @@ shrinkExpr expr =
         [body | LambdaCaseAlt {lambdaCaseAltRhs = UnguardedRhs _ body _} <- alts]
           <> [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
       ELetDecls decls body ->
-        [ELetDecls [simpleLetDecl] simpleUnitExpr | decls /= [simpleLetDecl] || body /= simpleUnitExpr]
+        [ELetDecls [simpleLetDecl] simpleUnitExpr | not (isSimpleLetTarget decls body)]
           <> ( body
                  : [ELetDecls decls body' | body' <- shrinkExpr body]
                    <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
@@ -857,7 +857,7 @@ isSimpleVarExpr expr =
     _ -> False
 
 simpleUnitExpr :: Expr
-simpleUnitExpr = ETuple Boxed []
+simpleUnitExpr = EList []
 
 simpleLetDecl :: Decl
 simpleLetDecl =
@@ -867,3 +867,18 @@ simpleLetDecl =
         (PVar (mkUnqualifiedName NameVarId "a"))
         (UnguardedRhs [] simpleUnitExpr Nothing)
     )
+
+isSimpleLetTarget :: [Decl] -> Expr -> Bool
+isSimpleLetTarget decls body =
+  body == simpleUnitExpr
+    && case decls of
+      [DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs [] expr Nothing))] ->
+        expr == simpleUnitExpr && isSimpleLetPattern pat
+      _ -> False
+
+isSimpleLetPattern :: Pattern -> Bool
+isSimpleLetPattern pat =
+  case pat of
+    PVar name -> unqualifiedNameType name == NameVarId && unqualifiedNameText name == "a"
+    PWildcard -> True
+    _ -> False

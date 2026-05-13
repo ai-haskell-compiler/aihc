@@ -7,7 +7,7 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, exprParser, lexpParser, parseLetDeclsParser, parseLetDeclsStmtParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, exprParser, parseLetDeclsParser, parseLetDeclsStmtParser)
 import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patternParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
@@ -66,31 +66,9 @@ cmd10Parser = do
 
 cmdArrAppParser :: TokParser Cmd
 cmdArrAppParser = do
-  -- The arrow-command grammar uses exp10 on the left of -< / -<<. GHC also
-  -- accepts the common @$@ form here, e.g. @arr $ f -< x@, without making the
-  -- left operand an arbitrary command.
-  expr <- cmdArrAppLhsParser
+  expr <- exprParser
   (appType, rhs) <- cmdArrTailParser
   pure (CmdArrApp expr appType rhs)
-
-cmdArrAppLhsParser :: TokParser Expr
-cmdArrAppLhsParser = do
-  lhs <- lexpParser
-  rest <-
-    MP.many . MP.try $
-      (,)
-        <$> dollarOperatorParser
-        <*> lexpParser
-  pure (foldInfixL buildExprInfix lhs rest)
-  where
-    buildExprInfix l (op, r) = EInfix l op r
-
-dollarOperatorParser :: TokParser Name
-dollarOperatorParser =
-  tokenSatisfy "operator '$'" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym "$" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "$"))
-      _ -> Nothing
 
 cmdFcmdParser :: TokParser Cmd
 cmdFcmdParser = do

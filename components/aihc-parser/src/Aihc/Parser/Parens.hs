@@ -1082,9 +1082,9 @@ addExprParensPrec prec expr =
         ESectionR {} -> addExprParens inner
         EGetFieldProjection {} -> addExprParens inner
         _ -> EParen (addExprParens inner)
-    EList values -> EList (map addExprParens values)
-    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
-    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
+    EList values -> EList (map addDelimitedExprParens values)
+    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addDelimitedExprParens) values)
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addDelimitedExprParens inner)
     EProc pat body ->
       wrapExpr (prec > 0) (EProc (addArrowBndrPatternParens pat) (addCmdParensIn CtxCmdTop body))
     EPragma pragma inner ->
@@ -1192,6 +1192,20 @@ addTypeSigBodyParens expr =
     ELambdaCases alts -> ELambdaCases (map addLambdaCaseAltParens alts)
     _ -> addExprParensIn CtxTypeSigBody expr
 
+addDelimitedExprParens :: Expr -> Expr
+addDelimitedExprParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addDelimitedExprParens sub)
+    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addTypeParens ty)
+    _ -> addExprParens expr
+
+addDelimitedTypeSigBodyParens :: Expr -> Expr
+addDelimitedTypeSigBodyParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addDelimitedTypeSigBodyParens sub)
+    EMultiWayIf {} -> wrapExpr True (addExprParens expr)
+    _ -> addTypeSigBodyParens expr
+
 addCaseAltParens :: CaseAlt Expr -> CaseAlt Expr
 addCaseAltParens (CaseAlt sp pat rhs) =
   CaseAlt sp (addCaseAltPatternParens pat) (addCaseAltRhsParens rhs)
@@ -1221,10 +1235,17 @@ addDoStmtParens :: DoStmt Expr -> DoStmt Expr
 addDoStmtParens stmt =
   case stmt of
     DoAnn ann inner -> DoAnn ann (addDoStmtParens inner)
-    DoBind pat e -> DoBind (addPatternParens pat) (addExprParens e)
+    DoBind pat e -> DoBind (addPatternParens pat) (addDoExprParens e)
     DoLetDecls decls -> DoLetDecls (map addDeclParens decls)
-    DoExpr e -> DoExpr (addExprParens e)
+    DoExpr e -> DoExpr (addDoExprParens e)
     DoRecStmt stmts -> DoRecStmt (map addDoStmtParens stmts)
+
+addDoExprParens :: Expr -> Expr
+addDoExprParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addDoExprParens sub)
+    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addTypeParens ty)
+    _ -> addExprParens expr
 
 addCompStmtParens :: CompStmt -> CompStmt
 addCompStmtParens stmt =
@@ -1768,6 +1789,9 @@ addCmdParensIn ctx cmd =
     wrapCmdInfixLhs inner =
       case peelCmdAnn inner of
         CmdArrApp {} -> CmdPar inner
+        CmdIf {} -> CmdPar inner
+        CmdLet {} -> CmdPar inner
+        CmdLam {} -> CmdPar inner
         _ -> inner
 
     wrapCmdInfixRhs inner =
