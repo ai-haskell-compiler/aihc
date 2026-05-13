@@ -215,6 +215,7 @@ buildTests = do
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
             testCase "shrunk wildcard pattern binds do not cycle" test_shrunkWildcardPatternBindsDoNotCycle,
             testCase "shrunk infix expression left operands do not cycle" test_shrunkInfixExprLeftOperandsDoNotCycle,
+            testCase "shrunk right sections do not keep prefix minus" test_shrunkRightSectionsDoNotKeepPrefixMinus,
             testCase "shrunk let expressions do not cycle through simple lets" test_shrunkLetExpressionsDoNotCycleThroughSimpleLets,
             testCase "shrunk wildcard let expressions do not cycle through simple lets" test_shrunkWildcardLetExpressionsDoNotCycleThroughSimpleLets,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
@@ -253,6 +254,7 @@ buildTests = do
             testCase "pretty-prints operators after layout-rendered do blocks" test_prettyOperatorAfterLayoutDoBlock,
             testCase "pretty-prints negated open-ended expressions inside left sections" test_prettyNegatedOpenEndedSectionLhs,
             testCase "pretty-prints negated open-ended type signature bodies" test_prettyNegatedOpenEndedTypeSigBody,
+            testCase "parenthesizes command lambda RHS before following infix operators" test_commandLambdaRhsBeforeFollowingInfixParens,
             testCase "pretty-prints record-dot TH splice bases" test_prettyRecordDotTHSpliceBase,
             testCase "inserts required parentheses" test_parenthesesInsertion,
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
@@ -703,6 +705,21 @@ test_shrunkInfixExprLeftOperandsDoNotCycle =
         (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a")))
         (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))
         (EList [])
+
+test_shrunkRightSectionsDoNotKeepPrefixMinus :: Assertion
+test_shrunkRightSectionsDoNotKeepPrefixMinus =
+  assertBool "right section shrinker must not keep the unqualified minus operator" $
+    not (any isUnqualifiedMinusRightSection (shrink expr))
+  where
+    expr =
+      ESectionR
+        (qualifyName Nothing (mkUnqualifiedName NameVarSym "-"))
+        (EInt 1 TInteger "1")
+    isUnqualifiedMinusRightSection (ESectionR name _) =
+      isNothing (nameQualifier name)
+        && nameType name == NameVarSym
+        && nameText name == "-"
+    isUnqualifiedMinusRightSection _ = False
 
 test_shrunkLetExpressionsDoNotCycleThroughSimpleLets :: Assertion
 test_shrunkLetExpressionsDoNotCycleThroughSimpleLets =
@@ -1292,6 +1309,33 @@ test_prettyNegatedOpenEndedTypeSigBody = do
         """
   assertParsedStrippedExprShapeRoundTrip config source
 
+test_commandLambdaRhsBeforeFollowingInfixParens :: Assertion
+test_commandLambdaRhsBeforeFollowingInfixParens = do
+  let plusName = qualifyName Nothing (mkUnqualifiedName NameVarSym "+")
+      aName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+      arrApp op = CmdArrApp (EList []) op (EList [])
+      command =
+        CmdInfix
+          ( CmdInfix
+              (arrApp HsHigherOrderApp)
+              plusName
+              (CmdLam [PWildcard] (arrApp HsFirstOrderApp))
+          )
+          aName
+          (arrApp HsFirstOrderApp)
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              PWildcard
+              (UnguardedRhs [] (EProc PWildcard command) Nothing)
+          )
+      rendered = renderPretty decl
+  case validateParser "<test>" GHC2024Edition (map EnableExtension requiredExtensions) rendered of
+    Nothing -> pure ()
+    Just err ->
+      assertFailure ("expected pretty-printed command to validate, got:\n" <> show err <> "\nRendered:\n" <> T.unpack rendered)
+
 test_prettyRecordDotTHSpliceBase :: Assertion
 test_prettyRecordDotTHSpliceBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
@@ -1313,6 +1357,7 @@ test_parenthesesInsertion = do
   assertParsedStrippedPatternShapeRoundTrip config "(proc _ -> (if [] then [] -<< [] else [] -<< []) + case [] of _ -> [] -< [] -> _)"
   assertParsedStrippedDeclShapeRoundTrip config "a = ((if | [] -> []) :: _,)"
   assertParsedStrippedPatternShapeRoundTrip config "((A.do (if | [] -> []) :: _) -> _)"
+  assertParsedStrippedDeclShapeRoundTrip config "_ = ([] + - let _ = [] in []) :: _"
   assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion

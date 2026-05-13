@@ -115,6 +115,7 @@ isOpenEnded = \case
   ELambdaPats {} -> True
   ELetDecls {} -> True
   EProc {} -> True
+  ENegate inner -> isOpenEnded inner
   EInfix _ _ rhs -> isOpenEnded rhs
   EApp _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
@@ -1350,6 +1351,7 @@ absorbsFollowingInfix = \case
   ELambdaPats {} -> True
   ELetDecls {} -> True
   EProc {} -> True
+  ENegate inner -> absorbsFollowingInfix inner
   EApp _ arg | isBlockExpr arg -> absorbsFollowingInfix arg
   EInfix _ _ rhs -> absorbsFollowingInfix rhs
   _ -> False
@@ -1770,7 +1772,7 @@ addCmdParensIn ctx cmd =
     CmdArrApp lhs appTy rhs ->
       CmdArrApp (addCmdArrAppLhsParens lhs) appTy (addCmdArrAppRhsParens ctx rhs)
     CmdInfix l op r ->
-      CmdInfix (wrapCmdInfixLhs (addCmdParens l)) op (wrapCmdInfixRhs (addCmdParens r))
+      CmdInfix (addCmdInfixLhsParens l) op (addCmdInfixRhsParens False r)
     CmdDo stmts ->
       CmdDo (map addCmdDoStmtParens stmts)
     CmdIf cond yes no ->
@@ -1786,6 +1788,26 @@ addCmdParensIn ctx cmd =
     CmdPar c ->
       CmdPar (addCmdParens c)
   where
+    addCmdInfixLhsParens inner =
+      case inner of
+        CmdAnn ann sub -> CmdAnn ann (addCmdInfixLhsParens sub)
+        CmdInfix l op r ->
+          CmdInfix
+            (addCmdInfixLhsParens l)
+            op
+            (addCmdInfixRhsParens True r)
+        _ -> wrapCmdInfixLhs (addCmdParens inner)
+
+    addCmdInfixRhsParens protectFollowingInfix inner =
+      let inner' = addCmdParens inner
+       in wrapCmd
+            ( case peelCmdAnn inner' of
+                CmdArrApp {} -> True
+                CmdInfix {} -> True
+                _ -> protectFollowingInfix && cmdAbsorbsFollowingInfix inner'
+            )
+            inner'
+
     wrapCmdInfixLhs inner =
       case peelCmdAnn inner of
         CmdArrApp {} -> CmdPar inner
@@ -1794,11 +1816,15 @@ addCmdParensIn ctx cmd =
         CmdLam {} -> CmdPar inner
         _ -> inner
 
-    wrapCmdInfixRhs inner =
+    cmdAbsorbsFollowingInfix inner =
       case peelCmdAnn inner of
-        CmdArrApp {} -> CmdPar inner
-        CmdInfix {} -> CmdPar inner
-        _ -> inner
+        CmdLam {} -> True
+        CmdLet {} -> True
+        CmdIf {} -> True
+        CmdCase {} -> True
+        CmdDo {} -> True
+        CmdInfix _ _ rhs -> cmdAbsorbsFollowingInfix rhs
+        _ -> False
 
 addCmdArrAppLhsParens :: Expr -> Expr
 addCmdArrAppLhsParens lhs =

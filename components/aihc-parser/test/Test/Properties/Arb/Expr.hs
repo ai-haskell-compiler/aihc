@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (isSpace)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls, shrinkFunctionHeadPats)
@@ -52,7 +52,7 @@ genExpr = scale (`div` 2) $ do
         EInfix <$> genExpr <*> genVarName <*> genExpr,
         ENegate <$> genExpr,
         ESectionL <$> genExpr <*> genVarName,
-        ESectionR <$> genVarName <*> genExpr,
+        ESectionR <$> genRightSectionOpName <*> genExpr,
         EIf <$> genExpr <*> genExpr <*> genExpr,
         EMultiWayIf <$> genGuardedRhsListWith,
         ECase <$> genExpr <*> genCaseAltsWith,
@@ -497,8 +497,8 @@ shrinkExpr expr =
             <> [ESectionL inner op' | op' <- shrinkName op]
       ESectionR op inner ->
         inner
-          : [ESectionR op inner' | inner' <- shrinkExpr inner]
-            <> [ESectionR op' inner | op' <- shrinkName op]
+          : [ESectionR op inner' | isValidRightSectionOpName op, inner' <- shrinkExpr inner]
+            <> [ESectionR op' inner | op' <- shrinkName op, isValidRightSectionOpName op']
       EIf cond thenE elseE ->
         [thenE, elseE]
           <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
@@ -849,6 +849,17 @@ simpleVarExpr = EVar simpleVarName
 
 simpleVarName :: Name
 simpleVarName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
+
+genRightSectionOpName :: Gen Name
+genRightSectionOpName =
+  genVarName `suchThat` isValidRightSectionOpName
+
+isValidRightSectionOpName :: Name -> Bool
+isValidRightSectionOpName name =
+  not $
+    isNothing (nameQualifier name)
+      && nameType name == NameVarSym
+      && nameText name == "-"
 
 isSimpleVarExpr :: Expr -> Bool
 isSimpleVarExpr expr =
