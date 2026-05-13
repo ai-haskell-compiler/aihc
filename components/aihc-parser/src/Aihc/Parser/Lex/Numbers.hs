@@ -55,17 +55,16 @@ lexHexFloat env st =
                 case rest2 of
                   '.' :< more ->
                     let (frac, rest') = T.span isHexDigit more
-                     in (Just frac, rest')
+                     in if T.null frac
+                          then (Nothing, rest2)
+                          else (Just frac, rest')
                   _ -> (Nothing, rest2)
-          expo <- takeHexExponent rest3
-          if T.length expo <= 1
-            then Nothing
-            else
-              let dotAndFrac =
-                    case mFracDigits of
-                      Just ds -> "." <> ds
-                      Nothing -> ""
-                  fracDigits = fromMaybe "" mFracDigits
+          case (mFracDigits, takeHexExponent rest3) of
+            (Nothing, Nothing) -> Nothing
+            (mFrac, mExpo) ->
+              let dotAndFrac = maybe "" ("." <>) mFrac
+                  expo = fromMaybe "" mExpo
+                  fracDigits = fromMaybe "" mFrac
                   raw = "0" <> T.singleton x <> intDigits <> dotAndFrac <> expo
                   value = parseHexFloatLiteral (T.unpack intDigits) (T.unpack fracDigits) (T.unpack expo)
                   (tokTxt, tokKind, st') =

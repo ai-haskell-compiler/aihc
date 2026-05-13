@@ -1,0 +1,10 @@
+extensions: [TemplateHaskell, OverloadedRecordDot]
+equivalent:
+  - |
+    module M where
+    x = ' ().a
+  - |
+    module M where
+    x = (' ()).a
+status: pass
+reason: TH value quote record-dot syntax is equivalent to explicit grouping

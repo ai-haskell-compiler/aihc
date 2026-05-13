@@ -1,0 +1,5 @@
+extensions: [Arrows]
+input: |
+  x = proc -0 -> a -<< a
+status: fail
+reason: unparenthesized proc binders must be atomic patterns

@@ -4,10 +4,9 @@
 module Aihc.Parser.Internal.Expr
   ( exprParser,
     atomExprParser,
+    lexpParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,
-    -- Needed by Cmd.hs via SOURCE
-    exprParserNoArrowTail,
     parseLetDeclsParser,
     parseLetDeclsStmtParser,
   )
@@ -17,8 +16,8 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
-import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeAtomParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patParser, patternParser)
+import Aihc.Parser.Internal.Type (typeAtomParser, typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -48,7 +47,7 @@ exprOrPatternBindParser exprP rhsP bindCtor exprCtor = do
 
 exprParser :: TokParser Expr
 exprParser =
-  exprParserWithTypeSigParser typeParser
+  exprParserWithTypeSigParser typeSignatureParser
 
 exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprParserWithTypeSigParser typeSigParser =
@@ -75,11 +74,7 @@ exprCoreParserWithoutTypeSigBody = do
       <|> lambdaExprParser
       <|> infixExprParser
   rest <- MP.many ((,) <$> infixOperatorParser <*> region "after infix operator" lexpParser)
-  afterArrow <- MP.optional arrowTailParser
-  let withInfix = foldInfixL buildInfix base rest
-  pure $ case afterArrow of
-    Just (op, rhs) -> EInfix withInfix op rhs
-    Nothing -> withInfix
+  pure (foldInfixL buildInfix base rest)
 
 exprCoreParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprCoreParserWithTypeSigParser typeSigParser = do
@@ -108,17 +103,6 @@ maybeViewPattern lhs = do
 -- @(# … #)@.
 texprParser :: TokParser Expr
 texprParser = exprParser >>= maybeViewPattern
-
--- | Parse an arrow tail operator (@-<@ or @-<<@) followed by its right-hand expression.
-arrowTailParser :: TokParser (Name, Expr)
-arrowTailParser = do
-  op <- tokenSatisfy "arrow operator" $ \tok ->
-    case lexTokenKind tok of
-      TkArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<"))
-      TkDoubleArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<<"))
-      _ -> Nothing
-  rhs <- exprParser
-  pure (op, rhs)
 
 ifExprParser :: TokParser Expr
 ifExprParser = do
@@ -182,39 +166,14 @@ qualifiedMdoExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   stmts <- bracedSemiSep1 doStmtParser
   pure (EDo stmts (DoQualifiedMdo modName))
 
--- | Parse a proc expression: @proc pat -> cmd@
+-- | Parse a proc expression: @proc apat -> cmd@
 procExprParser :: TokParser Expr
 procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordProc
-  pat <- region "while parsing proc pattern" patternParser
+  pat <- region "while parsing proc pattern" apatParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
-
--- | Parse an expression without consuming arrow tail operators.
--- Used in command contexts where -< / -<< should be left for the
--- command parser.
-exprParserNoArrowTail :: TokParser Expr
-exprParserNoArrowTail =
-  label "expression" exprCoreParserNoArrowTail
-
-exprCoreParserNoArrowTail :: TokParser Expr
-exprCoreParserNoArrowTail =
-  optionalSuffix
-    (expectedTok TkReservedDoubleColon *> typeParser)
-    ETypeSig
-    baseParser
-  where
-    baseParser =
-      doExprParser
-        <|> mdoExprParser
-        <|> qualifiedDoExprParser
-        <|> qualifiedMdoExprParser
-        <|> ifExprParser
-        <|> letExprParser
-        <|> procExprParser
-        <|> lambdaExprParser
-        <|> infixExprParser
 
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
@@ -305,6 +264,20 @@ lexpParser = do
 
 lexpBaseParser :: TokParser Expr -> TokParser Expr
 lexpBaseParser appParser =
+  lexpBlockParser
+    <|> MP.try negateExprParser
+    <|> appParser
+
+-- | The Haskell report's @lexp@ production: lambda, let, if, case, do, and
+-- function application.  GHC extensions add more forms at the same grammar
+-- level, such as @proc@ and qualified @do@.
+reportLexpParser :: TokParser Expr -> TokParser Expr
+reportLexpParser appParser =
+  lexpBlockParser
+    <|> appParser
+
+lexpBlockParser :: TokParser Expr
+lexpBlockParser =
   doExprParser
     <|> mdoExprParser
     <|> qualifiedDoExprParser
@@ -314,8 +287,6 @@ lexpBaseParser appParser =
     <|> letExprParser
     <|> procExprParser
     <|> lambdaExprParser
-    <|> MP.try negateExprParser
-    <|> appParser
 
 getSCCPragma :: Pragma -> Maybe Pragma
 getSCCPragma p = case pragmaType p of
@@ -378,23 +349,47 @@ appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
     foldl applyArg first rest
   where
     appArg :: TokParser (Either Type Expr)
-    appArg = (Left <$> typeAppArg) <|> (Right <$> atomParser)
+    appArg = (Left <$> typeAppArg) <|> (Right <$> appExprArgParser)
 
     typeAppArg :: TokParser Type
     typeAppArg = MP.try $ do
       expectedTok TkTypeApp
       typeAtomParser
 
+    appExprArgParser :: TokParser Expr
+    appExprArgParser = do
+      tok <- lookAhead anySingle
+      case lexTokenKind tok of
+        -- GHC rejects bare explicit namespace syntax as a function argument:
+        -- @f type T@ is invalid, while @f (type T)@ is accepted syntactically.
+        TkKeywordType -> MP.empty
+        _ -> atomParser
+
     applyArg :: Expr -> Either Type Expr -> Expr
     applyArg fn (Left ty) = ETypeApp fn ty
     applyArg fn (Right arg) = EApp fn arg
 
--- | Parse an atom, optionally followed by one or more record construction/update syntax.
+-- | Parse an atomic expression, including record construction/update syntax.
+--
+-- Haskell 2010 makes record construction and update part of the @aexp@
+-- production:
+--
+-- > aexp -> qcon { fbind_1, ..., fbind_n }
+-- > aexp -> aexp<qcon> { fbind_1, ..., fbind_n }
+--
+-- So record braces are not a suffix on every expression form that this parser
+-- accepts as an application atom.  Extension forms such as bare explicit
+-- namespace expressions stay in 'atomExprParser'; they can be record-update
+-- bases only after parentheses make them an @aexp@.
 atomOrRecordExprParser :: TokParser Expr
-atomOrRecordExprParser = do
-  base <- atomExprParser
-  applyRecordSuffixes base
+atomOrRecordExprParser =
+  recordExprParser <|> atomExprParser
   where
+    recordExprParser :: TokParser Expr
+    recordExprParser = do
+      base <- recordBaseAtomExprParser
+      applyRecordSuffixes base
+
     applyRecordSuffixes :: Expr -> TokParser Expr
     applyRecordSuffixes e = do
       mRecordFields <- MP.optional recordBracesParser
@@ -407,23 +402,35 @@ atomOrRecordExprParser = do
                 _ ->
                   ERecordUpd e (map normalizeField fields)
           applyRecordSuffixes result
-        Nothing -> do
-          recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
-          if not recordDotEnabled
-            then pure e
-            else do
-              mDot <- MP.optional (expectedTok TkRecordDot)
-              case mDot of
-                Nothing -> pure e
-                Just () -> do
-                  fieldName <- recordFieldNameParser
-                  applyRecordSuffixes (EGetField e fieldName)
+        Nothing -> applyRecordDotSuffixes e
+
+    applyRecordDotSuffixes :: Expr -> TokParser Expr
+    applyRecordDotSuffixes e = do
+      recordDotEnabled <- isExtensionEnabled OverloadedRecordDot
+      if not recordDotEnabled || not (recordDotMayFollow e)
+        then pure e
+        else do
+          mDot <- MP.optional (expectedTok TkRecordDot)
+          case mDot of
+            Nothing -> pure e
+            Just () -> do
+              fieldName <- recordFieldNameParser
+              applyRecordSuffixes (EGetField e fieldName)
 
     normalizeField :: (Name, Maybe Expr, SourceSpan) -> RecordField Expr
     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
         Just expr' -> RecordField fieldName expr' False
         Nothing -> RecordField fieldName (EAnn (mkAnnotation sp) (EVar fieldName)) True
+
+    recordDotMayFollow :: Expr -> Bool
+    recordDotMayFollow expr =
+      case expr of
+        EAnn _ sub -> recordDotMayFollow sub
+        -- GHC rejects unparenthesized explicit namespace expressions before
+        -- record-dot syntax, e.g. @type (:+).a@.
+        ETypeSyntax TypeSyntaxExplicitNamespace _ -> False
+        _ -> True
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 recordBracesParser :: TokParser ([(Name, Maybe Expr, SourceSpan)], Bool)
@@ -437,6 +444,33 @@ recordFieldBindingParser = withSpan $ do
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
 
+-- | Parse the expression forms that correspond to the report's @aexp@
+-- production and can therefore be record construction/update bases.
+recordBaseAtomExprParser :: TokParser Expr
+recordBaseAtomExprParser = do
+  thAny <- thAnyEnabled
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkImplicitParam {} -> implicitParamExprParser
+    _ ->
+      MP.try prefixNegateAtomExprParser
+        <|> MP.try parenOperatorExprParser
+        <|> (if thAny then thQuoteExprParser else MP.empty)
+        <|> (if thAny then thNameQuoteExprParser else MP.empty)
+        <|> (if thAny then thTypedSpliceParser else MP.empty)
+        <|> (if thAny then thUntypedSpliceParser else MP.empty)
+        <|> quasiQuoteExprParser
+        <|> parenExprParser
+        <|> listExprParser
+        <|> intExprParser
+        <|> floatExprParser
+        <|> charExprParser
+        <|> stringExprParser
+        <|> overloadedLabelExprParser
+        <|> wildcardExprParser
+        <|> varExprParser
+
+-- | Parse an atom without record construction/update syntax.
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
@@ -488,7 +522,15 @@ prefixNegateAtomExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
 negateExprParser :: TokParser Expr
 negateExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   _ <- minusTokenValueParser
-  ENegate <$> appExprParser
+  ENegate <$> negateOperandParser
+
+-- | Parse the immediate operand of prefix negation.  The Haskell report writes
+-- negation as @- infixexp@, but GHC's fixity parser treats prefix @-@ like a
+-- left-associative precedence-6 operator: it starts with another @lexp@-level
+-- operand and then lets the surrounding infix parser consume following
+-- operators.
+negateOperandParser :: TokParser Expr
+negateOperandParser = reportLexpParser appExprParser
 
 minusTokenValueParser :: TokParser LexToken
 minusTokenValueParser =
@@ -595,11 +637,8 @@ guardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
         guardedRhsBody = body
       }
 
--- | Parse a guard qualifier. The 'RhsArrowKind' determines the type parser
--- used for type signatures in guard expressions: in equation context (@=@),
--- the full 'typeParser' is used (allowing @->@ in types); in case/multi-way-if
--- context (@->@), 'typeInfixParser' is used to avoid consuming the alternative
--- arrow as a function type arrow.
+-- | Parse a guard qualifier. The 'RhsArrowKind' controls whether guard
+-- expressions may carry a bare top-level type signature before the RHS arrow.
 guardQualifierParser :: RhsArrowKind -> TokParser GuardQualifier
 guardQualifierParser arrowKind = do
   tok <- lookAhead anySingle
@@ -607,15 +646,12 @@ guardQualifierParser arrowKind = do
     TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser arrowKind
     _ -> MP.try guardPatBindParser <|> guardBindOrExprParser arrowKind
 
--- | Parse a guard expression or pattern bind. The 'RhsArrowKind' selects the
--- type parser for @::@ annotations: 'RhsArrowEquation' uses 'typeParser'
--- (which includes @->@), while 'RhsArrowCase' uses 'typeInfixParser' (which
--- does not), matching GHC's behaviour.
+-- | Parse a guard expression or pattern bind.
 guardBindOrExprParser :: RhsArrowKind -> TokParser GuardQualifier
 guardBindOrExprParser arrowKind =
   withSpanAnn (GuardAnn . mkAnnotation) $
     exprOrPatternBindParser
-      (exprParserWithTypeSigParser (guardTypeSigParser arrowKind))
+      (guardExprParser arrowKind)
       exprParser
       GuardPat
       GuardExpr
@@ -630,18 +666,17 @@ guardLetParser :: TokParser GuardQualifier
 guardLetParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
   GuardLet <$> parseLetDeclsStmtParser
 
--- | Select the type parser for guard expression type signatures based on the
--- RHS arrow kind.  In equation context the full @typeParser@ is used so that
--- @->@ is accepted inside types (e.g. @x | y :: Int -> Int = z@).  In case
--- and multi-way-if contexts the arrow would be ambiguous with the alternative
--- arrow, so @typeInfixParser@ is used instead, matching GHC behaviour.
-guardTypeSigParser :: RhsArrowKind -> TokParser Type
-guardTypeSigParser RhsArrowEquation = typeParser
-guardTypeSigParser RhsArrowCase = typeInfixParser
+-- | Parse a guard expression.  Equation guards allow a bare top-level type
+-- signature before @=@, but GHC rejects the same spelling before a case-style
+-- @->@.  Parenthesized signatures still parse through the expression atom
+-- grammar, e.g. @case x of _ | (a :: T) -> rhs@.
+guardExprParser :: RhsArrowKind -> TokParser Expr
+guardExprParser RhsArrowEquation = exprParserWithTypeSigParser typeParser
+guardExprParser RhsArrowCase = exprCoreParserWithoutTypeSig
 
 caseAltParser :: TokParser (CaseAlt Expr)
 caseAltParser = withSpan $ do
-  pat <- region "while parsing case alternative" (patternParserWithTypeSigParser typeInfixParser)
+  pat <- region "while parsing case alternative" caseAltPatternParser
   rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
@@ -652,7 +687,7 @@ caseAltParser = withSpan $ do
 
 lambdaCaseAltParser :: TokParser LambdaCaseAlt
 lambdaCaseAltParser = withSpan $ do
-  pats <- region "while parsing lambda-cases alternative" (MP.many simplePatternParser)
+  pats <- region "while parsing lambda-cases alternative" (MP.many apatParser)
   rhs <- region "while parsing lambda-cases alternative" rhsParser
   pure $ \span' ->
     LambdaCaseAlt
@@ -683,13 +718,12 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
-      nextTok <- lookAhead anySingle
-      guard (parenNegateAllowed minusTok nextTok)
+      guard (parenNegateAllowed minusTok)
       -- Parse only the application-level expression as the negation's
-      -- immediate operand.  This matches GHC, where negation binds tighter
-      -- than any infix operator, so @(-l - 1)@ is @((negate l) - 1)@, not
-      -- @(negate (l - 1))@.
-      negOperand <- appExprParser
+      -- immediate operand, plus the block forms GHC permits after prefix
+      -- negation.  Negation still binds tighter than any infix operator, so
+      -- @(-l - 1)@ is @((negate l) - 1)@, not @(negate (l - 1))@.
+      negOperand <- negateOperandParser
       let negBase = ENegate negOperand
       -- Continue with any infix operator chain, type signature, and view
       -- pattern that may follow the negated expression inside the parens.
@@ -702,7 +736,7 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
               )
           )
       let withInfix = foldInfixL buildInfix negBase rest
-      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSignatureParser)
       let typed = case mTypeSig of
             Just ty -> ETypeSig withInfix ty
             Nothing -> withInfix
@@ -717,19 +751,11 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
           TkPrefixMinus -> finalExpr
           _ -> EParen finalExpr
 
-    parenNegateAllowed minusTok nextTok =
+    parenNegateAllowed minusTok =
       case lexTokenKind minusTok of
         TkPrefixMinus -> True
-        TkVarSym "-" -> tokensAdjacent minusTok nextTok
+        TkVarSym "-" -> True
         TkMinusOperator -> False
-        _ -> False
-
-    tokensAdjacent first second =
-      case (lexTokenSpan first, lexTokenSpan second) of
-        ( SourceSpan {sourceSpanEndLine = firstEndLine, sourceSpanEndCol = firstEndCol},
-          SourceSpan {sourceSpanStartLine = secondStartLine, sourceSpanStartCol = secondStartCol}
-          ) ->
-            firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
     parseBoxedContent closeTok =
@@ -749,14 +775,10 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                     Just op ->
                       pure (EParen (ESectionL base op))
                     Nothing -> do
-                      mArrow <- MP.optional arrowTailParser
-                      let withArrow = case mArrow of
-                            Just (arrowOp, arrowRhs) -> EInfix base arrowOp arrowRhs
-                            Nothing -> base
-                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSignatureParser)
                       let typed = case mTypeSig of
-                            Just ty -> ETypeSig withArrow ty
-                            Nothing -> withArrow
+                            Just ty -> ETypeSig base ty
+                            Nothing -> base
                       -- View pattern arrow: expr -> expr (inside parentheses)
                       finalExpr <- maybeViewPattern typed
                       finishBoxed closeTok (Just finalExpr)
@@ -782,14 +804,10 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                           expectedTok closeTok
                           pure (EParen (ESectionL fullInfix trailOp))
                         Nothing -> do
-                          mArrow <- MP.optional arrowTailParser
-                          let withArrow = case mArrow of
-                                Just (arrowOp, arrowRhs) -> EInfix fullInfix arrowOp arrowRhs
-                                Nothing -> fullInfix
-                          mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                          mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSignatureParser)
                           let typed = case mTypeSig of
-                                Just ty -> ETypeSig withArrow ty
-                                Nothing -> withArrow
+                                Just ty -> ETypeSig fullInfix ty
+                                Nothing -> fullInfix
                           -- View pattern arrow: expr -> expr (inside parentheses)
                           finalExpr <- maybeViewPattern typed
                           finishBoxed closeTok (Just finalExpr)
@@ -988,7 +1006,7 @@ compTransformExprParser :: TokParser Expr
 compTransformExprParser =
   label "expression" $
     optionalSuffix
-      (expectedTok TkReservedDoubleColon *> typeParser)
+      (expectedTok TkReservedDoubleColon *> typeSignatureParser)
       ETypeSig
       compTransformExprWithoutTypeSigParser
 
@@ -1059,7 +1077,7 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
       ELambdaCases <$> bracedLambdaCaseAlts
 
     lambdaPatsParser = do
-      pats <- MP.some simplePatternParser
+      pats <- MP.some apatParser
       expectedTok TkReservedRightArrow
       body <- region "while parsing lambda body" exprParser
       pure (ELambdaPats pats body)
@@ -1107,7 +1125,7 @@ localTypeSigDeclsParser = do
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, name, pats) <- functionHeadParserWith patParser apatParser
   functionBindDecl headForm name pats <$> equationRhsParser
 
 localPatternDeclParser :: TokParser Decl
@@ -1177,17 +1195,32 @@ thTypeQuoteParser :: TokParser Expr
 thTypeQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHTypeQuoteOpen TkTHExpQuoteClose typeParser ETHTypeQuote
 
 thPatQuoteParser :: TokParser Expr
-thPatQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHPatQuoteOpen TkTHExpQuoteClose patternParser ETHPatQuote
+thPatQuoteParser = thQuoteParser (EAnn . mkAnnotation) TkTHPatQuoteOpen TkTHExpQuoteClose patParser ETHPatQuote
 
 thUntypedSpliceParser :: TokParser Expr
 thUntypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  ETHSplice <$> atomExprParser
+  ETHSplice <$> compactSpliceBodyParser
 
 thTypedSpliceParser :: TokParser Expr
 thTypedSpliceParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypedSplice
-  ETHTypedSplice <$> atomExprParser
+  ETHTypedSplice <$> compactSpliceBodyParser
+
+compactSpliceBodyParser :: TokParser Expr
+compactSpliceBodyParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkReservedBackslash -> MP.empty
+    TkKeywordLet -> MP.empty
+    TkKeywordDo -> MP.empty
+    TkKeywordMdo -> MP.empty
+    TkQualifiedDo {} -> MP.empty
+    TkQualifiedMdo {} -> MP.empty
+    TkKeywordCase -> MP.empty
+    TkKeywordIf -> MP.empty
+    TkKeywordProc -> MP.empty
+    _ -> atomExprParser
 
 thNameQuoteExprParser :: TokParser Expr
 thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
@@ -1200,7 +1233,17 @@ thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  ETHTypeNameQuote <$> typeAtomParser
+  ETHTypeNameQuote <$> thTypeNameQuoteBodyParser
+
+thTypeNameQuoteBodyParser :: TokParser Type
+thTypeNameQuoteBodyParser = do
+  ty <- typeAtomParser
+  case peelTypeAnn ty of
+    TWildcard {} -> MP.empty
+    TTypeLit {} -> MP.empty
+    TQuasiQuote {} -> MP.empty
+    TSplice {} -> MP.empty
+    _ -> pure ty
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

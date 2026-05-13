@@ -1,0 +1,5 @@
+extensions: [LambdaCase]
+input: |
+  x = \case _ :: T -> ()
+status: fail
+reason: GHC rejects unparenthesized pattern type signatures in case alternatives

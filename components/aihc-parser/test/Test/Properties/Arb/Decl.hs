@@ -32,7 +32,7 @@ import Test.Properties.Arb.Identifiers
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
+import {-# SOURCE #-} Test.Properties.Arb.Type (genType, shrinkForallTelescope, shrinkTyVarBinders, shrinkType)
 import Test.Properties.Arb.Utils (optional, smallList0, smallList1)
 import Test.QuickCheck
 
@@ -1006,7 +1006,7 @@ shrinkValueDecl :: ValueDecl -> [ValueDecl]
 shrinkValueDecl vd =
   case vd of
     PatternBind multTag pat rhs ->
-      [PatternBind multTag simpleVarPattern rhs | not (isSimpleVarPattern pat)]
+      [PatternBind multTag simpleVarPattern rhs | pat /= PWildcard && not (isSimpleVarPattern pat)]
         <> [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
         <> [PatternBind multTag pat' rhs | pat' <- shrinkPattern pat]
     FunctionBind name matches ->
@@ -1241,13 +1241,16 @@ shrinkClassDefaultDecl :: ValueDecl -> [ValueDecl]
 shrinkClassDefaultDecl vd =
   case vd of
     PatternBind multTag pat rhs ->
-      [PatternBind multTag (PVar (mkUnqualifiedName NameVarId "x")) rhs]
+      [PatternBind multTag simpleClassDefaultPattern rhs | pat /= PWildcard && pat /= simpleClassDefaultPattern]
         <> [PatternBind multTag pat rhs' | rhs' <- shrinkRhs rhs]
         <> [PatternBind multTag pat' rhs | pat' <- shrinkPattern pat]
     FunctionBind name matches ->
       [FunctionBind name [m {matchAnns = []}] | length matches > 1, m <- matches]
         <> [FunctionBind name ms' | ms' <- shrinkList shrinkMatch matches, not (null ms')]
         <> [FunctionBind name' matches | name' <- shrinkBinderName name]
+
+simpleClassDefaultPattern :: Pattern
+simpleClassDefaultPattern = PVar (mkUnqualifiedName NameVarId "x")
 
 shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
 shrinkInstanceDecl inst =

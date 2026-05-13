@@ -7,9 +7,8 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (caseRhsParserWithBodyParser, exprParser, exprParserNoArrowTail, parseLetDeclsParser, parseLetDeclsStmtParser)
-import Aihc.Parser.Internal.Pattern (patternParser, patternParserWithTypeSigParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeInfixParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, exprParser, parseLetDeclsParser, parseLetDeclsStmtParser)
+import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patternParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -23,47 +22,59 @@ import Text.Megaparsec qualified as MP
 -- @
 -- cmd   = exp10 -\< exp | exp10 -\<\< exp | cmd0
 -- cmd0  = cmd10 (op cmd10)*
--- cmd10 = do { cstmts } | if … | case … | let … | \\pats -> cmd | (cmd)
+-- cmd10 = do { cstmts } | if … | case … | let … | \\pats -> cmd | fcmd
+-- fcmd  = fcmd aexp | (cmd)
 -- @
 cmdParser :: TokParser Cmd
 cmdParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    -- Keyword commands parse as cmd10, then check for infix chain.
-    TkKeywordDo -> cmdOperandThenInfix cmdDoParser
-    TkKeywordIf -> cmdOperandThenInfix cmdIfParser
-    TkKeywordCase -> cmdOperandThenInfix cmdCaseParser
+    TkKeywordDo -> cmd0Parser
+    TkKeywordIf -> cmd0Parser
+    TkKeywordCase -> cmd0Parser
+    TkKeywordLet -> cmd0Parser
+    TkReservedBackslash -> cmd0Parser
+    TkSpecialLParen -> MP.try cmd0Parser <|> cmdArrAppParser
+    _ -> MP.try cmdArrAppParser <|> cmd0Parser
+
+cmd0Parser :: TokParser Cmd
+cmd0Parser = do
+  lhs <- cmd10Parser
+  rest <-
+    MP.many
+      ( (,)
+          <$> infixOperatorParser
+          <*> cmd10Parser
+      )
+  pure (foldl buildCmdInfix lhs rest)
+  where
+    buildCmdInfix l (op, r) = CmdInfix l op r
+
+cmd10Parser :: TokParser Cmd
+cmd10Parser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordDo -> cmdDoParser
+    TkKeywordIf -> cmdIfParser
+    TkKeywordCase -> cmdCaseParser
     TkKeywordLet ->
       -- 'let decls in cmd' is a command; 'let decls' (without 'in') inside
       -- a do-block is a statement, not handled here.
-      cmdOperandThenInfix cmdLetParser
-    TkReservedBackslash -> cmdOperandThenInfix cmdLamParser
-    TkSpecialLParen -> MP.try (cmdOperandThenInfix cmdParenParser) <|> exprHeadedCmdParser
-    _ -> exprHeadedCmdParser
+      cmdLetParser
+    TkReservedBackslash -> cmdLamParser
+    _ -> cmdFcmdParser
 
-exprHeadedCmdParser :: TokParser Cmd
-exprHeadedCmdParser = do
-  -- Parse the left side as an expression while leaving -< / -<< available
-  -- for command parsing.
-  expr <- exprParserNoArrowTail
-  mArrowTail <- MP.optional cmdArrTailParser
-  case mArrowTail of
-    Just (appType, rhs) ->
-      cmdInfixChain (CmdArrApp expr appType rhs)
-    Nothing -> do
-      mTok <- MP.optional (lookAhead anySingle)
-      MP.customFailure
-        UnexpectedTokenExpecting
-          { unexpectedFound = mkFoundToken <$> mTok,
-            unexpectedExpecting = "arrow command (-< or -<<)",
-            unexpectedContext = []
-          }
+cmdArrAppParser :: TokParser Cmd
+cmdArrAppParser = do
+  expr <- exprParser
+  (appType, rhs) <- cmdArrTailParser
+  pure (CmdArrApp expr appType rhs)
 
--- | Parse a cmd10 operand, then check for command-level infix.
-cmdOperandThenInfix :: TokParser Cmd -> TokParser Cmd
-cmdOperandThenInfix p = do
-  lhs <- p
-  cmdInfixChain lhs
+cmdFcmdParser :: TokParser Cmd
+cmdFcmdParser = do
+  headCmd <- cmdParenParser
+  args <- MP.many atomExprParser
+  pure (foldl CmdApp headCmd args)
 
 -- | Parse an arrow tail operator in command context, returning the
 -- application type and the right-hand expression.
@@ -76,19 +87,6 @@ cmdArrTailParser = do
       _ -> Nothing
   rhs <- exprParser
   pure (appType, rhs)
-
--- | Parse the command-level infix chain: @cmd (op cmd)*@.
-cmdInfixChain :: Cmd -> TokParser Cmd
-cmdInfixChain lhs = do
-  rest <-
-    MP.many
-      ( (,)
-          <$> infixOperatorParser
-          <*> cmdParser
-      )
-  pure (foldl buildCmdInfix lhs rest)
-  where
-    buildCmdInfix l (op, r) = CmdInfix l op r
 
 -- | Parse a command do-block: @do { cstmt ; ... }@
 cmdDoParser :: TokParser Cmd
@@ -119,7 +117,7 @@ cmdCaseParser = withSpanAnn (CmdAnn . mkAnnotation) $ do
 
 cmdCaseAltParser :: TokParser (CaseAlt Cmd)
 cmdCaseAltParser = withSpan $ do
-  pat <- patternParserWithTypeSigParser typeInfixParser
+  pat <- caseAltPatternParser
   rhs <- caseRhsParserWithBodyParser cmdParser
   pure (\span' -> CaseAlt [mkAnnotation span'] pat rhs)
 
@@ -134,7 +132,7 @@ cmdLetParser = withSpanAnn (CmdAnn . mkAnnotation) $ do
 cmdLamParser :: TokParser Cmd
 cmdLamParser = withSpanAnn (CmdAnn . mkAnnotation) $ do
   expectedTok TkReservedBackslash
-  pats <- MP.some simplePatternParser
+  pats <- MP.some apatParser
   expectedTok TkReservedRightArrow
   CmdLam pats <$> cmdParser
 
@@ -173,9 +171,8 @@ startsWithPatternBind =
 -- Uses the expression-first approach: parse as expression, check for @<-@.
 cmdBindOrBodyStmtParser :: TokParser (DoStmt Cmd)
 cmdBindOrBodyStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
-  -- Parse the LHS as an expression WITHOUT consuming arrow tails.
   -- Arrow tails (-<, -<<) belong to the command level, not the expression.
-  expr <- exprParserNoArrowTail
+  expr <- exprParser
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
     Just () -> DoBind <$> liftCheck (checkPattern expr) <*> cmdParser

@@ -112,6 +112,12 @@ openPendingLayout st tok =
         PendingMaybeLambdaCases ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            tkKind
+              | closesDelimiter tkKind ->
+                  let anchor = lexTokenSpan tok
+                      openTok = virtualSymbolToken "{" anchor
+                      closeTok = virtualSymbolToken "}" anchor
+                   in ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
             _ -> openImplicitLayout (caseAlternativeLayout st) st tok
         PendingImplicitLayout spec ->
           case lexTokenKind tok of

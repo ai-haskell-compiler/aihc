@@ -12,7 +12,10 @@ replay ARGUMENT:
 
 # Run QuickCheck with 10000 tests in a loop until failure
 qc:
-  while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000" || break; done
+  while true; do just qc1 || break; done
+
+qc1:
+  cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000 --quickcheck-shrinks 1000000"
 
 # Auto-format Nix, Cabal, and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:

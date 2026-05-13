@@ -2,6 +2,7 @@
 
 module Aihc.Parser.Internal.Type
   ( typeParser,
+    typeSignatureParser,
     forallTelescopeParser,
     typeInfixParser,
     typeInfixOperatorParser,
@@ -43,12 +44,39 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
 typeParser :: TokParser Type
 typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
 
+typeSignatureParser :: TokParser Type
+typeSignatureParser = label "type" $ forallSignatureTypeParser <|> contextOrFunSignatureTypeParser
+
 kindSigTypeParser :: TokParser Type
 kindSigTypeParser =
   optionalSuffix
     (expectedTok TkReservedDoubleColon *> typeParser)
     TKindSig
     contextOrFunTypeParser
+
+forallSignatureTypeParser :: TokParser Type
+forallSignatureTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
+  telescope <- forallTelescopeParser
+  TForall telescope <$> typeSignatureParser
+
+contextOrFunSignatureTypeParser :: TokParser Type
+contextOrFunSignatureTypeParser = do
+  isContextType <- startsWithContextType
+  if isContextType then contextSignatureTypeParser else typeFunSignatureParser
+
+contextSignatureTypeParser :: TokParser Type
+contextSignatureTypeParser = do
+  constraints <- contextItemsParserWith typeSignatureParser typeAtomParser
+  expectedTok TkReservedDoubleArrow
+  TContext constraints <$> typeSignatureParser
+
+typeFunSignatureParser :: TokParser Type
+typeFunSignatureParser = do
+  lhs <- typeInfixParser
+  mArrow <- MP.optional arrowKindParser
+  case mArrow of
+    Nothing -> pure lhs
+    Just arrowKind -> TFun arrowKind lhs <$> typeSignatureParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do

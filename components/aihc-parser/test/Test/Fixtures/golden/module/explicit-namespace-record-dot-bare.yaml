@@ -1,0 +1,5 @@
+extensions: [ExplicitNamespaces, OverloadedRecordDot, TemplateHaskell]
+input: |
+  x = type (:+).a
+status: fail
+reason: GHC rejects record-dot access directly after an explicit namespace expression

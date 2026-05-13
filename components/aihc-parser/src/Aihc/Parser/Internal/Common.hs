@@ -685,7 +685,7 @@ functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (M
 functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser infixOperatorNameParser
 
 functionHeadParserWithBinder :: TokParser UnqualifiedName -> TokParser UnqualifiedName -> TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
-functionHeadParserWithBinder binderParser infixOpParser fullPatternParser prefixPatternParser =
+functionHeadParserWithBinder binderParser infixOpParser infixPatternParser prefixPatternParser =
   MP.try parenthesizedInfixHeadParser
     <|> MP.try infixHeadParser
     <|> prefixHeadParser
@@ -696,16 +696,16 @@ functionHeadParserWithBinder binderParser infixOpParser fullPatternParser prefix
       pure (MatchHeadPrefix, name, pats)
 
     infixHeadParser = do
-      lhsPat <- fullPatternParser
+      lhsPat <- infixPatternParser
       op <- infixOpParser
-      rhsPat <- fullPatternParser
+      rhsPat <- infixPatternParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat])
 
     parenthesizedInfixHeadParser = do
       expectedTok TkSpecialLParen
-      lhsPat <- fullPatternParser
+      lhsPat <- infixPatternParser
       op <- infixOpParser
-      rhsPat <- fullPatternParser
+      rhsPat <- infixPatternParser
       expectedTok TkSpecialRParen
       tailPats <- MP.many prefixPatternParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)

@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (isSpace)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl (genDeclValue, genWhereDecls, shrinkFunctionHeadPats)
@@ -33,7 +33,7 @@ import Test.Properties.Arb.Identifiers
     shrinkUnqualifiedName,
   )
 import Test.Properties.Arb.Pattern (genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (genType, shrinkType)
+import {-# SOURCE #-} Test.Properties.Arb.Type (genType, shrinkType)
 import Test.Properties.Arb.Utils
 import Test.QuickCheck
 
@@ -52,7 +52,7 @@ genExpr = scale (`div` 2) $ do
         EInfix <$> genExpr <*> genVarName <*> genExpr,
         ENegate <$> genExpr,
         ESectionL <$> genExpr <*> genVarName,
-        ESectionR <$> genVarName <*> genExpr,
+        ESectionR <$> genRightSectionOpName <*> genExpr,
         EIf <$> genExpr <*> genExpr <*> genExpr,
         EMultiWayIf <$> genGuardedRhsListWith,
         ECase <$> genExpr <*> genCaseAltsWith,
@@ -459,132 +459,133 @@ shrinkOverloadedLabel value raw
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
-  case expr of
-    EVar name -> [EVar name' | name' <- shrinkName name]
-    ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
-    EInt value _ _ -> simpleVarExpr : [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EFloat value _ _ -> simpleVarExpr : [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
-    EChar value _ ->
-      simpleVarExpr
-        : [mkCharExpr 'a' | value /= 'a']
-    ECharHash value _ ->
-      simpleVarExpr
-        : [mkCharHashExpr 'a' | value /= 'a']
-    EString value _ -> simpleVarExpr : [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
-    EStringHash value _ -> simpleVarExpr : [mkStringHashExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
-    EOverloadedLabel value raw ->
-      [EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
-    EPragma pragma inner -> inner : [EPragma pragma inner' | inner' <- shrinkExpr inner]
-    EQuasiQuote quoter body ->
-      [EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))]
-        <> [EQuasiQuote quoter' body | quoter' <- "q" : T.inits quoter, isValidQuasiQuoteName quoter', quoter' /= quoter]
-        <> [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
-    EApp fn arg ->
-      [fn, arg]
-        <> [EApp fn' arg | fn' <- shrinkExpr fn]
-        <> [EApp fn arg' | arg' <- shrinkExpr arg]
-    EInfix lhs op rhs ->
-      [lhs, rhs]
-        <> [EInfix lhs op' rhs | op' <- shrinkName op]
-        <> [EInfix simpleVarExpr op rhs | not (isSimpleVarExpr lhs)]
-        <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
-        <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
-    ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
-    ESectionL inner op ->
-      inner
-        : [ESectionL inner' op | inner' <- shrinkExpr inner]
-          <> [ESectionL inner op' | op' <- shrinkName op]
-    ESectionR op inner ->
-      inner
-        : [ESectionR op inner' | inner' <- shrinkExpr inner]
-          <> [ESectionR op' inner | op' <- shrinkName op]
-    EIf cond thenE elseE ->
-      [thenE, elseE]
-        <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
-        <> [EIf cond thenE' elseE | thenE' <- shrinkExpr thenE]
-        <> [EIf cond thenE elseE' | elseE' <- shrinkExpr elseE]
-    EMultiWayIf rhss ->
-      [guardedRhsBody grhs | grhs : _ <- [rhss]]
-        <> [EMultiWayIf rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
-    ECase scrutinee alts ->
-      scrutinee
-        : [ECase scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
-          <> [ECase scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELambdaPats pats body ->
-      body
-        : [ELambdaPats pats body' | body' <- shrinkExpr body]
-          <> [ELambdaPats pats' body | pats' <- shrinkList shrinkPattern pats, not (null pats')]
-    ELambdaCase alts ->
-      [body | CaseAlt {caseAltRhs = UnguardedRhs _ body _} <- alts]
-        <> [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELambdaCases alts ->
-      [body | LambdaCaseAlt {lambdaCaseAltRhs = UnguardedRhs _ body _} <- alts]
-        <> [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
-    ELetDecls decls body ->
-      [ELetDecls [simpleLetDecl] simpleUnitExpr | decls /= [simpleLetDecl] || body /= simpleUnitExpr]
-        <> ( body
-               : [ELetDecls decls body' | body' <- shrinkExpr body]
-                 <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
-           )
-    EDo stmts flavor ->
-      [body | [DoExpr body] <- [stmts]]
-        <> [EDo stmts flavor' | flavor' <- shrinkDoFlavor flavor]
-        <> [EDo stmts' flavor | stmts' <- shrinkDoStmts stmts, not (null stmts')]
-    EListComp body stmts ->
-      body
-        : [EListComp body' stmts | body' <- shrinkExpr body]
-          <> [EListComp body stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
-    EListCompParallel body stmtss ->
-      body
-        : [EListCompParallel body' stmtss | body' <- shrinkExpr body]
-          -- Each branch needs at least one statement, so filter out empty branches
-          <> [EListCompParallel body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
-    EList elems ->
-      [EList elems' | elems' <- shrinkList shrinkExpr elems]
-    ETuple tupleFlavor elems ->
-      [ETuple Boxed elems | tupleFlavor == Unboxed, length elems /= 1]
-        <> [ETuple tupleFlavor elems' | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
-    EArithSeq seq' ->
-      [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
-    ERecordCon con fields _ ->
-      [simpleVarExpr]
-        <> [ERecordCon con' fields False | con' <- shrinkName con]
-        <> [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
-    ERecordUpd target fields ->
-      target
-        : [ERecordUpd target' fields | target' <- shrinkExpr target]
-          <> [ERecordUpd target fields' | fields' <- shrinkRecordFields fields]
-    EGetField base fieldName ->
-      base
-        : [EGetField base' fieldName | base' <- shrinkExpr base]
-          <> [EGetField base fieldName' | fieldName' <- shrinkName fieldName]
-    EGetFieldProjection fields ->
-      [EGetFieldProjection fields' | fields' <- shrinkList shrinkName fields, not (null fields')]
-    ETypeSig inner ty ->
-      inner
-        : [ETypeSig inner ty' | ty' <- shrinkType ty]
-          <> [ETypeSig inner' ty | inner' <- shrinkExpr inner]
-    ETypeApp inner ty ->
-      inner
-        : [ETypeApp inner ty' | ty' <- shrinkType ty]
-          <> [ETypeApp inner' ty | inner' <- shrinkExpr inner]
-    EUnboxedSum altIdx arity inner ->
-      [EUnboxedSum altIdx arity inner' | inner' <- shrinkExpr inner]
-    EParen inner -> inner : [EParen inner' | inner' <- shrinkExpr inner]
-    ETHExpQuote body -> body : [ETHExpQuote body' | body' <- shrinkExpr body]
-    ETHTypedQuote body -> body : [ETHTypedQuote body' | body' <- shrinkExpr body]
-    ETHDeclQuote decls ->
-      [ETHDeclQuote decls' | decls' <- shrinkDecls decls, not (null decls')]
-    ETHTypeQuote ty -> [ETHTypeQuote ty' | ty' <- shrinkType ty]
-    ETHPatQuote pat -> [ETHPatQuote pat' | pat' <- shrinkPattern pat]
-    ETHNameQuote e -> [ETHNameQuote e' | e' <- shrinkExpr e]
-    ETHTypeNameQuote ty -> [ETHTypeNameQuote ty' | ty' <- shrinkType ty]
-    ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
-    ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
-    EProc pat body ->
-      [EProc pat' body | pat' <- shrinkPattern pat]
-        <> [EProc pat body' | body' <- shrinkCmd body]
-    EAnn _ sub -> shrinkExpr sub
+  [EList [] | expr /= EList []]
+    ++ case expr of
+      EVar name -> [EVar name' | name' <- shrinkName name]
+      ETypeSyntax form ty -> [ETypeSyntax form ty' | ty' <- shrinkType ty]
+      EInt value _ _ -> simpleVarExpr : [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+      EFloat value _ _ -> simpleVarExpr : [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
+      EChar value _ ->
+        simpleVarExpr
+          : [mkCharExpr 'a' | value /= 'a']
+      ECharHash value _ ->
+        simpleVarExpr
+          : [mkCharHashExpr 'a' | value /= 'a']
+      EString value _ -> simpleVarExpr : [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+      EStringHash value _ -> simpleVarExpr : [mkStringHashExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+      EOverloadedLabel value raw ->
+        [EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
+      EPragma pragma inner -> inner : [EPragma pragma inner' | inner' <- shrinkExpr inner]
+      EQuasiQuote quoter body ->
+        [EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a"))]
+          <> [EQuasiQuote quoter' body | quoter' <- "q" : T.inits quoter, isValidQuasiQuoteName quoter', quoter' /= quoter]
+          <> [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
+      EApp fn arg ->
+        [fn, arg]
+          <> [EApp fn' arg | fn' <- shrinkExpr fn]
+          <> [EApp fn arg' | arg' <- shrinkExpr arg]
+      EInfix lhs op rhs ->
+        [lhs, rhs]
+          <> [EInfix lhs op' rhs | op' <- shrinkName op]
+          <> [EInfix simpleVarExpr op rhs | lhs /= EList [] && not (isSimpleVarExpr lhs)]
+          <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
+          <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
+      ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
+      ESectionL inner op ->
+        inner
+          : [ESectionL inner' op | inner' <- shrinkExpr inner]
+            <> [ESectionL inner op' | op' <- shrinkName op]
+      ESectionR op inner ->
+        inner
+          : [ESectionR op inner' | isValidRightSectionOpName op, inner' <- shrinkExpr inner]
+            <> [ESectionR op' inner | op' <- shrinkName op, isValidRightSectionOpName op']
+      EIf cond thenE elseE ->
+        [thenE, elseE]
+          <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
+          <> [EIf cond thenE' elseE | thenE' <- shrinkExpr thenE]
+          <> [EIf cond thenE elseE' | elseE' <- shrinkExpr elseE]
+      EMultiWayIf rhss ->
+        [guardedRhsBody grhs | grhs : _ <- [rhss]]
+          <> [EMultiWayIf rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+      ECase scrutinee alts ->
+        scrutinee
+          : [ECase scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
+            <> [ECase scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+      ELambdaPats pats body ->
+        body
+          : [ELambdaPats pats body' | body' <- shrinkExpr body]
+            <> [ELambdaPats pats' body | pats' <- shrinkList shrinkPattern pats, not (null pats')]
+      ELambdaCase alts ->
+        [body | CaseAlt {caseAltRhs = UnguardedRhs _ body _} <- alts]
+          <> [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+      ELambdaCases alts ->
+        [body | LambdaCaseAlt {lambdaCaseAltRhs = UnguardedRhs _ body _} <- alts]
+          <> [ELambdaCases alts' | alts' <- shrinkLambdaCaseAlts alts, not (null alts')]
+      ELetDecls decls body ->
+        [ELetDecls [simpleLetDecl] simpleUnitExpr | not (isSimpleLetTarget decls body)]
+          <> ( body
+                 : [ELetDecls decls body' | body' <- shrinkExpr body]
+                   <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
+             )
+      EDo stmts flavor ->
+        [body | [DoExpr body] <- [stmts]]
+          <> [EDo stmts flavor' | flavor' <- shrinkDoFlavor flavor]
+          <> [EDo stmts' flavor | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+      EListComp body stmts ->
+        body
+          : [EListComp body' stmts | body' <- shrinkExpr body]
+            <> [EListComp body stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
+      EListCompParallel body stmtss ->
+        body
+          : [EListCompParallel body' stmtss | body' <- shrinkExpr body]
+            -- Each branch needs at least one statement, so filter out empty branches
+            <> [EListCompParallel body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
+      EList elems ->
+        [EList elems' | elems' <- shrinkList shrinkExpr elems]
+      ETuple tupleFlavor elems ->
+        [ETuple Boxed elems | tupleFlavor == Unboxed, length elems /= 1]
+          <> [ETuple tupleFlavor elems' | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
+      EArithSeq seq' ->
+        [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
+      ERecordCon con fields _ ->
+        [simpleVarExpr]
+          <> [ERecordCon con' fields False | con' <- shrinkName con]
+          <> [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
+      ERecordUpd target fields ->
+        target
+          : [ERecordUpd target' fields | target' <- shrinkExpr target]
+            <> [ERecordUpd target fields' | fields' <- shrinkRecordFields fields]
+      EGetField base fieldName ->
+        base
+          : [EGetField base' fieldName | base' <- shrinkExpr base]
+            <> [EGetField base fieldName' | fieldName' <- shrinkName fieldName]
+      EGetFieldProjection fields ->
+        [EGetFieldProjection fields' | fields' <- shrinkList shrinkName fields, not (null fields')]
+      ETypeSig inner ty ->
+        inner
+          : [ETypeSig inner ty' | ty' <- shrinkType ty]
+            <> [ETypeSig inner' ty | inner' <- shrinkExpr inner]
+      ETypeApp inner ty ->
+        inner
+          : [ETypeApp inner ty' | ty' <- shrinkType ty]
+            <> [ETypeApp inner' ty | inner' <- shrinkExpr inner]
+      EUnboxedSum altIdx arity inner ->
+        [EUnboxedSum altIdx arity inner' | inner' <- shrinkExpr inner]
+      EParen inner -> inner : [EParen inner' | inner' <- shrinkExpr inner]
+      ETHExpQuote body -> body : [ETHExpQuote body' | body' <- shrinkExpr body]
+      ETHTypedQuote body -> body : [ETHTypedQuote body' | body' <- shrinkExpr body]
+      ETHDeclQuote decls ->
+        [ETHDeclQuote decls' | decls' <- shrinkDecls decls, not (null decls')]
+      ETHTypeQuote ty -> [ETHTypeQuote ty' | ty' <- shrinkType ty]
+      ETHPatQuote pat -> [ETHPatQuote pat' | pat' <- shrinkPattern pat]
+      ETHNameQuote e -> [ETHNameQuote e' | e' <- shrinkExpr e]
+      ETHTypeNameQuote ty -> [ETHTypeNameQuote ty' | ty' <- shrinkType ty]
+      ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
+      ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
+      EProc pat body ->
+        [EProc pat' body | pat' <- shrinkPattern pat]
+          <> [EProc pat body' | body' <- shrinkCmd body]
+      EAnn _ sub -> shrinkExpr sub
 
 shrinkCmd :: Cmd -> [Cmd]
 shrinkCmd cmd =
@@ -849,6 +850,17 @@ simpleVarExpr = EVar simpleVarName
 simpleVarName :: Name
 simpleVarName = qualifyName Nothing (mkUnqualifiedName NameVarId "a")
 
+genRightSectionOpName :: Gen Name
+genRightSectionOpName =
+  genVarName `suchThat` isValidRightSectionOpName
+
+isValidRightSectionOpName :: Name -> Bool
+isValidRightSectionOpName name =
+  not $
+    isNothing (nameQualifier name)
+      && nameType name == NameVarSym
+      && nameText name == "-"
+
 isSimpleVarExpr :: Expr -> Bool
 isSimpleVarExpr expr =
   case expr of
@@ -856,7 +868,7 @@ isSimpleVarExpr expr =
     _ -> False
 
 simpleUnitExpr :: Expr
-simpleUnitExpr = ETuple Boxed []
+simpleUnitExpr = EList []
 
 simpleLetDecl :: Decl
 simpleLetDecl =
@@ -866,3 +878,18 @@ simpleLetDecl =
         (PVar (mkUnqualifiedName NameVarId "a"))
         (UnguardedRhs [] simpleUnitExpr Nothing)
     )
+
+isSimpleLetTarget :: [Decl] -> Expr -> Bool
+isSimpleLetTarget decls body =
+  body == simpleUnitExpr
+    && case decls of
+      [DeclValue (PatternBind NoMultiplicityTag pat (UnguardedRhs [] expr Nothing))] ->
+        expr == simpleUnitExpr && isSimpleLetPattern pat
+      _ -> False
+
+isSimpleLetPattern :: Pattern -> Bool
+isSimpleLetPattern pat =
+  case pat of
+    PVar name -> unqualifiedNameType name == NameVarId && unqualifiedNameText name == "a"
+    PWildcard -> True
+    _ -> False

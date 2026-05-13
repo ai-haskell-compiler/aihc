@@ -183,9 +183,8 @@ test-suite spec
     Test.Properties.Arb.Utils
     Test.Properties.Coverage
     Test.Properties.DeclRoundTrip
-    Test.Properties.ExprHelpers
     Test.Properties.ExprRoundTrip
-    Test.Properties.Identifiers
+    Test.Properties.MinimalParentheses
     Test.Properties.ModuleRoundTrip
     Test.Properties.NoExceptions
     Test.Properties.ParensIdempotency

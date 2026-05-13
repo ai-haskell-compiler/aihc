@@ -12,6 +12,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
+import Test.Properties.Arb.Expr (shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genCharValue,
     genConName,
@@ -305,70 +306,71 @@ genSymbolText = do
 
 shrinkType :: Type -> [Type]
 shrinkType ty =
-  case ty of
-    TVar name ->
-      [TVar $ unqualifiedNameFromText "a" | renderUnqualifiedName name /= "a"]
-        <> [TVar (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
-    TCon name promoted ->
-      [ TCon shrunk promoted
-      | shrunk <- shrinkName name
-      ]
-    TBuiltinCon {} ->
-      []
-    TImplicitParam name inner ->
-      [inner]
-        <> [TImplicitParam name' inner | name' <- shrinkImplicitParamName name]
-        <> [TImplicitParam name inner' | inner' <- shrinkType inner]
-    TTypeLit {} ->
-      []
-    TStar ->
-      []
-    TQuasiQuote quoter body ->
-      [TQuasiQuote q body | q <- shrinkIdent quoter]
-        <> [TQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
-    TForall telescope inner ->
-      [inner]
-        <> [TForall telescope' inner | telescope' <- shrinkForallTelescope telescope]
-        <> [TForall telescope inner' | inner' <- shrinkType inner]
-    TApp fn arg ->
-      [fn, arg]
-        <> [TApp fn' arg | fn' <- shrinkType fn]
-        <> [TApp fn arg' | arg' <- shrinkType arg]
-    TTypeApp fn arg ->
-      [fn, arg]
-        <> [TTypeApp fn' arg | fn' <- shrinkType fn]
-        <> [TTypeApp fn arg' | arg' <- shrinkType arg]
-    TFun arrowKind lhs rhs ->
-      [lhs, rhs]
-        <> [TFun arrowKind lhs' rhs | lhs' <- shrinkType lhs]
-        <> [TFun arrowKind lhs rhs' | rhs' <- shrinkType rhs]
-    TInfix lhs op promoted rhs ->
-      [lhs, rhs]
-        <> [TInfix lhs' op promoted rhs | lhs' <- shrinkType lhs]
-        <> [TInfix lhs op promoted rhs' | rhs' <- shrinkType rhs]
-    TTuple tupleFlavor _ elems ->
-      shrinkTypeTupleElems tupleFlavor elems
-    TList _ elems ->
-      [TList Unpromoted elems' | elems' <- shrinkList shrinkType elems, not (null elems')]
-        <> elems
-    TParen inner ->
-      [inner]
-        <> [TParen inner' | inner' <- shrinkType inner]
-    TKindSig ty' kind ->
-      [ty', kind]
-        <> [TKindSig ty'' kind | ty'' <- shrinkType ty']
-        <> [TKindSig ty' kind' | kind' <- shrinkType kind]
-    TUnboxedSum elems ->
-      [TUnboxedSum elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
-    TContext constraints inner ->
-      [inner]
-        <> [TContext constraints' inner | constraints' <- shrinkList shrinkType constraints, not (null constraints')]
-        <> [TContext constraints inner' | inner' <- shrinkType inner]
-    TSplice {} ->
-      []
-    TWildcard ->
-      []
-    TAnn _ sub -> shrinkType sub
+  [TWildcard | ty /= TWildcard]
+    ++ case ty of
+      TVar name ->
+        [TVar $ unqualifiedNameFromText "a" | renderUnqualifiedName name /= "a"]
+          <> [TVar (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
+      TCon name promoted ->
+        [ TCon shrunk promoted
+        | shrunk <- shrinkName name
+        ]
+      TBuiltinCon {} ->
+        []
+      TImplicitParam name inner ->
+        [inner]
+          <> [TImplicitParam name' inner | name' <- shrinkImplicitParamName name]
+          <> [TImplicitParam name inner' | inner' <- shrinkType inner]
+      TTypeLit {} ->
+        []
+      TStar ->
+        []
+      TQuasiQuote quoter body ->
+        [TQuasiQuote q body | q <- shrinkIdent quoter]
+          <> [TQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
+      TForall telescope inner ->
+        [inner]
+          <> [TForall telescope' inner | telescope' <- shrinkForallTelescope telescope]
+          <> [TForall telescope inner' | inner' <- shrinkType inner]
+      TApp fn arg ->
+        [fn, arg]
+          <> [TApp fn' arg | fn' <- shrinkType fn]
+          <> [TApp fn arg' | arg' <- shrinkType arg]
+      TTypeApp fn arg ->
+        [fn, arg]
+          <> [TTypeApp fn' arg | fn' <- shrinkType fn]
+          <> [TTypeApp fn arg' | arg' <- shrinkType arg]
+      TFun arrowKind lhs rhs ->
+        [lhs, rhs]
+          <> [TFun arrowKind lhs' rhs | lhs' <- shrinkType lhs]
+          <> [TFun arrowKind lhs rhs' | rhs' <- shrinkType rhs]
+      TInfix lhs op promoted rhs ->
+        [lhs, rhs]
+          <> [TInfix lhs' op promoted rhs | lhs' <- shrinkType lhs]
+          <> [TInfix lhs op promoted rhs' | rhs' <- shrinkType rhs]
+      TTuple tupleFlavor _ elems ->
+        shrinkTypeTupleElems tupleFlavor elems
+      TList _ elems ->
+        [TList Unpromoted elems' | elems' <- shrinkList shrinkType elems, not (null elems')]
+          <> elems
+      TParen inner ->
+        [inner]
+          <> [TParen inner' | inner' <- shrinkType inner]
+      TKindSig ty' kind ->
+        [ty', kind]
+          <> [TKindSig ty'' kind | ty'' <- shrinkType ty']
+          <> [TKindSig ty' kind' | kind' <- shrinkType kind]
+      TUnboxedSum elems ->
+        [TUnboxedSum elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
+      TContext constraints inner ->
+        [inner]
+          <> [TContext constraints' inner | constraints' <- shrinkList shrinkType constraints, not (null constraints')]
+          <> [TContext constraints inner' | inner' <- shrinkType inner]
+      TSplice e ->
+        [TSplice e' | e' <- shrinkExpr e]
+      TWildcard ->
+        []
+      TAnn _ sub -> shrinkType sub
 
 shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
 shrinkTyVarBinders binders =

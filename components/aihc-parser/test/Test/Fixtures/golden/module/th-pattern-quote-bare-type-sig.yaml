@@ -1,0 +1,5 @@
+extensions: [TemplateHaskell, PartialTypeSignatures]
+input: |
+  x = [p| _ :: _ |]
+status: fail
+reason: GHC rejects a bare top-level pattern type signature in a TH pattern quote

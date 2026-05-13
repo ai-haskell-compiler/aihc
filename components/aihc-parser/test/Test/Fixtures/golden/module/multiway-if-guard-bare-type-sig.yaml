@@ -1,0 +1,5 @@
+extensions: [MultiWayIf, PartialTypeSignatures]
+input: |
+  x = if | a :: _ -> ()
+status: fail
+reason: GHC rejects a bare guard expression type signature before a case-style arrow

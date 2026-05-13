@@ -1,0 +1,5 @@
+extensions: [TemplateHaskell, MultiWayIf, BlockArguments]
+input: |
+  x = $$if | [] -> []
+status: fail
+reason: GHC rejects a bare block expression as a typed splice body
