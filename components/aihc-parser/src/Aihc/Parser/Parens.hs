@@ -1267,10 +1267,9 @@ addCompStmtParens stmt =
 
 -- | Parenthesize an expression for use in TransformListComp positions where
 -- a trailing keyword ('by'/'using') must not be consumed by the expression.
--- The parser's compTransformExprParser uses negateExprParser which calls the
--- standard appExprParser (not the restricted one), so any multi-token expression
--- risks swallowing the keyword. We parenthesize all non-atomic expressions to
--- be safe.
+-- The parser's compTransformExprParser has its own infix parser, so ordinary
+-- infix expressions can stay bare.  We only need to protect transform
+-- expressions whose right edge can consume the following keyword.
 addCompTransformExprParens :: Expr -> Expr
 addCompTransformExprParens expr =
   let parenthesized = addExprParens expr
@@ -1300,6 +1299,7 @@ needsCompTransformParens = \case
   ETuple {} -> False
   EUnboxedSum {} -> False
   EParen {} -> False
+  EInfix _ _ rhs -> isOpenEnded rhs
   EGetFieldProjection {} -> False
   ETHExpQuote {} -> False
   ETHTypedQuote {} -> False
