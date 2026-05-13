@@ -4,10 +4,9 @@
 module Aihc.Parser.Internal.Expr
   ( exprParser,
     atomExprParser,
+    lexpParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,
-    -- Needed by Cmd.hs via SOURCE
-    exprParserNoArrowTail,
     parseLetDeclsParser,
     parseLetDeclsStmtParser,
   )
@@ -75,11 +74,7 @@ exprCoreParserWithoutTypeSigBody = do
       <|> lambdaExprParser
       <|> infixExprParser
   rest <- MP.many ((,) <$> infixOperatorParser <*> region "after infix operator" lexpParser)
-  afterArrow <- MP.optional arrowTailParser
-  let withInfix = foldInfixL buildInfix base rest
-  pure $ case afterArrow of
-    Just (op, rhs) -> EInfix withInfix op rhs
-    Nothing -> withInfix
+  pure (foldInfixL buildInfix base rest)
 
 exprCoreParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprCoreParserWithTypeSigParser typeSigParser = do
@@ -108,17 +103,6 @@ maybeViewPattern lhs = do
 -- @(# … #)@.
 texprParser :: TokParser Expr
 texprParser = exprParser >>= maybeViewPattern
-
--- | Parse an arrow tail operator (@-<@ or @-<<@) followed by its right-hand expression.
-arrowTailParser :: TokParser (Name, Expr)
-arrowTailParser = do
-  op <- tokenSatisfy "arrow operator" $ \tok ->
-    case lexTokenKind tok of
-      TkArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<"))
-      TkDoubleArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<<"))
-      _ -> Nothing
-  rhs <- exprParser
-  pure (op, rhs)
 
 ifExprParser :: TokParser Expr
 ifExprParser = do
@@ -190,31 +174,6 @@ procExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
   pure (EProc pat body)
-
--- | Parse an expression without consuming arrow tail operators.
--- Used in command contexts where -< / -<< should be left for the
--- command parser.
-exprParserNoArrowTail :: TokParser Expr
-exprParserNoArrowTail =
-  label "expression" exprCoreParserNoArrowTail
-
-exprCoreParserNoArrowTail :: TokParser Expr
-exprCoreParserNoArrowTail =
-  optionalSuffix
-    (expectedTok TkReservedDoubleColon *> typeSignatureParser)
-    ETypeSig
-    baseParser
-  where
-    baseParser =
-      doExprParser
-        <|> mdoExprParser
-        <|> qualifiedDoExprParser
-        <|> qualifiedMdoExprParser
-        <|> ifExprParser
-        <|> letExprParser
-        <|> procExprParser
-        <|> lambdaExprParser
-        <|> infixExprParser
 
 doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
@@ -816,14 +775,10 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                     Just op ->
                       pure (EParen (ESectionL base op))
                     Nothing -> do
-                      mArrow <- MP.optional arrowTailParser
-                      let withArrow = case mArrow of
-                            Just (arrowOp, arrowRhs) -> EInfix base arrowOp arrowRhs
-                            Nothing -> base
                       mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSignatureParser)
                       let typed = case mTypeSig of
-                            Just ty -> ETypeSig withArrow ty
-                            Nothing -> withArrow
+                            Just ty -> ETypeSig base ty
+                            Nothing -> base
                       -- View pattern arrow: expr -> expr (inside parentheses)
                       finalExpr <- maybeViewPattern typed
                       finishBoxed closeTok (Just finalExpr)
@@ -849,14 +804,10 @@ parenExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
                           expectedTok closeTok
                           pure (EParen (ESectionL fullInfix trailOp))
                         Nothing -> do
-                          mArrow <- MP.optional arrowTailParser
-                          let withArrow = case mArrow of
-                                Just (arrowOp, arrowRhs) -> EInfix fullInfix arrowOp arrowRhs
-                                Nothing -> fullInfix
                           mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSignatureParser)
                           let typed = case mTypeSig of
-                                Just ty -> ETypeSig withArrow ty
-                                Nothing -> withArrow
+                                Just ty -> ETypeSig fullInfix ty
+                                Nothing -> fullInfix
                           -- View pattern arrow: expr -> expr (inside parentheses)
                           finalExpr <- maybeViewPattern typed
                           finishBoxed closeTok (Just finalExpr)

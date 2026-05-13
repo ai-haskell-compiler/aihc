@@ -225,7 +225,7 @@ thTypeNameQuoteNeedsParensBeforeDot = \case
   TList _ [] -> False
   _ -> True
 
--- | Check whether an expression's pretty-printed form starts with '$'.
+-- | Check whether an expression's pretty-printed form starts with a block form.
 startsWithBlockExpr :: Expr -> Bool
 startsWithBlockExpr = \case
   EAnn _ sub -> startsWithBlockExpr sub
@@ -1273,10 +1273,17 @@ needsCompTransformParens = \case
   EOverloadedLabel {} -> False
   EQuasiQuote {} -> False
   EList {} -> False
+  EListComp {} -> False
+  EListCompParallel {} -> False
   ETuple {} -> False
   EUnboxedSum {} -> False
   EParen {} -> False
   EGetFieldProjection {} -> False
+  ETHExpQuote {} -> False
+  ETHTypedQuote {} -> False
+  ETHDeclQuote {} -> False
+  ETHTypeQuote {} -> False
+  ETHPatQuote {} -> False
   -- Everything else: could consume 'by'/'using'
   _ -> True
 
@@ -1513,7 +1520,7 @@ addPatternParens pat =
     PLit lit -> PLit lit
     PQuasiQuote {} -> pat
     PTuple tupleFlavor elems -> PTuple tupleFlavor (map addPatternInDelimited elems)
-    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
+    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInUnboxedSum altIdx inner)
     PList elems -> PList (map addPatternInDelimited elems)
     PCon con typeArgs args -> PCon con (map (addTypeIn CtxTypeAtom) typeArgs) (map addPatternAtomParens args)
     PInfix lhs op rhs -> PInfix (addPatternInfixOperandParens lhs) op (addPatternInfixRhsOperandParens rhs)
@@ -1532,13 +1539,22 @@ addPatternParens pat =
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
 -- View patterns don't need extra parens there.
 addPatternInDelimited :: Pattern -> Pattern
-addPatternInDelimited pat =
+addPatternInDelimited = addPatternInDelimitedWith True
+
+addPatternInDelimitedWith :: Bool -> Pattern -> Pattern
+addPatternInDelimitedWith allowLayoutTypeSig pat =
   case peelPatternAnn pat of
-    PView viewExpr inner -> PView (addViewExprParens viewExpr) (addPatternViewInnerParens inner)
+    PView viewExpr inner ->
+      PView
+        ((if allowLayoutTypeSig then addViewExprParensAllowLayoutTypeSig else addViewExprParens) viewExpr)
+        (addPatternViewInnerParens inner)
     PAs name inner -> PAs name (addApatParens inner)
     PStrict inner -> PStrict (addApatParens inner)
     PIrrefutable inner -> PIrrefutable (addApatParens inner)
     _ -> addPatternParens pat
+
+addPatternInUnboxedSum :: Int -> Pattern -> Pattern
+addPatternInUnboxedSum altIdx = addPatternInDelimitedWith (altIdx > 0)
 
 -- | Template Haskell pattern quotes accept typed patterns only when they are
 -- parenthesized: @[p| (a :: T) |]@ parses, but @[p| a :: T |]@ does not.
@@ -1560,11 +1576,30 @@ addPatternViewInnerParens pat =
     _ -> addPatternParens pat
 
 addViewExprParens :: Expr -> Expr
-addViewExprParens expr =
-  if endsWithTypeSig expr || isTypeSyntaxExpr expr
+addViewExprParens = addViewExprParensWith False
+
+addViewExprParensAllowLayoutTypeSig :: Expr -> Expr
+addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
+
+addViewExprParensWith :: Bool -> Expr -> Expr
+addViewExprParensWith allowLayoutTypeSig expr =
+  if viewExprNeedsParens expr
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
   where
+    viewExprNeedsParens e =
+      isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
+
+    viewExprTypeSigCanStayBare e =
+      allowLayoutTypeSig
+        && case peelExprAnn e of
+          ECase {} -> True
+          EDo {} -> True
+          EMultiWayIf {} -> True
+          ELambdaCase {} -> True
+          ELambdaCases {} -> True
+          _ -> False
+
     isTypeSyntaxExpr e =
       case peelExprAnn e of
         ETypeSyntax {} -> True
@@ -1733,19 +1768,12 @@ addCmdParensIn ctx cmd =
     wrapCmdInfixLhs inner =
       case peelCmdAnn inner of
         CmdArrApp {} -> CmdPar inner
-        CmdLet {} -> CmdPar inner
-        CmdIf {} -> CmdPar inner
-        CmdCase {} -> CmdPar inner
-        CmdLam {} -> CmdPar inner
-        CmdInfix {} -> CmdPar inner
         _ -> inner
 
     wrapCmdInfixRhs inner =
       case peelCmdAnn inner of
         CmdArrApp {} -> CmdPar inner
-        CmdLet {} -> CmdPar inner
-        CmdIf {} -> CmdPar inner
-        CmdLam {} -> CmdPar inner
+        CmdInfix {} -> CmdPar inner
         _ -> inner
 
 addCmdArrAppLhsParens :: Expr -> Expr

@@ -270,10 +270,10 @@ buildTests = do
           "checkPattern (do-bind)"
           [ testCase "rejects if-then-else in pattern context" test_doBindRejectsIfExpr
           ],
-        adjustOption (const tenMinutes)
-          $ testGroup
+        adjustOption (const tenMinutes) $
+          testGroup
             "properties"
-          $ [ QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr,
+            [ QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr,
               QC.testProperty "pattern paren insertion is minimal" prop_minimalParenthesesPattern,
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
@@ -1191,7 +1191,7 @@ test_parenthesesInsertion = do
   assertParsedStrippedExprShapeRoundTrip config "[p| _ |] (proc _ -> () -<< a)"
   assertParsedStrippedPatternShapeRoundTrip config "(# | proc _ -> [] -< [] -> _ #)"
   assertParsedStrippedPatternShapeRoundTrip config "(:+) {a = [let a = () in [] ..] -> _}"
-  assertParsedStrippedPatternShapeRoundTrip config "C {a = proc _ -> do [] -<< [] + case [] of _ -> [] -<< [] -> _}"
+  assertParsedStrippedPatternShapeRoundTrip config "C {a = proc _ -> do ([] -<< []) + case [] of _ -> [] -<< [] -> _}"
   assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion

@@ -1,0 +1,8 @@
+extensions: [Arrows, ViewPatterns]
+input: |
+  x C {a = proc _ -> case [] of
+        _ -> [] -<< []
+     `a` [] -< []
+   -> _} = ()
+status: fail
+reason: GHC rejects bare case and arrow application operands in command infix syntax
