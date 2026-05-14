@@ -1,0 +1,5 @@
+extensions: [DataKinds]
+input: |
+  type T = '(M.A)
+status: fail
+reason: GHC rejects parenthesized promoted constructor names

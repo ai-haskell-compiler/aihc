@@ -1228,22 +1228,36 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  ETHNameQuote <$> atomExprParser
+  body <- atomExprParser
+  guard (isTHValueNameQuoteBody body)
+  pure (ETHNameQuote body)
+
+isTHValueNameQuoteBody :: Expr -> Bool
+isTHValueNameQuoteBody expr =
+  case peelExprAnn expr of
+    EVar {} -> True
+    EList [] -> True
+    ETuple _ elems -> all isTupleConstructorSlot elems
+    _ -> False
+  where
+    isTupleConstructorSlot Nothing = True
+    isTupleConstructorSlot Just {} = False
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  ETHTypeNameQuote <$> thTypeNameQuoteBodyParser
+  body <- typeAtomParser
+  guard (isTHTypeNameQuoteBody body)
+  pure (ETHTypeNameQuote body)
 
-thTypeNameQuoteBodyParser :: TokParser Type
-thTypeNameQuoteBodyParser = do
-  ty <- typeAtomParser
+isTHTypeNameQuoteBody :: Type -> Bool
+isTHTypeNameQuoteBody ty =
   case peelTypeAnn ty of
-    TWildcard {} -> MP.empty
-    TTypeLit {} -> MP.empty
-    TQuasiQuote {} -> MP.empty
-    TSplice {} -> MP.empty
-    _ -> pure ty
+    TVar {} -> True
+    TCon {} -> True
+    TBuiltinCon {} -> True
+    TTuple _ _ [] -> True
+    _ -> False
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

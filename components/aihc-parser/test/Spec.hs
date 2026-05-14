@@ -1363,7 +1363,7 @@ test_parenthesesInsertion = do
           }
   assertParsedStrippedExprShapeRoundTrip config "- (- 10)"
   assertParsedStrippedExprShapeRoundTrip config "a + (b + c)"
-  assertParsedStrippedExprShapeRoundTrip config "(' (p#)).a"
+  assertParsedStrippedExprShapeRoundTrip config "(' (+)).a"
   assertParsedStrippedExprShapeRoundTrip config "(A.+).a"
   assertParsedStrippedExprShapeRoundTrip config "[t| (_ :: _) |]"
   assertParsedStrippedExprShapeRoundTrip config "[p| _ |] (proc _ -> () -<< a)"
