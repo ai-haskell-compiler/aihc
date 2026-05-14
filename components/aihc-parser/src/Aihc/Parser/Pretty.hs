@@ -64,6 +64,9 @@ prettyRawText raw
   | T.isInfixOf "\n" raw = nesting $ \level -> nest (negate level) (pretty raw)
   | otherwise = pretty raw
 
+prettySpliceBody :: Expr -> Doc ann
+prettySpliceBody = nest 2 . prettyExpr
+
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
   pretty = prettyModuleDoc . addModuleParens
@@ -482,7 +485,7 @@ prettyType ty =
       case constraints of
         [] -> prettyType inner
         cs -> prettyContext cs <+> "=>" <+> prettyType inner
-    TSplice body -> "$" <> prettyExpr body
+    TSplice body -> "$" <> prettySpliceBody body
     TWildcard -> "_"
 
 prettyArrowKind :: ArrowKind -> Doc ann
@@ -552,7 +555,7 @@ prettyPattern pat =
               )
           )
     PTypeSig inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
-    PSplice body -> "$" <> prettyExpr body
+    PSplice body -> "$" <> prettySpliceBody body
 
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
@@ -1150,8 +1153,8 @@ prettyExpr expr =
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote body -> "' " <> prettyExpr body
     ETHTypeNameQuote ty -> "'' " <> prettyType ty
-    ETHSplice body -> "$" <> prettyExpr body
-    ETHTypedSplice body -> "$$" <> prettyExpr body
+    ETHSplice body -> "$" <> prettySpliceBody body
+    ETHTypedSplice body -> "$$" <> prettySpliceBody body
     EIf cond yes no ->
       "if" <+> nest 2 (prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no)
     EMultiWayIf rhss ->
