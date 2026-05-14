@@ -11,6 +11,8 @@ module StackageProgress.PackageRunner
     runPackageOrThrow,
     packageDependsOnUnsupportedBuildTool,
     packageUsesUnsupportedDefaultLanguage,
+    packageUsesUnsupportedMetadata,
+    packageUsesCustomPreprocessor,
 
     -- * Source size calculation
     totalSourceSize,
@@ -19,13 +21,14 @@ where
 
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Control.Exception (IOException, SomeException, displayException, try)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import HackageSupport
   ( FileInfo (..),
     downloadPackageQuietWithNetwork,
     findPackageBuildToolDependencyNames,
     findPackageDefaultsToHaskell98,
+    findPackageUsesCustomPreprocessor,
     findTargetFilesFromCabal,
   )
 import StackageProgress.CLI (Options (..))
@@ -79,12 +82,25 @@ packageUsesUnsupportedDefaultLanguage opts spec = do
 
 packageUsesUnsupportedDefaultLanguageOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
 packageUsesUnsupportedDefaultLanguageOrThrow opts spec = do
-  versionResult <- resolveSpecVersion spec
-  case versionResult of
-    Left _ -> pure False
-    Right version -> do
-      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
-      findPackageDefaultsToHaskell98 srcDir
+  fromMaybe False <$> withResolvedPackage opts spec findPackageDefaultsToHaskell98
+
+-- | Return whether a package's active Cabal metadata uses any unsupported package-level feature.
+packageUsesUnsupportedMetadata :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedMetadata opts spec = do
+  result <- try (packageUsesUnsupportedMetadataOrThrow opts spec) :: IO (Either SomeException Bool)
+  pure $ case result of
+    Right unsupported -> unsupported
+    Left _ -> False
+
+packageUsesUnsupportedMetadataOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedMetadataOrThrow opts spec = do
+  fromMaybe False <$> withResolvedPackage opts spec checkPackage
+  where
+    checkPackage srcDir = do
+      toolNames <- findPackageBuildToolDependencyNames srcDir
+      usesCustomPreprocessor <- findPackageUsesCustomPreprocessor srcDir
+      defaultsToHaskell98 <- findPackageDefaultsToHaskell98 srcDir
+      pure (defaultsToHaskell98 || usesCustomPreprocessor || any (`elem` unsupportedBuildToolNames) toolNames)
 
 -- | Return whether a package's active Cabal metadata requires an unsupported build tool.
 packageDependsOnUnsupportedBuildTool :: PackageRunOptions -> PackageSpec -> IO Bool
@@ -96,13 +112,32 @@ packageDependsOnUnsupportedBuildTool opts spec = do
 
 packageDependsOnUnsupportedBuildToolOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
 packageDependsOnUnsupportedBuildToolOrThrow opts spec = do
-  versionResult <- resolveSpecVersion spec
-  case versionResult of
-    Left _ -> pure False
-    Right version -> do
-      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
+  fromMaybe False <$> withResolvedPackage opts spec checkPackage
+  where
+    checkPackage srcDir = do
       toolNames <- findPackageBuildToolDependencyNames srcDir
       pure (any (`elem` unsupportedBuildToolNames) toolNames)
+
+-- | Return whether a package's active Cabal metadata requests a custom GHC preprocessor.
+packageUsesCustomPreprocessor :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesCustomPreprocessor opts spec = do
+  result <- try (packageUsesCustomPreprocessorOrThrow opts spec) :: IO (Either SomeException Bool)
+  pure $ case result of
+    Right usesPreprocessor -> usesPreprocessor
+    Left _ -> False
+
+packageUsesCustomPreprocessorOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesCustomPreprocessorOrThrow opts spec = do
+  fromMaybe False <$> withResolvedPackage opts spec findPackageUsesCustomPreprocessor
+
+withResolvedPackage :: PackageRunOptions -> PackageSpec -> (FilePath -> IO a) -> IO (Maybe a)
+withResolvedPackage opts spec action = do
+  versionResult <- resolveSpecVersion spec
+  case versionResult of
+    Left _ -> pure Nothing
+    Right version -> do
+      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
+      Just <$> action srcDir
 
 -- | Process a package, catching any exceptions.
 runPackage :: PackageRunOptions -> PackageSpec -> IO PackageResult

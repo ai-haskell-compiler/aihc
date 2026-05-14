@@ -20,9 +20,8 @@ import StackageProgress.CLI
   )
 import StackageProgress.PackageRunner
   ( PackageRunOptions,
-    packageDependsOnUnsupportedBuildTool,
     packageRunOptionsFromStackageOptions,
-    packageUsesUnsupportedDefaultLanguage,
+    packageUsesUnsupportedMetadata,
     runPackage,
   )
 import StackageProgress.Snapshot (loadStackageSnapshotWithMode)
@@ -160,9 +159,7 @@ filterUnsupportedPackages opts n packages = do
         case next of
           Nothing -> pure ()
           Just (ix, spec) -> do
-            unsupportedBuildTool <- packageDependsOnUnsupportedBuildTool opts spec
-            unsupportedLanguage <- packageUsesUnsupportedDefaultLanguage opts spec
-            let unsupported = unsupportedBuildTool || unsupportedLanguage
+            unsupported <- packageUsesUnsupportedMetadata opts spec
             unless unsupported $
               modifyMVar_ keptVar (pure . ((ix, spec) :))
             worker
