@@ -48,6 +48,7 @@ main =
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
+      testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
       QC.testProperty "dummy quickcheck property" prop_dummy
     ]
 
@@ -141,6 +142,15 @@ test_extractsBuildToolDependencyNames = do
     (sort ["alex", "genprimopcode"])
     (sort (map T.unpack (HC.buildToolDependencyNames gpd)))
 
+test_detectsCustomPreprocessorOptions :: Assertion
+test_detectsCustomPreprocessorOptions = do
+  hsp <- parseTestCabal customPreprocessorCabal
+  inactive <- parseTestCabal inactiveCustomPreprocessorCabal
+  pgmFOnly <- parseTestCabal pgmFWithoutFPreprocessorCabal
+  assertBool "expected -F with -pgmF to require filtering" (HC.packageUsesCustomPreprocessor hsp)
+  assertBool "expected inactive custom preprocessor options to be ignored" (not (HC.packageUsesCustomPreprocessor inactive))
+  assertBool "expected -pgmF without -F not to enable preprocessing" (not (HC.packageUsesCustomPreprocessor pgmFOnly))
+
 parseTestCabal :: String -> IO GenericPackageDescription
 parseTestCabal source =
   case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
@@ -211,6 +221,53 @@ buildToolDependsCabal =
       "  default-language: Haskell2010",
       "  if flag(generated)",
       "    build-tool-depends: inactive-tool:inactive-tool >= 0"
+    ]
+
+customPreprocessorCabal :: String
+customPreprocessorCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: custom-preprocessor-demo",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: CustomPreprocessorDemo",
+      "  ghc-options: -F -pgmFtrhsx -Wall",
+      "  build-depends: base",
+      "  default-language: Haskell2010"
+    ]
+
+inactiveCustomPreprocessorCabal :: String
+inactiveCustomPreprocessorCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: inactive-custom-preprocessor-demo",
+      "version: 0.1.0.0",
+      "",
+      "flag generated",
+      "  default: False",
+      "  manual: True",
+      "",
+      "library",
+      "  exposed-modules: InactiveCustomPreprocessorDemo",
+      "  build-depends: base",
+      "  default-language: Haskell2010",
+      "  if flag(generated)",
+      "    ghc-options: -F -pgmFtrhsx"
+    ]
+
+pgmFWithoutFPreprocessorCabal :: String
+pgmFWithoutFPreprocessorCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: pgmf-without-f-demo",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: PgmFWithoutFDemo",
+      "  ghc-options: -pgmFtrhsx -Wall",
+      "  build-depends: base",
+      "  default-language: Haskell2010"
     ]
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a

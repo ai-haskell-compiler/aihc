@@ -7,6 +7,7 @@ module HackageSupport
     downloadPackageQuiet,
     downloadPackageQuietWithNetwork,
     findPackageBuildToolDependencyNames,
+    findPackageUsesCustomPreprocessor,
     findTargetFilesFromCabal,
     FileInfo (..),
     readTextFileLenient,
@@ -78,6 +79,12 @@ findPackageBuildToolDependencyNames :: FilePath -> IO [Text]
 findPackageBuildToolDependencyNames extractedRoot = do
   (gpd, _) <- parsePackageDescriptionFromRoot extractedRoot
   pure (HC.buildToolDependencyNames gpd)
+
+-- | Find whether active package metadata requests a custom GHC preprocessor.
+findPackageUsesCustomPreprocessor :: FilePath -> IO Bool
+findPackageUsesCustomPreprocessor extractedRoot = do
+  (gpd, _) <- parsePackageDescriptionFromRoot extractedRoot
+  pure (HC.packageUsesCustomPreprocessor gpd)
 
 parsePackageDescriptionFromRoot :: FilePath -> IO (GenericPackageDescription, FilePath)
 parsePackageDescriptionFromRoot extractedRoot = do

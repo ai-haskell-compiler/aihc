@@ -15,6 +15,7 @@ module Aihc.Hackage.Cabal
 
     -- * Build tool dependency extraction
     buildToolDependencyNames,
+    packageUsesCustomPreprocessor,
 
     -- * Extension / language extraction
     extractExtensions,
@@ -24,13 +25,14 @@ module Aihc.Hackage.Cabal
 where
 
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
-import Data.List (nub)
+import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Version qualified as DV
 import Distribution.Compat.Graph qualified as Graph
 import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
+import Distribution.Compiler qualified as Compiler
 import Distribution.ModuleName qualified as ModuleName
 import Distribution.Package (packageName, unPackageName)
 import Distribution.PackageDescription
@@ -62,6 +64,7 @@ import Distribution.PackageDescription
     libBuildInfo,
     modulePath,
     oldExtensions,
+    options,
     otherModules,
     package,
     packageDescription,
@@ -198,6 +201,11 @@ buildToolDependencyNames gpd =
   nub $
     concatMap buildInfoToolNames (activeComponentBuildInfos gpd)
 
+-- | Return whether any active component requests a custom GHC preprocessor.
+packageUsesCustomPreprocessor :: GenericPackageDescription -> Bool
+packageUsesCustomPreprocessor gpd =
+  any buildInfoUsesCustomPreprocessor (activeComponentBuildInfos gpd)
+
 activeComponentBuildInfos :: GenericPackageDescription -> [BuildInfo]
 activeComponentBuildInfos gpd =
   let evalCond = conditionEvaluator gpd
@@ -223,6 +231,21 @@ exeDependencyNames (ExeDependency pkgName exeName _) =
 legacyExeDependencyNames :: LegacyExeDependency -> [Text]
 legacyExeDependencyNames (LegacyExeDependency toolName _) =
   [T.pack toolName]
+
+buildInfoUsesCustomPreprocessor :: BuildInfo -> Bool
+buildInfoUsesCustomPreprocessor bi =
+  ghcOptionsUseCustomPreprocessor (concat ghcOptions)
+  where
+    ghcOptions =
+      [ opts
+      | (GHC, opts) <- Compiler.perCompilerFlavorToList (options bi)
+      ]
+
+ghcOptionsUseCustomPreprocessor :: [String] -> Bool
+ghcOptionsUseCustomPreprocessor opts =
+  "-F" `elem` opts && any isPgmFOption opts
+  where
+    isPgmFOption opt = "-pgmF" `isPrefixOf` opt
 
 generatedPathsFileInfo :: FilePath -> FileInfo
 generatedPathsFileInfo path =
