@@ -17,13 +17,14 @@ import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
 import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patParser, patternParser)
-import Aihc.Parser.Internal.Type (typeAtomParser, typeParser, typeSignatureParser)
+import Aihc.Parser.Internal.Type (typeAtomParser, typeIdentifierParser, typeParenOperatorParser, typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (guard)
 import Data.Functor (($>))
 import Data.Text (Text)
+import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -1228,7 +1229,32 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  ETHNameQuote <$> atomExprParser
+  ETHNameQuote <$> thValueNameQuoteBodyParser
+
+thValueNameQuoteBodyParser :: TokParser Expr
+thValueNameQuoteBodyParser =
+  MP.try thValueNameQuoteListConstructorParser
+    <|> MP.try thValueNameQuoteTupleConstructorParser
+    <|> MP.try parenOperatorExprParser
+    <|> varExprParser
+
+thValueNameQuoteListConstructorParser :: TokParser Expr
+thValueNameQuoteListConstructorParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure (EList [])
+
+thValueNameQuoteTupleConstructorParser :: TokParser Expr
+thValueNameQuoteTupleConstructorParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  (tupleFlavor, closeTok) <- tupleDelimsParser
+  mClosed <- MP.optional (expectedTok closeTok)
+  case mClosed of
+    Just () -> pure (ETuple tupleFlavor [])
+    Nothing -> do
+      expectedTok TkSpecialComma
+      moreCommas <- MP.many (expectedTok TkSpecialComma)
+      expectedTok closeTok
+      pure (ETuple tupleFlavor (replicate (2 + length moreCommas) Nothing))
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -1236,14 +1262,33 @@ thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   ETHTypeNameQuote <$> thTypeNameQuoteBodyParser
 
 thTypeNameQuoteBodyParser :: TokParser Type
-thTypeNameQuoteBodyParser = do
-  ty <- typeAtomParser
-  case peelTypeAnn ty of
-    TWildcard {} -> MP.empty
-    TTypeLit {} -> MP.empty
-    TQuasiQuote {} -> MP.empty
-    TSplice {} -> MP.empty
-    _ -> pure ty
+thTypeNameQuoteBodyParser =
+  MP.try thTypeNameQuoteListConstructorParser
+    <|> MP.try thTypeNameQuoteTupleConstructorParser
+    <|> MP.try typeParenOperatorParser
+    <|> typeIdentifierParser
+
+thTypeNameQuoteListConstructorParser :: TokParser Type
+thTypeNameQuoteListConstructorParser = withSpanAnn (TAnn . mkAnnotation) $ do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure (TBuiltinCon TBuiltinList)
+
+thTypeNameQuoteTupleConstructorParser :: TokParser Type
+thTypeNameQuoteTupleConstructorParser = withSpanAnn (TAnn . mkAnnotation) $ do
+  (tupleFlavor, closeTok) <- tupleDelimsParser
+  mClosed <- MP.optional (expectedTok closeTok)
+  case mClosed of
+    Just () -> pure (TTuple tupleFlavor Unpromoted [])
+    Nothing -> do
+      expectedTok TkSpecialComma
+      moreCommas <- MP.many (expectedTok TkSpecialComma)
+      expectedTok closeTok
+      case tupleFlavor of
+        Boxed -> pure (TBuiltinCon (TBuiltinTuple (2 + length moreCommas)))
+        Unboxed -> do
+          let tupleConName = "(#" <> T.replicate (1 + length moreCommas) "," <> "#)"
+          pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

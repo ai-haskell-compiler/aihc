@@ -11,6 +11,8 @@ module Aihc.Parser.Internal.Type
     buildTypeApp,
     buildInfixType,
     typeAtomParser,
+    typeParenOperatorParser,
+    typeIdentifierParser,
     contextItemsParser,
     thSpliceTypeParser,
     arrowKindParser,
@@ -19,13 +21,12 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser)
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Data.Char (isLower)
 import Data.Functor (($>))
-import Data.Text (Text)
 import Data.Text qualified as T
-import Text.Megaparsec (anySingle, (<|>))
+import Text.Megaparsec ((<|>))
 import Text.Megaparsec qualified as MP
 
 -- | Parse a Template Haskell type splice: $typ or $(typ)
@@ -309,7 +310,7 @@ promotedTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
   -- This handles ambiguity between TH value quotes and promoted types
   expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick
-  MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
+  promotedStructuredTypeParser
 
 promotedStructuredTypeParser :: TokParser Type
 promotedStructuredTypeParser = do
@@ -319,38 +320,6 @@ promotedStructuredTypeParser = do
       <|> MP.try typeParenOperatorParser
       <|> typeIdentifierParser
   maybe (fail "promoted type") pure (markTypePromoted ty)
-
-promotedRawTypeParser :: TokParser Type
-promotedRawTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
-  suffix <- promotedBracketedSuffixParser <|> promotedParenthesizedSuffixParser
-  pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId suffix)) Promoted)
-
-promotedBracketedSuffixParser :: TokParser Text
-promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
-
-promotedParenthesizedSuffixParser :: TokParser Text
-promotedParenthesizedSuffixParser = collectDelimitedRaw TkSpecialLParen TkSpecialRParen
-
-collectDelimitedRaw :: LexTokenKind -> LexTokenKind -> TokParser Text
-collectDelimitedRaw openKind closeKind = do
-  openTxt <- tokenSatisfy ("opening delimiter " <> show openKind) $ \tok ->
-    if lexTokenKind tok == openKind then Just (lexTokenText tok) else Nothing
-  go 1 openTxt
-  where
-    go :: Int -> Text -> TokParser Text
-    go depth acc = do
-      tok <- anySingle
-      let kind = lexTokenKind tok
-          txt = lexTokenText tok
-          acc' = acc <> txt
-      case () of
-        _
-          | kind == openKind -> go (depth + 1) acc'
-          | kind == closeKind ->
-              if depth == 1
-                then pure acc'
-                else go (depth - 1) acc'
-          | otherwise -> go depth acc'
 
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpanAnn (TAnn . mkAnnotation) $ do
@@ -468,7 +437,20 @@ markTypePromoted ty =
       | Just inner <- markTypePromoted sub ->
           Just (TAnn ann inner)
     TCon name _ -> Just (TCon name Promoted)
+    TBuiltinCon con -> Just (promoteBuiltinCon con)
     TList _ elems -> Just (TList Promoted elems)
     TTuple tupleFlavor _ elems -> Just (TTuple tupleFlavor Promoted elems)
     TTypeApp fn arg -> TTypeApp <$> markTypePromoted fn <*> pure arg
     _ -> Nothing
+
+promoteBuiltinCon :: TypeBuiltinCon -> Type
+promoteBuiltinCon con =
+  TCon
+    ( qualifyName Nothing $
+        case con of
+          TBuiltinTuple arity -> mkUnqualifiedName NameConId ("(" <> T.replicate (max 0 (arity - 1)) "," <> ")")
+          TBuiltinArrow -> mkUnqualifiedName NameVarSym "->"
+          TBuiltinList -> mkUnqualifiedName NameConId "[]"
+          TBuiltinCons -> mkUnqualifiedName NameConSym ":"
+    )
+    Promoted
