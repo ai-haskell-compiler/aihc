@@ -169,8 +169,10 @@ prettyImportLevel level =
 -- | Pretty-print a top-level declaration splice.
 -- The expression is printed as-is; explicit TH splices appear as @$expr@ or
 -- @$(expr)@ through the normal 'ETHSplice' pretty-printer.
+-- Nested continuation lines keep infix operators from starting in top-level
+-- layout column one, where GHC can read them as a new declaration.
 prettyDeclSpliceExpr :: Expr -> Doc ann
-prettyDeclSpliceExpr = prettyExpr
+prettyDeclSpliceExpr = nest 2 . prettyExpr
 
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
