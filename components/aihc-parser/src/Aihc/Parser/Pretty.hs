@@ -306,13 +306,14 @@ prettyMultiplicityTag (ExplicitMultiplicityTag ty) = "%" <> prettyType ty <+> me
 -- | Pretty-print a pattern synonym declaration.
 prettyPatSynDecl :: PatSynDecl -> Doc ann
 prettyPatSynDecl ps =
-  hsep
-    ( ["pattern"]
-        <> prettyPatSynLhs (patSynDeclName ps) (patSynDeclArgs ps)
-        <> [dirArrow (patSynDeclDir ps)]
-        <> [prettyPattern (patSynDeclPat ps)]
-        <> prettyPatSynWhere (patSynDeclName ps) (patSynDeclDir ps)
-    )
+  hang 2 $
+    hsep
+      ( ["pattern"]
+          <> prettyPatSynLhs (patSynDeclName ps) (patSynDeclArgs ps)
+          <> [dirArrow (patSynDeclDir ps)]
+          <> [prettyPattern (patSynDeclPat ps)]
+          <> prettyPatSynWhere (patSynDeclName ps) (patSynDeclDir ps)
+      )
   where
     dirArrow PatSynBidirectional = "="
     dirArrow PatSynUnidirectional = "<-"
