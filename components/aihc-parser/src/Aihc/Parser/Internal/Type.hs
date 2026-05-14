@@ -11,8 +11,6 @@ module Aihc.Parser.Internal.Type
     buildTypeApp,
     buildInfixType,
     typeAtomParser,
-    typeParenOperatorParser,
-    typeIdentifierParser,
     contextItemsParser,
     thSpliceTypeParser,
     arrowKindParser,
@@ -310,15 +308,7 @@ promotedTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
   -- This handles ambiguity between TH value quotes and promoted types
   expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick
-  promotedStructuredTypeParser
-
-promotedStructuredTypeParser :: TokParser Type
-promotedStructuredTypeParser = do
-  ty <-
-    MP.try typeListParser
-      <|> MP.try typeParenOrTupleParser
-      <|> MP.try typeParenOperatorParser
-      <|> typeIdentifierParser
+  ty <- typeAtomParser
   maybe (fail "promoted type") pure (markTypePromoted ty)
 
 typeParenOperatorParser :: TokParser Type
