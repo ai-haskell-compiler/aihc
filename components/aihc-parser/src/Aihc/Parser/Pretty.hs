@@ -424,6 +424,7 @@ startsWithTick (TAnn _ sub) = startsWithTick sub
 startsWithTick (TList Promoted _) = True
 startsWithTick (TCon _ Promoted) = True
 startsWithTick (TTuple _ Promoted _) = True
+startsWithTick (TTypeLit (TypeLitChar _ _)) = True
 startsWithTick (TApp f _) = startsWithTick f
 startsWithTick (TInfix lhs _ _ _) = startsWithTick lhs
 startsWithTick _ = False
