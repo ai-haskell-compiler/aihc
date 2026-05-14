@@ -763,7 +763,7 @@ inferNameType localName
         _ -> NameConId
 
 isIdentChar :: Char -> Bool
-isIdentChar c = isIdentifierStartChar c || isIdentifierNumberChar c || c == '\''
+isIdentChar c = isIdentifierStartChar c || isIdentifierContinueChar c || c == '\''
 
 isIdentifierStartChar :: Char -> Bool
 isIdentifierStartChar c = c == '_' || generalCategory c == LowercaseLetter || isConIdentifierStartChar c
@@ -777,6 +777,14 @@ isIdentifierNumberChar c =
     DecimalNumber -> True
     OtherNumber -> True
     _ -> False
+
+isIdentifierContinueChar :: Char -> Bool
+isIdentifierContinueChar c =
+  case generalCategory c of
+    LetterNumber -> True
+    ModifierLetter -> True
+    NonSpacingMark -> True
+    _ -> isIdentifierNumberChar c
 
 isOperatorLikeText :: Text -> Bool
 isOperatorLikeText op =

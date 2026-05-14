@@ -78,8 +78,11 @@ varIdentStartChars = filter isValidGeneratedIdentStartChar allChars
 conIdentStartChars :: [Char]
 conIdentStartChars = filter isValidConIdentStartChar allChars
 
-identTailChars :: [Char]
-identTailChars = filter isValidIdentTailChar allChars
+varIdentTailChars :: [Char]
+varIdentTailChars = filter isValidGeneratedIdentTailChar allChars
+
+conIdentTailChars :: [Char]
+conIdentTailChars = filter isValidConIdentTailChar allChars
 
 symbolChars :: [Char]
 symbolChars = filter isValidSymbolChar allChars
@@ -131,7 +134,7 @@ genVarId :: Gen Text
 genVarId = do
   first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
-  rest <- vectorOf restLen (elements identTailChars)
+  rest <- vectorOf restLen (elements varIdentTailChars)
   hashCount <- chooseInt (0, 4)
   let candidate = T.pack (first : rest) <> T.replicate hashCount "#"
   if isValidGeneratedIdent candidate
@@ -142,7 +145,7 @@ genVarIdNoHash :: Gen Text
 genVarIdNoHash = do
   first <- elements varIdentStartChars
   restLen <- chooseInt (0, 8)
-  rest <- vectorOf restLen (elements identTailChars)
+  rest <- vectorOf restLen (elements varIdentTailChars)
   let candidate = T.pack (first : rest)
   if isValidGeneratedIdent candidate
     then pure candidate
@@ -172,7 +175,7 @@ isValidGeneratedIdent ident =
         Just (first, rest) ->
           baseIdent /= "_"
             && isValidGeneratedIdentStartChar first
-            && T.all isValidIdentTailChar rest
+            && T.all isValidGeneratedIdentTailChar rest
             && not (isReservedIdentifier allExtensions ident)
         Nothing -> False
     Nothing -> False
@@ -193,7 +196,7 @@ genConId :: Gen Text
 genConId = do
   first <- elements conIdentStartChars
   restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements identTailChars)
+  rest <- vectorOf restLen (elements conIdentTailChars)
   hashCount <- chooseInt (0, 4)
   pure (T.pack (first : rest) <> T.replicate hashCount "#")
 
@@ -225,7 +228,7 @@ isValidConIdent ident =
       case T.uncons baseIdent of
         Just (first, rest) ->
           isValidConIdentStartChar first
-            && T.all isValidIdentTailChar rest
+            && T.all isValidConIdentTailChar rest
         Nothing -> False
     Nothing -> False
 
@@ -403,8 +406,26 @@ isValidIdentNumberChar c =
     OtherNumber -> True
     _ -> False
 
-isValidIdentTailChar :: Char -> Bool
-isValidIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidIdentNumberChar c
+isValidGeneratedIdentTailChar :: Char -> Bool
+isValidGeneratedIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidIdentContinueChar c
+
+isValidConIdentTailChar :: Char -> Bool
+isValidConIdentTailChar c = c == '\'' || isValidGeneratedIdentStartChar c || isValidConIdentStartChar c || isValidConIdentContinueChar c
+
+isValidIdentContinueChar :: Char -> Bool
+isValidIdentContinueChar c =
+  case generalCategory c of
+    LetterNumber -> True
+    ModifierLetter -> True
+    _ -> isValidIdentNumberChar c
+
+isValidConIdentContinueChar :: Char -> Bool
+isValidConIdentContinueChar c =
+  case generalCategory c of
+    DecimalNumber -> True
+    ModifierLetter -> True
+    NonSpacingMark -> True
+    _ -> False
 
 isValidSymbolChar :: Char -> Bool
 isValidSymbolChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isValidUnicodeSymbolChar c && c /= '`'

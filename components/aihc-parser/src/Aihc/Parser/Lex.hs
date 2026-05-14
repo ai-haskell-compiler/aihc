@@ -1012,7 +1012,7 @@ isVarIdentifierStartChar :: Char -> Bool
 isVarIdentifierStartChar c = c == '_' || isAsciiLower c || isUniSmall c
 
 isIdentTail :: Char -> Bool
-isIdentTail c = isIdentStart c || isIdentNumber c || c == '\''
+isIdentTail c = isIdentStart c || isIdentContinue c || c == '\''
 
 isConIdStart :: Char -> Bool
 isConIdStart c = isAsciiUpper c || isUniLarge c
@@ -1031,6 +1031,14 @@ isIdentNumber c =
   isDigit c
     || generalCategory c == DecimalNumber
     || generalCategory c == OtherNumber
+
+isIdentContinue :: Char -> Bool
+isIdentContinue c =
+  case generalCategory c of
+    LetterNumber -> True
+    ModifierLetter -> True
+    NonSpacingMark -> True
+    _ -> isIdentNumber c
 
 startsWithSymOp :: Text -> Bool
 startsWithSymOp t =

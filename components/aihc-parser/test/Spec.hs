@@ -219,6 +219,7 @@ buildTests = do
             testCase "shrunk let expressions do not cycle through simple lets" test_shrunkLetExpressionsDoNotCycleThroughSimpleLets,
             testCase "shrunk wildcard let expressions do not cycle through simple lets" test_shrunkWildcardLetExpressionsDoNotCycleThroughSimpleLets,
             testCase "generated identifiers accept unicode variable characters" test_generatedIdentifiersAcceptUnicodeVariableCharacters,
+            testCase "lexes unicode identifier continuation characters" test_unicodeIdentifierContinuationCharactersLex,
             testCase "generated identifiers accept MagicHash suffixes" test_generatedIdentifiersAcceptMagicHashSuffixes,
             testCase "generated constructor identifiers accept unicode uppercase and number tails" test_generatedConstructorIdentifiersAcceptUnicodeCharacters,
             testCase "data CTYPE pragmas round-trip" test_dataDeclCTypePragmaRoundTrips,
@@ -759,6 +760,21 @@ test_generatedIdentifiersAcceptUnicodeVariableCharacters = do
     isValidGeneratedIdent "a\x03b1\x00b2"
   assertBool "unicode lowercase letters should be accepted at the start of generated identifiers" $
     isValidGeneratedIdent "\x03bbx"
+
+test_unicodeIdentifierContinuationCharactersLex :: Assertion
+test_unicodeIdentifierContinuationCharactersLex =
+  mapM_
+    assertVarId
+    [ "\x03b1\x209b", -- modifier letter: alpha + subscript s
+      "a\x0301", -- non-spacing mark: a + combining acute
+      "a\x2160" -- letter number: a + roman numeral one
+    ]
+  where
+    assertVarId ident =
+      case lexTokens ident of
+        [LexToken {lexTokenKind = TkVarId actual}, LexToken {lexTokenKind = TkEOF}]
+          | actual == ident -> pure ()
+        other -> assertFailure ("expected variable identifier " <> T.unpack ident <> ", got: " <> show other)
 
 test_generatedIdentifiersAcceptMagicHashSuffixes :: Assertion
 test_generatedIdentifiersAcceptMagicHashSuffixes = do
