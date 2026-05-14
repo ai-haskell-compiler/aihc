@@ -127,6 +127,7 @@ compatParserConfig =
           GADTs,
           ImplicitParams,
           InstanceSigs,
+          JavaScriptFFI,
           LambdaCase,
           LinearTypes,
           MagicHash,

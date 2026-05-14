@@ -814,6 +814,7 @@ callConvParser =
     <|> (varIdTok "stdcall" >> pure StdCall)
     <|> (varIdTok "capi" >> pure CApi)
     <|> (varIdTok "prim" >> pure CPrim)
+    <|> (varIdTok "javascript" >> pure JavaScript)
 
 foreignSafetyParser :: TokParser ForeignSafety
 foreignSafetyParser =

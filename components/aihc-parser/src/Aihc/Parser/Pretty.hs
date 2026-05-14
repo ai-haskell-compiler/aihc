@@ -1020,6 +1020,7 @@ prettyCallConv cc =
     StdCall -> "stdcall"
     CApi -> "capi"
     CPrim -> "prim"
+    JavaScript -> "javascript"
 
 prettySafety :: ForeignSafety -> Doc ann
 prettySafety safety =

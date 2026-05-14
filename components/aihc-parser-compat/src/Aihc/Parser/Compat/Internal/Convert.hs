@@ -593,6 +593,7 @@ callConv cc =
     A.StdCall -> StdCallConv
     A.CApi -> CApiConv
     A.CPrim -> PrimCallConv
+    A.JavaScript -> JavaScriptCallConv
 
 foreignSafety :: A.ForeignSafety -> Safety
 foreignSafety safety =

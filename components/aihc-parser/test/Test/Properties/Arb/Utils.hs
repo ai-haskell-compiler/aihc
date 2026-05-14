@@ -50,6 +50,7 @@ requiredExtensions = effectiveExtensions GHC2024Edition moduleExtensionSettings
           CApiFFI,
           ExplicitNamespaces,
           ImplicitParams,
+          JavaScriptFFI,
           LambdaCase,
           LinearTypes,
           MagicHash,

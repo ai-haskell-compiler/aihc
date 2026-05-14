@@ -1582,6 +1582,7 @@ data CallConv
   | StdCall
   | CApi
   | CPrim
+  | JavaScript
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignSafety
