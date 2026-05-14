@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIHC Test Authoring"
+  short_description: "Choose and author AIHC repository tests"
+  default_prompt: "Use $aihc-test-authoring to add the right tests for this AIHC change."
