@@ -21,6 +21,7 @@ module Aihc.Hackage.Cabal
     extractExtensions,
     extractLanguage,
     extractDependencies,
+    packageDefaultsToHaskell98,
   )
 where
 
@@ -200,6 +201,29 @@ buildToolDependencyNames :: GenericPackageDescription -> [Text]
 buildToolDependencyNames gpd =
   nub $
     concatMap buildInfoToolNames (activeComponentBuildInfos gpd)
+
+-- | Return whether any active source component uses Cabal's Haskell98 default.
+--
+-- Cabal treats a missing @default-language@ as Haskell98. AIHC does not support
+-- Haskell98 as a package language target, so progress tooling filters these
+-- packages before parsing their files.
+packageDefaultsToHaskell98 :: GenericPackageDescription -> Bool
+packageDefaultsToHaskell98 =
+  any buildInfoDefaultsToHaskell98 . activeSourceComponentBuildInfos
+
+buildInfoDefaultsToHaskell98 :: BuildInfo -> Bool
+buildInfoDefaultsToHaskell98 bi =
+  case defaultLanguage bi of
+    Nothing -> True
+    Just lang -> prettyShow lang == "Haskell98"
+
+activeSourceComponentBuildInfos :: GenericPackageDescription -> [BuildInfo]
+activeSourceComponentBuildInfos gpd =
+  let evalCond = conditionEvaluator gpd
+      merged = collectMergedBuildInfo evalCond
+   in maybe [] (pure . merged libBuildInfo) (condLibrary gpd)
+        <> map (merged libBuildInfo . snd) (condSubLibraries gpd)
+        <> map (merged buildInfo . snd) (condExecutables gpd)
 
 -- | Return whether any active component requests a custom GHC preprocessor.
 packageUsesCustomPreprocessor :: GenericPackageDescription -> Bool

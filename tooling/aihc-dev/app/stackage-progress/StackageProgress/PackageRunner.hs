@@ -10,6 +10,7 @@ module StackageProgress.PackageRunner
     runPackage,
     runPackageOrThrow,
     packageDependsOnUnsupportedBuildTool,
+    packageUsesUnsupportedDefaultLanguage,
     packageUsesUnsupportedMetadata,
     packageUsesCustomPreprocessor,
 
@@ -26,6 +27,7 @@ import HackageSupport
   ( FileInfo (..),
     downloadPackageQuietWithNetwork,
     findPackageBuildToolDependencyNames,
+    findPackageDefaultsToHaskell98,
     findPackageUsesCustomPreprocessor,
     findTargetFilesFromCabal,
   )
@@ -70,6 +72,18 @@ packageRunOptionsFromStackageOptions opts =
 unsupportedBuildToolNames :: [Text]
 unsupportedBuildToolNames = ["genprimopcode"]
 
+-- | Return whether a package uses a default language edition unsupported by AIHC.
+packageUsesUnsupportedDefaultLanguage :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedDefaultLanguage opts spec = do
+  result <- try (packageUsesUnsupportedDefaultLanguageOrThrow opts spec) :: IO (Either SomeException Bool)
+  pure $ case result of
+    Right usesUnsupportedLanguage -> usesUnsupportedLanguage
+    Left _ -> False
+
+packageUsesUnsupportedDefaultLanguageOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedDefaultLanguageOrThrow opts spec = do
+  fromMaybe False <$> withResolvedPackage opts spec findPackageDefaultsToHaskell98
+
 -- | Return whether a package's active Cabal metadata uses any unsupported package-level feature.
 packageUsesUnsupportedMetadata :: PackageRunOptions -> PackageSpec -> IO Bool
 packageUsesUnsupportedMetadata opts spec = do
@@ -85,7 +99,8 @@ packageUsesUnsupportedMetadataOrThrow opts spec = do
     checkPackage srcDir = do
       toolNames <- findPackageBuildToolDependencyNames srcDir
       usesCustomPreprocessor <- findPackageUsesCustomPreprocessor srcDir
-      pure (usesCustomPreprocessor || any (`elem` unsupportedBuildToolNames) toolNames)
+      defaultsToHaskell98 <- findPackageDefaultsToHaskell98 srcDir
+      pure (defaultsToHaskell98 || usesCustomPreprocessor || any (`elem` unsupportedBuildToolNames) toolNames)
 
 -- | Return whether a package's active Cabal metadata requires an unsupported build tool.
 packageDependsOnUnsupportedBuildTool :: PackageRunOptions -> PackageSpec -> IO Bool
