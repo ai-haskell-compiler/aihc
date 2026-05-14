@@ -668,7 +668,7 @@ genDeclSplice = do
 
 genDeclForeign :: Gen Decl
 genDeclForeign = do
-  callConv <- elements [CCall, StdCall, CApi]
+  callConv <- elements [CCall, StdCall, CApi, JavaScript]
   direction <- elements [ForeignImport, ForeignExport]
   -- Safety is only valid for imports, not exports
   safety <- case direction of

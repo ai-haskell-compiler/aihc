@@ -78,6 +78,7 @@ compatAihcExtensions =
         Syntax.CApiFFI,
         Syntax.ExplicitNamespaces,
         Syntax.ImplicitParams,
+        Syntax.JavaScriptFFI,
         Syntax.LambdaCase,
         Syntax.LinearTypes,
         Syntax.MagicHash,

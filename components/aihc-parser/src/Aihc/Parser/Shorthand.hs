@@ -598,6 +598,7 @@ docCallConv cc =
     StdCall -> "StdCall"
     CApi -> "CApi"
     CPrim -> "CPrim"
+    JavaScript -> "JavaScript"
 
 docForeignSafety :: ForeignSafety -> Doc ann
 docForeignSafety fs =
