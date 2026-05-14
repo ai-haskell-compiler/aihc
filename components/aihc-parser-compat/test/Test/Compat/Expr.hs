@@ -4,7 +4,10 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Compat.Expr
-  ( exprCompatTests,
+  ( comparisonDump,
+    exprCompatTests,
+    renderGhc,
+    sameStructural,
   )
 where
 

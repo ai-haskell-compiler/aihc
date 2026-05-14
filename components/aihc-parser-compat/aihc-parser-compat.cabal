@@ -41,6 +41,7 @@ test-suite spec
     Aihc.Parser.Compat
     Aihc.Parser.Compat.Internal.Convert
     Aihc.Parser.Compat.Internal.Ghc
+    Test.Compat.Decl
     Test.Compat.Expr
 
   build-depends:

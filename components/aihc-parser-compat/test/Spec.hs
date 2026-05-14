@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Test.Compat.Decl (declCompatTests)
 import Test.Compat.Expr (exprCompatTests)
 import Test.Tasty
 
@@ -8,4 +9,6 @@ main =
   defaultMain $
     testGroup
       "aihc-parser-compat"
-      [exprCompatTests]
+      [ exprCompatTests,
+        declCompatTests
+      ]
