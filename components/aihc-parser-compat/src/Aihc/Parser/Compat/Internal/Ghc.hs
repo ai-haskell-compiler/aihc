@@ -5,9 +5,14 @@
 module Aihc.Parser.Compat.Internal.Ghc
   ( compatGhcExtensions,
     normalizeGhcAst,
+    parseCompatDecl,
+    parseCompatLocatedDecl,
     parseCompatLocatedExpr,
     parseCompatExpr,
+    parseGhcLocatedDecl,
     parseGhcLocatedExpr,
+    unsafeParseCompatDecl,
+    unsafeParseCompatLocatedDecl,
     unsafeParseCompatExpr,
     unsafeParseCompatLocatedExpr,
   )
@@ -22,9 +27,9 @@ import Data.Text qualified as T
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
-import GHC.Hs (GhcPs, LHsExpr)
+import GHC.Hs (GhcPs, LHsDecl, LHsExpr)
 import GHC.LanguageExtensions.Type qualified as GHC
-import GHC.Parser (parseExpression)
+import GHC.Parser (parseDeclaration, parseExpression)
 import GHC.Parser.Annotation
   ( EpAnnComments,
     EpaLocation,
@@ -32,7 +37,8 @@ import GHC.Parser.Annotation
     noAnnSrcSpan,
   )
 import GHC.Parser.Lexer
-  ( PState,
+  ( P,
+    PState,
     ParseResult (..),
     Token (..),
     getPsErrorMessages,
@@ -54,6 +60,7 @@ import GHC.Types.SrcLoc
   )
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (showSDocUnsafe)
+import Language.Haskell.Syntax.Decls (HsDecl)
 import Language.Haskell.Syntax.Expr (HsExpr)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -83,6 +90,7 @@ compatAihcExtensions =
         Syntax.QuasiQuotes,
         Syntax.RecursiveDo,
         Syntax.RequiredTypeArguments,
+        Syntax.StarIsType,
         Syntax.TemplateHaskell,
         Syntax.TransformListComp,
         Syntax.TupleSections,
@@ -97,20 +105,38 @@ compatAihcExtensions =
 parseCompatExpr :: Text -> Either Text (HsExpr GhcPs)
 parseCompatExpr source = unLoc <$> parseCompatLocatedExpr source
 
+parseCompatDecl :: Text -> Either Text (HsDecl GhcPs)
+parseCompatDecl source = unLoc <$> parseCompatLocatedDecl source
+
 parseCompatLocatedExpr :: Text -> Either Text (LHsExpr GhcPs)
 parseCompatLocatedExpr source =
   case parseGhcLocatedExpr compatGhcExtensions source of
     Left err -> Left err
     Right expr -> Right (normalizeGhcAst expr)
 
+parseCompatLocatedDecl :: Text -> Either Text (LHsDecl GhcPs)
+parseCompatLocatedDecl source =
+  case parseGhcLocatedDecl compatGhcExtensions source of
+    Left err -> Left err
+    Right decl -> Right (normalizeGhcAst decl)
+
 unsafeParseCompatExpr :: Text -> HsExpr GhcPs
 unsafeParseCompatExpr source = unLoc (unsafeParseCompatLocatedExpr source)
+
+unsafeParseCompatDecl :: Text -> HsDecl GhcPs
+unsafeParseCompatDecl source = unLoc (unsafeParseCompatLocatedDecl source)
 
 unsafeParseCompatLocatedExpr :: Text -> LHsExpr GhcPs
 unsafeParseCompatLocatedExpr source =
   case parseCompatLocatedExpr source of
     Left err -> error ("ghc-lib-parser failed to parse converted expression:\n" <> T.unpack err <> "\nsource:\n" <> T.unpack source)
     Right expr -> expr
+
+unsafeParseCompatLocatedDecl :: Text -> LHsDecl GhcPs
+unsafeParseCompatLocatedDecl source =
+  case parseCompatLocatedDecl source of
+    Left err -> error ("ghc-lib-parser failed to parse converted declaration:\n" <> T.unpack err <> "\nsource:\n" <> T.unpack source)
+    Right decl -> decl
 
 parseGhcLocatedExpr :: [GHC.Extension] -> Text -> Either Text (LHsExpr GhcPs)
 parseGhcLocatedExpr exts input =
@@ -130,6 +156,28 @@ parseGhcLocatedExpr exts input =
                       _ -> Left ("GHC parser accepted expression prefix but left trailing token: " <> T.pack (show tok))
                   Left lexErr -> Left ("GHC lexer failed while checking for trailing tokens: " <> lexErr)
             PFailed st' -> Left (renderParserErrors st')
+        PFailed st -> Left (renderParserErrors st) of
+        Left err -> Left ("GHC parser exception: " <> err)
+        Right result -> result
+
+parseGhcLocatedDecl :: [GHC.Extension] -> Text -> Either Text (LHsDecl GhcPs)
+parseGhcLocatedDecl = parseGhcLocatedWith parseDeclaration
+
+parseGhcLocatedWith :: P a -> [GHC.Extension] -> Text -> Either Text a
+parseGhcLocatedWith parser exts input =
+  let opts = mkParserOpts (EnumSet.fromList exts) emptyDiagOpts False False False True
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<aihc-parser-compat>") 1 1
+   in case catchPureExceptionText $ case unP parser (initParserState opts buffer start) of
+        POk st parsed ->
+          if parserStateHasErrors st
+            then Left (renderParserErrors st)
+            else case firstSignificantToken st of
+              Right tok ->
+                case unLoc tok of
+                  ITeof -> Right parsed
+                  _ -> Left ("GHC parser accepted prefix but left trailing token: " <> T.pack (show tok))
+              Left lexErr -> Left ("GHC lexer failed while checking for trailing tokens: " <> lexErr)
         PFailed st -> Left (renderParserErrors st) of
         Left err -> Left ("GHC parser exception: " <> err)
         Right result -> result

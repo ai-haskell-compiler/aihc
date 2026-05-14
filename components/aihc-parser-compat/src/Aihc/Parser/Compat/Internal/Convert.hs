@@ -2,26 +2,627 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Compat.Internal.Convert
-  ( toGhcHsExpr,
+  ( toGhcHsDecl,
+    toGhcHsExpr,
+    toGhcLHsDecl,
     toGhcLHsExpr,
   )
 where
 
 import Aihc.Parser.Syntax qualified as A
 import Data.ByteString.Char8 qualified as BS
-import Data.Char (isDigit)
+import Data.Char (GeneralCategory (..), generalCategory, isDigit)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Text qualified as T
+import Data.Text.Read qualified as TR
 import GHC.Builtin.Types (nilDataCon, tupleDataCon, tupleTyCon, unrestrictedFunTyConName)
 import GHC.Data.FastString (mkFastString)
 import GHC.Hs
 import GHC.Types.Basic
-import GHC.Types.Name.Occurrence (mkDataOcc, mkVarOcc)
+import GHC.Types.ForeignCall
+import GHC.Types.Name.Occurrence (OccName, mkDataOcc, mkVarOcc)
 import GHC.Types.Name.Reader (RdrName, getRdrName, mkRdrQual, mkRdrUnqual)
 import GHC.Types.SourceText
 import GHC.Types.SrcLoc (GenLocated (..), noSrcSpan, unLoc)
 import Language.Haskell.Syntax.Basic (FieldLabelString (..), LexicalFixity (..))
+import Language.Haskell.Syntax.Basic qualified as Hs
 import Language.Haskell.Syntax.Specificity (Specificity (..))
+
+toGhcHsDecl :: A.Decl -> HsDecl GhcPs
+toGhcHsDecl decl =
+  case A.peelDeclAnn decl of
+    A.DeclAnn _ inner -> toGhcHsDecl inner
+    A.DeclValue value -> ValD noExtField (valueBind value)
+    A.DeclTypeSig names ty -> SigD noExtField (typeSig names ty)
+    A.DeclPatSyn patSyn -> ValD noExtField (patSynBind patSyn)
+    A.DeclPatSynSig names ty -> SigD noExtField (PatSynSig noAnn (map (lA . toRdrName . A.qualifyName Nothing) names) (toSigType ty))
+    A.DeclStandaloneKindSig name kind -> KindSigD noExtField (StandaloneKindSig noAnn (lA (toRdrName (A.qualifyName Nothing name))) (toSigType kind))
+    A.DeclFixity assoc namespace prec ops -> SigD noExtField (FixSig noAnn (fixitySig assoc namespace prec ops))
+    A.DeclRoleAnnotation ann -> RoleAnnotD noExtField (roleAnnotDecl ann)
+    A.DeclTypeSyn syn -> TyClD noExtField (typeSynDecl syn)
+    A.DeclTypeData dd -> TyClD noExtField (dataTyClDecl TypeData dd)
+    A.DeclData dd -> TyClD noExtField (dataTyClDecl OrdinaryData dd)
+    A.DeclNewtype nd -> TyClD noExtField (newtypeTyClDecl nd)
+    A.DeclClass cd -> TyClD noExtField (classTyClDecl cd)
+    A.DeclInstance inst -> InstD noExtField (ClsInstD noExtField (classInstDecl inst))
+    A.DeclStandaloneDeriving sd -> DerivD noExtField (derivDecl sd)
+    A.DeclDefault tys -> DefD noExtField (DefaultDecl (noAnn, noAnn, noAnn) Nothing (map toLHsType tys))
+    A.DeclSplice expr -> SpliceD noExtField (spliceDecl expr)
+    A.DeclForeign fd -> ForD noExtField (foreignDecl fd)
+    A.DeclTypeFamilyDecl tf -> TyClD noExtField (FamDecl noExtField (typeFamilyDecl TopLevel tf))
+    A.DeclDataFamilyDecl df -> TyClD noExtField (FamDecl noExtField (dataFamilyDecl TopLevel df))
+    A.DeclTypeFamilyInst tfi -> InstD noExtField (TyFamInstD noExtField (typeFamilyInstDecl tfi))
+    A.DeclDataFamilyInst dfi -> InstD noExtField (DataFamInstD noExtField (dataFamilyInstDecl dfi))
+    A.DeclPragma pragma -> SigD noExtField (pragmaSig pragma)
+
+toGhcLHsDecl :: A.Decl -> LHsDecl GhcPs
+toGhcLHsDecl = lA . toGhcHsDecl
+
+data DataFlavor = OrdinaryData | TypeData
+
+typeSig :: [A.BinderName] -> A.Type -> Sig GhcPs
+typeSig names ty =
+  TypeSig noAnn (map (lA . toRdrName . A.qualifyName Nothing) names) (toSigWcType ty)
+
+toSigType :: A.Type -> LHsSigType GhcPs
+toSigType ty =
+  case A.peelTypeAnn ty of
+    A.TAnn _ inner -> toSigType inner
+    A.TForall (A.ForallTelescope A.ForallInvisible binders) body ->
+      lA (HsSig noExtField (HsOuterExplicit noAnn (map toInvisibleTyVarBndr binders)) (toLHsType body))
+    _ -> lA (HsSig noExtField (HsOuterImplicit noExtField) (toLHsType ty))
+
+fixitySig :: A.FixityAssoc -> Maybe A.IEEntityNamespace -> Maybe Int -> [A.OperatorName] -> FixitySig GhcPs
+fixitySig assoc namespace prec ops =
+  FixitySig (namespaceSpecifier namespace) (map (lA . toRdrName . A.qualifyName Nothing) ops) (Hs.Fixity (maybe 9 fromIntegral prec) (fixityDirection assoc))
+
+namespaceSpecifier :: Maybe A.IEEntityNamespace -> NamespaceSpecifier
+namespaceSpecifier namespace =
+  case namespace of
+    Nothing -> NoNamespaceSpecifier
+    Just A.IEEntityNamespaceType -> TypeNamespaceSpecifier noAnn
+    Just A.IEEntityNamespaceData -> DataNamespaceSpecifier noAnn
+    Just A.IEEntityNamespacePattern -> NoNamespaceSpecifier
+
+fixityDirection :: A.FixityAssoc -> Hs.FixityDirection
+fixityDirection assoc =
+  case assoc of
+    A.Infix -> Hs.InfixN
+    A.InfixL -> Hs.InfixL
+    A.InfixR -> Hs.InfixR
+
+roleAnnotDecl :: A.RoleAnnotation -> RoleAnnotDecl GhcPs
+roleAnnotDecl ann =
+  RoleAnnotDecl noAnn (lA (toRdrName (A.qualifyName Nothing (A.roleAnnotationName ann)))) (map (lA . role) (A.roleAnnotationRoles ann))
+
+role :: A.Role -> Maybe Hs.Role
+role role' =
+  case role' of
+    A.RoleNominal -> Just Hs.Nominal
+    A.RoleRepresentational -> Just Hs.Representational
+    A.RolePhantom -> Just Hs.Phantom
+    A.RoleInfer -> Nothing
+
+typeSynDecl :: A.TypeSynDecl -> TyClDecl GhcPs
+typeSynDecl syn =
+  let (name, params, fixity) = binderHeadParts (A.typeSynHead syn)
+   in SynDecl noAnn (lA (toRdrName (A.qualifyName Nothing name))) (qTyVars params) fixity (toLHsType (A.typeSynBody syn))
+
+dataTyClDecl :: DataFlavor -> A.DataDecl -> TyClDecl GhcPs
+dataTyClDecl flavor dd =
+  let (name, params, fixity) = binderHeadParts (A.dataDeclHead dd)
+   in DataDecl
+        noExtField
+        (lA (toRdrName (A.qualifyName Nothing name)))
+        (qTyVars params)
+        fixity
+        ( hsDataDefn
+            flavor
+            (A.dataDeclContext dd)
+            (A.dataDeclKind dd)
+            (DataTypeCons (isTypeData flavor) (map toLConDecl (A.dataDeclConstructors dd)))
+            (A.dataDeclDeriving dd)
+        )
+
+newtypeTyClDecl :: A.NewtypeDecl -> TyClDecl GhcPs
+newtypeTyClDecl nd =
+  let (name, params, fixity) = binderHeadParts (A.newtypeDeclHead nd)
+      con =
+        case A.newtypeDeclConstructor nd of
+          Just ctor -> toLConDecl ctor
+          Nothing -> lA (ConDeclH98 noAnn (lA (mkRdrUnqual (mkDataOcc "MissingNewtypeConstructor"))) False [] Nothing (PrefixCon []) Nothing)
+   in DataDecl
+        noExtField
+        (lA (toRdrName (A.qualifyName Nothing name)))
+        (qTyVars params)
+        fixity
+        (hsDataDefn OrdinaryData (A.newtypeDeclContext nd) (A.newtypeDeclKind nd) (NewTypeCon con) (A.newtypeDeclDeriving nd))
+
+hsDataDefn :: DataFlavor -> [A.Type] -> Maybe A.Type -> DataDefnCons (LConDecl GhcPs) -> [A.DerivingClause] -> HsDataDefn GhcPs
+hsDataDefn flavor context kind cons derivingClauses =
+  HsDataDefn noAnn (toMaybeContext context) Nothing (toLHsType <$> kind) cons (map derivingClause derivingClauses)
+  where
+    _ = flavor
+
+isTypeData :: DataFlavor -> Bool
+isTypeData flavor =
+  case flavor of
+    OrdinaryData -> False
+    TypeData -> True
+
+toLConDecl :: A.DataConDecl -> LConDecl GhcPs
+toLConDecl = lA . toConDecl
+
+toConDecl :: A.DataConDecl -> ConDecl GhcPs
+toConDecl ctor =
+  case A.peelDataConAnn ctor of
+    A.DataConAnn _ inner -> toConDecl inner
+    A.PrefixCon foralls context name fields ->
+      ConDeclH98 noAnn (lA (toRdrName (A.qualifyName Nothing name))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon (map conField fields)) Nothing
+    A.InfixCon foralls context lhs name rhs ->
+      ConDeclH98 noAnn (lA (toRdrName (A.qualifyName Nothing name))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (InfixCon (conField lhs) (conField rhs)) Nothing
+    A.RecordCon foralls context name fields ->
+      ConDeclH98 noAnn (lA (toRdrName (A.qualifyName Nothing name))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (RecCon (lA (map fieldDecl fields))) Nothing
+    A.GadtCon foralls context names body ->
+      let (details, resultTy) = gadtDetailsAndResult body
+       in ConDeclGADT noAnn (nonEmpty (map (lA . toRdrName . A.qualifyName Nothing) names)) (lA (HsOuterImplicit noExtField)) (map forallTele foralls) (toMaybeContext context) details (toGadtResultType details resultTy) Nothing
+    A.TupleCon foralls context flavor fields ->
+      ConDeclH98 noAnn (lA (getRdrName (tupleDataCon (boxity flavor) (length fields)))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon (map conField fields)) Nothing
+    A.UnboxedSumCon foralls context _pos _arity field ->
+      ConDeclH98 noAnn (lA (mkRdrUnqual (mkDataOcc "UnboxedSumCon"))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon [conField field]) Nothing
+    A.ListCon foralls context ->
+      ConDeclH98 noAnn (lA (getRdrName nilDataCon)) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon []) Nothing
+
+conField :: A.BangType -> HsConDeclField GhcPs
+conField bt =
+  let (fieldUnpackedness, fieldStrictness, fieldType) = constructorFieldBang bt
+   in CDF conFieldExt fieldUnpackedness fieldStrictness (HsUnannotated EpPatBind) fieldType Nothing
+
+gadtConField :: (A.BangType, A.ArrowKind) -> HsConDeclField GhcPs
+gadtConField (bt, arrow) =
+  let (fieldUnpackedness, fieldStrictness, fieldType) = constructorFieldBang bt
+   in CDF conFieldExt fieldUnpackedness fieldStrictness (multAnn arrow) fieldType Nothing
+
+constructorFieldBang :: A.BangType -> (SrcUnpackedness, SrcStrictness, LHsType GhcPs)
+constructorFieldBang bt
+  | NoSrcStrict <- strictness bt =
+      (unpackedness bt, NoSrcStrict, toLHsType (A.bangType bt))
+  | A.TFun arrow lhs rhs <- A.peelTypeAnn (A.bangType bt) =
+      (NoSrcUnpack, NoSrcStrict, lA (HsFunTy noExtField (multAnn arrow) (toLeadingBangedLHsType bt lhs) (toLHsType rhs)))
+  | A.TApp fun arg <- A.peelTypeAnn (A.bangType bt) =
+      (NoSrcUnpack, NoSrcStrict, lA (HsAppTy noExtField (toLeadingBangedLHsType bt fun) (toLHsType arg)))
+  | A.TTypeApp fun arg <- A.peelTypeAnn (A.bangType bt) =
+      (NoSrcUnpack, NoSrcStrict, lA (HsAppKindTy noAnn (toLeadingBangedLHsType bt fun) (toLHsKindAppArg arg)))
+  | A.TInfix lhs op promotion rhs <- A.peelTypeAnn (A.bangType bt) =
+      (NoSrcUnpack, NoSrcStrict, lA (HsOpTy noExtField (promotionFlag promotion) (toLeadingBangedLHsType bt lhs) (lA (toRdrName op)) (toLHsType rhs)))
+  | A.TContext context@(_ : _) body <- A.peelTypeAnn (A.bangType bt) =
+      (NoSrcUnpack, NoSrcStrict, lA (HsQualTy noExtField (lA [toLeadingBangedLHsType bt (contextBangTarget context)]) (toLHsType body)))
+  | otherwise =
+      (unpackedness bt, strictness bt, toLHsType (A.bangType bt))
+
+toLeadingBangedLHsType :: A.BangType -> A.Type -> LHsType GhcPs
+toLeadingBangedLHsType bt ty =
+  case A.peelTypeAnn ty of
+    A.TApp fun arg -> lA (HsAppTy noExtField (toLeadingBangedLHsType bt fun) (toLHsType arg))
+    A.TTypeApp fun arg -> lA (HsAppKindTy noAnn (toLeadingBangedLHsType bt fun) (toLHsKindAppArg arg))
+    A.TInfix lhs op promotion rhs -> lA (HsOpTy noExtField (promotionFlag promotion) (toLeadingBangedLHsType bt lhs) (lA (toRdrName op)) (toLHsType rhs))
+    _ -> toBangedLHsType bt ty
+
+toBangedLHsType :: A.BangType -> A.Type -> LHsType GhcPs
+toBangedLHsType bt ty =
+  lA (XHsType (HsBangTy noAnn (HsSrcBang NoSourceText (unpackedness bt) (strictness bt)) (toLHsType ty)))
+
+contextBangTarget :: [A.Type] -> A.Type
+contextBangTarget [ty] = ty
+contextBangTarget tys = A.TTuple A.Boxed A.Unpromoted tys
+
+conFieldExt :: XConDeclField GhcPs
+conFieldExt = ((EpaSpan noSrcSpan, noAnn, EpaSpan noSrcSpan), NoSourceText)
+
+fieldDecl :: A.FieldDecl -> LHsConDeclRecField GhcPs
+fieldDecl fd =
+  lA (HsConDeclRecField noExtField (map (lA . fieldOcc . A.qualifyName Nothing) (A.fieldNames fd)) spec)
+  where
+    spec =
+      (conField (A.fieldType fd))
+        { cdf_multiplicity = maybe (HsUnannotated EpPatBind) (HsExplicitMult (noAnn, EpPatBind) . toLHsType) (A.fieldMultiplicity fd)
+        }
+
+gadtDetailsAndResult :: A.GadtBody -> (HsConDeclGADTDetails GhcPs, A.Type)
+gadtDetailsAndResult body =
+  case body of
+    A.GadtPrefixBody args resultTy ->
+      let (extraArgs, finalResult) = splitGadtResultType resultTy
+       in (PrefixConGADT noExtField (map gadtConField (args <> extraArgs)), finalResult)
+    A.GadtRecordBody fields resultTy -> (RecConGADT noAnn (lA (map fieldDecl fields)), resultTy)
+
+splitGadtResultType :: A.Type -> ([(A.BangType, A.ArrowKind)], A.Type)
+splitGadtResultType ty =
+  case A.peelTypeAnn ty of
+    A.TParen inner -> splitGadtResultType inner
+    A.TFun arrow lhs rhs ->
+      let (args, resultTy) = splitGadtResultType rhs
+       in ((A.BangType [] [] False False lhs, arrow) : args, resultTy)
+    _ -> ([], ty)
+
+toGadtResultType :: HsConDeclGADTDetails GhcPs -> A.Type -> LHsType GhcPs
+toGadtResultType details ty =
+  case details of
+    PrefixConGADT {} ->
+      case A.peelTypeAnn ty of
+        A.TParen inner
+          | isStarType inner ->
+              lA (HsStarTy noExtField False)
+        _ -> toLHsType ty
+    RecConGADT {} -> toLHsType ty
+
+isStarType :: A.Type -> Bool
+isStarType ty =
+  case A.peelTypeAnn ty of
+    A.TStar -> True
+    _ -> False
+
+strictness :: A.BangType -> SrcStrictness
+strictness bt
+  | A.bangStrict bt = SrcStrict
+  | A.bangLazy bt = SrcLazy
+  | otherwise = NoSrcStrict
+
+unpackedness :: A.BangType -> SrcUnpackedness
+unpackedness bt =
+  case [kind | pragma <- A.bangPragmas bt, A.PragmaUnpack kind <- [A.pragmaType pragma]] of
+    A.UnpackPragma : _ -> SrcUnpack
+    A.NoUnpackPragma : _ -> SrcNoUnpack
+    [] -> NoSrcUnpack
+
+classTyClDecl :: A.ClassDecl -> TyClDecl GhcPs
+classTyClDecl cd =
+  let (name, params, fixity) = binderHeadParts (A.classDeclHead cd)
+      (sigs, binds, ats, atDefs) = classItems (A.classDeclItems cd)
+   in ClassDecl (noAnn, EpNoLayout, NoAnnSortKey) (toContext <$> A.classDeclContext cd) (lA (toRdrName (A.qualifyName Nothing name))) (qTyVars params) fixity (map funDep (A.classDeclFundeps cd)) sigs binds ats atDefs []
+
+classItems :: [A.ClassDeclItem] -> ([LSig GhcPs], LHsBinds GhcPs, [LFamilyDecl GhcPs], [LTyFamDefltDecl GhcPs])
+classItems = foldMap classItem
+
+classItem :: A.ClassDeclItem -> ([LSig GhcPs], LHsBinds GhcPs, [LFamilyDecl GhcPs], [LTyFamDefltDecl GhcPs])
+classItem item =
+  case A.peelClassDeclItemAnn item of
+    A.ClassItemAnn _ inner -> classItem inner
+    A.ClassItemTypeSig names ty -> ([lA (ClassOpSig noAnn False (map (lA . toRdrName . A.qualifyName Nothing) names) (toSigType ty))], [], [], [])
+    A.ClassItemDefaultSig name ty -> ([lA (ClassOpSig noAnn True [lA (toRdrName (A.qualifyName Nothing name))] (toSigType ty))], [], [], [])
+    A.ClassItemFixity assoc namespace prec ops -> ([lA (FixSig noAnn (fixitySig assoc namespace prec ops))], [], [], [])
+    A.ClassItemDefault value -> ([], [lA (valueBind value)], [], [])
+    A.ClassItemTypeFamilyDecl tf -> ([], [], [lA (typeFamilyDecl NotTopLevel tf)], [])
+    A.ClassItemDataFamilyDecl df -> ([], [], [lA (dataFamilyDecl NotTopLevel df)], [])
+    A.ClassItemDefaultTypeInst tfi -> ([], [], [], [lA (typeFamilyInstDecl tfi)])
+    A.ClassItemPragma pragma -> ([lA (pragmaSig pragma)], [], [], [])
+
+classInstDecl :: A.InstanceDecl -> ClsInstDecl GhcPs
+classInstDecl inst =
+  let (binds, sigs, tyFamInsts, dataFamInsts) = instanceItems (A.instanceDeclItems inst)
+   in ClsInstDecl
+        (Nothing, noAnn, NoAnnSortKey)
+        (instanceSigType (A.instanceDeclForall inst) (A.instanceDeclContext inst) (A.instanceDeclHead inst))
+        binds
+        sigs
+        tyFamInsts
+        dataFamInsts
+        Nothing
+
+instanceItems :: [A.InstanceDeclItem] -> (LHsBinds GhcPs, [LSig GhcPs], [LTyFamInstDecl GhcPs], [LDataFamInstDecl GhcPs])
+instanceItems = foldMap instanceItem
+
+instanceItem :: A.InstanceDeclItem -> (LHsBinds GhcPs, [LSig GhcPs], [LTyFamInstDecl GhcPs], [LDataFamInstDecl GhcPs])
+instanceItem item =
+  case A.peelInstanceDeclItemAnn item of
+    A.InstanceItemAnn _ inner -> instanceItem inner
+    A.InstanceItemBind value -> ([lA (valueBind value)], [], [], [])
+    A.InstanceItemTypeSig names ty -> ([], [lA (typeSig names ty)], [], [])
+    A.InstanceItemFixity assoc namespace prec ops -> ([], [lA (FixSig noAnn (fixitySig assoc namespace prec ops))], [], [])
+    A.InstanceItemTypeFamilyInst tfi -> ([], [], [lA (typeFamilyInstDecl tfi)], [])
+    A.InstanceItemDataFamilyInst dfi -> ([], [], [], [lA (dataFamilyInstDecl dfi)])
+    A.InstanceItemPragma pragma -> ([], [lA (pragmaSig pragma)], [], [])
+
+instanceSigType :: [A.TyVarBinder] -> [A.Type] -> A.Type -> LHsSigType GhcPs
+instanceSigType binders context headTy =
+  lA (HsSig noExtField outer (toLHsType (applyContext context headTy)))
+  where
+    outer =
+      case binders of
+        [] -> HsOuterImplicit noExtField
+        _ -> HsOuterExplicit noAnn (map toInvisibleTyVarBndr binders)
+
+derivDecl :: A.StandaloneDerivingDecl -> DerivDecl GhcPs
+derivDecl sd =
+  DerivDecl (Nothing, (noAnn, noAnn)) (HsWC noExtField (instanceSigType (A.standaloneDerivingForall sd) (A.standaloneDerivingContext sd) (A.standaloneDerivingHead sd))) (toLDerivStrategy <$> A.standaloneDerivingStrategy sd) Nothing
+
+typeFamilyDecl :: TopLevelFlag -> A.TypeFamilyDecl -> FamilyDecl GhcPs
+typeFamilyDecl topLevel tf =
+  let (name, params, fixity) = typeFamilyHeadParts (A.typeFamilyDeclHeadForm tf) (A.typeFamilyDeclHead tf) (A.typeFamilyDeclParams tf)
+      (resultSig, injectivity) = familyResult (A.typeFamilyDeclResultSig tf)
+      info = maybe OpenTypeFamily (ClosedTypeFamily . Just . map (lA . typeFamilyEqn)) (A.typeFamilyDeclEquations tf)
+   in FamilyDecl noAnn info topLevel (lA (toRdrName name)) (qTyVars params) fixity (lA resultSig) injectivity
+
+dataFamilyDecl :: TopLevelFlag -> A.DataFamilyDecl -> FamilyDecl GhcPs
+dataFamilyDecl topLevel df =
+  let (name, params, fixity) = binderHeadParts (A.dataFamilyDeclHead df)
+   in FamilyDecl noAnn DataFamily topLevel (lA (toRdrName (A.qualifyName Nothing name))) (qTyVars params) fixity (lA (maybe (NoSig noExtField) (KindSig noExtField . toLHsType) (A.dataFamilyDeclKind df))) Nothing
+
+typeFamilyInstDecl :: A.TypeFamilyInst -> TyFamInstDecl GhcPs
+typeFamilyInstDecl inst =
+  TyFamInstDecl (noAnn, noAnn) (typeFamilyInstEqn inst)
+
+typeFamilyInstEqn :: A.TypeFamilyInst -> TyFamInstEqn GhcPs
+typeFamilyInstEqn inst =
+  let (name, args, fixity) = familyLhsParts (A.typeFamilyInstHeadForm inst) (A.typeFamilyInstLhs inst)
+   in FamEqn ([], [], noAnn) (lA (toRdrName name)) (outerFamBndrs (A.typeFamilyInstForall inst)) (map typeArg args) fixity (toLHsType (A.typeFamilyInstRhs inst))
+
+typeFamilyEqn :: A.TypeFamilyEq -> TyFamInstEqn GhcPs
+typeFamilyEqn eq =
+  let (name, args, fixity) = familyLhsParts (A.typeFamilyEqHeadForm eq) (A.typeFamilyEqLhs eq)
+   in FamEqn ([], [], noAnn) (lA (toRdrName name)) (outerFamBndrs (A.typeFamilyEqForall eq)) (map typeArg args) fixity (toLHsType (A.typeFamilyEqRhs eq))
+
+dataFamilyInstDecl :: A.DataFamilyInst -> DataFamInstDecl GhcPs
+dataFamilyInstDecl inst =
+  DataFamInstDecl $
+    FamEqn
+      ([], [], noAnn)
+      (lA (toRdrName name))
+      (outerFamBndrs (A.dataFamilyInstForall inst))
+      (map typeArg args)
+      fixity
+      ( hsDataDefn
+          OrdinaryData
+          []
+          (A.dataFamilyInstKind inst)
+          cons
+          (A.dataFamilyInstDeriving inst)
+      )
+  where
+    (name, args, fixity) = familyLhsParts (inferTypeHeadForm (A.dataFamilyInstHead inst)) (A.dataFamilyInstHead inst)
+    cons
+      | A.dataFamilyInstIsNewtype inst,
+        con : _ <- A.dataFamilyInstConstructors inst =
+          NewTypeCon (toLConDecl con)
+      | otherwise =
+          DataTypeCons False (map toLConDecl (A.dataFamilyInstConstructors inst))
+
+foreignDecl :: A.ForeignDecl -> ForeignDecl GhcPs
+foreignDecl fd =
+  case A.foreignDirection fd of
+    A.ForeignImport -> ForeignImport (noAnn, noAnn, noAnn) name sig (CImport (lA NoSourceText) (lA cc) (lA safety) header importSpec)
+    A.ForeignExport -> ForeignExport (noAnn, noAnn, noAnn) name sig (CExport (lA NoSourceText) (lA (CExportStatic NoSourceText exportLabel cc)))
+  where
+    name = lA (toRdrName (A.qualifyName Nothing (A.foreignName fd)))
+    sig = toSigType (A.foreignType fd)
+    cc = callConv (A.foreignCallConv fd)
+    safety = maybe PlaySafe foreignSafety (A.foreignSafety fd)
+    (header, importSpec) = foreignImportSpec (A.foreignEntity fd)
+    exportLabel = mkFastString (T.unpack (A.unqualifiedNameText (A.foreignName fd)))
+
+spliceDecl :: A.Expr -> SpliceDecl GhcPs
+spliceDecl expr =
+  SpliceDecl noExtField (lA (HsUntypedSpliceExpr noAnn (declSpliceExpr expr))) (declSpliceDecoration expr)
+
+declSpliceDecoration :: A.Expr -> SpliceDecoration
+declSpliceDecoration expr =
+  case A.peelExprAnn expr of
+    A.ETHSplice {} -> DollarSplice
+    A.ETHTypedSplice {} -> DollarSplice
+    _ -> BareSplice
+
+declSpliceExpr :: A.Expr -> LHsExpr GhcPs
+declSpliceExpr expr =
+  case A.peelExprAnn expr of
+    A.ETHSplice body -> toGhcLHsExpr body
+    A.ETHTypedSplice body -> toGhcLHsExpr body
+    _ -> toGhcLHsExpr expr
+
+pragmaSig :: A.Pragma -> Sig GhcPs
+pragmaSig pragma =
+  case A.pragmaType pragma of
+    A.PragmaInline kind target ->
+      InlineSig noAnn (lA (toRdrName (A.nameFromText target))) (inlinePragma kind)
+    _ ->
+      InlineSig noAnn (lA (mkRdrUnqual (mkVarOcc "unsupportedPragma"))) (inlinePragma "INLINE")
+
+inlinePragma :: T.Text -> InlinePragma
+inlinePragma kind =
+  InlinePragma NoSourceText inlineSpec Nothing activation FunLike
+  where
+    upper = T.toUpper kind
+    inlineSpec
+      | upper == "NOINLINE" = NoInline NoSourceText
+      | upper == "INLINABLE" || upper == "INLINEABLE" = Inlinable NoSourceText
+      | otherwise = Inline NoSourceText
+    activation
+      | upper == "NOINLINE" = NeverActive
+      | otherwise = AlwaysActive
+
+patSynBind :: A.PatSynDecl -> HsBind GhcPs
+patSynBind ps =
+  PatSynBind noExtField $
+    PSB
+      noAnn
+      (lA (toRdrName (A.qualifyName Nothing (A.patSynDeclName ps))))
+      (patSynDetails (A.patSynDeclArgs ps))
+      (toLPat (A.patSynDeclPat ps))
+      (patSynDir (A.patSynDeclDir ps))
+
+patSynDetails :: A.PatSynArgs -> HsPatSynDetails GhcPs
+patSynDetails args =
+  case args of
+    A.PatSynPrefixArgs names -> PrefixCon (map (lA . mkRdrUnqual . mkVarOcc . T.unpack) names)
+    A.PatSynInfixArgs lhs rhs -> InfixCon (lA (mkRdrUnqual (mkVarOcc (T.unpack lhs)))) (lA (mkRdrUnqual (mkVarOcc (T.unpack rhs))))
+    A.PatSynRecordArgs fields -> RecCon [RecordPatSynField (fieldOcc (A.qualifyName Nothing (A.mkUnqualifiedName A.NameVarId field))) (lA (mkRdrUnqual (mkVarOcc (T.unpack field)))) | field <- fields]
+
+patSynDir :: A.PatSynDir -> HsPatSynDir GhcPs
+patSynDir dir =
+  case dir of
+    A.PatSynUnidirectional -> Unidirectional
+    A.PatSynBidirectional -> ImplicitBidirectional
+    A.PatSynExplicitBidirectional matches ->
+      ExplicitBidirectional (matchGroup (FunRhs (lA (mkRdrUnqual (mkVarOcc "pattern"))) Prefix NoSrcStrict noAnn) (map (functionMatch (A.mkUnqualifiedName A.NameVarId "pattern")) matches))
+
+derivingClause :: A.DerivingClause -> LHsDerivingClause GhcPs
+derivingClause clause =
+  lA (HsDerivingClause noAnn (toLDerivStrategy <$> A.derivingStrategy clause) (lA (derivingClauseTys (A.derivingClasses clause))))
+
+derivingClauseTys :: Either A.Name [A.Type] -> DerivClauseTys GhcPs
+derivingClauseTys classes =
+  case classes of
+    Left name -> DctSingle noExtField (toSigType (A.TCon name A.Unpromoted))
+    Right tys -> DctMulti noExtField (map toSigType tys)
+
+toLDerivStrategy :: A.DerivingStrategy -> LDerivStrategy GhcPs
+toLDerivStrategy strategy =
+  lA $
+    case strategy of
+      A.DerivingStock -> StockStrategy noAnn
+      A.DerivingNewtype -> NewtypeStrategy noAnn
+      A.DerivingAnyclass -> AnyclassStrategy noAnn
+      A.DerivingVia ty -> ViaStrategy (XViaStrategyPs noAnn (toSigType ty))
+
+funDep :: A.FunctionalDependency -> LHsFunDep GhcPs
+funDep dep =
+  lA (FunDep noAnn (map (lA . mkRdrUnqual . mkVarOcc . T.unpack) (A.functionalDependencyDeterminers dep)) (map (lA . mkRdrUnqual . mkVarOcc . T.unpack) (A.functionalDependencyDetermined dep)))
+
+qTyVars :: [A.TyVarBinder] -> LHsQTyVars GhcPs
+qTyVars params =
+  HsQTvs noExtField (map toQTyVarBndr params)
+
+toQTyVarBndr :: A.TyVarBinder -> LHsTyVarBndr (HsBndrVis GhcPs) GhcPs
+toQTyVarBndr binder =
+  toTyVarBndr (bndrVis binder) binder
+
+bndrVis :: A.TyVarBinder -> HsBndrVis GhcPs
+bndrVis binder =
+  case A.tyVarBinderVisibility binder of
+    A.TyVarBVisible -> HsBndrRequired noExtField
+    A.TyVarBInvisible -> HsBndrInvisible noAnn
+
+binderHeadParts :: A.BinderHead A.UnqualifiedName -> (A.UnqualifiedName, [A.TyVarBinder], LexicalFixity)
+binderHeadParts head' =
+  (A.binderHeadName head', A.binderHeadParams head', binderHeadFixity head')
+
+binderHeadFixity :: A.BinderHead name -> LexicalFixity
+binderHeadFixity head' =
+  case A.binderHeadForm head' of
+    A.TypeHeadPrefix -> Prefix
+    A.TypeHeadInfix -> Infix
+
+typeFamilyHeadParts :: A.TypeHeadForm -> A.Type -> [A.TyVarBinder] -> (A.Name, [A.TyVarBinder], LexicalFixity)
+typeFamilyHeadParts form headTy params =
+  case form of
+    A.TypeHeadPrefix -> (typeHeadName headTy, params, Prefix)
+    A.TypeHeadInfix -> (typeHeadName headTy, params, Infix)
+
+typeHeadName :: A.Type -> A.Name
+typeHeadName ty =
+  case A.peelTypeHead ty of
+    A.TCon name _ -> name
+    A.TInfix _ name _ _ -> name
+    _ -> A.qualifyName Nothing (A.mkUnqualifiedName A.NameConId "UnsupportedFamily")
+
+familyLhsParts :: A.TypeHeadForm -> A.Type -> (A.Name, [A.Type], LexicalFixity)
+familyLhsParts form lhs =
+  case form of
+    A.TypeHeadInfix ->
+      case A.peelTypeHead lhs of
+        A.TInfix left name _ right -> (name, [left, right], Infix)
+        _ -> prefixFamilyLhs lhs
+    A.TypeHeadPrefix -> prefixFamilyLhs lhs
+
+prefixFamilyLhs :: A.Type -> (A.Name, [A.Type], LexicalFixity)
+prefixFamilyLhs lhs =
+  let (fun, args) = typeAppSpine lhs
+   in (typeHeadName fun, args, Prefix)
+
+inferTypeHeadForm :: A.Type -> A.TypeHeadForm
+inferTypeHeadForm ty =
+  case A.peelTypeHead ty of
+    A.TInfix {} -> A.TypeHeadInfix
+    _ -> A.TypeHeadPrefix
+
+typeAppSpine :: A.Type -> (A.Type, [A.Type])
+typeAppSpine ty =
+  go ty []
+  where
+    go current args =
+      case A.peelTypeAnn current of
+        A.TApp fun arg -> go fun (arg : args)
+        A.TParen inner -> go inner args
+        other -> (other, args)
+
+typeArg :: A.Type -> LHsTypeArg GhcPs
+typeArg = HsValArg noExtField . toLHsType
+
+outerFamBndrs :: [A.TyVarBinder] -> HsOuterFamEqnTyVarBndrs GhcPs
+outerFamBndrs binders =
+  case binders of
+    [] -> HsOuterImplicit noExtField
+    _ -> HsOuterExplicit noAnn (map (toTyVarBndr ()) binders)
+
+familyResult :: Maybe A.TypeFamilyResultSig -> (FamilyResultSig GhcPs, Maybe (LInjectivityAnn GhcPs))
+familyResult result =
+  case result of
+    Nothing -> (NoSig noExtField, Nothing)
+    Just (A.TypeFamilyKindSig kind) -> (KindSig noExtField (toLHsType kind), Nothing)
+    Just (A.TypeFamilyTyVarSig binder) -> (TyVarSig noExtField (toTyVarBndr () binder), Nothing)
+    Just (A.TypeFamilyInjectiveSig binder injectivity) ->
+      ( TyVarSig noExtField (toTyVarBndr () binder),
+        Just (lA (InjectivityAnn noAnn (lA (mkRdrUnqual (mkVarOcc (T.unpack (A.typeFamilyInjectivityResult injectivity))))) (map (lA . mkRdrUnqual . mkVarOcc . T.unpack) (A.typeFamilyInjectivityDetermined injectivity))))
+      )
+
+toMaybeContext :: [A.Type] -> Maybe (LHsContext GhcPs)
+toMaybeContext [] = Nothing
+toMaybeContext context = Just (toContext context)
+
+toContext :: [A.Type] -> LHsContext GhcPs
+toContext context = lA (map toLHsType context)
+
+applyContext :: [A.Type] -> A.Type -> A.Type
+applyContext [] ty = ty
+applyContext context ty = A.TContext context ty
+
+callConv :: A.CallConv -> CCallConv
+callConv cc =
+  case cc of
+    A.CCall -> CCallConv
+    A.StdCall -> StdCallConv
+    A.CApi -> CApiConv
+    A.CPrim -> PrimCallConv
+
+foreignSafety :: A.ForeignSafety -> Safety
+foreignSafety safety =
+  case safety of
+    A.Safe -> PlaySafe
+    A.Unsafe -> PlayRisky
+    A.Interruptible -> PlayInterruptible
+
+foreignImportSpec :: A.ForeignEntitySpec -> (Maybe Header, CImportSpec)
+foreignImportSpec spec =
+  case spec of
+    A.ForeignEntityDynamic -> (Nothing, CFunction DynamicTarget)
+    A.ForeignEntityWrapper -> (Nothing, CWrapper)
+    A.ForeignEntityStatic name -> (Nothing, CFunction (staticTarget (fromMaybe "static" name)))
+    A.ForeignEntityAddress name -> (Nothing, CLabel (mkFastString (T.unpack (fromMaybe "&" name))))
+    A.ForeignEntityNamed name -> namedImportSpec name
+    A.ForeignEntityOmitted -> (Nothing, CFunction (staticTarget ""))
+
+namedImportSpec :: T.Text -> (Maybe Header, CImportSpec)
+namedImportSpec name =
+  case T.words name of
+    [headerName, symbol]
+      | ".h" `T.isSuffixOf` headerName ->
+          (Just (Header NoSourceText (mkFastString (T.unpack headerName))), CFunction (staticTarget symbol))
+    _ ->
+      (Nothing, CFunction (staticTarget name))
+
+staticTarget :: T.Text -> CCallTarget
+staticTarget name =
+  StaticTarget NoSourceText (mkFastString (T.unpack name)) Nothing True
 
 toGhcHsExpr :: A.Expr -> HsExpr GhcPs
 toGhcHsExpr expr =
@@ -69,7 +670,7 @@ toGhcHsExpr expr =
     A.EApp fun arg -> HsApp noExtField (toGhcLHsExpr fun) (toGhcLHsExpr arg)
     A.ETHExpQuote body -> HsUntypedBracket noExtField (ExpBr noAnn (toGhcLHsExpr body))
     A.ETHTypedQuote body -> HsTypedBracket noAnn (toGhcLHsExpr body)
-    A.ETHDeclQuote decls -> HsUntypedBracket noExtField (DecBrL noAnn (map toLHsDecl decls))
+    A.ETHDeclQuote decls -> HsUntypedBracket noExtField (DecBrL noAnn (map toGhcLHsDecl decls))
     A.ETHTypeQuote ty -> HsUntypedBracket noExtField (TypBr noAnn (toLHsType ty))
     A.ETHPatQuote pat -> HsUntypedBracket noExtField (PatBr noAnn (toLPat pat))
     A.ETHNameQuote quoted -> HsUntypedBracket noExtField (VarBr noAnn True (quotedExprName quoted))
@@ -365,40 +966,80 @@ toHsType ty =
   case A.peelTypeAnn ty of
     A.TAnn _ inner -> toHsType inner
     A.TVar name -> HsTyVar noAnn NotPromoted (lA (toRdrName (A.qualifyName Nothing name)))
+    A.TCon name A.Promoted
+      | Just elems <- promotedListNameElems name ->
+          HsExplicitListTy (noAnn, noAnn, noAnn) IsPromoted elems
+    A.TCon name A.Promoted
+      | Just elems <- promotedTupleNameElems name ->
+          HsExplicitTupleTy (noAnn, noAnn, noAnn) IsPromoted elems
     A.TCon name promotion -> HsTyVar noAnn (promotionFlag promotion) (lA (toRdrName name))
     A.TBuiltinCon builtin -> builtinType builtin
     A.TImplicitParam name inner -> HsIParamTy noAnn (lA (HsIPName (mkFastString (T.unpack (T.dropWhile (== '?') name))))) (toLHsType inner)
     A.TTypeLit lit -> HsTyLit noExtField (typeLit lit)
     A.TStar -> HsStarTy noExtField False
     A.TQuasiQuote quoter body -> HsSpliceTy noExtField (HsQuasiQuote noExtField (lA (toRdrName (A.nameFromText quoter))) (lA (mkFastString (T.unpack body))))
-    A.TForall telescope body -> HsForAllTy noExtField (forallTele telescope) (toLHsType body)
+    A.TForall telescope body ->
+      case splitTrailingKindSig body of
+        Just (inner, kind) -> HsKindSig noAnn (lA (HsForAllTy noExtField (forallTele telescope) (toLHsType inner))) (toLHsType kind)
+        _ -> HsForAllTy noExtField (forallTele telescope) (toLHsType body)
     A.TApp fun arg -> HsAppTy noExtField (toLHsType fun) (toLHsType arg)
-    A.TTypeApp fun arg -> HsAppKindTy noAnn (toLHsType fun) (toLHsType arg)
+    A.TTypeApp fun arg -> HsAppKindTy noAnn (toLHsType fun) (toLHsKindAppArg arg)
     A.TInfix lhs op promotion rhs -> HsOpTy noExtField (promotionFlag promotion) (toLHsType lhs) (lA (toRdrName op)) (toLHsType rhs)
     A.TFun arrow lhs rhs -> HsFunTy noExtField (multAnn arrow) (toLHsType lhs) (toLHsType rhs)
     A.TTuple flavor promotion elems ->
       case promotion of
-        A.Promoted -> HsExplicitTupleTy (noAnn, noAnn, noAnn) IsPromoted (map toLHsType elems)
+        A.Promoted -> HsExplicitTupleTy (noAnn, noAnn, noAnn) IsPromoted (map toLHsPromotedCollectionElem elems)
         A.Unpromoted -> HsTupleTy noAnn (tupleSort flavor) (map toLHsType elems)
     A.TUnboxedSum elems -> HsSumTy noAnn (map toLHsType elems)
     A.TList promotion elems ->
       case promotion of
-        A.Promoted -> HsExplicitListTy (noAnn, noAnn, noAnn) IsPromoted (map toLHsType elems)
+        A.Promoted -> HsExplicitListTy (noAnn, noAnn, noAnn) IsPromoted (map toLHsPromotedCollectionElem elems)
         A.Unpromoted | [elemTy] <- elems -> HsListTy noAnn (toLHsType elemTy)
         A.Unpromoted -> HsExplicitListTy (noAnn, noAnn, noAnn) NotPromoted (map toLHsType elems)
     A.TParen inner -> HsParTy parAnn (toLHsType inner)
     A.TKindSig inner kind -> HsKindSig noAnn (toLHsType inner) (toLHsType kind)
-    A.TContext context body -> HsQualTy noExtField (lA (map toLHsType context)) (toLHsType body)
+    A.TContext context body ->
+      case splitTrailingKindSig body of
+        Just (inner, kind) -> HsKindSig noAnn (lA (HsQualTy noExtField (lA (map toLHsType context)) (toLHsType inner))) (toLHsType kind)
+        _ -> HsQualTy noExtField (lA (map toLHsType context)) (toLHsType body)
     A.TSplice expr -> HsSpliceTy noExtField (HsUntypedSpliceExpr noAnn (toGhcLHsExpr expr))
     A.TWildcard -> HsWildCardTy noAnn
+
+splitTrailingKindSig :: A.Type -> Maybe (A.Type, A.Type)
+splitTrailingKindSig ty =
+  case A.peelTypeAnn ty of
+    A.TKindSig inner kind -> Just (inner, kind)
+    A.TForall telescope body -> do
+      (inner, kind) <- splitTrailingKindSig body
+      Just (A.TForall telescope inner, kind)
+    A.TContext context body -> do
+      (inner, kind) <- splitTrailingKindSig body
+      Just (A.TContext context inner, kind)
+    _ -> Nothing
 
 builtinType :: A.TypeBuiltinCon -> HsType GhcPs
 builtinType builtin =
   case builtin of
-    A.TBuiltinTuple arity -> HsTyVar noAnn NotPromoted (lA (getRdrName (tupleDataCon Boxed arity)))
+    A.TBuiltinTuple arity -> HsTyVar noAnn NotPromoted (lA (getRdrName (tupleTyCon Boxed arity)))
     A.TBuiltinArrow -> HsTyVar noAnn NotPromoted (lA (getRdrName unrestrictedFunTyConName))
     A.TBuiltinList -> HsTyVar noAnn NotPromoted (lA (getRdrName nilDataCon))
     A.TBuiltinCons -> HsTyVar noAnn NotPromoted (lA (mkRdrUnqual (mkDataOcc ":")))
+
+toLHsKindAppArg :: A.Type -> LHsType GhcPs
+toLHsKindAppArg ty =
+  case A.peelTypeAnn ty of
+    -- GHC preserves parentheses around @*@ when it appears as an invisible
+    -- kind argument.  For example, @f @*@ parses as an argument shaped like
+    -- @HsParTy (HsStarTy ...)@, while ordinary @*@ in type position is just
+    -- @HsStarTy@ under StarIsType.
+    A.TStar -> lA (HsParTy parAnn (toLHsType ty))
+    _ -> toLHsType ty
+
+toLHsPromotedCollectionElem :: A.Type -> LHsType GhcPs
+toLHsPromotedCollectionElem ty =
+  case A.peelTypeAnn ty of
+    A.TParen inner -> toLHsPromotedCollectionElem inner
+    _ -> toLHsType ty
 
 typeLit :: A.TypeLiteral -> HsTyLit GhcPs
 typeLit lit =
@@ -406,6 +1047,51 @@ typeLit lit =
     A.TypeLitInteger value _ -> HsNumTy NoSourceText value
     A.TypeLitSymbol value _ -> HsStrTy NoSourceText (mkFastString (T.unpack value))
     A.TypeLitChar value _ -> HsCharTy NoSourceText value
+
+promotedTupleNameElems :: A.Name -> Maybe [LHsType GhcPs]
+promotedTupleNameElems name
+  | isNothing (A.nameQualifier name),
+    Just body <- T.stripPrefix "(" (A.nameText name),
+    Just inner <- T.stripSuffix ")" body,
+    "," `T.isInfixOf` inner =
+      traverse promotedTupleNameElem (splitTopLevelCommas inner)
+  | otherwise = Nothing
+
+promotedListNameElems :: A.Name -> Maybe [LHsType GhcPs]
+promotedListNameElems name
+  | isNothing (A.nameQualifier name),
+    Just body <- T.stripPrefix "[" (A.nameText name),
+    Just inner <- T.stripSuffix "]" body =
+      traverse promotedTupleNameElem (splitTopLevelCommas inner)
+  | otherwise = Nothing
+
+promotedTupleNameElem :: T.Text -> Maybe (LHsType GhcPs)
+promotedTupleNameElem raw =
+  let text = T.strip raw
+   in case text of
+        "*" -> Just (lA (HsStarTy noExtField False))
+        _
+          | Just value <- decimalTypeName text ->
+              Just (lA (HsTyLit noExtField (HsNumTy NoSourceText value)))
+          | Just value <- stringTypeName text ->
+              Just (lA (HsTyLit noExtField (HsStrTy NoSourceText (mkFastString (T.unpack value)))))
+          | Just op <- T.stripPrefix "(" text >>= T.stripSuffix ")" ->
+              Just (lA (HsTyVar noAnn NotPromoted (lA (qualifiedSymbolTextRdrName op))))
+          | T.null text -> Nothing
+          | otherwise ->
+              Just (lA (HsTyVar noAnn NotPromoted (lA (toRdrName (A.nameFromText text)))))
+
+splitTopLevelCommas :: T.Text -> [T.Text]
+splitTopLevelCommas input =
+  reverse (current : parts)
+  where
+    (_, current, parts) = T.foldl' step (0 :: Int, "", []) input
+    step (depth, acc, done) char =
+      case char of
+        '(' -> (depth + 1, T.snoc acc char, done)
+        ')' -> (max 0 (depth - 1), T.snoc acc char, done)
+        ',' | depth == 0 -> (depth, "", acc : done)
+        _ -> (depth, T.snoc acc char, done)
 
 toWcType :: A.Type -> LHsWcType GhcPs
 toWcType ty = HsWC noExtField (toLHsType ty)
@@ -476,16 +1162,23 @@ valueBind value =
       FunBind noExtField (lA funName) (matchGroup (FunRhs (lA funName) Prefix NoSrcStrict noAnn) (map (functionMatch name) matches))
       where
         funName = toRdrName (A.qualifyName Nothing name)
-    A.PatternBind A.NoMultiplicityTag (A.PVar name) rhs ->
-      FunBind noExtField (lA funName) (matchGroup (FunRhs (lA funName) Prefix NoSrcStrict noAnn) [match (FunRhs (lA funName) Prefix NoSrcStrict noAnn) [] rhs])
-      where
-        funName = toRdrName (A.qualifyName Nothing name)
+    A.PatternBind A.NoMultiplicityTag pat rhs
+      | Just name <- varPatName pat ->
+          let funName = toRdrName (A.qualifyName Nothing name)
+           in FunBind noExtField (lA funName) (matchGroup (FunRhs (lA funName) Prefix NoSrcStrict noAnn) [match (FunRhs (lA funName) Prefix NoSrcStrict noAnn) [] rhs])
     A.PatternBind A.NoMultiplicityTag pat rhs
       | Just name <- strictVarPatName pat ->
           let funName = toRdrName (A.qualifyName Nothing name)
            in FunBind noExtField (lA funName) (matchGroup (FunRhs (lA funName) Prefix SrcStrict noAnn) [match (FunRhs (lA funName) Prefix SrcStrict noAnn) [] rhs])
     A.PatternBind multiplicity pat rhs ->
       PatBind noExtField (toLPat pat) (patMult multiplicity) (grhss rhs)
+
+varPatName :: A.Pattern -> Maybe A.UnqualifiedName
+varPatName pat =
+  case A.peelPatternAnn pat of
+    A.PAnn _ inner -> varPatName inner
+    A.PVar name -> Just name
+    _ -> Nothing
 
 strictVarPatName :: A.Pattern -> Maybe A.UnqualifiedName
 strictVarPatName pat =
@@ -551,13 +1244,6 @@ patMult tag =
     A.NoMultiplicityTag -> HsUnannotated EpPatBind
     A.LinearMultiplicityTag -> HsLinearAnn noAnn
     A.ExplicitMultiplicityTag ty -> HsExplicitMult (noAnn, EpPatBind) (toLHsType ty)
-
-toLHsDecl :: A.Decl -> LHsDecl GhcPs
-toLHsDecl decl =
-  case declBindSig decl of
-    (bind : _, _) -> lA (ValD noExtField (unLoc bind))
-    (_, sig : _) -> lA (SigD noExtField (unLoc sig))
-    _ -> lA (SpliceD noExtField (SpliceDecl noExtField (lA (HsUntypedSpliceExpr noAnn (toGhcLHsExpr (A.EVar "unsupportedDecl")))) DollarSplice))
 
 toLHsCmd :: A.Cmd -> LHsCmd GhcPs
 toLHsCmd = lA . toHsCmd
@@ -658,6 +1344,76 @@ toRdrName name =
    in case A.nameQualifier name of
         Nothing -> mkRdrUnqual local
         Just qualifier -> mkRdrQual (mkModuleName (T.unpack qualifier)) local
+
+qualifiedSymbolTextRdrName :: T.Text -> RdrName
+qualifiedSymbolTextRdrName text =
+  case qualifiedSymbolTextParts text of
+    Just (qualifier, symbol) -> mkRdrQual (mkModuleName (T.unpack qualifier)) (symbolicOcc symbol)
+    Nothing -> mkRdrUnqual (symbolicOcc text)
+
+qualifiedSymbolTextParts :: T.Text -> Maybe (T.Text, T.Text)
+qualifiedSymbolTextParts text =
+  listToMaybe $
+    reverse
+      [ (qualifier, symbol)
+      | (qualifier, rest) <- T.breakOnAll "." text,
+        let symbol = T.drop 1 rest,
+        isModulePathText qualifier,
+        isSymbolicNameText symbol
+      ]
+
+isModulePathText :: T.Text -> Bool
+isModulePathText text =
+  case T.splitOn "." text of
+    [] -> False
+    segments -> all isModuleSegmentText segments
+
+isModuleSegmentText :: T.Text -> Bool
+isModuleSegmentText text =
+  case T.uncons text of
+    Just (char, rest) -> isConIdentifierStartChar char && T.all isIdentChar rest
+    Nothing -> False
+
+isIdentChar :: Char -> Bool
+isIdentChar char = isIdentifierStartChar char || isIdentifierNumberChar char || char == '\''
+
+isIdentifierStartChar :: Char -> Bool
+isIdentifierStartChar char = char == '_' || generalCategory char == LowercaseLetter || isConIdentifierStartChar char
+
+isConIdentifierStartChar :: Char -> Bool
+isConIdentifierStartChar char = generalCategory char `elem` [UppercaseLetter, TitlecaseLetter]
+
+isIdentifierNumberChar :: Char -> Bool
+isIdentifierNumberChar char =
+  generalCategory char
+    `elem` [ DecimalNumber,
+             LetterNumber,
+             OtherNumber,
+             NonSpacingMark,
+             SpacingCombiningMark
+           ]
+
+symbolicOcc :: T.Text -> OccName
+symbolicOcc text
+  | Just (':', _) <- T.uncons text = mkDataOcc (T.unpack text)
+  | otherwise = mkVarOcc (T.unpack text)
+
+isSymbolicNameText :: T.Text -> Bool
+isSymbolicNameText text =
+  case T.uncons text of
+    Just (':', _) -> True
+    Just (char, _) -> not (isIdentifierStartChar char || char == '\'')
+    Nothing -> False
+
+decimalTypeName :: T.Text -> Maybe Integer
+decimalTypeName text =
+  case TR.decimal text of
+    Right (value, "") -> Just value
+    _ -> Nothing
+
+stringTypeName :: T.Text -> Maybe T.Text
+stringTypeName text =
+  T.stripPrefix "\"" text >>= T.stripSuffix "\""
 
 boxity :: A.TupleFlavor -> Boxity
 boxity flavor =
