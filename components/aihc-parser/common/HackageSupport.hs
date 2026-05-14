@@ -7,6 +7,7 @@ module HackageSupport
     downloadPackageQuiet,
     downloadPackageQuietWithNetwork,
     findPackageBuildToolDependencyNames,
+    findPackageDefaultsToHaskell98,
     findTargetFilesFromCabal,
     FileInfo (..),
     readTextFileLenient,
@@ -78,6 +79,12 @@ findPackageBuildToolDependencyNames :: FilePath -> IO [Text]
 findPackageBuildToolDependencyNames extractedRoot = do
   (gpd, _) <- parsePackageDescriptionFromRoot extractedRoot
   pure (HC.buildToolDependencyNames gpd)
+
+-- | Return whether any active library or executable defaults to Haskell98.
+findPackageDefaultsToHaskell98 :: FilePath -> IO Bool
+findPackageDefaultsToHaskell98 extractedRoot = do
+  (gpd, _) <- parsePackageDescriptionFromRoot extractedRoot
+  pure (HC.packageDefaultsToHaskell98 gpd)
 
 parsePackageDescriptionFromRoot :: FilePath -> IO (GenericPackageDescription, FilePath)
 parsePackageDescriptionFromRoot extractedRoot = do

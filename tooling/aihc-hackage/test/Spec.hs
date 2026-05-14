@@ -48,6 +48,8 @@ main =
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
+      testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
+      testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
       QC.testProperty "dummy quickcheck property" prop_dummy
     ]
 
@@ -141,6 +143,20 @@ test_extractsBuildToolDependencyNames = do
     (sort ["alex", "genprimopcode"])
     (sort (map T.unpack (HC.buildToolDependencyNames gpd)))
 
+test_detectsHaskell98DefaultLanguage :: Assertion
+test_detectsHaskell98DefaultLanguage = do
+  explicit <- parseTestCabal haskell98DefaultLanguageCabal
+  missing <- parseTestCabal missingDefaultLanguageCabal
+  supported <- parseTestCabal haskell2010DefaultLanguageCabal
+  assertBool "explicit Haskell98 default-language is unsupported" (HC.packageDefaultsToHaskell98 explicit)
+  assertBool "missing default-language falls back to Haskell98" (HC.packageDefaultsToHaskell98 missing)
+  assertBool "Haskell2010 default-language is supported" (not (HC.packageDefaultsToHaskell98 supported))
+
+test_ignoresInactiveHaskell98DefaultLanguage :: Assertion
+test_ignoresInactiveHaskell98DefaultLanguage = do
+  gpd <- parseTestCabal inactiveHaskell98DefaultLanguageCabal
+  assertBool "inactive Haskell98 branch should not filter the package" (not (HC.packageDefaultsToHaskell98 gpd))
+
 parseTestCabal :: String -> IO GenericPackageDescription
 parseTestCabal source =
   case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
@@ -211,6 +227,63 @@ buildToolDependsCabal =
       "  default-language: Haskell2010",
       "  if flag(generated)",
       "    build-tool-depends: inactive-tool:inactive-tool >= 0"
+    ]
+
+haskell98DefaultLanguageCabal :: String
+haskell98DefaultLanguageCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: haskell98-language",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: Haskell98Language",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell98"
+    ]
+
+missingDefaultLanguageCabal :: String
+missingDefaultLanguageCabal =
+  unlines
+    [ "cabal-version: 1.10",
+      "name: missing-language",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: MissingLanguage",
+      "  hs-source-dirs: src"
+    ]
+
+haskell2010DefaultLanguageCabal :: String
+haskell2010DefaultLanguageCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: haskell2010-language",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: Haskell2010Language",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010"
+    ]
+
+inactiveHaskell98DefaultLanguageCabal :: String
+inactiveHaskell98DefaultLanguageCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: inactive-haskell98-language",
+      "version: 0.1.0.0",
+      "",
+      "flag legacy",
+      "  default: False",
+      "  manual: True",
+      "",
+      "library",
+      "  exposed-modules: InactiveHaskell98Language",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010",
+      "  if flag(legacy)",
+      "    default-language: Haskell98"
     ]
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a

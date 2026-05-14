@@ -10,6 +10,7 @@ module StackageProgress.PackageRunner
     runPackage,
     runPackageOrThrow,
     packageDependsOnUnsupportedBuildTool,
+    packageUsesUnsupportedDefaultLanguage,
 
     -- * Source size calculation
     totalSourceSize,
@@ -24,6 +25,7 @@ import HackageSupport
   ( FileInfo (..),
     downloadPackageQuietWithNetwork,
     findPackageBuildToolDependencyNames,
+    findPackageDefaultsToHaskell98,
     findTargetFilesFromCabal,
   )
 import StackageProgress.CLI (Options (..))
@@ -66,6 +68,23 @@ packageRunOptionsFromStackageOptions opts =
 
 unsupportedBuildToolNames :: [Text]
 unsupportedBuildToolNames = ["genprimopcode"]
+
+-- | Return whether a package uses a default language edition unsupported by AIHC.
+packageUsesUnsupportedDefaultLanguage :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedDefaultLanguage opts spec = do
+  result <- try (packageUsesUnsupportedDefaultLanguageOrThrow opts spec) :: IO (Either SomeException Bool)
+  pure $ case result of
+    Right usesUnsupportedLanguage -> usesUnsupportedLanguage
+    Left _ -> False
+
+packageUsesUnsupportedDefaultLanguageOrThrow :: PackageRunOptions -> PackageSpec -> IO Bool
+packageUsesUnsupportedDefaultLanguageOrThrow opts spec = do
+  versionResult <- resolveSpecVersion spec
+  case versionResult of
+    Left _ -> pure False
+    Right version -> do
+      srcDir <- downloadPackageQuietWithNetwork (not (runOptOffline opts)) (pkgName spec) version
+      findPackageDefaultsToHaskell98 srcDir
 
 -- | Return whether a package's active Cabal metadata requires an unsupported build tool.
 packageDependsOnUnsupportedBuildTool :: PackageRunOptions -> PackageSpec -> IO Bool

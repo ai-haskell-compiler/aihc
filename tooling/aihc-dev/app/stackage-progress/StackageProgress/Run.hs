@@ -22,6 +22,7 @@ import StackageProgress.PackageRunner
   ( PackageRunOptions,
     packageDependsOnUnsupportedBuildTool,
     packageRunOptionsFromStackageOptions,
+    packageUsesUnsupportedDefaultLanguage,
     runPackage,
   )
 import StackageProgress.Snapshot (loadStackageSnapshotWithMode)
@@ -64,7 +65,7 @@ runPackages :: Options -> [PackageSpec] -> IO ()
 runPackages opts packages = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
   let packageRunOpts = packageRunOptionsFromStackageOptions opts
-  filteredPackages <- filterUnsupportedBuildToolPackages packageRunOpts jobs packages
+  filteredPackages <- filterUnsupportedPackages packageRunOpts jobs packages
   let total = length filteredPackages
   isStdoutTerminal <- hIsTerminalDevice stdout
   let showProgress = isStdoutTerminal && not (optPrompt opts)
@@ -148,8 +149,8 @@ runPackages opts packages = do
 
   if successOursN == total then exitSuccess else exitFailure
 
-filterUnsupportedBuildToolPackages :: PackageRunOptions -> Int -> [PackageSpec] -> IO [PackageSpec]
-filterUnsupportedBuildToolPackages opts n packages = do
+filterUnsupportedPackages :: PackageRunOptions -> Int -> [PackageSpec] -> IO [PackageSpec]
+filterUnsupportedPackages opts n packages = do
   queue <- newChan
   forM_ (zip [0 :: Int ..] packages) (writeChan queue . Just)
   replicateM_ workerCount (writeChan queue Nothing)
@@ -159,7 +160,9 @@ filterUnsupportedBuildToolPackages opts n packages = do
         case next of
           Nothing -> pure ()
           Just (ix, spec) -> do
-            unsupported <- packageDependsOnUnsupportedBuildTool opts spec
+            unsupportedBuildTool <- packageDependsOnUnsupportedBuildTool opts spec
+            unsupportedLanguage <- packageUsesUnsupportedDefaultLanguage opts spec
+            let unsupported = unsupportedBuildTool || unsupportedLanguage
             unless unsupported $
               modifyMVar_ keptVar (pure . ((ix, spec) :))
             worker
