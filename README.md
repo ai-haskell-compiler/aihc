@@ -19,12 +19,12 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`) ○○○○○                                                                                                              |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `161/3427` (`4.70%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3392/3426` (`99.01%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `3420/3426` (`99.82%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `24/34` (`70.58%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `27/28` (`96.42%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2177/2177` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
-| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `103/103` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2302/2302` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `104/104` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
@@ -35,11 +35,11 @@ Find more information here:
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1823 |     790 |    2613 |
 | aihc-fc            |   1218 |     637 |    1855 |
-| aihc-parser        |  12805 |   16779 |   29584 |
+| aihc-parser        |  12904 |   17120 |   30024 |
 | aihc-parser-compat |    876 |     578 |    1454 |
 | aihc-resolve       |   2138 |    1365 |    3503 |
 | aihc-tc            |   2559 |    1056 |    3615 |
-| **Total**          |  21419 |   21205 |   42624 |
+| **Total**          |  21518 |   21546 |   43064 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
