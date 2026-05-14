@@ -43,7 +43,7 @@ genType = scale (`div` 2) $ do
           (`TCon` Promoted) <$> genConName,
           TBuiltinCon <$> genTypeBuiltinCon,
           TTypeLit <$> genTypeLiteral,
-          pure TStar,
+          pure (TStar "*"),
           pure TWildcard,
           TQuasiQuote <$> genQuoterName <*> genQuasiBody,
           TTuple Boxed Unpromoted <$> elements [[], [TVar "a", TCon (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
@@ -58,7 +58,7 @@ genType = scale (`div` 2) $ do
           (`TCon` Promoted) <$> genConName,
           TBuiltinCon <$> genTypeBuiltinCon,
           TTypeLit <$> genTypeLiteral,
-          pure TStar,
+          pure (TStar "*"),
           pure TWildcard,
           TQuasiQuote <$> genQuoterName <*> genQuasiBody,
           TForall <$> genForallTelescope <*> genType,
@@ -185,7 +185,7 @@ genPromotedElem =
     [ TVar <$> genTypeVarName,
       (`TCon` Unpromoted) <$> genConName,
       genPromotedSafeTypeLiteral,
-      pure TStar
+      pure (TStar "*")
     ]
 
 -- | Generate type literals safe for use in promoted contexts (no char literals).
@@ -207,7 +207,7 @@ genSimpleTypeAtom =
     [ TVar <$> genTypeVarName,
       (`TCon` Unpromoted) <$> genConName,
       TTypeLit <$> genTypeLiteral,
-      pure TStar,
+      pure (TStar "*"),
       pure TWildcard,
       TQuasiQuote <$> genQuoterName <*> genQuasiBody,
       TTuple Boxed Unpromoted <$> genTypeTupleElems,
@@ -323,7 +323,7 @@ shrinkType ty =
           <> [TImplicitParam name inner' | inner' <- shrinkType inner]
       TTypeLit {} ->
         []
-      TStar ->
+      TStar {} ->
         []
       TQuasiQuote quoter body ->
         [TQuasiQuote q body | q <- shrinkIdent quoter]

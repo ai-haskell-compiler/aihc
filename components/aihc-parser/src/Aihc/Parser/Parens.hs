@@ -743,7 +743,7 @@ addBangTypeParens bt =
 bangTypeNeedsPrefixParens :: Type -> Bool
 bangTypeNeedsPrefixParens (TAnn _ sub) = bangTypeNeedsPrefixParens sub
 bangTypeNeedsPrefixParens (TParen _) = False
-bangTypeNeedsPrefixParens TStar = True
+bangTypeNeedsPrefixParens TStar {} = True
 bangTypeNeedsPrefixParens (TCon _ Promoted) = True
 bangTypeNeedsPrefixParens (TBuiltinCon TBuiltinCons) = True
 bangTypeNeedsPrefixParens (TBuiltinCon _) = False

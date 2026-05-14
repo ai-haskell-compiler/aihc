@@ -445,7 +445,7 @@ prettyType ty =
     TBuiltinCon con -> prettyTypeBuiltinCon con
     TImplicitParam name inner -> pretty name <+> "::" <+> prettyType inner
     TTypeLit lit -> prettyTypeLiteral lit
-    TStar -> "*"
+    TStar spelling -> pretty spelling
     TQuasiQuote quoter body -> prettyQuasiQuote quoter body
     TForall telescope inner ->
       prettyForallTelescope telescope <+> prettyType inner

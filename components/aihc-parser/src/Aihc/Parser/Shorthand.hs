@@ -637,7 +637,7 @@ docType ty =
     TBuiltinCon con -> "TBuiltinCon" <+> pretty (show con)
     TImplicitParam name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
     TTypeLit lit -> "TTypeLit" <+> docTypeLiteral lit
-    TStar -> "TStar"
+    TStar {} -> "TStar"
     TQuasiQuote quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
     TForall telescope inner ->
       case forallTelescopeVisibility telescope of

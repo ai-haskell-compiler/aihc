@@ -260,7 +260,7 @@ toGadtResultType details ty =
 isStarType :: A.Type -> Bool
 isStarType ty =
   case A.peelTypeAnn ty of
-    A.TStar -> True
+    A.TStar {} -> True
     _ -> False
 
 strictness :: A.BangType -> SrcStrictness
@@ -977,7 +977,7 @@ toHsType ty =
     A.TBuiltinCon builtin -> builtinType builtin
     A.TImplicitParam name inner -> HsIParamTy noAnn (lA (HsIPName (mkFastString (T.unpack (T.dropWhile (== '?') name))))) (toLHsType inner)
     A.TTypeLit lit -> HsTyLit noExtField (typeLit lit)
-    A.TStar -> HsStarTy noExtField False
+    A.TStar {} -> HsStarTy noExtField False
     A.TQuasiQuote quoter body -> HsSpliceTy noExtField (HsQuasiQuote noExtField (lA (toRdrName (A.nameFromText quoter))) (lA (mkFastString (T.unpack body))))
     A.TForall telescope body ->
       case splitTrailingKindSig body of
@@ -1033,7 +1033,7 @@ toLHsKindAppArg ty =
     -- kind argument.  For example, @f @*@ parses as an argument shaped like
     -- @HsParTy (HsStarTy ...)@, while ordinary @*@ in type position is just
     -- @HsStarTy@ under StarIsType.
-    A.TStar -> lA (HsParTy parAnn (toLHsType ty))
+    A.TStar {} -> lA (HsParTy parAnn (toLHsType ty))
     _ -> toLHsType ty
 
 toLHsPromotedCollectionElem :: A.Type -> LHsType GhcPs
