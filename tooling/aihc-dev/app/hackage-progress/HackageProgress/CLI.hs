@@ -9,6 +9,8 @@ module HackageProgress.CLI
 where
 
 import Data.List (nub)
+import Data.Time.Calendar (Day)
+import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Options.Applicative qualified as OA
 import StackageProgress.CLI qualified as StackageCLI
 
@@ -18,6 +20,7 @@ data Options = Options
     optJobs :: Maybe Int,
     optOffline :: Bool,
     optUpdateIndex :: Bool,
+    optUpdatedSince :: Maybe Day,
     optPrompt :: Bool,
     optPromptSeed :: Maybe Int,
     optPrintSucceeded :: Bool,
@@ -47,6 +50,14 @@ optionsParser =
     <*> OA.switch
       ( OA.long "update-index"
           <> OA.help "Fetch and cache a fresh Hackage index before testing"
+      )
+    <*> OA.optional
+      ( OA.option
+          dayReader
+          ( OA.long "updated-since"
+              <> OA.metavar "YYYY-MM-DD"
+              <> OA.help "Only test packages whose latest Hackage upload is on or after this date (default: five years ago)"
+          )
       )
     <*> OA.switch
       ( OA.long "prompt"
@@ -147,3 +158,10 @@ positiveIntReader = OA.eitherReader $ \raw ->
   case reads raw of
     [(n, "")] | n > 0 -> Right n
     _ -> Left "must be a positive integer"
+
+dayReader :: OA.ReadM Day
+dayReader =
+  OA.eitherReader $ \raw ->
+    case parseTimeM True defaultTimeLocale "%F" raw of
+      Just day -> Right day
+      Nothing -> Left "must be a date in YYYY-MM-DD format"
