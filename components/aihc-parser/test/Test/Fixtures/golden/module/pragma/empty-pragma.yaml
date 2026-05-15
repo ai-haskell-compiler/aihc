@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  {-##-}
+  module EmptyPragma where
+  x = 1
+ast: |-
+  Module {ModuleHead {"EmptyPragma"}, [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
+status: pass
