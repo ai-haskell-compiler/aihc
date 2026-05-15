@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  {-# OPTIONS -fglasgow-exts #-}
+  module OptionsGlasgowExtsMagicHash where
+  x# = 42#
+ast: |-
+  Module {ModuleHead {"OptionsGlasgowExtsMagicHash"}, [ConstrainedClassMethods, DeriveDataTypeable, DeriveFoldable, DeriveFunctor, DeriveGeneric, DeriveTraversable, EmptyDataDecls, ExistentialQuantification, ExplicitNamespaces, FlexibleContexts, FlexibleInstances, ForeignFunctionInterface, FunctionalDependencies, GeneralizedNewtypeDeriving, ImplicitParams, InterruptibleFFI, KindSignatures, LiberalTypeSynonyms, MagicHash, MultiParamTypeClasses, ParallelListComp, PatternGuards, PostfixOperators, RankNTypes, RecursiveDo, ScopedTypeVariables, StandaloneDeriving, TypeOperators, TypeSynonymInstances, UnboxedTuples, UnicodeSyntax, UnliftedFFITypes], [DeclValue (PatternBind (PVar "x#") (EInt 42 TIntHash))]}
+status: pass

@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  {-# LANGUAGE NoCPP #-}
+  module LanguageNoCPP where
+  x = 1
+ast: |-
+  Module {ModuleHead {"LanguageNoCPP"}, [DisableExtension CPP], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
+status: pass
