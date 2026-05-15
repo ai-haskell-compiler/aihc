@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Aihc.Hackage.Cabal qualified as HC
-import Aihc.Hackage.Index (parseHackageIndex)
+import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
 import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Codec.Archive.Tar qualified as Tar
@@ -45,6 +45,11 @@ main =
             [ PackageSpec "alpha" "1.2.0",
               PackageSpec "beta" "0.1"
             ],
+      testCase "filters Hackage index packages by latest upload time" $ do
+        parseHackageIndexUpdatedSince 100 testHackageIndex
+          @?= Right
+            [ PackageSpec "alpha" "1.2.0"
+            ],
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
@@ -69,20 +74,23 @@ testHackageIndex :: LBS.ByteString
 testHackageIndex =
   GZip.compress $
     Tar.write
-      [ cabalEntry "alpha/1.0.0/alpha.cabal",
-        cabalEntry "alpha/1.2.0/alpha.cabal",
-        cabalEntry "alpha/1.1.0/alpha.cabal",
-        cabalEntry "beta/0.1/beta.cabal",
+      [ cabalEntryAt "alpha/1.0.0/alpha.cabal" 20,
+        cabalEntryAt "alpha/1.2.0/alpha.cabal" 100,
+        cabalEntryAt "alpha/1.1.0/alpha.cabal" 200,
+        cabalEntryAt "beta/0.1/beta.cabal" 99,
         cabalEntry "beta/0.2/not-beta.cabal",
         cabalEntry "preferred-versions"
       ]
   where
     cabalEntry path =
+      cabalEntryAt path 0
+
+    cabalEntryAt path uploadedAt =
       case Tar.toTarPath False path of
         Left err -> error ("invalid test tar path: " <> show err)
         Right tarPath ->
           let contents = LBS.fromStrict (BSC.pack "name: ignored\n")
-           in Tar.simpleEntry tarPath (Tar.NormalFile contents (LBS.length contents))
+           in (Tar.simpleEntry tarPath (Tar.NormalFile contents (LBS.length contents))) {Tar.entryTime = uploadedAt}
 
 test_generatesPathsModule :: Assertion
 test_generatesPathsModule =

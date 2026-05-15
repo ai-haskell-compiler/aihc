@@ -144,6 +144,7 @@ executable aihc-dev
     prettyprinter,
     process >=1.6 && <1.8,
     text >=1.2.3 && <2.2,
+    time,
     yaml >=0.11 && <0.12,
 
   default-extensions: OverloadedStrings
@@ -212,6 +213,7 @@ test-suite spec
     tasty-hunit,
     tasty-quickcheck,
     text >=1.2.3 && <2.2,
+    time,
     yaml >=0.11 && <0.12,
 
   ghc-options: -Wall
