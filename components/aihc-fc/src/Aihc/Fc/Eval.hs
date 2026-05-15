@@ -59,6 +59,7 @@ primitiveEnv =
   Map.fromList
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
+      ("(,)", VConstructor "(,)" []),
       ("++", VPrim "++" 2 [])
     ]
 
@@ -224,6 +225,9 @@ renderRawValue value = do
   case forced of
     VLit lit -> pure (renderLiteral lit)
     VConstructor name [] -> pure name
+    VConstructor name args | isTupleConstructor name (length args) -> do
+      renderedArgs <- mapM renderRawArg args
+      pure ("(" <> T.intercalate "," renderedArgs <> ")")
     VConstructor name args -> do
       renderedArgs <- mapM renderRawArg args
       pure (T.unwords (name : renderedArgs))
@@ -237,5 +241,10 @@ renderRawArg value = do
   rendered <- renderRawValue forced
   pure $
     case forced of
+      VConstructor name args | isTupleConstructor name (length args) -> rendered
       VConstructor _ (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
+
+isTupleConstructor :: Text -> Int -> Bool
+isTupleConstructor name arity =
+  arity >= 2 && name == "(" <> T.replicate (arity - 1) "," <> ")"

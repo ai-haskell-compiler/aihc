@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    a + b = (a,b)
+    infixr 5 +
+output: |
+  ('a',('b','c'))
+expression: |
+  'a' + 'b' + 'c'
+status: pass
+reason: reassociates same-precedence right-associative operators to the right

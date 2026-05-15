@@ -1,11 +1,16 @@
 module Prelude
   ( Char,
+    List (..),
     String,
     (++),
   )
 where
 
 data Char
+
+data List a = [] | a : [a]
+
+infixr 5 :
 
 type String = [Char]
 

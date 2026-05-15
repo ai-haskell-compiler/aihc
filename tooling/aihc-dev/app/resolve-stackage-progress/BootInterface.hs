@@ -166,6 +166,7 @@ bootModuleToScope bmi =
       scopeConstructors = bmiConstructors bmi,
       scopeRecordFields = Map.empty,
       scopeMethods = bmiMethods bmi,
+      scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }
   where

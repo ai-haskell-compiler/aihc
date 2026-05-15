@@ -26,6 +26,7 @@ import Aihc.Parser.Syntax
     Name (..),
     Pattern (..),
     Rhs (..),
+    TupleFlavor (..),
     UnqualifiedName (..),
     ValueDecl (..),
     peelDeclAnn,
@@ -251,6 +252,8 @@ dsExpr (EInfix lhs op rhs) =
   dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExpr (EList elems) =
   foldr consList nilList <$> mapM dsExpr elems
+dsExpr (ETuple Boxed elems) =
+  dsTuple elems
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (EIf cond thenE elseE) = do
@@ -370,6 +373,24 @@ dsLocalGroup var group =
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar nilList text)
+
+dsTuple :: [Maybe Expr] -> DsM FcExpr
+dsTuple elems = do
+  elems' <- mapM dsMaybeTupleElem elems
+  pure (foldl' FcApp (tupleConExpr (length elems')) elems')
+
+dsMaybeTupleElem :: Maybe Expr -> DsM FcExpr
+dsMaybeTupleElem (Just expr) = dsExpr expr
+dsMaybeTupleElem Nothing = do
+  v <- freshVar "_tuple_section" unknownTy
+  pure (FcVar v)
+
+tupleConExpr :: Int -> FcExpr
+tupleConExpr arity =
+  FcVar (Var (tupleConName arity) (Unique (-20 - arity)) unknownTy)
+
+tupleConName :: Int -> Text
+tupleConName arity = "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
 
 consChar :: Char -> FcExpr -> FcExpr
 consChar char =

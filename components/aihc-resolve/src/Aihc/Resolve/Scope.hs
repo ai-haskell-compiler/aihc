@@ -2,6 +2,7 @@
 
 module Aihc.Resolve.Scope
   ( Scope (..),
+    OperatorFixity (..),
     ModuleExports,
     collectModuleExports,
     moduleScope,
@@ -12,8 +13,10 @@ module Aihc.Resolve.Scope
     insertType,
     lookupTerm,
     lookupType,
+    lookupFixity,
     resolveTermName,
     resolveTypeName,
+    resolveFixityName,
     collectPatVarBinders,
     tupleConName,
     unboxedSumConName,
@@ -30,8 +33,10 @@ import Aihc.Parser.Syntax
     DataDecl (..),
     Decl (..),
     FieldDecl (..),
+    FixityAssoc (..),
     GadtBody (..),
     IEBundledMember (..),
+    IEEntityNamespace (..),
     ImportDecl (..),
     ImportItem (..),
     ImportSpec (..),
@@ -67,8 +72,15 @@ data Scope = Scope
     scopeConstructors :: Map.Map Text [Text],
     scopeRecordFields :: Map.Map Text [Text],
     scopeMethods :: Map.Map Text [Text],
+    scopeFixities :: Map.Map Text OperatorFixity,
     scopeQualifiedModules :: Map.Map Text Scope
   }
+
+data OperatorFixity = OperatorFixity
+  { operatorFixityAssoc :: !FixityAssoc,
+    operatorFixityPrecedence :: !Int
+  }
+  deriving (Eq, Show)
 
 type ModuleExports = Map.Map Text Scope
 
@@ -86,14 +98,15 @@ topLevelScope modu =
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel . qualifyName (Just moduleKeyText)
     addDecl scope decl =
-      let DeclExports termNames typeNames constructors recordFields methods = declExportedNames decl
+      let DeclExports termNames typeNames constructors recordFields methods fixities = declExportedNames decl
           scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
           scope'' = foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
           scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
           scope'''' = scope''' {scopeRecordFields = recordFields `Map.union` scopeRecordFields scope'''}
-       in scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
+          scope''''' = scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
+       in scope''''' {scopeFixities = fixities `Map.union` scopeFixities scope'''''}
 
-data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text])
+data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text OperatorFixity)
 
 declExportedNames :: Decl -> DeclExports
 declExportedNames decl =
@@ -101,10 +114,20 @@ declExportedNames decl =
     DeclAnn _ inner -> declExportedNames inner
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty
+        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty
-    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty
+    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
+    DeclFixity assoc mNamespace mPrec ops
+      | mNamespace /= Just IEEntityNamespaceType ->
+          DeclExports
+            []
+            []
+            Map.empty
+            Map.empty
+            Map.empty
+            (Map.fromList [(renderUnqualifiedName op, OperatorFixity assoc (fromMaybe 9 mPrec)) | op <- ops])
+      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
     DeclClass classDecl ->
       let className = binderHeadName (classDeclHead classDecl)
           methodNames = classDeclMethodNames (classDeclItems classDecl)
@@ -114,6 +137,7 @@ declExportedNames decl =
             Map.empty
             Map.empty
             (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName methodNames))
+            Map.empty
     DeclTypeData dataDecl ->
       dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
     DeclData dataDecl ->
@@ -122,9 +146,9 @@ declExportedNames decl =
       let typeName = binderHeadName (newtypeDeclHead newtypeDecl)
           termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
           constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
-       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty
-    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty
-    _ -> DeclExports [] [] Map.empty Map.empty Map.empty
+       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty Map.empty
+    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty
+    _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
 
 dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports
 dataDeclExports headBinder constructors =
@@ -134,6 +158,7 @@ dataDeclExports headBinder constructors =
         [typeName]
         (constructorMap typeName (concatMap dataConDeclConstructorNames constructors))
         (recordFieldMap constructors)
+        Map.empty
         Map.empty
 
 constructorMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
@@ -258,6 +283,7 @@ filterImportSpec maybeSpec scope =
               scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
               scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeRecordFields scope),
               scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
+              scopeFixities = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeFixities scope),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
@@ -325,7 +351,7 @@ moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Scope containing all wired-in Haskell built-ins that have no defining
 -- source module but act like regular names during name resolution.
@@ -352,6 +378,7 @@ builtinScope =
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
+      scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }
   where
@@ -410,6 +437,7 @@ unionScope left right =
       scopeConstructors = scopeConstructors left `Map.union` scopeConstructors right,
       scopeRecordFields = scopeRecordFields left `Map.union` scopeRecordFields right,
       scopeMethods = scopeMethods left `Map.union` scopeMethods right,
+      scopeFixities = scopeFixities left `Map.union` scopeFixities right,
       scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
 
@@ -437,6 +465,13 @@ lookupType name scope =
     name
     (scopeTypes scope)
 
+lookupFixity :: Text -> Scope -> OperatorFixity
+lookupFixity name scope =
+  Map.findWithDefault defaultOperatorFixity name (scopeFixities scope)
+
+defaultOperatorFixity :: OperatorFixity
+defaultOperatorFixity = OperatorFixity InfixL 9
+
 filterScopeByNames :: (Text -> Bool) -> Scope -> Scope
 filterScopeByNames keep scope =
   Scope
@@ -445,8 +480,19 @@ filterScopeByNames keep scope =
       scopeConstructors = Map.filterWithKey (\name _ -> keep name) (scopeConstructors scope),
       scopeRecordFields = Map.filterWithKey (\name _ -> keep name) (scopeRecordFields scope),
       scopeMethods = Map.filterWithKey (\name _ -> keep name) (scopeMethods scope),
+      scopeFixities = Map.filterWithKey (\name _ -> keep name) (scopeFixities scope),
       scopeQualifiedModules = scopeQualifiedModules scope
     }
+
+resolveFixityName :: Scope -> Name -> OperatorFixity
+resolveFixityName scope name =
+  case nameQualifier name of
+    Just qualifier ->
+      case Map.lookup qualifier (scopeQualifiedModules scope) of
+        Nothing -> defaultOperatorFixity
+        Just qualifiedScope -> lookupFixity (nameText name) qualifiedScope
+    Nothing ->
+      lookupFixity (nameText name) scope
 
 collectPatVarBinders :: SourceSpan -> Pattern -> [(SourceSpan, UnqualifiedName)]
 collectPatVarBinders ambient pat =

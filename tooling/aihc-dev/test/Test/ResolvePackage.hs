@@ -117,6 +117,7 @@ mkScope terms types =
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
+      scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }
   where

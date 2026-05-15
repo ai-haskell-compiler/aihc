@@ -401,6 +401,7 @@ interfaceModuleScope modu =
       scopeConstructors = interfaceModuleConstructors modu,
       scopeRecordFields = interfaceModuleRecordFields modu,
       scopeMethods = interfaceModuleMethods modu,
+      scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }
 
@@ -556,7 +557,7 @@ parsePredJson =
       other -> fail ("unknown predicate tag: " <> T.unpack other)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f value =
