@@ -35,6 +35,10 @@ instanceOverlapPragmaParser =
 anyPragmaParser :: String -> TokParser Pragma
 anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
+-- | Report core:
+--
+-- > decl -> gendecl
+-- >      | (funlhs | pat) rhs
 declParser :: TokParser Decl
 declParser = pragmaDeclParser <|> ordinaryDeclParser
 
@@ -42,11 +46,15 @@ ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
   exprFallback <- exprDeclEnabled
+  typeSigPrefix <- startsWithTypeSig
   let tokKind = lexTokenKind tok
       nextTokKind = lexTokenKind nextTok
       valueDecl
         | exprFallback = MP.try valueDeclParser <|> exprDeclParser
         | otherwise = valueDeclParser
+      sigOrValueDecl
+        | typeSigPrefix = typeSigOrPatternTypeSigDeclParser
+        | otherwise = valueDecl
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -74,12 +82,12 @@ ordinaryDeclParser = do
     TkKeywordPattern -> patternSynonymParser
     TkVarId {} ->
       case nextTokKind of
-        TkReservedDoubleColon -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
-        TkSpecialComma -> MP.try typeSigOrPatternTypeSigDeclParser <|> valueDecl
+        TkReservedDoubleColon -> sigOrValueDecl
+        TkSpecialComma -> sigOrValueDecl
         TkReservedEquals -> valueDecl
         _ -> nonBareVarPatternBindDeclParser <|> valueDecl
     _ ->
-      MP.try typeSigOrPatternTypeSigDeclParser
+      (if typeSigPrefix then typeSigOrPatternTypeSigDeclParser else MP.empty)
         <|> MP.try valueDeclParser
         <|> patternBindDeclParser
         <|> (if exprFallback then exprDeclParser else MP.empty)
@@ -126,6 +134,8 @@ exprDeclParser = DeclSplice <$> exprParser
 -- then dispatches based on the next token:
 -- - @::@ → standalone kind signature (must have zero type parameters)
 -- - @=@ → type synonym
+--
+-- > topdecl -> 'type' simpletype '=' type
 typeDeclarationParser :: TokParser Decl
 typeDeclarationParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
@@ -517,11 +527,13 @@ instanceNewtypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $
 
 -- ---------------------------------------------------------------------------
 
+-- | Report core general declaration:
+--
+-- > gendecl -> vars '::' [context '=>'] type
 typeSigDeclParser :: TokParser Decl
-typeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
-  expectedTok TkReservedDoubleColon
-  DeclTypeSig names <$> typeParser
+typeSigDeclParser =
+  withSpanAnn (DeclAnn . mkAnnotation) $
+    uncurry DeclTypeSig <$> typedSignaturePrefixParser typeParser
 
 -- | Parse a type signature or a pattern-typed equation.
 --
@@ -536,25 +548,26 @@ typeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
 -- reinterpreted as a pattern-typed equation; otherwise a plain type signature
 -- is returned.
 typeSigOrPatternTypeSigDeclParser :: TokParser Decl
-typeSigOrPatternTypeSigDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
-  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
-  expectedTok TkReservedDoubleColon
-  ty <- typeParser
-  nextKind <- lexTokenKind <$> lookAhead anySingle
-  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
-    then case names of
-      [name] -> do
-        rhs <- equationRhsParser
-        let pat = PTypeSig (PVar name) ty
-        pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
-      _ -> fail "typed pattern bindings with '=' require exactly one binder"
-    else pure (DeclTypeSig names ty)
+typeSigOrPatternTypeSigDeclParser =
+  withSpanAnn (DeclAnn . mkAnnotation) $
+    typedBindingOrSignatureParser
+      typeParser
+      DeclTypeSig
+      ( \name ty -> do
+          rhs <- equationRhsParser
+          let pat = PTypeSig (PVar name) ty
+          pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
+      )
+      "typed pattern bindings with '=' require exactly one binder"
 
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = do
   expectedTok TkKeywordDefault
   DeclDefault <$> parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
+-- | Report core general declaration:
+--
+-- > gendecl -> fixity [integer] ops
 fixityDeclParser :: TokParser Decl
 fixityDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   (parsedAssoc, prec, mNamespace, ops) <- fixityDeclPartsParser
@@ -605,6 +618,9 @@ fixityOperatorParser =
       expectedTok TkSpecialBacktick
       pure op
 
+-- | Report core:
+--
+-- > topdecl -> 'class' [scontext '=>'] tycls tyvar ['where' cdecls]
 classDeclParser :: TokParser Decl
 classDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordClass
@@ -649,11 +665,16 @@ whereClauseItemsParser itemParser = do
   expectedTok TkKeywordWhere
   bracedSemiSep itemParser <|> plainSemiSep1 itemParser <|> pure []
 
+-- | Report core:
+--
+-- > cdecl -> gendecl
+-- >       | (funlhs | var) rhs
 classDeclItemParser :: TokParser ClassDeclItem
 classDeclItemParser =
   classPragmaItemParser
     <|> do
       (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
+      typeSigPrefix <- startsWithTypeSig
       case lexTokenKind tok of
         TkKeywordInfix -> classFixityItemParser
         TkKeywordInfixl -> classFixityItemParser
@@ -663,7 +684,7 @@ classDeclItemParser =
         TkKeywordType
           | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
         TkKeywordType -> MP.try classTypeFamilyDeclParser <|> classDefaultTypeInstShorthandParser
-        _ -> MP.try classTypeSigItemParser <|> classDefaultItemParser
+        _ -> (if typeSigPrefix then classTypeSigItemParser else classDefaultItemParser)
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser =
@@ -686,6 +707,9 @@ classFixityItemParser = fixityItemParser (ClassItemAnn . mkAnnotation) ClassItem
 classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = valueItemParser (ClassItemAnn . mkAnnotation) ClassItemDefault
 
+-- | Report core:
+--
+-- > topdecl -> 'instance' [scontext '=>'] qtycls inst ['where' idecls]
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordInstance
@@ -732,11 +756,16 @@ instanceWhereClauseParser = do
     <|> plainSemiSep1 instanceDeclItemParser
     <|> pure []
 
+-- | Report core:
+--
+-- > idecl -> (funlhs | var) rhs
+-- >       | empty
 instanceDeclItemParser :: TokParser InstanceDeclItem
 instanceDeclItemParser =
   instancePragmaItemParser
     <|> do
       tok <- lookAhead anySingle
+      typeSigPrefix <- startsWithTypeSig
       case lexTokenKind tok of
         TkKeywordInfix -> instanceFixityItemParser
         TkKeywordInfixl -> instanceFixityItemParser
@@ -744,7 +773,7 @@ instanceDeclItemParser =
         TkKeywordData -> instanceDataFamilyInstParser
         TkKeywordNewtype -> instanceNewtypeFamilyInstParser
         TkKeywordType -> instanceTypeFamilyInstParser
-        _ -> MP.try instanceTypeSigItemParser <|> instanceValueItemParser
+        _ -> (if typeSigPrefix then instanceTypeSigItemParser else instanceValueItemParser)
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $ do
@@ -764,10 +793,7 @@ instanceValueItemParser = valueItemParser (InstanceItemAnn . mkAnnotation) Insta
 -- Shared class/instance item helpers
 
 typeSigItemParser :: (SourceSpan -> a -> a) -> ([UnqualifiedName] -> Type -> a) -> TokParser a
-typeSigItemParser ann ctor = withSpanAnn ann $ do
-  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
-  expectedTok TkReservedDoubleColon
-  ctor names <$> typeParser
+typeSigItemParser ann ctor = withSpanAnn ann $ uncurry ctor <$> typedSignaturePrefixParser typeParser
 
 fixityItemParser :: (SourceSpan -> a -> a) -> (FixityAssoc -> Maybe IEEntityNamespace -> Maybe Int -> [UnqualifiedName] -> a) -> TokParser a
 fixityItemParser ann ctor = withSpanAnn ann $ do
@@ -847,6 +873,9 @@ gadtDataDeclParser = do
   derivingClauses <- MP.many derivingClauseParser
   pure (constructors, derivingClauses)
 
+-- | Report core:
+--
+-- > topdecl -> 'data' [context '=>'] simpletype ['=' constrs] [deriving]
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordData
@@ -1049,6 +1078,9 @@ unboxedConDeclParser forallVars context = do
               let arity = 1 + 1 + length trailingPipes
               pure $ \span' -> DataConAnn (mkAnnotation span') (UnboxedSumCon forallVars context 1 arity firstField)
 
+-- | Report core:
+--
+-- > topdecl -> 'newtype' [context '=>'] simpletype '=' newconstr [deriving]
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   expectedTok TkKeywordNewtype
@@ -1162,6 +1194,8 @@ declContextParser = contextParserWith typeParser typeAtomParser
 -- | Parse a type/class declaration head, parameterised by the infix operator parser.
 -- Handles prefix (@T a b@), infix (@a op b@), parenthesised-infix (@(a op b) c@),
 -- and parenthesised-prefix (@(T a b) c@) forms.
+--
+-- > simpletype -> tycon tyvar_1 ... tyvar_k
 declHeadParserWith :: TokParser UnqualifiedName -> TokParser (BinderHead UnqualifiedName)
 declHeadParserWith opParser =
   MP.try parenthesizedInfixDeclHeadParser
@@ -1211,46 +1245,9 @@ typeSynonymOperatorParser =
       pure op
 
 typeFamilyHeadParser :: TokParser (TypeHeadForm, Type, [TyVarBinder])
-typeFamilyHeadParser =
-  MP.try parenthesizedInfixHeadParser
-    <|> MP.try infixHeadParser
-    <|> prefixHeadParser
-  where
-    prefixHeadParser = do
-      headType <- withSpan $ do
-        name <-
-          constructorNameParser
-            <|> (qualifyName Nothing <$> parens operatorUnqualifiedNameParser)
-        pure (\span' -> typeAnnSpan span' (TCon name Unpromoted))
-      params <- MP.many declTypeParamParser
-      pure (TypeHeadPrefix, headType, params)
-
-    infixHeadParser = do
-      lhs <- declTypeParamParser
-      op <- typeFamilyOperatorParser
-      rhs <- declTypeParamParser
-      let lhsType =
-            TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
-          rhsType =
-            TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
-      headType <- withSpan $ do
-        pure $ \span' -> typeAnnSpan span' (TInfix lhsType op Unpromoted rhsType)
-      pure (TypeHeadInfix, headType, [lhs, rhs])
-
-    parenthesizedInfixHeadParser = do
-      expectedTok TkSpecialLParen
-      lhs <- declTypeParamParser
-      op <- typeFamilyOperatorParser
-      rhs <- declTypeParamParser
-      expectedTok TkSpecialRParen
-      tailParams <- MP.many declTypeParamParser
-      let lhsType =
-            TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
-          rhsType =
-            TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
-      headType <- withSpan $ do
-        pure $ \span' -> typeAnnSpan span' (TInfix lhsType op Unpromoted rhsType)
-      pure (TypeHeadInfix, headType, [lhs, rhs] <> tailParams)
+typeFamilyHeadParser = withSpan $ do
+  binderHead <- declHeadParserWith (nameToUnqualified <$> typeFamilyOperatorParser)
+  pure (`binderHeadToTypeFamilyHead` binderHead)
 
 -- | Parse an operator for type family declarations.
 -- Unlike 'constructorOperatorParser', this accepts both constructor symbols (@:+:@)
@@ -1289,6 +1286,24 @@ classHeadParser = declHeadParserWith (nameToUnqualified <$> typeFamilyOperatorPa
 
 nameToUnqualified :: Name -> UnqualifiedName
 nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
+
+binderHeadToTypeFamilyHead :: SourceSpan -> BinderHead UnqualifiedName -> (TypeHeadForm, Type, [TyVarBinder])
+binderHeadToTypeFamilyHead span' binderHead =
+  case binderHead of
+    PrefixBinderHead name params ->
+      ( TypeHeadPrefix,
+        typeAnnSpan span' (TCon (qualifyName Nothing name) Unpromoted),
+        params
+      )
+    InfixBinderHead lhs op rhs tailParams ->
+      ( TypeHeadInfix,
+        typeAnnSpan span' (TInfix lhsType opName Unpromoted rhsType),
+        [lhs, rhs] <> tailParams
+      )
+      where
+        lhsType = TVar (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
+        rhsType = TVar (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
+        opName = qualifyName Nothing op
 
 explicitForallBinderParser :: TokParser TyVarBinder
 explicitForallBinderParser =

@@ -21,6 +21,10 @@ import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
+-- | Report core:
+--
+-- > pat -> lpat qconop pat
+-- >     | lpat
 patternParser :: TokParser Pattern
 patternParser = patternParserWithTypeSigParser typeParser
 
@@ -39,6 +43,8 @@ patternParserWithTypeSigParser typeSigParser =
 -- rhs@ is accepted because the signature is parenthesized into an atomic
 -- pattern.  Use the report @pat@ level here so the outer @::@ is left for the
 -- case RHS parser, which then rejects it.
+-- | Case alternatives intentionally use the report @pat@ level rather than
+-- the outer typed-pattern wrapper.
 caseAltPatternParser :: TokParser Pattern
 caseAltPatternParser = patParser
 

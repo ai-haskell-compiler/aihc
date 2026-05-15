@@ -15,7 +15,7 @@ where
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Cmd (cmdParser)
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser, typeSigDeclParser)
+import Aihc.Parser.Internal.Decl (declParser, fixityDeclParser, pragmaDeclParser)
 import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patParser, patternParser)
 import Aihc.Parser.Internal.Type (typeAtomParser, typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
@@ -45,6 +45,9 @@ exprOrPatternBindParser exprP rhsP bindCtor exprCtor = do
       bindCtor pat <$> rhsP
     Nothing -> pure (exprCtor expr)
 
+-- | Report core:
+--
+-- > exp -> infixexp ['::' type]
 exprParser :: TokParser Expr
 exprParser =
   exprParserWithTypeSigParser typeSignatureParser
@@ -61,20 +64,16 @@ exprCoreParserWithoutTypeSig = do
     Just sccPragma -> EPragma sccPragma <$> exprCoreParserWithoutTypeSig
     Nothing -> exprCoreParserWithoutTypeSigBody
 
+-- | Report core:
+--
+-- > infixexp -> lexp qop infixexp
+-- >          | '-' infixexp
+-- >          | lexp
+--
+-- Extensions reuse the same infix chain shape by swapping the @lexp@
+-- parser that supplies operands.
 exprCoreParserWithoutTypeSigBody :: TokParser Expr
-exprCoreParserWithoutTypeSigBody = do
-  base <-
-    doExprParser
-      <|> mdoExprParser
-      <|> qualifiedDoExprParser
-      <|> qualifiedMdoExprParser
-      <|> ifExprParser
-      <|> letExprParser
-      <|> procExprParser
-      <|> lambdaExprParser
-      <|> infixExprParser
-  rest <- MP.many ((,) <$> infixOperatorParser <*> region "after infix operator" lexpParser)
-  pure (foldInfixL buildInfix base rest)
+exprCoreParserWithoutTypeSigBody = exprInfixChainParser lexpParser
 
 exprCoreParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprCoreParserWithTypeSigParser typeSigParser = do
@@ -240,12 +239,11 @@ doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   expectedTok TkKeywordRec
   DoRecStmt <$> bracedSemiSep1 doStmtParser
 
-infixExprParser :: TokParser Expr
-infixExprParser = infixExprParserWith lexpParser
-
-infixExprParserWith :: TokParser Expr -> TokParser Expr
-infixExprParserWith lexp = do
-  lhs <- MP.try negateExprParser <|> lexp
+-- | Shared infix-chain parser used by the report core and contextual
+-- expression variants such as TransformListComp.
+exprInfixChainParser :: TokParser Expr -> TokParser Expr
+exprInfixChainParser lexp = do
+  lhs <- lexp
   rest <-
     MP.many
       ( (,)
@@ -254,7 +252,16 @@ infixExprParserWith lexp = do
       )
   pure (foldInfixL buildInfix lhs rest)
 
--- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
+-- | Report core:
+--
+-- > lexp -> '\\' apat_1 ... apat_n '->' exp
+-- >      | 'let' decls 'in' exp
+-- >      | 'if' exp [';'] 'then' exp [';'] 'else' exp
+-- >      | 'case' exp 'of' '{' alts '}'
+-- >      | 'do' '{' stmts '}'
+-- >      | fexp
+--
+-- Extensions add more block-like forms at this grammar level.
 lexpParser :: TokParser Expr
 lexpParser = do
   mSCC <- optionalHiddenPragma getSCCPragma
@@ -276,6 +283,15 @@ reportLexpParser appParser =
   lexpBlockParser
     <|> appParser
 
+-- | Report core block forms:
+--
+-- > lexp -> '\\' apat_1 ... apat_n '->' exp
+-- >      | 'let' decls 'in' exp
+-- >      | 'if' exp [';'] 'then' exp [';'] 'else' exp
+-- >      | 'case' exp 'of' '{' alts '}'
+-- >      | 'do' '{' stmts '}'
+--
+-- GHC extensions extend this set with @mdo@, qualified @do@, and @proc@.
 lexpBlockParser :: TokParser Expr
 lexpBlockParser =
   doExprParser
@@ -338,9 +354,14 @@ overloadedLabelExprParser =
       TkOverloadedLabel lbl repr -> Just (EOverloadedLabel lbl repr)
       _ -> Nothing
 
+-- | Report core:
+--
+-- > fexp -> [fexp] aexp
 appExprParser :: TokParser Expr
 appExprParser = appExprParserWith atomOrRecordExprParser
 
+-- | Shared application parser used by the report core and contextual
+-- variants.  The caller chooses the @aexp@-like atom parser.
 appExprParserWith :: TokParser Expr -> TokParser Expr
 appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
   first <- atomParser
@@ -446,6 +467,19 @@ recordFieldBindingParser = withSpan $ do
 
 -- | Parse the expression forms that correspond to the report's @aexp@
 -- production and can therefore be record construction/update bases.
+--
+-- > aexp -> qvar
+-- >      | gcon
+-- >      | literal
+-- >      | '(' exp ')'
+-- >      | '(' exp_1 ',' ... ',' exp_k ')'
+-- >      | '[' exp_1 ',' ... ',' exp_k ']'
+-- >      | '[' exp_1 [',' exp_2] '..' [exp_3] ']'
+-- >      | '[' exp '|' qual_1 ',' ... ',' qual_n ']'
+-- >      | '(' infixexp qop ')'
+-- >      | '(' qop infixexp ')'
+-- >      | qcon '{' fbind_1 ',' ... ',' fbind_n '}'
+-- >      | aexp<qcon> '{' fbind_1 ',' ... ',' fbind_n '}'
 recordBaseAtomExprParser :: TokParser Expr
 recordBaseAtomExprParser = do
   thAny <- thAnyEnabled
@@ -471,6 +505,11 @@ recordBaseAtomExprParser = do
         <|> varExprParser
 
 -- | Parse an atom without record construction/update syntax.
+--
+-- > aexp -> qvar | gcon | literal | '(' exp ')' | ...
+--
+-- This variant also admits extension-only atoms such as block arguments and
+-- explicit namespace syntax when the corresponding extensions are enabled.
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
@@ -576,6 +615,11 @@ operatorExprNameParser =
 rhsParser :: TokParser (Rhs Expr)
 rhsParser = label "right-hand side" (caseRhsParserWithBodyParser exprParser)
 
+-- | Report core:
+--
+-- > rhs   -> '=' exp ['where' decls]
+-- >       | gdrhs ['where' decls]
+-- > gdrhs -> guards '=' exp [gdrhs]
 equationRhsParser :: TokParser (Rhs Expr)
 equationRhsParser = label "equation right-hand side" (rhsParserWithBodyParser RhsArrowEquation exprParser)
 
@@ -639,6 +683,10 @@ guardedRhsParserWithBodyParser arrowKind bodyParser = withSpan $ do
 
 -- | Parse a guard qualifier. The 'RhsArrowKind' controls whether guard
 -- expressions may carry a bare top-level type signature before the RHS arrow.
+--
+-- > guard -> pat '<-' infixexp
+-- >       | 'let' decls
+-- >       | infixexp
 guardQualifierParser :: RhsArrowKind -> TokParser GuardQualifier
 guardQualifierParser arrowKind = do
   tok <- lookAhead anySingle
@@ -1011,26 +1059,16 @@ compTransformExprParser =
       compTransformExprWithoutTypeSigParser
 
 -- | Parse the core of a TransformListComp expression (without type signature suffix).
+--
+-- This reuses the normal @infixexp@ ladder, but with an @aexp@ parser that
+-- treats bare @by@ and @using@ as terminators rather than variable atoms.
 compTransformExprWithoutTypeSigParser :: TokParser Expr
-compTransformExprWithoutTypeSigParser = do
-  base <-
-    doExprParser
-      <|> mdoExprParser
-      <|> qualifiedDoExprParser
-      <|> qualifiedMdoExprParser
-      <|> ifExprParser
-      <|> letExprParser
-      <|> procExprParser
-      <|> lambdaExprParser
-      <|> compTransformInfixExprParser
-  rest <- MP.many ((,) <$> infixOperatorParser <*> compTransformLexpParser)
-  pure (foldInfixL buildInfix base rest)
+compTransformExprWithoutTypeSigParser = exprInfixChainParser compTransformLexpParser
 
+-- | TransformListComp still uses the report @lexp@ layering; only its atom
+-- parser changes.
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser = lexpBaseParser compTransformAppExprParser
-
-compTransformInfixExprParser :: TokParser Expr
-compTransformInfixExprParser = infixExprParserWith compTransformLexpParser
 
 compTransformAppExprParser :: TokParser Expr
 compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser
@@ -1061,6 +1099,9 @@ compLetStmtParser :: TokParser CompStmt
 compLetStmtParser = withSpanAnn (CompAnn . mkAnnotation) $ do
   CompLetDecls <$> parseLetDeclsStmtParser
 
+-- | Report core:
+--
+-- > lexp -> '\\' apat_1 ... apat_n '->' exp
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkReservedBackslash
@@ -1085,6 +1126,9 @@ lambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
     bracedCaseAlts = bracedSemiSep caseAltParser
     bracedLambdaCaseAlts = bracedSemiSep lambdaCaseAltParser
 
+-- | Report core:
+--
+-- > lexp -> 'let' decls 'in' exp
 letExprParser :: TokParser Expr
 letExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   decls <- parseLetDeclsParser
@@ -1096,32 +1140,32 @@ whereClauseParser = do
   expectedTok TkKeywordWhere
   bracedDeclsMaybeEmpty
 
+-- | Report core local declarations:
+--
+-- > decl -> gendecl
+-- >      | (funlhs | pat) rhs
 localDeclsParser :: TokParser Decl
-localDeclsParser =
+localDeclsParser = do
+  typeSigPrefix <- startsWithTypeSig
   pragmaDeclParser
     <|> implicitParamDeclParser
     <|> fixityDeclParser
-    <|> MP.try localTypeSigDeclsParser
+    <|> (if typeSigPrefix then localTypeSigDeclsParser else MP.empty)
     <|> MP.try localFunctionDeclParser
     <|> localPatternDeclParser
 
 localTypeSigDeclsParser :: TokParser Decl
-localTypeSigDeclsParser = do
-  sig <- typeSigDeclParser
-  let (names, ty) =
-        case peelDeclAnn sig of
-          DeclTypeSig sigNames sigTy -> (sigNames, sigTy)
-          _ -> error "typeSigDeclParser must produce DeclTypeSig"
-  nextKind <- lexTokenKind <$> lookAhead anySingle
-  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
-    then case names of
-      [name] -> do
-        rhs <- equationRhsParser
-        let pat = PTypeSig (PVar name) ty
-        pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
-      _ ->
-        fail "local typed bindings with '=' or guards require exactly one binder"
-    else pure sig
+localTypeSigDeclsParser =
+  withSpanAnn (DeclAnn . mkAnnotation) $
+    typedBindingOrSignatureParser
+      typeParser
+      DeclTypeSig
+      ( \name ty -> do
+          rhs <- equationRhsParser
+          let pat = PTypeSig (PVar name) ty
+          pure (DeclValue (PatternBind NoMultiplicityTag pat rhs))
+      )
+      "local typed bindings with '=' or guards require exactly one binder"
 
 localFunctionDeclParser :: TokParser Decl
 localFunctionDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

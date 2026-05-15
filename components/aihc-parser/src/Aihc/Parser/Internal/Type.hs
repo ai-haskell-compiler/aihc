@@ -40,12 +40,18 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
     bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       EVar <$> identifierNameParser
 
+-- | Report core plus outer extension forms:
+--
+-- > type -> btype ['->' type]
 typeParser :: TokParser Type
 typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
 
+-- | Type syntax accepted after expression signatures. This keeps the same
+-- report core while allowing outer @forall@ and context forms.
 typeSignatureParser :: TokParser Type
 typeSignatureParser = label "type" $ forallSignatureTypeParser <|> contextOrFunSignatureTypeParser
 
+-- | Extension form wrapping the report core with a kind annotation.
 kindSigTypeParser :: TokParser Type
 kindSigTypeParser =
   optionalSuffix
@@ -53,6 +59,9 @@ kindSigTypeParser =
     TKindSig
     contextOrFunTypeParser
 
+-- | Extension form:
+--
+-- > forall a_1 ... a_n . type
 forallSignatureTypeParser :: TokParser Type
 forallSignatureTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
@@ -64,29 +73,30 @@ contextOrFunSignatureTypeParser = do
   if isContextType then contextSignatureTypeParser else typeFunSignatureParser
 
 contextSignatureTypeParser :: TokParser Type
-contextSignatureTypeParser = do
-  constraints <- contextItemsParserWith typeSignatureParser typeAtomParser
-  expectedTok TkReservedDoubleArrow
-  TContext constraints <$> typeSignatureParser
+contextSignatureTypeParser = contextTypeParserWith typeSignatureParser
 
+-- | Report core plus extension infix-type support:
+--
+-- > type -> btype ['->' type]
 typeFunSignatureParser :: TokParser Type
-typeFunSignatureParser = do
-  lhs <- typeInfixParser
-  mArrow <- MP.optional arrowKindParser
-  case mArrow of
-    Nothing -> pure lhs
-    Just arrowKind -> TFun arrowKind lhs <$> typeSignatureParser
+typeFunSignatureParser = typeFunParserWith typeSignatureParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
   isContextType <- startsWithContextType
   if isContextType then contextTypeParser else typeFunParser
 
+-- | Extension form:
+--
+-- > forall a_1 ... a_n . type
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
   TForall telescope <$> typeParser
 
+-- | Extension form:
+--
+-- > forall -> 'forall' binder_1 ... binder_n ('.' | '->')
 forallTelescopeParser :: TokParser ForallTelescope
 forallTelescopeParser = do
   expectedTok TkKeywordForall
@@ -122,21 +132,31 @@ forallBinderParser =
           )
 
 contextTypeParser :: TokParser Type
-contextTypeParser = do
-  constraints <- contextItemsParser
-  expectedTok TkReservedDoubleArrow
-  TContext constraints <$> typeParser
+contextTypeParser = contextTypeParserWith typeParser
 
 contextItemsParser :: TokParser [Type]
 contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
+contextTypeParserWith :: TokParser Type -> TokParser Type
+contextTypeParserWith rhsParser = do
+  constraints <- contextItemsParserWith rhsParser typeAtomParser
+  expectedTok TkReservedDoubleArrow
+  TContext constraints <$> rhsParser
+
+-- | Report core plus extension infix-type support:
+--
+-- > type -> btype ['->' type]
+-- > btype -> [btype] atype
 typeFunParser :: TokParser Type
-typeFunParser = do
+typeFunParser = typeFunParserWith typeParser
+
+typeFunParserWith :: TokParser Type -> TokParser Type
+typeFunParserWith rhsParser = do
   lhs <- typeInfixParser
   mArrow <- MP.optional arrowKindParser
   case mArrow of
     Nothing -> pure lhs
-    Just arrowKind -> TFun arrowKind lhs <$> typeParser
+    Just arrowKind -> TFun arrowKind lhs <$> rhsParser
 
 -- | Parse an arrow annotation and consume the @->@ token.
 -- Handles @->@ (unrestricted), @⊸@ (linear), @%1 ->@ (linear), and @%m ->@
@@ -170,6 +190,9 @@ multiplicityToArrowKind ty =
     TTypeLit (TypeLitInteger 1 _) -> ArrowLinear
     _ -> ArrowExplicit ty
 
+-- | Extension layer over the report's @btype@ chain:
+--
+-- > btype -> [btype] atype
 typeInfixParser :: TokParser Type
 typeInfixParser = do
   lhs <- typeAppParser
@@ -244,6 +267,9 @@ typeInfixOperatorParser =
           TkQConSym modQual sym -> Just (mkName (Just modQual) NameConSym sym, Promoted)
           _ -> Nothing
 
+-- | Report core:
+--
+-- > btype -> [btype] atype
 typeAppParser :: TokParser Type
 typeAppParser = do
   first <- typeAtomParser
@@ -265,6 +291,16 @@ applyTypeAppArg :: Type -> Either Type Type -> Type
 applyTypeAppArg fn (Left ty) = TTypeApp fn ty
 applyTypeAppArg fn (Right ty) = TApp fn ty
 
+-- | Report core:
+--
+-- > atype -> gtycon
+-- >       | tyvar
+-- >       | '(' type_1 ',' ... ',' type_k ')'
+-- >       | '[' type ']'
+-- >       | '(' type ')'
+--
+-- This parser also admits extension atoms such as promoted types,
+-- quasi-quotes, splices, wildcards, and implicit-parameter types.
 typeAtomParser :: TokParser Type
 typeAtomParser = do
   thAny <- thAnyEnabled
