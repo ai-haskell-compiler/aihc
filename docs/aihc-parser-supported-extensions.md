@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 85
-- Supported: 85
+- Total Extensions: 86
+- Supported: 86
 - In Progress: 0
 
 ## Extension Status
@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 60/60         |
+| DataKinds                 |   🟢    | 63/63         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
@@ -34,7 +34,7 @@
 | FlexibleInstances         |   🟢    | 18/18         |
 | ForeignFunctionInterface  |   🟢    | 40/40         |
 | FunctionalDependencies    |   🟢    | 7/7           |
-| GADTs                     |   🟢    | 14/14         |
+| GADTs                     |   🟢    | 15/15         |
 | GADTSyntax                |   🟢    | 11/11         |
 | GHC2021                   |   🟢    | 43/43         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
@@ -44,7 +44,8 @@
 | ImportQualifiedPost       |   🟢    | 5/5           |
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
-| KindSignatures            |   🟢    | 30/30         |
+| JavaScriptFFI             |   🟢    | 1/1           |
+| KindSignatures            |   🟢    | 31/31         |
 | LambdaCase                |   🟢    | 22/22         |
 | LinearTypes               |   🟢    | 15/15         |
 | MagicHash                 |   🟢    | 24/24         |
@@ -79,16 +80,16 @@
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
 | StarIsType                |   🟢    | 3/3           |
-| TemplateHaskell           |   🟢    | 64/64         |
+| TemplateHaskell           |   🟢    | 66/66         |
 | TemplateHaskellQuotes     |   🟢    | 14/14         |
 | TransformListComp         |   🟢    | 15/15         |
 | TupleSections             |   🟢    | 4/4           |
 | TypeAbstractions          |   🟢    | 5/5           |
 | TypeApplications          |   🟢    | 12/12         |
 | TypeData                  |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 60/60         |
+| TypeFamilies              |   🟢    | 61/61         |
 | TypeFamilyDependencies    |   🟢    | 4/4           |
-| TypeOperators             |   🟢    | 70/70         |
+| TypeOperators             |   🟢    | 71/71         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 11/11         |
 | UnboxedTuples             |   🟢    | 21/21         |
