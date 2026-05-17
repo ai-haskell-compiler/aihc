@@ -6,14 +6,13 @@
 -- representation. Type lambdas and type applications are inserted
 -- where the type checker inferred polymorphism.
 module Aihc.Fc.Desugar.Expr
-  ( dsExpr,
-    dsMatches,
+  ( dsMatches,
     dsMatchesWithDicts,
-    dsRhs,
     dsRhsWithExpected,
     DsM,
     DsState (..),
     ClassDict (..),
+    desugarBug,
     freshUnique,
     freshVar,
     lookupType,
@@ -312,24 +311,13 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
       body <- withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches)
       pure (FcAlt con binders body)
 
--- | Desugar a right-hand side.
-dsRhs :: Rhs Expr -> DsM FcExpr
-dsRhs _ =
-  desugarBug "missing expected type for RHS"
-
 dsRhsWithExpected :: TcType -> Rhs Expr -> DsM FcExpr
 dsRhsWithExpected expected (UnguardedRhs _sp expr maybeDecls) =
   case maybeDecls of
     Nothing -> dsExprExpected expected expr
     Just decls -> dsLetDecls decls (dsExprExpected expected expr)
-dsRhsWithExpected _ (GuardedRhss _sp _guards _decls) = do
-  v <- freshVar "_unimplemented" (TcTyCon (TyCon "?" 0) [])
-  pure (FcVar v)
-
--- | Desugar a surface expression to Core.
-dsExpr :: Expr -> DsM FcExpr
-dsExpr _ =
-  desugarBug "missing expected type for expression"
+dsRhsWithExpected _ GuardedRhss {} =
+  desugarBug "unsupported guarded RHS after type checking"
 
 dsExprExpected :: TcType -> Expr -> DsM FcExpr
 dsExprExpected expected (EVar name) = do
@@ -352,7 +340,7 @@ dsExprExpected expected (EInfix lhs op rhs) =
   dsExprExpected expected (EApp (EApp (EVar op) lhs) rhs)
 dsExprExpected expected (EList elems) = do
   elemTy <- listElemTyM expected
-  foldr consList nilList <$> mapM (dsExprExpected elemTy) elems
+  foldr (consList elemTy) (nilList elemTy) <$> mapM (dsExprExpected elemTy) elems
 dsExprExpected expected (ETuple Boxed elems) =
   dsTuple expected elems
 dsExprExpected expected (EParen inner) = dsExprExpected expected inner
@@ -367,7 +355,7 @@ dsExprExpected expected (EIf cond thenE elseE) = do
     ( FcCase
         cond'
         binder
-        (exprType then')
+        expected
         [ FcAlt (DataAlt "True") [] then',
           FcAlt (DataAlt "False") [] else'
         ]
@@ -375,7 +363,7 @@ dsExprExpected expected (EIf cond thenE elseE) = do
 dsExprExpected expected (ECase scrut alts) = do
   scrutTy <- exprTcTypeRequired scrut
   scrut' <- dsExprExpected scrutTy scrut
-  binder <- freshVar "_case" (exprType scrut')
+  binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy expected) alts
   pure (FcCase scrut' binder expected alts')
 dsExprExpected expected (ELambdaPats pats body) = do
@@ -390,6 +378,10 @@ dsExprExpected _ expr =
 
 dsApp :: TcType -> Expr -> DsM FcExpr
 dsApp expected expr = do
+  -- Dictionary insertion happens at the head variable, but selecting the
+  -- right dictionary requires the final result type and every available
+  -- concrete argument type. For @f x y@ we therefore inspect the whole
+  -- application spine before desugaring @f@.
   let (fun, args) = collectAppSpine expr
   (funExpected, argTypes) <- expectedFunctionType args expected =<< exprTcTypeRequired fun
   f' <- dsExprExpected funExpected fun
@@ -409,7 +401,6 @@ expectedFunctionType args expected funTy = do
     Just subst' -> do
       let argTypes = map (substType subst') formalArgs
           funExpected = foldr TcFunTy expected argTypes
-      mapM_ ensureKnownType argTypes
       pure (funExpected, argTypes)
 
 qualifiedBody :: TcType -> TcType
@@ -417,26 +408,6 @@ qualifiedBody ty =
   case splitQualifiedType ty of
     Just (_tvs, _preds, body) -> body
     Nothing -> snd (peelForAlls ty)
-
-ensureKnownType :: TcType -> DsM ()
-ensureKnownType ty
-  | hasUnknownTy ty = desugarBug ("missing type information while desugaring: " <> show ty)
-  | otherwise = pure ()
-
-hasUnknownTy :: TcType -> Bool
-hasUnknownTy ty =
-  case ty of
-    TcTyCon (TyCon "?" 0) [] -> True
-    TcTyCon _ args -> any hasUnknownTy args
-    TcFunTy a b -> hasUnknownTy a || hasUnknownTy b
-    TcForAllTy _ body -> hasUnknownTy body
-    TcQualTy preds body -> any predHasUnknown preds || hasUnknownTy body
-    TcAppTy f a -> hasUnknownTy f || hasUnknownTy a
-    TcTyVar {} -> False
-    TcMetaTv {} -> False
-  where
-    predHasUnknown (ClassPred _ args) = any hasUnknownTy args
-    predHasUnknown (EqPred left right) = hasUnknownTy left || hasUnknownTy right
 
 isInstantiableType :: TcType -> Bool
 isInstantiableType ty =
@@ -506,9 +477,6 @@ dsLetDecls decls bodyAction = do
       if null rhsBindings
         then body
         else FcLet (FcRec rhsBindings) body
-
-unknownTy :: TcType
-unknownTy = TcTyCon (TyCon "?" 0) []
 
 data LocalDeclGroup
   = LocalFunction !Text ![Match]
@@ -609,13 +577,13 @@ dsLocalGroup var group =
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
-  pure (T.foldr consChar nilList text)
+  pure (T.foldr consChar (nilList charTy) text)
 
 dsTuple :: TcType -> [Maybe Expr] -> DsM FcExpr
 dsTuple expected elems = do
   elemTys <- tupleElemTypes expected (length elems)
   elems' <- zipWithM dsMaybeTupleElem elemTys elems
-  pure (foldl' FcApp (tupleConExpr (length elems')) elems')
+  pure (foldl' FcApp (tupleConExpr expected elemTys) elems')
 
 tupleElemTypes :: TcType -> Int -> DsM [TcType]
 tupleElemTypes (TcTyCon (TyCon _ arity) elemTys) expectedArity
@@ -628,32 +596,32 @@ tupleElemTypes ty arity =
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
 dsMaybeTupleElem ty (Just expr) = dsExprExpected ty expr
 dsMaybeTupleElem ty Nothing = do
-  ensureKnownType ty
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
 
-tupleConExpr :: Int -> FcExpr
-tupleConExpr arity =
-  FcVar (Var (tupleConName arity) (Unique (-20 - arity)) unknownTy)
+tupleConExpr :: TcType -> [TcType] -> FcExpr
+tupleConExpr resultTy elemTys =
+  let arity = length elemTys
+   in FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (foldr TcFunTy resultTy elemTys))
 
 tupleConName :: Int -> Text
 tupleConName arity = "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
 
 consChar :: Char -> FcExpr -> FcExpr
 consChar char =
-  consList (FcLit (LitChar char))
+  consList charTy (FcLit (LitChar char))
 
-consList :: FcExpr -> FcExpr -> FcExpr
-consList headExpr =
-  FcApp (FcApp consExpr headExpr)
+consList :: TcType -> FcExpr -> FcExpr -> FcExpr
+consList elemTy headExpr =
+  FcApp (FcApp (consExpr elemTy) headExpr)
 
-nilList :: FcExpr
-nilList =
-  FcVar (Var "[]" (Unique (-10)) (listType (TcTyCon (TyCon "?" 0) [])))
+nilList :: TcType -> FcExpr
+nilList elemTy =
+  FcVar (Var "[]" (Unique (-10)) (listType elemTy))
 
-consExpr :: FcExpr
-consExpr =
-  FcVar (Var ":" (Unique (-11)) (TcFunTy unknownTy (TcFunTy (listType unknownTy) (listType unknownTy))))
+consExpr :: TcType -> FcExpr
+consExpr elemTy =
+  FcVar (Var ":" (Unique (-11)) (TcFunTy elemTy (TcFunTy (listType elemTy) (listType elemTy))))
 
 listType :: TcType -> TcType
 listType ty =
@@ -676,7 +644,7 @@ dictForClass className args = do
           contextDicts <- mapM dictForPred context
           pure (foldl' FcDictApp (FcVar (Var dictName (Unique (-199)) dictTy)) contextDicts)
         Nothing ->
-          pure (FcVar (Var ("$missing" <> className) (Unique (-198)) (predType (ClassPred className args))))
+          desugarBug ("missing dictionary for " <> T.unpack (dictKey className args))
 
 matchInstance :: Text -> [TcType] -> (Text, TcType) -> Maybe (Text, TcType, [Pred])
 matchInstance className args (dictName, dictTy) = do
@@ -789,7 +757,7 @@ surfaceTypeToTc tvMap ty =
         fTy -> TcAppTy fTy (surfaceTypeToTc tvMap a)
     TAnn _ inner -> surfaceTypeToTc tvMap inner
     TParen inner -> surfaceTypeToTc tvMap inner
-    _ -> unknownTy
+    _ -> error ("unsupported surface type in FC desugar: " <> show ty)
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
@@ -830,10 +798,3 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
--- | Extract the type from a Core expression (best effort).
-exprType :: FcExpr -> TcType
-exprType (FcVar v) = varType v
-exprType (FcLit (LitInt _)) = TcTyCon (TyCon "Int" 0) []
-exprType (FcLit (LitChar _)) = TcTyCon (TyCon "Char" 0) []
-exprType _ = TcTyCon (TyCon "?" 0) []

@@ -139,9 +139,9 @@ lintExpr env (FcDictLam v body) = do
 lintExpr env (FcDict fields) = do
   mapM_ (lintExpr env) fields
   Right (TcTyCon (TyCon "Dict" 0) [])
-lintExpr env (FcDictSelect dict _index) = do
+lintExpr env (FcDictSelect dict index) = do
   _ <- lintExpr env dict
-  Right (TcTyCon (TyCon "?" 0) [])
+  Left (LintFailure ("dictionary selection lacks field type annotation: " ++ show index))
 lintExpr env (FcLet bind body) = do
   let (errs, env') = lintBind env bind
   case errs of

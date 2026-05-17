@@ -12,12 +12,13 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), dsMatches, dsMatchesWithDicts, dsRhsWithExpected, freshUnique, freshVar, lookupType, surfaceTypeToTc)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhsWithExpected, freshUnique, freshVar, lookupType, surfaceTypeToTc)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( ClassDecl (..),
     ClassDeclItem (..),
+    DataConDecl,
     DataDecl (..),
     Decl (..),
     Expr,
@@ -139,8 +140,22 @@ dsDecl _ = pure []
 dsDataDeclM :: DataDecl -> DsM FcTopBind
 dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
-      cons = map (\c -> let (n, arity) = dsDataConPure c in (n, replicate arity (TcTyCon (TyCon "?" 0) []))) (dataDeclConstructors dd)
+  cons <- mapM dsDataConM (dataDeclConstructors dd)
   pure (FcData tyName [] cons)
+
+dsDataConM :: DataConDecl -> DsM (Text, [TcType])
+dsDataConM con = do
+  let (name, arity) = dsDataConPure con
+  ty <- lookupType name
+  fields <- dataConFieldTypes name arity (dropForAlls ty)
+  pure (name, fields)
+
+dataConFieldTypes :: Text -> Int -> TcType -> DsM [TcType]
+dataConFieldTypes _ 0 _ = pure []
+dataConFieldTypes name arity (TcFunTy arg rest) =
+  (arg :) <$> dataConFieldTypes name (arity - 1) rest
+dataConFieldTypes name arity ty =
+  desugarBug ("missing field type information for data constructor " <> T.unpack name <> ": expected " <> show arity <> " more field(s) in " <> show ty)
 
 dsClassDeclM :: ClassDecl -> DsM [FcTopBind]
 dsClassDeclM classDecl =
@@ -151,11 +166,23 @@ dsClassDeclM classDecl =
 
 dsClassSelector :: Text -> Int -> DsM FcTopBind
 dsClassSelector methodName index = do
+  methodTy <- lookupType methodName
+  dictTy <- selectorDictType methodName methodTy
   methodUnique <- freshUnique
-  dictVar <- freshVar "$d" unknownTy
-  let methodVar = Var methodName methodUnique unknownTy
+  dictVar <- freshVar "$d" dictTy
+  let methodVar = Var methodName methodUnique methodTy
       body = FcDictLam dictVar (FcDictSelect (FcVar dictVar) index)
   pure (FcTopBind (FcNonRec methodVar body))
+
+selectorDictType :: Text -> TcType -> DsM TcType
+selectorDictType methodName methodTy =
+  case dropForAlls methodTy of
+    TcQualTy (pred' : _) _ -> pure (predType pred')
+    _ -> desugarBug ("missing class dictionary type for method selector " <> T.unpack methodName <> ": " <> show methodTy)
+
+predType :: Pred -> TcType
+predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 dsInstanceDecl :: Map.Map Text [Text] -> Decl -> DsM [FcTopBind]
 dsInstanceDecl classMethods decl =
@@ -166,18 +193,20 @@ dsInstanceDecl classMethods decl =
 dsInstanceDict :: Map.Map Text [Text] -> InstanceDecl -> DsM FcTopBind
 dsInstanceDict classMethods instanceDecl =
   case instanceHeadName (instanceDeclHead instanceDecl) of
-    Nothing -> do
-      dictVar <- freshVar "$fInvalid" unknownTy
-      pure (FcTopBind (FcNonRec dictVar (FcDict [])))
+    Nothing ->
+      desugarBug "missing class name for instance declaration"
     Just className -> do
       let tvNames = nub (map tyVarBinderName (instanceDeclForall instanceDecl) <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> instanceHeadTypes (instanceDeclHead instanceDecl)))
-          tvMap = Map.fromList [(name, TyVarId name (Unique (-3000 - ix))) | (ix, name) <- zip [0 :: Int ..] tvNames]
+          tvIds = [TyVarId name (Unique (-3000 - ix)) | (ix, name) <- zip [0 :: Int ..] tvNames]
+          tvMap = Map.fromList (zip tvNames tvIds)
           headTys = map (surfaceTypeToTc tvMap) (instanceHeadTypes (instanceDeclHead instanceDecl))
           methods = Map.fromListWith (<>) [(name, matches) | (name, matches) <- instanceMethodGroups instanceDecl]
           orderedMethods = fromMaybe [] (Map.lookup (nameText className) classMethods)
       contextDicts <- mapM (mkContextDict tvMap) (zip [0 :: Int ..] (instanceDeclContext instanceDecl))
-      fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) headTys methods) orderedMethods
-      dictVar <- freshVar (instanceDictName (nameText className) headTys) unknownTy
+      selfTy <- instanceSelfType headTys
+      fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) selfTy methods) orderedMethods
+      let dictTy = foldr TcForAllTy (TcQualTy (map classDictPred contextDicts) (TcTyCon (TyCon (nameText className) (length headTys)) headTys)) tvIds
+      dictVar <- freshVar (instanceDictName (nameText className) headTys) dictTy
       let dictBody = foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts
       pure (FcTopBind (FcNonRec dictVar dictBody))
 
@@ -191,21 +220,21 @@ mkContextDict tvMap (ix, predTy) = do
 classDictPred :: ClassDict -> Pred
 classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
-dsInstanceMethod :: [Pred] -> [TcType] -> Map.Map Text [Match] -> Text -> DsM FcExpr
-dsInstanceMethod contextPreds headTys methods methodName =
+dsInstanceMethod :: [Pred] -> TcType -> Map.Map Text [Match] -> Text -> DsM FcExpr
+dsInstanceMethod contextPreds selfTy methods methodName =
   case Map.lookup methodName methods of
     Just matches ->
-      dsMatchesWithDicts False (TcQualTy contextPreds (methodType (matchArity matches) (instanceSelfType headTys))) matches
-    Nothing -> do
-      missing <- freshVar ("$missing_" <> methodName) unknownTy
-      pure (FcVar missing)
+      dsMatchesWithDicts False (TcQualTy contextPreds (methodType (matchArity matches) selfTy)) matches
+    Nothing ->
+      desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 
 methodType :: Int -> TcType -> TcType
 methodType arity selfTy = foldr TcFunTy boolTy (replicate arity selfTy)
 
-instanceSelfType :: [TcType] -> TcType
-instanceSelfType [ty] = ty
-instanceSelfType _ = unknownTy
+instanceSelfType :: [TcType] -> DsM TcType
+instanceSelfType [ty] = pure ty
+instanceSelfType tys =
+  desugarBug ("missing self type for instance head: " <> show tys)
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
@@ -283,11 +312,12 @@ matchArity :: [Match] -> Int
 matchArity [] = 0
 matchArity (match : _) = length (matchPats match)
 
-unknownTy :: TcType
-unknownTy = TcTyCon (TyCon "?" 0) []
-
 boolTy :: TcType
 boolTy = TcTyCon (TyCon "Bool" 0) []
+
+dropForAlls :: TcType -> TcType
+dropForAlls (TcForAllTy _ body) = dropForAlls body
+dropForAlls ty = ty
 
 -- | A group of top-level value declarations.
 data DeclGroup
