@@ -12,7 +12,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), dsMatches, dsMatchesWithDicts, dsRhs, freshUnique, freshVar, lookupType, surfaceTypeToTc)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), dsMatches, dsMatchesWithDicts, dsRhsWithExpected, freshUnique, freshVar, lookupType, surfaceTypeToTc)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
     InstanceDecl (..),
     InstanceDeclItem (..),
     Match (..),
+    MatchHeadForm (..),
     Module (..),
     Pattern (..),
     Rhs,
@@ -240,6 +241,18 @@ itemMethods :: InstanceDeclItem -> [(Text, [Match])]
 itemMethods item =
   case peelInstanceDeclItemAnn item of
     InstanceItemBind (FunctionBind name matches) -> [(unqualifiedNameText name, matches)]
+    InstanceItemBind (PatternBind _ pat rhs) ->
+      [ ( name,
+          [ Match
+              { matchAnns = [],
+                matchHeadForm = MatchHeadPrefix,
+                matchPats = [],
+                matchRhs = rhs
+              }
+          ]
+        )
+      | Just name <- [barePatternName pat]
+      ]
     _ -> []
 
 freeTypeVars :: Type -> [Text]
@@ -326,5 +339,5 @@ dsGroup grp = do
   body <-
     case grp of
       DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsRhs rhs
+      DeclPattern _ rhs -> dsRhsWithExpected (Just ty) rhs
   pure (FcTopBind (FcNonRec var body))

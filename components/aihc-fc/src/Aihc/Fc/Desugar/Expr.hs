@@ -10,6 +10,7 @@ module Aihc.Fc.Desugar.Expr
     dsMatches,
     dsMatchesWithDicts,
     dsRhs,
+    dsRhsWithExpected,
     DsM,
     DsState (..),
     ClassDict (..),
@@ -134,8 +135,15 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
   (m0 : _) ->
     let nArgs = length (matchPats m0)
      in if nArgs == 0
-          then -- No patterns: just desugar the first RHS.
-            dsRhs (matchRhs m0)
+          then do
+            let (tyLams, afterForAlls) = peelForAlls ty
+                (dictPreds, innerTy) = peelQuals afterForAlls
+            dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
+            body <- withDicts dicts (dsRhsWithExpected (Just innerTy) (matchRhs m0))
+            let dictLamExpr
+                  | abstractDicts = foldr (FcDictLam . classDictVar) body dicts
+                  | otherwise = body
+            pure (foldr FcTyLam dictLamExpr tyLams)
           else do
             let (tyLams, afterForAlls) = peelForAlls ty
                 (dictPreds, innerTy) = peelQuals afterForAlls
@@ -194,7 +202,7 @@ peelFunTys _ ty = ([], ty)
 -- For variable patterns, binds the pattern variable to the scrutinee
 -- and recurses on remaining arguments.
 buildCaseChain :: [Var] -> TcType -> [Match] -> DsM FcExpr
-buildCaseChain [] _resTy (m : _) = dsRhs (matchRhs m)
+buildCaseChain [] resTy (m : _) = dsRhsWithExpected (Just resTy) (matchRhs m)
 buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
@@ -293,17 +301,23 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
 
 -- | Desugar a right-hand side.
 dsRhs :: Rhs Expr -> DsM FcExpr
-dsRhs (UnguardedRhs _sp expr maybeDecls) =
+dsRhs = dsRhsWithExpected Nothing
+
+dsRhsWithExpected :: Maybe TcType -> Rhs Expr -> DsM FcExpr
+dsRhsWithExpected expected (UnguardedRhs _sp expr maybeDecls) =
   case maybeDecls of
-    Nothing -> dsExpr expr
-    Just decls -> dsLetDecls decls (dsExpr expr)
-dsRhs (GuardedRhss _sp _guards _decls) = do
+    Nothing -> dsExprExpected expected expr
+    Just decls -> dsLetDecls decls (dsExprExpected expected expr)
+dsRhsWithExpected _ (GuardedRhss _sp _guards _decls) = do
   v <- freshVar "_unimplemented" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
 
 -- | Desugar a surface expression to Core.
 dsExpr :: Expr -> DsM FcExpr
-dsExpr (EVar name) = do
+dsExpr = dsExprExpected Nothing
+
+dsExprExpected :: Maybe TcType -> Expr -> DsM FcExpr
+dsExprExpected expected (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
   mLocal <- lookupLocal n
@@ -312,33 +326,26 @@ dsExpr (EVar name) = do
     Nothing -> do
       ty <- lookupType n
       v <- freshVar n ty
-      pure (FcVar v)
-dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
-dsExpr (EChar c _) = pure (FcLit (LitChar c))
-dsExpr (EString s _) = dsStringLiteral s
-dsExpr (EApp (EApp fun@(EVar name) arg1) arg2) = do
-  maybeDict <- qualifiedCallDict name arg1
-  case maybeDict of
-    Nothing -> dsRegularApp (EApp fun arg1) arg2
-    Just dict -> do
-      f' <- dsExpr fun
-      arg1' <- dsExpr arg1
-      arg2' <- dsExpr arg2
-      pure (FcApp (FcApp (FcDictApp f' dict) arg1') arg2')
-dsExpr (EApp f a) = do
-  dsRegularApp f a
-dsExpr (EInfix lhs op rhs)
+      maybeDict <- qualifiedCallDict name [] expected
+      pure (maybe (FcVar v) (FcDictApp (FcVar v)) maybeDict)
+dsExprExpected _ (EInt i _ _) = pure (FcLit (LitInt i))
+dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
+dsExprExpected _ (EString s _) = dsStringLiteral s
+dsExprExpected expected app@EApp {} =
+  dsApp expected app
+dsExprExpected _ (EInfix lhs op rhs)
   | nameText op == "==" || nameText op == "/=" =
       dsEqInfix lhs op rhs
   | otherwise =
       dsExpr (EApp (EApp (EVar op) lhs) rhs)
-dsExpr (EList elems) =
+dsExprExpected _ (EList elems) =
   foldr consList nilList <$> mapM dsExpr elems
-dsExpr (ETuple Boxed elems) =
+dsExprExpected _ (ETuple Boxed elems) =
   dsTuple elems
-dsExpr (EParen inner) = dsExpr inner
-dsExpr (EAnn _ann inner) = dsExpr inner
-dsExpr (EIf cond thenE elseE) = do
+dsExprExpected expected (EParen inner) = dsExprExpected expected inner
+dsExprExpected expected (EAnn _ann inner) = dsExprExpected expected inner
+dsExprExpected expected (ETypeSig inner _ty) = dsExprExpected expected inner
+dsExprExpected _ (EIf cond thenE elseE) = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
@@ -352,7 +359,7 @@ dsExpr (EIf cond thenE elseE) = do
           FcAlt (DataAlt "False") [] else'
         ]
     )
-dsExpr (ECase scrut alts) = do
+dsExprExpected _ (ECase scrut alts) = do
   scrut' <- dsExpr scrut
   binder <- freshVar "_case" (exprType scrut')
   alts' <- mapM dsCaseAlt alts
@@ -360,35 +367,98 @@ dsExpr (ECase scrut alts) = do
         (a : _) -> exprType (altRhs a)
         [] -> TcTyCon (TyCon "?" 0) []
   pure (FcCase scrut' binder resTy alts')
-dsExpr (ELambdaPats pats body) = do
+dsExprExpected _ (ELambdaPats pats body) = do
   vars <- mapM (\_ -> freshVar "_lam" (TcTyCon (TyCon "?" 0) [])) pats
   body' <- dsExpr body
   pure (foldr FcLam body' vars)
-dsExpr (ELetDecls decls body) =
-  dsLetDecls decls (dsExpr body)
-dsExpr _ = do
+dsExprExpected expected (ELetDecls decls body) =
+  dsLetDecls decls (dsExprExpected expected body)
+dsExprExpected _ _ = do
   v <- freshVar "_unsupported" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
 
-dsRegularApp :: Expr -> Expr -> DsM FcExpr
-dsRegularApp f a = do
-  f' <- dsExpr f
-  a' <- dsExpr a
-  pure (FcApp f' a')
+dsApp :: Maybe TcType -> Expr -> DsM FcExpr
+dsApp expected expr = do
+  let (fun, args) = collectAppSpine expr
+  f' <- dsExprExpected Nothing fun
+  maybeDict <-
+    case fun of
+      EVar name -> qualifiedCallDict name args expected
+      _ -> pure Nothing
+  let fWithDict = maybe f' (FcDictApp f') maybeDict
+  args' <- mapM dsExpr args
+  pure (foldl' FcApp fWithDict args')
 
-qualifiedCallDict :: Name -> Expr -> DsM (Maybe FcExpr)
-qualifiedCallDict name arg = do
+collectAppSpine :: Expr -> (Expr, [Expr])
+collectAppSpine expr = go expr []
+  where
+    go (EApp f a) args = go f (a : args)
+    go f args = (f, args)
+
+qualifiedCallDict :: Name -> [Expr] -> Maybe TcType -> DsM (Maybe FcExpr)
+qualifiedCallDict name args expected = do
   ty <- lookupType (nameToText name)
-  qualifiedCallDictFromType arg ty
+  qualifiedCallDictFromType args expected ty
 
-qualifiedCallDictFromType :: Expr -> TcType -> DsM (Maybe FcExpr)
-qualifiedCallDictFromType arg ty =
+qualifiedCallDictFromType :: [Expr] -> Maybe TcType -> TcType -> DsM (Maybe FcExpr)
+qualifiedCallDictFromType args expected ty =
   case ty of
-    TcForAllTy _ body -> qualifiedCallDictFromType arg body
-    TcQualTy (ClassPred className [_] : _) _ -> do
-      argTy <- exprTcType arg
-      traverse (dictForType className) argTy
+    TcForAllTy _ body -> qualifiedCallDictFromType args expected body
+    TcQualTy (ClassPred className [classArg] : _) body -> do
+      dictTy <- inferClassArg classArg body args expected
+      traverse (dictForType className) dictTy
     _ -> pure Nothing
+
+inferClassArg :: TcType -> TcType -> [Expr] -> Maybe TcType -> DsM (Maybe TcType)
+inferClassArg classArg methodTy args expected = do
+  actualArgs <- mapM exprTcType args
+  let (formalArgs, formalResult) = peelFunTys (length args) methodTy
+      argMatches = zipWith (matchClassArg classArg) formalArgs actualArgs
+      resultMatch = matchClassArg classArg formalResult expected
+  pure (firstJust (argMatches <> [resultMatch]))
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust [] = Nothing
+firstJust (Just x : _) = Just x
+firstJust (Nothing : xs) = firstJust xs
+
+matchClassArg :: TcType -> TcType -> Maybe TcType -> Maybe TcType
+matchClassArg classArg formal actual = do
+  actualTy <- actual
+  matchClassArgType classArg formal actualTy
+
+matchClassArgType :: TcType -> TcType -> TcType -> Maybe TcType
+matchClassArgType classArg formal actual
+  | sameTcType classArg formal = Just actual
+matchClassArgType classArg (TcTyCon formalTc formalArgs) (TcTyCon actualTc actualArgs)
+  | tyConName formalTc == tyConName actualTc && length formalArgs == length actualArgs =
+      firstJust (zipWith (matchClassArgType classArg) formalArgs actualArgs)
+matchClassArgType classArg (TcAppTy formalF formalA) (TcAppTy actualF actualA) =
+  firstJust [matchClassArgType classArg formalF actualF, matchClassArgType classArg formalA actualA]
+matchClassArgType classArg (TcFunTy formalA formalB) (TcFunTy actualA actualB) =
+  firstJust [matchClassArgType classArg formalA actualA, matchClassArgType classArg formalB actualB]
+matchClassArgType classArg (TcForAllTy _ formalBody) actual =
+  matchClassArgType classArg formalBody actual
+matchClassArgType classArg (TcQualTy _ formalBody) actual =
+  matchClassArgType classArg formalBody actual
+matchClassArgType _ _ _ = Nothing
+
+sameTcType :: TcType -> TcType -> Bool
+sameTcType (TcTyVar left) (TcTyVar right) = tvUnique left == tvUnique right
+sameTcType (TcMetaTv left) (TcMetaTv right) = left == right
+sameTcType (TcTyCon left leftArgs) (TcTyCon right rightArgs) =
+  tyConName left == tyConName right
+    && length leftArgs == length rightArgs
+    && and (zipWith sameTcType leftArgs rightArgs)
+sameTcType (TcAppTy leftF leftA) (TcAppTy rightF rightA) =
+  sameTcType leftF rightF && sameTcType leftA rightA
+sameTcType (TcFunTy leftA leftB) (TcFunTy rightA rightB) =
+  sameTcType leftA rightA && sameTcType leftB rightB
+sameTcType (TcForAllTy _ leftBody) (TcForAllTy _ rightBody) =
+  sameTcType leftBody rightBody
+sameTcType (TcQualTy leftPreds leftBody) (TcQualTy rightPreds rightBody) =
+  length leftPreds == length rightPreds && sameTcType leftBody rightBody
+sameTcType _ _ = False
 
 -- | Desugar local let/where declarations as a recursive Core let.
 --
@@ -536,11 +606,13 @@ dictForType className ty = do
     Just var -> pure (FcVar var)
     Nothing ->
       case ty of
-        TcTyCon (TyCon "Bool" 0) [] ->
-          pure (FcVar (Var "$fEqBool" (Unique (-101)) (predType (ClassPred "Eq" [boolTy]))))
-        TcTyCon (TyCon "[]" 1) [elemTy] -> do
-          elemDict <- dictForType className elemTy
-          pure (FcDictApp (FcVar (Var "$fEqList" (Unique (-102)) unknownTy)) elemDict)
+        TcTyCon (TyCon "Bool" 0) []
+          | className == "Eq" ->
+              pure (FcVar (Var "$fEqBool" (Unique (-101)) (predType (ClassPred "Eq" [boolTy]))))
+        TcTyCon (TyCon "[]" 1) [elemTy]
+          | className == "Eq" -> do
+              elemDict <- dictForType className elemTy
+              pure (FcDictApp (FcVar (Var "$fEqList" (Unique (-102)) unknownTy)) elemDict)
         _ ->
           pure (FcVar (Var ("$f" <> className <> typeKey ty) (Unique (-199)) (predType (ClassPred className [ty]))))
 
