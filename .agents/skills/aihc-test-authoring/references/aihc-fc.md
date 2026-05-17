@@ -40,6 +40,7 @@ Fixture shape:
 
 ```yaml
 extensions: []
+dependencies: []
 modules:
   - |
     module Test where
@@ -51,7 +52,13 @@ status: pass
 reason: renders evaluated list literals in raw constructor form
 ```
 
-Required keys: `extensions`, `modules`, `expression`, `output`, `status`. The fixture must define at least one module. The runner parses modules and expression, synthesizes an `__aihc_eval__` binding, desugars with synthetic type-checker output, evaluates that binding, and compares rendered raw value.
+Required keys: `extensions`, `modules`, `expression`, `output`, `status`. `dependencies` is optional and defaults to `[]`, but include it explicitly when the fixture relies on shared library modules.
+
+Use `dependencies: [aihc-base]` when an eval fixture depends on `Prelude` names or modules from `core-libs/aihc-base` instead of defining all dependencies inline in `modules`. The runner loads `aihc-base` from `core-libs/aihc-base` by default. Set `AIHC_BASE_SRC` only when local development, CI, or branch testing needs the fixture runner to use a modified or alternate `aihc-base` checkout; the value must be the package root whose `src` tree should replace the default `core-libs/aihc-base`. Dependency loading starts from `Prelude` plus the fixture modules' imports and follows imports transitively. Unknown dependency names fail the fixture.
+
+Keep self-contained eval fixtures dependency-free: define helper functions and operators in `modules` when the behavior under test is local FC evaluation rather than integration with `aihc-base`.
+
+The runner parses modules and expression, synthesizes an `__aihc_eval__` binding in the last fixture module, resolves dependency modules before fixture modules, desugars with synthetic type-checker output, evaluates that binding, and compares rendered raw value.
 
 ## Validation
 
@@ -60,3 +67,12 @@ Run:
 ```bash
 cabal test -v0 aihc-fc:spec --test-options="--hide-successes"
 ```
+
+To refresh expected `expected` or `output` fields from the current implementation, run the shared updater from the repository root:
+
+```bash
+cabal run -v0 aihc-dev -- update-goldens --dry-run
+cabal run -v0 aihc-dev -- update-goldens
+```
+
+Always rerun the FC suite afterwards. For eval fixtures with `dependencies`, treat the FC suite as the authority because it loads dependency modules through the eval fixture runner. The updater may skip dependency-backed eval fixtures when its inline-module path cannot resolve `Prelude` or `aihc-base` names, or when parsing, resolving, desugaring, or evaluating the fixture fails while computing a replacement `output`. These skips are distinct from the `fail` and `xfail` status skips described in `validation.md`; keep the fixture unchanged and use the FC suite failure output to decide whether the expected value should change.

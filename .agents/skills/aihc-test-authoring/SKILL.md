@@ -13,7 +13,8 @@ Use this skill to decide which AIHC test framework matches a change, then load t
 2. Choose the narrowest test that proves the behavior.
 3. Read the matching component reference before creating or changing fixtures.
 4. Add a minimal regression case plus nearby corner cases when the behavior has boundaries.
-5. Run the narrow component test first, then the repository check required by `AGENTS.md` before commit.
+5. If the expected output should be derived from the current implementation, use `cabal run -v0 aihc-dev -- update-goldens` as described in `references/validation.md`.
+6. Run the narrow component test first, then the repository check required by `AGENTS.md` before commit.
 
 ## Which Test To Use
 
