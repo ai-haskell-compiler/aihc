@@ -11,6 +11,7 @@ module Aihc.Resolve
     resolve,
     resolveWithDeps,
     extractInterface,
+    OperatorFixity (..),
     Scope (..),
     ModuleExports,
     collectModuleExports,
@@ -38,6 +39,7 @@ import Aihc.Parser.Syntax
     DoStmt (..),
     Expr (..),
     FieldDecl (..),
+    FixityAssoc (..),
     ForallTelescope (..),
     GadtBody (..),
     GuardQualifier (..),
@@ -80,7 +82,7 @@ import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 
 resolve :: [Module] -> ResolveResult
@@ -346,7 +348,7 @@ resolveDeclCore termDefinition decl =
       DeclClass <$> resolveClassDecl classDecl
     DeclDefault tys ->
       DeclDefault <$> mapM resolveType tys
-    DeclFixity {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclFixity {} -> pure decl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -503,14 +505,14 @@ resolveExpr expr =
       ELambdaCase <$> mapM resolveCaseAlt alts
     ELambdaCases alts ->
       ELambdaCases <$> mapM resolveLambdaCaseAlt alts
-    EInfix left op right ->
-      EInfix <$> resolveExpr left <*> pure op <*> resolveExpr right
+    EInfix {} ->
+      resolveInfixExpr expr
     ENegate inner ->
       ENegate <$> resolveExpr inner
     ESectionL inner op ->
-      ESectionL <$> resolveExpr inner <*> pure op
+      ESectionL <$> resolveExpr inner <*> resolveTermUseAtName op
     ESectionR op inner ->
-      ESectionR op <$> resolveExpr inner
+      ESectionR <$> resolveTermUseAtName op <*> resolveExpr inner
     ELetDecls decls body -> do
       (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
       decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
@@ -670,7 +672,7 @@ bindPattern pat =
       let binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
       resolvedName <- freshLocal binderName
       binder' <- traverseTyVarBinderKind binder
-      let binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty
+      let binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty
       pure (binderScope, PTypeBinder binder')
     PTypeSyntax form ty -> do
       ty' <- resolveType ty
@@ -724,7 +726,7 @@ bindPattern pat =
           )
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
-      let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty
+      let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
       pure (foldr unionScope wildcardScope fieldScopes, PRecord name fields' wildcard)
     PTypeSig inner ty -> do
       (scope, inner') <- bindPattern inner
@@ -744,7 +746,7 @@ bindPattern pat =
 
 termScope :: Text -> ResolvedName -> Scope
 termScope key resolvedName =
-  Scope (Map.singleton key resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty
+  Scope (Map.singleton key resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 resolvePatternDefinition :: TermDefinition -> Pattern -> ResolveM Pattern
 resolvePatternDefinition termDefinition pat =
@@ -1077,6 +1079,102 @@ resolveTermUse name = do
   sp <- currentSpan
   scope <- currentScope
   pure (resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name)
+
+resolveTermUseAtName :: Name -> ResolveM Name
+resolveTermUseAtName name = do
+  sp <- currentSpan
+  scope <- currentScope
+  pure (resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name)
+
+data ResolvedInfixOp = ResolvedInfixOp
+  { resolvedInfixName :: !Name,
+    resolvedInfixFixity :: !OperatorFixity
+  }
+
+resolveInfixExpr :: Expr -> ResolveM Expr
+resolveInfixExpr expr = do
+  let (operands, names) = flattenInfixExpr expr
+  operands' <- mapM resolveExpr operands
+  names' <- mapM resolveTermUseAtName names
+  let fallbackExpr = buildLeftInfixExpr expr operands' names'
+  reassociateResolvedInfixExpr operands' names' fallbackExpr
+
+reassociateResolvedInfixExpr :: [Expr] -> [Name] -> Expr -> ResolveM Expr
+reassociateResolvedInfixExpr operands names fallbackExpr = do
+  scope <- currentScope
+  sp <- currentSpan
+  let ops = [ResolvedInfixOp name (resolveFixityName scope name) | name <- names]
+  case ambiguousInfixOp ops of
+    Just op ->
+      pure $
+        annotateExpr
+          ( ResolutionAnnotation
+              (spanStartNameSpan sp (nameText (resolvedInfixName op)))
+              (nameText (resolvedInfixName op))
+              ResolutionNamespaceTerm
+              (ResolvedError "ambiguous fixity")
+          )
+          fallbackExpr
+    Nothing ->
+      pure (rebuildInfixExpr fallbackExpr operands ops)
+
+buildLeftInfixExpr :: Expr -> [Expr] -> [Name] -> Expr
+buildLeftInfixExpr fallbackExpr [] _ = fallbackExpr
+buildLeftInfixExpr _ (operand : operands) ops =
+  foldl' (\left (op, right) -> EInfix left op right) operand (zip ops operands)
+
+flattenInfixExpr :: Expr -> ([Expr], [Name])
+flattenInfixExpr expr =
+  case expr of
+    EInfix left op right ->
+      let (operands, ops) = flattenInfixExpr left
+       in (operands <> [right], ops <> [op])
+    _ -> ([expr], [])
+
+ambiguousInfixOp :: [ResolvedInfixOp] -> Maybe ResolvedInfixOp
+ambiguousInfixOp ops =
+  listToMaybe
+    [ right
+    | (leftIndex, left) <- indexed,
+      let leftPrec = infixPrecedence left,
+      (rightIndex, right) <- drop (leftIndex + 1) indexed,
+      infixPrecedence right == leftPrec,
+      all ((> leftPrec) . infixPrecedence) [between | (index, between) <- indexed, index > leftIndex, index < rightIndex],
+      incompatibleSamePrecedence left right
+    ]
+  where
+    indexed = zip [0 :: Int ..] ops
+
+incompatibleSamePrecedence :: ResolvedInfixOp -> ResolvedInfixOp -> Bool
+incompatibleSamePrecedence left right =
+  infixAssoc left /= infixAssoc right || infixAssoc left == Infix || infixAssoc right == Infix
+
+infixAssoc :: ResolvedInfixOp -> FixityAssoc
+infixAssoc = operatorFixityAssoc . resolvedInfixFixity
+
+infixPrecedence :: ResolvedInfixOp -> Int
+infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
+
+rebuildInfixExpr :: Expr -> [Expr] -> [ResolvedInfixOp] -> Expr
+rebuildInfixExpr fallbackExpr [] _ = fallbackExpr
+rebuildInfixExpr _ (operand : operands) ops =
+  let (expr, _, _) = parseInfixExpr 0 operand operands ops
+   in expr
+
+parseInfixExpr :: Int -> Expr -> [Expr] -> [ResolvedInfixOp] -> (Expr, [Expr], [ResolvedInfixOp])
+parseInfixExpr minPrec lhs operands ops =
+  case ops of
+    op : restOps
+      | infixPrecedence op >= minPrec,
+        rhsOperand : restOperands <- operands ->
+          let nextMinPrec =
+                case infixAssoc op of
+                  InfixR -> infixPrecedence op
+                  Infix -> infixPrecedence op + 1
+                  InfixL -> infixPrecedence op + 1
+              (rhs, operands', ops') = parseInfixExpr nextMinPrec rhsOperand restOperands restOps
+           in parseInfixExpr minPrec (EInfix lhs (resolvedInfixName op) rhs) operands' ops'
+    _ -> (lhs, operands, ops)
 
 resolveTypeUse :: Name -> ResolveM Name
 resolveTypeUse name = do

@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    a * b = (a,b)
+    infixl 7 *
+output: |
+  (('a','b'),'c')
+expression: |
+  'a' * 'b' * 'c'
+status: pass
+reason: keeps same-precedence left-associative operators grouped to the left

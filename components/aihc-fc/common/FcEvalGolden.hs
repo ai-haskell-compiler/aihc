@@ -33,6 +33,7 @@ import Aihc.Parser.Syntax
     mkUnqualifiedName,
     parseExtensionName,
   )
+import Aihc.Resolve (ResolveResult (..), collectModuleExports, resolveWithDeps)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), TyCon (..))
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -141,46 +142,60 @@ evaluateFcEvalCase tc =
   case parseInputs tc of
     Left errMsg -> classifyFailure tc errMsg
     Right (modules, expr) ->
-      let evalModule = combineModules modules expr
-          result = desugarModuleWithTcResult (syntheticTcResult evalModule) evalModule
-       in if dsSuccess result
-            then case evalProgramBinding evalBindingName (dsProgram result) >>= renderRawValue of
-              Right actual -> classifySuccess tc (T.unpack actual)
-              Left err -> classifyFailure tc ("eval error: " <> show err)
-            else classifyFailure tc ("desugar error: " <> unlines (dsErrors result))
+      let (depModules, evalModule) = combineModules modules expr
+          depExports = collectModuleExports depModules
+          resolved = resolveWithDeps depExports [evalModule]
+       in case resolved of
+            ResolveResult {resolvedModules = [resolvedModule], resolveErrors = []} ->
+              let result = desugarModuleWithTcResult (syntheticTcResult resolvedModule) resolvedModule
+               in if dsSuccess result
+                    then case evalProgramBinding evalBindingName (dsProgram result) >>= renderRawValue of
+                      Right actual -> classifySuccess tc (T.unpack actual)
+                      Left err -> classifyFailure tc ("eval error: " <> show err)
+                    else classifyFailure tc ("desugar error: " <> unlines (dsErrors result))
+            ResolveResult {resolveErrors} ->
+              classifyFailure tc ("resolve error: " <> show resolveErrors)
 
 parseInputs :: FcEvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
-  modules <- mapM parseOneModule (evalCaseModules tc)
+  modules <- mapM (parseOneModuleWithExtensions (evalCaseExtensions tc)) (evalCaseModules tc)
   expr <- parseOneExpr (evalCaseExpression tc)
   pure (modules, expr)
   where
+    parseOneExpr input =
+      case parseExpr (config (evalCasePath tc <> ":expression")) input of
+        ParseOk expr -> Right expr
+        ParseErr err -> Left ("parse expression error: " <> show err)
     config source =
       defaultConfig
         { parserSourceName = source,
           parserExtensions = evalCaseExtensions tc
         }
-    parseOneModule input =
-      let cfg = config (T.unpack (T.takeWhile (/= '\n') input))
-          (errs, ast) = parseModule cfg input
-       in if null errs
-            then Right ast
-            else Left ("parse module error: " <> show errs)
-    parseOneExpr input =
-      case parseExpr (config (evalCasePath tc <> ":expression")) input of
-        ParseOk expr -> Right expr
-        ParseErr err -> Left ("parse expression error: " <> show err)
 
-combineModules :: [Module] -> Expr -> Module
+parseOneModuleWithExtensions :: [Extension] -> Text -> Either String Module
+parseOneModuleWithExtensions extensions input =
+  parseOneModule (T.unpack (T.takeWhile (/= '\n') input)) extensions input
+
+parseOneModule :: FilePath -> [Extension] -> Text -> Either String Module
+parseOneModule sourceName extensions input =
+  let cfg =
+        defaultConfig
+          { parserSourceName = sourceName,
+            parserExtensions = extensions
+          }
+      (errs, ast) = parseModule cfg input
+   in if null errs
+        then Right ast
+        else Left ("parse module error: " <> show errs)
+
+combineModules :: [Module] -> Expr -> ([Module], Module)
 combineModules modules expr =
   case modules of
-    [] -> emptyEvalModule expr
-    firstModule : _ ->
-      firstModule
-        { moduleLanguagePragmas = concatMap moduleLanguagePragmas modules,
-          moduleImports = concatMap moduleImports modules,
-          moduleDecls = concatMap moduleDecls modules <> [evalDecl expr]
-        }
+    [] -> ([], emptyEvalModule expr)
+    _ ->
+      let depModules = init modules
+          evalModule = last modules
+       in (depModules, evalModule {moduleDecls = moduleDecls evalModule <> [evalDecl expr]})
 
 emptyEvalModule :: Expr -> Module
 emptyEvalModule expr =

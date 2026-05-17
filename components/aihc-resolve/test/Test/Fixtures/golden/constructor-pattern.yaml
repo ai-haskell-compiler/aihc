@@ -23,6 +23,7 @@ expected:
     - "5:1-5:8 sumTree => (value) Main.sumTree"
     - "5:15-5:16 l => (value) Local 1 l"
     - "5:17-5:18 r => (value) Local 2 r"
+    - "5:20-5:21 + => (value) Error unbound"
     - "5:22-5:29 sumTree => (value) Main.sumTree"
     - "5:30-5:31 l => (value) Local 1 l"
     - "5:34-5:41 sumTree => (value) Main.sumTree"
@@ -42,10 +43,11 @@ annotated:
     └─ v Main     │    └─ v 0
                   └─ v 0
     sumTree (Node l r) = sumTree l + sumTree r
-    └─ v Main     │ │    │       │   │       └─ v 2
-                  │ │    │       │   └─ v Main
-                  │ │    │       └─ v 1
-                  │ │    └─ v Main
+    └─ v Main     │ │  │ │       │   │       └─ v 2
+                  │ │  │ │       │   └─ v Main
+                  │ │  │ │       └─ v 1
+                  │ │  │ └─ v Main
+                  │ │  └─ v Error unbound
                   │ └─ v 2
                   └─ v 1
 status: pass

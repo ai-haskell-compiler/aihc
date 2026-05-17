@@ -1,0 +1,14 @@
+extensions: []
+modules:
+  - |
+    module Prelude where
+    data List a = [] | a : [a]
+    infixr 5 :
+  - |
+    module Test where
+output: |
+  : 'a' (: 'b' (: 'c' []))
+expression: |
+  'a' : 'b' : 'c' : []
+status: pass
+reason: reassociates list cons to the right after name resolution

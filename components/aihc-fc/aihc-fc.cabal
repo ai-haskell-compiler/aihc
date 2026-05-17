@@ -49,6 +49,7 @@ test-suite spec
     aeson,
     aihc-fc,
     aihc-parser,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
