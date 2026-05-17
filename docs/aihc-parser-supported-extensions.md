@@ -79,7 +79,7 @@
 | ScopedTypeVariables       |   🟢    | 18/18         |
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 11/11         |
-| StarIsType                |   🟢    | 3/3           |
+| StarIsType                |   🟢    | 4/4           |
 | TemplateHaskell           |   🟢    | 66/66         |
 | TemplateHaskellQuotes     |   🟢    | 14/14         |
 | TransformListComp         |   🟢    | 15/15         |
@@ -94,6 +94,6 @@
 | UnboxedSums               |   🟢    | 11/11         |
 | UnboxedTuples             |   🟢    | 21/21         |
 | UndecidableInstances      |   🟢    | 1/1           |
-| UnicodeSyntax             |   🟢    | 19/19         |
+| UnicodeSyntax             |   🟢    | 21/21         |
 | ViewPatterns              |   🟢    | 23/23         |
 
