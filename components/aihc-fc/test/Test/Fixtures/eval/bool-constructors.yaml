@@ -1,0 +1,11 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Test where
+output: |
+  (False,True)
+expression: |
+  (False, True)
+status: pass
+reason: evaluates Prelude Bool data constructors from aihc-base

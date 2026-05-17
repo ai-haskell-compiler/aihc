@@ -1,10 +1,17 @@
 module Prelude
-  ( Char,
+  ( Bool (..),
+    Char,
     List (..),
     String,
+    (&&),
     (++),
+    not,
+    otherwise,
+    (||),
   )
 where
+
+import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 
 data Char
 

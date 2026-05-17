@@ -8,6 +8,7 @@
 module Aihc.Fc.Desugar.Expr
   ( dsExpr,
     dsMatches,
+    dsRhs,
     DsM,
     DsState (..),
     freshUnique,

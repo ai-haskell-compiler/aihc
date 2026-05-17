@@ -1,0 +1,11 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Test where
+output: |
+  (True,False)
+expression: |
+  (not False, not True)
+status: pass
+reason: evaluates Prelude Bool negation from aihc-base

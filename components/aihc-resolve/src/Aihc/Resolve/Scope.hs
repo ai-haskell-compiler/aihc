@@ -32,6 +32,7 @@ import Aihc.Parser.Syntax
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
     GadtBody (..),
@@ -53,6 +54,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     mkUnqualifiedName,
+    moduleExports,
     moduleName,
     peelPatternAnn,
     qualifyName,
@@ -87,9 +89,65 @@ type ModuleExports = Map.Map Text Scope
 collectModuleExports :: [Module] -> ModuleExports
 collectModuleExports modules =
   Map.fromList
-    [ (moduleKey modu, topLevelScope modu)
+    [ (moduleKey modu, topLevelScope modu `unionScope` reExportedScope rawExports modu)
     | modu <- modules
     ]
+  where
+    rawExports =
+      Map.fromList
+        [ (moduleKey modu, topLevelScope modu)
+        | modu <- modules
+        ]
+
+reExportedScope :: ModuleExports -> Module -> Scope
+reExportedScope rawExports modu =
+  case moduleExports modu of
+    Nothing -> emptyScope
+    Just specs -> foldl' unionScope emptyScope (map exportSpecScope specs)
+  where
+    availableScope = importedScope rawExports modu
+
+    exportSpecScope spec =
+      case spec of
+        ExportAnn _ inner -> exportSpecScope inner
+        ExportModule _ exportModuleName -> Map.findWithDefault emptyScope exportModuleName rawExports
+        ExportVar _ _ name -> selectTerm (nameText name) availableScope
+        ExportAbs _ _ name -> selectType (nameText name) availableScope
+        ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)
+        ExportWith _ _ name members -> selectTypeWithMembers (nameText name) availableScope (map exportBundledMemberName members)
+        ExportWithAll _ _ name _ members ->
+          selectTypeWithMembers (nameText name) availableScope (map exportBundledMemberName members <> allTypeMembers (nameText name) availableScope)
+
+selectTerm :: Text -> Scope -> Scope
+selectTerm name scope =
+  emptyScope
+    { scopeTerms = Map.filterWithKey (\n _ -> n == name) (scopeTerms scope),
+      scopeFixities = Map.filterWithKey (\n _ -> n == name) (scopeFixities scope)
+    }
+
+selectType :: Text -> Scope -> Scope
+selectType name scope =
+  emptyScope
+    { scopeTypes = Map.filterWithKey (\n _ -> n == name) (scopeTypes scope)
+    }
+
+selectTypeWithMembers :: Text -> Scope -> [Text] -> Scope
+selectTypeWithMembers name scope members =
+  selectType name scope
+    `unionScope` emptyScope
+      { scopeTerms = Map.filterWithKey (\n _ -> n `elem` members) (scopeTerms scope),
+        scopeConstructors = Map.filterWithKey (\n _ -> n == name) (scopeConstructors scope),
+        scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` members) (scopeRecordFields scope),
+        scopeMethods = Map.filterWithKey (\n _ -> n == name) (scopeMethods scope),
+        scopeFixities = Map.filterWithKey (\n _ -> n `elem` members) (scopeFixities scope)
+      }
+
+allTypeMembers :: Text -> Scope -> [Text]
+allTypeMembers name scope =
+  fromMaybe [] (Map.lookup name (scopeConstructors scope) <> Map.lookup name (scopeMethods scope))
+
+exportBundledMemberName :: IEBundledMember -> Text
+exportBundledMemberName = nameText . ieBundledMemberName
 
 topLevelScope :: Module -> Scope
 topLevelScope modu =

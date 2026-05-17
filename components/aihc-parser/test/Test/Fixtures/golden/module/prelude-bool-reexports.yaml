@@ -1,0 +1,31 @@
+extensions: []
+input: |
+  module Prelude
+    ( Bool (..),
+      Char,
+      List (..),
+      String,
+      (&&),
+      (++),
+      not,
+      otherwise,
+      (||),
+    )
+  where
+
+  import Data.Bool (Bool (..), not, otherwise, (&&), (||))
+
+  data Char
+
+  data List a = [] | a : [a]
+
+  infixr 5 :
+
+  type String = [Char]
+
+  (++) :: [a] -> [a] -> [a]
+  (++) [] ys = ys
+  (++) (x : xs) ys = x : (xs ++ ys)
+ast: |-
+  Module {ModuleHead {"Prelude", [ExportAll{"Bool"}, ExportAbs{"Char"}, ExportAll{"List"}, ExportAbs{"String"}, ExportVar{"&&"}, ExportVar{"++"}, ExportVar{"not"}, ExportVar{"otherwise"}, ExportVar{"||"}]}, [ImportDecl {"Data.Bool", ImportSpec {[ImportItemAll{UnqualifiedName {"Bool"}}, ImportItemVar{UnqualifiedName {"not"}}, ImportItemVar{UnqualifiedName {"otherwise"}}, ImportItemVar{UnqualifiedName {"&&"}}, ImportItemVar{UnqualifiedName {"||"}}]}}], [DeclData (DataDecl {Prefix "Char"}), DeclData (DataDecl {Prefix "List" [TyVarBinder {"a"}], [ListCon {}, InfixCon {BangType {TVar "a"}, UnqualifiedName {":"}, BangType {TList [TVar "a"]}}]}), DeclFixity InfixR Nothing 5 [UnqualifiedName {":"}], DeclTypeSyn (TypeSynDecl {Prefix "String", TList [TCon "Char"]}), DeclTypeSig ["++"] (TFun (TList [TVar "a"]) (TFun (TList [TVar "a"]) (TList [TVar "a"]))), DeclValue (FunctionBind "++" [Match {MatchHeadPrefix, [PList [], PVar "ys"], EVar "ys"}]), DeclValue (FunctionBind "++" [Match {MatchHeadPrefix, [PParen (PInfix (PVar "x") ":" (PVar "xs")), PVar "ys"], EInfix (EVar "x") ":" (EParen (EInfix (EVar "xs") "++" (EVar "ys")))}])]}
+status: pass
