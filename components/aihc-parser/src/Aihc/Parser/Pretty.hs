@@ -17,13 +17,15 @@
 -- formatting, so the formatting code here does not need to worry about
 -- operator precedence or context-sensitive parenthesization.
 --
--- This module has an empty export list because it only provides typeclass
--- instances. Import it to bring the 'Pretty' instances into scope.
+-- Import this module to bring the 'Pretty' instances into scope. The exported
+-- helpers render AST nodes without first inserting additional parentheses,
+-- which is useful for tests that need to inspect parenthesization directly.
 --
 -- __Provided instances:__ 'Pretty' for 'Module', 'Expr', 'Pattern', 'Type'.
 module Aihc.Parser.Pretty
   ( prettyExpr,
     prettyPattern,
+    prettyType,
   )
 where
 

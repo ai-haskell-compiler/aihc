@@ -45,7 +45,7 @@ import Test.Properties.Arb.Pattern (shrinkPattern)
 import Test.Properties.Arb.Utils (requiredExtensions)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
-import Test.Properties.MinimalParentheses (prop_minimalParenthesesExpr, prop_minimalParenthesesPattern)
+import Test.Properties.MinimalParentheses (prop_minimalParenthesesExpr, prop_minimalParenthesesPattern, prop_minimalParenthesesSignatureType, prop_minimalParenthesesType)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip, prop_moduleValidator)
 import Test.Properties.NoExceptions
   ( prop_declParserArbitraryTokensNoExceptions,
@@ -268,6 +268,14 @@ buildTests = do
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "parenthesizes negated typed view expressions" test_viewExprNegatedTypeSigParens,
             testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
+            testCase "rejects bare kind signatures as signature types" test_signatureTypeParserRejectsBareKindSignature,
+            testCase "parses parenthesized kind signatures as signature types" test_signatureTypeParserParsesParenthesizedKindSignature,
+            testCase "parses delimited kind signatures as signature types" test_signatureTypeParserParsesDelimitedKindSignature,
+            testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
+            testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
+            testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
+            testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
+            testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -288,6 +296,8 @@ buildTests = do
             "properties"
             [ QC.testProperty "expr paren insertion is minimal" prop_minimalParenthesesExpr,
               QC.testProperty "pattern paren insertion is minimal" prop_minimalParenthesesPattern,
+              QC.testProperty "signature type paren insertion is minimal" prop_minimalParenthesesSignatureType,
+              QC.testProperty "type paren insertion is minimal" prop_minimalParenthesesType,
               QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated data family instances can include inline result kinds" prop_generatedDataFamilyInstancesCanIncludeInlineResultKinds,
@@ -1481,6 +1491,74 @@ test_typedViewExprPrettyLayout = do
        :: _)
      -> _)
     """
+
+test_signatureTypeParserRejectsBareKindSignature :: Assertion
+test_signatureTypeParserRejectsBareKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "_ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
+test_signatureTypeParserParsesParenthesizedKindSignature :: Assertion
+test_signatureTypeParserParsesParenthesizedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "(_ :: _)" of
+    ParseOk ty ->
+      assertEqual "parenthesized kind signature" (TParen (TKindSig TWildcard TWildcard)) (stripAnnotations ty)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_signatureTypeParserParsesDelimitedKindSignature :: Assertion
+test_signatureTypeParserParsesDelimitedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "[_ :: _]" of
+    ParseOk ty ->
+      assertEqual "delimited kind signature" (TList Unpromoted [TKindSig TWildcard TWildcard]) (stripAnnotations ty)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_signatureTypeParserRejectsAppArgBareKindSignature :: Assertion
+test_signatureTypeParserRejectsAppArgBareKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "_ _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
+test_signatureTypeParserParsesAppArgParenthesizedKindSignature :: Assertion
+test_signatureTypeParserParsesAppArgParenthesizedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "_ (_ :: _)" of
+    ParseOk ty ->
+      assertEqual "parenthesized app argument kind signature" (TApp TWildcard (TParen (TKindSig TWildcard TWildcard))) (stripAnnotations ty)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized app argument kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_signatureTypeParserRejectsImplicitParamBareKindSignature :: Assertion
+test_signatureTypeParserRejectsImplicitParamBareKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseSignatureType config "?a :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
+test_declParserRejectsBareKindSignature :: Assertion
+test_declParserRejectsBareKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseDecl config "x :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk decl ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations decl)))
+
+test_typeParserParsesBareKindSignature :: Assertion
+test_typeParserParsesBareKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ :: _" of
+    ParseOk ty ->
+      assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for type kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do

@@ -19,12 +19,14 @@
 -- * 'addDeclParens'    — parenthesise a declaration
 -- * 'addExprParens'    — parenthesise an expression
 -- * 'addPatternParens' — parenthesise a pattern
--- * 'addTypeParens'    — parenthesise a type
+-- * 'addSignatureTypeParens' — parenthesise a signature type
+-- * 'addTypeParens'          — parenthesise a plain type
 module Aihc.Parser.Parens
   ( addModuleParens,
     addDeclParens,
     addExprParens,
     addPatternParens,
+    addSignatureTypeParens,
     addTypeParens,
   )
 where
@@ -391,9 +393,13 @@ addSectionLhsParens expr =
 
 data TypeCtx
   = CtxTypeFunArg
+  | CtxTypeInfixRhs
+  | CtxTypeDelimitedInfixRhs
   | CtxTypeAppFun
   | CtxTypeAppArg
+  | CtxTypeDelimitedAppArg
   | CtxTypeAppVisibleArg
+  | CtxTypeDelimitedAppVisibleArg
   | CtxTypeFamilyOperand
   | CtxTypeAtom
   | CtxKindSig
@@ -409,6 +415,20 @@ needsTypeParens ctx ty =
         TContext {} -> True
         -- TImplicitParam parses greedily: ?x :: T -> U absorbs -> U into the
         -- implicit param type, so TFun (TImplicitParam ..) .. needs parens.
+        TImplicitParam {} -> True
+        _ -> False
+    CtxTypeInfixRhs ->
+      case ty of
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TImplicitParam {} -> True
+        _ -> False
+    CtxTypeDelimitedInfixRhs ->
+      case ty of
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
         TImplicitParam {} -> True
         _ -> False
     CtxTypeAppFun ->
@@ -428,8 +448,20 @@ needsTypeParens ctx ty =
         TFun {} -> True
         TContext {} -> True
         TInfix {} -> True
-        TSplice {} -> False
         TImplicitParam {} -> True
+        TSplice {} -> False
+        _ -> False
+    CtxTypeDelimitedAppArg ->
+      case ty of
+        TQuasiQuote {} -> False
+        TApp {} -> True
+        TTypeApp {} -> True
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TInfix {} -> True
+        TImplicitParam {} -> True
+        TSplice {} -> False
         _ -> False
     CtxTypeAppVisibleArg ->
       case ty of
@@ -448,6 +480,19 @@ needsTypeParens ctx ty =
         TSplice {} -> True
         -- TImplicitParam parses greedily: as a TApp argument ?x :: T -> U absorbs
         -- the surrounding -> U into the implicit param type.
+        TImplicitParam {} -> True
+        _ -> False
+    CtxTypeDelimitedAppVisibleArg ->
+      case ty of
+        TQuasiQuote {} -> False
+        TApp {} -> True
+        TTypeApp {} -> True
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        TInfix {} -> True
+        TStar {} -> True
+        TSplice {} -> True
         TImplicitParam {} -> True
         _ -> False
     CtxTypeFamilyOperand ->
@@ -542,21 +587,21 @@ addDeclParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addDeclParens sub)
     DeclValue vdecl -> DeclValue (addValueDeclParens vdecl)
-    DeclTypeSig names ty -> DeclTypeSig names (addTypeParens ty)
+    DeclTypeSig names ty -> DeclTypeSig names (addSignatureTypeParens ty)
     DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
-    DeclPatSynSig names ty -> DeclPatSynSig names (addTypeParens ty)
-    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addTypeParens kind)
+    DeclPatSynSig names ty -> DeclPatSynSig names (addSignatureTypeParens ty)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addSignatureTypeParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
-      DeclTypeSyn (synDecl {typeSynBody = addTypeTopLevelParens (typeSynBody synDecl)})
+      DeclTypeSyn (synDecl {typeSynBody = addTypeParens (typeSynBody synDecl)})
     DeclData dataDecl -> DeclData (addDataDeclParens dataDecl)
     DeclTypeData dataDecl -> DeclTypeData (addDataDeclParens dataDecl)
     DeclNewtype newtypeDecl -> DeclNewtype (addNewtypeDeclParens newtypeDecl)
     DeclClass classDecl -> DeclClass (addClassDeclParens classDecl)
     DeclInstance instanceDecl -> DeclInstance (addInstanceDeclParens instanceDecl)
     DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving (addStandaloneDerivingParens derivingDecl)
-    DeclDefault tys -> DeclDefault (map addTypeParens tys)
+    DeclDefault tys -> DeclDefault (map addSignatureTypeParens tys)
     DeclForeign foreignDecl -> DeclForeign (addForeignDeclParens foreignDecl)
     DeclSplice body -> DeclSplice (addDeclSpliceParens body)
     DeclTypeFamilyDecl tf -> DeclTypeFamilyDecl (addTypeFamilyDeclParens tf)
@@ -581,7 +626,7 @@ addPatternBindLhsParens pat rhs =
     PTypeSig inner ty ->
       wrapPat
         (typedPatternBindLhsNeedsParens inner)
-        (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
+        (PTypeSig (addPatternInfixOperandParens inner) (addSignatureTypeParens ty))
     _ -> addPatternParens pat
 
 typedPatternBindLhsNeedsParens :: Pattern -> Bool
@@ -673,7 +718,7 @@ addDataDeclParens decl =
   decl
     { dataDeclCTypePragma = fmap stripPragmaRawText (dataDeclCTypePragma decl),
       dataDeclContext = addContextConstraints (dataDeclContext decl),
-      dataDeclKind = fmap addTypeParens (dataDeclKind decl),
+      dataDeclKind = fmap addSignatureTypeParens (dataDeclKind decl),
       dataDeclConstructors = map addDataConDeclParens (dataDeclConstructors decl),
       dataDeclDeriving = map addDerivingClauseParens (dataDeclDeriving decl)
     }
@@ -683,7 +728,7 @@ addNewtypeDeclParens decl =
   decl
     { newtypeDeclCTypePragma = fmap stripPragmaRawText (newtypeDeclCTypePragma decl),
       newtypeDeclContext = addContextConstraints (newtypeDeclContext decl),
-      newtypeDeclKind = fmap addTypeParens (newtypeDeclKind decl),
+      newtypeDeclKind = fmap addSignatureTypeParens (newtypeDeclKind decl),
       newtypeDeclConstructor = fmap addDataConDeclParens (newtypeDeclConstructor decl),
       newtypeDeclDeriving = map addDerivingClauseParens (newtypeDeclDeriving decl)
     }
@@ -697,14 +742,14 @@ addDerivingClauseParens dc =
     { derivingClasses =
         case derivingClasses dc of
           Left name -> Left name
-          Right classes -> Right (map addTypeParens classes),
+          Right classes -> Right (map addSignatureTypeParens classes),
       derivingStrategy = fmap addDerivingStrategyParens (derivingStrategy dc)
     }
 
 addDerivingStrategyParens :: DerivingStrategy -> DerivingStrategy
 addDerivingStrategyParens strategy =
   case strategy of
-    DerivingVia ty -> DerivingVia (addTypeParens ty)
+    DerivingVia ty -> DerivingVia (addSignatureTypeParens ty)
     _ -> strategy
 
 addDataConDeclParens :: DataConDecl -> DataConDecl
@@ -816,7 +861,7 @@ prefixConBangTypeNeedsParens _ = False
 addRecordFieldDeclParens :: FieldDecl -> FieldDecl
 addRecordFieldDeclParens fd =
   fd
-    { fieldMultiplicity = fmap addTypeParens (fieldMultiplicity fd),
+    { fieldMultiplicity = fmap addSignatureTypeParens (fieldMultiplicity fd),
       fieldType = addRecordFieldBangTypeParens (fieldType fd)
     }
 
@@ -828,7 +873,7 @@ addRecordFieldBangTypeParens bt =
           ( (bangStrict bt || bangLazy bt)
               && bangTypeNeedsPrefixParens (bangType bt)
           )
-          (addTypeParens (bangType bt))
+          (addSignatureTypeParens (bangType bt))
     }
 
 addGadtBodyParens :: GadtBody -> GadtBody
@@ -842,7 +887,7 @@ addGadtBodyParens body =
       GadtPrefixBody (map (Data.Bifunctor.bimap addGadtBangTypeParens addArrowKindParens) args) (addTypeIn CtxTypeFunArg resultTy)
     GadtRecordBody fields resultTy ->
       -- Record GADT result type uses typeParser so any type is fine here.
-      GadtRecordBody (map addRecordFieldDeclParens fields) (addTypeParens resultTy)
+      GadtRecordBody (map addRecordFieldDeclParens fields) (addSignatureTypeParens resultTy)
 
 addGadtBangTypeParens :: BangType -> BangType
 addGadtBangTypeParens bt =
@@ -866,8 +911,8 @@ addClassItemParens :: ClassDeclItem -> ClassDeclItem
 addClassItemParens item =
   case item of
     ClassItemAnn ann sub -> ClassItemAnn ann (addClassItemParens sub)
-    ClassItemTypeSig names ty -> ClassItemTypeSig names (addTypeParens ty)
-    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (addTypeParens ty)
+    ClassItemTypeSig names ty -> ClassItemTypeSig names (addSignatureTypeParens ty)
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (addSignatureTypeParens ty)
     ClassItemFixity {} -> item
     ClassItemDefault vdecl -> ClassItemDefault (addValueDeclParens vdecl)
     ClassItemTypeFamilyDecl tf -> ClassItemTypeFamilyDecl (addTypeFamilyDeclParens tf)
@@ -879,7 +924,7 @@ addInstanceDeclParens :: InstanceDecl -> InstanceDecl
 addInstanceDeclParens decl =
   decl
     { instanceDeclContext = addContextConstraints (instanceDeclContext decl),
-      instanceDeclHead = addTypeParens (instanceDeclHead decl),
+      instanceDeclHead = addSignatureTypeParens (instanceDeclHead decl),
       instanceDeclItems = map addInstanceItemParens (instanceDeclItems decl)
     }
 
@@ -888,7 +933,7 @@ addInstanceItemParens item =
   case item of
     InstanceItemAnn ann inner -> InstanceItemAnn ann (addInstanceItemParens inner)
     InstanceItemBind vdecl -> InstanceItemBind (addValueDeclParens vdecl)
-    InstanceItemTypeSig names ty -> InstanceItemTypeSig names (addTypeParens ty)
+    InstanceItemTypeSig names ty -> InstanceItemTypeSig names (addSignatureTypeParens ty)
     InstanceItemFixity {} -> item
     InstanceItemTypeFamilyInst tfi -> InstanceItemTypeFamilyInst (addTypeFamilyInstParens tfi)
     InstanceItemDataFamilyInst dfi -> InstanceItemDataFamilyInst (addDataFamilyInstParens dfi)
@@ -899,20 +944,20 @@ addStandaloneDerivingParens decl =
   decl
     { standaloneDerivingStrategy = fmap addDerivingStrategyParens (standaloneDerivingStrategy decl),
       standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
-      standaloneDerivingHead = addTypeParens (standaloneDerivingHead decl)
+      standaloneDerivingHead = addSignatureTypeParens (standaloneDerivingHead decl)
     }
 
 addForeignDeclParens :: ForeignDecl -> ForeignDecl
 addForeignDeclParens decl =
   decl
-    { foreignType = addTypeParens (foreignType decl)
+    { foreignType = addSignatureTypeParens (foreignType decl)
     }
 
 addTypeFamilyDeclParens :: TypeFamilyDecl -> TypeFamilyDecl
 addTypeFamilyDeclParens tf =
   tf
     { typeFamilyDeclExplicitFamilyKeyword = typeFamilyDeclExplicitFamilyKeyword tf,
-      typeFamilyDeclHead = addTypeParens (typeFamilyDeclHead tf),
+      typeFamilyDeclHead = addSignatureTypeParens (typeFamilyDeclHead tf),
       typeFamilyDeclResultSig = fmap addTypeFamilyResultSigParens (typeFamilyDeclResultSig tf),
       typeFamilyDeclEquations = fmap (map addTypeFamilyEqParens) (typeFamilyDeclEquations tf)
     }
@@ -920,7 +965,7 @@ addTypeFamilyDeclParens tf =
 addTypeFamilyResultSigParens :: TypeFamilyResultSig -> TypeFamilyResultSig
 addTypeFamilyResultSigParens sig =
   case sig of
-    TypeFamilyKindSig kind -> TypeFamilyKindSig (addTypeParens kind)
+    TypeFamilyKindSig kind -> TypeFamilyKindSig (addSignatureTypeParens kind)
     TypeFamilyTyVarSig result -> TypeFamilyTyVarSig (addTyVarBinderParens result)
     TypeFamilyInjectiveSig result injectivity -> TypeFamilyInjectiveSig (addTyVarBinderParens result) injectivity
 
@@ -934,7 +979,7 @@ addTypeFamilyEqParens eq =
 addDataFamilyDeclParens :: DataFamilyDecl -> DataFamilyDecl
 addDataFamilyDeclParens df =
   df
-    { dataFamilyDeclKind = fmap addTypeParens (dataFamilyDeclKind df)
+    { dataFamilyDeclKind = fmap addSignatureTypeParens (dataFamilyDeclKind df)
     }
 
 addTypeFamilyInstParens :: TypeFamilyInst -> TypeFamilyInst
@@ -947,29 +992,35 @@ addTypeFamilyInstParens tfi =
 addTypeFamilyLhsParens :: TypeHeadForm -> Type -> Type
 addTypeFamilyLhsParens headForm ty =
   case headForm of
-    TypeHeadPrefix -> addTypeParens ty
+    TypeHeadPrefix -> addSignatureTypeParens ty
     TypeHeadInfix ->
       case peelTypeAnn ty of
         TApp l r ->
           case peelTypeAnn l of
             TApp op lhs ->
               TApp
-                (TApp (addTypeParens op) (addTypeIn CtxTypeFamilyOperand lhs))
+                (TApp (addSignatureTypeParens op) (addTypeIn CtxTypeFamilyOperand lhs))
                 (addTypeIn CtxTypeFamilyOperand r)
-            _ -> addTypeParens ty
-        _ -> addTypeParens ty
+            _ -> addSignatureTypeParens ty
+        _ -> addSignatureTypeParens ty
 
 addTypeFamilyRhsParens :: Type -> Type
-addTypeFamilyRhsParens = addTypeTopLevelParens
+addTypeFamilyRhsParens = addTypeParens
 
 addDataFamilyInstParens :: DataFamilyInst -> DataFamilyInst
 addDataFamilyInstParens dfi =
   dfi
-    { dataFamilyInstHead = addTypeParens (dataFamilyInstHead dfi),
-      dataFamilyInstKind = fmap addTypeParens (dataFamilyInstKind dfi),
+    { dataFamilyInstHead = addDataFamilyInstHeadParens (isJust (dataFamilyInstKind dfi)) (dataFamilyInstHead dfi),
+      dataFamilyInstKind = fmap addSignatureTypeParens (dataFamilyInstKind dfi),
       dataFamilyInstConstructors = map addDataConDeclParens (dataFamilyInstConstructors dfi),
       dataFamilyInstDeriving = map addDerivingClauseParens (dataFamilyInstDeriving dfi)
     }
+
+addDataFamilyInstHeadParens :: Bool -> Type -> Type
+addDataFamilyInstHeadParens followedByKindSig ty =
+  case (followedByKindSig, peelTypeAnn ty) of
+    (True, TImplicitParam {}) -> wrapTy True (addSignatureTypeParens ty)
+    _ -> addSignatureTypeParens ty
 
 -- ---------------------------------------------------------------------------
 -- Expressions
@@ -1000,7 +1051,7 @@ addExprParensPrec prec expr =
     ETypeApp fn ty ->
       let fn' = wrapExpr (isGreedyExpr fn) (addExprParensIn CtxAppFun fn)
        in wrapExpr (prec > 2) (ETypeApp fn' (addTypeIn CtxTypeAppVisibleArg ty))
-    ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addTypeParens ty))
+    ETypeSyntax form ty -> wrapExpr (prec > 2) (ETypeSyntax form (addSignatureTypeParens ty))
     EVar {} -> expr
     EInt {} -> expr
     EFloat {} -> expr
@@ -1013,10 +1064,10 @@ addExprParensPrec prec expr =
     ETHExpQuote body -> ETHExpQuote (addExprParens body)
     ETHTypedQuote body -> ETHTypedQuote (addExprParens body)
     ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
-    ETHTypeQuote ty -> ETHTypeQuote (addTypeTopLevelParens ty)
+    ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
     ETHPatQuote pat -> ETHPatQuote (addTHPatQuoteParens pat)
     ETHNameQuote body -> ETHNameQuote (addExprParens body)
-    ETHTypeNameQuote ty -> ETHTypeNameQuote (addTypeParens ty)
+    ETHTypeNameQuote ty -> ETHTypeNameQuote (addSignatureTypeParens ty)
     ETHSplice body -> ETHSplice (addSpliceBodyParens body)
     ETHTypedSplice body -> ETHTypedSplice (addSpliceBodyParens body)
     EIf cond yes no ->
@@ -1075,7 +1126,7 @@ addExprParensPrec prec expr =
        in EGetField (wrapExpr (needsParensBeforeDotField base' field) base') field
     EGetFieldProjection {} -> EParen expr
     ETypeSig inner ty ->
-      wrapExpr (prec > 1) (ETypeSig (addTypeSigBodyParens inner) (addTypeParens ty))
+      wrapExpr (prec > 1) (ETypeSig (addTypeSigBodyParens inner) (addSignatureTypeParens ty))
     EParen inner ->
       -- If inner is a section or projection, addExprParens(inner) already produces EParen(section/projection).
       -- Delegating avoids double-wrapping and maintains idempotency.
@@ -1198,7 +1249,7 @@ addDelimitedExprParens :: Expr -> Expr
 addDelimitedExprParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDelimitedExprParens sub)
-    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addTypeParens ty)
+    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addSignatureTypeParens ty)
     _ -> addExprParens expr
 
 addDelimitedTypeSigBodyParens :: Expr -> Expr
@@ -1246,7 +1297,7 @@ addDoExprParens :: Expr -> Expr
 addDoExprParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDoExprParens sub)
-    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addTypeParens ty)
+    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addSignatureTypeParens ty)
     _ -> addExprParens expr
 
 addCompStmtParens :: CompStmt -> CompStmt
@@ -1361,32 +1412,38 @@ absorbsFollowingInfix = \case
 -- Types
 -- ---------------------------------------------------------------------------
 
--- | Add parentheses to a type at all required positions.
+-- | Add parentheses to a signature type at all required positions.
+addSignatureTypeParens :: Type -> Type
+addSignatureTypeParens = addSignatureTypeParensShared CtxTypeAtom 0
+
+-- | Add parentheses to a plain type at all required positions.
 addTypeParens :: Type -> Type
-addTypeParens = addTypeParensShared CtxTypeAtom 0
+addTypeParens = addTypeTopLevelParens
 
 addTypeTopLevelParens :: Type -> Type
 addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
-addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addTypeParensShared CtxTypeAtom 0 ty) (addTypeParensShared CtxTypeAtom 0 kind)
+addTypeTopLevelParens (TImplicitParam name inner) =
+  TImplicitParam name (addImplicitParamBodyParens inner)
+addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addTypeTopLevelParens kind)
 addTypeTopLevelParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
     (addTypeTopLevelParens inner)
 addTypeTopLevelParens (TContext constraints inner) =
-  TContext (addContextConstraints constraints) (addContextBodyParens inner)
+  TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
 addTypeTopLevelParens (TParen inner) =
   TParen (addTypeTopLevelParens inner)
-addTypeTopLevelParens ty = addTypeParens ty
+addTypeTopLevelParens ty = addSignatureTypeParens ty
 
 addTypeIn :: TypeCtx -> Type -> Type
 addTypeIn ctx ty =
-  wrapTy (needsTypeParens ctx ty) (addTypeParensShared ctx 0 ty)
+  wrapTy (needsTypeParens ctx ty) (addSignatureTypeParensShared ctx 0 ty)
 
-addTypeParensShared :: TypeCtx -> Int -> Type -> Type
-addTypeParensShared ctx prec ty =
-  let atom = addTypeParensShared CtxTypeAtom
+addSignatureTypeParensShared :: TypeCtx -> Int -> Type -> Type
+addSignatureTypeParensShared ctx prec ty =
+  let atom = addSignatureTypeParensShared CtxTypeAtom
    in case ty of
-        TAnn ann sub -> TAnn ann (addTypeParensShared ctx prec sub)
+        TAnn ann sub -> TAnn ann (addSignatureTypeParensShared ctx prec sub)
         TVar {} -> ty
         TCon name promoted -> TCon name promoted
         TBuiltinCon {} -> ty
@@ -1407,7 +1464,7 @@ addTypeParensShared ctx prec ty =
           -- Type operators are right-associative in GHC, so the RHS can contain
           -- nested TInfix without parens (a `op1` b `op2` c = a `op1` (b `op2` c)).
           -- The LHS needs parens for nested TInfix to prevent left-association.
-          wrapTy (prec > 0) (TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeFunArg rhs))
+          wrapTy (prec > 0) (TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeInfixRhs rhs))
         TApp f x ->
           wrapTy (prec > 2) (TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeAppArg x))
         TTypeApp f x ->
@@ -1415,12 +1472,12 @@ addTypeParensShared ctx prec ty =
         TFun arrowKind a b ->
           wrapTy (prec > 0) (TFun (addArrowKindParens arrowKind) (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->
-          TTuple tupleFlavor promoted (map (atom 0) elems)
-        TUnboxedSum elems -> TUnboxedSum (map (atom 0) elems)
-        TList promoted elems -> TList promoted (map (atom 0) elems)
+          TTuple tupleFlavor promoted (map addSignatureTypeParensInner elems)
+        TUnboxedSum elems -> TUnboxedSum (map addSignatureTypeParensInner elems)
+        TList promoted elems -> TList promoted (map addSignatureTypeParensInner elems)
         -- Inside an explicit TParen, TKindSig does not need an additional
         -- TParen wrapper since the enclosing delimiter already provides it.
-        TParen inner -> TParen (addTypeParensInner inner)
+        TParen inner -> TParen (addTypeInExplicitParenParens inner)
         -- TKindSig always needs parens in most contexts. The parser absorbs
         -- (ty :: kind) as TKindSig directly, so the TParen is not preserved
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
@@ -1435,35 +1492,24 @@ addTypeParensShared ctx prec ty =
 addArrowKindParens :: ArrowKind -> ArrowKind
 addArrowKindParens ArrowUnrestricted = ArrowUnrestricted
 addArrowKindParens ArrowLinear = ArrowLinear
-addArrowKindParens (ArrowExplicit ty) = ArrowExplicit (addTypeParens ty)
+addArrowKindParens (ArrowExplicit ty) = ArrowExplicit (addSignatureTypeParens ty)
 
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =
-  tvb {tyVarBinderKind = fmap addTypeParens (tyVarBinderKind tvb)}
+  tvb {tyVarBinderKind = fmap addSignatureTypeParens (tyVarBinderKind tvb)}
 
 -- | Process the body of a TForall. The forall body is parsed by
 -- 'contextOrFunTypeParser' (not 'typeParser'), so a bare nested TForall
 -- would fail to parse and must be wrapped in TParen.
 addForallBodyParens :: Type -> Type
 addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
-addForallBodyParens ty@(TForall {}) = addTypeParensShared CtxTypeAtom 0 ty
-addForallBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
+addForallBodyParens ty@(TForall {}) = addSignatureTypeParensShared CtxTypeAtom 0 ty
+addForallBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
--- | Process the body of a TImplicitParam. Although 'typeImplicitParamParser'
--- uses 'typeParser' (which handles TContext), the 'startsWithContextType'
--- lookahead will mistake @?x :: C a => T@ for an outer context, consuming
--- the entire implicit param as a constraint item and then failing to find @=>@.
--- Wrap a bare TContext in TParen to prevent this misinterpretation.
---
--- Similarly, a bare TForall whose body contains a TContext produces a @=>@ that
--- is visible to 'startsWithContextType' (the forall binders are balanced braces,
--- but the body's @=>@ appears at top bracket depth after them). Wrapping TForall
--- in TParen hides the inner @=>@ behind a bracket pair.
+-- | Process the body of a TImplicitParam.
 addImplicitParamBodyParens :: Type -> Type
 addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens sub)
-addImplicitParamBodyParens ty@(TContext {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
-addImplicitParamBodyParens ty@(TForall {}) = wrapTy True (addTypeParensShared CtxTypeAtom 0 ty)
-addImplicitParamBodyParens ty = addTypeParensShared CtxTypeAtom 0 ty
+addImplicitParamBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body to the right of a constraint arrow in a top-level type
 -- RHS. A kind signature is already delimited there in cases like
@@ -1476,8 +1522,8 @@ addContextBodyParens ty =
     TKindSig ty' kind ->
       wrapTy
         (startsWithTypeSplice ty')
-        (TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind))
-    _ -> addTypeParensShared CtxTypeAtom 0 ty
+        (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
+    _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 startsWithTypeSplice :: Type -> Bool
 startsWithTypeSplice (TAnn _ sub) = startsWithTypeSplice sub
@@ -1490,13 +1536,56 @@ startsWithTypeSplice _ = False
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter
 -- already provides the necessary parenthesization.
-addTypeParensInner :: Type -> Type
-addTypeParensInner (TAnn _ sub) = addTypeParensInner sub
-addTypeParensInner ty =
-  case ty of
-    TKindSig ty' kind ->
-      TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
-    _ -> addTypeParensShared CtxTypeAtom 0 ty
+addSignatureTypeParensInner :: Type -> Type
+addSignatureTypeParensInner = addTypeDelimitedParens
+
+addTypeDelimitedParens :: Type -> Type
+addTypeDelimitedParens (TAnn ann sub) = TAnn ann (addTypeDelimitedParens sub)
+addTypeDelimitedParens (TImplicitParam name inner) =
+  TImplicitParam name (addImplicitParamBodyParens inner)
+addTypeDelimitedParens (TKindSig ty kind) =
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
+addTypeDelimitedParens (TForall telescope inner) =
+  TForall
+    (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+    (addTypeDelimitedParens inner)
+addTypeDelimitedParens (TContext constraints inner) =
+  TContext (map addContextConstraintDelimitedParens constraints) (addTypeDelimitedParens inner)
+addTypeDelimitedParens (TInfix lhs op promoted rhs) =
+  TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeDelimitedInfixRhs rhs)
+addTypeDelimitedParens (TApp f x) =
+  TApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeDelimitedAppArg x)
+addTypeDelimitedParens (TTypeApp f x) =
+  TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeDelimitedAppVisibleArg x)
+addTypeDelimitedParens (TFun arrowKind a b) =
+  TFun (addArrowKindParens arrowKind) (addTypeIn CtxTypeFunArg a) (addSignatureTypeParensShared CtxTypeAtom 0 b)
+addTypeDelimitedParens (TTuple tupleFlavor promoted elems) =
+  TTuple tupleFlavor promoted (map addTypeDelimitedParens elems)
+addTypeDelimitedParens (TUnboxedSum elems) =
+  TUnboxedSum (map addTypeDelimitedParens elems)
+addTypeDelimitedParens (TList promoted elems) =
+  TList promoted (map addTypeDelimitedParens elems)
+addTypeDelimitedParens (TParen inner) =
+  TParen (addTypeInExplicitParenParens inner)
+addTypeDelimitedParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
+
+addTypeInExplicitParenParens :: Type -> Type
+addTypeInExplicitParenParens (TAnn ann sub) = TAnn ann (addTypeInExplicitParenParens sub)
+addTypeInExplicitParenParens (TKindSig ty kind) =
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
+addTypeInExplicitParenParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
+
+addContextConstraintDelimitedParens :: Type -> Type
+addContextConstraintDelimitedParens (TAnn ann sub) = TAnn ann (addContextConstraintDelimitedParens sub)
+addContextConstraintDelimitedParens (TImplicitParam name inner) =
+  TImplicitParam name (addImplicitParamBodyParens inner)
+addContextConstraintDelimitedParens (TInfix lhs op promoted rhs) =
+  TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addContextConstraintDelimitedParens rhs)
+addContextConstraintDelimitedParens (TApp f x) =
+  TApp (addTypeIn CtxTypeAppFun f) (addContextConstraintDelimitedParens x)
+addContextConstraintDelimitedParens (TTypeApp f x) =
+  TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeDelimitedAppVisibleArg x)
+addContextConstraintDelimitedParens ty = addTypeDelimitedParens ty
 
 -- | Process constraint types in a TContext.
 -- In multi-constraint contexts, TKindSig doesn't need individual parens
@@ -1510,7 +1599,7 @@ addContextConstraints constraints =
 -- | Add parens to a single constraint in a context.
 -- TKindSig needs wrapping here because there's no comma delimiter.
 addContextConstraintSingle :: Type -> Type
-addContextConstraintSingle = addTypeParens
+addContextConstraintSingle = addSignatureTypeParens
 
 -- | Add parens to a constraint in a multi-constraint context.
 -- TKindSig doesn't need extra wrapping because commas delimit.
@@ -1522,11 +1611,11 @@ addContextConstraintMulti ty =
       TAnn ann (addContextConstraintMulti sub)
     TKindSig ty' kind ->
       -- In multi-constraint context, TKindSig doesn't need wrapping
-      TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind)
     TParen inner@(TKindSig {}) ->
       -- Strip TParen around TKindSig in multi-constraint context
       addContextConstraintMulti inner
-    _ -> addTypeParens ty
+    _ -> addSignatureTypeParens ty
 
 -- ---------------------------------------------------------------------------
 -- Patterns
@@ -1539,7 +1628,7 @@ addPatternParens pat =
     PAnn sp sub -> PAnn sp (addPatternParens sub)
     PVar {} -> pat
     PTypeBinder binder -> PTypeBinder (addTyVarBinderParens binder)
-    PTypeSyntax form ty -> PTypeSyntax form (addTypeParens ty)
+    PTypeSyntax form ty -> PTypeSyntax form (addSignatureTypeParens ty)
     PWildcard {} -> pat
     PLit lit -> PLit lit
     PQuasiQuote {} -> pat
@@ -1557,7 +1646,7 @@ addPatternParens pat =
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
       PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
-    PTypeSig inner ty -> PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty)
+    PTypeSig inner ty -> PTypeSig (addPatternInfixOperandParens inner) (addSignatureTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
@@ -1701,13 +1790,13 @@ addFunctionHeadPatternAtomParens pat =
   case pat of
     PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PParen (PTypeSig inner@(PVar {}) ty) ->
-      PParen (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
+      PParen (PTypeSig (addPatternInfixOperandParens inner) (addSignatureTypeParens ty))
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PTypeSyntax {} -> wrapPat True (addPatternParens pat)
     PCon _ typeArgs args
       | not (null typeArgs) || not (null args) -> wrapPat True (addPatternParens pat)
     PTypeSig inner@(PVar {}) ty ->
-      wrapPat True (PTypeSig (addPatternInfixOperandParens inner) (addTypeParens ty))
+      wrapPat True (PTypeSig (addPatternInfixOperandParens inner) (addSignatureTypeParens ty))
     PTypeSig {} -> wrapPat True (addPatternParens pat)
     PAs {} -> addPatternParens pat
     PRecord {} -> addPatternParens pat

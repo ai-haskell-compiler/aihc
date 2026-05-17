@@ -13,6 +13,7 @@
 module Aihc.Parser.Internal.FromTokens
   ( parseExprFromTokens,
     parsePatternFromTokens,
+    parseSignatureTypeFromTokens,
     parseTypeFromTokens,
     parseModuleFromTokens,
     parseDeclFromTokens,
@@ -27,7 +28,7 @@ import Aihc.Parser.Internal.Expr (exprParser)
 import Aihc.Parser.Internal.Import (importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Internal.Pattern (patternParser)
-import Aihc.Parser.Internal.Type (typeParser)
+import Aihc.Parser.Internal.Type (typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Parser.Types
@@ -44,6 +45,9 @@ parseExprFromTokens = parseFromTokens exprParser
 
 parsePatternFromTokens :: FilePath -> [LexToken] -> ParseResult Pattern
 parsePatternFromTokens = parseFromTokens patternParser
+
+parseSignatureTypeFromTokens :: FilePath -> [LexToken] -> ParseResult Type
+parseSignatureTypeFromTokens = parseFromTokens typeSignatureParser
 
 parseTypeFromTokens :: FilePath -> [LexToken] -> ParseResult Type
 parseTypeFromTokens = parseFromTokens typeParser
