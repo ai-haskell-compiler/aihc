@@ -1,0 +1,48 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+
+    class Eq a where
+      (==) :: a -> a -> Bool
+
+    instance Eq Bool where
+      False == False = True
+      False == True = False
+      True == False = False
+      True == True = True
+
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+expected: |
+  data Bool
+   = False
+   | True
+
+  == : ∀ a. (Eq a) ⇒ a → a → Bool =
+    Λa.
+      \$d : dict.
+        $d.0
+
+  $fEqBool : () ⇒ Eq Bool =
+    {λx : Bool.
+      λy : Bool.
+        case x as _scrut : Bool → Bool of
+          True →
+            case y as _scrut : Bool of
+              True →
+                True
+              False →
+                False
+          False →
+            case y as _scrut : Bool of
+              True →
+                False
+              False →
+                True}
+
+  eqBool : Bool → Bool → Bool =
+    == @Bool $$fEqBool
+status: pass
+reason: reifies both type arguments and dictionaries for class method occurrences

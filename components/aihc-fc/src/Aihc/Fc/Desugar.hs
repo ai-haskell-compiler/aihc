@@ -167,16 +167,17 @@ dsClassDeclM classDecl =
 dsClassSelector :: Text -> Int -> DsM FcTopBind
 dsClassSelector methodName index = do
   methodTy <- lookupType methodName
+  let (tvs, _) = peelForAlls methodTy
   dictTy <- selectorDictType methodName methodTy
   methodUnique <- freshUnique
   dictVar <- freshVar "$d" dictTy
   let methodVar = Var methodName methodUnique methodTy
-      body = FcDictLam dictVar (FcDictSelect (FcVar dictVar) index)
+      body = foldr FcTyLam (FcDictLam dictVar (FcDictSelect (FcVar dictVar) index)) tvs
   pure (FcTopBind (FcNonRec methodVar body))
 
 selectorDictType :: Text -> TcType -> DsM TcType
 selectorDictType methodName methodTy =
-  case dropForAlls methodTy of
+  case snd (peelForAlls methodTy) of
     TcQualTy (pred' : _) _ -> pure (predType pred')
     _ -> desugarBug ("missing class dictionary type for method selector " <> T.unpack methodName <> ": " <> show methodTy)
 
@@ -207,7 +208,7 @@ dsInstanceDict classMethods instanceDecl =
       fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) selfTy methods) orderedMethods
       let dictTy = foldr TcForAllTy (TcQualTy (map classDictPred contextDicts) (TcTyCon (TyCon (nameText className) (length headTys)) headTys)) tvIds
       dictVar <- freshVar (instanceDictName (nameText className) headTys) dictTy
-      let dictBody = foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts
+      let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) tvIds
       pure (FcTopBind (FcNonRec dictVar dictBody))
 
 mkContextDict :: Map.Map Text TyVarId -> (Int, Type) -> DsM ClassDict
@@ -318,6 +319,12 @@ boolTy = TcTyCon (TyCon "Bool" 0) []
 dropForAlls :: TcType -> TcType
 dropForAlls (TcForAllTy _ body) = dropForAlls body
 dropForAlls ty = ty
+
+peelForAlls :: TcType -> ([TyVarId], TcType)
+peelForAlls (TcForAllTy tv body) =
+  let (tvs, inner) = peelForAlls body
+   in (tv : tvs, inner)
+peelForAlls ty = ([], ty)
 
 -- | A group of top-level value declarations.
 data DeclGroup

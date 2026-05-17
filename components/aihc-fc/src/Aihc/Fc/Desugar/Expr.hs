@@ -329,8 +329,7 @@ dsExprExpected expected (EVar name) = do
     Nothing -> do
       ty <- lookupType n
       v <- freshVar n ty
-      dicts <- qualifiedVarDicts n ty expected
-      pure (foldl' FcDictApp (FcVar v) dicts)
+      instantiateVar n (FcVar v) ty expected
 dsExprExpected _ (EInt i _ _) = pure (FcLit (LitInt i))
 dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
 dsExprExpected _ (EString s _) = dsStringLiteral s
@@ -420,14 +419,19 @@ isInstantiableType ty =
     TcQualTy {} -> True
     _ -> False
 
-qualifiedVarDicts :: Text -> TcType -> TcType -> DsM [FcExpr]
-qualifiedVarDicts name ty expected =
-  case splitQualifiedType ty of
-    Just (_tvs, preds, body) ->
-      case matchTypes [body] [expected] of
-        Nothing -> desugarBug ("could not instantiate qualified value " <> T.unpack name <> " :: " <> show ty <> " at expected type " <> show expected)
-        Just subst -> mapM (dictForPred . substPred subst) preds
-    _ -> pure []
+instantiateVar :: Text -> FcExpr -> TcType -> TcType -> DsM FcExpr
+instantiateVar name expr ty expected =
+  let (tvs, afterForAlls) = peelForAlls ty
+      (preds, body) = peelQuals afterForAlls
+   in case matchTypes [body] [expected] of
+        Nothing
+          | null tvs && null preds -> pure expr
+          | otherwise -> desugarBug ("could not instantiate value " <> T.unpack name <> " :: " <> show ty <> " at expected type " <> show expected)
+        Just subst -> do
+          let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
+              typedExpr = foldl' FcTyApp expr typeArgs
+          dicts <- mapM (dictForPred . substPred subst) preds
+          pure (foldl' FcDictApp typedExpr dicts)
 
 splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
 splitQualifiedType ty =
@@ -638,20 +642,22 @@ dictForClass className args = do
     Just var -> pure (FcVar var)
     Nothing -> do
       case firstJust (map (matchInstance className args) (Map.toList (dsTypeEnv st))) of
-        Just (dictName, dictTy, context) -> do
+        Just (dictName, dictTy, typeArgs, context) -> do
           contextDicts <- mapM dictForPred context
-          pure (foldl' FcDictApp (FcVar (Var dictName (Unique (-199)) dictTy)) contextDicts)
+          let dictExpr = foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
+          pure (foldl' FcDictApp dictExpr contextDicts)
         Nothing ->
           desugarBug ("missing dictionary for " <> T.unpack (dictKey className args))
 
-matchInstance :: Text -> [TcType] -> (Text, TcType) -> Maybe (Text, TcType, [Pred])
+matchInstance :: Text -> [TcType] -> (Text, TcType) -> Maybe (Text, TcType, [TcType], [Pred])
 matchInstance className args (dictName, dictTy) = do
-  (_tvs, context, body) <- splitQualifiedType dictTy <|> Just ([], [], dictTy)
+  (tvs, context, body) <- splitQualifiedType dictTy <|> Just ([], [], dictTy)
   case body of
     TcTyCon (TyCon dictClass _) headArgs
       | dictClass == className -> do
           subst <- matchTypes headArgs args
-          Just (dictName, dictTy, map (substPred subst) context)
+          let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
+          Just (dictName, dictTy, typeArgs, map (substPred subst) context)
     _ -> Nothing
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map.Map Unique TcType)
