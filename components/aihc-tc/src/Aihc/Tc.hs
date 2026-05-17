@@ -16,6 +16,7 @@ module Aihc.Tc
     typecheckExpr,
     typecheckModule,
     typecheckModuleWithEnv,
+    typecheckModulesWithEnv,
 
     -- * Result types
     TcResult (..),
@@ -114,21 +115,22 @@ typecheckModule =
 -- | Type-check a single module with preloaded top-level term bindings.
 typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> TcModuleResult
 typecheckModuleWithEnv importedTerms m =
-  case runTcM tcEnv initState (tcModule m) of
-    Left _abort ->
+  case typecheckModulesWithEnv importedTerms [m] of
+    [result] -> result
+    _ ->
       TcModuleResult
         { tcmBindings = [],
           tcmDiagnostics = [],
           tcmSuccess = False
         }
-    Right (bindings, st) ->
-      let diags = reverse (tcsDiagnostics st)
-          hasErrors = any isError diags
-       in TcModuleResult
-            { tcmBindings = bindings,
-              tcmDiagnostics = diags,
-              tcmSuccess = not hasErrors
-            }
+
+-- | Type-check modules in order while sharing the accumulated top-level
+-- environment. This is intentionally pragmatic: callers that have already
+-- resolved a dependency-ordered module list can feed it here so later modules
+-- see earlier data constructors and value bindings.
+typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [TcModuleResult]
+typecheckModulesWithEnv importedTerms =
+  go initState
   where
     initState =
       initTcState
@@ -139,6 +141,40 @@ typecheckModuleWithEnv importedTerms m =
               ]
               <> tcsGlobalTerms initTcState
         }
+
+    go _ [] = []
+    go st (m : ms) =
+      let (result, st') = typecheckModuleWithState st m
+       in result : go st' ms
+
+typecheckModuleWithState :: TcState -> Module -> (TcModuleResult, TcState)
+typecheckModuleWithState st m =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m) of
+    Left _abort ->
+      ( TcModuleResult
+          { tcmBindings = [],
+            tcmDiagnostics = [],
+            tcmSuccess = False
+          },
+        st
+      )
+    Right (bindings, st') ->
+      let diags = reverse (tcsDiagnostics st')
+          hasErrors = any isError diags
+          result =
+            TcModuleResult
+              { tcmBindings = bindings,
+                tcmDiagnostics = diags,
+                tcmSuccess = not hasErrors
+              }
+          nextState =
+            st'
+              { tcsDiagnostics = [],
+                tcsMetaSolutions = Map.empty,
+                tcsEvBinds = Map.empty
+              }
+       in (result, nextState)
+  where
     tcEnv =
       emptyTcEnv
         { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
@@ -151,4 +187,4 @@ typecheckModuleWithEnv importedTerms m =
 
 -- | Type-check a list of modules.
 typecheck :: [Module] -> [TcModuleResult]
-typecheck = map typecheckModule
+typecheck = typecheckModulesWithEnv []

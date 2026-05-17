@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data List a = [] | a : [a]
+    infixr 5 :
+    (++) :: [a] -> [a] -> [a]
+    (++) [] ys = ys
+    (++) (x : xs) ys = x : (xs ++ ys)
+expected:
+  - "List :: *"
+  - "[] :: [a]"
+  - ": :: a -> [a] -> [a]"
+  - "(++) :: forall a. [a] -> [a] -> [a]"
+status: pass
+reason: Prelude-style List declarations share the builtin list type used by list syntax

@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+    bad :: () -> ()
+    bad _ = True
+output: |
+  True
+expression: |
+  bad
+status: fail
+reason: FC eval fixtures must reject modules that real type checking rejects

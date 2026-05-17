@@ -22,7 +22,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -146,7 +146,7 @@ evaluateTcCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          let results = map typecheckModule modules
+          let results = typecheck modules
            in if all tcmSuccess results
                 then classifySuccess tc (renderResults results)
                 else classifyFailure tc (renderDiags results)
@@ -163,7 +163,7 @@ evaluateTcCase tc =
             else Left (show errs)
     renderResults results =
       let bindings = concatMap tcmBindings results
-       in unlines [T.unpack (tbName b) <> " :: " <> renderTcType (tbType b) | b <- bindings]
+       in unlines [T.unpack (tbDisplayName b) <> " :: " <> renderTcType (tbType b) | b <- bindings]
     renderDiags results =
       unlines [show d | r <- results, d <- tcmDiagnostics r]
 
