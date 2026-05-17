@@ -401,7 +401,7 @@ fcEvalActual opts value =
             let tcResults = typecheckModulesWithEnv [] resolvedModules
              in if all tcmSuccess tcResults
                   then
-                    let dsResults = zipWith desugarModuleWithTcResult (accumulatedTcResults tcResults) resolvedModules
+                    let dsResults = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
                      in if all dsSuccess dsResults
                           then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
                           else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
@@ -525,13 +525,11 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
-accumulatedTcResults :: [TcModuleResult] -> [TcModuleResult]
-accumulatedTcResults = go []
+moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
+moduleGroupTcResults results =
+  [result {tcmBindings = allBindings} | result <- results]
   where
-    go _ [] = []
-    go prior (result : rest) =
-      let current = result {tcmBindings = prior <> tcmBindings result}
-       in current : go (tcmBindings current) rest
+    allBindings = concatMap tcmBindings results
 
 updateFormatterGoldens :: Options -> IO Summary
 updateFormatterGoldens opts =

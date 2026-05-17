@@ -159,7 +159,7 @@ evaluateFcEvalCase tc =
                     let tcResults = typecheckModulesWithEnv [] resolvedModules
                      in if all tcmSuccess tcResults
                           then
-                            let results = zipWith desugarModuleWithTcResult (accumulatedTcResults tcResults) resolvedModules
+                            let results = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
                              in if all dsSuccess results
                                   then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
                                     Right actual -> classifySuccess tc (T.unpack actual)
@@ -240,13 +240,11 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
-accumulatedTcResults :: [TcModuleResult] -> [TcModuleResult]
-accumulatedTcResults = go []
+moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
+moduleGroupTcResults results =
+  [result {tcmBindings = allBindings} | result <- results]
   where
-    go _ [] = []
-    go prior (result : rest) =
-      let current = result {tcmBindings = prior <> tcmBindings result}
-       in current : go (tcmBindings current) rest
+    allBindings = concatMap tcmBindings results
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =

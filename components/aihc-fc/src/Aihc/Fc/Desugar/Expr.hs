@@ -41,7 +41,8 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
-import Control.Monad.Trans.State.Strict (State, get, modify')
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (StateT, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -49,7 +50,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Desugaring monad.
-type DsM = State DsState
+type DsM = StateT DsState (Either String)
 
 -- | Desugaring state.
 data DsState = DsState
@@ -82,6 +83,9 @@ freshVar name ty = do
   u <- freshUnique
   pure (Var name u ty)
 
+desugarBug :: String -> DsM a
+desugarBug = lift . Left
+
 -- | Look up a name's type (locals first, then global TC env).
 lookupType :: Text -> DsM TcType
 lookupType name = do
@@ -90,7 +94,7 @@ lookupType name = do
     Just v -> pure (varType v)
     Nothing -> case Map.lookup name (dsTypeEnv st) of
       Just ty -> pure ty
-      Nothing -> pure (TcTyCon (TyCon name 0) [])
+      Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -140,7 +144,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
             let (tyLams, afterForAlls) = peelForAlls ty
                 (dictPreds, innerTy) = peelQuals afterForAlls
             dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
-            body <- withDicts dicts (dsRhsWithExpected (Just innerTy) (matchRhs m0))
+            body <- withDicts dicts (dsRhsWithExpected innerTy (matchRhs m0))
             let dictLamExpr
                   | abstractDicts = foldr (FcDictLam . classDictVar) body dicts
                   | otherwise = body
@@ -197,13 +201,21 @@ peelFunTys n (TcFunTy arg rest) =
    in (arg : args, res)
 peelFunTys _ ty = ([], ty)
 
+peelFunTysExact :: Int -> TcType -> DsM ([TcType], TcType)
+peelFunTysExact 0 ty = pure ([], ty)
+peelFunTysExact n (TcFunTy arg rest) = do
+  (args, res) <- peelFunTysExact (n - 1) rest
+  pure (arg : args, res)
+peelFunTysExact n ty =
+  desugarBug ("missing function type information while desugaring " <> show n <> " argument(s): " <> show ty)
+
 -- | Build a chain of case expressions for pattern matching on arguments.
 --
 -- For constructor patterns, produces a case expression.
 -- For variable patterns, binds the pattern variable to the scrutinee
 -- and recurses on remaining arguments.
 buildCaseChain :: [Var] -> TcType -> [Match] -> DsM FcExpr
-buildCaseChain [] resTy (m : _) = dsRhsWithExpected (Just resTy) (matchRhs m)
+buildCaseChain [] resTy (m : _) = dsRhsWithExpected resTy (matchRhs m)
 buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
@@ -295,16 +307,17 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
     _ -> do
       let innerMatches = map dropFirstPat matches
           (con, binderNames) = dsPatternPure pat
-          binderTys = patternBinderTypes pat (varType scrutVar)
+      binderTys <- patternBinderTypesM pat (varType scrutVar)
       binders <- zipWithM freshVar binderNames binderTys
       body <- withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches)
       pure (FcAlt con binders body)
 
 -- | Desugar a right-hand side.
 dsRhs :: Rhs Expr -> DsM FcExpr
-dsRhs = dsRhsWithExpected Nothing
+dsRhs _ =
+  desugarBug "missing expected type for RHS"
 
-dsRhsWithExpected :: Maybe TcType -> Rhs Expr -> DsM FcExpr
+dsRhsWithExpected :: TcType -> Rhs Expr -> DsM FcExpr
 dsRhsWithExpected expected (UnguardedRhs _sp expr maybeDecls) =
   case maybeDecls of
     Nothing -> dsExprExpected expected expr
@@ -315,9 +328,10 @@ dsRhsWithExpected _ (GuardedRhss _sp _guards _decls) = do
 
 -- | Desugar a surface expression to Core.
 dsExpr :: Expr -> DsM FcExpr
-dsExpr = dsExprExpected Nothing
+dsExpr _ =
+  desugarBug "missing expected type for expression"
 
-dsExprExpected :: Maybe TcType -> Expr -> DsM FcExpr
+dsExprExpected :: TcType -> Expr -> DsM FcExpr
 dsExprExpected expected (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
@@ -334,19 +348,20 @@ dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
 dsExprExpected _ (EString s _) = dsStringLiteral s
 dsExprExpected expected app@EApp {} =
   dsApp expected app
-dsExprExpected _ (EInfix lhs op rhs) =
-  dsExpr (EApp (EApp (EVar op) lhs) rhs)
-dsExprExpected _ (EList elems) =
-  foldr consList nilList <$> mapM dsExpr elems
-dsExprExpected _ (ETuple Boxed elems) =
-  dsTuple elems
+dsExprExpected expected (EInfix lhs op rhs) =
+  dsExprExpected expected (EApp (EApp (EVar op) lhs) rhs)
+dsExprExpected expected (EList elems) = do
+  elemTy <- listElemTyM expected
+  foldr consList nilList <$> mapM (dsExprExpected elemTy) elems
+dsExprExpected expected (ETuple Boxed elems) =
+  dsTuple expected elems
 dsExprExpected expected (EParen inner) = dsExprExpected expected inner
 dsExprExpected expected (EAnn _ann inner) = dsExprExpected expected inner
 dsExprExpected expected (ETypeSig inner _ty) = dsExprExpected expected inner
-dsExprExpected _ (EIf cond thenE elseE) = do
-  cond' <- dsExpr cond
-  then' <- dsExpr thenE
-  else' <- dsExpr elseE
+dsExprExpected expected (EIf cond thenE elseE) = do
+  cond' <- dsExprExpected boolTy cond
+  then' <- dsExprExpected expected thenE
+  else' <- dsExprExpected expected elseE
   binder <- freshVar "_if" boolTy
   pure
     ( FcCase
@@ -357,38 +372,78 @@ dsExprExpected _ (EIf cond thenE elseE) = do
           FcAlt (DataAlt "False") [] else'
         ]
     )
-dsExprExpected _ (ECase scrut alts) = do
-  scrut' <- dsExpr scrut
+dsExprExpected expected (ECase scrut alts) = do
+  scrutTy <- exprTcTypeRequired scrut
+  scrut' <- dsExprExpected scrutTy scrut
   binder <- freshVar "_case" (exprType scrut')
-  alts' <- mapM dsCaseAlt alts
-  let resTy = case alts' of
-        (a : _) -> exprType (altRhs a)
-        [] -> TcTyCon (TyCon "?" 0) []
-  pure (FcCase scrut' binder resTy alts')
-dsExprExpected _ (ELambdaPats pats body) = do
-  vars <- mapM (\_ -> freshVar "_lam" (TcTyCon (TyCon "?" 0) [])) pats
-  body' <- dsExpr body
+  alts' <- mapM (dsCaseAlt scrutTy expected) alts
+  pure (FcCase scrut' binder expected alts')
+dsExprExpected expected (ELambdaPats pats body) = do
+  (argTys, resTy) <- peelFunTysExact (length pats) expected
+  vars <- zipWithM freshVar (map (const "_lam") pats) argTys
+  body' <- dsExprExpected resTy body
   pure (foldr FcLam body' vars)
 dsExprExpected expected (ELetDecls decls body) =
   dsLetDecls decls (dsExprExpected expected body)
-dsExprExpected _ _ = do
-  v <- freshVar "_unsupported" (TcTyCon (TyCon "?" 0) [])
-  pure (FcVar v)
+dsExprExpected _ expr =
+  desugarBug ("unsupported expression form after type checking: " <> take 80 (show expr))
 
-dsApp :: Maybe TcType -> Expr -> DsM FcExpr
+dsApp :: TcType -> Expr -> DsM FcExpr
 dsApp expected expr = do
   let (fun, args) = collectAppSpine expr
-  argTypes <- mapM exprTcType args
-  let funExpected = expectedFunctionType argTypes expected
+  (funExpected, argTypes) <- expectedFunctionType args expected =<< exprTcTypeRequired fun
   f' <- dsExprExpected funExpected fun
-  args' <- mapM dsExpr args
+  args' <- zipWithM dsExprExpected argTypes args
   pure (foldl' FcApp f' args')
 
-expectedFunctionType :: [Maybe TcType] -> Maybe TcType -> Maybe TcType
-expectedFunctionType argTypes expected =
-  case argTypes of
-    [] -> expected
-    _ -> Just (foldr (TcFunTy . fromMaybe unknownTy) (fromMaybe unknownTy expected) argTypes)
+expectedFunctionType :: [Expr] -> TcType -> TcType -> DsM (TcType, [TcType])
+expectedFunctionType args expected funTy = do
+  let argCount = length args
+  (formalArgs, formalResult) <- peelFunTysExact argCount (qualifiedBody funTy)
+  surfaceArgTypes <- mapM exprTcType args
+  let knownArgPairs = [(formal, actual) | (formal, Just actual) <- zip formalArgs surfaceArgTypes, not (isInstantiableType actual)]
+      subst = matchTypes (formalResult : map fst knownArgPairs) (expected : map snd knownArgPairs)
+  case subst of
+    Nothing ->
+      desugarBug "could not match function type against expected application type"
+    Just subst' -> do
+      let argTypes = map (substType subst') formalArgs
+          funExpected = foldr TcFunTy expected argTypes
+      mapM_ ensureKnownType argTypes
+      pure (funExpected, argTypes)
+
+qualifiedBody :: TcType -> TcType
+qualifiedBody ty =
+  case splitQualifiedType ty of
+    Just (_tvs, _preds, body) -> body
+    Nothing -> snd (peelForAlls ty)
+
+ensureKnownType :: TcType -> DsM ()
+ensureKnownType ty
+  | hasUnknownTy ty = desugarBug ("missing type information while desugaring: " <> show ty)
+  | otherwise = pure ()
+
+hasUnknownTy :: TcType -> Bool
+hasUnknownTy ty =
+  case ty of
+    TcTyCon (TyCon "?" 0) [] -> True
+    TcTyCon _ args -> any hasUnknownTy args
+    TcFunTy a b -> hasUnknownTy a || hasUnknownTy b
+    TcForAllTy _ body -> hasUnknownTy body
+    TcQualTy preds body -> any predHasUnknown preds || hasUnknownTy body
+    TcAppTy f a -> hasUnknownTy f || hasUnknownTy a
+    TcTyVar {} -> False
+    TcMetaTv {} -> False
+  where
+    predHasUnknown (ClassPred _ args) = any hasUnknownTy args
+    predHasUnknown (EqPred left right) = hasUnknownTy left || hasUnknownTy right
+
+isInstantiableType :: TcType -> Bool
+isInstantiableType ty =
+  case ty of
+    TcForAllTy {} -> True
+    TcQualTy {} -> True
+    _ -> False
 
 collectAppSpine :: Expr -> (Expr, [Expr])
 collectAppSpine expr = go expr []
@@ -396,12 +451,12 @@ collectAppSpine expr = go expr []
     go (EApp f a) args = go f (a : args)
     go f args = (f, args)
 
-qualifiedVarDicts :: TcType -> Maybe TcType -> DsM [FcExpr]
+qualifiedVarDicts :: TcType -> TcType -> DsM [FcExpr]
 qualifiedVarDicts ty expected =
-  case (splitQualifiedType ty, expected) of
-    (Just (_tvs, preds, body), Just expectedTy) ->
-      case matchTypes [body] [expectedTy] of
-        Nothing -> pure []
+  case splitQualifiedType ty of
+    Just (_tvs, preds, body) ->
+      case matchTypes [body] [expected] of
+        Nothing -> desugarBug ("could not instantiate qualified value " <> show ty <> " at expected type " <> show expected)
         Just subst -> mapM (dictForPred . substPred subst) preds
     _ -> pure []
 
@@ -442,7 +497,7 @@ dsLetDecls :: [Decl] -> DsM FcExpr -> DsM FcExpr
 dsLetDecls decls bodyAction = do
   let groups = groupLocalDecls decls
       names = map localGroupName groups
-  vars <- mapM (`freshVar` unknownTy) names
+  vars <- mapM localGroupVar groups
   let localBindings = zip names vars
   withLocals localBindings $ do
     rhsBindings <- zipWithM dsLocalGroup vars groups
@@ -505,6 +560,43 @@ barePatternName pat =
     PParen inner -> barePatternName inner
     _ -> Nothing
 
+localGroupVar :: LocalDeclGroup -> DsM Var
+localGroupVar group = do
+  ty <- localGroupType group
+  freshVar (localGroupName group) ty
+
+localGroupType :: LocalDeclGroup -> DsM TcType
+localGroupType group =
+  case group of
+    LocalFunction _ matches ->
+      case matches of
+        [match] | null (matchPats match) -> rhsKnownType (matchRhs match)
+        _ -> missingLocalType
+    LocalPattern _ rhs -> rhsKnownType rhs
+  where
+    missingLocalType =
+      desugarBug ("missing type information for local declaration: " <> T.unpack (localGroupName group))
+
+rhsKnownType :: Rhs Expr -> DsM TcType
+rhsKnownType (UnguardedRhs _ expr Nothing) = exprKnownType expr
+rhsKnownType _ = desugarBug "missing type information for local RHS"
+
+exprKnownType :: Expr -> DsM TcType
+exprKnownType expr =
+  case expr of
+    EAnn _ inner -> exprKnownType inner
+    EParen inner -> exprKnownType inner
+    ETypeSig inner _ -> exprKnownType inner
+    EInt {} -> pure intTy
+    EChar {} -> pure charTy
+    EString {} -> pure (listType charTy)
+    EVar name
+      | nameText name == "True" || nameText name == "False" -> pure boolTy
+      | otherwise -> lookupType (nameToText name)
+    EList [] -> desugarBug "missing element type information for empty local list"
+    EList (item : _) -> listType <$> exprKnownType item
+    _ -> desugarBug ("missing expression type information for local RHS: " <> take 80 (show expr))
+
 dsLocalGroup :: Var -> LocalDeclGroup -> DsM (Var, FcExpr)
 dsLocalGroup var group =
   case group of
@@ -512,22 +604,32 @@ dsLocalGroup var group =
       rhs <- dsMatches (varType var) matches
       pure (var, rhs)
     LocalPattern _ rhs -> do
-      rhs' <- dsRhs rhs
+      rhs' <- dsRhsWithExpected (varType var) rhs
       pure (var, rhs')
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar nilList text)
 
-dsTuple :: [Maybe Expr] -> DsM FcExpr
-dsTuple elems = do
-  elems' <- mapM dsMaybeTupleElem elems
+dsTuple :: TcType -> [Maybe Expr] -> DsM FcExpr
+dsTuple expected elems = do
+  elemTys <- tupleElemTypes expected (length elems)
+  elems' <- zipWithM dsMaybeTupleElem elemTys elems
   pure (foldl' FcApp (tupleConExpr (length elems')) elems')
 
-dsMaybeTupleElem :: Maybe Expr -> DsM FcExpr
-dsMaybeTupleElem (Just expr) = dsExpr expr
-dsMaybeTupleElem Nothing = do
-  v <- freshVar "_tuple_section" unknownTy
+tupleElemTypes :: TcType -> Int -> DsM [TcType]
+tupleElemTypes (TcTyCon (TyCon _ arity) elemTys) expectedArity
+  | arity == expectedArity,
+    length elemTys == expectedArity =
+      pure elemTys
+tupleElemTypes ty arity =
+  desugarBug ("missing tuple element type information for " <> show arity <> "-tuple: " <> show ty)
+
+dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
+dsMaybeTupleElem ty (Just expr) = dsExprExpected ty expr
+dsMaybeTupleElem ty Nothing = do
+  ensureKnownType ty
+  v <- freshVar "_tuple_section" ty
   pure (FcVar v)
 
 tupleConExpr :: Int -> FcExpr
@@ -592,8 +694,6 @@ matchTypes patterns targets
   | otherwise = foldM matchOne Map.empty (zip patterns targets)
 
 matchOne :: Map.Map Unique TcType -> (TcType, TcType) -> Maybe (Map.Map Unique TcType)
-matchOne subst (_, TcTyCon (TyCon "?" 0) []) = Just subst
-matchOne subst (TcTyCon (TyCon "?" 0) [], _) = Just subst
 matchOne subst (TcTyVar tv, target) =
   case Map.lookup (tvUnique tv) subst of
     Nothing -> Just (Map.insert (tvUnique tv) target subst)
@@ -644,22 +744,35 @@ exprTcType expr =
     EList (item : _) -> fmap listType <$> exprTcType item
     _ -> pure Nothing
 
-patternBinderTypes :: Pattern -> TcType -> [TcType]
-patternBinderTypes pat scrutTy =
+exprTcTypeRequired :: Expr -> DsM TcType
+exprTcTypeRequired expr = do
+  maybeTy <- exprTcType expr
+  case maybeTy of
+    Just ty -> pure ty
+    Nothing -> desugarBug ("missing expression type information for: " <> take 80 (show expr))
+
+patternBinderTypesM :: Pattern -> TcType -> DsM [TcType]
+patternBinderTypesM pat scrutTy =
   case pat of
     PInfix _lhs op _rhs
       | nameText op == ":" ->
-          let elemTy = listElemTy scrutTy
-           in [elemTy, scrutTy]
-    PCon _ _ subPats -> replicate (length subPats) unknownTy
-    PVar {} -> [scrutTy]
-    PAnn _ inner -> patternBinderTypes inner scrutTy
-    PParen inner -> patternBinderTypes inner scrutTy
-    _ -> replicate (length (snd (dsPatternPure pat))) unknownTy
+          (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
+    PCon _ _ [] -> pure []
+    PCon {} -> missingPatternTypes
+    PVar {} -> pure [scrutTy]
+    PAnn _ inner -> patternBinderTypesM inner scrutTy
+    PParen inner -> patternBinderTypesM inner scrutTy
+    _
+      | null (snd (dsPatternPure pat)) -> pure []
+      | otherwise -> missingPatternTypes
+  where
+    missingPatternTypes =
+      desugarBug ("missing pattern binder type information while desugaring: " <> take 80 (show pat))
 
-listElemTy :: TcType -> TcType
-listElemTy (TcTyCon (TyCon "[]" 1) [elemTy]) = elemTy
-listElemTy _ = unknownTy
+listElemTyM :: TcType -> DsM TcType
+listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
+listElemTyM ty =
+  desugarBug ("missing list element type information while desugaring: " <> show ty)
 
 surfaceTypeToTc :: Map Text TyVarId -> Type -> TcType
 surfaceTypeToTc tvMap ty =
@@ -697,12 +810,19 @@ typeKey ty =
 boolTy :: TcType
 boolTy = TcTyCon (TyCon "Bool" 0) []
 
+charTy :: TcType
+charTy = TcTyCon (TyCon "Char" 0) []
+
+intTy :: TcType
+intTy = TcTyCon (TyCon "Int" 0) []
+
 -- | Desugar a case alternative.
-dsCaseAlt :: CaseAlt Expr -> DsM FcAlt
-dsCaseAlt (CaseAlt _anns pat rhs) = do
+dsCaseAlt :: TcType -> TcType -> CaseAlt Expr -> DsM FcAlt
+dsCaseAlt scrutTy expected (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
-  binders <- mapM (\nm -> freshVar nm (TcTyCon (TyCon "?" 0) [])) binderNames
-  body <- dsRhs rhs
+  binderTys <- patternBinderTypesM pat scrutTy
+  binders <- zipWithM freshVar binderNames binderTys
+  body <- dsRhsWithExpected expected rhs
   pure (FcAlt con binders body)
 
 -- | Convert a Name to Text.

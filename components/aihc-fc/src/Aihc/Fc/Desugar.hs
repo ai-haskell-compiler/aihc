@@ -43,7 +43,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Control.Monad.Trans.State.Strict (evalState)
+import Control.Monad.Trans.State.Strict (runStateT)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -75,13 +75,20 @@ desugarModuleWithTcResult tcResult m =
           dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList (concatMap bindingTypeEntries (tcmBindings tcResult))
-          binds = evalState (dsModule m) (DsState 1000 typeEnv Map.empty Map.empty)
-       in DesugarResult
-            { dsProgram = FcProgram binds,
-              dsSuccess = True,
-              dsErrors = []
-            }
+      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries (tcmBindings tcResult))
+       in case runStateT (dsModule m) (DsState 1000 typeEnv Map.empty Map.empty) of
+            Left err ->
+              DesugarResult
+                { dsProgram = FcProgram [],
+                  dsSuccess = False,
+                  dsErrors = [err]
+                }
+            Right (binds, _) ->
+              DesugarResult
+                { dsProgram = FcProgram binds,
+                  dsSuccess = True,
+                  dsErrors = []
+                }
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
@@ -96,6 +103,16 @@ showTcFailure tcResult =
 bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
 bindingTypeEntries b =
   [(tbName b, tbType b)]
+
+builtinTypeEntries :: [(Text, TcType)]
+builtinTypeEntries =
+  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
+    ("[]", TcForAllTy aVar listA)
+  ]
+  where
+    aVar = TyVarId "a" (Unique (-1000))
+    aTy = TcTyVar aVar
+    listA = TcTyCon (TyCon "[]" 1) [aTy]
 
 -- | Desugar a module's declarations.
 dsModule :: Module -> DsM [FcTopBind]
@@ -334,5 +351,5 @@ dsGroup grp = do
   body <-
     case grp of
       DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsRhsWithExpected (Just ty) rhs
+      DeclPattern _ rhs -> dsRhsWithExpected ty rhs
   pure (FcTopBind (FcNonRec var body))
