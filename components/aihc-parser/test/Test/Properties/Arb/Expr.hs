@@ -753,8 +753,20 @@ whereValueRhss decls =
 shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =
   case stmts of
-    [stmt] -> [[stmt'] | stmt' <- shrinkDoStmt stmt]
-    _ -> shrinkList shrinkDoStmt stmts
+    [stmt] -> [[stmt'] | stmt' <- shrinkDoStmt stmt, isDoExprStmt stmt']
+    _ -> [stmts' | stmts' <- shrinkList shrinkDoStmt stmts, doStmtsEndInExpr stmts']
+
+doStmtsEndInExpr :: [DoStmt Expr] -> Bool
+doStmtsEndInExpr stmts =
+  case reverse stmts of
+    stmt : _ -> isDoExprStmt stmt
+    [] -> False
+
+isDoExprStmt :: DoStmt Expr -> Bool
+isDoExprStmt stmt =
+  case peelDoStmtAnn stmt of
+    DoExpr {} -> True
+    _ -> False
 
 shrinkDoFlavor :: DoFlavor -> [DoFlavor]
 shrinkDoFlavor flavor =
