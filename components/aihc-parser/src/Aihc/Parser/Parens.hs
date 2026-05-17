@@ -131,6 +131,7 @@ endsWithTypeSig = \case
     case reverse rhss of
       grhs : _ -> endsWithTypeSig (guardedRhsBody grhs)
       [] -> False
+  ENegate inner -> endsWithTypeSig inner
   EInfix _ _ rhs -> endsWithTypeSig rhs
   EApp _ arg -> endsWithTypeSig arg
   EIf _ _ no -> endsWithTypeSig no
