@@ -1,0 +1,11 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Test where
+output: |
+  True
+expression: |
+  otherwise
+status: pass
+reason: evaluates Prelude otherwise as True from aihc-base

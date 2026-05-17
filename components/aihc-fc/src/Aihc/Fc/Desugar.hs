@@ -12,18 +12,22 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (DsM, DsState (..), dsMatches, freshUnique, lookupType)
+import Aihc.Fc.Desugar.Expr (DsM, DsState (..), dsMatches, dsRhs, freshUnique, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Decl (..),
+    Expr,
     Match (..),
     Module (..),
+    Pattern (..),
+    Rhs,
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
     peelDeclAnn,
+    unqualifiedNameText,
   )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
 import Aihc.Tc.Types (TcType (..), TyCon (..))
@@ -93,21 +97,30 @@ dsDataDeclM dd = do
       cons = map (\c -> let (n, arity) = dsDataConPure c in (n, replicate arity (TcTyCon (TyCon "?" 0) []))) (dataDeclConstructors dd)
   pure (FcData tyName [] cons)
 
--- | A group of function bind declarations (possibly multi-equation).
-data DeclGroup = DeclGroup
-  { dgName :: !Text,
-    dgMatches :: ![Match]
-  }
+-- | A group of top-level value declarations.
+data DeclGroup
+  = DeclFunction !Text ![Match]
+  | DeclPattern !Text !(Rhs Expr)
 
--- | Group consecutive FunctionBind declarations with the same name.
+dgName :: DeclGroup -> Text
+dgName group =
+  case group of
+    DeclFunction name _ -> name
+    DeclPattern name _ -> name
+
+-- | Group consecutive FunctionBind declarations with the same name and keep
+-- simple top-level pattern binds.
 groupFunctionBinds :: [Decl] -> [DeclGroup]
 groupFunctionBinds [] = []
 groupFunctionBinds (d : ds) = case extractFunBind d of
   Just (name, matches) ->
     let (sameNameDecls, rest) = span (hasSameName name) ds
         allMatches = matches ++ concatMap (maybe [] snd . extractFunBind) sameNameDecls
-     in DeclGroup name allMatches : groupFunctionBinds rest
-  Nothing -> groupFunctionBinds ds
+     in DeclFunction name allMatches : groupFunctionBinds rest
+  Nothing ->
+    case extractPatternBind d of
+      Just group -> group : groupFunctionBinds ds
+      Nothing -> groupFunctionBinds ds
 
 -- | Extract function bind info from a declaration.
 extractFunBind :: Decl -> Maybe (Text, [Match])
@@ -122,11 +135,29 @@ hasSameName name d = case extractFunBind d of
   Just (n, _) -> n == name
   Nothing -> False
 
+extractPatternBind :: Decl -> Maybe DeclGroup
+extractPatternBind decl =
+  case peelDeclAnn decl of
+    DeclValue (PatternBind _ pat rhs) ->
+      DeclPattern <$> barePatternName pat <*> pure rhs
+    _ -> Nothing
+
+barePatternName :: Pattern -> Maybe Text
+barePatternName pat =
+  case pat of
+    PVar name -> Just (unqualifiedNameText name)
+    PAnn _ inner -> barePatternName inner
+    PParen inner -> barePatternName inner
+    _ -> Nothing
+
 -- | Desugar a function binding group.
 dsGroup :: DeclGroup -> DsM FcTopBind
 dsGroup grp = do
   ty <- lookupType (dgName grp)
   u <- freshUnique
   let var = Var (dgName grp) u ty
-  body <- dsMatches ty (dgMatches grp)
+  body <-
+    case grp of
+      DeclFunction _ matches -> dsMatches ty matches
+      DeclPattern _ rhs -> dsRhs rhs
   pure (FcTopBind (FcNonRec var body))

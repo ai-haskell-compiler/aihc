@@ -49,7 +49,8 @@ evalProgramBinding name program =
       [(varName var, VThunk env expr)]
     topBindingValues (FcTopBind (FcRec bindings)) =
       [(varName var, VThunk env expr) | (var, expr) <- bindings]
-    topBindingValues FcData {} = []
+    topBindingValues (FcData _ _ constructors) =
+      [(conName, VConstructor conName []) | (conName, _) <- constructors]
 
 evalExpr :: FcExpr -> Either EvalError Value
 evalExpr = evalWithEnv primitiveEnv

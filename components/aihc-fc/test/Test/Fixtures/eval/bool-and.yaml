@@ -1,0 +1,12 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Test where
+    loop = loop
+output: |
+  (((False,False),(False,True)),False)
+expression: |
+  (((False && False, False && True), (True && False, True && True)), False && loop)
+status: pass
+reason: evaluates Prelude Bool conjunction truth table and left short-circuiting from aihc-base
