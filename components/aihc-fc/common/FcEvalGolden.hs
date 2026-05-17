@@ -27,15 +27,13 @@ import Aihc.Parser.Syntax
     MatchHeadForm (..),
     Module (..),
     NameType (..),
-    Pattern (..),
     Rhs (..),
-    UnqualifiedName (..),
     ValueDecl (..),
     mkUnqualifiedName,
     parseExtensionName,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), TyCon (..))
+import Aihc.Tc (TcModuleResult (..), typecheckModulesWithEnv)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -158,12 +156,16 @@ evaluateFcEvalCase tc =
             let resolved = resolveWithDeps mempty (deps <> evalModules)
              in case resolved of
                   ResolveResult {resolvedModules, resolveErrors = []} ->
-                    let results = map desugarResolvedModule resolvedModules
-                     in if all dsSuccess results
-                          then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
-                            Right actual -> classifySuccess tc (T.unpack actual)
-                            Left err -> classifyFailure tc ("eval error: " <> show err)
-                          else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
+                    let tcResults = typecheckModulesWithEnv [] resolvedModules
+                     in if all tcmSuccess tcResults
+                          then
+                            let results = zipWith desugarModuleWithTcResult tcResults resolvedModules
+                             in if all dsSuccess results
+                                  then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
+                                    Right actual -> classifySuccess tc (T.unpack actual)
+                                    Left err -> classifyFailure tc ("eval error: " <> show err)
+                                  else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
+                          else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
                   ResolveResult {resolveErrors} ->
                     classifyFailure tc ("resolve error: " <> show resolveErrors)
 
@@ -231,27 +233,12 @@ evalDecl expr =
           }
       ]
 
-syntheticTcResult :: Module -> TcModuleResult
-syntheticTcResult modu =
-  TcModuleResult
-    { tcmBindings = concatMap bindingTypes (moduleDecls modu),
-      tcmDiagnostics = [],
-      tcmSuccess = True
-    }
-
-bindingTypes :: Decl -> [TcBindingResult]
-bindingTypes decl =
-  case decl of
-    DeclAnn _ inner -> bindingTypes inner
-    DeclValue (FunctionBind name matches) ->
-      [TcBindingResult (unqualifiedNameText name) (functionType (matchArity matches))]
-    DeclValue (PatternBind _ pat _) ->
-      [TcBindingResult name unknownTy | Just name <- [barePatternName pat]]
-    _ -> []
-
-desugarResolvedModule :: Module -> DesugarResult
-desugarResolvedModule modu =
-  desugarModuleWithTcResult (syntheticTcResult modu) modu
+renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors results =
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+   in if null (trim rendered)
+        then "type checker failed without diagnostics"
+        else rendered
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
@@ -338,25 +325,6 @@ findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
 moduleNamePath :: Text -> FilePath
 moduleNamePath moduleName =
   joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
-
-matchArity :: [Match] -> Int
-matchArity [] = 0
-matchArity (match : _) = length (matchPats match)
-
-functionType :: Int -> TcType
-functionType arity =
-  foldr TcFunTy unknownTy (replicate arity unknownTy)
-
-unknownTy :: TcType
-unknownTy = TcTyCon (TyCon "?" 0) []
-
-barePatternName :: Pattern -> Maybe Text
-barePatternName pat =
-  case pat of
-    PVar name -> Just (unqualifiedNameText name)
-    PAnn _ inner -> barePatternName inner
-    PParen inner -> barePatternName inner
-    _ -> Nothing
 
 classifySuccess :: FcEvalCase -> String -> (Outcome, String)
 classifySuccess tc actual =

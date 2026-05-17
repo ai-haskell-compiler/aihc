@@ -10,7 +10,7 @@ where
 
 import Aihc.Cpp (Result (..))
 import Aihc.Dev.Parser.Run qualified as ParserRun
-import Aihc.Fc (DesugarResult (..), desugarModule, desugarModuleWithTcResult, evalProgramBinding, renderProgram, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModule, desugarModuleWithTcResult, evalProgramBinding, renderProgram, renderRawValue)
 import Aihc.Fmt (defaultFormatOptions, formatErrorMessage, formatExtensions, formatText)
 import Aihc.Parser
   ( ParseResult (..),
@@ -29,15 +29,14 @@ import Aihc.Parser.Syntax
     Expr,
     Extension,
     ExtensionSetting,
+    ImportDecl (..),
     LanguageEdition (Haskell2010Edition),
     Match (..),
     MatchHeadForm (..),
     Module (..),
     NameType (..),
-    Pattern (..),
     Pragma (..),
     Rhs (..),
-    UnqualifiedName (..),
     ValueDecl (..),
     editionFromExtensionSettings,
     effectiveExtensions,
@@ -45,8 +44,8 @@ import Aihc.Parser.Syntax
     parseExtensionName,
     parseExtensionSettingName,
   )
-import Aihc.Resolve (ResolveResult (..), collectModuleExports, renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), TyCon (..), renderTcType, typecheckModule)
+import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
 import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
@@ -63,6 +62,7 @@ import Data.Map.Strict qualified as M
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ratio (denominator, numerator)
 import Data.Scientific (toBoundedInteger)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -74,9 +74,9 @@ import Options.Applicative hiding (value)
 import Options.Applicative qualified as OA
 import ParserErrorGolden qualified as PEG
 import ParserGolden qualified as PG
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, findExecutable, getTemporaryDirectory, listDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getTemporaryDirectory, listDirectory, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
+import System.FilePath (joinPath, makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.IO (Handle, hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -348,9 +348,9 @@ tcActual value = do
   exts <- parseExtensions value
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
-  let results = map typecheckModule parsed
+  let results = typecheck parsed
   if all tcmSuccess results
-    then Right (trim (unlines [T.unpack (tbName b) <> " :: " <> renderTcType (tbType b) | r <- results, b <- tcmBindings r]))
+    then Right (trim (unlines [T.unpack (tbDisplayName b) <> " :: " <> renderTcType (tbType b) | r <- results, b <- tcmBindings r]))
     else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
 
 updateFcGoldens :: Options -> IO Summary
@@ -377,43 +377,119 @@ updateFcEvalGoldens opts =
   updateYamlTree opts (optRoot opts </> "components/aihc-fc/test/Test/Fixtures/eval") $ \_ value ->
     if not (shouldUpdateOutput value)
       then pure FixtureUnchanged
-      else case fcEvalActual value of
-        Left err -> pure (skipForStatus (textField "status" value) err)
-        Right actual -> do
-          let expected = T.unpack <$> textField "output" value
-          pure $
-            if either (const True) ((/= trim actual) . trim) expected
-              then setValueAt ["output"] (String (T.pack actual)) value
-              else FixtureUnchanged
+      else do
+        actualResult <- fcEvalActual opts value
+        case actualResult of
+          Left err -> pure (skipForStatus (textField "status" value) err)
+          Right actual -> do
+            let expected = T.unpack <$> textField "output" value
+            pure $
+              if either (const True) ((/= trim actual) . trim) expected
+                then setValueAt ["output"] (String (T.pack actual)) value
+                else FixtureUnchanged
 
-fcEvalActual :: Value -> Either String String
-fcEvalActual value = do
+fcEvalActual :: Options -> Value -> IO (Either String String)
+fcEvalActual opts value =
+  case parseEvalInput value of
+    Left err -> pure (Left err)
+    Right (dependencies, evalModules) -> do
+      dependencyModules <- loadFcEvalDependencyModules opts dependencies evalModules
+      pure $ do
+        deps <- dependencyModules
+        case resolveWithDeps mempty (deps <> evalModules) of
+          ResolveResult {resolvedModules, resolveErrors = []} ->
+            let tcResults = typecheckModulesWithEnv [] resolvedModules
+             in if all tcmSuccess tcResults
+                  then
+                    let dsResults = zipWith desugarModuleWithTcResult tcResults resolvedModules
+                     in if all dsSuccess dsResults
+                          then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
+                          else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
+                  else Left ("typecheck error: " <> renderTcErrors tcResults)
+          ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+
+parseEvalInput :: Value -> Either String ([Text], [Module])
+parseEvalInput value = do
   exts <- parseExtensions value
+  dependencies <- optionalTextArrayField "dependencies" value
   moduleTexts <- parseTextArrayField "modules" value
   exprText <- textField "expression" value
   parsedModules <- traverse (parseModuleText exts) moduleTexts
   expr <- parseExprText exts exprText
-  let (depModules, evalModule) = combineEvalModules parsedModules expr
-      depExports = collectModuleExports depModules
-  case resolveWithDeps depExports [evalModule] of
-    ResolveResult {resolvedModules = [resolvedModule], resolveErrors = []} ->
-      let result = desugarModuleWithTcResult (syntheticTcResult resolvedModule) resolvedModule
-       in if dsSuccess result
-            then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (dsProgram result) >>= renderRawValue))
-            else Left ("desugar error: " <> unlines (dsErrors result))
-    ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+  pure (dependencies, combineEvalModules parsedModules expr)
 
 evalBindingName :: Text
 evalBindingName = "__aihc_eval__"
 
-combineEvalModules :: [Module] -> Expr -> ([Module], Module)
+combineEvalModules :: [Module] -> Expr -> [Module]
 combineEvalModules modules expr =
   case modules of
-    [] -> ([], emptyEvalModule expr)
+    [] -> [emptyEvalModule expr]
     _ ->
       let depModules = init modules
           evalModule = last modules
-       in (depModules, evalModule {moduleDecls = moduleDecls evalModule <> [evalDecl expr]})
+       in depModules <> [evalModule {moduleDecls = moduleDecls evalModule <> [evalDecl expr]}]
+
+loadFcEvalDependencyModules :: Options -> [Text] -> [Module] -> IO (Either String [Module])
+loadFcEvalDependencyModules _ [] _ =
+  pure (Right [])
+loadFcEvalDependencyModules opts dependencies evalModules = do
+  roots <- traverse (resolveFcEvalDependencyRoot opts) dependencies
+  case sequence roots of
+    Left errMsg -> pure (Left errMsg)
+    Right packageRoots ->
+      loadTransitiveFcEvalModules packageRoots (initialFcEvalDependencyModules evalModules)
+
+resolveFcEvalDependencyRoot :: Options -> Text -> IO (Either String (Text, FilePath))
+resolveFcEvalDependencyRoot opts dependency =
+  case dependency of
+    "aihc-base" -> pure (Right (dependency, optRoot opts </> "core-libs" </> "aihc-base"))
+    _ -> pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
+
+initialFcEvalDependencyModules :: [Module] -> Set.Set Text
+initialFcEvalDependencyModules modules =
+  Set.insert "Prelude" (importedFcEvalModuleNames modules)
+
+importedFcEvalModuleNames :: [Module] -> Set.Set Text
+importedFcEvalModuleNames modules =
+  Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+
+loadTransitiveFcEvalModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
+loadTransitiveFcEvalModules packageRoots initialModules =
+  go Set.empty [] (Set.toAscList initialModules)
+  where
+    go _ loaded [] =
+      pure (Right (reverse loaded))
+    go seen loaded (moduleName : pending)
+      | moduleName `Set.member` seen =
+          go seen loaded pending
+      | otherwise = do
+          maybePath <- findFcEvalModulePath packageRoots moduleName
+          case maybePath of
+            Nothing -> do
+              let dependencyNames = T.intercalate ", " (map fst packageRoots)
+              pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
+            Just path -> do
+              source <- TIO.readFile path
+              case parseModuleText [] source of
+                Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
+                Right modu -> do
+                  let seen' = Set.insert moduleName seen
+                      newImports = Set.toAscList (importedFcEvalModuleNames [modu] `Set.difference` seen')
+                  go seen' (modu : loaded) (pending <> newImports)
+
+findFcEvalModulePath :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
+findFcEvalModulePath [] _ = pure Nothing
+findFcEvalModulePath ((_dependency, root) : rest) moduleName = do
+  let path = root </> "src" </> fcEvalModuleNamePath moduleName
+  exists <- doesFileExist path
+  if exists
+    then pure (Just path)
+    else findFcEvalModulePath rest moduleName
+
+fcEvalModuleNamePath :: Text -> FilePath
+fcEvalModuleNamePath moduleName =
+  joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
 
 emptyEvalModule :: Expr -> Module
 emptyEvalModule expr =
@@ -438,42 +514,16 @@ evalDecl expr =
           }
       ]
 
-syntheticTcResult :: Module -> TcModuleResult
-syntheticTcResult modu =
-  TcModuleResult
-    { tcmBindings = concatMap bindingTypes (moduleDecls modu),
-      tcmDiagnostics = [],
-      tcmSuccess = True
-    }
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs =
+  FcProgram (concatMap fcTopBinds programs)
 
-bindingTypes :: Decl -> [TcBindingResult]
-bindingTypes decl =
-  case decl of
-    DeclAnn _ inner -> bindingTypes inner
-    DeclValue (FunctionBind name matches) ->
-      [TcBindingResult (unqualifiedNameText name) (functionType (matchArity matches))]
-    DeclValue (PatternBind _ pat _) ->
-      [TcBindingResult name unknownTy | Just name <- [barePatternName pat]]
-    _ -> []
-
-matchArity :: [Match] -> Int
-matchArity [] = 0
-matchArity (match : _) = length (matchPats match)
-
-functionType :: Int -> TcType
-functionType arity =
-  foldr TcFunTy unknownTy (replicate arity unknownTy)
-
-unknownTy :: TcType
-unknownTy = TcTyCon (TyCon "?" 0) []
-
-barePatternName :: Pattern -> Maybe Text
-barePatternName pat =
-  case pat of
-    PVar name -> Just (unqualifiedNameText name)
-    PAnn _ inner -> barePatternName inner
-    PParen inner -> barePatternName inner
-    _ -> Nothing
+renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors results =
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+   in if null (trim rendered)
+        then "type checker failed without diagnostics"
+        else rendered
 
 updateFormatterGoldens :: Options -> IO Summary
 updateFormatterGoldens opts =

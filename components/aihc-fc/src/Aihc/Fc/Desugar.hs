@@ -58,10 +58,10 @@ desugarModuleWithTcResult tcResult m =
       DesugarResult
         { dsProgram = FcProgram [],
           dsSuccess = False,
-          dsErrors = map showBinding (tcmBindings tcResult)
+          dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList [(tbName b, tbType b) | b <- tcmBindings tcResult]
+      let typeEnv = Map.fromList (concatMap bindingTypeEntries (tcmBindings tcResult))
           binds = evalState (dsModule m) (DsState 1000 typeEnv Map.empty)
        in DesugarResult
             { dsProgram = FcProgram binds,
@@ -71,7 +71,17 @@ desugarModuleWithTcResult tcResult m =
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
-showBinding b = T.unpack (tbName b) ++ " :: " ++ renderTcType (tbType b)
+showBinding b = T.unpack (tbDisplayName b) ++ " :: " ++ renderTcType (tbType b)
+
+showTcFailure :: TcModuleResult -> [String]
+showTcFailure tcResult =
+  case map show (tcmDiagnostics tcResult) of
+    [] -> map showBinding (tcmBindings tcResult)
+    diagnostics -> diagnostics
+
+bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
+bindingTypeEntries b =
+  [(tbName b, tbType b)]
 
 -- | Desugar a module's declarations.
 dsModule :: Module -> DsM [FcTopBind]
