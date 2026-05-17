@@ -41,6 +41,8 @@ module Aihc.Parser.Internal.Common
     contextItemParserWith,
     contextItemsParserWith,
     contextParserWith,
+    typedSignaturePrefixParser,
+    typedBindingOrSignatureParser,
     functionHeadParserWith,
     functionHeadParserWithBinder,
     functionBindValue,
@@ -680,6 +682,32 @@ contextItemsParserWith typeParser typeAtomParser =
 
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
+
+-- | Parse the shared @vars :: type@ prefix used by type signatures and typed
+-- bindings.
+typedSignaturePrefixParser :: TokParser ty -> TokParser ([UnqualifiedName], ty)
+typedSignaturePrefixParser typeParser = do
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  pure (names, ty)
+
+-- | Parse either a plain type signature or a typed binding that must be
+-- reinterpreted when followed by @=@ or guarded RHS syntax.
+typedBindingOrSignatureParser ::
+  TokParser ty ->
+  ([UnqualifiedName] -> ty -> a) ->
+  (UnqualifiedName -> ty -> TokParser a) ->
+  String ->
+  TokParser a
+typedBindingOrSignatureParser typeParser signatureCtor bindingCtor singleBinderMsg = do
+  (names, ty) <- typedSignaturePrefixParser typeParser
+  nextKind <- lexTokenKind <$> lookAhead anySingle
+  if nextKind == TkReservedEquals || nextKind == TkReservedPipe
+    then case names of
+      [name] -> bindingCtor name ty
+      _ -> fail singleBinderMsg
+    else pure (signatureCtor names ty)
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
 functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser infixOperatorNameParser
