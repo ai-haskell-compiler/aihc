@@ -1,0 +1,15 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    elem :: Eq a => a -> [a] -> Bool
+    elem _ [] = False
+    elem x (y : ys) = x == y || elem x ys
+output: |
+  ((False,False),(True,True))
+expression: |
+  ((elem True [], elem True [False]), (elem True [False, True], elem False [True, False]))
+status: pass
+reason: evaluates a user-defined Eq-constrained elem over Bool lists

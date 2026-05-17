@@ -15,6 +15,8 @@ import Aihc.Parser.Syntax
     BangType (..),
     CallConv (..),
     CaseAlt (..),
+    ClassDecl (..),
+    ClassDeclItem (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -23,6 +25,7 @@ import Aihc.Parser.Syntax
     ForeignDecl (..),
     ForeignDirection (..),
     GadtBody (..),
+    InstanceDecl (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -40,11 +43,16 @@ import Aihc.Parser.Syntax
     forallTelescopeBinders,
     fromAnnotation,
     gadtBodyResultType,
+    instanceHeadName,
+    instanceHeadTypes,
+    nameText,
+    peelClassDeclItemAnn,
     peelDeclAnn,
     peelTypeHead,
     tyVarBinderName,
   )
 import Aihc.Tc.Constraint
+import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Generalize (generalize)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -58,7 +66,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.String (fromString)
 import Data.Text (Text)
@@ -119,7 +127,7 @@ freeTypeVars = nub . go
     go (TFun _ a b) = go a ++ go b
     go (TParen inner) = go inner
     go (TAnn _ inner) = go inner
-    go (TContext _preds inner) = go inner
+    go (TContext preds inner) = concatMap go preds ++ go inner
     go (TForall telescope inner) =
       go inner \\ map tyVarBinderName (forallTelescopeBinders telescope)
     go _ = []
@@ -180,15 +188,30 @@ namedTypeCon name = TcTyCon (TyCon name 0) []
 listType :: TcType -> TcType
 listType ty = TcTyCon (TyCon "[]" 1) [ty]
 
+splitContext :: Type -> ([Type], Type)
+splitContext (TAnn _ inner) = splitContext inner
+splitContext (TContext preds inner) = (preds, inner)
+splitContext ty = ([], ty)
+
+surfacePredToPred :: Map Text TyVarId -> Type -> Pred
+surfacePredToPred tvMap ty =
+  case instanceHeadName ty of
+    Just className ->
+      ClassPred (nameText className) (map (convertSurfaceType tvMap) (instanceHeadTypes ty))
+    Nothing ->
+      ClassPred "<invalid-predicate>" []
+
 -- | Convert a surface type signature to a TypeScheme.
 -- Free type variables become universally quantified type variables.
 sigToScheme :: Type -> TcM TypeScheme
 sigToScheme ty = do
-  let freeVars = freeTypeVars ty
+  let (context, body) = splitContext ty
+      freeVars = freeTypeVars ty
   tvIds <- mapM freshSkolemTv freeVars
   let tvMap = Map.fromList (zip freeVars tvIds)
-      tcTy = convertSurfaceType tvMap ty
-  pure (ForAll tvIds [] tcTy)
+      preds = map (surfacePredToPred tvMap) context
+      tcTy = convertSurfaceType tvMap body
+  pure (ForAll tvIds preds tcTy)
 
 -- | Instantiate a type scheme with fresh skolems for type-checking.
 -- Unlike regular instantiation (which uses metas), this produces rigid
@@ -403,6 +426,8 @@ tcFunctionInfer displayName name matches = do
 -- Returns binding results for the declared names.
 registerDecl :: Decl -> TcM [TcBindingResult]
 registerDecl (DeclData dd) = registerDataDecl dd
+registerDecl (DeclClass classDecl) = registerClassDecl classDecl
+registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl >> pure []
 registerDecl (DeclForeign foreignDecl)
   | isForeignPrimImport foreignDecl =
       registerForeignPrimImport foreignDecl
@@ -423,6 +448,58 @@ registerForeignPrimImport foreignDecl = do
   extendTermEnvPermanent name (TcIdBinder name scheme Closed)
   zonkedTy <- zonkType declaredTy
   pure [TcBindingResult displayName zonkedTy]
+
+registerClassDecl :: ClassDecl -> TcM [TcBindingResult]
+registerClassDecl classDecl = do
+  let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
+      params = binderHeadParams (classDeclHead classDecl)
+      paramNames = map tyVarBinderName params
+  paramTyVars <- mapM freshSkolemTv paramNames
+  let paramMap = Map.fromList (zip paramNames paramTyVars)
+      classPred = ClassPred className (map TcTyVar paramTyVars)
+      superPreds = concatMap (map (surfacePredToPred paramMap)) (maybeToList (classDeclContext classDecl))
+  concat <$> mapM (registerClassItem classPred superPreds paramMap paramTyVars) (classDeclItems classDecl)
+
+registerClassItem :: Pred -> [Pred] -> Map Text TyVarId -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
+registerClassItem classPred superPreds classTvMap classTyVars item =
+  case peelClassDeclItemAnn item of
+    ClassItemTypeSig names ty -> do
+      let (context, body) = splitContext ty
+          classVarNames = Map.keys classTvMap
+          freeVars = freeTypeVars ty \\ classVarNames
+      extraTyVars <- mapM freshSkolemTv freeVars
+      let tvMap = classTvMap <> Map.fromList (zip freeVars extraTyVars)
+          preds = classPred : superPreds <> map (surfacePredToPred tvMap) context
+          scheme = ForAll (classTyVars <> extraTyVars) preds (convertSurfaceType tvMap body)
+          declaredTy = schemeToType scheme
+      mapM
+        ( \methodName -> do
+            let name = unqualifiedNameText methodName
+                displayName = renderBinderName methodName
+            extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+            zonkedTy <- zonkType declaredTy
+            pure (TcBindingResult displayName zonkedTy)
+        )
+        names
+    _ -> pure []
+
+registerInstanceDecl :: InstanceDecl -> TcM ()
+registerInstanceDecl instanceDecl =
+  case instanceHeadName (instanceDeclHead instanceDecl) of
+    Nothing -> pure ()
+    Just className -> do
+      let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
+          explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
+          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgs))
+      tvIds <- mapM freshSkolemTv freeVars
+      let tvMap = Map.fromList (zip freeVars tvIds)
+      addInstance
+        InstanceInfo
+          { iiClassName = nameText className,
+            iiTyVars = tvIds,
+            iiContext = map (surfacePredToPred tvMap) (instanceDeclContext instanceDecl),
+            iiHead = map (convertSurfaceType tvMap) headArgs
+          }
 
 -- | Register a data declaration's type constructor and data constructors.
 --

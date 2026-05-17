@@ -82,7 +82,8 @@ processConstraint ct wl inerts = case canonicalize ct of
     solveLoop wl' inerts
   CanonDict dictCt -> do
     -- Try to solve dictionary constraint.
-    case solveDict dictCt of
+    dictResult <- solveDict dictCt
+    case dictResult of
       DictSolved -> solveLoop wl inerts
       DictStuck stuckCt ->
         -- Leave in inert set for now.

@@ -38,6 +38,8 @@ module Aihc.Tc.Monad
     tcMonomorphismRestriction,
     getTcLevel,
     withTcLevel,
+    addInstance,
+    getInstances,
 
     -- * GADT constructor registry
     markGadtCon,
@@ -51,6 +53,7 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
+import Aihc.Tc.Env (InstanceInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -131,6 +134,8 @@ data TcState = TcState
     tcsDiagnostics :: ![TcDiagnostic],
     -- | Global term bindings (accumulated by top-level declarations).
     tcsGlobalTerms :: !(Map Text TcBinder),
+    -- | Class instances in scope.
+    tcsInstances :: ![InstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
     tcsGadtCons :: !(Set Text)
   }
@@ -145,6 +150,7 @@ initTcState =
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = builtinTerms,
+      tcsInstances = [],
       tcsGadtCons = Set.empty
     }
 
@@ -230,6 +236,13 @@ extendTermEnv name binder =
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+
+addInstance :: InstanceInfo -> TcM ()
+addInstance instanceInfo = lift $ modify' $ \s ->
+  s {tcsInstances = instanceInfo : tcsInstances s}
+
+getInstances :: TcM [InstanceInfo]
+getInstances = lift $ gets tcsInstances
 
 -- | Run a computation with adjusted local type-checker options.
 localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a

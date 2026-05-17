@@ -8,12 +8,15 @@
 module Aihc.Fc.Desugar.Expr
   ( dsExpr,
     dsMatches,
+    dsMatchesWithDicts,
     dsRhs,
     DsM,
     DsState (..),
+    ClassDict (..),
     freshUnique,
     freshVar,
     lookupType,
+    surfaceTypeToTc,
   )
 where
 
@@ -28,12 +31,14 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     TupleFlavor (..),
+    Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Tc.Types (TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, modify')
 import Data.Map.Strict (Map)
@@ -50,7 +55,15 @@ data DsState = DsState
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
-    dsLocalVars :: !(Map Text Var)
+    dsLocalVars :: !(Map Text Var),
+    -- | Local dictionaries, keyed by class predicate.
+    dsLocalDicts :: !(Map Text Var)
+  }
+
+data ClassDict = ClassDict
+  { classDictName :: !Text,
+    classDictType :: !TcType,
+    classDictVar :: !Var
   }
 
 -- | Generate a fresh unique.
@@ -93,6 +106,16 @@ withLocals bindings action = do
   modify' (\s -> s {dsLocalVars = oldLocals})
   pure result
 
+withDicts :: [ClassDict] -> DsM a -> DsM a
+withDicts dicts action = do
+  st <- get
+  let oldDicts = dsLocalDicts st
+      newDicts = foldr (\dict m -> Map.insert (dictKey (classDictName dict) (classDictType dict)) (classDictVar dict) m) oldDicts dicts
+  modify' (\s -> s {dsLocalDicts = newDicts})
+  result <- action
+  modify' (\s -> s {dsLocalDicts = oldDicts})
+  pure result
+
 -- | Desugar a list of match equations into a Core expression.
 --
 -- For a function like @not True = False; not False = True@, this
@@ -101,7 +124,10 @@ withLocals bindings action = do
 -- For a polymorphic function like @id x = x@, this wraps with
 -- type lambdas and lambdas referencing the same variable.
 dsMatches :: TcType -> [Match] -> DsM FcExpr
-dsMatches ty matches = case matches of
+dsMatches = dsMatchesWithDicts True
+
+dsMatchesWithDicts :: Bool -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithDicts abstractDicts ty matches = case matches of
   [] -> do
     v <- freshVar "_void" ty
     pure (FcVar v)
@@ -111,17 +137,27 @@ dsMatches ty matches = case matches of
           then -- No patterns: just desugar the first RHS.
             dsRhs (matchRhs m0)
           else do
-            -- Peel off foralls for type lambdas.
-            let (tyLams, innerTy) = peelForAlls ty
+            let (tyLams, afterForAlls) = peelForAlls ty
+                (dictPreds, innerTy) = peelQuals afterForAlls
                 (argTys, resTy) = peelFunTys nArgs innerTy
-            -- Create variables for each argument.
+            dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
             argVars <- mapM (\(i, argTy) -> freshVar (argName i) argTy) (zip [0 :: Int ..] argTys)
-            -- Build the body: case analysis on arguments.
-            body <- buildCaseChain argVars resTy matches
-            -- Wrap in lambdas.
+            body <- withDicts dicts (buildCaseChain argVars resTy matches)
             let lamExpr = foldr FcLam body argVars
-            -- Wrap in type lambdas.
-            pure (foldr FcTyLam lamExpr tyLams)
+                dictLamExpr
+                  | abstractDicts = foldr (FcDictLam . classDictVar) lamExpr dicts
+                  | otherwise = lamExpr
+            pure (foldr FcTyLam dictLamExpr tyLams)
+
+mkClassDict :: (Int, Pred) -> DsM ClassDict
+mkClassDict (i, pred') =
+  case pred' of
+    ClassPred className [ty] -> do
+      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+      pure (ClassDict className ty var)
+    _ -> do
+      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+      pure (ClassDict "<constraint>" unknownTy var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
 argName :: Int -> Text
@@ -135,6 +171,14 @@ peelForAlls (TcForAllTy tv rest) =
   let (tvs, inner) = peelForAlls rest
    in (tv : tvs, inner)
 peelForAlls ty = ([], ty)
+
+peelQuals :: TcType -> ([Pred], TcType)
+peelQuals (TcQualTy preds body) = (preds, body)
+peelQuals ty = ([], ty)
+
+predType :: Pred -> TcType
+predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 -- | Peel a fixed number of function argument types.
 peelFunTys :: Int -> TcType -> ([TcType], TcType)
@@ -163,8 +207,9 @@ buildCaseChain (scrutVar : restVars) resTy matches = do
           innerMatches = map dropFirstPat matches
       withLocals bindings (buildCaseChain restVars resTy innerMatches)
     else do
-      -- Build case alternatives from the first argument's patterns.
-      alts <- mapM (buildAlt scrutVar restVars resTy) matches
+      -- Build one case alternative per first-pattern constructor. Equations
+      -- that share that constructor continue together under the next argument.
+      alts <- mapM (buildAltGroup scrutVar restVars resTy) (groupFirstPatterns matches)
       caseBinder <- freshVar "_scrut" (varType scrutVar)
       pure (FcCase (FcVar scrutVar) caseBinder (scrutResultType restVars resTy) alts)
 
@@ -203,22 +248,48 @@ allVarPatterns = all isVarPat
 dropFirstPat :: Match -> Match
 dropFirstPat m = m {matchPats = drop 1 (matchPats m)}
 
--- | Build a case alternative from a match equation.
-buildAlt :: Var -> [Var] -> TcType -> Match -> DsM FcAlt
-buildAlt _scrutVar restVars resTy m = case matchPats m of
-  (pat : restPats) -> do
-    let m' = m {matchPats = restPats}
-        (con, binderNames) = dsPatternPure pat
-    -- Create binder variables (with placeholder types for MVP).
-    binders <- mapM (\nm -> freshVar nm (TcTyCon (TyCon "?" 0) [])) binderNames
-    body <-
-      if null restVars && null restPats
-        then dsRhs (matchRhs m)
-        else buildCaseChain restVars resTy [m']
-    pure (FcAlt con binders body)
-  [] -> do
-    body <- dsRhs (matchRhs m)
-    pure (FcAlt DefaultAlt [] body)
+data FirstPatternGroup = FirstPatternGroup !Pattern ![Match]
+
+groupFirstPatterns :: [Match] -> [FirstPatternGroup]
+groupFirstPatterns =
+  foldl' insertGroup []
+  where
+    insertGroup groups match =
+      case matchPats match of
+        [] -> FirstPatternGroup PWildcard [match] : groups
+        pat : _ -> insertByKey pat match groups
+    insertByKey pat match [] = [FirstPatternGroup pat [match]]
+    insertByKey pat match (FirstPatternGroup groupPat matches : rest)
+      | patternKey pat == patternKey groupPat =
+          FirstPatternGroup (moreSpecificPattern groupPat pat) (matches <> [match]) : rest
+      | otherwise = FirstPatternGroup groupPat matches : insertByKey pat match rest
+
+patternKey :: Pattern -> FcAltCon
+patternKey = fst . dsPatternPure
+
+moreSpecificPattern :: Pattern -> Pattern -> Pattern
+moreSpecificPattern left right
+  | patternSpecificity right > patternSpecificity left = right
+  | otherwise = left
+
+patternSpecificity :: Pattern -> Int
+patternSpecificity pat =
+  length [name | name <- snd (dsPatternPure pat), name /= "_", name /= "_pat"]
+
+-- | Build a case alternative from all equations with the same first pattern.
+buildAltGroup :: Var -> [Var] -> TcType -> FirstPatternGroup -> DsM FcAlt
+buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
+  case matches of
+    [] -> do
+      body <- buildCaseChain restVars resTy []
+      pure (FcAlt DefaultAlt [] body)
+    _ -> do
+      let innerMatches = map dropFirstPat matches
+          (con, binderNames) = dsPatternPure pat
+          binderTys = patternBinderTypes pat (varType scrutVar)
+      binders <- zipWithM freshVar binderNames binderTys
+      body <- withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches)
+      pure (FcAlt con binders body)
 
 -- | Desugar a right-hand side.
 dsRhs :: Rhs Expr -> DsM FcExpr
@@ -245,12 +316,22 @@ dsExpr (EVar name) = do
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
 dsExpr (EChar c _) = pure (FcLit (LitChar c))
 dsExpr (EString s _) = dsStringLiteral s
+dsExpr (EApp (EApp fun@(EVar name) arg1) arg2) = do
+  maybeDict <- qualifiedCallDict name arg1
+  case maybeDict of
+    Nothing -> dsRegularApp (EApp fun arg1) arg2
+    Just dict -> do
+      f' <- dsExpr fun
+      arg1' <- dsExpr arg1
+      arg2' <- dsExpr arg2
+      pure (FcApp (FcApp (FcDictApp f' dict) arg1') arg2')
 dsExpr (EApp f a) = do
-  f' <- dsExpr f
-  a' <- dsExpr a
-  pure (FcApp f' a')
-dsExpr (EInfix lhs op rhs) =
-  dsExpr (EApp (EApp (EVar op) lhs) rhs)
+  dsRegularApp f a
+dsExpr (EInfix lhs op rhs)
+  | nameText op == "==" || nameText op == "/=" =
+      dsEqInfix lhs op rhs
+  | otherwise =
+      dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExpr (EList elems) =
   foldr consList nilList <$> mapM dsExpr elems
 dsExpr (ETuple Boxed elems) =
@@ -261,7 +342,6 @@ dsExpr (EIf cond thenE elseE) = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
-  let boolTy = TcTyCon (TyCon "Bool" 0) []
   binder <- freshVar "_if" boolTy
   pure
     ( FcCase
@@ -289,6 +369,26 @@ dsExpr (ELetDecls decls body) =
 dsExpr _ = do
   v <- freshVar "_unsupported" (TcTyCon (TyCon "?" 0) [])
   pure (FcVar v)
+
+dsRegularApp :: Expr -> Expr -> DsM FcExpr
+dsRegularApp f a = do
+  f' <- dsExpr f
+  a' <- dsExpr a
+  pure (FcApp f' a')
+
+qualifiedCallDict :: Name -> Expr -> DsM (Maybe FcExpr)
+qualifiedCallDict name arg = do
+  ty <- lookupType (nameToText name)
+  qualifiedCallDictFromType arg ty
+
+qualifiedCallDictFromType :: Expr -> TcType -> DsM (Maybe FcExpr)
+qualifiedCallDictFromType arg ty =
+  case ty of
+    TcForAllTy _ body -> qualifiedCallDictFromType arg body
+    TcQualTy (ClassPred className [_] : _) _ -> do
+      argTy <- exprTcType arg
+      traverse (dictForType className) argTy
+    _ -> pure Nothing
 
 -- | Desugar local let/where declarations as a recursive Core let.
 --
@@ -412,6 +512,107 @@ consExpr =
 listType :: TcType -> TcType
 listType ty =
   TcTyCon (TyCon "[]" 1) [ty]
+
+dsEqInfix :: Expr -> Name -> Expr -> DsM FcExpr
+dsEqInfix lhs op rhs = do
+  lhs' <- dsExpr lhs
+  rhs' <- dsExpr rhs
+  dict <- dictForEqExpr lhs rhs
+  selector <- dsExpr (EVar op)
+  pure (FcApp (FcApp (FcDictApp selector dict) lhs') rhs')
+
+dictForEqExpr :: Expr -> Expr -> DsM FcExpr
+dictForEqExpr lhs rhs = do
+  lhsTy <- exprTcType lhs
+  rhsTy <- exprTcType rhs
+  case lhsTy <|> rhsTy of
+    Just ty -> dictForType "Eq" ty
+    Nothing -> dictForType "Eq" unknownTy
+
+dictForType :: Text -> TcType -> DsM FcExpr
+dictForType className ty = do
+  st <- get
+  case Map.lookup (dictKey className ty) (dsLocalDicts st) of
+    Just var -> pure (FcVar var)
+    Nothing ->
+      case ty of
+        TcTyCon (TyCon "Bool" 0) [] ->
+          pure (FcVar (Var "$fEqBool" (Unique (-101)) (predType (ClassPred "Eq" [boolTy]))))
+        TcTyCon (TyCon "[]" 1) [elemTy] -> do
+          elemDict <- dictForType className elemTy
+          pure (FcDictApp (FcVar (Var "$fEqList" (Unique (-102)) unknownTy)) elemDict)
+        _ ->
+          pure (FcVar (Var ("$f" <> className <> typeKey ty) (Unique (-199)) (predType (ClassPred className [ty]))))
+
+exprTcType :: Expr -> DsM (Maybe TcType)
+exprTcType expr =
+  case expr of
+    EAnn _ inner -> exprTcType inner
+    EParen inner -> exprTcType inner
+    EVar name
+      | nameText name == "True" || nameText name == "False" ->
+          pure (Just boolTy)
+      | otherwise -> do
+          st <- get
+          case Map.lookup (nameToText name) (dsLocalVars st) of
+            Just var -> pure (Just (varType var))
+            Nothing -> Map.lookup (nameToText name) . dsTypeEnv <$> get
+    EList [] -> pure Nothing
+    EList (item : _) -> fmap listType <$> exprTcType item
+    _ -> pure Nothing
+
+patternBinderTypes :: Pattern -> TcType -> [TcType]
+patternBinderTypes pat scrutTy =
+  case pat of
+    PInfix _lhs op _rhs
+      | nameText op == ":" ->
+          let elemTy = listElemTy scrutTy
+           in [elemTy, scrutTy]
+    PCon _ _ subPats -> replicate (length subPats) unknownTy
+    PVar {} -> [scrutTy]
+    PAnn _ inner -> patternBinderTypes inner scrutTy
+    PParen inner -> patternBinderTypes inner scrutTy
+    _ -> replicate (length (snd (dsPatternPure pat))) unknownTy
+
+listElemTy :: TcType -> TcType
+listElemTy (TcTyCon (TyCon "[]" 1) [elemTy]) = elemTy
+listElemTy _ = unknownTy
+
+surfaceTypeToTc :: Map Text TyVarId -> Type -> TcType
+surfaceTypeToTc tvMap ty =
+  case ty of
+    TVar name ->
+      case Map.lookup (unqualifiedNameText name) tvMap of
+        Just tv -> TcTyVar tv
+        Nothing -> TcTyCon (TyCon (unqualifiedNameText name) 0) []
+    TCon name _ -> TcTyCon (TyCon (nameText name) 0) []
+    TList _ [elemTy] -> listType (surfaceTypeToTc tvMap elemTy)
+    TApp f a ->
+      case surfaceTypeToTc tvMap f of
+        TcTyCon tc args -> TcTyCon (tc {tyConArity = tyConArity tc + 1}) (args <> [surfaceTypeToTc tvMap a])
+        fTy -> TcAppTy fTy (surfaceTypeToTc tvMap a)
+    TAnn _ inner -> surfaceTypeToTc tvMap inner
+    TParen inner -> surfaceTypeToTc tvMap inner
+    _ -> unknownTy
+
+dictKey :: Text -> TcType -> Text
+dictKey className ty = className <> ":" <> typeKey ty
+
+typeKey :: TcType -> Text
+typeKey ty =
+  case ty of
+    TcTyVar tv -> tvName tv
+    TcMetaTv (Unique u) -> "?" <> T.pack (show u)
+    TcTyCon tc [] -> tyConName tc
+    TcTyCon (TyCon "[]" _) [elemTy] -> "[" <> typeKey elemTy <> "]"
+    TcTyCon tc args -> tyConName tc <> T.concat (map (("_" <>) . typeKey) args)
+    TcAppTy f a -> typeKey f <> "_" <> typeKey a
+    TcFunTy a b -> typeKey a <> "->" <> typeKey b
+    TcForAllTy _ body -> typeKey body
+    TcQualTy _ body -> typeKey body
+
+boolTy :: TcType
+boolTy = TcTyCon (TyCon "Bool" 0) []
 
 -- | Desugar a case alternative.
 dsCaseAlt :: CaseAlt Expr -> DsM FcAlt

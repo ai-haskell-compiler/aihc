@@ -117,6 +117,7 @@ lintExpr env (FcApp f a) = do
       | typesEqual argTy aTy -> Right resTy
       | otherwise -> Left (TypeMismatch "application argument" argTy aTy)
     _ -> Left (LintFailure ("application to non-function type: " ++ show fTy))
+lintExpr env (FcDictApp f a) = lintExpr env (FcApp f a)
 lintExpr env (FcTyApp e ty) = do
   eTy <- lintExpr env e
   case eTy of
@@ -131,6 +132,16 @@ lintExpr env (FcTyLam tv body) = do
   let env' = env {leTyVars = Set.insert tv (leTyVars env)}
   bodyTy <- lintExpr env' body
   Right (TcForAllTy tv bodyTy)
+lintExpr env (FcDictLam v body) = do
+  let env' = extendTermEnv v env
+  bodyTy <- lintExpr env' body
+  Right (TcFunTy (varType v) bodyTy)
+lintExpr env (FcDict fields) = do
+  mapM_ (lintExpr env) fields
+  Right (TcTyCon (TyCon "Dict" 0) [])
+lintExpr env (FcDictSelect dict _index) = do
+  _ <- lintExpr env dict
+  Right (TcTyCon (TyCon "?" 0) [])
 lintExpr env (FcLet bind body) = do
   let (errs, env') = lintBind env bind
   case errs of
