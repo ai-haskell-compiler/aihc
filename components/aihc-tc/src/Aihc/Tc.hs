@@ -99,6 +99,8 @@ typecheckExprM expr = do
 data TcModuleResult = TcModuleResult
   { -- | Inferred types for each top-level binding.
     tcmBindings :: ![TcBindingResult],
+    -- | Module annotated with type-checker elaboration data.
+    tcmModule :: !Module,
     -- | Diagnostics (errors and warnings) produced.
     tcmDiagnostics :: ![TcDiagnostic],
     -- | Whether type checking succeeded (no errors).
@@ -120,6 +122,7 @@ typecheckModuleWithEnv importedTerms m =
     _ ->
       TcModuleResult
         { tcmBindings = [],
+          tcmModule = m,
           tcmDiagnostics = [],
           tcmSuccess = False
         }
@@ -153,17 +156,19 @@ typecheckModuleWithState st m =
     Left _abort ->
       ( TcModuleResult
           { tcmBindings = [],
+            tcmModule = m,
             tcmDiagnostics = [],
             tcmSuccess = False
           },
         st
       )
-    Right (bindings, st') ->
+    Right ((bindings, annotatedModule), st') ->
       let diags = reverse (tcsDiagnostics st')
           hasErrors = any isError diags
           result =
             TcModuleResult
               { tcmBindings = bindings,
+                tcmModule = annotatedModule,
                 tcmDiagnostics = diags,
                 tcmSuccess = not hasErrors
               }

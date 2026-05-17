@@ -16,6 +16,9 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
+    matchTypes,
+    splitQualifiedType,
+    substType,
     surfaceTypeToTc,
   )
 where
@@ -34,9 +37,11 @@ import Aihc.Parser.Syntax
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    fromAnnotation,
     peelDeclAnn,
     unqualifiedNameText,
   )
+import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
@@ -320,16 +325,19 @@ dsRhsWithExpected _ GuardedRhss {} =
   desugarBug "unsupported guarded RHS after type checking"
 
 dsExprExpected :: TcType -> Expr -> DsM FcExpr
-dsExprExpected expected (EVar name) = do
+dsExprExpected _ (EAnn ann inner@(EVar name))
+  | Just tcAnn <- fromAnnotation ann =
+      dsAnnotatedVar tcAnn name inner
+dsExprExpected _ (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
-  mLocal <- lookupLocal n
+  mLocal <- lookupLocalName name
   case mLocal of
     Just v -> pure (FcVar v)
     Nothing -> do
-      ty <- lookupType n
+      ty <- lookupTypeName name
       v <- freshVar n ty
-      instantiateVar n (FcVar v) ty expected
+      instantiateUnannotatedVar n (FcVar v) ty
 dsExprExpected _ (EInt i _ _) = pure (FcLit (LitInt i))
 dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
 dsExprExpected _ (EString s _) = dsStringLiteral s
@@ -375,6 +383,19 @@ dsExprExpected expected (ELetDecls decls body) =
 dsExprExpected _ expr =
   desugarBug ("unsupported expression form after type checking: " <> take 80 (show expr))
 
+dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
+dsAnnotatedVar tcAnn name _expr = do
+  let n = nameToText name
+  mLocal <- lookupLocalName name
+  case mLocal of
+    Just v -> pure (FcVar v)
+    Nothing -> do
+      ty <- lookupTypeName name
+      v <- freshVar n ty
+      let typedExpr = foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
+      dicts <- mapM dictForPred (tcAnnEvidencePreds tcAnn)
+      pure (foldl' FcDictApp typedExpr dicts)
+
 dsApp :: TcType -> Expr -> DsM FcExpr
 dsApp expected (EApp fun arg) = do
   argTy <- appArgType fun arg expected
@@ -419,19 +440,13 @@ isInstantiableType ty =
     TcQualTy {} -> True
     _ -> False
 
-instantiateVar :: Text -> FcExpr -> TcType -> TcType -> DsM FcExpr
-instantiateVar name expr ty expected =
+instantiateUnannotatedVar :: Text -> FcExpr -> TcType -> DsM FcExpr
+instantiateUnannotatedVar name expr ty =
   let (tvs, afterForAlls) = peelForAlls ty
       (preds, body) = peelQuals afterForAlls
-   in case matchTypes [body] [expected] of
-        Nothing
-          | null tvs && null preds -> pure expr
-          | otherwise -> desugarBug ("could not instantiate value " <> T.unpack name <> " :: " <> show ty <> " at expected type " <> show expected)
-        Just subst -> do
-          let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
-              typedExpr = foldl' FcTyApp expr typeArgs
-          dicts <- mapM (dictForPred . substPred subst) preds
-          pure (foldl' FcDictApp typedExpr dicts)
+   in if null tvs && null preds
+        then pure expr
+        else desugarBug ("missing type-checker annotation for polymorphic or constrained value " <> T.unpack name <> " :: " <> show ty <> "; body type was " <> show body)
 
 splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
 splitQualifiedType ty =
@@ -554,7 +569,10 @@ rhsKnownType _ = desugarBug "missing type information for local RHS"
 exprKnownType :: Expr -> DsM TcType
 exprKnownType expr =
   case expr of
-    EAnn _ inner -> exprKnownType inner
+    EAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn -> pure (tcAnnType tcAnn)
+        Nothing -> exprKnownType inner
     EParen inner -> exprKnownType inner
     ETypeSig inner _ -> exprKnownType inner
     EInt {} -> pure intTy
@@ -562,7 +580,7 @@ exprKnownType expr =
     EString {} -> pure (listType charTy)
     EVar name
       | nameText name == "True" || nameText name == "False" -> pure boolTy
-      | otherwise -> lookupType (nameToText name)
+      | otherwise -> lookupTypeName name
     EList [] -> desugarBug "missing element type information for empty local list"
     EList (item : _) -> listType <$> exprKnownType item
     _ -> desugarBug ("missing expression type information for local RHS: " <> take 80 (show expr))
@@ -666,6 +684,7 @@ matchTypes patterns targets
   | otherwise = foldM matchOne Map.empty (zip patterns targets)
 
 matchOne :: Map.Map Unique TcType -> (TcType, TcType) -> Maybe (Map.Map Unique TcType)
+matchOne subst (_, TcMetaTv {}) = Just subst
 matchOne subst (TcTyVar tv, target) =
   case Map.lookup (tvUnique tv) subst of
     Nothing -> Just (Map.insert (tvUnique tv) target subst)
@@ -702,7 +721,10 @@ substType subst ty =
 exprTcType :: Expr -> DsM (Maybe TcType)
 exprTcType expr =
   case expr of
-    EAnn _ inner -> exprTcType inner
+    EAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn -> pure (Just (tcAnnType tcAnn))
+        Nothing -> exprTcType inner
     EParen inner -> exprTcType inner
     EInt {} -> pure (Just intTy)
     EChar {} -> pure (Just charTy)
@@ -714,7 +736,7 @@ exprTcType expr =
           st <- get
           case Map.lookup (nameToText name) (dsLocalVars st) of
             Just var -> pure (Just (varType var))
-            Nothing -> Map.lookup (nameToText name) . dsTypeEnv <$> get
+            Nothing -> lookupTypeMaybeName name
     EApp fun arg -> do
       funTy <- exprTcType fun
       argTy <- exprTcType arg
@@ -820,3 +842,22 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
+
+lookupLocalName :: Name -> DsM (Maybe Var)
+lookupLocalName name = do
+  local <- lookupLocal (nameToText name)
+  case local of
+    Just var -> pure (Just var)
+    Nothing -> lookupLocal (nameText name)
+
+lookupTypeName :: Name -> DsM TcType
+lookupTypeName name = do
+  maybeTy <- lookupTypeMaybeName name
+  case maybeTy of
+    Just ty -> pure ty
+    Nothing -> desugarBug ("missing type information for name: " <> T.unpack (nameToText name))
+
+lookupTypeMaybeName :: Name -> DsM (Maybe TcType)
+lookupTypeMaybeName name = do
+  st <- get
+  pure (Map.lookup (nameToText name) (dsTypeEnv st) <|> Map.lookup (nameText name) (dsTypeEnv st))

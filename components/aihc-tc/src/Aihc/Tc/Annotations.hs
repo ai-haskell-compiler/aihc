@@ -40,9 +40,13 @@ import Data.Text qualified as T
 --
 -- Not every field is populated for every node. A variable reference gets
 -- a type; a top-level binding gets the generalized scheme, etc.
-newtype TcAnnotation = TcAnnotation
+data TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
-    tcAnnType :: TcType
+    tcAnnType :: !TcType,
+    -- | Type arguments made explicit at this occurrence.
+    tcAnnTypeArgs :: ![TcType],
+    -- | Class predicates whose dictionaries must be passed at this occurrence.
+    tcAnnEvidencePreds :: ![Pred]
   }
   deriving (Eq, Show)
 

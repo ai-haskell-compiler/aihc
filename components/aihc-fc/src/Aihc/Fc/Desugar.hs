@@ -12,7 +12,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhsWithExpected, freshUnique, freshVar, lookupType, surfaceTypeToTc)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhsWithExpected, freshUnique, freshVar, lookupType, matchTypes, splitQualifiedType, substType, surfaceTypeToTc)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -44,6 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
@@ -67,7 +68,7 @@ desugarModule m = desugarModuleWithTcResult (typecheckModule m) m
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
 desugarModuleWithTcResult :: TcModuleResult -> Module -> DesugarResult
-desugarModuleWithTcResult tcResult m =
+desugarModuleWithTcResult tcResult _m =
   if not (tcmSuccess tcResult)
     then
       DesugarResult
@@ -77,7 +78,7 @@ desugarModuleWithTcResult tcResult m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries (tcmBindings tcResult))
-       in case runStateT (dsModule m) (DsState 1000 typeEnv Map.empty Map.empty) of
+       in case runStateT (dsModule (tcmModule tcResult)) (DsState 1000 typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -204,8 +205,7 @@ dsInstanceDict classMethods instanceDecl =
           methods = Map.fromListWith (<>) [(name, matches) | (name, matches) <- instanceMethodGroups instanceDecl]
           orderedMethods = fromMaybe [] (Map.lookup (nameText className) classMethods)
       contextDicts <- mapM (mkContextDict tvMap) (zip [0 :: Int ..] (instanceDeclContext instanceDecl))
-      selfTy <- instanceSelfType headTys
-      fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) selfTy methods) orderedMethods
+      fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) headTys methods) orderedMethods
       let dictTy = foldr TcForAllTy (TcQualTy (map classDictPred contextDicts) (TcTyCon (TyCon (nameText className) (length headTys)) headTys)) tvIds
       dictVar <- freshVar (instanceDictName (nameText className) headTys) dictTy
       let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) tvIds
@@ -221,21 +221,31 @@ mkContextDict tvMap (ix, predTy) = do
 classDictPred :: ClassDict -> Pred
 classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
-dsInstanceMethod :: [Pred] -> TcType -> Map.Map Text [Match] -> Text -> DsM FcExpr
-dsInstanceMethod contextPreds selfTy methods methodName =
+dsInstanceMethod :: [Pred] -> [TcType] -> Map.Map Text [Match] -> Text -> DsM FcExpr
+dsInstanceMethod contextPreds headTys methods methodName =
   case Map.lookup methodName methods of
-    Just matches ->
-      dsMatchesWithDicts False (TcQualTy contextPreds (methodType (matchArity matches) selfTy)) matches
+    Just matches -> do
+      expected <- methodExpectedType headTys methodName
+      dsMatchesWithDicts False (TcQualTy contextPreds expected) matches
     Nothing ->
       desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 
-methodType :: Int -> TcType -> TcType
-methodType arity selfTy = foldr TcFunTy boolTy (replicate arity selfTy)
-
-instanceSelfType :: [TcType] -> DsM TcType
-instanceSelfType [ty] = pure ty
-instanceSelfType tys =
-  desugarBug ("missing self type for instance head: " <> show tys)
+methodExpectedType :: [TcType] -> Text -> DsM TcType
+methodExpectedType headTys methodName = do
+  methodTy <- lookupType methodName
+  case splitQualifiedType methodTy of
+    Just (_tvs, preds, body) ->
+      let subst =
+            foldr
+              ( \pred' acc ->
+                  acc <|> case pred' of
+                    ClassPred _ classArgs -> matchTypes classArgs headTys
+                    EqPred {} -> Nothing
+              )
+              Nothing
+              preds
+       in maybe (pure body) (pure . (`substType` body)) subst
+    Nothing -> pure methodTy
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
@@ -308,13 +318,6 @@ freeTypeVars ty =
       TParen inner -> freeTypeVars inner
       TContext preds inner -> concatMap freeTypeVars preds <> freeTypeVars inner
       _ -> []
-
-matchArity :: [Match] -> Int
-matchArity [] = 0
-matchArity (match : _) = length (matchPats match)
-
-boolTy :: TcType
-boolTy = TcTyCon (TyCon "Bool" 0) []
 
 dropForAlls :: TcType -> TcType
 dropForAlls (TcForAllTy _ body) = dropForAlls body
