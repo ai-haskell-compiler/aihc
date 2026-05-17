@@ -27,27 +27,17 @@ import Aihc.Parser.Syntax
     MatchHeadForm (..),
     Module (..),
     NameType (..),
-    Pattern (..),
     Rhs (..),
-    Type (..),
-    UnqualifiedName (..),
     ValueDecl (..),
-    forallTelescopeBinders,
-    instanceHeadName,
-    instanceHeadTypes,
     mkUnqualifiedName,
-    nameText,
     parseExtensionName,
-    tyVarBinderName,
-    unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (Pred (..), TcBindingResult (..), TcModuleResult (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc (TcModuleResult (..), typecheckModulesWithEnv)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, nub, sort, (\\))
-import Data.Map.Strict qualified as Map
+import Data.List (dropWhileEnd, sort)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -166,12 +156,16 @@ evaluateFcEvalCase tc =
             let resolved = resolveWithDeps mempty (deps <> evalModules)
              in case resolved of
                   ResolveResult {resolvedModules, resolveErrors = []} ->
-                    let results = map desugarResolvedModule resolvedModules
-                     in if all dsSuccess results
-                          then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
-                            Right actual -> classifySuccess tc (T.unpack actual)
-                            Left err -> classifyFailure tc ("eval error: " <> show err)
-                          else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
+                    let tcResults = typecheckModulesWithEnv [] resolvedModules
+                     in if all tcmSuccess tcResults
+                          then
+                            let results = zipWith desugarModuleWithTcResult tcResults resolvedModules
+                             in if all dsSuccess results
+                                  then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
+                                    Right actual -> classifySuccess tc (T.unpack actual)
+                                    Left err -> classifyFailure tc ("eval error: " <> show err)
+                                  else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
+                          else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
                   ResolveResult {resolveErrors} ->
                     classifyFailure tc ("resolve error: " <> show resolveErrors)
 
@@ -239,88 +233,12 @@ evalDecl expr =
           }
       ]
 
-syntheticTcResult :: Module -> TcModuleResult
-syntheticTcResult modu =
-  TcModuleResult
-    { tcmBindings = concatMap (bindingTypes sigs) (moduleDecls modu),
-      tcmDiagnostics = [],
-      tcmSuccess = True
-    }
-  where
-    sigs = collectTypeSigs (moduleDecls modu)
-
-collectTypeSigs :: [Decl] -> Map.Map Text Type
-collectTypeSigs = Map.fromList . concatMap go
-  where
-    go (DeclAnn _ inner) = go inner
-    go (DeclTypeSig names ty) = [(unqualifiedNameText name, ty) | name <- names]
-    go _ = []
-
-bindingTypes :: Map.Map Text Type -> Decl -> [TcBindingResult]
-bindingTypes sigs decl =
-  case decl of
-    DeclAnn _ inner -> bindingTypes sigs inner
-    DeclValue (FunctionBind name matches) ->
-      [TcBindingResult (unqualifiedNameText name) (Map.findWithDefault (functionType (matchArity matches)) (unqualifiedNameText name) (Map.map sigToTcType sigs))]
-    DeclValue (PatternBind _ pat _) ->
-      [TcBindingResult name unknownTy | Just name <- [barePatternName pat]]
-    _ -> []
-
-sigToTcType :: Type -> TcType
-sigToTcType ty =
-  let freeVars = freeTypeVars ty
-      tvMap = Map.fromList [(name, TyVarId name (Unique (-5000 - ix))) | (ix, name) <- zip [0 :: Int ..] freeVars]
-      (preds, body) = splitContext ty
-      tcPreds = map (surfacePredToPred tvMap) preds
-   in foldr TcForAllTy (qualify tcPreds (surfaceTypeToTc tvMap body)) (Map.elems tvMap)
-
-qualify :: [Pred] -> TcType -> TcType
-qualify [] ty = ty
-qualify preds ty = TcQualTy preds ty
-
-splitContext :: Type -> ([Type], Type)
-splitContext (TAnn _ inner) = splitContext inner
-splitContext (TContext preds inner) = (preds, inner)
-splitContext ty = ([], ty)
-
-surfacePredToPred :: Map.Map Text TyVarId -> Type -> Pred
-surfacePredToPred tvMap ty =
-  case instanceHeadName ty of
-    Just className -> ClassPred (nameText className) (map (surfaceTypeToTc tvMap) (instanceHeadTypes ty))
-    Nothing -> ClassPred "<constraint>" []
-
-surfaceTypeToTc :: Map.Map Text TyVarId -> Type -> TcType
-surfaceTypeToTc tvMap ty =
-  case ty of
-    TVar name ->
-      maybe (TcTyCon (TyCon (unqualifiedNameText name) 0) []) TcTyVar (Map.lookup (unqualifiedNameText name) tvMap)
-    TCon name _ -> TcTyCon (TyCon (nameText name) 0) []
-    TList _ [elemTy] -> TcTyCon (TyCon "[]" 1) [surfaceTypeToTc tvMap elemTy]
-    TFun _ left right -> TcFunTy (surfaceTypeToTc tvMap left) (surfaceTypeToTc tvMap right)
-    TApp f a ->
-      case surfaceTypeToTc tvMap f of
-        TcTyCon tc args -> TcTyCon (tc {tyConArity = tyConArity tc + 1}) (args <> [surfaceTypeToTc tvMap a])
-        fTy -> fTy
-    TAnn _ inner -> surfaceTypeToTc tvMap inner
-    TParen inner -> surfaceTypeToTc tvMap inner
-    _ -> unknownTy
-
-freeTypeVars :: Type -> [Text]
-freeTypeVars = nub . go
-  where
-    go (TVar name) = [unqualifiedNameText name]
-    go (TList _ args) = concatMap go args
-    go (TFun _ left right) = go left <> go right
-    go (TApp f a) = go f <> go a
-    go (TContext preds inner) = concatMap go preds <> go inner
-    go (TAnn _ inner) = go inner
-    go (TParen inner) = go inner
-    go (TForall telescope inner) = go inner \\ map tyVarBinderName (forallTelescopeBinders telescope)
-    go _ = []
-
-desugarResolvedModule :: Module -> DesugarResult
-desugarResolvedModule modu =
-  desugarModuleWithTcResult (syntheticTcResult modu) modu
+renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors results =
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+   in if null (trim rendered)
+        then "type checker failed without diagnostics"
+        else rendered
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
@@ -407,25 +325,6 @@ findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
 moduleNamePath :: Text -> FilePath
 moduleNamePath moduleName =
   joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
-
-matchArity :: [Match] -> Int
-matchArity [] = 0
-matchArity (match : _) = length (matchPats match)
-
-functionType :: Int -> TcType
-functionType arity =
-  foldr TcFunTy unknownTy (replicate arity unknownTy)
-
-unknownTy :: TcType
-unknownTy = TcTyCon (TyCon "?" 0) []
-
-barePatternName :: Pattern -> Maybe Text
-barePatternName pat =
-  case pat of
-    PVar name -> Just (unqualifiedNameText name)
-    PAnn _ inner -> barePatternName inner
-    PParen inner -> barePatternName inner
-    _ -> Nothing
 
 classifySuccess :: FcEvalCase -> String -> (Outcome, String)
 classifySuccess tc actual =

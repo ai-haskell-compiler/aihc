@@ -266,6 +266,7 @@ buildTests = do
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
+            testCase "parenthesizes negated typed view expressions" test_viewExprNegatedTypeSigParens,
             testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
@@ -1444,6 +1445,20 @@ test_viewExprArrowCommandTypeSigRhsParens = do
          -> C {})
         """
   assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprNegatedTypeSigParens :: Assertion
+test_viewExprNegatedTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        _ = []
+            where
+              ((- \\ _ -> []
+                    :: _
+                 -> _)
+               -> _) + _ = []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 test_typedViewExprPrettyLayout :: Assertion
 test_typedViewExprPrettyLayout = do

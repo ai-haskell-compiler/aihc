@@ -36,6 +36,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TupleFlavor (..),
     Type (..),
+    TypeBuiltinCon (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
@@ -49,11 +50,12 @@ import Aihc.Parser.Syntax
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelTypeHead,
+    tyVarBinderKind,
     tyVarBinderName,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..))
-import Aihc.Tc.Generalize (generalize)
+import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Instantiate qualified
@@ -85,7 +87,11 @@ peelDeclSpan ambient _ = ambient
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult
-  { tbName :: !Text,
+  { -- | Canonical binder identity. Symbolic binders are stored without
+    -- prefix-position parentheses, e.g. @++@ rather than @(++)@.
+    tbName :: !Text,
+    -- | Human-facing rendering for diagnostics and golden output.
+    tbDisplayName :: !Text,
     tbType :: !TcType
   }
   deriving (Show)
@@ -124,13 +130,22 @@ freeTypeVars = nub . go
   where
     go (TVar name) = [unqualifiedNameText name]
     go (TApp f a) = go f ++ go a
+    go (TTypeApp f a) = go f ++ go a
+    go (TInfix lhs _ _ rhs) = go lhs ++ go rhs
     go (TFun _ a b) = go a ++ go b
+    go (TTuple _ _ args) = concatMap go args
+    go (TUnboxedSum args) = concatMap go args
+    go (TList _ args) = concatMap go args
     go (TParen inner) = go inner
     go (TAnn _ inner) = go inner
+    go (TKindSig inner kindTy) = go inner ++ go kindTy
+    go (TImplicitParam _ inner) = go inner
     go (TContext preds inner) = concatMap go preds ++ go inner
     go (TForall telescope inner) =
-      go inner \\ map tyVarBinderName (forallTelescopeBinders telescope)
+      (concatMap binderKindVars (forallTelescopeBinders telescope) ++ go inner)
+        \\ map tyVarBinderName (forallTelescopeBinders telescope)
     go _ = []
+    binderKindVars binder = maybe [] go (tyVarBinderKind binder)
 
 -- | Convert a surface type to a TcType, using a map from variable names to
 -- TyVarIds for any type variables in scope.
@@ -143,6 +158,14 @@ convertSurfaceType tvMap ty = case peeledTy of
           Nothing -> TcTyCon (TyCon n 0) []
   TCon name _ ->
     namedTypeCon (nameText name)
+  TBuiltinCon TBuiltinList ->
+    TcTyCon (TyCon "[]" 1) []
+  TBuiltinCon TBuiltinCons ->
+    TcTyCon (TyCon ":" 2) []
+  TBuiltinCon (TBuiltinTuple arity) ->
+    TcTyCon (TyCon ("(" <> mconcat (replicate (arity - 1) ",") <> ")") arity) []
+  TBuiltinCon TBuiltinArrow ->
+    TcTyCon (TyCon "(->)" 2) []
   TApp {} ->
     -- Collect the full application chain to get the arity right.
     let (headTy, args) = collectTApps peeledTy
@@ -150,7 +173,7 @@ convertSurfaceType tvMap ty = case peeledTy of
         arity = length args
      in case peelTypeHead headTy of
           TCon name _ ->
-            TcTyCon (TyCon (nameText name) arity) convertedArgs
+            TcTyCon (TyCon (canonicalTypeConName arity (nameText name)) arity) convertedArgs
           TVar name ->
             let n = unqualifiedNameText name
              in case Map.lookup n tvMap of
@@ -183,7 +206,12 @@ collectTApps ty = go ty []
 
 namedTypeCon :: Text -> TcType
 namedTypeCon "String" = listType (TcTyCon (TyCon "Char" 0) [])
+namedTypeCon "List" = TcTyCon (TyCon "[]" 1) []
 namedTypeCon name = TcTyCon (TyCon name 0) []
+
+canonicalTypeConName :: Int -> Text -> Text
+canonicalTypeConName 1 "List" = "[]"
+canonicalTypeConName _ name = name
 
 listType :: TcType -> TcType
 listType ty = TcTyCon (TyCon "[]" 1) [ty]
@@ -409,18 +437,20 @@ tcFunctionWithSig displayName name scheme matches = do
   -- Report the declared scheme as the binding's type.
   let declaredTy = schemeToType scheme
   zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult displayName zonkedTy]
+  pure [TcBindingResult name displayName zonkedTy]
 
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM [TcBindingResult]
 tcFunctionInfer displayName name matches = do
+  placeholderTy <- freshMetaTv
+  extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
   (ty, cts, impls) <- tcMatches matches
   _ <- solveWithImpls cts impls
-  scheme <- generalize ty []
+  scheme <- generalizeIgnoring [name] ty []
   let schemeTy = schemeToType scheme
   zonkedTy <- zonkType schemeTy
   extendTermEnvPermanent name (TcIdBinder name scheme Closed)
-  pure [TcBindingResult displayName zonkedTy]
+  pure [TcBindingResult name displayName zonkedTy]
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
@@ -447,7 +477,7 @@ registerForeignPrimImport foreignDecl = do
       declaredTy = schemeToType scheme
   extendTermEnvPermanent name (TcIdBinder name scheme Closed)
   zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult displayName zonkedTy]
+  pure [TcBindingResult name displayName zonkedTy]
 
 registerClassDecl :: ClassDecl -> TcM [TcBindingResult]
 registerClassDecl classDecl = do
@@ -478,7 +508,7 @@ registerClassItem classPred superPreds classTvMap classTyVars item =
                 displayName = renderBinderName methodName
             extendTermEnvPermanent name (TcIdBinder name scheme Closed)
             zonkedTy <- zonkType declaredTy
-            pure (TcBindingResult displayName zonkedTy)
+            pure (TcBindingResult name displayName zonkedTy)
         )
         names
     _ -> pure []
@@ -513,13 +543,17 @@ registerDataDecl dd = do
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
       starKind = TcTyCon (TyCon "*" 0) []
-      tyConResult = TcBindingResult tyName starKind
+      tyConResult = TcBindingResult tyName tyName starKind
   -- Create TyVarIds for the type parameters.
   paramVarIds <- mapM (freshSkolemTv . tyVarBinderName) params
   let paramMap = Map.fromList (zip (map tyVarBinderName params) paramVarIds)
-      tc = TyCon tyName arity
+      tc = dataDeclTyCon tyName arity
   conResults <- mapM (registerDataCon tc paramMap paramVarIds) (dataDeclConstructors dd)
   pure (tyConResult : conResults)
+
+dataDeclTyCon :: Text -> Int -> TyCon
+dataDeclTyCon "List" 1 = TyCon "[]" 1
+dataDeclTyCon name arity = TyCon name arity
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
@@ -560,8 +594,9 @@ registerDataCon tc paramMap paramVarIds con = case con of
           case names of
             (n : _) -> do
               zonkedTy <- zonkType conTy
-              pure (TcBindingResult (unqualifiedNameText n) zonkedTy)
-            [] -> pure (TcBindingResult "<gadt>" gadtResTy)
+              let name = unqualifiedNameText n
+               in pure (TcBindingResult name name zonkedTy)
+            [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
   where
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
     conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
@@ -571,7 +606,7 @@ registerDataCon tc paramMap paramVarIds con = case con of
           scheme = conScheme argTys
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       zonkedTy <- zonkType conTy
-      pure (TcBindingResult name zonkedTy)
+      pure (TcBindingResult name name zonkedTy)
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
@@ -626,7 +661,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   Nothing -> do
     ty <- tcRhs rhs
     zonkedTy <- zonkType ty
-    pure [TcBindingResult "<pattern>" zonkedTy]
+    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy]
 
 -- | Extract the binder name from a pattern binding's LHS, if it is a bare
 -- variable pattern.  Returns @(displayName, envName)@ for simple variable
