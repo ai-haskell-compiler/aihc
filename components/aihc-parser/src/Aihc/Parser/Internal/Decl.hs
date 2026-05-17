@@ -13,7 +13,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
 import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patParser, patternParser)
-import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
+import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -533,7 +533,7 @@ instanceNewtypeFamilyInstParser = withSpanAnn (InstanceItemAnn . mkAnnotation) $
 typeSigDeclParser :: TokParser Decl
 typeSigDeclParser =
   withSpanAnn (DeclAnn . mkAnnotation) $
-    uncurry DeclTypeSig <$> typedSignaturePrefixParser typeParser
+    uncurry DeclTypeSig <$> typedSignaturePrefixParser typeSignatureParser
 
 -- | Parse a type signature or a pattern-typed equation.
 --
@@ -551,7 +551,7 @@ typeSigOrPatternTypeSigDeclParser :: TokParser Decl
 typeSigOrPatternTypeSigDeclParser =
   withSpanAnn (DeclAnn . mkAnnotation) $
     typedBindingOrSignatureParser
-      typeParser
+      typeSignatureParser
       DeclTypeSig
       ( \name ty -> do
           rhs <- equationRhsParser
@@ -699,7 +699,7 @@ classDefaultSigItemParser = withSpanAnn (ClassItemAnn . mkAnnotation) $ do
   expectedTok TkKeywordDefault
   name <- binderNameParser
   expectedTok TkReservedDoubleColon
-  ClassItemDefaultSig name <$> typeParser
+  ClassItemDefaultSig name <$> typeSignatureParser
 
 classFixityItemParser :: TokParser ClassDeclItem
 classFixityItemParser = fixityItemParser (ClassItemAnn . mkAnnotation) ClassItemFixity
@@ -793,7 +793,7 @@ instanceValueItemParser = valueItemParser (InstanceItemAnn . mkAnnotation) Insta
 -- Shared class/instance item helpers
 
 typeSigItemParser :: (SourceSpan -> a -> a) -> ([UnqualifiedName] -> Type -> a) -> TokParser a
-typeSigItemParser ann ctor = withSpanAnn ann $ uncurry ctor <$> typedSignaturePrefixParser typeParser
+typeSigItemParser ann ctor = withSpanAnn ann $ uncurry ctor <$> typedSignaturePrefixParser typeSignatureParser
 
 fixityItemParser :: (SourceSpan -> a -> a) -> (FixityAssoc -> Maybe IEEntityNamespace -> Maybe Int -> [UnqualifiedName] -> a) -> TokParser a
 fixityItemParser ann ctor = withSpanAnn ann $ do
@@ -817,7 +817,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
   entity <- MP.optional foreignEntityParser
   name <- binderNameParser
   expectedTok TkReservedDoubleColon
-  ty <- typeParser
+  ty <- typeSignatureParser
   pure $
     DeclForeign
       ForeignDecl
@@ -1563,7 +1563,7 @@ patternSynonymSigDeclParser = do
   expectedTok TkKeywordPattern
   names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
-  DeclPatSynSig names <$> typeParser
+  DeclPatSynSig names <$> typeSignatureParser
 
 patSynNameParser :: TokParser UnqualifiedName
 patSynNameParser =

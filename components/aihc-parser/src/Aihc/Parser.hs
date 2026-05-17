@@ -25,6 +25,7 @@ module Aihc.Parser
 
     -- * Parsing expressions, patterns, types, and declarations
     parseExpr,
+    parseSignatureType,
     parseType,
     parsePattern,
     parseDecl,
@@ -36,7 +37,7 @@ import Aihc.Parser.Internal.Decl (declParser)
 import Aihc.Parser.Internal.Expr (exprParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Internal.Pattern (patternParser)
-import Aihc.Parser.Internal.Type (typeParser)
+import Aihc.Parser.Internal.Type (typeParser, typeSignatureParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
@@ -117,13 +118,30 @@ parsePattern cfg input =
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
--- | Parse a Haskell type.
+-- | Parse a Haskell signature type.
+--
+-- This is the context used by top-level type signatures. Unlike 'parseType',
+-- it rejects an unparenthesized outer kind signature:
+--
+-- >>> case parseSignatureType defaultConfig "_ :: _" of { ParseErr _ -> "error"; ParseOk _ -> "ok" }
+-- "error"
+parseSignatureType :: ParserConfig -> Text -> ParseResult Type
+parseSignatureType cfg input =
+  let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
+   in case runParser (typeSignatureParser <* eofTok) (parserSourceName cfg) ts of
+        Left bundle -> ParseErr bundle
+        Right ty -> ParseOk ty
+
+-- | Parse a Haskell type in the general declaration RHS context.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
 -- ParseOk (TFun (TCon "Int") (TCon "Bool"))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
+--
+-- >>> shorthand $ parseType defaultConfig "_ :: _"
+-- ParseOk (TKindSig (TWildcard) (TWildcard))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input

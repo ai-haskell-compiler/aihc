@@ -73,13 +73,21 @@ contextOrFunSignatureTypeParser = do
   if isContextType then contextSignatureTypeParser else typeFunSignatureParser
 
 contextSignatureTypeParser :: TokParser Type
-contextSignatureTypeParser = contextTypeParserWith typeSignatureParser
+contextSignatureTypeParser = do
+  constraints <- contextItemsParserWith typeSignatureParser typeSignatureContextAtomParser
+  expectedTok TkReservedDoubleArrow
+  TContext constraints <$> typeSignatureParser
 
 -- | Report core plus extension infix-type support:
 --
 -- > type -> btype ['->' type]
 typeFunSignatureParser :: TokParser Type
-typeFunSignatureParser = typeFunParserWith typeSignatureParser
+typeFunSignatureParser = do
+  lhs <- typeSignatureInfixParser
+  mArrow <- MP.optional arrowKindParser
+  case mArrow of
+    Nothing -> pure lhs
+    Just arrowKind -> TFun arrowKind lhs <$> typeSignatureParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
@@ -148,7 +156,7 @@ contextTypeParserWith rhsParser = do
 -- > type -> btype ['->' type]
 -- > btype -> [btype] atype
 typeFunParser :: TokParser Type
-typeFunParser = typeFunParserWith typeParser
+typeFunParser = typeFunParserWith typeSignatureParser
 
 typeFunParserWith :: TokParser Type -> TokParser Type
 typeFunParserWith rhsParser = do
@@ -196,8 +204,24 @@ multiplicityToArrowKind ty =
 typeInfixParser :: TokParser Type
 typeInfixParser = do
   lhs <- typeAppParser
-  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeInfixRhsParser)
   pure (foldInfixR buildInfixType lhs rest)
+
+typeInfixRhsParser :: TokParser Type
+typeInfixRhsParser = do
+  rhs <- typeAppParser
+  rejectBareTypeImplicitParam rhs
+
+typeSignatureInfixParser :: TokParser Type
+typeSignatureInfixParser = do
+  lhs <- typeSignatureAppParser
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeSignatureInfixRhsParser)
+  pure (foldInfixR buildInfixType lhs rest)
+
+typeSignatureInfixRhsParser :: TokParser Type
+typeSignatureInfixRhsParser = do
+  rhs <- typeSignatureAppParser
+  rejectBareSignatureImplicitParam rhs
 
 -- | Parse a type head that may contain infix operators but NOT type applications.
 -- Used for type family heads like @type family l `And` r@ where the head is
@@ -276,16 +300,46 @@ typeAppParser = do
   rest <- MP.many typeAppArgParser
   pure (foldl applyTypeAppArg first rest)
 
+typeSignatureAppParser :: TokParser Type
+typeSignatureAppParser = do
+  first <- typeSignatureAtomParser
+  rest <- MP.many typeSignatureAppArgParser
+  pure (foldl applyTypeAppArg first rest)
+
 buildTypeApp :: Type -> Type -> Type
 buildTypeApp = TApp
 
 typeAppArgParser :: TokParser (Either Type Type)
-typeAppArgParser = (Left <$> MP.try invisibleTypeAppParser) <|> (Right <$> typeAtomParser)
+typeAppArgParser =
+  (Left <$> MP.try invisibleTypeAppParser)
+    <|> (Right <$> (typeAtomParser >>= rejectBareTypeImplicitParam))
 
 invisibleTypeAppParser :: TokParser Type
 invisibleTypeAppParser = do
   expectedTok TkTypeApp
-  typeAtomParser
+  typeAtomParser >>= rejectBareTypeImplicitParam
+
+typeSignatureAppArgParser :: TokParser (Either Type Type)
+typeSignatureAppArgParser =
+  (Left <$> MP.try invisibleSignatureTypeAppParser)
+    <|> (Right <$> (typeSignatureAtomParser >>= rejectBareSignatureImplicitParam))
+
+typeSignatureContextAtomParser :: TokParser Type
+typeSignatureContextAtomParser = typeSignatureAtomParser >>= rejectBareSignatureImplicitParam
+
+rejectBareSignatureImplicitParam :: Type -> TokParser Type
+rejectBareSignatureImplicitParam = rejectBareTypeImplicitParam
+
+rejectBareTypeImplicitParam :: Type -> TokParser Type
+rejectBareTypeImplicitParam ty =
+  case peelTypeAnn ty of
+    TImplicitParam {} -> fail "implicit parameter type must be parenthesized"
+    _ -> pure ty
+
+invisibleSignatureTypeAppParser :: TokParser Type
+invisibleSignatureTypeAppParser = do
+  expectedTok TkTypeApp
+  typeSignatureAtomParser >>= rejectBareSignatureImplicitParam
 
 applyTypeAppArg :: Type -> Either Type Type -> Type
 applyTypeAppArg fn (Left ty) = TTypeApp fn ty
@@ -317,12 +371,33 @@ typeAtomParser = do
     <|> typeWildcardParser
     <|> typeIdentifierParser
 
--- | Parse an implicit parameter type: @?name :: Type@
+typeSignatureAtomParser :: TokParser Type
+typeSignatureAtomParser = do
+  thAny <- thAnyEnabled
+  ipEnabled <- isExtensionEnabled ImplicitParams
+  MP.try promotedTypeParser
+    <|> typeLiteralTypeParser
+    <|> typeQuasiQuoteParser
+    <|> (if thAny then thSpliceTypeParser else MP.empty)
+    <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
+    <|> typeListParser
+    <|> MP.try typeParenOperatorParser
+    <|> typeParenOrTupleParser
+    <|> typeStarParser
+    <|> typeWildcardParser
+    <|> typeIdentifierParser
+
+-- | Parse an implicit parameter type.
+--
+-- The body uses 'typeSignatureParser' so @?x :: (T :: K)@ is accepted
+-- through the parenthesized atom grammar, but @?x :: T :: K@ is left for an
+-- outer kind-signature parser in a plain type context and rejected in a
+-- signature context.
 typeImplicitParamParser :: TokParser Type
 typeImplicitParamParser = withSpanAnn (TAnn . mkAnnotation) $ do
   name <- implicitParamNameParser
   expectedTok TkReservedDoubleColon
-  TImplicitParam name <$> typeParser
+  TImplicitParam name <$> typeSignatureParser
 
 typeWildcardParser :: TokParser Type
 typeWildcardParser = withSpanAnn (TAnn . mkAnnotation) $ do
