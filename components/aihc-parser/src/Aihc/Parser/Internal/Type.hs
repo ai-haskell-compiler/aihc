@@ -351,10 +351,11 @@ typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkSpecialLParen
   starIsType <- isExtensionEnabled StarIsType
+  unicodeSyntax <- isExtensionEnabled UnicodeSyntax
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkVarSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+      TkConSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modQual sym -> Just (mkName (Just modQual) NameVarSym sym)
       TkQConSym modQual sym -> Just (mkName (Just modQual) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
@@ -389,11 +390,20 @@ typeIdentifierParser = withSpanAnn (TAnn . mkAnnotation) $ do
 typeStarParser :: TokParser Type
 typeStarParser = withSpanAnn (TAnn . mkAnnotation) $ do
   starIsType <- isExtensionEnabled StarIsType
+  unicodeSyntax <- isExtensionEnabled UnicodeSyntax
   if starIsType
     then do
-      expectedTok (TkVarSym "*")
-      pure TStar
+      spelling <- tokenSatisfy "star kind" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (lexTokenText tok)
+          TkConSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (lexTokenText tok)
+          _ -> Nothing
+      pure (TStar spelling)
     else MP.empty
+
+isStarTypeSymbol :: Bool -> Bool -> T.Text -> Bool
+isStarTypeSymbol starIsType unicodeSyntax sym =
+  starIsType && (sym == "*" || (unicodeSyntax && sym == "★"))
 
 typeListParser :: TokParser Type
 typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do

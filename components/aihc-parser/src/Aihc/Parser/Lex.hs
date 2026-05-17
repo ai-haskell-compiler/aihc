@@ -742,7 +742,6 @@ unicodeOpTokenKind hasArrows txt firstChar
   | txt == "→" = TkReservedRightArrow
   | txt == "←" = TkReservedLeftArrow
   | txt == "∀" = TkKeywordForall
-  | txt == "★" = TkVarSym "*"
   | txt == "⤙" = if hasArrows then TkArrowTail else TkVarSym "-<"
   | txt == "⤚" = if hasArrows then TkArrowTailReverse else TkVarSym ">-"
   | txt == "⤛" = if hasArrows then TkDoubleArrowTail else TkVarSym "-<<"

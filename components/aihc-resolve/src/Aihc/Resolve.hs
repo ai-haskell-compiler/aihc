@@ -933,7 +933,7 @@ resolveType ty =
     TImplicitParam name inner ->
       TImplicitParam name <$> resolveType inner
     TTypeLit {} -> pure ty
-    TStar -> pure ty
+    TStar {} -> pure ty
     TForall telescope inner -> do
       (binderScope, binders') <- withLocalSupply 0 (bindTyVarBinders (forallTelescopeBinders telescope))
       inner' <- extendScope binderScope (resolveType inner)

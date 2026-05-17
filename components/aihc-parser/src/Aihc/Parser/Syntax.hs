@@ -1124,7 +1124,7 @@ data Type
   | TBuiltinCon TypeBuiltinCon
   | TImplicitParam Text Type
   | TTypeLit TypeLiteral
-  | TStar
+  | TStar Text
   | TQuasiQuote Text Text
   | TForall ForallTelescope Type
   | TApp Type Type

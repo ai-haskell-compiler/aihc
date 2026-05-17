@@ -634,7 +634,7 @@ genInstanceHeadType = suchThat (scale (min 4) genType) isValidInstanceHeadType
 isValidInstanceHeadType :: Type -> Bool
 isValidInstanceHeadType ty =
   case ty of
-    TStar -> False
+    TStar {} -> False
     TForall {} -> False
     TContext {} -> False
     TImplicitParam {} -> False
@@ -648,7 +648,7 @@ isInfixInstanceHeadType ty =
     TVar {} -> True
     TCon {} -> True
     TTypeLit {} -> True
-    TStar -> True
+    TStar {} -> True
     TTuple {} -> True
     TList {} -> True
     TApp fn arg -> isInfixInstanceHeadType fn && isInfixInstanceHeadType arg
@@ -866,7 +866,7 @@ genFamilyLhsArg :: Gen Type
 genFamilyLhsArg = suchThat (scale (min 4) genType) (not . isStarType)
 
 isStarType :: Type -> Bool
-isStarType TStar = True
+isStarType TStar {} = True
 isStarType _ = False
 
 genDeclPragma :: Gen Decl
