@@ -39,7 +39,6 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, modify')
 import Data.Map.Strict (Map)
@@ -333,11 +332,8 @@ dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
 dsExprExpected _ (EString s _) = dsStringLiteral s
 dsExprExpected expected app@EApp {} =
   dsApp expected app
-dsExprExpected _ (EInfix lhs op rhs)
-  | nameText op == "==" || nameText op == "/=" =
-      dsEqInfix lhs op rhs
-  | otherwise =
-      dsExpr (EApp (EApp (EVar op) lhs) rhs)
+dsExprExpected _ (EInfix lhs op rhs) =
+  dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExprExpected _ (EList elems) =
   foldr consList nilList <$> mapM dsExpr elems
 dsExprExpected _ (ETuple Boxed elems) =
@@ -380,14 +376,24 @@ dsExprExpected _ _ = do
 dsApp :: Maybe TcType -> Expr -> DsM FcExpr
 dsApp expected expr = do
   let (fun, args) = collectAppSpine expr
-  f' <- dsExprExpected Nothing fun
-  maybeDict <-
+  fWithDict <-
     case fun of
-      EVar name -> qualifiedCallDict name args expected
-      _ -> pure Nothing
-  let fWithDict = maybe f' (FcDictApp f') maybeDict
+      EVar name -> dsAppHead name args expected
+      _ -> dsExprExpected Nothing fun
   args' <- mapM dsExpr args
   pure (foldl' FcApp fWithDict args')
+
+dsAppHead :: Name -> [Expr] -> Maybe TcType -> DsM FcExpr
+dsAppHead name args expected = do
+  let n = nameToText name
+  mLocal <- lookupLocal n
+  case mLocal of
+    Just v -> pure (FcVar v)
+    Nothing -> do
+      ty <- lookupType n
+      v <- freshVar n ty
+      maybeDict <- qualifiedCallDictFromType args expected ty
+      pure (maybe (FcVar v) (FcDictApp (FcVar v)) maybeDict)
 
 collectAppSpine :: Expr -> (Expr, [Expr])
 collectAppSpine expr = go expr []
@@ -582,22 +588,6 @@ consExpr =
 listType :: TcType -> TcType
 listType ty =
   TcTyCon (TyCon "[]" 1) [ty]
-
-dsEqInfix :: Expr -> Name -> Expr -> DsM FcExpr
-dsEqInfix lhs op rhs = do
-  lhs' <- dsExpr lhs
-  rhs' <- dsExpr rhs
-  dict <- dictForEqExpr lhs rhs
-  selector <- dsExpr (EVar op)
-  pure (FcApp (FcApp (FcDictApp selector dict) lhs') rhs')
-
-dictForEqExpr :: Expr -> Expr -> DsM FcExpr
-dictForEqExpr lhs rhs = do
-  lhsTy <- exprTcType lhs
-  rhsTy <- exprTcType rhs
-  case lhsTy <|> rhsTy of
-    Just ty -> dictForType "Eq" ty
-    Nothing -> dictForType "Eq" unknownTy
 
 dictForType :: Text -> TcType -> DsM FcExpr
 dictForType className ty = do
