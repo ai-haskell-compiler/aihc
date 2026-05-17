@@ -578,7 +578,7 @@ shrinkExpr expr =
         [ETHDeclQuote decls' | decls' <- shrinkDecls decls, not (null decls')]
       ETHTypeQuote ty -> [ETHTypeQuote ty' | ty' <- shrinkType ty]
       ETHPatQuote pat -> [ETHPatQuote pat' | pat' <- shrinkPattern pat]
-      ETHNameQuote e -> [ETHNameQuote e' | e' <- shrinkExpr e]
+      ETHNameQuote e -> e : [ETHNameQuote e' | e' <- shrinkExpr e]
       ETHTypeNameQuote ty -> [ETHTypeNameQuote ty' | ty' <- shrinkType ty]
       ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
       ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
@@ -762,14 +762,18 @@ shrinkDoFlavor flavor =
     DoPlain -> []
     DoMdo -> [DoPlain]
     DoQualified name ->
-      [DoQualified name' | name' <- shrinkQualifier name]
+      DoPlain : [DoQualified name' | name' <- shrinkQualifier name]
     DoQualifiedMdo name ->
-      [DoQualifiedMdo name' | name' <- shrinkQualifier name]
+      DoMdo
+        : DoQualified name
+        : [DoQualifiedMdo name' | name' <- shrinkQualifier name]
 
 shrinkDoStmt :: DoStmt Expr -> [DoStmt Expr]
 shrinkDoStmt stmt =
   case peelDoStmtAnn stmt of
-    DoBind pat expr -> [DoBind pat expr' | expr' <- shrinkExpr expr]
+    DoBind pat expr ->
+      [DoBind pat' expr | pat' <- shrinkPattern pat]
+        <> [DoBind pat expr' | expr' <- shrinkExpr expr]
     DoLetDecls decls -> [DoLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
     DoExpr expr -> [DoExpr expr' | expr' <- shrinkExpr expr]
     DoRecStmt stmts -> [DoRecStmt stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
@@ -790,7 +794,9 @@ shrinkParallelCompStmts =
 shrinkCompStmt :: CompStmt -> [CompStmt]
 shrinkCompStmt stmt =
   case peelCompStmtAnn stmt of
-    CompGen pat expr -> [CompGen pat expr' | expr' <- shrinkExpr expr]
+    CompGen pat expr ->
+      [CompGen pat' expr | pat' <- shrinkPattern pat]
+        <> [CompGen pat expr' | expr' <- shrinkExpr expr]
     CompGuard expr -> [CompGuard expr' | expr' <- shrinkExpr expr]
     CompLetDecls decls -> [CompLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
     CompThen f -> [CompThen f' | f' <- shrinkExpr f]
