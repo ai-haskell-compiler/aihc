@@ -15,6 +15,23 @@
       pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv addHiddenSuccesses)
     );
 
+  mkFcPackageTest = drv:
+    pkgs.haskell.lib.doCheck (
+      pkgs.haskell.lib.dontHaddock (
+        pkgs.haskell.lib.overrideCabal drv (
+          old:
+            addHiddenSuccesses old
+            // {
+              preCheck =
+                (old.preCheck or "")
+                + ''
+                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+                '';
+            }
+        )
+      )
+    );
+
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
       inherit src nativeBuildInputs;
@@ -29,7 +46,7 @@
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
-  fcTests = mkPackageTest hsPkgs.aihc-fc;
+  fcTests = mkFcPackageTest hsPkgs.aihc-fc;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   devTests = mkPackageTest hsPkgs.aihc-dev;
