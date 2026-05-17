@@ -72,6 +72,7 @@ import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.String (fromString)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Merge concrete source spans embedded in a list of annotations.
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -457,7 +458,7 @@ tcFunctionInfer displayName name matches = do
 registerDecl :: Decl -> TcM [TcBindingResult]
 registerDecl (DeclData dd) = registerDataDecl dd
 registerDecl (DeclClass classDecl) = registerClassDecl classDecl
-registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl >> pure []
+registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
 registerDecl (DeclForeign foreignDecl)
   | isForeignPrimImport foreignDecl =
       registerForeignPrimImport foreignDecl
@@ -513,23 +514,49 @@ registerClassItem classPred superPreds classTvMap classTyVars item =
         names
     _ -> pure []
 
-registerInstanceDecl :: InstanceDecl -> TcM ()
+registerInstanceDecl :: InstanceDecl -> TcM [TcBindingResult]
 registerInstanceDecl instanceDecl =
   case instanceHeadName (instanceDeclHead instanceDecl) of
-    Nothing -> pure ()
+    Nothing -> pure []
     Just className -> do
       let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
           explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgs))
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
+          context = map (surfacePredToPred tvMap) (instanceDeclContext instanceDecl)
+          headTys = map (convertSurfaceType tvMap) headArgs
+          classNameText = nameText className
+          dictName = instanceDictName classNameText headTys
+          dictTy = foldr TcForAllTy (qualify context (predType (ClassPred classNameText headTys))) tvIds
       addInstance
         InstanceInfo
-          { iiClassName = nameText className,
+          { iiClassName = classNameText,
             iiTyVars = tvIds,
-            iiContext = map (surfacePredToPred tvMap) (instanceDeclContext instanceDecl),
-            iiHead = map (convertSurfaceType tvMap) headArgs
+            iiContext = context,
+            iiHead = headTys
           }
+      pure [TcBindingResult dictName dictName dictTy]
+
+qualify :: [Pred] -> TcType -> TcType
+qualify [] ty = ty
+qualify preds ty = TcQualTy preds ty
+
+predType :: Pred -> TcType
+predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+
+instanceDictName :: Text -> [TcType] -> Text
+instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
+
+typeSuffix :: TcType -> Text
+typeSuffix ty =
+  case ty of
+    TcTyVar tv -> tvName tv
+    TcTyCon tc [] -> tyConName tc
+    TcTyCon (TyCon "[]" _) [_] -> "List"
+    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
+    _ -> "T"
 
 -- | Register a data declaration's type constructor and data constructors.
 --

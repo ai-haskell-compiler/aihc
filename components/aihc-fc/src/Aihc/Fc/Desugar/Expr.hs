@@ -39,10 +39,12 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Control.Monad (zipWithM)
+import Control.Applicative ((<|>))
+import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (State, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -62,7 +64,7 @@ data DsState = DsState
 
 data ClassDict = ClassDict
   { classDictName :: !Text,
-    classDictType :: !TcType,
+    classDictArgs :: ![TcType],
     classDictVar :: !Var
   }
 
@@ -110,7 +112,7 @@ withDicts :: [ClassDict] -> DsM a -> DsM a
 withDicts dicts action = do
   st <- get
   let oldDicts = dsLocalDicts st
-      newDicts = foldr (\dict m -> Map.insert (dictKey (classDictName dict) (classDictType dict)) (classDictVar dict) m) oldDicts dicts
+      newDicts = foldr (\dict m -> Map.insert (dictKey (classDictName dict) (classDictArgs dict)) (classDictVar dict) m) oldDicts dicts
   modify' (\s -> s {dsLocalDicts = newDicts})
   result <- action
   modify' (\s -> s {dsLocalDicts = oldDicts})
@@ -159,12 +161,12 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
 mkClassDict :: (Int, Pred) -> DsM ClassDict
 mkClassDict (i, pred') =
   case pred' of
-    ClassPred className [ty] -> do
+    ClassPred className args -> do
       var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict className ty var)
+      pure (ClassDict className args var)
     _ -> do
       var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict "<constraint>" unknownTy var)
+      pure (ClassDict "<constraint>" [] var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
 argName :: Int -> Text
@@ -325,8 +327,8 @@ dsExprExpected expected (EVar name) = do
     Nothing -> do
       ty <- lookupType n
       v <- freshVar n ty
-      maybeDict <- qualifiedCallDict name [] expected
-      pure (maybe (FcVar v) (FcDictApp (FcVar v)) maybeDict)
+      dicts <- qualifiedVarDicts ty expected
+      pure (foldl' FcDictApp (FcVar v) dicts)
 dsExprExpected _ (EInt i _ _) = pure (FcLit (LitInt i))
 dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
 dsExprExpected _ (EString s _) = dsStringLiteral s
@@ -376,24 +378,17 @@ dsExprExpected _ _ = do
 dsApp :: Maybe TcType -> Expr -> DsM FcExpr
 dsApp expected expr = do
   let (fun, args) = collectAppSpine expr
-  fWithDict <-
-    case fun of
-      EVar name -> dsAppHead name args expected
-      _ -> dsExprExpected Nothing fun
+  argTypes <- mapM exprTcType args
+  let funExpected = expectedFunctionType argTypes expected
+  f' <- dsExprExpected funExpected fun
   args' <- mapM dsExpr args
-  pure (foldl' FcApp fWithDict args')
+  pure (foldl' FcApp f' args')
 
-dsAppHead :: Name -> [Expr] -> Maybe TcType -> DsM FcExpr
-dsAppHead name args expected = do
-  let n = nameToText name
-  mLocal <- lookupLocal n
-  case mLocal of
-    Just v -> pure (FcVar v)
-    Nothing -> do
-      ty <- lookupType n
-      v <- freshVar n ty
-      maybeDict <- qualifiedCallDictFromType args expected ty
-      pure (maybe (FcVar v) (FcDictApp (FcVar v)) maybeDict)
+expectedFunctionType :: [Maybe TcType] -> Maybe TcType -> Maybe TcType
+expectedFunctionType argTypes expected =
+  case argTypes of
+    [] -> expected
+    _ -> Just (foldr (TcFunTy . fromMaybe unknownTy) (fromMaybe unknownTy expected) argTypes)
 
 collectAppSpine :: Expr -> (Expr, [Expr])
 collectAppSpine expr = go expr []
@@ -401,53 +396,26 @@ collectAppSpine expr = go expr []
     go (EApp f a) args = go f (a : args)
     go f args = (f, args)
 
-qualifiedCallDict :: Name -> [Expr] -> Maybe TcType -> DsM (Maybe FcExpr)
-qualifiedCallDict name args expected = do
-  ty <- lookupType (nameToText name)
-  qualifiedCallDictFromType args expected ty
+qualifiedVarDicts :: TcType -> Maybe TcType -> DsM [FcExpr]
+qualifiedVarDicts ty expected =
+  case (splitQualifiedType ty, expected) of
+    (Just (_tvs, preds, body), Just expectedTy) ->
+      case matchTypes [body] [expectedTy] of
+        Nothing -> pure []
+        Just subst -> mapM (dictForPred . substPred subst) preds
+    _ -> pure []
 
-qualifiedCallDictFromType :: [Expr] -> Maybe TcType -> TcType -> DsM (Maybe FcExpr)
-qualifiedCallDictFromType args expected ty =
-  case ty of
-    TcForAllTy _ body -> qualifiedCallDictFromType args expected body
-    TcQualTy (ClassPred className [classArg] : _) body -> do
-      dictTy <- inferClassArg classArg body args expected
-      traverse (dictForType className) dictTy
-    _ -> pure Nothing
-
-inferClassArg :: TcType -> TcType -> [Expr] -> Maybe TcType -> DsM (Maybe TcType)
-inferClassArg classArg methodTy args expected = do
-  actualArgs <- mapM exprTcType args
-  let (formalArgs, formalResult) = peelFunTys (length args) methodTy
-      argMatches = zipWith (matchClassArg classArg) formalArgs actualArgs
-      resultMatch = matchClassArg classArg formalResult expected
-  pure (firstJust (argMatches <> [resultMatch]))
+splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
+splitQualifiedType ty =
+  let (tvs, body) = peelForAlls ty
+   in case body of
+        TcQualTy preds inner -> Just (tvs, preds, inner)
+        _ -> Nothing
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust [] = Nothing
 firstJust (Just x : _) = Just x
 firstJust (Nothing : xs) = firstJust xs
-
-matchClassArg :: TcType -> TcType -> Maybe TcType -> Maybe TcType
-matchClassArg classArg formal actual = do
-  actualTy <- actual
-  matchClassArgType classArg formal actualTy
-
-matchClassArgType :: TcType -> TcType -> TcType -> Maybe TcType
-matchClassArgType classArg formal actual
-  | sameTcType classArg formal = Just actual
-matchClassArgType classArg (TcTyCon formalTc formalArgs) (TcTyCon actualTc actualArgs)
-  | tyConName formalTc == tyConName actualTc && length formalArgs == length actualArgs =
-      firstJust (zipWith (matchClassArgType classArg) formalArgs actualArgs)
-matchClassArgType classArg (TcAppTy formalF formalA) (TcAppTy actualF actualA) =
-  firstJust [matchClassArgType classArg formalF actualF, matchClassArgType classArg formalA actualA]
-matchClassArgType classArg (TcFunTy formalA formalB) (TcFunTy actualA actualB) =
-  firstJust [matchClassArgType classArg formalA actualA, matchClassArgType classArg formalB actualB]
-matchClassArgType classArg (TcForAllTy _ formalBody) actual =
-  matchClassArgType classArg formalBody actual
-matchClassArgType classArg (TcQualTy _ formalBody) actual =
-  matchClassArgType classArg formalBody actual
-matchClassArgType _ _ _ = Nothing
 
 sameTcType :: TcType -> TcType -> Bool
 sameTcType (TcTyVar left) (TcTyVar right) = tvUnique left == tvUnique right
@@ -589,22 +557,75 @@ listType :: TcType -> TcType
 listType ty =
   TcTyCon (TyCon "[]" 1) [ty]
 
-dictForType :: Text -> TcType -> DsM FcExpr
-dictForType className ty = do
+dictForPred :: Pred -> DsM FcExpr
+dictForPred pred' =
+  case pred' of
+    ClassPred className args -> dictForClass className args
+    EqPred {} -> pure (FcDict [])
+
+dictForClass :: Text -> [TcType] -> DsM FcExpr
+dictForClass className args = do
   st <- get
-  case Map.lookup (dictKey className ty) (dsLocalDicts st) of
+  case Map.lookup (dictKey className args) (dsLocalDicts st) of
     Just var -> pure (FcVar var)
-    Nothing ->
-      case ty of
-        TcTyCon (TyCon "Bool" 0) []
-          | className == "Eq" ->
-              pure (FcVar (Var "$fEqBool" (Unique (-101)) (predType (ClassPred "Eq" [boolTy]))))
-        TcTyCon (TyCon "[]" 1) [elemTy]
-          | className == "Eq" -> do
-              elemDict <- dictForType className elemTy
-              pure (FcDictApp (FcVar (Var "$fEqList" (Unique (-102)) unknownTy)) elemDict)
-        _ ->
-          pure (FcVar (Var ("$f" <> className <> typeKey ty) (Unique (-199)) (predType (ClassPred className [ty]))))
+    Nothing -> do
+      case firstJust (map (matchInstance className args) (Map.toList (dsTypeEnv st))) of
+        Just (dictName, dictTy, context) -> do
+          contextDicts <- mapM dictForPred context
+          pure (foldl' FcDictApp (FcVar (Var dictName (Unique (-199)) dictTy)) contextDicts)
+        Nothing ->
+          pure (FcVar (Var ("$missing" <> className) (Unique (-198)) (predType (ClassPred className args))))
+
+matchInstance :: Text -> [TcType] -> (Text, TcType) -> Maybe (Text, TcType, [Pred])
+matchInstance className args (dictName, dictTy) = do
+  (_tvs, context, body) <- splitQualifiedType dictTy <|> Just ([], [], dictTy)
+  case body of
+    TcTyCon (TyCon dictClass _) headArgs
+      | dictClass == className -> do
+          subst <- matchTypes headArgs args
+          Just (dictName, dictTy, map (substPred subst) context)
+    _ -> Nothing
+
+matchTypes :: [TcType] -> [TcType] -> Maybe (Map.Map Unique TcType)
+matchTypes patterns targets
+  | length patterns /= length targets = Nothing
+  | otherwise = foldM matchOne Map.empty (zip patterns targets)
+
+matchOne :: Map.Map Unique TcType -> (TcType, TcType) -> Maybe (Map.Map Unique TcType)
+matchOne subst (_, TcTyCon (TyCon "?" 0) []) = Just subst
+matchOne subst (TcTyCon (TyCon "?" 0) [], _) = Just subst
+matchOne subst (TcTyVar tv, target) =
+  case Map.lookup (tvUnique tv) subst of
+    Nothing -> Just (Map.insert (tvUnique tv) target subst)
+    Just existing
+      | sameTcType existing target -> Just subst
+      | otherwise -> Nothing
+matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
+  | tc == targetTc,
+    length args == length targetArgs =
+      foldM matchOne subst (zip args targetArgs)
+matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
+  matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
+matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
+  matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
+matchOne subst (patternTy, targetTy)
+  | sameTcType patternTy targetTy = Just subst
+  | otherwise = Nothing
+
+substPred :: Map.Map Unique TcType -> Pred -> Pred
+substPred subst (ClassPred className args) = ClassPred className (map (substType subst) args)
+substPred subst (EqPred left right) = EqPred (substType subst left) (substType subst right)
+
+substType :: Map.Map Unique TcType -> TcType -> TcType
+substType subst ty =
+  case ty of
+    TcTyVar tv -> fromMaybe ty (Map.lookup (tvUnique tv) subst)
+    TcTyCon tc args -> TcTyCon tc (map (substType subst) args)
+    TcFunTy a b -> TcFunTy (substType subst a) (substType subst b)
+    TcForAllTy tv body -> TcForAllTy tv (substType (Map.delete (tvUnique tv) subst) body)
+    TcQualTy preds body -> TcQualTy (map (substPred subst) preds) (substType subst body)
+    TcAppTy f a -> TcAppTy (substType subst f) (substType subst a)
+    TcMetaTv {} -> ty
 
 exprTcType :: Expr -> DsM (Maybe TcType)
 exprTcType expr =
@@ -657,8 +678,8 @@ surfaceTypeToTc tvMap ty =
     TParen inner -> surfaceTypeToTc tvMap inner
     _ -> unknownTy
 
-dictKey :: Text -> TcType -> Text
-dictKey className ty = className <> ":" <> typeKey ty
+dictKey :: Text -> [TcType] -> Text
+dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
 
 typeKey :: TcType -> Text
 typeKey ty =

@@ -168,14 +168,11 @@ mkContextDict :: Map.Map Text TyVarId -> (Int, Type) -> DsM ClassDict
 mkContextDict tvMap (ix, predTy) = do
   let className = maybe "<constraint>" nameText (instanceHeadName predTy)
       predArgs = map (surfaceTypeToTc tvMap) (instanceHeadTypes predTy)
-      predArg = case predArgs of
-        [arg] -> arg
-        _ -> unknownTy
   dictVar <- freshVar ("$d" <> T.pack (show ix)) (TcTyCon (TyCon className (length predArgs)) predArgs)
-  pure (ClassDict className predArg dictVar)
+  pure (ClassDict className predArgs dictVar)
 
 classDictPred :: ClassDict -> Pred
-classDictPred dict = ClassPred (classDictName dict) [classDictType dict]
+classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
 dsInstanceMethod :: [Pred] -> [TcType] -> Map.Map Text [Match] -> Text -> DsM FcExpr
 dsInstanceMethod contextPreds headTys methods methodName =
@@ -194,8 +191,6 @@ instanceSelfType [ty] = ty
 instanceSelfType _ = unknownTy
 
 instanceDictName :: Text -> [TcType] -> Text
-instanceDictName "Eq" [TcTyCon (TyCon "Bool" 0) []] = "$fEqBool"
-instanceDictName "Eq" [TcTyCon (TyCon "[]" 1) [_]] = "$fEqList"
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
 
 typeSuffix :: TcType -> Text
