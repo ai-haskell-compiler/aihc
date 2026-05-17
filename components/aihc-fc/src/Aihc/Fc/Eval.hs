@@ -61,7 +61,6 @@ primitiveEnv =
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("(,)", VConstructor "(,)" []),
-      ("++", VPrim "++" 2 []),
       ("+#", VPrim "+#" 2 []),
       ("-#", VPrim "-#" 2 []),
       ("*#", VPrim "*#" 2 [])
@@ -119,8 +118,6 @@ applyPrimitive name arity args
   | otherwise = Left (EvalPrimitiveArity name (length args))
 
 evalPrimitive :: Text -> [Value] -> Either EvalError Value
-evalPrimitive "++" [left, right] =
-  appendValues left right
 evalPrimitive "+#" [left, right] =
   evalIntPrim "+#" (+) left right
 evalPrimitive "-#" [left, right] =
@@ -142,18 +139,6 @@ forceIntPrimitiveArg name value = do
   case forced of
     VLit (LitInt intValue) -> pure intValue
     other -> Left (EvalPrimitiveTypeError name other)
-
-appendValues :: Value -> Value -> Either EvalError Value
-appendValues left right = do
-  forcedLeft <- forceValue left
-  case forcedLeft of
-    VConstructor "[]" [] ->
-      forceValue right
-    VConstructor ":" [headValue, tailValue] -> do
-      appendedTail <- appendValues tailValue right
-      pure (VConstructor ":" [headValue, appendedTail])
-    other ->
-      Left (EvalPrimitiveTypeError "++" other)
 
 extendBind :: Env -> FcBind -> Env
 extendBind env bind =
