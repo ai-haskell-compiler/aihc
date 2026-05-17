@@ -6,5 +6,5 @@ input: |
   module Demo where
   x = 1
 ast: |-
-  Module {name = "Demo", languagePragmas = [EnableExtension BangPatterns, EnableExtension GADTs, EnableExtension ScopedTypeVariables], decls = [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
+  Module {ModuleHead {"Demo"}, [BangPatterns, GADTs, ScopedTypeVariables], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 status: pass

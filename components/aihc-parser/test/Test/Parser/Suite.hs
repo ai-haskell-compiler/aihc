@@ -28,25 +28,33 @@ parserGoldenTests = do
 parserGoldenGroup :: IO TestTree
 parserGoldenGroup = do
   exprCases <- PG.loadExprCases
+  importCases <- PG.loadImportCases
   moduleCases <- PG.loadModuleCases
   patternCases <- PG.loadPatternCases
+  pragmaCases <- PG.loadPragmaCases
 
   exprChecks <- mapM mkExprCaseTest exprCases
+  importChecks <- mapM mkModuleCaseTest importCases
   moduleChecks <- mapM mkModuleCaseTest moduleCases
   patternChecks <- mapM mkPatternCaseTest patternCases
+  pragmaChecks <- mapM mkModuleCaseTest pragmaCases
 
   exprSummary <- mkSummaryTest "expr" PG.evaluateExprCase exprCases
+  importSummary <- mkSummaryTest "import" PG.evaluateModuleCase importCases
   moduleSummary <- mkSummaryTest "module" PG.evaluateModuleCase moduleCases
   patternSummary <- mkSummaryTest "pattern" PG.evaluatePatternCase patternCases
-  combinedSummary <- mkCombinedSummary exprCases moduleCases patternCases
+  pragmaSummary <- mkSummaryTest "pragma" PG.evaluateModuleCase pragmaCases
+  combinedSummary <- mkCombinedSummary exprCases importCases moduleCases patternCases pragmaCases
 
   pure
     ( testGroup
         "parser-golden"
         [ fixtureValidationTests,
           testGroup "expr" (exprChecks <> [exprSummary]),
+          testGroup "import" (importChecks <> [importSummary]),
           testGroup "module" (moduleChecks <> [moduleSummary]),
           testGroup "pattern" (patternChecks <> [patternSummary]),
+          testGroup "pragma" (pragmaChecks <> [pragmaSummary]),
           combinedSummary
         ]
     )
@@ -108,12 +116,14 @@ mkSummaryTest label evaluateCase cases = do
   let outcomes = map (evaluate evaluateCase) cases
   pure $ testCase (label <> " summary") (assertNoRegressions label outcomes)
 
-mkCombinedSummary :: [PG.ParserCase] -> [PG.ParserCase] -> [PG.ParserCase] -> IO TestTree
-mkCombinedSummary exprCases moduleCases patternCases = do
+mkCombinedSummary :: [PG.ParserCase] -> [PG.ParserCase] -> [PG.ParserCase] -> [PG.ParserCase] -> [PG.ParserCase] -> IO TestTree
+mkCombinedSummary exprCases importCases moduleCases patternCases pragmaCases = do
   let exprOutcomes = map (evaluate PG.evaluateExprCase) exprCases
+      importOutcomes = map (evaluate PG.evaluateModuleCase) importCases
       moduleOutcomes = map (evaluate PG.evaluateModuleCase) moduleCases
       patternOutcomes = map (evaluate PG.evaluatePatternCase) patternCases
-      outcomes = exprOutcomes <> moduleOutcomes <> patternOutcomes
+      pragmaOutcomes = map (evaluate PG.evaluateModuleCase) pragmaCases
+      outcomes = exprOutcomes <> importOutcomes <> moduleOutcomes <> patternOutcomes <> pragmaOutcomes
   pure $ testCase "summary" (assertNoRegressions "parser golden" outcomes)
 
 assertExprCase :: PG.ParserCase -> Assertion
@@ -329,9 +339,11 @@ fixtureValidationTests =
               other -> assertFailure ("expected xfail outcome with details, got: " <> show other),
       testCase "only YAML fixtures are loaded" $ do
         exprCases <- PG.loadExprCases
+        importCases <- PG.loadImportCases
         moduleCases <- PG.loadModuleCases
         patternCases <- PG.loadPatternCases
-        let cases = exprCases <> moduleCases <> patternCases
+        pragmaCases <- PG.loadPragmaCases
+        let cases = exprCases <> importCases <> moduleCases <> patternCases <> pragmaCases
         mapM_
           ( \meta ->
               unless (takeExtension (PG.casePath meta) `elem` [".yaml", ".yml"]) $

@@ -9,5 +9,5 @@ input: |
   module Demo where
   x = 1
 ast: |-
-  Module {name = "Demo", languagePragmas = [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings], decls = [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
+  Module {ModuleHead {"Demo"}, [DataKinds, DeriveGeneric, DeriveDataTypeable, OverloadedStrings], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 status: pass
