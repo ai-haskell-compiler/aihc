@@ -404,7 +404,13 @@ patternBinders pat =
 
 -- | Type-check a declaration group.
 tcDeclGroup :: Map Text TypeScheme -> DeclGroup -> TcM [TcBindingResult]
-tcDeclGroup _ (SingleDecl d) = tcDecl d
+tcDeclGroup sigs (SingleDecl d) =
+  case peelDeclAnn d of
+    DeclValue (PatternBind _ pat rhs)
+      | Just (displayName, name) <- patternBinderName pat,
+        Just scheme <- Map.lookup name sigs ->
+          tcFunctionWithSig displayName name scheme [zeroArgMatch rhs]
+    _ -> tcDecl d
 tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
@@ -676,14 +682,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.
   Just (displayName, name) -> do
-    let zeroArgMatch =
-          Match
-            { matchAnns = [],
-              matchHeadForm = MatchHeadPrefix,
-              matchPats = [],
-              matchRhs = rhs
-            }
-    tcFunctionInfer displayName name [zeroArgMatch]
+    tcFunctionInfer displayName name [zeroArgMatch rhs]
   -- Non-trivial pattern binding: infer the RHS type without generalization.
   Nothing -> do
     ty <- tcRhs rhs
@@ -699,6 +698,15 @@ patternBinderName (PVar n) = Just (renderBinderName n, unqualifiedNameText n)
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
+
+zeroArgMatch :: Rhs Expr -> Match
+zeroArgMatch rhs =
+  Match
+    { matchAnns = [],
+      matchHeadForm = MatchHeadPrefix,
+      matchPats = [],
+      matchRhs = rhs
+    }
 
 -- | Convert a type scheme to a displayable type.
 schemeToType :: TypeScheme -> TcType

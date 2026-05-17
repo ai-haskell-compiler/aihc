@@ -329,7 +329,7 @@ dsExprExpected expected (EVar name) = do
     Nothing -> do
       ty <- lookupType n
       v <- freshVar n ty
-      dicts <- qualifiedVarDicts ty expected
+      dicts <- qualifiedVarDicts n ty expected
       pure (foldl' FcDictApp (FcVar v) dicts)
 dsExprExpected _ (EInt i _ _) = pure (FcLit (LitInt i))
 dsExprExpected _ (EChar c _) = pure (FcLit (LitChar c))
@@ -377,31 +377,35 @@ dsExprExpected _ expr =
   desugarBug ("unsupported expression form after type checking: " <> take 80 (show expr))
 
 dsApp :: TcType -> Expr -> DsM FcExpr
-dsApp expected expr = do
-  -- Dictionary insertion happens at the head variable, but selecting the
-  -- right dictionary requires the final result type and every available
-  -- concrete argument type. For @f x y@ we therefore inspect the whole
-  -- application spine before desugaring @f@.
-  let (fun, args) = collectAppSpine expr
-  (funExpected, argTypes) <- expectedFunctionType args expected =<< exprTcTypeRequired fun
+dsApp expected (EApp fun arg) = do
+  argTy <- appArgType fun arg expected
+  let funExpected = TcFunTy argTy expected
   f' <- dsExprExpected funExpected fun
-  args' <- zipWithM dsExprExpected argTypes args
-  pure (foldl' FcApp f' args')
+  arg' <- dsExprExpected argTy arg
+  pure (FcApp f' arg')
+dsApp _ expr =
+  desugarBug ("expected application expression while desugaring: " <> take 80 (show expr))
 
-expectedFunctionType :: [Expr] -> TcType -> TcType -> DsM (TcType, [TcType])
-expectedFunctionType args expected funTy = do
-  let argCount = length args
-  (formalArgs, formalResult) <- peelFunTysExact argCount (qualifiedBody funTy)
-  surfaceArgTypes <- mapM exprTcType args
-  let knownArgPairs = [(formal, actual) | (formal, Just actual) <- zip formalArgs surfaceArgTypes, not (isInstantiableType actual)]
-      subst = matchTypes (formalResult : map fst knownArgPairs) (expected : map snd knownArgPairs)
-  case subst of
-    Nothing ->
-      desugarBug "could not match function type against expected application type"
-    Just subst' -> do
-      let argTypes = map (substType subst') formalArgs
-          funExpected = foldr TcFunTy expected argTypes
-      pure (funExpected, argTypes)
+appArgType :: Expr -> Expr -> TcType -> DsM TcType
+appArgType fun arg expected = do
+  argTy <- exprTcType arg
+  case argTy of
+    Just ty
+      | not (isInstantiableType ty) -> pure ty
+    _ -> do
+      funTy <- exprTcTypeRequired fun
+      case appArgTypeFromFun funTy expected of
+        Just ty -> pure ty
+        Nothing ->
+          desugarBug ("missing application argument type information for: " <> take 80 (show arg))
+
+appArgTypeFromFun :: TcType -> TcType -> Maybe TcType
+appArgTypeFromFun funTy expected =
+  case qualifiedBody funTy of
+    TcFunTy formalArg formalResult -> do
+      subst <- matchTypes [formalResult] [expected]
+      pure (substType subst formalArg)
+    _ -> Nothing
 
 qualifiedBody :: TcType -> TcType
 qualifiedBody ty =
@@ -416,18 +420,12 @@ isInstantiableType ty =
     TcQualTy {} -> True
     _ -> False
 
-collectAppSpine :: Expr -> (Expr, [Expr])
-collectAppSpine expr = go expr []
-  where
-    go (EApp f a) args = go f (a : args)
-    go f args = (f, args)
-
-qualifiedVarDicts :: TcType -> TcType -> DsM [FcExpr]
-qualifiedVarDicts ty expected =
+qualifiedVarDicts :: Text -> TcType -> TcType -> DsM [FcExpr]
+qualifiedVarDicts name ty expected =
   case splitQualifiedType ty of
     Just (_tvs, preds, body) ->
       case matchTypes [body] [expected] of
-        Nothing -> desugarBug ("could not instantiate qualified value " <> show ty <> " at expected type " <> show expected)
+        Nothing -> desugarBug ("could not instantiate qualified value " <> T.unpack name <> " :: " <> show ty <> " at expected type " <> show expected)
         Just subst -> mapM (dictForPred . substPred subst) preds
     _ -> pure []
 
@@ -700,6 +698,9 @@ exprTcType expr =
   case expr of
     EAnn _ inner -> exprTcType inner
     EParen inner -> exprTcType inner
+    EInt {} -> pure (Just intTy)
+    EChar {} -> pure (Just charTy)
+    EString {} -> pure (Just (listType charTy))
     EVar name
       | nameText name == "True" || nameText name == "False" ->
           pure (Just boolTy)
@@ -708,9 +709,24 @@ exprTcType expr =
           case Map.lookup (nameToText name) (dsLocalVars st) of
             Just var -> pure (Just (varType var))
             Nothing -> Map.lookup (nameToText name) . dsTypeEnv <$> get
+    EApp fun arg -> do
+      funTy <- exprTcType fun
+      argTy <- exprTcType arg
+      pure (funTy >>= \fTy -> argTy >>= appResultType fTy)
+    EInfix lhs op rhs -> exprTcType (EApp (EApp (EVar op) lhs) rhs)
     EList [] -> pure Nothing
     EList (item : _) -> fmap listType <$> exprTcType item
     _ -> pure Nothing
+
+appResultType :: TcType -> TcType -> Maybe TcType
+appResultType funTy argTy
+  | isInstantiableType argTy = Nothing
+  | otherwise =
+      case qualifiedBody funTy of
+        TcFunTy formalArg formalResult -> do
+          subst <- matchTypes [formalArg] [argTy]
+          pure (substType subst formalResult)
+        _ -> Nothing
 
 exprTcTypeRequired :: Expr -> DsM TcType
 exprTcTypeRequired expr = do
