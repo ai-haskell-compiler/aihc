@@ -16,6 +16,21 @@ Use narrow commands while developing, then run the mandatory checks before commi
 - FC golden/eval: `cabal test -v0 aihc-fc:spec --test-options="--hide-successes"`
 - CPP oracle/unit suite: `cabal test -v0 aihc-cpp:spec --test-options="--hide-successes"`
 
+## Updating Golden Outputs
+
+Use the golden updater when a fixture's expected output should be regenerated from the current implementation instead of hand-written:
+
+```bash
+cabal run -v0 aihc-dev -- update-goldens --dry-run
+cabal run -v0 aihc-dev -- update-goldens
+```
+
+Run it from the repository root. Use `--root <dir>` only when invoking it from another working directory. The updater scans parser AST goldens, lexer goldens, parser error messages, resolver goldens, TC goldens, FC goldens, FC eval outputs, formatter goldens, and parser CLI goldens. It updates generated expectation fields such as `ast`, `tokens`, `expected`, `output`, and `annotated` only for `pass` and `xpass` fixtures; `fail` and `xfail` cases are skipped because their expected output is not the current success contract.
+
+After running without `--dry-run`, inspect the diff before accepting it. A changed golden is evidence that behavior changed, not evidence that the new behavior is correct. Keep intentional fixture metadata (`status`, `reason`, extension lists, dependencies, module sources, and expression sources) under review.
+
+Use `--external-formatters` only when intentionally refreshing formatter goldens for external tools that are installed locally. Otherwise the updater refreshes the in-repo formatter outputs and skips external formatter outputs.
+
 ## Pre-Commit
 
 Before every commit:
