@@ -3,8 +3,8 @@ input: |
   main = undefined
 args: ["--cpp"]
 output: |
-  <stdin>:1: error: missing include: missing.h
   #line 1 "<stdin>"
   main = undefined
+  <stdin>:1: error: missing include: missing.h
 exit_code: 1
 status: pass

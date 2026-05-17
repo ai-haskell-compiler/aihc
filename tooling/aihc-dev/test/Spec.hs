@@ -11,6 +11,7 @@ import Aihc.Dev.Snippet
   )
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
 import Test.ExtractHiCompare (extractHiCompareTests)
+import Test.GoldenUpdate (goldenUpdateTests)
 import Test.ParserCLI.Suite (cliTests)
 import Test.ResolvePackage (resolvePackageTests)
 import Test.ResolveStackageProgress.PathsModule (resolveStackagePathsModuleTests)
@@ -45,6 +46,7 @@ main = do
       QC.testProperty "dummy quickcheck property" prop_dummy,
       extractHiCompareTests,
       resolvePackageTests,
+      goldenUpdateTests,
       resolveStackagePathsModuleTests,
       stackageProgressFileCheckerTests,
       stackageProgressFileCheckerTimingTests,

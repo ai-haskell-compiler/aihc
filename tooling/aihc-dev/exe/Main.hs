@@ -3,6 +3,7 @@ module Main (main) where
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderInterfaceMismatch)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.Golden.Update qualified as GoldenUpdate
 import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
 import Aihc.Dev.Parser.Bench.CLI qualified as ParserBenchCLI
 import Aihc.Dev.Parser.Bench.Run qualified as ParserBenchRun
@@ -51,6 +52,7 @@ data Command
   | ParserHackageProgress ParserHackageProgressCLI.Options
   | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
+  | UpdateGoldens GoldenUpdate.Options
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -138,6 +140,12 @@ commandParser =
           ( info
               (ResolveStackageProgress <$> RSP.optionsParser <**> helper)
               (progDesc "Test name resolver on Stackage snapshot packages")
+          )
+        <> command
+          "update-goldens"
+          ( info
+              (UpdateGoldens <$> GoldenUpdate.optionsParser <**> helper)
+              (progDesc "Refresh golden fixture outputs from the current implementation")
           )
     )
 
@@ -242,3 +250,5 @@ runCommand (ResolvePackage opts) =
   RP.run opts
 runCommand (ResolveStackageProgress opts) =
   RSP.run opts
+runCommand (UpdateGoldens opts) =
+  GoldenUpdate.run opts

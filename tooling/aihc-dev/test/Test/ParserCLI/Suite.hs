@@ -18,17 +18,20 @@ import Test.Tasty.HUnit (assertFailure, testCase)
 cliTests :: IO TestTree
 cliTests = do
   -- Load golden test fixtures
+  cppCases <- CG.loadCppCLICases
   lexerCases <- CG.loadLexerCLICases
   parserCases <- CG.loadParserCLICases
 
   -- Build test trees (both use the unified aihc-parser CLI)
-  let lexerTests = mkCLIGoldenTests lexerCases
+  let cppTests = mkCLIGoldenTests cppCases
+      lexerTests = mkCLIGoldenTests lexerCases
       parserTests = mkCLIGoldenTests parserCases
 
   pure $
     testGroup
       "CLI"
-      [ testGroup "lexer (--lex)" lexerTests,
+      [ testGroup "cpp" cppTests,
+        testGroup "lexer (--lex)" lexerTests,
         testGroup "parser" parserTests
       ]
 

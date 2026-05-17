@@ -13,6 +13,7 @@ module Test.ParserCLI.Golden
     Outcome (..),
     CLICase (..),
     fixtureRoot,
+    loadCppCLICases,
     loadLexerCLICases,
     loadParserCLICases,
     parseCLICaseText,
@@ -69,8 +70,14 @@ fixtureRoot = "test/Test/Fixtures/cli"
 lexerFixtureRoot :: FilePath
 lexerFixtureRoot = fixtureRoot </> "lexer"
 
+cppFixtureRoot :: FilePath
+cppFixtureRoot = fixtureRoot </> "cpp"
+
 parserFixtureRoot :: FilePath
 parserFixtureRoot = fixtureRoot </> "parser"
+
+loadCppCLICases :: IO [CLICase]
+loadCppCLICases = loadCases cppFixtureRoot
 
 loadLexerCLICases :: IO [CLICase]
 loadLexerCLICases = loadCases lexerFixtureRoot

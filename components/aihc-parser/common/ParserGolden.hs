@@ -10,8 +10,10 @@ module ParserGolden
     moduleFixtureRoot,
     patternFixtureRoot,
     loadExprCases,
+    loadImportCases,
     loadModuleCases,
     loadPatternCases,
+    loadPragmaCases,
     parseParserCaseText,
     evaluateExprCase,
     evaluateModuleCase,
@@ -88,17 +90,29 @@ exprFixtureRoot = fixtureRoot </> "expr"
 moduleFixtureRoot :: FilePath
 moduleFixtureRoot = fixtureRoot </> "module"
 
+importFixtureRoot :: FilePath
+importFixtureRoot = fixtureRoot </> "import"
+
 patternFixtureRoot :: FilePath
 patternFixtureRoot = fixtureRoot </> "pattern"
 
+pragmaFixtureRoot :: FilePath
+pragmaFixtureRoot = fixtureRoot </> "pragma"
+
 loadExprCases :: IO [ParserCase]
 loadExprCases = loadCases CaseExpr exprFixtureRoot
+
+loadImportCases :: IO [ParserCase]
+loadImportCases = loadCases CaseModule importFixtureRoot
 
 loadModuleCases :: IO [ParserCase]
 loadModuleCases = loadCases CaseModule moduleFixtureRoot
 
 loadPatternCases :: IO [ParserCase]
 loadPatternCases = loadCases CasePattern patternFixtureRoot
+
+loadPragmaCases :: IO [ParserCase]
+loadPragmaCases = loadCases CaseModule pragmaFixtureRoot
 
 loadCases :: CaseKind -> FilePath -> IO [ParserCase]
 loadCases kind root = do
