@@ -68,7 +68,7 @@ fcEvalFixtureTests = do
 
 mkEvalFixtureTest :: EvalGolden.FcEvalCase -> TestTree
 mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
-  let (outcome, details) = EvalGolden.evaluateFcEvalCase tc
+  (outcome, details) <- EvalGolden.evaluateFcEvalCase tc
   case outcome of
     EvalGolden.OutcomePass -> pure ()
     EvalGolden.OutcomeXFail -> pure ()

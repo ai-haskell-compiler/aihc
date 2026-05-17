@@ -51,6 +51,11 @@ in rec {
     ".yml"
   ];
 
+  baseSrc = mkComponentSrc "/core-libs/aihc-base" [
+    ".hs"
+    ".cabal"
+  ];
+
   hackageSrc = mkComponentSrc "/tooling/aihc-hackage" [
     ".hs"
     ".cabal"

@@ -10,7 +10,7 @@ module FcEvalGolden
   )
 where
 
-import Aihc.Fc (DesugarResult (..), desugarModuleWithTcResult, evalProgramBinding, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithTcResult, evalProgramBinding, renderRawValue)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -22,6 +22,7 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr,
     Extension,
+    ImportDecl (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -33,17 +34,20 @@ import Aihc.Parser.Syntax
     mkUnqualifiedName,
     parseExtensionName,
   )
-import Aihc.Resolve (ResolveResult (..), collectModuleExports, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), TyCon (..))
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Environment (lookupEnv)
+import System.FilePath (joinPath, takeDirectory, takeExtension, (</>))
 
 data ExpectedStatus
   = StatusPass
@@ -64,6 +68,7 @@ data FcEvalCase = FcEvalCase
     evalCaseCategory :: !String,
     evalCasePath :: !FilePath,
     evalCaseExtensions :: ![Extension],
+    evalCaseDependencies :: ![Text],
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
@@ -98,16 +103,17 @@ loadFcEvalCase path = do
 
 parseFcEvalFixture :: FilePath -> Y.Value -> Either String FcEvalCase
 parseFcEvalFixture path value = do
-  (extNames, modules, expression, output, statusText, reasonText) <-
+  (extNames, dependencies, modules, expression, output, statusText, reasonText) <-
     parseEither
       ( withObject "fc eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
+          deps <- obj .:? "dependencies" .!= []
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, expr, expected, status, reason)
+          pure (exts, deps, mods, expr, expected, status, reason)
       )
       value
   if null modules
@@ -123,6 +129,7 @@ parseFcEvalFixture path value = do
             evalCaseCategory = category,
             evalCasePath = relPath,
             evalCaseExtensions = exts,
+            evalCaseDependencies = dependencies,
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
@@ -137,24 +144,28 @@ parseModules = withArray "modules" $ \arr ->
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
 
-evaluateFcEvalCase :: FcEvalCase -> (Outcome, String)
+evaluateFcEvalCase :: FcEvalCase -> IO (Outcome, String)
 evaluateFcEvalCase tc =
   case parseInputs tc of
-    Left errMsg -> classifyFailure tc errMsg
-    Right (modules, expr) ->
-      let (depModules, evalModule) = combineModules modules expr
-          depExports = collectModuleExports depModules
-          resolved = resolveWithDeps depExports [evalModule]
-       in case resolved of
-            ResolveResult {resolvedModules = [resolvedModule], resolveErrors = []} ->
-              let result = desugarModuleWithTcResult (syntheticTcResult resolvedModule) resolvedModule
-               in if dsSuccess result
-                    then case evalProgramBinding evalBindingName (dsProgram result) >>= renderRawValue of
-                      Right actual -> classifySuccess tc (T.unpack actual)
-                      Left err -> classifyFailure tc ("eval error: " <> show err)
-                    else classifyFailure tc ("desugar error: " <> unlines (dsErrors result))
-            ResolveResult {resolveErrors} ->
-              classifyFailure tc ("resolve error: " <> show resolveErrors)
+    Left errMsg -> pure (classifyFailure tc errMsg)
+    Right (modules, expr) -> do
+      let evalModules = combineModules modules expr
+      dependencyModules <- loadDependencyModules tc evalModules
+      pure $
+        case dependencyModules of
+          Left errMsg -> classifyFailure tc errMsg
+          Right deps ->
+            let resolved = resolveWithDeps mempty (deps <> evalModules)
+             in case resolved of
+                  ResolveResult {resolvedModules, resolveErrors = []} ->
+                    let results = map desugarResolvedModule resolvedModules
+                     in if all dsSuccess results
+                          then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
+                            Right actual -> classifySuccess tc (T.unpack actual)
+                            Left err -> classifyFailure tc ("eval error: " <> show err)
+                          else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
+                  ResolveResult {resolveErrors} ->
+                    classifyFailure tc ("resolve error: " <> show resolveErrors)
 
 parseInputs :: FcEvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
@@ -188,14 +199,14 @@ parseOneModule sourceName extensions input =
         then Right ast
         else Left ("parse module error: " <> show errs)
 
-combineModules :: [Module] -> Expr -> ([Module], Module)
+combineModules :: [Module] -> Expr -> [Module]
 combineModules modules expr =
   case modules of
-    [] -> ([], emptyEvalModule expr)
+    [] -> [emptyEvalModule expr]
     _ ->
       let depModules = init modules
           evalModule = last modules
-       in (depModules, evalModule {moduleDecls = moduleDecls evalModule <> [evalDecl expr]})
+       in depModules <> [evalModule {moduleDecls = moduleDecls evalModule <> [evalDecl expr]}]
 
 emptyEvalModule :: Expr -> Module
 emptyEvalModule expr =
@@ -237,6 +248,96 @@ bindingTypes decl =
     DeclValue (PatternBind _ pat _) ->
       [TcBindingResult name unknownTy | Just name <- [barePatternName pat]]
     _ -> []
+
+desugarResolvedModule :: Module -> DesugarResult
+desugarResolvedModule modu =
+  desugarModuleWithTcResult (syntheticTcResult modu) modu
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs =
+  FcProgram (concatMap fcTopBinds programs)
+
+loadDependencyModules :: FcEvalCase -> [Module] -> IO (Either String [Module])
+loadDependencyModules tc evalModules =
+  case evalCaseDependencies tc of
+    [] -> pure (Right [])
+    dependencies -> do
+      roots <- traverse resolveDependencyRoot dependencies
+      case sequence roots of
+        Left errMsg -> pure (Left errMsg)
+        Right packageRoots ->
+          loadTransitiveModules packageRoots (initialDependencyModules evalModules)
+
+resolveDependencyRoot :: Text -> IO (Either String (Text, FilePath))
+resolveDependencyRoot dependency =
+  case dependency of
+    "aihc-base" -> do
+      envRoot <- lookupEnv "AIHC_BASE_SRC"
+      root <- maybe defaultAihcBaseRoot pure envRoot
+      pure (Right (dependency, root))
+    _ ->
+      pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
+
+defaultAihcBaseRoot :: IO FilePath
+defaultAihcBaseRoot = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "core-libs" </> "aihc-base"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then pure candidate
+            else findUp parent
+
+initialDependencyModules :: [Module] -> Set.Set Text
+initialDependencyModules modules =
+  Set.insert "Prelude" (importedModuleNames modules)
+
+importedModuleNames :: [Module] -> Set.Set Text
+importedModuleNames modules =
+  Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+
+loadTransitiveModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
+loadTransitiveModules packageRoots initialModules =
+  go Set.empty [] (Set.toAscList initialModules)
+  where
+    go _ loaded [] =
+      pure (Right (reverse loaded))
+    go seen loaded (moduleName : pending)
+      | moduleName `Set.member` seen =
+          go seen loaded pending
+      | otherwise = do
+          maybePath <- findModulePathInDependencies packageRoots moduleName
+          case maybePath of
+            Nothing -> do
+              let dependencyNames = T.intercalate ", " (map fst packageRoots)
+              pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
+            Just path -> do
+              source <- TIO.readFile path
+              case parseOneModule path [] source of
+                Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
+                Right modu -> do
+                  let seen' = Set.insert moduleName seen
+                      newImports = Set.toAscList (importedModuleNames [modu] `Set.difference` seen')
+                  go seen' (modu : loaded) (pending <> newImports)
+
+findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
+findModulePathInDependencies [] _ = pure Nothing
+findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
+  let path = root </> "src" </> moduleNamePath moduleName
+  exists <- doesFileExist path
+  if exists
+    then pure (Just path)
+    else findModulePathInDependencies rest moduleName
+
+moduleNamePath :: Text -> FilePath
+moduleNamePath moduleName =
+  joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
 
 matchArity :: [Match] -> Int
 matchArity [] = 0

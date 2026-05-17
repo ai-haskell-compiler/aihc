@@ -1,0 +1,12 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+output: |
+  : 'a' (: 'b' (: 'c' []))
+expression: |
+  ['a'] ++ ['b', 'c']
+status: pass
+reason: evaluates Prelude.++ loaded from the aihc-base dependency
