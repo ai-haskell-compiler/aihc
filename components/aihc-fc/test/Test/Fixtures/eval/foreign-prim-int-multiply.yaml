@@ -1,0 +1,12 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim (*#) :: Int# -> Int# -> Int#
+output: |
+  42
+expression: |
+  (*#) 6# 7#
+status: pass
+reason: "evaluates the foreign prim Int# multiplication operator"

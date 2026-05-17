@@ -13,12 +13,15 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
+    CallConv (..),
     CaseAlt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
     Expr (..),
     FieldDecl (..),
+    ForeignDecl (..),
+    ForeignDirection (..),
     GadtBody (..),
     Match (..),
     MatchHeadForm (..),
@@ -101,6 +104,9 @@ collectRawSigs decls = Map.fromList $ concatMap extractSig decls
   where
     extractSig (DeclTypeSig names ty) =
       [(unqualifiedNameText n, ty) | n <- names]
+    extractSig (DeclForeign foreignDecl)
+      | isForeignPrimImport foreignDecl =
+          [(unqualifiedNameText (foreignName foreignDecl), foreignType foreignDecl)]
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = []
 
@@ -397,8 +403,26 @@ tcFunctionInfer displayName name matches = do
 -- Returns binding results for the declared names.
 registerDecl :: Decl -> TcM [TcBindingResult]
 registerDecl (DeclData dd) = registerDataDecl dd
+registerDecl (DeclForeign foreignDecl)
+  | isForeignPrimImport foreignDecl =
+      registerForeignPrimImport foreignDecl
 registerDecl (DeclAnn _ inner) = registerDecl inner
 registerDecl _ = pure []
+
+isForeignPrimImport :: ForeignDecl -> Bool
+isForeignPrimImport foreignDecl =
+  foreignDirection foreignDecl == ForeignImport
+    && foreignCallConv foreignDecl == CPrim
+
+registerForeignPrimImport :: ForeignDecl -> TcM [TcBindingResult]
+registerForeignPrimImport foreignDecl = do
+  scheme <- sigToScheme (foreignType foreignDecl)
+  let name = unqualifiedNameText (foreignName foreignDecl)
+      displayName = renderBinderName (foreignName foreignDecl)
+      declaredTy = schemeToType scheme
+  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+  zonkedTy <- zonkType declaredTy
+  pure [TcBindingResult displayName zonkedTy]
 
 -- | Register a data declaration's type constructor and data constructors.
 --

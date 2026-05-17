@@ -30,6 +30,7 @@ import Aihc.Parser.Syntax
     ArrowKind (..),
     BangType (..),
     BinderHead (..),
+    CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -41,6 +42,8 @@ import Aihc.Parser.Syntax
     FieldDecl (..),
     FixityAssoc (..),
     ForallTelescope (..),
+    ForeignDecl (..),
+    ForeignDirection (..),
     GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
@@ -349,13 +352,16 @@ resolveDeclCore termDefinition decl =
     DeclDefault tys ->
       DeclDefault <$> mapM resolveType tys
     DeclFixity {} -> pure decl
+    DeclForeign foreignDecl
+      | isForeignPrimImport foreignDecl ->
+          DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
+      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclStandaloneDeriving {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclForeign {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclDataFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -370,6 +376,18 @@ resolveValueDecl termDefinition valueDecl =
       FunctionBind name' <$> mapM resolveMatch matches
     PatternBind multTag pat rhs ->
       PatternBind multTag <$> resolvePatternDefinition termDefinition pat <*> resolveRhs rhs
+
+resolveForeignDecl :: TermDefinition -> ForeignDecl -> ResolveM ForeignDecl
+resolveForeignDecl termDefinition foreignDecl = do
+  sp <- currentSpan
+  let name' = resolveTermDefinitionAt sp termDefinition (foreignName foreignDecl)
+  ty' <- resolveType (foreignType foreignDecl)
+  pure foreignDecl {foreignName = name', foreignType = ty'}
+
+isForeignPrimImport :: ForeignDecl -> Bool
+isForeignPrimImport foreignDecl =
+  foreignDirection foreignDecl == ForeignImport
+    && foreignCallConv foreignDecl == CPrim
 
 resolveClassDecl :: ClassDecl -> ResolveM ClassDecl
 resolveClassDecl classDecl = do

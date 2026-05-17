@@ -21,6 +21,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     LambdaCaseAlt (..),
     Name (..),
+    NumericType (..),
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
@@ -44,9 +45,9 @@ inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
   EVar name -> inferVar NoSourceSpan (nameToText name)
-  -- Integer literals: monomorphic Int for MVP.
-  -- (Full version would use Num constraint.)
-  EInt {} -> pure (intTyCon, [])
+  -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
+  -- literals keep their primitive, unboxed type.
+  EInt _ numericType _ -> pure (numericLiteralType numericType, [])
   -- Float literals.
   EFloat {} -> pure (doubleTyCon, [])
   -- Char literals.
@@ -309,6 +310,30 @@ nameToText n = case nameQualifier n of
 -- | Built-in type constructors (MVP).
 intTyCon :: TcType
 intTyCon = TcTyCon (TyCon "Int" 0) []
+
+intHashTyCon :: TcType
+intHashTyCon = TcTyCon (TyCon "Int#" 0) []
+
+wordHashTyCon :: TcType
+wordHashTyCon = TcTyCon (TyCon "Word#" 0) []
+
+numericLiteralType :: NumericType -> TcType
+numericLiteralType numericType =
+  case numericType of
+    TInteger -> intTyCon
+    TIntHash -> intHashTyCon
+    TWordHash -> wordHashTyCon
+    TInt8Hash -> primNumericTyCon "Int8#"
+    TInt16Hash -> primNumericTyCon "Int16#"
+    TInt32Hash -> primNumericTyCon "Int32#"
+    TInt64Hash -> primNumericTyCon "Int64#"
+    TWord8Hash -> primNumericTyCon "Word8#"
+    TWord16Hash -> primNumericTyCon "Word16#"
+    TWord32Hash -> primNumericTyCon "Word32#"
+    TWord64Hash -> primNumericTyCon "Word64#"
+
+primNumericTyCon :: Text -> TcType
+primNumericTyCon name = TcTyCon (TyCon name 0) []
 
 doubleTyCon :: TcType
 doubleTyCon = TcTyCon (TyCon "Double" 0) []
