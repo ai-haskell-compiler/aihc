@@ -1614,18 +1614,20 @@ addViewExprParensWith allowLayoutTypeSig expr =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
 
     viewExprTypeSigCanStayBare e =
-      allowLayoutTypeSig
-        && case peelExprAnn e of
-          ECase {} -> True
-          EDo {} -> True
-          EMultiWayIf {} -> True
-          ELambdaCase {} -> True
-          ELambdaCases {} -> True
-          _ -> False
+      allowLayoutTypeSig && isBareViewExprBlock e
 
     isTypeSyntaxExpr e =
       case peelExprAnn e of
         ETypeSyntax {} -> True
+        _ -> False
+
+    isBareViewExprBlock e =
+      case peelExprAnn e of
+        ECase {} -> True
+        EIf {} -> True
+        EMultiWayIf {} -> True
+        ELambdaCase {} -> True
+        ELambdaCases {} -> True
         _ -> False
 
 addPatternAtomParens :: Pattern -> Pattern

@@ -30,6 +30,7 @@ import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Decl (genDeclClass, genDeclDataFamilyInst, shrinkDecl)
+import Test.Properties.Arb.Expr (shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConSym,
     genVarSym,
@@ -120,7 +121,7 @@ assertParsedStrippedPatternShapeRoundTrip config source =
             ParseOk reparsed ->
               assertEqual "reparsed pattern" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
             ParseErr bundle ->
-              assertFailure ("expected pretty-printed pattern to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+              assertFailure ("expected pretty-printed pattern to reparse:\n" <> T.unpack rendered <> "\ngot:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
 
@@ -265,6 +266,8 @@ buildTests = do
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
+            testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
+            testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
             localOption (QC.QuickCheckTests 2000) $
@@ -1441,6 +1444,56 @@ test_viewExprArrowCommandTypeSigRhsParens = do
          -> C {})
         """
   assertParsedStrippedPatternShapeRoundTrip config source
+
+test_typedViewExprPrettyLayout :: Assertion
+test_typedViewExprPrettyLayout = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedExprShapeRoundTrip
+    config
+    """
+    do
+      (([]
+        :: _)
+       -> _) <- []
+      []
+    """
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    ((if | let _ = []
+            ->
+             []
+       :: _)
+     -> _)
+    """
+
+test_shrunkDoExpressionsKeepFinalExpression :: Assertion
+test_shrunkDoExpressionsKeepFinalExpression = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        do
+          (([] :: _) -> _) <- []
+          []
+        """
+  case parseExpr config source of
+    ParseOk expr ->
+      let invalidShrinks = [stmts | EDo stmts _ <- shrinkExpr expr, not (testDoStmtsEndInExpr stmts)]
+       in assertEqual "invalid do-statement shrinks" [] invalidShrinks
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
+testDoStmtsEndInExpr stmts =
+  case reverse stmts of
+    stmt : _ -> testIsDoExprStmt stmt
+    [] -> False
+
+testIsDoExprStmt :: DoStmt Expr -> Bool
+testIsDoExprStmt stmt =
+  case peelDoStmtAnn stmt of
+    DoExpr {} -> True
+    _ -> False
 
 test_arrowCommandLhsLambdaCaseParens :: Assertion
 test_arrowCommandLhsLambdaCaseParens = do

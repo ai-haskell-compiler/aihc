@@ -1205,7 +1205,7 @@ prettyExpr expr =
     EGetFieldProjection fields ->
       "." <> mconcat (punctuate "." (map prettyName fields))
     ETypeSig inner ty ->
-      prettyExpr inner <> hardline <> "::" <+> prettyType ty
+      align (prettyExpr inner <> hardline <> "::" <+> prettyType ty)
     EParen inner -> case inner of
       ECase scrutinee alts ->
         parens (prettyCaseExpr prettyCaseLayoutAligned scrutinee alts)
@@ -1402,7 +1402,7 @@ prettyExprAtStatementStart expr =
     ETypeApp fn ty -> prettyExprAtStatementStart fn <> hardline <> " " <> prettyTypeAppArg ty
     EInfix lhs op rhs -> prettyExprAtStatementStart lhs <> hardline <> prettyNameInfixOp op <+> prettyExpr rhs
     ESectionL lhs op -> prettyExprAtStatementStart lhs <> hardline <> " " <> prettyNameInfixOp op
-    ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> "::" <+> prettyType ty
+    ETypeSig inner ty -> prettyExprAtStatementStart inner <> hardline <> indent 2 ("::" <+> prettyType ty)
     ERecordUpd base fields ->
       prettyExprAtStatementStart base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     EGetField base field ->
