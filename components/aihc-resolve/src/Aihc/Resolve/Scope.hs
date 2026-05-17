@@ -27,6 +27,7 @@ where
 
 import Aihc.Parser.Syntax
   ( BinderHead,
+    CallConv (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
@@ -35,6 +36,8 @@ import Aihc.Parser.Syntax
     ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
+    ForeignDecl (..),
+    ForeignDirection (..),
     GadtBody (..),
     IEBundledMember (..),
     IEEntityNamespace (..),
@@ -176,6 +179,10 @@ declExportedNames decl =
         PatternBind _ pat _ ->
           DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty
     DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
+    DeclForeign foreignDecl
+      | foreignDirection foreignDecl == ForeignImport && foreignCallConv foreignDecl == CPrim ->
+          DeclExports [foreignName foreignDecl] [] Map.empty Map.empty Map.empty Map.empty
+      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
     DeclFixity assoc mNamespace mPrec ops
       | mNamespace /= Just IEEntityNamespaceType ->
           DeclExports

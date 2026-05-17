@@ -235,14 +235,12 @@ test_loadsInstalledBaseInterfaceForRepl =
         assertBool "Prelude exposes String" (Map.member "String" (scopeTypes preludeScope))
     result <- evaluateExpression session "\"hello\""
     assertEqual "result" (Right "\"hello\"") result
-    concatResult <- evaluateExpression session "\"hello \" ++ \"world\""
-    assertEqual "concat result" (Right "\"hello world\"") concatResult
     _ <- handleReplInput session ":set +type"
-    typedConcatResult <- evaluateExpression session "\"hello \" ++ \"world\""
-    case typedConcatResult of
+    typedStringResult <- evaluateExpression session "\"hello\""
+    case typedStringResult of
       Right output ->
         assertBool ("expected [Char] type, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
-      Left err -> assertFailure ("expected typed concat success, got " <> show err)
+      Left err -> assertFailure ("expected typed string success, got " <> show err)
 
 test_stableStorePath :: Assertion
 test_stableStorePath =

@@ -61,7 +61,9 @@ primitiveEnv =
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("(,)", VConstructor "(,)" []),
-      ("++", VPrim "++" 2 [])
+      ("+#", VPrim "+#" 2 []),
+      ("-#", VPrim "-#" 2 []),
+      ("*#", VPrim "*#" 2 [])
     ]
 
 evalWithEnv :: Env -> FcExpr -> Either EvalError Value
@@ -116,22 +118,27 @@ applyPrimitive name arity args
   | otherwise = Left (EvalPrimitiveArity name (length args))
 
 evalPrimitive :: Text -> [Value] -> Either EvalError Value
-evalPrimitive "++" [left, right] =
-  appendValues left right
+evalPrimitive "+#" [left, right] =
+  evalIntPrim "+#" (+) left right
+evalPrimitive "-#" [left, right] =
+  evalIntPrim "-#" (-) left right
+evalPrimitive "*#" [left, right] =
+  evalIntPrim "*#" (*) left right
 evalPrimitive name args =
   Left (EvalPrimitiveArity name (length args))
 
-appendValues :: Value -> Value -> Either EvalError Value
-appendValues left right = do
-  forcedLeft <- forceValue left
-  case forcedLeft of
-    VConstructor "[]" [] ->
-      forceValue right
-    VConstructor ":" [headValue, tailValue] -> do
-      appendedTail <- appendValues tailValue right
-      pure (VConstructor ":" [headValue, appendedTail])
-    other ->
-      Left (EvalPrimitiveTypeError "++" other)
+evalIntPrim :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> Either EvalError Value
+evalIntPrim name op left right = do
+  leftInt <- forceIntPrimitiveArg name left
+  rightInt <- forceIntPrimitiveArg name right
+  pure (VLit (LitInt (op leftInt rightInt)))
+
+forceIntPrimitiveArg :: Text -> Value -> Either EvalError Integer
+forceIntPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitInt intValue) -> pure intValue
+    other -> Left (EvalPrimitiveTypeError name other)
 
 extendBind :: Env -> FcBind -> Env
 extendBind env bind =
