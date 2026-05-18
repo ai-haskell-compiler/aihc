@@ -29,17 +29,17 @@ expected: |
     {λx : Bool.
       λy : Bool.
         case x as _scrut : Bool of
-          True →
-            case y as _scrut : Bool of
-              True →
-                True
-              False →
-                False
           False →
             case y as _scrut : Bool of
+              False →
+                True
               True →
                 False
+          True →
+            case y as _scrut : Bool of
               False →
+                False
+              True →
                 True}
 
   eqBool : Bool → Bool → Bool =

@@ -18,7 +18,6 @@ library
     Aihc.Fc.Eval
     Aihc.Fc.Lint
     Aihc.Fc.Pretty
-    Aihc.Fc.Subst
     Aihc.Fc.Syntax
 
   hs-source-dirs: src

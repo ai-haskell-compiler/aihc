@@ -9,6 +9,11 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    TcClassAnnotation (..),
+    TcClassMethodAnnotation (..),
+    TcDictBinderAnnotation (..),
+    TcInstanceAnnotation (..),
+    TcInstanceMethodAnnotation (..),
 
     -- * Pattern synonyms for extracting annotations
     pattern ETcAnn,
@@ -35,6 +40,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Evidence (EvTerm)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Annotation attached to AST nodes by the type checker.
@@ -50,6 +56,43 @@ data TcAnnotation = TcAnnotation
     tcAnnEvidenceTerms :: ![EvTerm],
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
+  }
+  deriving (Eq, Show)
+
+data TcDictBinderAnnotation = TcDictBinderAnnotation
+  { tcDictBinderClassName :: !Text,
+    tcDictBinderArgs :: ![TcType],
+    tcDictBinderType :: !TcType
+  }
+  deriving (Eq, Show)
+
+data TcClassMethodAnnotation = TcClassMethodAnnotation
+  { tcClassMethodName :: !Text,
+    tcClassMethodType :: !TcType,
+    tcClassMethodTyVars :: ![TyVarId],
+    tcClassMethodDictType :: !TcType,
+    tcClassMethodIndex :: !Int
+  }
+  deriving (Eq, Show)
+
+newtype TcClassAnnotation = TcClassAnnotation
+  { tcClassMethods :: [TcClassMethodAnnotation]
+  }
+  deriving (Eq, Show)
+
+data TcInstanceAnnotation = TcInstanceAnnotation
+  { tcInstanceDictName :: !Text,
+    tcInstanceDictType :: !TcType,
+    tcInstanceTyVars :: ![TyVarId],
+    tcInstanceHeadTypes :: ![TcType],
+    tcInstanceContextDicts :: ![TcDictBinderAnnotation],
+    tcInstanceMethodOrder :: ![Text]
+  }
+  deriving (Eq, Show)
+
+data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
+  { tcInstanceMethodName :: !Text,
+    tcInstanceMethodType :: !TcType
   }
   deriving (Eq, Show)
 

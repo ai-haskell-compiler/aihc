@@ -6,9 +6,23 @@ module Test.Tc.Suite
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr)
-import Aihc.Parser.Syntax (Expr)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
+import Aihc.Parser.Syntax
+  ( CaseAlt (..),
+    Decl (..),
+    Expr (..),
+    InstanceDecl (..),
+    InstanceDeclItem (..),
+    Match (..),
+    Module (..),
+    Rhs (..),
+    ValueDecl (..),
+    fromAnnotation,
+  )
 import Aihc.Tc
+import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Evidence (EvTerm (..))
+import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import TcGolden qualified as TG
 import Test.Tasty (TestTree, testGroup)
@@ -24,6 +38,7 @@ tcTests =
       testGroup "if-then-else" ifTests,
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
+      testGroup "annotations" annotationTests,
       testGroup "error-cases" errorTests
     ]
 
@@ -146,6 +161,181 @@ variableTests =
       assertBool "should fail" (not (tcResultSuccess result))
       assertBool "should have diagnostics" (not (null (tcResultDiagnostics result)))
   ]
+
+annotationTests :: [TestTree]
+annotationTests =
+  [ testCase "typeclass annotations select concrete dictionaries" $ do
+      let result = typecheckModule annotationModule
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "Eq Bool evidence" ("$fEqBool" `elem` evidenceDictNames (tcmModule result))
+      assertBool "Eq [Bool] evidence" ("$fEqList" `elem` evidenceDictNames (tcmModule result))
+      assertBool "Default Bool evidence" ("$fDefaultBool" `elem` evidenceDictNames (tcmModule result))
+      assertBool "given Eq a evidence inside list instance" (hasGivenClass "Eq" (tcmModule result)),
+    testCase "class and instance annotations carry dictionary layout" $ do
+      let result = typecheckModule annotationModule
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "Eq class methods annotated" (hasClassMethod "==" 0 (tcmModule result))
+      assertBool "Default class method annotated" (hasClassMethod "def" 0 (tcmModule result))
+      assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" (tcmModule result))
+      assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
+      assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
+      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result))
+  ]
+
+annotationModule :: Module
+annotationModule =
+  parseM
+    "module Test where\n\
+    \data Bool = False | True\n\
+    \class Eq a where\n\
+    \  (==) :: a -> a -> Bool\n\
+    \instance Eq Bool where\n\
+    \  False == False = True\n\
+    \  False == True = False\n\
+    \  True == False = False\n\
+    \  True == True = True\n\
+    \instance Eq a => Eq [a] where\n\
+    \  [] == [] = True\n\
+    \  [] == (_ : _) = False\n\
+    \  (_ : _) == [] = False\n\
+    \  (x : _) == (y : _) = x == y\n\
+    \eqBool :: Bool -> Bool -> Bool\n\
+    \eqBool = (==)\n\
+    \eqListBool :: [Bool] -> [Bool] -> Bool\n\
+    \eqListBool = (==)\n\
+    \class Default a where\n\
+    \  def :: a\n\
+    \instance Default Bool where\n\
+    \  def = True\n\
+    \useDefault :: Bool\n\
+    \useDefault = def\n"
+
+parseM :: Text -> Module
+parseM input =
+  let config = defaultConfig {parserSourceName = "<test>"}
+      (errs, modu) = parseModule config input
+   in if null errs
+        then modu
+        else error ("Parse error in test: " ++ show errs)
+
+evidenceDictNames :: Module -> [Text]
+evidenceDictNames =
+  concatMap evDictNames . concatMap tcAnnEvidenceTerms . exprAnnotations
+
+evDictNames :: EvTerm -> [Text]
+evDictNames (EvDict name _ evidence) = name : concatMap evDictNames evidence
+evDictNames (EvSuperClass ev _) = evDictNames ev
+evDictNames (EvCast ev _) = evDictNames ev
+evDictNames _ = []
+
+hasGivenClass :: Text -> Module -> Bool
+hasGivenClass className =
+  any (any isGiven . tcAnnEvidenceTerms) . exprAnnotations
+  where
+    isGiven (EvGiven (ClassPred cls _)) = cls == className
+    isGiven (EvDict _ _ evidence) = any isGiven evidence
+    isGiven (EvSuperClass ev _) = isGiven ev
+    isGiven (EvCast ev _) = isGiven ev
+    isGiven _ = False
+
+hasClassMethod :: Text -> Int -> Module -> Bool
+hasClassMethod methodName methodIndex =
+  any matches . classAnnotations
+  where
+    matches classAnn =
+      any (\method -> tcClassMethodName method == methodName && tcClassMethodIndex method == methodIndex) (tcClassMethods classAnn)
+
+hasInstanceDict :: Text -> Module -> Bool
+hasInstanceDict dictName =
+  any ((== dictName) . tcInstanceDictName) . instanceAnnotations
+
+hasInstanceMethod :: Text -> Module -> Bool
+hasInstanceMethod methodName =
+  any ((== methodName) . tcInstanceMethodName) . instanceMethodAnnotations
+
+classAnnotations :: Module -> [TcClassAnnotation]
+classAnnotations =
+  concatMap goDecl . moduleDecls
+  where
+    goDecl (DeclAnn ann inner) =
+      maybeToList (fromAnnotation ann) <> goDecl inner
+    goDecl _ = []
+
+instanceAnnotations :: Module -> [TcInstanceAnnotation]
+instanceAnnotations =
+  concatMap goDecl . moduleDecls
+  where
+    goDecl (DeclAnn ann inner) =
+      maybeToList (fromAnnotation ann) <> goDecl inner
+    goDecl _ = []
+
+instanceMethodAnnotations :: Module -> [TcInstanceMethodAnnotation]
+instanceMethodAnnotations =
+  concatMap goDecl . moduleDecls
+  where
+    goDecl (DeclAnn _ inner) = goDecl inner
+    goDecl (DeclInstance instanceDecl) = concatMap goItem (instanceDeclItems instanceDecl)
+    goDecl _ = []
+
+    goItem (InstanceItemAnn ann inner) =
+      maybeToList (fromAnnotation ann) <> goItem inner
+    goItem _ = []
+
+exprAnnotations :: Module -> [TcAnnotation]
+exprAnnotations =
+  concatMap declExprAnnotations . moduleDecls
+
+declExprAnnotations :: Decl -> [TcAnnotation]
+declExprAnnotations decl =
+  case decl of
+    DeclAnn _ inner -> declExprAnnotations inner
+    DeclValue valueDecl -> valueDeclExprAnnotations valueDecl
+    DeclInstance instanceDecl -> concatMap instanceItemExprAnnotations (instanceDeclItems instanceDecl)
+    _ -> []
+
+instanceItemExprAnnotations :: InstanceDeclItem -> [TcAnnotation]
+instanceItemExprAnnotations item =
+  case item of
+    InstanceItemAnn _ inner -> instanceItemExprAnnotations inner
+    InstanceItemBind valueDecl -> valueDeclExprAnnotations valueDecl
+    _ -> []
+
+valueDeclExprAnnotations :: ValueDecl -> [TcAnnotation]
+valueDeclExprAnnotations valueDecl =
+  case valueDecl of
+    FunctionBind _ matches -> concatMap matchExprAnnotations matches
+    PatternBind _ _ rhs -> rhsExprAnnotations rhs
+
+matchExprAnnotations :: Match -> [TcAnnotation]
+matchExprAnnotations = rhsExprAnnotations . matchRhs
+
+rhsExprAnnotations :: Rhs Expr -> [TcAnnotation]
+rhsExprAnnotations rhs =
+  case rhs of
+    UnguardedRhs _ expr maybeDecls ->
+      exprExprAnnotations expr <> maybe [] (concatMap declExprAnnotations) maybeDecls
+    GuardedRhss _ _ maybeDecls ->
+      maybe [] (concatMap declExprAnnotations) maybeDecls
+
+exprExprAnnotations :: Expr -> [TcAnnotation]
+exprExprAnnotations expr =
+  case expr of
+    EAnn ann inner ->
+      maybeToList (fromAnnotation ann) <> exprExprAnnotations inner
+    EApp fun arg -> exprExprAnnotations fun <> exprExprAnnotations arg
+    EInfix lhs op rhs -> exprExprAnnotations lhs <> exprExprAnnotations (EVar op) <> exprExprAnnotations rhs
+    EList elems -> concatMap exprExprAnnotations elems
+    ETuple _ elems -> concatMap (maybe [] exprExprAnnotations) elems
+    EIf cond thenE elseE -> exprExprAnnotations cond <> exprExprAnnotations thenE <> exprExprAnnotations elseE
+    ECase scrut alts -> exprExprAnnotations scrut <> concatMap caseAltExprAnnotations alts
+    ELetDecls decls body -> concatMap declExprAnnotations decls <> exprExprAnnotations body
+    ELambdaPats _ body -> exprExprAnnotations body
+    EParen inner -> exprExprAnnotations inner
+    ETypeSig inner _ -> exprExprAnnotations inner
+    _ -> []
+
+caseAltExprAnnotations :: CaseAlt Expr -> [TcAnnotation]
+caseAltExprAnnotations (CaseAlt _ _ rhs) = rhsExprAnnotations rhs
 
 -- | Tests for error cases.
 errorTests :: [TestTree]

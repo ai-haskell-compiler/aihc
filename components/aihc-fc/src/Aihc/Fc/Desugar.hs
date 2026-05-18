@@ -12,13 +12,11 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhs, freshUnique, freshVar, lookupType, matchTypes, splitQualifiedType, substType, surfaceTypeToTc)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhs, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
-  ( ClassDecl (..),
-    ClassDeclItem (..),
-    DataConDecl,
+  ( DataConDecl,
     DataDecl (..),
     Decl (..),
     Expr,
@@ -29,25 +27,19 @@ import Aihc.Parser.Syntax
     Module (..),
     Pattern (..),
     Rhs,
-    Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
-    instanceHeadName,
-    instanceHeadTypes,
-    nameText,
-    peelClassDeclItemAnn,
+    fromAnnotation,
     peelDeclAnn,
-    peelInstanceDeclItemAnn,
-    tyVarBinderName,
     unqualifiedNameText,
   )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
+import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
-import Data.List (nub)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -119,11 +111,10 @@ builtinTypeEntries =
 dsModule :: Module -> DsM [FcTopBind]
 dsModule m = do
   let decls = moduleDecls m
-      classMethods = collectClassMethods decls
   -- Phase 1: data declarations and class method selectors.
   dataTops <- concat <$> mapM dsDecl decls
   -- Phase 2: instance dictionaries.
-  instanceTops <- concat <$> mapM (dsInstanceDecl classMethods) (moduleInstances decls)
+  instanceTops <- concat <$> mapM dsInstanceDecl (moduleInstances decls)
   -- Phase 3: group and desugar value bindings.
   let grouped = groupFunctionBinds decls
   valueTops <- mapM dsGroup grouped
@@ -132,8 +123,10 @@ dsModule m = do
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
 dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
-dsDecl (DeclClass classDecl) = dsClassDeclM classDecl
+dsDecl (DeclAnn ann (DeclClass _classDecl))
+  | Just classAnn <- fromAnnotation ann = dsClassDeclM classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
+dsDecl DeclClass {} = desugarBug "missing type-checker annotation for class declaration"
 dsDecl _ = pure []
 
 -- | Desugar a data declaration.
@@ -157,126 +150,53 @@ dataConFieldTypes name arity (TcFunTy arg rest) =
 dataConFieldTypes name arity ty =
   desugarBug ("missing field type information for data constructor " <> T.unpack name <> ": expected " <> show arity <> " more field(s) in " <> show ty)
 
-dsClassDeclM :: ClassDecl -> DsM [FcTopBind]
-dsClassDeclM classDecl =
-  sequence
-    [ dsClassSelector methodName index
-    | (index, methodName) <- zip [0 ..] (classMethodNames classDecl)
-    ]
+dsClassDeclM :: TcClassAnnotation -> DsM [FcTopBind]
+dsClassDeclM classAnn =
+  mapM dsClassSelector (tcClassMethods classAnn)
 
-dsClassSelector :: Text -> Int -> DsM FcTopBind
-dsClassSelector methodName index = do
-  methodTy <- lookupType methodName
-  let (tvs, _) = peelForAlls methodTy
-  dictTy <- selectorDictType methodName methodTy
+dsClassSelector :: TcClassMethodAnnotation -> DsM FcTopBind
+dsClassSelector methodAnn = do
   methodUnique <- freshUnique
-  dictVar <- freshVar "$d" dictTy
-  let methodVar = Var methodName methodUnique methodTy
-      body = foldr FcTyLam (FcDictLam dictVar (FcDictSelect (FcVar dictVar) index)) tvs
+  dictVar <- freshVar "$d" (tcClassMethodDictType methodAnn)
+  let methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
+      body = foldr FcTyLam (FcDictLam dictVar (FcDictSelect (FcVar dictVar) (tcClassMethodIndex methodAnn))) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
 
-selectorDictType :: Text -> TcType -> DsM TcType
-selectorDictType methodName methodTy =
-  case snd (peelForAlls methodTy) of
-    TcQualTy (pred' : _) _ -> pure (predType pred')
-    _ -> desugarBug ("missing class dictionary type for method selector " <> T.unpack methodName <> ": " <> show methodTy)
-
-predType :: Pred -> TcType
-predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
-
-dsInstanceDecl :: Map.Map Text [Text] -> Decl -> DsM [FcTopBind]
-dsInstanceDecl classMethods decl =
-  case peelDeclAnn decl of
-    DeclInstance instanceDecl -> (: []) <$> dsInstanceDict classMethods instanceDecl
+dsInstanceDecl :: Decl -> DsM [FcTopBind]
+dsInstanceDecl decl =
+  case decl of
+    DeclAnn ann (DeclInstance instanceDecl)
+      | Just instAnn <- fromAnnotation ann -> (: []) <$> dsInstanceDict instAnn instanceDecl
+    DeclAnn _ inner -> dsInstanceDecl inner
+    DeclInstance {} -> desugarBug "missing type-checker annotation for instance declaration"
     _ -> pure []
 
-dsInstanceDict :: Map.Map Text [Text] -> InstanceDecl -> DsM FcTopBind
-dsInstanceDict classMethods instanceDecl =
-  case instanceHeadName (instanceDeclHead instanceDecl) of
-    Nothing ->
-      desugarBug "missing class name for instance declaration"
-    Just className -> do
-      let tvNames = nub (map tyVarBinderName (instanceDeclForall instanceDecl) <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> instanceHeadTypes (instanceDeclHead instanceDecl)))
-          tvIds = [TyVarId name (Unique (-3000 - ix)) | (ix, name) <- zip [0 :: Int ..] tvNames]
-          tvMap = Map.fromList (zip tvNames tvIds)
-          methods = Map.fromListWith (<>) [(name, matches) | (name, matches) <- instanceMethodGroups instanceDecl]
-      headTys <- mapM (surfaceTypeToTc tvMap) (instanceHeadTypes (instanceDeclHead instanceDecl))
-      orderedMethods <-
-        case Map.lookup (nameText className) classMethods of
-          Just names -> pure names
-          Nothing -> desugarBug ("missing class method layout for " <> T.unpack (nameText className))
-      contextDicts <- mapM (mkContextDict tvMap) (zip [0 :: Int ..] (instanceDeclContext instanceDecl))
-      fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) headTys methods) orderedMethods
-      let dictTy = foldr TcForAllTy (TcQualTy (map classDictPred contextDicts) (TcTyCon (TyCon (nameText className) (length headTys)) headTys)) tvIds
-      dictVar <- freshVar (instanceDictName (nameText className) headTys) dictTy
-      let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) tvIds
-      pure (FcTopBind (FcNonRec dictVar dictBody))
+dsInstanceDict :: TcInstanceAnnotation -> InstanceDecl -> DsM FcTopBind
+dsInstanceDict instAnn instanceDecl = do
+  let methods = Map.fromListWith combineMethods (instanceMethodGroups instanceDecl)
+  contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
+  fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) methods) (tcInstanceMethodOrder instAnn)
+  dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+  let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) (tcInstanceTyVars instAnn)
+  pure (FcTopBind (FcNonRec dictVar dictBody))
+  where
+    combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
 
-mkContextDict :: Map.Map Text TyVarId -> (Int, Type) -> DsM ClassDict
-mkContextDict tvMap (ix, predTy) = do
-  let className = maybe "<constraint>" nameText (instanceHeadName predTy)
-  predArgs <- mapM (surfaceTypeToTc tvMap) (instanceHeadTypes predTy)
-  dictVar <- freshVar ("$d" <> T.pack (show ix)) (TcTyCon (TyCon className (length predArgs)) predArgs)
-  pure (ClassDict className predArgs dictVar)
+mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
+mkContextDict ix dictAnn = do
+  dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
+  pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
 
 classDictPred :: ClassDict -> Pred
 classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
-dsInstanceMethod :: [Pred] -> [TcType] -> Map.Map Text [Match] -> Text -> DsM FcExpr
-dsInstanceMethod contextPreds headTys methods methodName =
+dsInstanceMethod :: [Pred] -> Map.Map Text (TcType, [Match]) -> Text -> DsM FcExpr
+dsInstanceMethod contextPreds methods methodName =
   case Map.lookup methodName methods of
-    Just matches -> do
-      expected <- methodExpectedType headTys methodName
+    Just (expected, matches) ->
       dsMatchesWithDicts False (TcQualTy contextPreds expected) matches
     Nothing ->
       desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
-
-methodExpectedType :: [TcType] -> Text -> DsM TcType
-methodExpectedType headTys methodName = do
-  methodTy <- lookupType methodName
-  case splitQualifiedType methodTy of
-    Just (_tvs, preds, body) ->
-      case firstClassPredSubst preds headTys of
-        Just subst -> pure (substType subst body)
-        Nothing -> desugarBug ("missing class method receiver for " <> T.unpack methodName)
-    Nothing -> pure methodTy
-
-firstClassPredSubst :: [Pred] -> [TcType] -> Maybe (Map.Map Unique TcType)
-firstClassPredSubst preds headTys =
-  case [classArgs | ClassPred _ classArgs <- preds] of
-    classArgs : _ -> matchTypes classArgs headTys
-    [] -> Nothing
-
-instanceDictName :: Text -> [TcType] -> Text
-instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
-
-typeSuffix :: TcType -> Text
-typeSuffix ty =
-  case ty of
-    TcTyVar tv -> tvName tv
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
-    _ -> "T"
-
-classMethodNames :: ClassDecl -> [Text]
-classMethodNames classDecl = concatMap itemMethodNames (classDeclItems classDecl)
-
-itemMethodNames :: ClassDeclItem -> [Text]
-itemMethodNames item =
-  case peelClassDeclItemAnn item of
-    ClassItemTypeSig names _ -> map unqualifiedNameText names
-    _ -> []
-
-collectClassMethods :: [Decl] -> Map.Map Text [Text]
-collectClassMethods = Map.fromList . mapMaybe collect
-  where
-    collect decl =
-      case peelDeclAnn decl of
-        DeclClass classDecl ->
-          Just (unqualifiedNameText (binderHeadName (classDeclHead classDecl)), classMethodNames classDecl)
-        _ -> Nothing
 
 moduleInstances :: [Decl] -> [Decl]
 moduleInstances = filter isInstance
@@ -286,49 +206,42 @@ moduleInstances = filter isInstance
         DeclInstance {} -> True
         _ -> False
 
-instanceMethodGroups :: InstanceDecl -> [(Text, [Match])]
+instanceMethodGroups :: InstanceDecl -> [(Text, (TcType, [Match]))]
 instanceMethodGroups instanceDecl =
-  Map.toList (Map.fromListWith (<>) (concatMap itemMethods (instanceDeclItems instanceDecl)))
+  concatMap itemMethods (instanceDeclItems instanceDecl)
 
-itemMethods :: InstanceDeclItem -> [(Text, [Match])]
+itemMethods :: InstanceDeclItem -> [(Text, (TcType, [Match]))]
 itemMethods item =
-  case peelInstanceDeclItemAnn item of
-    InstanceItemBind (FunctionBind name matches) -> [(unqualifiedNameText name, matches)]
-    InstanceItemBind (PatternBind _ pat rhs) ->
-      [ ( name,
-          [ Match
-              { matchAnns = [],
-                matchHeadForm = MatchHeadPrefix,
-                matchPats = [],
-                matchRhs = rhs
-              }
-          ]
-        )
-      | Just name <- [barePatternName pat]
-      ]
+  case item of
+    InstanceItemAnn ann inner
+      | Just methodAnn <- fromAnnotation ann -> itemMethodWithAnnotation methodAnn inner
+      | otherwise -> itemMethods inner
     _ -> []
 
-freeTypeVars :: Type -> [Text]
-freeTypeVars ty =
-  nub $
-    case ty of
-      TVar name -> [unqualifiedNameText name]
-      TList _ args -> concatMap freeTypeVars args
-      TApp f a -> freeTypeVars f <> freeTypeVars a
-      TAnn _ inner -> freeTypeVars inner
-      TParen inner -> freeTypeVars inner
-      TContext preds inner -> concatMap freeTypeVars preds <> freeTypeVars inner
-      _ -> []
+itemMethodWithAnnotation :: TcInstanceMethodAnnotation -> InstanceDeclItem -> [(Text, (TcType, [Match]))]
+itemMethodWithAnnotation methodAnn item =
+  case item of
+    InstanceItemAnn _ inner -> itemMethodWithAnnotation methodAnn inner
+    InstanceItemBind (FunctionBind _ matches) ->
+      [(tcInstanceMethodName methodAnn, (tcInstanceMethodType methodAnn, matches))]
+    InstanceItemBind (PatternBind _ _ rhs) ->
+      [ ( tcInstanceMethodName methodAnn,
+          ( tcInstanceMethodType methodAnn,
+            [ Match
+                { matchAnns = [],
+                  matchHeadForm = MatchHeadPrefix,
+                  matchPats = [],
+                  matchRhs = rhs
+                }
+            ]
+          )
+        )
+      ]
+    _ -> []
 
 dropForAlls :: TcType -> TcType
 dropForAlls (TcForAllTy _ body) = dropForAlls body
 dropForAlls ty = ty
-
-peelForAlls :: TcType -> ([TyVarId], TcType)
-peelForAlls (TcForAllTy tv body) =
-  let (tvs, inner) = peelForAlls body
-   in (tv : tvs, inner)
-peelForAlls ty = ([], ty)
 
 -- | A group of top-level value declarations.
 data DeclGroup

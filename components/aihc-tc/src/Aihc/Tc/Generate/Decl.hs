@@ -47,6 +47,7 @@ import Aihc.Parser.Syntax
     gadtBodyResultType,
     instanceHeadName,
     instanceHeadTypes,
+    mkAnnotation,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
@@ -54,7 +55,16 @@ import Aihc.Parser.Syntax
     tyVarBinderKind,
     tyVarBinderName,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), annotateDecl, annotateExpr)
+import Aihc.Tc.Annotations
+  ( TcAnnotation (..),
+    TcClassAnnotation (..),
+    TcClassMethodAnnotation (..),
+    TcDictBinderAnnotation (..),
+    TcInstanceAnnotation (..),
+    TcInstanceMethodAnnotation (..),
+    annotateDecl,
+    annotateExpr,
+  )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -122,16 +132,37 @@ tcModule m = do
 
 annotateModuleTc :: Module -> TcM Module
 annotateModuleTc m = do
-  decls <- mapM annotateDeclTc (moduleDecls m)
+  let classMethods = collectClassMethodNames (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateDeclTc :: Decl -> TcM Decl
-annotateDeclTc decl =
+annotateDeclTc :: Map Text [Text] -> Decl -> TcM Decl
+annotateDeclTc classMethods decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc inner
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods inner
     DeclValue valueDecl -> DeclValue <$> annotateValueDeclTc valueDecl
-    DeclInstance instanceDecl -> DeclInstance <$> annotateInstanceDeclTc instanceDecl
+    DeclClass classDecl -> annotateClassDeclTc classDecl
+    DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
     _ -> pure decl
+
+annotateClassDeclTc :: ClassDecl -> TcM Decl
+annotateClassDeclTc classDecl = do
+  methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
+  pure (DeclAnn (mkAnnotation (TcClassAnnotation methods)) (DeclClass classDecl))
+
+annotateClassMethod :: Int -> Text -> TcM TcClassMethodAnnotation
+annotateClassMethod index methodName = do
+  methodTy <- bindingType methodName
+  let (tvs, _) = peelForAlls methodTy
+  dictTy <- selectorDictTypeTc methodName methodTy
+  pure
+    TcClassMethodAnnotation
+      { tcClassMethodName = methodName,
+        tcClassMethodType = methodTy,
+        tcClassMethodTyVars = tvs,
+        tcClassMethodDictType = dictTy,
+        tcClassMethodIndex = index
+      }
 
 annotateValueDeclTc :: ValueDecl -> TcM ValueDecl
 annotateValueDeclTc valueDecl =
@@ -146,32 +177,50 @@ annotateValueDeclTc valueDecl =
           PatternBind anns pat <$> annotateRhsTc Map.empty (qualifiedPreds expected) expected rhs
         Nothing -> pure valueDecl
 
-annotateInstanceDeclTc :: InstanceDecl -> TcM InstanceDecl
-annotateInstanceDeclTc instanceDecl =
-  case instanceHeadTypes (instanceDeclHead instanceDecl) of
-    [] -> pure instanceDecl
-    headArgTypes -> do
+annotateInstanceDeclTc :: Map Text [Text] -> InstanceDecl -> TcM Decl
+annotateInstanceDeclTc classMethods instanceDecl =
+  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
+    (_, []) -> pure (DeclInstance instanceDecl)
+    (Nothing, _) -> pure (DeclInstance instanceDecl)
+    (Just className, headArgTypes) -> do
       let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
           headTys = map (convertSurfaceType tvMap) headArgTypes
+          classNameText = nameText className
+          dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred tvMap) (instanceDeclContext instanceDecl)
+      let contextDicts = map predDictBinder context
+          dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
+          methodOrder = fromMaybe [] (Map.lookup classNameText classMethods)
+          instAnn =
+            TcInstanceAnnotation
+              { tcInstanceDictName = dictName,
+                tcInstanceDictType = dictTy,
+                tcInstanceTyVars = tvIds,
+                tcInstanceHeadTypes = headTys,
+                tcInstanceContextDicts = contextDicts,
+                tcInstanceMethodOrder = methodOrder
+              }
       items <- mapM (annotateInstanceItemTc context headTys) (instanceDeclItems instanceDecl)
-      pure (instanceDecl {instanceDeclItems = items})
+      pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
 
 annotateInstanceItemTc :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
 annotateInstanceItemTc givens headTys item =
   case item of
     InstanceItemAnn ann inner -> InstanceItemAnn ann <$> annotateInstanceItemTc givens headTys inner
     InstanceItemBind (FunctionBind name matches) -> do
+      let methodName = unqualifiedNameText name
       expected <- methodExpectedType headTys (unqualifiedNameText name)
-      InstanceItemBind . FunctionBind name <$> annotateMatchesWithLocalsAndGivensTc Map.empty givens expected matches
+      matches' <- annotateMatchesWithLocalsAndGivensTc Map.empty givens expected matches
+      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName expected)) (InstanceItemBind (FunctionBind name matches')))
     InstanceItemBind (PatternBind anns pat rhs) ->
       case patternBinderName pat of
         Just (_displayName, methodName) -> do
           expected <- methodExpectedType headTys methodName
-          InstanceItemBind . PatternBind anns pat <$> annotateRhsTc Map.empty givens expected rhs
+          rhs' <- annotateRhsTc Map.empty givens expected rhs
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName expected)) (InstanceItemBind (PatternBind anns pat rhs')))
         Nothing -> pure item
     _ -> pure item
 
@@ -477,6 +526,12 @@ qualifiedBody ty =
     Just (_tvs, _preds, body) -> body
     Nothing -> snd (peelForAlls ty)
 
+selectorDictTypeTc :: Text -> TcType -> TcM TcType
+selectorDictTypeTc methodName methodTy =
+  case snd (peelForAlls methodTy) of
+    TcQualTy (pred' : _) _ -> pure (predType pred')
+    _ -> missingTypeInfo ("class dictionary type for method selector " <> T.unpack methodName)
+
 qualifiedPreds :: TcType -> [Pred]
 qualifiedPreds ty =
   case splitQualifiedType ty of
@@ -495,6 +550,32 @@ peelForAlls (TcForAllTy tv body) =
   let (tvs, inner) = peelForAlls body
    in (tv : tvs, inner)
 peelForAlls ty = ([], ty)
+
+predDictBinder :: Pred -> TcDictBinderAnnotation
+predDictBinder pred' =
+  case pred' of
+    ClassPred className args ->
+      TcDictBinderAnnotation className args (predType pred')
+    EqPred {} ->
+      TcDictBinderAnnotation "<constraint>" [] (predType pred')
+
+collectClassMethodNames :: [Decl] -> Map Text [Text]
+collectClassMethodNames = Map.fromList . mapMaybe collect
+  where
+    collect decl =
+      case peelDeclAnn decl of
+        DeclClass classDecl ->
+          Just (unqualifiedNameText (binderHeadName (classDeclHead classDecl)), classDeclMethodNames classDecl)
+        _ -> Nothing
+
+classDeclMethodNames :: ClassDecl -> [Text]
+classDeclMethodNames classDecl = concatMap classItemMethodNames (classDeclItems classDecl)
+
+classItemMethodNames :: ClassDeclItem -> [Text]
+classItemMethodNames item =
+  case peelClassDeclItemAnn item of
+    ClassItemTypeSig names _ -> map unqualifiedNameText names
+    _ -> []
 
 isInstantiableType :: TcType -> Bool
 isInstantiableType ty =
@@ -1001,19 +1082,17 @@ registerInstanceDecl instanceDecl =
           classNameText = nameText className
           dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred tvMap) (instanceDeclContext instanceDecl)
-      let dictTy = foldr TcForAllTy (qualify context (predType (ClassPred classNameText headTys))) tvIds
+      let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
       addInstance
         InstanceInfo
           { iiClassName = classNameText,
+            iiDictName = dictName,
+            iiDictType = dictTy,
             iiTyVars = tvIds,
             iiContext = context,
             iiHead = headTys
           }
       pure [TcBindingResult dictName dictName dictTy]
-
-qualify :: [Pred] -> TcType -> TcType
-qualify [] ty = ty
-qualify preds ty = TcQualTy preds ty
 
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args

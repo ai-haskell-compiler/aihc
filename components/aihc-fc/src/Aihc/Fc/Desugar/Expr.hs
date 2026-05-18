@@ -16,10 +16,6 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
-    matchTypes,
-    splitQualifiedType,
-    substType,
-    surfaceTypeToTc,
   )
 where
 
@@ -34,7 +30,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     TupleFlavor (..),
-    Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
@@ -45,12 +40,11 @@ import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -400,30 +394,6 @@ dsCase scrut alts = do
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder alts')
 
-splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
-splitQualifiedType ty =
-  let (tvs, body) = peelForAlls ty
-   in case body of
-        TcQualTy preds inner -> Just (tvs, preds, inner)
-        _ -> Nothing
-
-sameTcType :: TcType -> TcType -> Bool
-sameTcType (TcTyVar left) (TcTyVar right) = tvUnique left == tvUnique right
-sameTcType (TcMetaTv left) (TcMetaTv right) = left == right
-sameTcType (TcTyCon left leftArgs) (TcTyCon right rightArgs) =
-  tyConName left == tyConName right
-    && length leftArgs == length rightArgs
-    && and (zipWith sameTcType leftArgs rightArgs)
-sameTcType (TcAppTy leftF leftA) (TcAppTy rightF rightA) =
-  sameTcType leftF rightF && sameTcType leftA rightA
-sameTcType (TcFunTy leftA leftB) (TcFunTy rightA rightB) =
-  sameTcType leftA rightA && sameTcType leftB rightB
-sameTcType (TcForAllTy _ leftBody) (TcForAllTy _ rightBody) =
-  sameTcType leftBody rightBody
-sameTcType (TcQualTy leftPreds leftBody) (TcQualTy rightPreds rightBody) =
-  length leftPreds == length rightPreds && sameTcType leftBody rightBody
-sameTcType _ _ = False
-
 -- | Desugar local let/where declarations as a recursive Core let.
 --
 -- Type checking has already validated the binding group. Here we only need
@@ -671,45 +641,6 @@ dsEvidence evidence =
     EvVarTerm {} ->
       desugarBug "unresolved evidence variable in type-checker annotation"
 
-matchTypes :: [TcType] -> [TcType] -> Maybe (Map.Map Unique TcType)
-matchTypes patterns targets
-  | length patterns /= length targets = Nothing
-  | otherwise = foldM matchOne Map.empty (zip patterns targets)
-
-matchOne :: Map.Map Unique TcType -> (TcType, TcType) -> Maybe (Map.Map Unique TcType)
-matchOne subst (TcTyVar tv, target) =
-  case Map.lookup (tvUnique tv) subst of
-    Nothing -> Just (Map.insert (tvUnique tv) target subst)
-    Just existing
-      | sameTcType existing target -> Just subst
-      | otherwise -> Nothing
-matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
-  | tc == targetTc,
-    length args == length targetArgs =
-      foldM matchOne subst (zip args targetArgs)
-matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
-  matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
-matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
-  matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
-matchOne subst (patternTy, targetTy)
-  | sameTcType patternTy targetTy = Just subst
-  | otherwise = Nothing
-
-substPred :: Map.Map Unique TcType -> Pred -> Pred
-substPred subst (ClassPred className args) = ClassPred className (map (substType subst) args)
-substPred subst (EqPred left right) = EqPred (substType subst left) (substType subst right)
-
-substType :: Map.Map Unique TcType -> TcType -> TcType
-substType subst ty =
-  case ty of
-    TcTyVar tv -> fromMaybe ty (Map.lookup (tvUnique tv) subst)
-    TcTyCon tc args -> TcTyCon tc (map (substType subst) args)
-    TcFunTy a b -> TcFunTy (substType subst a) (substType subst b)
-    TcForAllTy tv body -> TcForAllTy tv (substType (Map.delete (tvUnique tv) subst) body)
-    TcQualTy preds body -> TcQualTy (map (substPred subst) preds) (substType subst body)
-    TcAppTy f a -> TcAppTy (substType subst f) (substType subst a)
-    TcMetaTv {} -> ty
-
 exprAnnotationType :: Expr -> Maybe TcType
 exprAnnotationType expr =
   case expr of
@@ -749,26 +680,6 @@ listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
-
-surfaceTypeToTc :: Map Text TyVarId -> Type -> DsM TcType
-surfaceTypeToTc tvMap ty =
-  case ty of
-    TVar name ->
-      case Map.lookup (unqualifiedNameText name) tvMap of
-        Just tv -> pure (TcTyVar tv)
-        Nothing -> pure (TcTyCon (TyCon (unqualifiedNameText name) 0) [])
-    TCon name _ -> pure (TcTyCon (TyCon (nameText name) 0) [])
-    TList _ [elemTy] -> listType <$> surfaceTypeToTc tvMap elemTy
-    TApp f a -> do
-      fTy <- surfaceTypeToTc tvMap f
-      aTy <- surfaceTypeToTc tvMap a
-      pure $
-        case fTy of
-          TcTyCon tc args -> TcTyCon (tc {tyConArity = tyConArity tc + 1}) (args <> [aTy])
-          _ -> TcAppTy fTy aTy
-    TAnn _ inner -> surfaceTypeToTc tvMap inner
-    TParen inner -> surfaceTypeToTc tvMap inner
-    _ -> desugarBug ("unsupported surface type in FC desugar: " <> show ty)
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)

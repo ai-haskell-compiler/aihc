@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Dictionary (class constraint) solver.
 --
 -- For the MVP, this is a stub. The full implementation will match
@@ -24,7 +22,6 @@ import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Text qualified as T
 
 -- | Result of attempting to solve a dictionary constraint.
 data DictResult
@@ -71,12 +68,11 @@ solveDictWithGivens givens ct =
             Nothing -> tryInstances className args rest
             Just subst -> do
               let context = map (substPred subst) (iiContext instanceInfo)
-                  dictName = instanceDictName className (iiHead instanceInfo)
                   typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
               contextEvidence <- mapM solveSubPred context
               case sequence contextEvidence of
                 Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvDict dictName typeArgs evidence)
+                  bindEvidence (ctEvVar ct) (EvDict (iiDictName instanceInfo) typeArgs evidence)
                   pure DictSolved
                 Nothing -> tryInstances className args rest
 
@@ -94,18 +90,6 @@ sameClassPred className args pred' =
       givenClass == className && givenArgs == args
     EqPred {} ->
       False
-
-instanceDictName :: Text -> [TcType] -> Text
-instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
-
-typeSuffix :: TcType -> Text
-typeSuffix ty =
-  case ty of
-    TcTyVar tv -> tvName tv
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [_] -> "List"
-    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
-    _ -> "T"
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets
