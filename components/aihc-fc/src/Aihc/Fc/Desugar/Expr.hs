@@ -324,7 +324,7 @@ dsExpr (EVar name) = do
     Nothing -> do
       ty <- lookupTypeName name
       v <- freshVar n ty
-      instantiateUnannotatedVar n (FcVar v) ty
+      pure (FcVar v)
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
 dsExpr (EChar c _) = pure (FcLit (LitChar c))
 dsExpr (EString s _) = dsStringLiteral s
@@ -398,14 +398,6 @@ dsCase scrut alts = do
   binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder alts')
-
-instantiateUnannotatedVar :: Text -> FcExpr -> TcType -> DsM FcExpr
-instantiateUnannotatedVar name expr ty =
-  let (tvs, afterForAlls) = peelForAlls ty
-      (preds, body) = peelQuals afterForAlls
-   in if null tvs && null preds
-        then pure expr
-        else desugarBug ("missing type-checker annotation for polymorphic or constrained value " <> T.unpack name <> " :: " <> show ty <> "; body type was " <> show body)
 
 splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
 splitQualifiedType ty =
