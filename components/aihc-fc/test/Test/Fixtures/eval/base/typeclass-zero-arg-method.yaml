@@ -1,0 +1,20 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    class Default a where
+      def :: a
+
+    instance Default Bool where
+      def = True
+
+    answer :: Bool -> Bool
+    answer _ = def
+output: |
+  True
+expression: |
+  answer False
+status: pass
+reason: evaluates a zero-argument class method through dictionary passing

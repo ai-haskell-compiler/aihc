@@ -600,10 +600,14 @@ contextItemParserWith typeParser typeAtomParser =
       rest <- MP.many constraintTypeAppArgParser
       pure (foldl applyConstraintAppArg first rest)
     constraintTypeAppArgParser =
-      (Left <$> MP.try (expectedTok TkTypeApp *> typeAtomParser))
-        <|> (Right <$> typeAtomParser)
+      (Left <$> MP.try (expectedTok TkTypeApp *> (typeAtomParser >>= rejectBareConstraintImplicitParam)))
+        <|> (Right <$> (typeAtomParser >>= rejectBareConstraintImplicitParam))
     applyConstraintAppArg fn (Left ty) = TTypeApp fn ty
     applyConstraintAppArg fn (Right ty) = TApp fn ty
+    rejectBareConstraintImplicitParam ty =
+      case peelTypeAnn ty of
+        TImplicitParam {} -> fail "implicit parameter type must be parenthesized"
+        _ -> pure ty
     -- \| Parse a type expression that can appear as a kind annotation.
     -- Handles function types (e.g., Type -> Constraint) and type application,
     -- but NOT context types (C a => ...) to avoid parsing cycles.

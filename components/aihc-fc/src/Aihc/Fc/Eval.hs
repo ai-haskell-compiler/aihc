@@ -25,12 +25,14 @@ data EvalError
   | EvalNoMatchingAlternative Value
   | EvalPrimitiveArity Text Int
   | EvalPrimitiveTypeError Text Value
+  | EvalInvalidDictSelect Value Int
   deriving (Eq, Show)
 
 data Value
   = VLit Literal
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
+  | VDict [Value]
   | VPrim Text Int [Value]
   | VThunk Env FcExpr
   deriving (Eq, Show)
@@ -60,6 +62,7 @@ primitiveEnv =
   Map.fromList
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
+      ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
       ("+#", VPrim "+#" 2 []),
       ("-#", VPrim "-#" 2 []),
@@ -78,15 +81,31 @@ evalWithEnv env expr =
     FcApp fun arg -> do
       funValue <- evalWithEnv env fun
       applyValue funValue (VThunk env arg)
+    FcDictApp fun arg -> do
+      funValue <- evalWithEnv env fun
+      applyValue funValue (VThunk env arg)
     FcTyApp inner _ ->
       evalWithEnv env inner
     FcLam var body ->
       Right (VClosure env var body)
     FcTyLam _ body ->
       evalWithEnv env body
+    FcDictLam var body ->
+      Right (VClosure env var body)
+    FcDict fields ->
+      VDict <$> mapM (pure . VThunk env) fields
+    FcDictSelect dict index -> do
+      dictValue <- evalWithEnv env dict >>= forceValue
+      case dictValue of
+        VDict fields
+          | index >= 0,
+            index < length fields ->
+              forceValue (fields !! index)
+          | otherwise -> Left (EvalInvalidDictSelect dictValue index)
+        _ -> Left (EvalApplyNonFunction dictValue)
     FcLet bind body ->
       evalWithEnv (extendBind env bind) body
-    FcCase scrut _ _ alts -> do
+    FcCase scrut _ alts -> do
       value <- evalWithEnv env scrut
       matchAlternative env value alts
     FcCast inner _ ->
@@ -194,6 +213,7 @@ renderForcedValue value =
     VConstructor name args -> do
       renderedArgs <- mapM (renderValue <=< forceValue) args
       pure (T.unwords (name : renderedArgs))
+    VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VThunk {} -> renderValue value
@@ -239,6 +259,7 @@ renderRawValue value = do
     VConstructor name args -> do
       renderedArgs <- mapM renderRawArg args
       pure (T.unwords (name : renderedArgs))
+    VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VThunk {} -> renderRawValue forced

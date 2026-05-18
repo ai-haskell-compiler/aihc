@@ -1,0 +1,14 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+output: |
+  (True,False)
+expression: |
+  (eqBool False False, eqBool False True)
+status: pass
+reason: selects an Eq Bool dictionary for a bare equality method with no value arguments

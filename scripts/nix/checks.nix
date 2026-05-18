@@ -116,6 +116,8 @@
       PKGDB=$(ghc --print-global-package-db)
       # Include all source files so imports between modules work.
       doctest -XGHC2021 -package-db="$PKGDB" -isrc \
+        src/Aihc/Parser/Parens.hs \
+        src/Aihc/Parser/Pretty.hs \
         src/Aihc/Parser/Shorthand.hs \
         src/Aihc/Parser.hs
     '';

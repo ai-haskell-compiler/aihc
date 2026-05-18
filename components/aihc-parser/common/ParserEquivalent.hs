@@ -27,7 +27,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    formatParseErrorBundle,
     formatParseErrors,
     parseDecl,
     parseExpr,
@@ -203,7 +202,7 @@ parseExprValue :: ParserConfig -> Text -> Either String Expr
 parseExprValue config source =
   case parseExpr config source of
     ParseOk ast -> Right ast
-    ParseErr err -> Left (formatParseErrorBundle (parserSourceName config) (Just source) err)
+    ParseErr err -> Left (formatParseErrors (parserSourceName config) (Just source) err)
 
 parseModuleValue :: ParserConfig -> Text -> Either String Module
 parseModuleValue config source =
@@ -215,13 +214,13 @@ parseDeclValue :: ParserConfig -> Text -> Either String Decl
 parseDeclValue config source =
   case parseDecl config source of
     ParseOk ast -> Right ast
-    ParseErr err -> Left (formatParseErrorBundle (parserSourceName config) (Just source) err)
+    ParseErr err -> Left (formatParseErrors (parserSourceName config) (Just source) err)
 
 parsePatternValue :: ParserConfig -> Text -> Either String Pattern
 parsePatternValue config source =
   case parsePattern config source of
     ParseOk ast -> Right ast
-    ParseErr err -> Left (formatParseErrorBundle (parserSourceName config) (Just source) err)
+    ParseErr err -> Left (formatParseErrors (parserSourceName config) (Just source) err)
 
 classifyEquivalence :: (Eq a, Shorthand a) => EquivalentCase -> [(Int, a)] -> (Outcome, String)
 classifyEquivalence meta parsed =

@@ -88,6 +88,9 @@ data ClassInfo = ClassInfo
 -- | Information about a class instance.
 data InstanceInfo = InstanceInfo
   { iiClassName :: !Text,
+    -- | Dictionary binding generated for this instance.
+    iiDictName :: !Text,
+    iiDictType :: !TcType,
     -- | Type variables quantified over.
     iiTyVars :: ![TyVarId],
     -- | Instance context (prerequisites).

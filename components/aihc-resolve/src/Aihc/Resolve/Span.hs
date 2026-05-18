@@ -13,6 +13,7 @@ module Aihc.Resolve.Span
     rhsSpan,
     annotateUnhandledDecl,
     annotateUnhandledClassDeclItem,
+    annotateUnhandledInstanceDeclItem,
     annotateUnhandledExpr,
     annotateUnhandledPattern,
     annotateUnhandledType,
@@ -39,6 +40,7 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     ImportItem (..),
     ImportLevel (..),
+    InstanceDeclItem (..),
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
@@ -113,6 +115,10 @@ annotateUnhandledDecl span' decl =
 annotateUnhandledClassDeclItem :: SourceSpan -> ClassDeclItem -> ClassDeclItem
 annotateUnhandledClassDeclItem span' item =
   ClassItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
+
+annotateUnhandledInstanceDeclItem :: SourceSpan -> InstanceDeclItem -> InstanceDeclItem
+annotateUnhandledInstanceDeclItem span' item =
+  InstanceItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
 
 annotateUnhandledExpr :: SourceSpan -> Expr -> Expr
 annotateUnhandledExpr span' expr =

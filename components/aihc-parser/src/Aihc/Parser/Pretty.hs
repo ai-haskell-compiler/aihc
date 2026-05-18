@@ -54,6 +54,14 @@ import Prettyprinter
     (<+>),
   )
 
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import Aihc.Parser.Shorthand (Shorthand(..))
+-- >>> import Aihc.Parser.Syntax
+-- >>> import Prettyprinter (defaultLayoutOptions, layoutPretty)
+-- >>> import Prettyprinter.Render.String (renderString)
+-- >>> let renderDoc = renderString . layoutPretty defaultLayoutOptions
+
 -- | Wrap a document in braces with interior spaces: @{ content }@.
 -- Unlike 'braces' which produces @{content}@, this version avoids the
 -- @{-@ block-comment ambiguity that occurs when the content starts with a
@@ -417,6 +425,10 @@ typeFamilyInfixAppView ty =
 
 -- | Pretty-print a type. The AST is assumed to already have TParen nodes
 -- in the correct positions (inserted by 'addTypeParens').
+--
+-- >>> let ty = TApp (TCon "Proxy" Unpromoted) (TParen (TFun ArrowUnrestricted (TCon "A" Unpromoted) (TCon "B" Unpromoted))) in (renderDoc (prettyType ty), show (shorthand ty))
+-- ("Proxy (A -> B)","TApp (TCon \"Proxy\") (TParen (TFun (TCon \"A\") (TCon \"B\")))")
+--
 -- | Check if a type, when pretty-printed, would start with a
 -- promotion tick.  This is used to decide whether a promoted list or
 -- tuple needs a space after the opening tick to avoid lexer confusion
@@ -520,6 +532,9 @@ prettyTypeLiteral lit =
 
 -- | Pretty-print a pattern. The AST is assumed to already have PParen nodes
 -- in the correct positions (inserted by 'addPatternParens').
+--
+-- >>> let pat = PAs "xs" (PParen (PNegLit (LitInt 1 TInteger "1"))) in (renderDoc (prettyPattern pat), show (shorthand pat))
+-- ("xs@(-1)","PAs UnqualifiedName {\"xs\"} (PParen (PNegLit (LitInt 1 TInteger)))")
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
   case pat of
@@ -1133,6 +1148,9 @@ prettyConstructorUName name
 
 -- | Pretty-print an expression. The AST is assumed to already have EParen
 -- nodes in the correct positions (inserted by 'addExprParens').
+--
+-- >>> let expr = EApp (EVar "f") (EParen (EInfix (EVar "x") "+" (EVar "y"))) in (renderDoc (prettyExpr expr), show (shorthand expr))
+-- ("f\n  (x\n  + y)","EApp (EVar \"f\") (EParen (EInfix (EVar \"x\") \"+\" (EVar \"y\")))")
 prettyExpr :: Expr -> Doc ann
 prettyExpr expr =
   case expr of

@@ -159,7 +159,7 @@ evaluateFcEvalCase tc =
                     let tcResults = typecheckModulesWithEnv [] resolvedModules
                      in if all tcmSuccess tcResults
                           then
-                            let results = zipWith desugarModuleWithTcResult tcResults resolvedModules
+                            let results = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
                              in if all dsSuccess results
                                   then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
                                     Right actual -> classifySuccess tc (T.unpack actual)
@@ -240,6 +240,12 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
+moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
+moduleGroupTcResults results =
+  [result {tcmBindings = allBindings} | result <- results]
+  where
+    allBindings = concatMap tcmBindings results
+
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
   FcProgram (concatMap fcTopBinds programs)
@@ -294,7 +300,7 @@ loadTransitiveModules packageRoots initialModules =
   go Set.empty [] (Set.toAscList initialModules)
   where
     go _ loaded [] =
-      pure (Right (reverse loaded))
+      pure (Right loaded)
     go seen loaded (moduleName : pending)
       | moduleName `Set.member` seen =
           go seen loaded pending

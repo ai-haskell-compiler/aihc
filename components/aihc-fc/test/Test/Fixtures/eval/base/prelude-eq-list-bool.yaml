@@ -1,0 +1,12 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+output: |
+  ((True,True),(True,False))
+expression: |
+  (([False] == [False], [True, False] == [True, False]), ([True] /= [False], [True] /= [True]))
+status: pass
+reason: evaluates Prelude Eq [Bool] comparisons

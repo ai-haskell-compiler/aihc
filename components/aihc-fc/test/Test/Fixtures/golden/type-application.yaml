@@ -1,0 +1,24 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+
+    id x = x
+
+    true :: Bool
+    true = id True
+expected: |
+  data Bool
+   = True
+   | False
+
+  id : ∀ a. a → a =
+    Λa.
+      λx : a.
+        x
+
+  true : Bool =
+    id @Bool True
+status: pass
+reason: reifies type arguments when desugaring polymorphic variable occurrences

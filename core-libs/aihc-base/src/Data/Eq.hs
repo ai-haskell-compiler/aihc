@@ -1,1 +1,6 @@
-module Data.Eq () where
+module Data.Eq
+  ( Eq (..),
+  )
+where
+
+import Prelude (Eq (..))

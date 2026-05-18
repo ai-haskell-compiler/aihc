@@ -24,6 +24,7 @@ where
 
 import Aihc.Parser.Internal.Common (TokParser, eofTok)
 import Aihc.Parser.Internal.Decl (declParser)
+import Aihc.Parser.Internal.Errors (parseErrorBundleToSpannedText)
 import Aihc.Parser.Internal.Expr (exprParser)
 import Aihc.Parser.Internal.Import (importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Module (moduleParser)
@@ -37,7 +38,7 @@ import Text.Megaparsec (runParser)
 parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
 parseFromTokens parser sourceName toks =
   case runParser (parser <* eofTok) sourceName (mkTokStreamFromTokens toks) of
-    Left bundle -> ParseErr bundle
+    Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
     Right parsed -> ParseOk parsed
 
 parseExprFromTokens :: FilePath -> [LexToken] -> ParseResult Expr

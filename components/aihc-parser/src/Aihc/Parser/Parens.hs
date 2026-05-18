@@ -37,6 +37,11 @@ import Data.Char (isHexDigit)
 import Data.Maybe (isJust, isNothing)
 import Data.Text qualified as T
 
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import Aihc.Parser.Shorthand (Shorthand(..))
+-- >>> import Aihc.Parser.Syntax
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -572,6 +577,13 @@ typeHasFunctionArrow ty =
 -- Module
 -- ---------------------------------------------------------------------------
 
+-- | Parenthesise an entire module.
+--
+-- >>> shorthand $ addModuleParens (Module [] Nothing [] [] [DeclTypeSig ["f"] (TKindSig TWildcard TWildcard)])
+-- Module {[DeclTypeSig ["f"] (TParen (TKindSig (TWildcard) (TWildcard)))]}
+--
+-- >>> shorthand $ addModuleParens (Module [] Nothing [] [] [DeclTypeSig ["f"] (TCon "Int" Unpromoted)])
+-- Module {[DeclTypeSig ["f"] (TCon "Int")]}
 addModuleParens :: Module -> Module
 addModuleParens modu =
   modu
@@ -582,6 +594,13 @@ addModuleParens modu =
 -- Declarations
 -- ---------------------------------------------------------------------------
 
+-- | Parenthesise a declaration.
+--
+-- >>> shorthand $ addDeclParens (DeclTypeSig ["f"] (TKindSig TWildcard TWildcard))
+-- DeclTypeSig ["f"] (TParen (TKindSig (TWildcard) (TWildcard)))
+--
+-- >>> shorthand $ addDeclParens (DeclTypeSig ["f"] (TCon "Int" Unpromoted))
+-- DeclTypeSig ["f"] (TCon "Int")
 addDeclParens :: Decl -> Decl
 addDeclParens decl =
   case decl of
@@ -1027,6 +1046,12 @@ addDataFamilyInstHeadParens followedByKindSig ty =
 -- ---------------------------------------------------------------------------
 
 -- | Add parentheses to an expression at all required positions.
+--
+-- >>> shorthand $ addExprParens (EApp (EVar "f") (EInfix (EVar "x") "+" (EVar "y")))
+-- EApp (EVar "f") (EParen (EInfix (EVar "x") "+" (EVar "y")))
+--
+-- >>> shorthand $ addExprParens (EApp (EVar "f") (EVar "x"))
+-- EApp (EVar "f") (EVar "x")
 addExprParens :: Expr -> Expr
 addExprParens = addExprParensPrec 0
 
@@ -1427,10 +1452,22 @@ absorbsFollowingInfix = \case
 -- ---------------------------------------------------------------------------
 
 -- | Add parentheses to a signature type at all required positions.
+--
+-- >>> shorthand $ addSignatureTypeParens (TKindSig TWildcard TWildcard)
+-- TParen (TKindSig (TWildcard) (TWildcard))
+--
+-- >>> shorthand $ addSignatureTypeParens (TFun ArrowUnrestricted (TCon "A" Unpromoted) (TCon "B" Unpromoted))
+-- TFun (TCon "A") (TCon "B")
 addSignatureTypeParens :: Type -> Type
 addSignatureTypeParens = addSignatureTypeParensShared CtxTypeAtom 0
 
 -- | Add parentheses to a plain type at all required positions.
+--
+-- >>> shorthand $ addTypeParens (TApp (TCon "Proxy" Unpromoted) (TFun ArrowUnrestricted (TCon "A" Unpromoted) (TCon "B" Unpromoted)))
+-- TApp (TCon "Proxy") (TParen (TFun (TCon "A") (TCon "B")))
+--
+-- >>> shorthand $ addTypeParens (TApp (TCon "Proxy" Unpromoted) (TCon "A" Unpromoted))
+-- TApp (TCon "Proxy") (TCon "A")
 addTypeParens :: Type -> Type
 addTypeParens = addTypeTopLevelParens
 
@@ -1651,6 +1688,12 @@ addContextConstraintMulti ty =
 -- ---------------------------------------------------------------------------
 
 -- | Add parentheses to a pattern at all required positions.
+--
+-- >>> shorthand $ addPatternParens (PAs "xs" (PNegLit (LitInt 1 TInteger "1")))
+-- PAs UnqualifiedName {"xs"} (PParen (PNegLit (LitInt 1 TInteger)))
+--
+-- >>> shorthand $ addPatternParens (PAs "xs" (PVar "x"))
+-- PAs UnqualifiedName {"xs"} (PVar "x")
 addPatternParens :: Pattern -> Pattern
 addPatternParens pat =
   case pat of

@@ -16,7 +16,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    formatParseErrorBundle,
     formatParseErrors,
     parseExpr,
     parseModule,
@@ -192,7 +191,7 @@ parserActualAst meta =
     PG.CaseExpr ->
       case parseExpr (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta) of
         ParseOk ast -> Right (show (shorthand ast))
-        ParseErr err -> Left (formatParseErrorBundle (PG.casePath meta) (Just (PG.caseInput meta)) err)
+        ParseErr err -> Left (formatParseErrors (PG.casePath meta) (Just (PG.caseInput meta)) err)
     PG.CaseModule ->
       let (errs, ast) = parseModule (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta)
        in if null errs
@@ -201,7 +200,7 @@ parserActualAst meta =
     PG.CasePattern ->
       case parsePattern (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta) of
         ParseOk ast -> Right (show (shorthand ast))
-        ParseErr err -> Left (formatParseErrorBundle (PG.casePath meta) (Just (PG.caseInput meta)) err)
+        ParseErr err -> Left (formatParseErrors (PG.casePath meta) (Just (PG.caseInput meta)) err)
 
 parserConfig :: FilePath -> [ExtensionSetting] -> ParserConfig
 parserConfig sourceName exts =
@@ -401,7 +400,7 @@ fcEvalActual opts value =
             let tcResults = typecheckModulesWithEnv [] resolvedModules
              in if all tcmSuccess tcResults
                   then
-                    let dsResults = zipWith desugarModuleWithTcResult tcResults resolvedModules
+                    let dsResults = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
                      in if all dsSuccess dsResults
                           then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
                           else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
@@ -524,6 +523,12 @@ renderTcErrors results =
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered
+
+moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
+moduleGroupTcResults results =
+  [result {tcmBindings = allBindings} | result <- results]
+  where
+    allBindings = concatMap tcmBindings results
 
 updateFormatterGoldens :: Options -> IO Summary
 updateFormatterGoldens opts =
@@ -862,7 +867,7 @@ parseExprText :: [Extension] -> Text -> Either String Expr
 parseExprText exts input =
   case parseExpr defaultConfig {parserSourceName = "<expression>", parserExtensions = exts} input of
     ParseOk expr -> Right expr
-    ParseErr err -> Left (formatParseErrorBundle "<expression>" (Just input) err)
+    ParseErr err -> Left (formatParseErrors "<expression>" (Just input) err)
 
 skipForStatus :: Either String Text -> String -> FixtureUpdate
 skipForStatus status err =
