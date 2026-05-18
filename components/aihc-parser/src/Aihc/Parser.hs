@@ -19,8 +19,6 @@ module Aihc.Parser
 
     -- * Parse results
     ParseResult (..),
-    ParseErrorBundle,
-    formatParseErrorBundle,
     formatParseErrors,
 
     -- * Parsing expressions, patterns, types, and declarations
@@ -184,11 +182,6 @@ parseModule cfg input =
           )
         Right (errs, modu) ->
           (parseErrorsToSpannedText errs, modu)
-
--- | Pretty-print normalized parse errors, such as the payload carried by
--- 'ParseErr'.
-formatParseErrorBundle :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String
-formatParseErrorBundle = formatParseErrors
 
 -- | Pretty-print a list of spanned parse errors with source context.
 formatParseErrors :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String

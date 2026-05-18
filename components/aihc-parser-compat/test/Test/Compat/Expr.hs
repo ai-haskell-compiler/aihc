@@ -109,7 +109,7 @@ repeatedInfixParser = do
   let source = "1 + 2 + 3"
   aihcExpr <-
     case Aihc.parseExpr Aihc.defaultConfig source of
-      Aihc.ParseErr err -> assertFailure (Aihc.formatParseErrorBundle "<compat-test>" (Just source) err)
+      Aihc.ParseErr err -> assertFailure (Aihc.formatParseErrors "<compat-test>" (Just source) err)
       Aihc.ParseOk expr -> pure expr
   ghcExpr <-
     case parseGhcLocatedExpr compatGhcExtensions source of

@@ -107,9 +107,9 @@ assertParsedStrippedExprShapeRoundTrip config source =
             ParseOk reparsed -> do
               assertEqualShorthand (T.unpack rendered) (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
             ParseErr bundle ->
-              assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+              assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrors "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for:\n" <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for:\n" <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 assertParsedStrippedPatternShapeRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedPatternShapeRoundTrip config source =
@@ -121,9 +121,9 @@ assertParsedStrippedPatternShapeRoundTrip config source =
             ParseOk reparsed ->
               assertEqual "reparsed pattern" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
             ParseErr bundle ->
-              assertFailure ("expected pretty-printed pattern to reparse:\n" <> T.unpack rendered <> "\ngot:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+              assertFailure ("expected pretty-printed pattern to reparse:\n" <> T.unpack rendered <> "\ngot:\n" <> formatParseErrors "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 assertParsedStrippedDeclShapeRoundTrip :: ParserConfig -> Text -> Assertion
 assertParsedStrippedDeclShapeRoundTrip config source =
@@ -135,9 +135,9 @@ assertParsedStrippedDeclShapeRoundTrip config source =
             ParseOk reparsed ->
               assertEqual "reparsed declaration" (stripAnnotations stripped) (stripAnnotations (stripParens reparsed))
             ParseErr bundle ->
-              assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+              assertFailure ("expected pretty-printed declaration to reparse, got:\n" <> formatParseErrors "<test>" Nothing bundle)
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 assertParsedModulePrettyContains :: Text -> Text -> Assertion
 assertParsedModulePrettyContains source expected =
@@ -154,7 +154,7 @@ assertExprRenderingRoundTrip config expr rendered =
     ParseOk reparsed ->
       assertEqual "reparsed expression" (stripAnnotations (addExprParens expr)) (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected pretty-printed expression to reparse, got:\n" <> formatParseErrors "<test>" Nothing bundle)
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -423,7 +423,7 @@ test_unicodeSymbolIsNotOverloadedLabel = do
   case parseDecl config source of
     ParseOk _ -> pure ()
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_stringGapBeforeClosingQuoteLexes :: Assertion
 test_stringGapBeforeClosingQuoteLexes = do
@@ -448,7 +448,7 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
   mapM_
     ( \source ->
         case parseExpr config source of
-          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing err)
+          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing err)
           ParseOk _ -> pure ()
     )
     rendered
@@ -1415,7 +1415,7 @@ test_thTypeQuoteBeforeConstraintExprSig = do
   case parseDecl config source of
     ParseOk _ -> pure ()
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_viewExprAppliedTypeSigParens :: Assertion
 test_viewExprAppliedTypeSigParens = do
@@ -1507,7 +1507,7 @@ test_signatureTypeParserParsesParenthesizedKindSignature = do
     ParseOk ty ->
       assertEqual "parenthesized kind signature" (TParen (TKindSig TWildcard TWildcard)) (stripAnnotations ty)
     ParseErr bundle ->
-      assertFailure ("expected parse success for parenthesized kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for parenthesized kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_signatureTypeParserParsesDelimitedKindSignature :: Assertion
 test_signatureTypeParserParsesDelimitedKindSignature = do
@@ -1516,7 +1516,7 @@ test_signatureTypeParserParsesDelimitedKindSignature = do
     ParseOk ty ->
       assertEqual "delimited kind signature" (TList Unpromoted [TKindSig TWildcard TWildcard]) (stripAnnotations ty)
     ParseErr bundle ->
-      assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_signatureTypeParserRejectsAppArgBareKindSignature :: Assertion
 test_signatureTypeParserRejectsAppArgBareKindSignature = do
@@ -1533,7 +1533,7 @@ test_signatureTypeParserParsesAppArgParenthesizedKindSignature = do
     ParseOk ty ->
       assertEqual "parenthesized app argument kind signature" (TApp TWildcard (TParen (TKindSig TWildcard TWildcard))) (stripAnnotations ty)
     ParseErr bundle ->
-      assertFailure ("expected parse success for parenthesized app argument kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for parenthesized app argument kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_signatureTypeParserRejectsImplicitParamBareKindSignature :: Assertion
 test_signatureTypeParserRejectsImplicitParamBareKindSignature = do
@@ -1558,7 +1558,7 @@ test_typeParserParsesBareKindSignature = do
     ParseOk ty ->
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
     ParseErr bundle ->
-      assertFailure ("expected parse success for type kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
@@ -1574,7 +1574,7 @@ test_shrunkDoExpressionsKeepFinalExpression = do
       let invalidShrinks = [stmts | EDo stmts _ <- shrinkExpr expr, not (testDoStmtsEndInExpr stmts)]
        in assertEqual "invalid do-statement shrinks" [] invalidShrinks
     ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =

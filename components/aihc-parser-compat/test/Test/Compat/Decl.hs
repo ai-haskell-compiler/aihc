@@ -83,7 +83,7 @@ example label source =
   testCase label $ do
     aihcDecl <-
       case Aihc.parseDecl compatParserConfig source of
-        Aihc.ParseErr err -> assertFailure (Aihc.formatParseErrorBundle "<compat-test>" (Just source) err)
+        Aihc.ParseErr err -> assertFailure (Aihc.formatParseErrors "<compat-test>" (Just source) err)
         Aihc.ParseOk decl -> pure decl
     ghcDecl <-
       case parseGhcLocatedDecl compatGhcExtensions source of

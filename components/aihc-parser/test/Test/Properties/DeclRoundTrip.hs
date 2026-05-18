@@ -5,7 +5,7 @@ module Test.Properties.DeclRoundTrip
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrorBundle, parseDecl)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrors, parseDecl)
 import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
@@ -38,7 +38,7 @@ prop_declPrettyRoundTrip decl =
             counterexample (T.unpack source) $
               case parseDecl declConfig source of
                 ParseErr err ->
-                  counterexample (formatParseErrorBundle (parserSourceName declConfig) (Just source) err) False
+                  counterexample (formatParseErrors (parserSourceName declConfig) (Just source) err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
                    in counterexample ("expected:\n" <> show (shorthand expected) <> "\nactual:\n" <> show (shorthand actual)) (expected == actual)

@@ -16,7 +16,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    formatParseErrorBundle,
     formatParseErrors,
     parseExpr,
     parseModule,
@@ -192,7 +191,7 @@ parserActualAst meta =
     PG.CaseExpr ->
       case parseExpr (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta) of
         ParseOk ast -> Right (show (shorthand ast))
-        ParseErr err -> Left (formatParseErrorBundle (PG.casePath meta) (Just (PG.caseInput meta)) err)
+        ParseErr err -> Left (formatParseErrors (PG.casePath meta) (Just (PG.caseInput meta)) err)
     PG.CaseModule ->
       let (errs, ast) = parseModule (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta)
        in if null errs
@@ -201,7 +200,7 @@ parserActualAst meta =
     PG.CasePattern ->
       case parsePattern (parserConfig (PG.casePath meta) (PG.caseExtensions meta)) (PG.caseInput meta) of
         ParseOk ast -> Right (show (shorthand ast))
-        ParseErr err -> Left (formatParseErrorBundle (PG.casePath meta) (Just (PG.caseInput meta)) err)
+        ParseErr err -> Left (formatParseErrors (PG.casePath meta) (Just (PG.caseInput meta)) err)
 
 parserConfig :: FilePath -> [ExtensionSetting] -> ParserConfig
 parserConfig sourceName exts =
@@ -862,7 +861,7 @@ parseExprText :: [Extension] -> Text -> Either String Expr
 parseExprText exts input =
   case parseExpr defaultConfig {parserSourceName = "<expression>", parserExtensions = exts} input of
     ParseOk expr -> Right expr
-    ParseErr err -> Left (formatParseErrorBundle "<expression>" (Just input) err)
+    ParseErr err -> Left (formatParseErrors "<expression>" (Just input) err)
 
 skipForStatus :: Either String Text -> String -> FixtureUpdate
 skipForStatus status err =
