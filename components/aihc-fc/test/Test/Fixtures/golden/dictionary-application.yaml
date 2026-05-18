@@ -28,7 +28,7 @@ expected: |
   $fEqBool : () ⇒ Eq Bool =
     {λx : Bool.
       λy : Bool.
-        case x as _scrut : Bool → Bool of
+        case x as _scrut : Bool of
           True →
             case y as _scrut : Bool of
               True →

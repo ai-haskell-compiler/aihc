@@ -138,14 +138,14 @@ renderExprPrec n parens (FcLet bind body) =
       ++ indent n
       ++ "in\n"
       ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcCase scrut binder resTy alts) =
+renderExprPrec n parens (FcCase scrut binder alts) =
   paren parens $
     "case "
       ++ renderExprPrec n False scrut
       ++ " as "
       ++ renderVar binder
       ++ " : "
-      ++ renderType resTy
+      ++ renderType (varType binder)
       ++ " of\n"
       ++ intercalate "\n" (map (renderAlt (n + 2)) alts)
 renderExprPrec n parens (FcCast e _co) =

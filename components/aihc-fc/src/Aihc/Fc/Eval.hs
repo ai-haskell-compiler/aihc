@@ -105,7 +105,7 @@ evalWithEnv env expr =
         _ -> Left (EvalApplyNonFunction dictValue)
     FcLet bind body ->
       evalWithEnv (extendBind env bind) body
-    FcCase scrut _ _ alts -> do
+    FcCase scrut _ alts -> do
       value <- evalWithEnv env scrut
       matchAlternative env value alts
     FcCast inner _ ->

@@ -211,39 +211,39 @@ annotateExprTc locals expected expr =
       argTy <- appArgTypeTc locals fun arg expected
       fun' <- annotateExprTc locals (TcFunTy argTy expected) fun
       arg' <- annotateExprTc locals argTy arg
-      pure (annotateExpr (TcAnnotation expected [] []) (EApp fun' arg'))
+      pure (annotateExpr (TcAnnotation expected [] [] []) (EApp fun' arg'))
     EInfix lhs op rhs ->
       annotateExprTc locals expected (EApp (EApp (EVar op) lhs) rhs)
     EList elems -> do
       elemTyFromItems <- listElemTypeFromItems locals elems
       elemTy <- maybe (missingTypeInfo "list element type") pure (listElemTyTc expected <|> elemTyFromItems)
       elems' <- mapM (annotateExprTc locals elemTy) elems
-      pure (annotateExpr (TcAnnotation expected [] []) (EList elems'))
+      pure (annotateExpr (TcAnnotation expected [elemTy] [] []) (EList elems'))
     ETuple flavor elems -> do
       elemTys <- tupleElemTypesTc expected (length elems)
       elems' <- zipWithM (traverse . annotateExprTc locals) elemTys elems
-      pure (annotateExpr (TcAnnotation expected elemTys []) (ETuple flavor elems'))
+      pure (annotateExpr (TcAnnotation expected elemTys [] []) (ETuple flavor elems'))
     EIf cond thenE elseE -> do
       cond' <- annotateExprTc locals boolTy cond
       then' <- annotateExprTc locals expected thenE
       else' <- annotateExprTc locals expected elseE
-      pure (annotateExpr (TcAnnotation expected [] []) (EIf cond' then' else'))
+      pure (annotateExpr (TcAnnotation expected [] [] []) (EIf cond' then' else'))
     ELambdaPats pats body -> do
       let (argTys, resTy) = splitFunTy (qualifiedBody expected) (length pats)
       patBindings <- concat <$> zipWithM patternBindingsFrom pats argTys
       let locals' = locals <> Map.fromList patBindings
       body' <- annotateExprTc locals' resTy body
-      pure (annotateExpr (TcAnnotation expected [] []) (ELambdaPats pats body'))
+      pure (annotateExpr (TcAnnotation expected [] [] argTys) (ELambdaPats pats body'))
     ECase scrut alts -> do
       maybeScrutTy <- exprTypeMaybeTc locals scrut
       scrutTy <- maybe (missingTypeInfo ("case scrutinee type for " <> take 80 (show scrut))) pure maybeScrutTy
       scrut' <- annotateExprTc locals scrutTy scrut
       alts' <- mapM (annotateCaseAltTc locals scrutTy expected) alts
-      pure (annotateExpr (TcAnnotation expected [] []) (ECase scrut' alts'))
+      pure (annotateExpr (TcAnnotation expected [] [] []) (ECase scrut' alts'))
     ELetDecls decls body -> do
       (localTypes, decls') <- annotateLocalDeclsTc locals decls
       body' <- annotateExprTc (locals <> localTypes) expected body
-      pure (annotateExpr (TcAnnotation expected [] []) (ELetDecls decls' body'))
+      pure (annotateExpr (TcAnnotation expected [] [] []) (ELetDecls decls' body'))
     _ -> pure expr
 
 annotateLocalDeclsTc :: Map Text TcType -> [Decl] -> TcM (Map Text TcType, [Decl])
@@ -291,7 +291,7 @@ annotateCaseAltTc locals scrutTy expected (CaseAlt anns pat rhs) = do
 annotateVarTc :: Map Text TcType -> TcType -> Expr -> Name -> TcM Expr
 annotateVarTc locals expected expr name =
   case lookupLocalName name locals of
-    Just ty -> pure (annotateExpr (TcAnnotation ty [] []) expr)
+    Just ty -> pure (annotateExpr (TcAnnotation ty [] [] []) expr)
     Nothing -> do
       mBinder <- lookupTermName name
       case mBinder of
@@ -299,7 +299,7 @@ annotateVarTc locals expected expr name =
           ann <- annotationForScheme scheme expected
           pure (annotateExpr ann expr)
         Just (TcMonoIdBinder _ ty) ->
-          pure (annotateExpr (TcAnnotation ty [] []) expr)
+          pure (annotateExpr (TcAnnotation ty [] [] []) expr)
         Nothing -> do
           _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
           pure expr
@@ -321,7 +321,7 @@ annotationForScheme scheme@(ForAll tvs preds body) expected =
             occurrenceTy = case tvs of
               [] -> schemeToType scheme
               _ -> expected
-        pure (TcAnnotation occurrenceTy typeArgs evidencePreds)
+        pure (TcAnnotation occurrenceTy typeArgs evidencePreds [])
 
 bindingType :: Text -> TcM TcType
 bindingType name = do

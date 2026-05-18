@@ -46,7 +46,9 @@ data TcAnnotation = TcAnnotation
     -- | Type arguments made explicit at this occurrence.
     tcAnnTypeArgs :: ![TcType],
     -- | Class predicates whose dictionaries must be passed at this occurrence.
-    tcAnnEvidencePreds :: ![Pred]
+    tcAnnEvidencePreds :: ![Pred],
+    -- | Term argument types made explicit for lambda-like binders.
+    tcAnnTermArgTypes :: ![TcType]
   }
   deriving (Eq, Show)
 

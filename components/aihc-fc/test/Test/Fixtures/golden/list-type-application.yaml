@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+
+    xs :: [Bool]
+    xs = [True]
+expected: |
+  data Bool
+   = True
+   | False
+
+  xs : [Bool] =
+    : @Bool True ([] @Bool)
+status: pass
+reason: reifies list constructor type arguments from type-checker annotations

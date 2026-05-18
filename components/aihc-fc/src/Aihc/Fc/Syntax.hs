@@ -93,8 +93,8 @@ data FcExpr
     FcDictSelect !FcExpr !Int
   | -- | Let binding.
     FcLet !FcBind !FcExpr
-  | -- | Case expression: scrutinee, case binder, result type, alternatives.
-    FcCase !FcExpr !Var !TcType ![FcAlt]
+  | -- | Case expression: scrutinee, case binder, alternatives.
+    FcCase !FcExpr !Var ![FcAlt]
   | -- | Cast: @e \triangleright \gamma@.
     FcCast !FcExpr !Coercion
   deriving (Eq, Show)

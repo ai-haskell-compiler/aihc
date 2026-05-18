@@ -205,14 +205,6 @@ peelFunTys n (TcFunTy arg rest) =
    in (arg : args, res)
 peelFunTys _ ty = ([], ty)
 
-peelFunTysExact :: Int -> TcType -> DsM ([TcType], TcType)
-peelFunTysExact 0 ty = pure ([], ty)
-peelFunTysExact n (TcFunTy arg rest) = do
-  (args, res) <- peelFunTysExact (n - 1) rest
-  pure (arg : args, res)
-peelFunTysExact n ty =
-  desugarBug ("missing function type information while desugaring " <> show n <> " argument(s): " <> show ty)
-
 -- | Build a chain of case expressions for pattern matching on arguments.
 --
 -- For constructor patterns, produces a case expression.
@@ -236,7 +228,7 @@ buildCaseChain (scrutVar : restVars) resTy matches = do
       -- that share that constructor continue together under the next argument.
       alts <- mapM (buildAltGroup scrutVar restVars resTy) (groupFirstPatterns matches)
       caseBinder <- freshVar "_scrut" (varType scrutVar)
-      pure (FcCase (FcVar scrutVar) caseBinder (scrutResultType restVars resTy) alts)
+      pure (FcCase (FcVar scrutVar) caseBinder alts)
 
 -- | Extract variable bindings from the first pattern of each match,
 -- mapping the pattern variable name to the scrutinee Var.
@@ -250,11 +242,6 @@ extractVarBindings scrutVar = concatMap go
     extractName (PAnn _ inner) = extractName inner
     extractName (PParen inner) = extractName inner
     extractName _ = []
-
--- | Compute the result type of a case expression, accounting for remaining
--- arguments that will be lambdas in each branch.
-scrutResultType :: [Var] -> TcType -> TcType
-scrutResultType vs resTy = foldr (TcFunTy . varType) resTy vs
 
 -- | Check if all first patterns in the matches are variables or wildcards.
 allVarPatterns :: [Match] -> Bool
@@ -345,8 +332,8 @@ dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
 dsExpr (EInfix lhs op rhs) =
   dsExpr (EApp (EApp (EVar op) lhs) rhs)
-dsExpr expr@EList {} =
-  exprTcTypeRequired expr >>= (`dsExprWithType` expr)
+dsExpr EList {} =
+  desugarBug "missing type-checker annotation for list expression"
 dsExpr ETuple {} =
   desugarBug "missing type-checker annotation for tuple expression"
 dsExpr (EParen inner) = dsExpr inner
@@ -356,8 +343,8 @@ dsExpr expr@EIf {} =
   exprTcTypeRequired expr >>= (`dsExprWithType` expr)
 dsExpr expr@ECase {} =
   exprTcTypeRequired expr >>= (`dsExprWithType` expr)
-dsExpr expr@ELambdaPats {} =
-  exprTcTypeRequired expr >>= (`dsExprWithType` expr)
+dsExpr ELambdaPats {} =
+  desugarBug "missing type-checker annotation for lambda expression"
 dsExpr (ELetDecls decls body) =
   dsLetDecls decls (dsExpr body)
 dsExpr expr =
@@ -382,14 +369,13 @@ dsAnnotatedExpr tcAnn inner =
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
+    EList elems -> dsList tcAnn elems
     ETuple Boxed elems -> dsTuple tcAnn elems
+    ELambdaPats pats body -> dsLambda tcAnn pats body
     _ -> dsExprWithType (tcAnnType tcAnn) inner
 
 dsExprWithType :: TcType -> Expr -> DsM FcExpr
-dsExprWithType expected (EList elems) = do
-  elemTy <- listElemTyM expected
-  foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
-dsExprWithType expected (EIf cond thenE elseE) = do
+dsExprWithType _ (EIf cond thenE elseE) = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
@@ -398,22 +384,16 @@ dsExprWithType expected (EIf cond thenE elseE) = do
     ( FcCase
         cond'
         binder
-        expected
         [ FcAlt (DataAlt "True") [] then',
           FcAlt (DataAlt "False") [] else'
         ]
     )
-dsExprWithType expected (ECase scrut alts) = do
+dsExprWithType _ (ECase scrut alts) = do
   scrutTy <- exprTcTypeRequired scrut
   scrut' <- dsExpr scrut
   binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy) alts
-  pure (FcCase scrut' binder expected alts')
-dsExprWithType expected (ELambdaPats pats body) = do
-  argTys <- fst <$> peelFunTysExact (length pats) expected
-  vars <- zipWithM freshVar (map (const "_lam") pats) argTys
-  body' <- dsExpr body
-  pure (foldr FcLam body' vars)
+  pure (FcCase scrut' binder alts')
 dsExprWithType _ expr =
   desugarBug ("unsupported typed expression form after type checking: " <> take 80 (show expr))
 
@@ -589,6 +569,42 @@ dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar (nilList charTy) text)
 
+dsList :: TcAnnotation -> [Expr] -> DsM FcExpr
+dsList tcAnn elems =
+  case tcAnnTypeArgs tcAnn of
+    [elemTy] ->
+      foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
+    elemTys ->
+      desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
+
+dsLambda :: TcAnnotation -> [Pattern] -> Expr -> DsM FcExpr
+dsLambda tcAnn pats body = do
+  let argTys = tcAnnTermArgTypes tcAnn
+  if length argTys == length pats
+    then do
+      vars <- zipWithM freshVar (map lambdaArgName pats) argTys
+      body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
+      pure (foldr FcLam body' vars)
+    else desugarBug ("lambda annotation arity mismatch: expected " <> show (length pats) <> " argument type(s), got " <> show (length argTys))
+
+lambdaArgName :: Pattern -> Text
+lambdaArgName pat =
+  case pat of
+    PVar name -> unqualifiedNameText name
+    PAnn _ inner -> lambdaArgName inner
+    PParen inner -> lambdaArgName inner
+    PAs name _ -> unqualifiedNameText name
+    _ -> "_lam"
+
+lambdaPatternBindings :: Pattern -> Var -> [(Text, Var)]
+lambdaPatternBindings pat var =
+  case pat of
+    PVar name -> [(unqualifiedNameText name, var)]
+    PAnn _ inner -> lambdaPatternBindings inner var
+    PParen inner -> lambdaPatternBindings inner var
+    PAs name inner -> (unqualifiedNameText name, var) : lambdaPatternBindings inner var
+    _ -> []
+
 dsTuple :: TcAnnotation -> [Maybe Expr] -> DsM FcExpr
 dsTuple tcAnn elems = do
   let elemTys = tcAnnTypeArgs tcAnn
@@ -629,12 +645,25 @@ consList elemTy headExpr =
   FcApp (FcApp (consExpr elemTy) headExpr)
 
 nilList :: TcType -> FcExpr
-nilList elemTy =
-  FcVar (Var "[]" (Unique (-10)) (listType elemTy))
+nilList =
+  FcTyApp (FcVar (Var "[]" (Unique (-10)) nilListType))
 
 consExpr :: TcType -> FcExpr
-consExpr elemTy =
-  FcVar (Var ":" (Unique (-11)) (TcFunTy elemTy (TcFunTy (listType elemTy) (listType elemTy))))
+consExpr =
+  FcTyApp (FcVar (Var ":" (Unique (-11)) consListType))
+
+nilListType :: TcType
+nilListType =
+  TcForAllTy listElemVar (listType (TcTyVar listElemVar))
+
+consListType :: TcType
+consListType =
+  TcForAllTy listElemVar (TcFunTy elemTy (TcFunTy (listType elemTy) (listType elemTy)))
+  where
+    elemTy = TcTyVar listElemVar
+
+listElemVar :: TyVarId
+listElemVar = TyVarId "a" (Unique (-2000))
 
 listType :: TcType -> TcType
 listType ty =
