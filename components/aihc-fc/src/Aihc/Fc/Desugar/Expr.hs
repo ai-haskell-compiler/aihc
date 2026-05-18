@@ -339,10 +339,10 @@ dsExpr ETuple {} =
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (ETypeSig inner _ty) = dsExpr inner
-dsExpr expr@EIf {} =
-  exprTcTypeRequired expr >>= (`dsExprWithType` expr)
-dsExpr expr@ECase {} =
-  exprTcTypeRequired expr >>= (`dsExprWithType` expr)
+dsExpr EIf {} =
+  desugarBug "missing type-checker annotation for if expression"
+dsExpr ECase {} =
+  desugarBug "missing type-checker annotation for case expression"
 dsExpr ELambdaPats {} =
   desugarBug "missing type-checker annotation for lambda expression"
 dsExpr (ELetDecls decls body) =
@@ -372,10 +372,12 @@ dsAnnotatedExpr tcAnn inner =
     EList elems -> dsList tcAnn elems
     ETuple Boxed elems -> dsTuple tcAnn elems
     ELambdaPats pats body -> dsLambda tcAnn pats body
-    _ -> dsExprWithType (tcAnnType tcAnn) inner
+    EIf cond thenE elseE -> dsIf cond thenE elseE
+    ECase scrut alts -> dsCase scrut alts
+    _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
 
-dsExprWithType :: TcType -> Expr -> DsM FcExpr
-dsExprWithType _ (EIf cond thenE elseE) = do
+dsIf :: Expr -> Expr -> Expr -> DsM FcExpr
+dsIf cond thenE elseE = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
@@ -388,14 +390,14 @@ dsExprWithType _ (EIf cond thenE elseE) = do
           FcAlt (DataAlt "False") [] else'
         ]
     )
-dsExprWithType _ (ECase scrut alts) = do
+
+dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
+dsCase scrut alts = do
   scrutTy <- exprTcTypeRequired scrut
   scrut' <- dsExpr scrut
   binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder alts')
-dsExprWithType _ expr =
-  desugarBug ("unsupported typed expression form after type checking: " <> take 80 (show expr))
 
 qualifiedBody :: TcType -> TcType
 qualifiedBody ty =
