@@ -275,6 +275,7 @@ buildTests = do
             testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
+            testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
@@ -1540,6 +1541,14 @@ test_signatureTypeParserRejectsImplicitParamBareKindSignature :: Assertion
 test_signatureTypeParserRejectsImplicitParamBareKindSignature = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
   case parseSignatureType config "?a :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
+test_typeParserRejectsBareImplicitParamContextAppArg :: Assertion
+test_typeParserRejectsBareImplicitParamContextAppArg = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => (_, (:+) ?a :: _) => _" of
     ParseErr {} -> pure ()
     ParseOk ty ->
       assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
