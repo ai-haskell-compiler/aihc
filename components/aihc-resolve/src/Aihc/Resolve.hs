@@ -51,6 +51,8 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     ImportItem (..),
     ImportSpec (..),
+    InstanceDecl (..),
+    InstanceDeclItem (..),
     LambdaCaseAlt (..),
     Match (..),
     Module (..),
@@ -360,7 +362,8 @@ resolveDeclCore termDefinition decl =
     DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclInstance {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclInstance instanceDecl ->
+      DeclInstance <$> resolveInstanceDecl instanceDecl
     DeclStandaloneDeriving {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclDataFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -424,6 +427,36 @@ resolveClassDeclItem classDeclItem =
     ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+
+resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
+resolveInstanceDecl instanceDecl = do
+  (forallScope, forallBinders') <- bindTyVarBinders (instanceDeclForall instanceDecl)
+  (context', head', items') <-
+    extendScope forallScope $
+      (,,)
+        <$> mapM resolveType (instanceDeclContext instanceDecl)
+        <*> resolveType (instanceDeclHead instanceDecl)
+        <*> mapM resolveInstanceDeclItem (instanceDeclItems instanceDecl)
+  pure
+    instanceDecl
+      { instanceDeclForall = forallBinders',
+        instanceDeclContext = context',
+        instanceDeclHead = head',
+        instanceDeclItems = items'
+      }
+
+resolveInstanceDeclItem :: InstanceDeclItem -> ResolveM InstanceDeclItem
+resolveInstanceDeclItem instanceDeclItem =
+  case instanceDeclItem of
+    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> withPushedSpan ann (resolveInstanceDeclItem inner)
+    InstanceItemBind valueDecl -> do
+      scope <- currentScope
+      InstanceItemBind <$> withLocalSupply 0 (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
+    InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
+    InstanceItemFixity {} -> pure instanceDeclItem
+    InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemPragma {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
 
 resolveMatch :: Match -> ResolveM Match
 resolveMatch match =

@@ -99,6 +99,9 @@ renderExprPrec _ _ (FcLit lit) = renderLiteral lit
 renderExprPrec n parens (FcApp f a) =
   paren parens $
     renderExprPrec n False f ++ " " ++ renderExprPrec n True a
+renderExprPrec n parens (FcDictApp f a) =
+  paren parens $
+    renderExprPrec n False f ++ " $" ++ renderExprPrec n True a
 renderExprPrec n parens (FcTyApp e ty) =
   paren parens $
     renderExprPrec n False e ++ " @" ++ renderTypePrec True ty
@@ -116,6 +119,17 @@ renderExprPrec n parens (FcTyLam tv body) =
       ++ T.unpack (tvName tv)
       ++ ".\n"
       ++ renderExprIndented (n + 2) body
+renderExprPrec n parens (FcDictLam v body) =
+  paren parens $
+    "\\" ++ renderVar v ++ " : dict.\n" ++ renderExprIndented (n + 2) body
+renderExprPrec n parens (FcDict fields) =
+  paren parens $
+    "{"
+      ++ intercalate ", " (map (renderExprPrec n False) fields)
+      ++ "}"
+renderExprPrec n parens (FcDictSelect dict index) =
+  paren parens $
+    renderExprPrec n True dict ++ "." ++ show index
 renderExprPrec n parens (FcLet bind body) =
   paren parens $
     "let\n"
@@ -124,14 +138,14 @@ renderExprPrec n parens (FcLet bind body) =
       ++ indent n
       ++ "in\n"
       ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcCase scrut binder resTy alts) =
+renderExprPrec n parens (FcCase scrut binder alts) =
   paren parens $
     "case "
       ++ renderExprPrec n False scrut
       ++ " as "
       ++ renderVar binder
       ++ " : "
-      ++ renderType resTy
+      ++ renderType (varType binder)
       ++ " of\n"
       ++ intercalate "\n" (map (renderAlt (n + 2)) alts)
 renderExprPrec n parens (FcCast e _co) =

@@ -76,16 +76,25 @@ data FcExpr
     FcLit !Literal
   | -- | Term application.
     FcApp !FcExpr !FcExpr
+  | -- | Dictionary application (@e dict@), kept separate from ordinary
+    -- term application so the dictionary-passing phase is explicit.
+    FcDictApp !FcExpr !FcExpr
   | -- | Type application (@e \@\tau@).
     FcTyApp !FcExpr !TcType
   | -- | Term lambda (@\lambda x : \tau . e@).
     FcLam !Var !FcExpr
   | -- | Type lambda (@\Lambda a . e@).
     FcTyLam !TyVarId !FcExpr
+  | -- | Dictionary lambda.
+    FcDictLam !Var !FcExpr
+  | -- | Dictionary value, represented as method fields.
+    FcDict ![FcExpr]
+  | -- | Dictionary field selection.
+    FcDictSelect !FcExpr !Int
   | -- | Let binding.
     FcLet !FcBind !FcExpr
-  | -- | Case expression: scrutinee, case binder, result type, alternatives.
-    FcCase !FcExpr !Var !TcType ![FcAlt]
+  | -- | Case expression: scrutinee, case binder, alternatives.
+    FcCase !FcExpr !Var ![FcAlt]
   | -- | Cast: @e \triangleright \gamma@.
     FcCast !FcExpr !Coercion
   deriving (Eq, Show)

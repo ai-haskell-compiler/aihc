@@ -117,6 +117,7 @@ lintExpr env (FcApp f a) = do
       | typesEqual argTy aTy -> Right resTy
       | otherwise -> Left (TypeMismatch "application argument" argTy aTy)
     _ -> Left (LintFailure ("application to non-function type: " ++ show fTy))
+lintExpr env (FcDictApp f a) = lintExpr env (FcApp f a)
 lintExpr env (FcTyApp e ty) = do
   eTy <- lintExpr env e
   case eTy of
@@ -131,16 +132,29 @@ lintExpr env (FcTyLam tv body) = do
   let env' = env {leTyVars = Set.insert tv (leTyVars env)}
   bodyTy <- lintExpr env' body
   Right (TcForAllTy tv bodyTy)
+lintExpr env (FcDictLam v body) = do
+  let env' = extendTermEnv v env
+  bodyTy <- lintExpr env' body
+  Right (TcFunTy (varType v) bodyTy)
+lintExpr env (FcDict fields) = do
+  mapM_ (lintExpr env) fields
+  Right (TcTyCon (TyCon "Dict" 0) [])
+lintExpr env (FcDictSelect dict index) = do
+  _ <- lintExpr env dict
+  Left (LintFailure ("dictionary selection lacks field type annotation: " ++ show index))
 lintExpr env (FcLet bind body) = do
   let (errs, env') = lintBind env bind
   case errs of
     [] -> lintExpr env' body
     (e : _) -> Left e
-lintExpr env (FcCase scrut _binder resTy alts) = do
+lintExpr env (FcCase scrut _binder alts) = do
   _scrutTy <- lintExpr env scrut
-  -- Check each alternative returns the declared result type.
-  mapM_ (lintAlt env resTy) alts
-  Right resTy
+  case alts of
+    [] -> Left (LintFailure "case expression has no alternatives")
+    alt : rest -> do
+      resTy <- lintAlt env alt
+      mapM_ (lintAltWithExpected env resTy) rest
+      Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
   let (coFrom, coTo) = coercionEndpoints co
@@ -149,10 +163,14 @@ lintExpr env (FcCast e co) = do
     else Left (TypeMismatch "cast source" coFrom eTy)
 
 -- | Lint a case alternative.
-lintAlt :: LintEnv -> TcType -> FcAlt -> Either LintError ()
-lintAlt env resTy (FcAlt _con binders rhs) = do
+lintAlt :: LintEnv -> FcAlt -> Either LintError TcType
+lintAlt env (FcAlt _con binders rhs) = do
   let env' = foldr extendTermEnv env binders
-  rhsTy <- lintExpr env' rhs
+  lintExpr env' rhs
+
+lintAltWithExpected :: LintEnv -> TcType -> FcAlt -> Either LintError ()
+lintAltWithExpected env resTy alt = do
+  rhsTy <- lintAlt env alt
   if typesEqual resTy rhsTy
     then Right ()
     else Left (InconsistentAlts resTy rhsTy)

@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+
+    same :: Bool -> Bool -> Bool
+    same x _ = x
+
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = same
+expected:
+  - "Bool :: *"
+  - "False :: Bool"
+  - "True :: Bool"
+  - "same :: Bool -> Bool -> Bool"
+  - "eqBool :: Bool -> Bool -> Bool"
+status: pass
+reason: applies a type signature to a bare top-level pattern binding

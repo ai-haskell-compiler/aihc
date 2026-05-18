@@ -3,6 +3,7 @@
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
   ( InferExpr,
+    inferLocalDeclBinders,
     inferLocalDecls,
     inferRhsWithLocals,
     collectRawSigs,
@@ -39,6 +40,7 @@ import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
+import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM, zipWithM)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
@@ -72,6 +74,37 @@ inferLocalDecls inferExpr decls body = do
       else do
         (bodyTy, bodyCts) <- body
         pure (bodyTy, bindingCts ++ bodyCts)
+
+inferLocalDeclBinders :: InferExpr -> [(Text, TcBinder)] -> [Decl] -> TcM [(Text, TcBinder)]
+inferLocalDeclBinders inferExpr ambientBinders decls =
+  withLocalBinders ambientBinders $ do
+    inferLocalDeclBindersInner inferExpr decls
+
+inferLocalDeclBindersInner :: InferExpr -> [Decl] -> TcM [(Text, TcBinder)]
+inferLocalDeclBindersInner inferExpr decls = do
+  let rawSigs = collectRawSigs decls
+      groups = groupValueDecls decls
+      binders = nub (concatMap groupBinders groups)
+      binderSet = Set.fromList binders
+      ignored = binders
+  sigs <- traverse sigToScheme rawSigs
+  placeholders <- traverse (placeholderFor sigs) binders
+  let placeholderMap = Map.fromList placeholders
+  shouldGen <- shouldGeneralizeLocal binderSet decls
+  withLocalPlaceholders placeholderMap $ do
+    bindingCts <- concat <$> mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
+    _ <- solveConstraints bindingCts
+    if shouldGen
+      then traverse (generalizedBinder sigs ignored placeholderMap) binders
+      else traverse (monomorphicBinder sigs placeholderMap) binders
+
+monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> Text -> TcM (Text, TcBinder)
+monomorphicBinder sigs placeholders name =
+  case Map.lookup name sigs of
+    Just scheme -> pure (name, TcIdBinder name scheme Closed)
+    Nothing -> do
+      ty <- maybe freshMetaTv zonkType (Map.lookup name placeholders)
+      pure (name, TcMonoIdBinder name ty)
 
 -- | Infer an RHS, processing attached @where@ declarations first.
 inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (TcType, [Ct])

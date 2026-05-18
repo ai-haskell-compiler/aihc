@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+
+    pair :: (Bool, ())
+    pair = (True, ())
+expected: |
+  data Bool
+   = True
+   | False
+
+  pair : (,) Bool () =
+    (,) @Bool @() True ()
+status: pass
+reason: reifies tuple constructor type arguments from type-checker annotations
