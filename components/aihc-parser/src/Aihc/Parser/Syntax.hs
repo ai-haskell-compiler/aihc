@@ -168,6 +168,9 @@ import Data.Text qualified as T
 import Data.Typeable (cast)
 import GHC.Generics (Generic)
 
+-- | A @LANGUAGE@ pragma name.
+-- Examples: @OverloadedStrings@ in @{-# LANGUAGE OverloadedStrings #-}@ and
+-- @LambdaCase@ in @{-# LANGUAGE LambdaCase #-}@.
 data Extension
   = AllowAmbiguousTypes
   | AlternativeLayoutRule
@@ -329,13 +332,19 @@ data Extension
   | XmlSyntax
   deriving (Data, Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
 
+-- | A single @LANGUAGE@ pragma entry.
+-- Examples: @EnableExtension LambdaCase@ for @{-# LANGUAGE LambdaCase #-}@ and
+-- @DisableExtension ImplicitPrelude@ for @{-# LANGUAGE NoImplicitPrelude #-}@.
 data ExtensionSetting
-  = EnableExtension Extension
-  | DisableExtension Extension
+  = -- | @{-# LANGUAGE LambdaCase #-}@
+    EnableExtension Extension
+  | -- | @{-# LANGUAGE NoImplicitPrelude #-}@
+    DisableExtension Extension
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 -- | The Haskell language edition/standard.
 -- Each edition implies a set of language extensions.
+-- Examples: @{-# LANGUAGE Haskell2010 #-}@ and @{-# LANGUAGE GHC2021 #-}@.
 data LanguageEdition
   = Haskell98Edition
   | Haskell2010Edition
@@ -345,6 +354,7 @@ data LanguageEdition
 
 -- | Pragmas extracted from a module header.
 -- Contains the last language edition pragma (if any) and all extension settings.
+-- Example: @{-# LANGUAGE Haskell2010, LambdaCase, NoImplicitPrelude #-}@.
 data ModuleHeaderPragmas = ModuleHeaderPragmas
   { headerLanguageEdition :: Maybe LanguageEdition,
     headerExtensionSettings :: [ExtensionSetting]
@@ -621,9 +631,13 @@ effectiveExtensions edition extensionSettings =
   applyImpliedExtensions $
     foldr applyExtensionSetting (languageEditionExtensions edition) extensionSettings
 
+-- | Source location metadata for parsed syntax.
+-- Example: the span covering @map@ in @map f xs@.
 data SourceSpan
-  = NoSourceSpan
-  | SourceSpan
+  = -- | No location information is available.
+    NoSourceSpan
+  | -- | A concrete span such as the token range for @map@ in @map f xs@.
+    SourceSpan
       { sourceSpanSourceName :: !FilePath,
         sourceSpanStartLine :: !Int,
         sourceSpanStartCol :: !Int,
@@ -663,7 +677,7 @@ mergeSourceSpans left right =
 --
 -- The 'nameQualifier' is the module path (e.g., \"Data.List\"), and
 -- 'nameText' is the local name (e.g., \"map\"). For unqualified names,
--- 'nameQualifier' is 'Nothing'.
+-- 'nameQualifier' is 'Nothing'. Example: @Data.List.map@.
 data Name = Name
   { -- | Module qualifier (e.g., @\"Data.List\"@ for @Data.List.map@)
     nameQualifier :: Maybe Text,
@@ -676,6 +690,8 @@ data Name = Name
   }
   deriving (Eq, Show, Generic, NFData, Data)
 
+-- | An unqualified identifier or operator.
+-- Examples: @map@, @Just@, @:+:@.
 data UnqualifiedName = UnqualifiedName
   { unqualifiedNameType :: NameType,
     unqualifiedNameText :: Text,
@@ -809,29 +825,49 @@ type BinderName = UnqualifiedName
 
 type OperatorName = UnqualifiedName
 
+-- | Strictness field pragmas.
+-- Examples: @{-# UNPACK #-}@ and @{-# NOUNPACK #-}@.
 data PragmaUnpackKind
-  = UnpackPragma
-  | NoUnpackPragma
+  = -- | @{-# UNPACK #-}@
+    UnpackPragma
+  | -- | @{-# NOUNPACK #-}@
+    NoUnpackPragma
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
+-- | Parsed pragma payload.
+-- Examples include @{-# LANGUAGE LambdaCase #-}@, @{-# WARNING "use g" #-}@,
+-- @{-# INLINE [1] f #-}@, and @{-# SCC loop #-}@.
 data PragmaType
-  = PragmaLanguage [ExtensionSetting]
-  | PragmaInstanceOverlap InstanceOverlapPragma
-  | PragmaWarning Text
-  | PragmaDeprecated Text
-  | PragmaInline Text Text
-  | PragmaUnpack PragmaUnpackKind
-  | PragmaSource Text Text
-  | PragmaSCC Text
-  | PragmaUnknown Text
+  = -- | @{-# LANGUAGE LambdaCase, NoImplicitPrelude #-}@
+    PragmaLanguage [ExtensionSetting]
+  | -- | @{-# OVERLAPPING #-}@ on an instance declaration.
+    PragmaInstanceOverlap InstanceOverlapPragma
+  | -- | @{-# WARNING "use g" #-}@
+    PragmaWarning Text
+  | -- | @{-# DEPRECATED "use g" #-}@
+    PragmaDeprecated Text
+  | -- | @{-# INLINE [1] f #-}@ or @{-# NOINLINE f #-}@.
+    PragmaInline Text Text
+  | -- | @{-# UNPACK #-}@ or @{-# NOUNPACK #-}@.
+    PragmaUnpack PragmaUnpackKind
+  | -- | @{-# SOURCE #-}@ or @{-# SOURCE "phase" #-}@.
+    PragmaSource Text Text
+  | -- | @{-# SCC loop #-}@
+    PragmaSCC Text
+  | -- | Any pragma preserved as raw text but not otherwise classified.
+    PragmaUnknown Text
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
+-- | A full pragma, including its original source text.
+-- Example: @{-# INLINE map #-}@.
 data Pragma = Pragma
   { pragmaType :: PragmaType,
     pragmaRawText :: Text
   }
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
+-- | A whole Haskell module.
+-- Example: @module M (x) where import Data.List; x = 1@.
 data Module = Module
   { moduleAnns :: [Annotation],
     moduleHead :: Maybe ModuleHead,
@@ -841,6 +877,8 @@ data Module = Module
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The optional @module ... where@ header.
+-- Example: @module M (x, type T) where@.
 data ModuleHead = ModuleHead
   { moduleHeadAnns :: [Annotation],
     moduleHeadName :: Text,
@@ -858,33 +896,54 @@ moduleWarningPragma modu = moduleHeadWarningPragma =<< moduleHead modu
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
+-- | Optional namespace qualifiers on import or export items.
+-- Examples: @type T@, @pattern P@, @data T@.
 data IEEntityNamespace
-  = IEEntityNamespaceType
-  | IEEntityNamespacePattern
-  | IEEntityNamespaceData
+  = -- | @type T@
+    IEEntityNamespaceType
+  | -- | @pattern P@
+    IEEntityNamespacePattern
+  | -- | @data T@
+    IEEntityNamespaceData
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Namespace qualifiers for bundled members in import and export lists.
+-- Examples: @T(type (+))@ and @T(data MkT)@.
 data IEBundledNamespace
-  = IEBundledNamespaceType
-  | IEBundledNamespaceData
+  = -- | @T(type (+))@
+    IEBundledNamespaceType
+  | -- | @T(data MkT)@
+    IEBundledNamespaceData
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A member bundled with a parent import or export.
+-- Example: @Just@ in @Maybe(Just, Nothing)@.
 data IEBundledMember = IEBundledMember
   { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
     ieBundledMemberName :: Name
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One item in a module export list.
 data ExportSpec
-  = ExportModule (Maybe Pragma) Text
-  | ExportVar (Maybe Pragma) (Maybe IEEntityNamespace) Name
-  | ExportAbs (Maybe Pragma) (Maybe IEEntityNamespace) Name
-  | ExportAll (Maybe Pragma) (Maybe IEEntityNamespace) Name
-  | ExportWith (Maybe Pragma) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  | ExportWithAll (Maybe Pragma) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
-  | ExportAnn Annotation ExportSpec
+  = -- | @module Data.List@
+    ExportModule (Maybe Pragma) Text
+  | -- | @map@ or @type T@
+    ExportVar (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | -- | @Maybe@
+    ExportAbs (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | -- | @Maybe(..)@
+    ExportAll (Maybe Pragma) (Maybe IEEntityNamespace) Name
+  | -- | @Maybe(Just, Nothing)@
+    ExportWith (Maybe Pragma) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | -- | @Maybe(Just, .., Nothing)@
+    ExportWithAll (Maybe Pragma) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
+  | -- | Metadata for the whole export item.
+    ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A module import declaration.
+-- Example: @import qualified Data.Map as Map hiding (lookup)@.
 data ImportDecl = ImportDecl
   { importDeclAnns :: [Annotation],
     importDeclLevel :: Maybe ImportLevel,
@@ -899,11 +958,17 @@ data ImportDecl = ImportDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Explicit level imports.
+-- Examples: @import quote M@ and @import splice M@.
 data ImportLevel
-  = ImportLevelQuote
-  | ImportLevelSplice
+  = -- | @import quote M@
+    ImportLevelQuote
+  | -- | @import splice M@
+    ImportLevelSplice
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | An optional import list or hiding list.
+-- Examples: @(map, foldr)@ and @hiding (map)@.
 data ImportSpec = ImportSpec
   { importSpecAnns :: [Annotation],
     importSpecHiding :: Bool,
@@ -911,40 +976,69 @@ data ImportSpec = ImportSpec
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One item in an import list.
 data ImportItem
-  = ImportItemVar (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemAbs (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemAll (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
-  | ImportItemAllWith (Maybe IEEntityNamespace) UnqualifiedName Int [IEBundledMember]
-  | ImportAnn Annotation ImportItem
+  = -- | @map@ or @type T@
+    ImportItemVar (Maybe IEEntityNamespace) UnqualifiedName
+  | -- | @Maybe@
+    ImportItemAbs (Maybe IEEntityNamespace) UnqualifiedName
+  | -- | @Maybe(..)@
+    ImportItemAll (Maybe IEEntityNamespace) UnqualifiedName
+  | -- | @Maybe(Just, Nothing)@
+    ImportItemWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | -- | @Maybe(Just, .., Nothing)@
+    ImportItemAllWith (Maybe IEEntityNamespace) UnqualifiedName Int [IEBundledMember]
+  | -- | Metadata for the whole import item.
+    ImportAnn Annotation ImportItem
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A top-level declaration.
 data Decl
-  = DeclAnn Annotation Decl
-  | DeclValue ValueDecl
-  | DeclTypeSig [BinderName] Type
-  | DeclPatSyn PatSynDecl
-  | DeclPatSynSig [BinderName] Type
-  | DeclStandaloneKindSig BinderName Type
-  | DeclFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | DeclRoleAnnotation RoleAnnotation
-  | DeclTypeSyn TypeSynDecl
-  | DeclTypeData DataDecl
-  | DeclData DataDecl
-  | DeclNewtype NewtypeDecl
-  | DeclClass ClassDecl
-  | DeclInstance InstanceDecl
-  | DeclStandaloneDeriving StandaloneDerivingDecl
-  | DeclDefault [Type]
-  | -- \$decl or $(decl) (TH top-level splice)
+  = -- | Metadata for the whole declaration.
+    DeclAnn Annotation Decl
+  | -- | @f x = x@ or @x = 1@
+    DeclValue ValueDecl
+  | -- | @f, g :: Int -> Int@
+    DeclTypeSig [BinderName] Type
+  | -- | @pattern P x = Just x@
+    DeclPatSyn PatSynDecl
+  | -- | @pattern P :: a -> Maybe a@
+    DeclPatSynSig [BinderName] Type
+  | -- | @type T :: Type -> Type@
+    DeclStandaloneKindSig BinderName Type
+  | -- | @infixr 5 :+:@
+    DeclFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | -- | @type role T nominal representational@
+    DeclRoleAnnotation RoleAnnotation
+  | -- | @type Pair a = (a, a)@
+    DeclTypeSyn TypeSynDecl
+  | -- | @type data Nat = Z | S Nat@
+    DeclTypeData DataDecl
+  | -- | @data Maybe a = Nothing | Just a@
+    DeclData DataDecl
+  | -- | @newtype Identity a = Identity a@
+    DeclNewtype NewtypeDecl
+  | -- | @class Functor f where fmap :: (a -> b) -> f a -> f b@
+    DeclClass ClassDecl
+  | -- | @instance Show a => Show [a] where ...@
+    DeclInstance InstanceDecl
+  | -- | @deriving stock instance Show a => Show (T a)@
+    DeclStandaloneDeriving StandaloneDerivingDecl
+  | -- | @default (Integer, Double)@
+    DeclDefault [Type]
+  | -- | @$decl@ or @$(decl)@
     DeclSplice Expr
-  | DeclForeign ForeignDecl
-  | DeclTypeFamilyDecl TypeFamilyDecl
-  | DeclDataFamilyDecl DataFamilyDecl
-  | DeclTypeFamilyInst TypeFamilyInst
-  | DeclDataFamilyInst DataFamilyInst
-  | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+  | -- | @foreign import ccall "puts" puts :: CString -> IO CInt@
+    DeclForeign ForeignDecl
+  | -- | @type family F a :: Type@
+    DeclTypeFamilyDecl TypeFamilyDecl
+  | -- | @data family DF a@
+    DeclDataFamilyDecl DataFamilyDecl
+  | -- | @type instance F Int = Bool@
+    DeclTypeFamilyInst TypeFamilyInst
+  | -- | @data instance DF Int = DFInt@
+    DeclDataFamilyInst DataFamilyInst
+  | -- | A standalone pragma declaration such as @{-# INLINE f #-}@.
     DeclPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -956,16 +1050,24 @@ peelDeclAnn d = d
 -- | Multiplicity tag on a let/where pattern binding.
 -- Corresponds to @x = e@ (no tag), @%1 x = e@ (linear), @%m x = e@ (explicit).
 data MultiplicityTag
-  = NoMultiplicityTag
-  | LinearMultiplicityTag
-  | ExplicitMultiplicityTag Type
+  = -- | @x = e@
+    NoMultiplicityTag
+  | -- | @%1 x = e@
+    LinearMultiplicityTag
+  | -- | @%m x = e@
+    ExplicitMultiplicityTag Type
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A value binding.
 data ValueDecl
-  = FunctionBind BinderName [Match]
-  | PatternBind MultiplicityTag Pattern (Rhs Expr)
+  = -- | @f x y = body@
+    FunctionBind BinderName [Match]
+  | -- | @pat = body@ or @%1 pat = body@
+    PatternBind MultiplicityTag Pattern (Rhs Expr)
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One equation of a function or pattern synonym.
+-- Examples: @f x = x@ and @x :+: y = z@.
 data Match = Match
   { matchAnns :: [Annotation],
     matchHeadForm :: MatchHeadForm,
@@ -974,9 +1076,13 @@ data Match = Match
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a binding head is prefix or infix.
+-- Examples: @f x@ and @x :+: y@.
 data MatchHeadForm
-  = MatchHeadPrefix
-  | MatchHeadInfix
+  = -- | @f x@
+    MatchHeadPrefix
+  | -- | @x :+: y@
+    MatchHeadInfix
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Pattern synonym declaration direction.
@@ -1000,6 +1106,7 @@ data PatSynArgs
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Pattern synonym declaration.
+-- Example: @pattern JustOne x = Just [x]@.
 data PatSynDecl = PatSynDecl
   { patSynDeclName :: UnqualifiedName,
     patSynDeclArgs :: PatSynArgs,
@@ -1008,11 +1115,16 @@ data PatSynDecl = PatSynDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The right-hand side of a binding, case alternative, or lambda case.
 data Rhs body
-  = UnguardedRhs [Annotation] body (Maybe [Decl])
-  | GuardedRhss [Annotation] [GuardedRhs body] (Maybe [Decl])
+  = -- | @= body@ with an optional @where@ clause.
+    UnguardedRhs [Annotation] body (Maybe [Decl])
+  | -- | Guarded equations such as @| x > 0 = body@.
+    GuardedRhss [Annotation] [GuardedRhs body] (Maybe [Decl])
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One guarded branch.
+-- Example: @| x > 0 = x@.
 data GuardedRhs body = GuardedRhs
   { guardedRhsAnns :: [Annotation],
     guardedRhsGuards :: [GuardQualifier],
@@ -1020,26 +1132,38 @@ data GuardedRhs body = GuardedRhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A single qualifier inside a guarded right-hand side.
 data GuardQualifier
   = -- | Metadata for the whole guard qualifier (typically a 'SourceSpan' via 'mkAnnotation').
     GuardAnn Annotation GuardQualifier
-  | GuardExpr Expr
-  | GuardPat Pattern Expr
-  | GuardLet [Decl]
+  | -- | @x > 0@
+    GuardExpr Expr
+  | -- | @Just y <- mx@
+    GuardPat Pattern Expr
+  | -- | @let y = f x@
+    GuardLet [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
 
 peelGuardQualifierAnn :: GuardQualifier -> GuardQualifier
 peelGuardQualifierAnn (GuardAnn _ inner) = peelGuardQualifierAnn inner
 peelGuardQualifierAnn q = q
 
+-- | A literal token.
 data Literal
-  = LitAnn Annotation Literal
-  | LitInt Integer NumericType Text
-  | LitFloat Rational FloatType Text
-  | LitChar Char Text
-  | LitCharHash Char Text
-  | LitString Text Text
-  | LitStringHash Text Text
+  = -- | Metadata for the whole literal.
+    LitAnn Annotation Literal
+  | -- | @1@, @1#@, @1#Word8@
+    LitInt Integer NumericType Text
+  | -- | @1.0@, @1.0#@, @1.0##@
+    LitFloat Rational FloatType Text
+  | -- | @'x'@
+    LitChar Char Text
+  | -- | @'x'#@
+    LitCharHash Char Text
+  | -- | @"hello"@
+    LitString Text Text
+  | -- | @"hello"#@
+    LitStringHash Text Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 literalAnnSpan :: SourceSpan -> Literal -> Literal
@@ -1049,11 +1173,17 @@ peelLiteralAnn :: Literal -> Literal
 peelLiteralAnn (LitAnn _ inner) = peelLiteralAnn inner
 peelLiteralAnn lit = lit
 
+-- | Whether tuple syntax is boxed or unboxed.
+-- Examples: @(a, b)@ and @(# a, b #)@.
 data TupleFlavor
-  = Boxed
-  | Unboxed
+  = -- | @(a, b)@
+    Boxed
+  | -- | @(# a, b #)@
+    Unboxed
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One record field occurrence.
+-- Examples: @x = 1@ in @T { x = 1 }@ and @x@ in @T { x }@.
 data RecordField a = RecordField
   { recordFieldName :: Name,
     recordFieldValue :: a,
@@ -1061,28 +1191,50 @@ data RecordField a = RecordField
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A pattern.
 data Pattern
-  = PAnn Annotation Pattern
-  | PVar UnqualifiedName
-  | PTypeBinder TyVarBinder
-  | PTypeSyntax TypeSyntaxForm Type
-  | PWildcard
-  | PLit Literal
-  | PQuasiQuote Text Text
-  | PTuple TupleFlavor [Pattern]
-  | PUnboxedSum Int Int Pattern
-  | PList [Pattern]
-  | PCon Name [Type] [Pattern]
-  | PInfix Pattern Name Pattern
-  | PView Expr Pattern
-  | PAs UnqualifiedName Pattern
-  | PStrict Pattern
-  | PIrrefutable Pattern
-  | PNegLit Literal
-  | PParen Pattern
-  | PRecord Name [RecordField Pattern] Bool -- Bool: wildcard present
-  | PTypeSig Pattern Type
-  | PSplice Expr
+  = -- | Metadata for the whole pattern.
+    PAnn Annotation Pattern
+  | -- | @x@
+    PVar UnqualifiedName
+  | -- | @\@a@ in a required type argument pattern.
+    PTypeBinder TyVarBinder
+  | -- | @type T@ in a term-level pattern position.
+    PTypeSyntax TypeSyntaxForm Type
+  | -- | @_@
+    PWildcard
+  | -- | @1@ or @'x'@
+    PLit Literal
+  | -- | @[p| body |]@
+    PQuasiQuote Text Text
+  | -- | @(p1, p2)@ or @(# p1, p2 #)@
+    PTuple TupleFlavor [Pattern]
+  | -- | @(# | p | #)@
+    PUnboxedSum Int Int Pattern
+  | -- | @[p1, p2]@
+    PList [Pattern]
+  | -- | @Just x@ or @Proxy \@Type@
+    PCon Name [Type] [Pattern]
+  | -- | @x :+: y@
+    PInfix Pattern Name Pattern
+  | -- | @(view -> pat)@
+    PView Expr Pattern
+  | -- | @name\@pat@
+    PAs UnqualifiedName Pattern
+  | -- | @!pat@
+    PStrict Pattern
+  | -- | @~pat@
+    PIrrefutable Pattern
+  | -- | @-1@
+    PNegLit Literal
+  | -- | @(pat)@
+    PParen Pattern
+  | -- | @T { x = p, y, .. }@
+    PRecord Name [RecordField Pattern] Bool -- Bool: wildcard present
+  | -- | @(pat :: ty)@
+    PTypeSig Pattern Type
+  | -- | @$pat@ or @$(pat)@
+    PSplice Expr
   -- \$pat or $(pat) (TH pattern splice)
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1091,16 +1243,26 @@ peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn (PAnn _ inner) = peelPatternAnn inner
 peelPatternAnn p = p
 
+-- | How type syntax appears in a term or pattern position.
+-- Examples: @type T@ and @f (type T)@.
 data TypeSyntaxForm
-  = TypeSyntaxExplicitNamespace
-  | TypeSyntaxInTerm
+  = -- | The explicit @type@ namespace, as in @type T@.
+    TypeSyntaxExplicitNamespace
+  | -- | Type syntax embedded in term syntax, as in @f (type T)@.
+    TypeSyntaxInTerm
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a @forall@ telescope is invisible or visible.
+-- Examples: @forall a. ...@ and @forall a -> ...@.
 data ForallVis
-  = ForallInvisible
-  | ForallVisible
+  = -- | @forall a. ...@
+    ForallInvisible
+  | -- | @forall a -> ...@
+    ForallVisible
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The binders introduced by a @forall@.
+-- Example: @forall a b. a -> b -> a@.
 data ForallTelescope = ForallTelescope
   { forallTelescopeVisibility :: ForallVis,
     forallTelescopeBinders :: [TyVarBinder]
@@ -1117,37 +1279,64 @@ data ArrowKind
   | ArrowExplicit Type
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A type.
 data Type
-  = TAnn Annotation Type
-  | TVar UnqualifiedName
-  | TCon Name TypePromotion
-  | TBuiltinCon TypeBuiltinCon
-  | TImplicitParam Text Type
-  | TTypeLit TypeLiteral
-  | TStar Text
-  | TQuasiQuote Text Text
-  | TForall ForallTelescope Type
-  | TApp Type Type
-  | TTypeApp Type Type
-  | TInfix Type Name TypePromotion Type
-  | TFun ArrowKind Type Type
-  | TTuple TupleFlavor TypePromotion [Type]
-  | TUnboxedSum [Type]
-  | TList TypePromotion [Type]
-  | TParen Type
-  | TKindSig Type Type
-  | TContext [Type] Type
-  | TSplice Expr
+  = -- | Metadata for the whole type.
+    TAnn Annotation Type
+  | -- | @a@
+    TVar UnqualifiedName
+  | -- | @Maybe@ or @'Just@
+    TCon Name TypePromotion
+  | -- | @(,)@, @(->)@, @[]@, or @(:)@
+    TBuiltinCon TypeBuiltinCon
+  | -- | @(?x :: Int) => Int@
+    TImplicitParam Text Type
+  | -- | @1@, @"x"@, or @'c'@ at the type level.
+    TTypeLit TypeLiteral
+  | -- | @*@ as written source syntax.
+    TStar Text
+  | -- | @[t| body |]@
+    TQuasiQuote Text Text
+  | -- | @forall a. ty@
+    TForall ForallTelescope Type
+  | -- | @Maybe a@
+    TApp Type Type
+  | -- | @Proxy \@Type@
+    TTypeApp Type Type
+  | -- | @a :+: b@
+    TInfix Type Name TypePromotion Type
+  | -- | @a -> b@, @a %1 -> b@, or @a %m -> b@
+    TFun ArrowKind Type Type
+  | -- | @(a, b)@, @'(a, b)@, or @(# a, b #)@
+    TTuple TupleFlavor TypePromotion [Type]
+  | -- | @(# a | b #)@
+    TUnboxedSum [Type]
+  | -- | @[a]@ or @'[a, b]@
+    TList TypePromotion [Type]
+  | -- | @(ty)@
+    TParen Type
+  | -- | @(a :: Type)@
+    TKindSig Type Type
+  | -- | @(Show a, Eq a) => a -> String@
+    TContext [Type] Type
+  | -- | @$typ@ or @$(typ)@
+    TSplice Expr
   | -- \$typ or $(typ) (TH type splice)
     -- \_ (wildcard type, used in type family instance patterns)
     TWildcard
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Built-in type constructors that have dedicated surface syntax.
+-- Examples: @(,)@, @(->)@, @[]@, and @(:)@.
 data TypeBuiltinCon
-  = TBuiltinTuple Int
-  | TBuiltinArrow
-  | TBuiltinList
-  | TBuiltinCons
+  = -- | An @n@-tuple constructor like @(,)@ or @(,,)@.
+    TBuiltinTuple Int
+  | -- | @(->)@
+    TBuiltinArrow
+  | -- | @[]@
+    TBuiltinList
+  | -- | @(:)@
+    TBuiltinCons
   deriving (Data, Eq, Show, Generic, NFData)
 
 typeAnnSpan :: SourceSpan -> Type -> Type
@@ -1165,10 +1354,15 @@ peelTypeHead (TAnn _ inner) = peelTypeHead inner
 peelTypeHead (TParen inner) = peelTypeHead inner
 peelTypeHead ty = ty
 
+-- | A type-level literal.
+-- Examples: @1@, @"name"@, and @'x'@ in types.
 data TypeLiteral
-  = TypeLitInteger Integer Text
-  | TypeLitSymbol Text Text
-  | TypeLitChar Char Text
+  = -- | @1@
+    TypeLitInteger Integer Text
+  | -- | @"name"@
+    TypeLitSymbol Text Text
+  | -- | @'x'@
+    TypeLitChar Char Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Numeric type suffix for integer literals.
@@ -1189,27 +1383,42 @@ data NumericType
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 -- | Float type suffix for fractional literals.
+-- Examples: @1.0@, @1.0#@, @1.0##@.
 data FloatType
   = TFractional
   | TFloatHash
   | TDoubleHash
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
+-- | Whether list, tuple, and constructor syntax is promoted with a leading quote.
+-- Examples: @Maybe@ versus @'Just@, @[a]@ versus @'[a]@.
 data TypePromotion
-  = Unpromoted
-  | Promoted
+  = -- | Ordinary type syntax such as @Maybe@ or @[a]@.
+    Unpromoted
+  | -- | Promoted syntax such as @'Just@ or @'[a]@.
+    Promoted
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a type-variable binder was written as inferred or specified.
+-- Examples: @{a}@ versus @a@.
 data TyVarBSpecificity
-  = TyVarBInferred
-  | TyVarBSpecified
+  = -- | @{a}@ or @{a :: k}@
+    TyVarBInferred
+  | -- | @a@ or @(a :: k)@
+    TyVarBSpecified
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a type-variable binder is visible or invisible.
+-- Examples: @a@ versus @@a@.
 data TyVarBVisibility
-  = TyVarBVisible
-  | TyVarBInvisible
+  = -- | @a@
+    TyVarBVisible
+  | -- | @@a@
+    TyVarBInvisible
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One type-variable binder.
+-- Examples: @a@, @(a :: Type)@, @{a}@, and @@k@.
 data TyVarBinder = TyVarBinder
   { tyVarBinderAnns :: [Annotation],
     tyVarBinderName :: Text,
@@ -1223,14 +1432,21 @@ data TyVarBinder = TyVarBinder
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a type or binder head is prefix or infix.
+-- Examples: @T a@ versus @a :+: b@.
 data TypeHeadForm
-  = TypeHeadPrefix
-  | TypeHeadInfix
+  = -- | @T a@
+    TypeHeadPrefix
+  | -- | @a :+: b@
+    TypeHeadInfix
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The head of a declaration that binds a type constructor or class.
 data BinderHead name
-  = PrefixBinderHead name [TyVarBinder]
-  | InfixBinderHead TyVarBinder name TyVarBinder [TyVarBinder]
+  = -- | @T a b@
+    PrefixBinderHead name [TyVarBinder]
+  | -- | @a :+: b@
+    InfixBinderHead TyVarBinder name TyVarBinder [TyVarBinder]
   deriving (Data, Eq, Show, Generic, NFData)
 
 binderHeadForm :: BinderHead name -> TypeHeadForm
@@ -1290,19 +1506,29 @@ instanceHeadTypes = go []
     go _ (TInfix lhs _ _ rhs) = [lhs, rhs]
     go acc _ = acc
 
+-- | Roles used in @type role@ annotations.
+-- Examples: @nominal@, @representational@, @phantom@, and @_@.
 data Role
-  = RoleNominal
-  | RoleRepresentational
-  | RolePhantom
-  | RoleInfer
+  = -- | @nominal@
+    RoleNominal
+  | -- | @representational@
+    RoleRepresentational
+  | -- | @phantom@
+    RolePhantom
+  | -- | @_@
+    RoleInfer
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A @type role@ declaration.
+-- Example: @type role T nominal representational@.
 data RoleAnnotation = RoleAnnotation
   { roleAnnotationName :: UnqualifiedName,
     roleAnnotationRoles :: [Role]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A @type@ synonym declaration.
+-- Example: @type Pair a = (a, a)@.
 data TypeSynDecl = TypeSynDecl
   { typeSynHead :: BinderHead UnqualifiedName,
     typeSynBody :: Type
@@ -1311,6 +1537,8 @@ data TypeSynDecl = TypeSynDecl
 
 -- | Open or closed type synonym family declaration.
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
+-- Examples: @type family F a :: Type@ and
+-- @type family F a where F Int = Bool@.
 data TypeFamilyDecl = TypeFamilyDecl
   { typeFamilyDeclHeadForm :: TypeHeadForm,
     typeFamilyDeclExplicitFamilyKeyword :: Bool,
@@ -1326,12 +1554,18 @@ data TypeFamilyDecl = TypeFamilyDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The result signature on a type family head.
 data TypeFamilyResultSig
-  = TypeFamilyKindSig Type
-  | TypeFamilyTyVarSig TyVarBinder
-  | TypeFamilyInjectiveSig TyVarBinder TypeFamilyInjectivity
+  = -- | @type family F a :: Type@
+    TypeFamilyKindSig Type
+  | -- | @type family F a = r@
+    TypeFamilyTyVarSig TyVarBinder
+  | -- | @type family F a = r | r -> a@
+    TypeFamilyInjectiveSig TyVarBinder TypeFamilyInjectivity
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The injectivity annotation in a type family result signature.
+-- Example: @r -> a b@ in @type family F a b = r | r -> a b@.
 data TypeFamilyInjectivity = TypeFamilyInjectivity
   { typeFamilyInjectivityAnns :: [Annotation],
     typeFamilyInjectivityResult :: Text,
@@ -1340,6 +1574,7 @@ data TypeFamilyInjectivity = TypeFamilyInjectivity
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | One equation in a closed type family: @[forall binders.] LhsType = RhsType@
+-- Example: @forall a. F [a] = Maybe a@.
 data TypeFamilyEq = TypeFamilyEq
   { typeFamilyEqAnns :: [Annotation],
     typeFamilyEqForall :: [TyVarBinder],
@@ -1350,6 +1585,7 @@ data TypeFamilyEq = TypeFamilyEq
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Data family declaration (standalone or associated in a class body).
+-- Example: @data family DF a :: Type@.
 data DataFamilyDecl = DataFamilyDecl
   { dataFamilyDeclHead :: BinderHead UnqualifiedName,
     -- | Optional result kind annotation (@:: Kind@)
@@ -1358,6 +1594,7 @@ data DataFamilyDecl = DataFamilyDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Type family instance: @type [instance] [forall binders.] LhsType = RhsType@
+-- Example: @type instance F Int = Bool@.
 data TypeFamilyInst = TypeFamilyInst
   { typeFamilyInstForall :: [TyVarBinder],
     typeFamilyInstHeadForm :: TypeHeadForm,
@@ -1367,6 +1604,8 @@ data TypeFamilyInst = TypeFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Data or newtype family instance (standalone or in an instance body).
+-- Examples: @data instance DF Int = DFInt@ and
+-- @newtype instance DF Bool = DFBool Bool@.
 data DataFamilyInst = DataFamilyInst
   { -- | @True@ when declared with @newtype instance@
     dataFamilyInstIsNewtype :: Bool,
@@ -1380,6 +1619,8 @@ data DataFamilyInst = DataFamilyInst
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A @data@ or @type data@ declaration body.
+-- Examples: @data Maybe a = Nothing | Just a@ and @type data Nat = Z | S Nat@.
 data DataDecl = DataDecl
   { dataDeclCTypePragma :: Maybe Pragma,
     dataDeclHead :: BinderHead UnqualifiedName,
@@ -1391,6 +1632,8 @@ data DataDecl = DataDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A @newtype@ declaration.
+-- Example: @newtype Identity a = Identity a@.
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclCTypePragma :: Maybe Pragma,
     newtypeDeclHead :: BinderHead UnqualifiedName,
@@ -1402,12 +1645,16 @@ data NewtypeDecl = NewtypeDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A data constructor declaration.
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkAnnotation').
     DataConAnn Annotation DataConDecl
-  | PrefixCon [TyVarBinder] [Type] UnqualifiedName [BangType]
-  | InfixCon [TyVarBinder] [Type] BangType UnqualifiedName BangType
-  | RecordCon [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
+  | -- | @Just a@
+    PrefixCon [TyVarBinder] [Type] UnqualifiedName [BangType]
+  | -- | @a :+: b@
+    InfixCon [TyVarBinder] [Type] BangType UnqualifiedName BangType
+  | -- | @MkT { x :: Int, y :: Bool }@
+    RecordCon [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
     GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
@@ -1426,6 +1673,7 @@ peelDataConAnn (DataConAnn _ inner) = peelDataConAnn inner
 peelDataConAnn d = d
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
+-- Examples: @MkT :: a -> T a@ and @MkT :: { field :: a } -> T a@.
 data GadtBody
   = -- | Prefix body: each argument is paired with its outgoing arrow kind.
     -- E.g. @a -> b %1 -> T a@ gives @[(a, ArrowUnrestricted), (b, ArrowLinear)]@ with result @T a@.
@@ -1441,6 +1689,8 @@ gadtBodyResultType body =
     GadtPrefixBody _ ty -> ty
     GadtRecordBody _ ty -> ty
 
+-- | A field or constructor argument type with strictness/laziness markers.
+-- Examples: @a@, @!a@, @~a@, and @{-# UNPACK #-} !Int@.
 data BangType = BangType
   { bangAnns :: [Annotation],
     bangPragmas :: [Pragma],
@@ -1450,6 +1700,8 @@ data BangType = BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A record field declaration.
+-- Example: @x, y :: Int@ in @data T = MkT { x, y :: Int }@.
 data FieldDecl = FieldDecl
   { fieldAnns :: [Annotation],
     fieldNames :: [UnqualifiedName],
@@ -1459,19 +1711,28 @@ data FieldDecl = FieldDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One @deriving@ clause.
+-- Examples: @deriving Show@ and @deriving stock (Eq, Ord)@.
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
     derivingClasses :: Either Name [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | An explicit deriving strategy.
 data DerivingStrategy
-  = DerivingStock
-  | DerivingNewtype
-  | DerivingAnyclass
-  | DerivingVia Type
+  = -- | @deriving stock Show@
+    DerivingStock
+  | -- | @deriving newtype Num@
+    DerivingNewtype
+  | -- | @deriving anyclass C@
+    DerivingAnyclass
+  | -- | @deriving via Wrapper T@
+    DerivingVia Type
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A standalone deriving declaration.
+-- Example: @deriving stock instance Show a => Show (T a)@.
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingPragmas :: [Pragma],
@@ -1482,6 +1743,8 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A class declaration.
+-- Example: @class (Eq a) => C a where f :: a -> Bool@.
 data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
     classDeclHead :: BinderHead UnqualifiedName,
@@ -1490,6 +1753,8 @@ data ClassDecl = ClassDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A functional dependency.
+-- Example: @a -> b@ in @class C a b | a -> b@.
 data FunctionalDependency = FunctionalDependency
   { functionalDependencyAnns :: [Annotation],
     functionalDependencyDeterminers :: [Text],
@@ -1497,16 +1762,25 @@ data FunctionalDependency = FunctionalDependency
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | An item inside a class body.
 data ClassDeclItem
-  = ClassItemAnn Annotation ClassDeclItem
-  | ClassItemTypeSig [BinderName] Type
-  | ClassItemDefaultSig BinderName Type
-  | ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | ClassItemDefault ValueDecl
-  | ClassItemTypeFamilyDecl TypeFamilyDecl
-  | ClassItemDataFamilyDecl DataFamilyDecl
-  | ClassItemDefaultTypeInst TypeFamilyInst
-  | -- pragma inside class body
+  = -- | Metadata for the whole class item.
+    ClassItemAnn Annotation ClassDeclItem
+  | -- | @f :: a -> Bool@
+    ClassItemTypeSig [BinderName] Type
+  | -- | @default f :: Show a => a -> String@
+    ClassItemDefaultSig BinderName Type
+  | -- | @infixr 5 :+:@
+    ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | -- | A default method body such as @f x = True@.
+    ClassItemDefault ValueDecl
+  | -- | @type family F a@
+    ClassItemTypeFamilyDecl TypeFamilyDecl
+  | -- | @data family DF a@
+    ClassItemDataFamilyDecl DataFamilyDecl
+  | -- | @type F Int = Bool@
+    ClassItemDefaultTypeInst TypeFamilyInst
+  | -- | A pragma inside the class body, such as @{-# MINIMAL f #-}@.
     ClassItemPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1514,6 +1788,8 @@ peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
 peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
 peelClassDeclItemAnn item = item
 
+-- | An instance declaration.
+-- Example: @instance Show a => Show [a] where show = ...@.
 data InstanceDecl = InstanceDecl
   { instanceDeclPragmas :: [Pragma],
     instanceDeclWarning :: Maybe Pragma,
@@ -1524,21 +1800,33 @@ data InstanceDecl = InstanceDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The pragma controlling instance overlap.
+-- Examples: @{-# OVERLAPPING #-}@ and @{-# INCOHERENT #-}@.
 data InstanceOverlapPragma
-  = Overlapping
-  | Overlappable
-  | Overlaps
-  | Incoherent
+  = -- | @{-# OVERLAPPING #-}@
+    Overlapping
+  | -- | @{-# OVERLAPPABLE #-}@
+    Overlappable
+  | -- | @{-# OVERLAPS #-}@
+    Overlaps
+  | -- | @{-# INCOHERENT #-}@
+    Incoherent
   deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
+-- | An item inside an instance body.
 data InstanceDeclItem
   = -- | Metadata for the whole instance item (typically a 'SourceSpan' via 'mkAnnotation').
     InstanceItemAnn Annotation InstanceDeclItem
-  | InstanceItemBind ValueDecl
-  | InstanceItemTypeSig [BinderName] Type
-  | InstanceItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | InstanceItemTypeFamilyInst TypeFamilyInst
-  | InstanceItemDataFamilyInst DataFamilyInst
+  | -- | A method body such as @show x = ...@
+    InstanceItemBind ValueDecl
+  | -- | @show :: T -> String@
+    InstanceItemTypeSig [BinderName] Type
+  | -- | @infixr 5 :+:@
+    InstanceItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | -- | @type F Int = Bool@
+    InstanceItemTypeFamilyInst TypeFamilyInst
+  | -- | @data instance DF Int = DFInt@
+    InstanceItemDataFamilyInst DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
     InstanceItemPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1547,12 +1835,19 @@ peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
 peelInstanceDeclItemAnn (InstanceItemAnn _ inner) = peelInstanceDeclItemAnn inner
 peelInstanceDeclItemAnn item = item
 
+-- | Fixity associativity declarations.
+-- Examples: @infix@, @infixl@, and @infixr@.
 data FixityAssoc
-  = Infix
-  | InfixL
-  | InfixR
+  = -- | @infix@
+    Infix
+  | -- | @infixl@
+    InfixL
+  | -- | @infixr@
+    InfixR
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A foreign import or export declaration.
+-- Example: @foreign import ccall "puts" puts :: CString -> IO CInt@.
 data ForeignDecl = ForeignDecl
   { foreignDirection :: ForeignDirection,
     foreignCallConv :: CallConv,
@@ -1563,34 +1858,59 @@ data ForeignDecl = ForeignDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The entity part of a foreign declaration.
 data ForeignEntitySpec
-  = ForeignEntityDynamic
-  | ForeignEntityWrapper
-  | ForeignEntityStatic (Maybe Text)
-  | ForeignEntityAddress (Maybe Text)
-  | ForeignEntityNamed Text
-  | ForeignEntityOmitted
+  = -- | @foreign import ccall "dynamic" ...@
+    ForeignEntityDynamic
+  | -- | @foreign import ccall "wrapper" ...@
+    ForeignEntityWrapper
+  | -- | @foreign import ccall "static foo" ...@
+    ForeignEntityStatic (Maybe Text)
+  | -- | @foreign import ccall "&foo" ...@
+    ForeignEntityAddress (Maybe Text)
+  | -- | @foreign import ccall "foo" ...@
+    ForeignEntityNamed Text
+  | -- | No explicit entity string, as in @foreign import ccall foo :: ...@.
+    ForeignEntityOmitted
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Whether a foreign declaration imports or exports a symbol.
+-- Examples: @foreign import@ and @foreign export@.
 data ForeignDirection
-  = ForeignImport
-  | ForeignExport
+  = -- | @foreign import ...@
+    ForeignImport
+  | -- | @foreign export ...@
+    ForeignExport
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The calling convention used by a foreign declaration.
+-- Examples: @ccall@, @stdcall@, @capi@, @prim@, and @javascript@.
 data CallConv
-  = CCall
-  | StdCall
-  | CApi
-  | CPrim
-  | JavaScript
+  = -- | @ccall@
+    CCall
+  | -- | @stdcall@
+    StdCall
+  | -- | @capi@
+    CApi
+  | -- | @prim@
+    CPrim
+  | -- | @javascript@
+    JavaScript
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Optional foreign-call safety annotations.
+-- Examples: @safe@, @unsafe@, and @interruptible@.
 data ForeignSafety
-  = Safe
-  | Unsafe
-  | Interruptible
+  = -- | @safe@
+    Safe
+  | -- | @unsafe@
+    Unsafe
+  | -- | @interruptible@
+    Interruptible
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Opaque metadata attached to syntax nodes.
+-- Example: a stored 'SourceSpan' created with 'mkAnnotation'.
 newtype Annotation = Annotation Dynamic
   deriving (Show, Generic)
 
@@ -1618,59 +1938,110 @@ instance Eq Annotation where
 instance NFData Annotation where
   rnf (Annotation _) = ()
 
+-- | An expression.
 data Expr
-  = EAnn Annotation Expr
-  | EVar Name
-  | ETypeSyntax TypeSyntaxForm Type
-  | EInt Integer NumericType Text
-  | EFloat Rational FloatType Text
-  | EChar Char Text
-  | ECharHash Char Text
-  | EString Text Text
-  | EStringHash Text Text
-  | EOverloadedLabel Text Text
-  | EQuasiQuote Text Text
-  | EIf Expr Expr Expr
-  | EMultiWayIf [GuardedRhs Expr]
-  | ELambdaPats [Pattern] Expr
-  | ELambdaCase [CaseAlt Expr]
-  | ELambdaCases [LambdaCaseAlt]
-  | EInfix Expr Name Expr
-  | ENegate Expr
-  | ESectionL Expr Name
-  | ESectionR Name Expr
-  | ELetDecls [Decl] Expr
-  | ECase Expr [CaseAlt Expr]
-  | EDo [DoStmt Expr] DoFlavor
-  | EListComp Expr [CompStmt]
-  | EListCompParallel Expr [[CompStmt]]
-  | EArithSeq ArithSeq
-  | ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
-  | ERecordUpd Expr [RecordField Expr]
-  | EGetField Expr Name -- a.b (OverloadedRecordDot)
-  | EGetFieldProjection [Name] -- (.b) or (.b.c) projection section (OverloadedRecordDot)
-  | ETypeSig Expr Type
-  | EParen Expr
-  | EList [Expr]
-  | ETuple TupleFlavor [Maybe Expr]
-  | EUnboxedSum Int Int Expr
-  | ETypeApp Expr Type
-  | EApp Expr Expr
+  = -- | Metadata for the whole expression.
+    EAnn Annotation Expr
+  | -- | @x@ or @Data.List.map@
+    EVar Name
+  | -- | @type T@ in a term position.
+    ETypeSyntax TypeSyntaxForm Type
+  | -- | @1@, @1#@, @1#Word8@
+    EInt Integer NumericType Text
+  | -- | @1.0@, @1.0#@, @1.0##@
+    EFloat Rational FloatType Text
+  | -- | @'x'@
+    EChar Char Text
+  | -- | @'x'#@
+    ECharHash Char Text
+  | -- | @"hello"@
+    EString Text Text
+  | -- | @"hello"#@
+    EStringHash Text Text
+  | -- | @#name@
+    EOverloadedLabel Text Text
+  | -- | @[qq| body |]@
+    EQuasiQuote Text Text
+  | -- | @if c then t else e@
+    EIf Expr Expr Expr
+  | -- | @if | g1 -> e1 | g2 -> e2@
+    EMultiWayIf [GuardedRhs Expr]
+  | -- | @\x y -> body@
+    ELambdaPats [Pattern] Expr
+  | -- | @\case { p -> e }@
+    ELambdaCase [CaseAlt Expr]
+  | -- | @\cases { p q -> e }@
+    ELambdaCases [LambdaCaseAlt]
+  | -- | @a + b@
+    EInfix Expr Name Expr
+  | -- | @-x@
+    ENegate Expr
+  | -- | @(x +)@
+    ESectionL Expr Name
+  | -- | @(+ x)@
+    ESectionR Name Expr
+  | -- | @let x = 1 in x@
+    ELetDecls [Decl] Expr
+  | -- | @case x of { Just y -> y }@
+    ECase Expr [CaseAlt Expr]
+  | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@
+    EDo [DoStmt Expr] DoFlavor
+  | -- | @[x | x <- xs, x > 0]@
+    EListComp Expr [CompStmt]
+  | -- | @[x + y | x <- xs | y <- ys]@
+    EListCompParallel Expr [[CompStmt]]
+  | -- | @[1,3 .. 9]@
+    EArithSeq ArithSeq
+  | -- | @T { x = 1, y, .. }@
+    ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
+  | -- | @r { x = 1 }@
+    ERecordUpd Expr [RecordField Expr]
+  | -- | @a.b@
+    EGetField Expr Name -- a.b (OverloadedRecordDot)
+  | -- | @(.b)@ or @(.b.c)@
+    EGetFieldProjection [Name] -- (.b) or (.b.c) projection section (OverloadedRecordDot)
+  | -- | @(expr :: ty)@
+    ETypeSig Expr Type
+  | -- | @(expr)@
+    EParen Expr
+  | -- | @[x, y]@
+    EList [Expr]
+  | -- | @(x, y)@, @(, y)@, or @(# x | #)@
+    ETuple TupleFlavor [Maybe Expr]
+  | -- | @(# | x | #)@
+    EUnboxedSum Int Int Expr
+  | -- | @f \@Type@
+    ETypeApp Expr Type
+  | -- | @f x@
+    EApp Expr Expr
   | -- Template Haskell quotes
-    ETHExpQuote Expr -- [| expr |] or [e| expr |]
-  | ETHTypedQuote Expr -- [|| expr ||] or [e|| expr ||]
-  | ETHDeclQuote [Decl] -- [d| decls |]
-  | ETHTypeQuote Type -- [t| type |]
-  | ETHPatQuote Pattern -- [p| pat |]
-  | ETHNameQuote Expr -- 'expr in the term namespace
-  | ETHTypeNameQuote Type -- ''type in the type namespace
+
+    -- | @[| expr |]@ or @[e| expr |]@
+    ETHExpQuote Expr
+  | -- | @[|| expr ||]@ or @[e|| expr ||]@
+    ETHTypedQuote Expr
+  | -- | @[d| decls |]@
+    ETHDeclQuote [Decl]
+  | -- | @[t| type |]@
+    ETHTypeQuote Type
+  | -- | @[p| pat |]@
+    ETHPatQuote Pattern
+  | -- | @'expr@ in the term namespace.
+    ETHNameQuote Expr
+  | -- | @''Type@ in the type namespace.
+    ETHTypeNameQuote Type
   | -- Template Haskell splices
+
+    -- | @$expr@ or @$(expr)@
     ETHSplice Expr
-  | -- \$expr or $(expr)
-    ETHTypedSplice Expr -- \$$expr or $$(expr)
+  | -- | @$$expr@ or @$$(expr)@
+    ETHTypedSplice Expr
   | -- Arrow notation (Arrows extension)
-    EProc Pattern Cmd -- proc pat -> cmd
-  | EPragma Pragma Expr
+
+    -- | @proc pat -> cmd@
+    EProc Pattern Cmd
+  | -- | @{-# SCC foo #-} expr@
+    EPragma Pragma Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Peel nested 'EAnn' layers (e.g. span-only dynamic annotations).
@@ -1678,6 +2049,8 @@ peelExprAnn :: Expr -> Expr
 peelExprAnn (EAnn _ x) = peelExprAnn x
 peelExprAnn x = x
 
+-- | One @case@ or @\case@ alternative.
+-- Example: @Just x -> x@.
 data CaseAlt body = CaseAlt
   { caseAltAnns :: [Annotation],
     caseAltPattern :: Pattern,
@@ -1685,6 +2058,8 @@ data CaseAlt body = CaseAlt
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | One multi-argument @\cases@ alternative.
+-- Example: @Just x y -> x + y@.
 data LambdaCaseAlt = LambdaCaseAlt
   { lambdaCaseAltAnns :: [Annotation],
     lambdaCaseAltPats :: [Pattern],
@@ -1692,6 +2067,8 @@ data LambdaCaseAlt = LambdaCaseAlt
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | The keyword that introduces a @do@-like block.
+-- Examples: @do@, @mdo@, @M.do@, and @M.mdo@.
 data DoFlavor
   = -- | @do { stmts }@
     DoPlain
@@ -1703,13 +2080,18 @@ data DoFlavor
     DoQualifiedMdo Text
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A statement inside a @do@ block.
 data DoStmt body
   = -- | Metadata for the whole do-statement (typically a 'SourceSpan' via 'mkAnnotation').
     DoAnn Annotation (DoStmt body)
-  | DoBind Pattern body
-  | DoLetDecls [Decl]
-  | DoExpr body
-  | DoRecStmt [DoStmt body] -- rec { stmts }
+  | -- | @pat <- expr@
+    DoBind Pattern body
+  | -- | @let decls@
+    DoLetDecls [Decl]
+  | -- | A bare expression statement such as @print x@.
+    DoExpr body
+  | -- | @rec { stmts }@
+    DoRecStmt [DoStmt body] -- rec { stmts }
   deriving (Data, Eq, Show, Generic, NFData)
 
 peelDoStmtAnn :: DoStmt body -> DoStmt body
@@ -1747,15 +2129,23 @@ peelCmdAnn (CmdAnn _ inner) = peelCmdAnn inner
 peelCmdAnn c = c
 
 -- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
-data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
+data ArrAppType
+  = -- | @f -< x@
+    HsFirstOrderApp
+  | -- | @f -<< x@
+    HsHigherOrderApp
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | A statement inside a list comprehension.
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkAnnotation').
     CompAnn Annotation CompStmt
-  | CompGen Pattern Expr
-  | CompGuard Expr
-  | CompLetDecls [Decl]
+  | -- | @x <- xs@
+    CompGen Pattern Expr
+  | -- | @x > 0@
+    CompGuard Expr
+  | -- | @let y = f x@
+    CompLetDecls [Decl]
   | -- | @then f@ (TransformListComp)
     CompThen Expr
   | -- | @then f by e@ (TransformListComp)
@@ -1770,13 +2160,18 @@ peelCompStmtAnn :: CompStmt -> CompStmt
 peelCompStmtAnn (CompAnn _ inner) = peelCompStmtAnn inner
 peelCompStmtAnn s = s
 
+-- | An arithmetic sequence expression.
 data ArithSeq
   = -- | Metadata for the whole arithmetic sequence (typically a 'SourceSpan' via 'mkAnnotation').
     ArithSeqAnn Annotation ArithSeq
-  | ArithSeqFrom Expr
-  | ArithSeqFromThen Expr Expr
-  | ArithSeqFromTo Expr Expr
-  | ArithSeqFromThenTo Expr Expr Expr
+  | -- | @[expr ..]@
+    ArithSeqFrom Expr
+  | -- | @[start, thenExpr ..]@
+    ArithSeqFromThen Expr Expr
+  | -- | @[start .. end]@
+    ArithSeqFromTo Expr Expr
+  | -- | @[start, thenExpr .. end]@
+    ArithSeqFromThenTo Expr Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
 peelArithSeqAnn :: ArithSeq -> ArithSeq
