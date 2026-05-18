@@ -177,7 +177,7 @@ annotateMatchesTc expected =
 
 annotateMatchTc :: TcType -> Match -> TcM Match
 annotateMatchTc expected match = do
-  let (argTys, resTy) = splitFunTy expected (length (matchPats match))
+  let (argTys, resTy) = splitFunTy (qualifiedBody expected) (length (matchPats match))
       locals = Map.fromList (concatMap patternBindingsFrom (zip (matchPats match) argTys))
   rhs <- annotateRhsTc locals resTy (matchRhs match)
   pure (match {matchRhs = rhs})
@@ -207,30 +207,31 @@ annotateExprTc locals expected expr =
     EList elems -> do
       elemTyFromItems <- listElemTypeFromItems locals elems
       let elemTy = fromMaybe (TcMetaTv (Unique (-1))) (listElemTyTc expected <|> elemTyFromItems)
-      EList <$> mapM (annotateExprTc locals elemTy) elems
+      elems' <- mapM (annotateExprTc locals elemTy) elems
+      pure (annotateExpr (TcAnnotation expected [] []) (EList elems'))
     ETuple flavor elems -> do
       let elemTys = tupleElemTypesTc expected (length elems)
       elems' <- zipWithM (traverse . annotateExprTc locals) elemTys elems
-      pure (ETuple flavor elems')
+      pure (annotateExpr (TcAnnotation expected [] []) (ETuple flavor elems'))
     EIf cond thenE elseE -> do
       cond' <- annotateExprTc locals boolTy cond
       then' <- annotateExprTc locals expected thenE
       else' <- annotateExprTc locals expected elseE
-      pure (EIf cond' then' else')
+      pure (annotateExpr (TcAnnotation expected [] []) (EIf cond' then' else'))
     ELambdaPats pats body -> do
       let (argTys, resTy) = splitFunTy expected (length pats)
           locals' = locals <> Map.fromList (concatMap patternBindingsFrom (zip pats argTys))
       body' <- annotateExprTc locals' resTy body
-      pure (ELambdaPats pats body')
+      pure (annotateExpr (TcAnnotation expected [] []) (ELambdaPats pats body'))
     ECase scrut alts -> do
       maybeScrutTy <- exprTypeMaybeTc locals scrut
       scrutTy <- maybe (pure expected) pure maybeScrutTy
       scrut' <- annotateExprTc locals scrutTy scrut
       alts' <- mapM (annotateCaseAltTc locals scrutTy expected) alts
-      pure (ECase scrut' alts')
+      pure (annotateExpr (TcAnnotation expected [] []) (ECase scrut' alts'))
     ELetDecls decls body -> do
       body' <- annotateExprTc locals expected body
-      pure (ELetDecls decls body')
+      pure (annotateExpr (TcAnnotation expected [] []) (ELetDecls decls body'))
     _ -> pure expr
 
 annotateCaseAltTc :: Map Text TcType -> TcType -> TcType -> CaseAlt Expr -> TcM (CaseAlt Expr)
