@@ -34,33 +34,23 @@ where
 
 import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
 import Aihc.Parser.Internal.Decl (declParser)
+import Aihc.Parser.Internal.Errors (parseErrorBundleToSpannedText, parseErrorsToSpannedText)
 import Aihc.Parser.Internal.Expr (exprParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Internal.Pattern (patternParser)
 import Aihc.Parser.Internal.Type (typeParser, typeSignatureParser)
-import Aihc.Parser.Lex
-  ( LexToken (..),
-    TokenOrigin (..),
-  )
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax (Decl, Expr, Module (..), Pattern, SourceSpan (..), Type, applyImpliedExtensions)
 import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
-import Data.List.NonEmpty qualified as NE
-import Data.Maybe (fromMaybe)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word8)
 import Prettyprinter (Doc, colon, defaultLayoutOptions, layoutPretty, pretty, vcat)
 import Prettyprinter.Render.String (renderString)
-import Prettyprinter.Render.Text qualified as RText
 import Text.Megaparsec (runParser)
-import Text.Megaparsec qualified as MP
-import Text.Megaparsec.Error (ErrorFancy (..), ErrorItem (..))
-import Text.Megaparsec.Error qualified as MPE
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -101,7 +91,7 @@ parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (exprParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
+        Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
         Right expr -> ParseOk expr
 
 -- | Parse a Haskell pattern.
@@ -115,7 +105,7 @@ parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (patternParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
+        Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
         Right pat -> ParseOk pat
 
 -- | Parse a Haskell signature type.
@@ -129,7 +119,7 @@ parseSignatureType :: ParserConfig -> Text -> ParseResult Type
 parseSignatureType cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (typeSignatureParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
+        Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
         Right ty -> ParseOk ty
 
 -- | Parse a Haskell type in the general declaration RHS context.
@@ -146,7 +136,7 @@ parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (typeParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
+        Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
         Right ty -> ParseOk ty
 
 -- | Parse a single Haskell declaration.
@@ -157,7 +147,7 @@ parseDecl :: ParserConfig -> Text -> ParseResult Decl
 parseDecl cfg input =
   let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input
    in case runParser (declParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
+        Left bundle -> ParseErr (parseErrorBundleToSpannedText bundle)
         Right decl -> ParseOk decl
 
 -- | Parse a complete Haskell module.
@@ -183,7 +173,7 @@ parseModule cfg input =
         pure (errs, modu)
    in case runParser parser (parserSourceName cfg) ts of
         Left bundle ->
-          ( parseErrorsToSpannedText (NE.toList (MPE.bundleErrors bundle)),
+          ( parseErrorBundleToSpannedText bundle,
             Module
               { moduleAnns = [],
                 moduleHead = Nothing,
@@ -195,19 +185,10 @@ parseModule cfg input =
         Right (errs, modu) ->
           (parseErrorsToSpannedText errs, modu)
 
--- | Convert raw MegaParsec parse errors into @(SourceSpan, Text)@ pairs.
-parseErrorsToSpannedText :: [MPE.ParseError TokStream ParserErrorComponent] -> [(SourceSpan, Text)]
-parseErrorsToSpannedText errs =
-  [ (fromMaybe NoSourceSpan mSpan, RText.renderStrict (layoutPretty defaultLayoutOptions doc))
-  | err <- List.sortOn MP.errorOffset errs,
-    (mSpan, doc) <- renderParseErrors err
-  ]
-
--- | Pretty-print a Megaparsec parse error bundle using the same source-context
--- formatter as 'parseModule'.
-formatParseErrorBundle :: FilePath -> Maybe Text -> ParseErrorBundle -> String
-formatParseErrorBundle sourceName mSource bundle =
-  formatParseErrors sourceName mSource (parseErrorsToSpannedText (NE.toList (MPE.bundleErrors bundle)))
+-- | Pretty-print normalized parse errors, such as the payload carried by
+-- 'ParseErr'.
+formatParseErrorBundle :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String
+formatParseErrorBundle = formatParseErrors
 
 -- | Pretty-print a list of spanned parse errors with source context.
 formatParseErrors :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String
@@ -227,81 +208,6 @@ formatParseErrors sourceName mSource errs =
           )
           errs
    in List.intercalate "\n\n" blocks
-
--- | Turn a Megaparsec 'MPE.ParseError' into message blocks with optional spans.
---
--- * 'MPE.TrivialError': unexpected and expected items are rendered from token
---   text, with a span attached when the unexpected item is token content.
--- * 'MPE.FancyError': one block per fancy error. 'ErrorCustom' uses our
---   unexpected line, 'MPE.showErrorComponent', and context lines.
-renderParseErrors :: MPE.ParseError TokStream ParserErrorComponent -> [(Maybe SourceSpan, Doc ann)]
-renderParseErrors err =
-  case err of
-    MPE.TrivialError _ mUnexpected expected ->
-      let mSpan = trivialUnexpectedSpan mUnexpected
-       in [(mSpan, vcat (map pretty (renderTrivialError mUnexpected expected)))]
-    MPE.FancyError _ fancySet ->
-      map renderFancyError (Set.toAscList fancySet)
-  where
-    trivialUnexpectedSpan :: Maybe (ErrorItem LexToken) -> Maybe SourceSpan
-    trivialUnexpectedSpan mItem =
-      case mItem of
-        Just (Tokens ts) -> Just (lexTokenSpan (NE.head ts))
-        _ -> Nothing
-
-    renderFancyError :: ErrorFancy ParserErrorComponent -> (Maybe SourceSpan, Doc ann)
-    renderFancyError fancy =
-      case fancy of
-        ErrorCustom custom ->
-          ( customFoundSpan custom,
-            vcat (map pretty (customMessageLines custom))
-          )
-        ErrorFail message -> (Nothing, pretty message)
-        _ ->
-          ( Nothing,
-            pretty (show fancy)
-          )
-
-    customFoundSpan :: ParserErrorComponent -> Maybe SourceSpan
-    customFoundSpan (UnexpectedTokenExpecting (Just found) _ _) =
-      Just (foundTokenSpan found)
-    customFoundSpan _ = Nothing
-
-    customMessageLines :: ParserErrorComponent -> [String]
-    customMessageLines e@(UnexpectedTokenExpecting mFound _ contexts) =
-      [maybe "unexpected end of input" renderUnexpectedToken mFound, MPE.showErrorComponent e]
-        <> map (\context -> "context: " <> T.unpack context) contexts
-
-renderTrivialError :: Maybe (ErrorItem LexToken) -> Set.Set (ErrorItem LexToken) -> [String]
-renderTrivialError mUnexpected expected =
-  maybe [] (\item -> ["unexpected " <> renderErrorItem item]) mUnexpected
-    <> ["expecting " <> renderExpectedItems (Set.toAscList expected) | not (Set.null expected)]
-
-renderErrorItem :: ErrorItem LexToken -> String
-renderErrorItem item =
-  case item of
-    Tokens toks -> unwords (map (T.unpack . lexTokenText) (NE.toList toks))
-    Label label -> NE.toList label
-    EndOfInput -> "end of input"
-
-renderExpectedItems :: [ErrorItem LexToken] -> String
-renderExpectedItems items =
-  case map renderErrorItem items of
-    [] -> ""
-    [item] -> item
-    [itemA, itemB] -> itemA <> " or " <> itemB
-    rendered -> List.intercalate ", " (init rendered) <> ", or " <> last rendered
-
-renderUnexpectedToken :: FoundToken -> String
-renderUnexpectedToken found =
-  "unexpected " <> tokenDescriptor found
-
-tokenDescriptor :: FoundToken -> String
-tokenDescriptor found =
-  case foundTokenOrigin found of
-    InsertedLayout -> "end of input"
-    FromSource ->
-      "'" <> T.unpack (foundTokenText found) <> "'"
 
 -- renderSourceReference "<input>" "x = 1" (SourceSpan 1 5 1 6) = """
 -- <input>:1:5:
