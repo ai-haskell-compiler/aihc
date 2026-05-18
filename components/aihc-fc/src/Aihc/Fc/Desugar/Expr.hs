@@ -146,7 +146,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
      in if nArgs == 0
           then do
             let (tyLams, afterForAlls) = peelForAlls ty
-                (dictPreds, _innerTy) = peelQuals afterForAlls
+                dictPreds = fst (peelQuals afterForAlls)
             dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
             body <- withDicts dicts (dsRhs (matchRhs m0))
             let dictLamExpr
@@ -325,12 +325,9 @@ dsRhs GuardedRhss {} =
   desugarBug "unsupported guarded RHS after type checking"
 
 dsExpr :: Expr -> DsM FcExpr
-dsExpr (EAnn ann inner@(EVar name))
-  | Just tcAnn <- fromAnnotation ann =
-      dsAnnotatedVar tcAnn name inner
 dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
-      dsExprWithType (tcAnnType tcAnn) inner
+      dsAnnotatedExpr tcAnn inner
 dsExpr (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
@@ -344,9 +341,8 @@ dsExpr (EVar name) = do
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
 dsExpr (EChar c _) = pure (FcLit (LitChar c))
 dsExpr (EString s _) = dsStringLiteral s
-dsExpr app@EApp {} = do
-  expected <- exprTcTypeRequired app
-  dsExprWithType expected app
+dsExpr app@EApp {} =
+  dsApp app
 dsExpr (EInfix lhs op rhs) =
   dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExpr expr@EList {} =
@@ -380,12 +376,23 @@ dsAnnotatedVar tcAnn name _expr = do
       dicts <- mapM dictForPred (tcAnnEvidencePreds tcAnn)
       pure (foldl' FcDictApp typedExpr dicts)
 
-dsExprWithType :: TcType -> Expr -> DsM FcExpr
-dsExprWithType expected (EApp fun arg) = do
-  _argTy <- appArgType fun arg expected
+dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
+dsAnnotatedExpr tcAnn inner =
+  case inner of
+    EVar name -> dsAnnotatedVar tcAnn name inner
+    app@EApp {} -> dsApp app
+    ELetDecls decls body -> dsLetDecls decls (dsExpr body)
+    _ -> dsExprWithType (tcAnnType tcAnn) inner
+
+dsApp :: Expr -> DsM FcExpr
+dsApp (EApp fun arg) = do
   f' <- dsExpr fun
   arg' <- dsExpr arg
   pure (FcApp f' arg')
+dsApp expr =
+  desugarBug ("expected application expression while desugaring: " <> take 80 (show expr))
+
+dsExprWithType :: TcType -> Expr -> DsM FcExpr
 dsExprWithType expected (EList elems) = do
   elemTy <- listElemTyM expected
   foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
@@ -412,35 +419,12 @@ dsExprWithType expected (ECase scrut alts) = do
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder expected alts')
 dsExprWithType expected (ELambdaPats pats body) = do
-  (argTys, _resTy) <- peelFunTysExact (length pats) expected
+  argTys <- fst <$> peelFunTysExact (length pats) expected
   vars <- zipWithM freshVar (map (const "_lam") pats) argTys
   body' <- dsExpr body
   pure (foldr FcLam body' vars)
-dsExprWithType _ (ELetDecls decls body) =
-  dsLetDecls decls (dsExpr body)
 dsExprWithType _ expr =
   desugarBug ("unsupported typed expression form after type checking: " <> take 80 (show expr))
-
-appArgType :: Expr -> Expr -> TcType -> DsM TcType
-appArgType fun arg expected = do
-  argTy <- exprTcType arg
-  case argTy of
-    Just ty
-      | not (isInstantiableType ty) -> pure ty
-    _ -> do
-      funTy <- exprTcTypeRequired fun
-      case appArgTypeFromFun funTy expected of
-        Just ty -> pure ty
-        Nothing ->
-          desugarBug ("missing application argument type information for: " <> take 80 (show arg))
-
-appArgTypeFromFun :: TcType -> TcType -> Maybe TcType
-appArgTypeFromFun funTy expected =
-  case qualifiedBody funTy of
-    TcFunTy formalArg formalResult -> do
-      subst <- matchTypes [formalResult] [expected]
-      pure (substType subst formalArg)
-    _ -> Nothing
 
 qualifiedBody :: TcType -> TcType
 qualifiedBody ty =
