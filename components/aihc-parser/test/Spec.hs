@@ -269,6 +269,7 @@ buildTests = do
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "parenthesizes negated typed view expressions" test_viewExprNegatedTypeSigParens,
             testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
+            testCase "parenthesizes typed classic-if tuple view expressions" test_tupleClassicIfViewExprTypeSigParens,
             testCase "parenthesizes typed record-field view expressions with layout blocks" test_recordFieldViewExprTypeSigParens,
             testCase "rejects bare kind signatures as signature types" test_signatureTypeParserRejectsBareKindSignature,
             testCase "parses parenthesized kind signatures as signature types" test_signatureTypeParserParsesParenthesizedKindSignature,
@@ -1488,11 +1489,22 @@ test_typedViewExprPrettyLayout = do
   assertParsedStrippedPatternShapeRoundTrip
     config
     """
-    ((if | let _ = []
-            ->
-             []
+     ((if | let _ = []
+             ->
+              []
       :: _)
     -> _)
+    """
+
+test_tupleClassicIfViewExprTypeSigParens :: Assertion
+test_tupleClassicIfViewExprTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    (_, ((if [] then [] else []
+          :: _)
+         -> _))
     """
 
 test_recordFieldViewExprTypeSigParens :: Assertion
