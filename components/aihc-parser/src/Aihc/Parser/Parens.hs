@@ -1270,11 +1270,25 @@ addCaseAltPatternParens pat = addPatternParens pat
 
 addLambdaCaseAltParens :: LambdaCaseAlt -> LambdaCaseAlt
 addLambdaCaseAltParens (LambdaCaseAlt sp pats rhs) =
-  let pats' = case pats of
-        [] -> []
-        [_] -> map addFunctionHeadPatternAtomParens pats
-        _ -> map addPatternAtomParens pats
+  let pats' =
+        case pats of
+          [] -> []
+          [_] -> map addLambdaCasePatternAtomParens pats
+          _ -> map addPatternAtomParens pats
    in LambdaCaseAlt sp pats' (addCaseAltRhsParens rhs)
+
+addLambdaCasePatternAtomParens :: Pattern -> Pattern
+addLambdaCasePatternAtomParens pat =
+  case peelPatternAnn pat of
+    PView viewExpr inner
+      | isInfixViewExpr viewExpr ->
+          wrapPat True (PView (wrapExpr True (addExprParens viewExpr)) (addPatternViewInnerParens inner))
+    _ -> addFunctionHeadPatternAtomParens pat
+  where
+    isInfixViewExpr expr =
+      case peelExprAnn expr of
+        EInfix {} -> True
+        _ -> False
 
 addCaseAltRhsParens :: Rhs Expr -> Rhs Expr
 addCaseAltRhsParens rhs =
@@ -1424,13 +1438,13 @@ addTypeTopLevelParens :: Type -> Type
 addTypeTopLevelParens (TAnn ann sub) = TAnn ann (addTypeTopLevelParens sub)
 addTypeTopLevelParens (TImplicitParam name inner) =
   TImplicitParam name (addImplicitParamBodyParens inner)
-addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addTypeTopLevelParens kind)
+addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxKindSig 0 kind)
 addTypeTopLevelParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
     (addTypeTopLevelParens inner)
 addTypeTopLevelParens (TContext constraints inner) =
-  TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
+  TContext (map addContextConstraintDelimitedParens constraints) (addPlainContextBodyParens inner)
 addTypeTopLevelParens (TParen inner) =
   TParen (addTypeTopLevelParens inner)
 addTypeTopLevelParens ty = addSignatureTypeParens ty
@@ -1483,11 +1497,14 @@ addSignatureTypeParensShared ctx prec ty =
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
         -- to produce the required parentheses.
         TKindSig ty' kind ->
-          wrapTy True (TKindSig (atom 0 ty') (atom 0 kind))
+          wrapTy (kindSigNeedsOuterParens ctx) (TKindSig (atom 0 ty') (addSignatureTypeParensShared CtxKindSig 0 kind))
         TContext constraints inner ->
-          wrapTy (prec > 0) (TContext (addContextConstraints constraints) (atom 0 inner))
+          wrapTy (prec > 0) (TContext (addContextConstraints constraints) (addSignatureContextBodyParens inner))
         TSplice body -> TSplice (addSpliceBodyParens body)
         TWildcard {} -> ty
+  where
+    kindSigNeedsOuterParens CtxKindSig = False
+    kindSigNeedsOuterParens _ = True
 
 addArrowKindParens :: ArrowKind -> ArrowKind
 addArrowKindParens ArrowUnrestricted = ArrowUnrestricted
@@ -1498,12 +1515,10 @@ addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =
   tvb {tyVarBinderKind = fmap addSignatureTypeParens (tyVarBinderKind tvb)}
 
--- | Process the body of a TForall. The forall body is parsed by
--- 'contextOrFunTypeParser' (not 'typeParser'), so a bare nested TForall
--- would fail to parse and must be wrapped in TParen.
+-- | Process the body of a TForall in signature-style positions.
+-- Bare outer kind signatures still need wrapping there.
 addForallBodyParens :: Type -> Type
 addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
-addForallBodyParens ty@(TForall {}) = addSignatureTypeParensShared CtxTypeAtom 0 ty
 addForallBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body of a TImplicitParam.
@@ -1513,25 +1528,31 @@ addImplicitParamBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body to the right of a constraint arrow in a top-level type
 -- RHS. A kind signature is already delimited there in cases like
--- @type X = C => T :: K@, but TH splices still need grouping because
--- @type X = C => $x :: K@ is rejected at the @::@ by GHC.
-addContextBodyParens :: Type -> Type
-addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
-addContextBodyParens ty =
+-- @type X = C => T :: K@, including TH splices such as @type X = C => $x :: K@,
+-- so no extra wrapper is needed around the outer kind signature itself.
+addPlainContextBodyParens :: Type -> Type
+addPlainContextBodyParens (TAnn ann sub) = TAnn ann (addPlainContextBodyParens sub)
+addPlainContextBodyParens ty =
+  case ty of
+    TKindSig ty' kind ->
+      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxKindSig 0 kind)
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+        (addTypeTopLevelParens inner)
+    TContext constraints inner ->
+      TContext (addContextConstraints constraints) (addPlainContextBodyParens inner)
+    _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
+
+addSignatureContextBodyParens :: Type -> Type
+addSignatureContextBodyParens (TAnn ann sub) = TAnn ann (addSignatureContextBodyParens sub)
+addSignatureContextBodyParens ty =
   case ty of
     TKindSig ty' kind ->
       wrapTy
-        (startsWithTypeSplice ty')
-        (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
+        True
+        (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxKindSig 0 kind))
     _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
-
-startsWithTypeSplice :: Type -> Bool
-startsWithTypeSplice (TAnn _ sub) = startsWithTypeSplice sub
-startsWithTypeSplice (TParen _) = False
-startsWithTypeSplice TSplice {} = True
-startsWithTypeSplice (TApp f _) = startsWithTypeSplice f
-startsWithTypeSplice (TTypeApp f _) = startsWithTypeSplice f
-startsWithTypeSplice _ = False
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter
@@ -1544,7 +1565,7 @@ addTypeDelimitedParens (TAnn ann sub) = TAnn ann (addTypeDelimitedParens sub)
 addTypeDelimitedParens (TImplicitParam name inner) =
   TImplicitParam name (addImplicitParamBodyParens inner)
 addTypeDelimitedParens (TKindSig ty kind) =
-  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxKindSig 0 kind)
 addTypeDelimitedParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
@@ -1572,7 +1593,7 @@ addTypeDelimitedParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 addTypeInExplicitParenParens :: Type -> Type
 addTypeInExplicitParenParens (TAnn ann sub) = TAnn ann (addTypeInExplicitParenParens sub)
 addTypeInExplicitParenParens (TKindSig ty kind) =
-  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxKindSig 0 kind)
 addTypeInExplicitParenParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 addContextConstraintDelimitedParens :: Type -> Type
@@ -1609,13 +1630,21 @@ addContextConstraintMulti ty =
   case ty of
     TAnn ann sub ->
       TAnn ann (addContextConstraintMulti sub)
+    TImplicitParam name inner ->
+      TImplicitParam name (addImplicitParamBodyParens inner)
+    TInfix lhs op promoted rhs ->
+      TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addContextConstraintDelimitedParens rhs)
+    TApp f x ->
+      TApp (addTypeIn CtxTypeAppFun f) (addContextConstraintDelimitedParens x)
+    TTypeApp f x ->
+      TTypeApp (addTypeIn CtxTypeAppFun f) (addTypeIn CtxTypeDelimitedAppVisibleArg x)
     TKindSig ty' kind ->
       -- In multi-constraint context, TKindSig doesn't need wrapping
-      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind)
+      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxKindSig 0 kind)
     TParen inner@(TKindSig {}) ->
       -- Strip TParen around TKindSig in multi-constraint context
       addContextConstraintMulti inner
-    _ -> addSignatureTypeParens ty
+    _ -> addTypeDelimitedParens ty
 
 -- ---------------------------------------------------------------------------
 -- Patterns

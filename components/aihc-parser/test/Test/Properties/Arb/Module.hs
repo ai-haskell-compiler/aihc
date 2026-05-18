@@ -22,12 +22,13 @@ instance Arbitrary Module where
     n <- chooseInt (0, 6)
     imports <- genImportDecls
     mHead <- genMaybeModuleHead
+    languagePragmas <- genModuleLanguagePragmas
     decls <- vectorOf n arbitrary
     pure $
       Module
         { moduleAnns = [],
           moduleHead = mHead,
-          moduleLanguagePragmas = [],
+          moduleLanguagePragmas = languagePragmas,
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -43,9 +44,26 @@ instance Arbitrary Module where
       <> [ modu {moduleImports = shrunk}
          | shrunk <- shrinkList shrinkImportDecl (moduleImports modu)
          ]
+      <> [ modu {moduleLanguagePragmas = shrunk}
+         | shrunk <- shrinkList shrink (moduleLanguagePragmas modu)
+         ]
       <> [ modu {moduleHead = shrunk}
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
+
+genModuleLanguagePragmas :: Gen [ExtensionSetting]
+genModuleLanguagePragmas = do
+  n <- chooseInt (0, 3)
+  vectorOf n arbitrary
+
+instance Arbitrary ExtensionSetting where
+  arbitrary = EnableExtension <$> elements coverageSafeExtensions
+
+  shrink _ = []
+
+coverageSafeExtensions :: [Extension]
+coverageSafeExtensions =
+  filter (`notElem` [AlternativeLayoutRule, LexicalNegation, NegativeLiterals, OverloadedRecordUpdate]) allKnownExtensions
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
@@ -232,8 +250,11 @@ instance Arbitrary ImportItem where
         [ImportItemAbs namespace name | not (null members)]
           <> [ImportItemWith namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ImportItemWith namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ImportItemAllWith namespace name _wildcardIndex members ->
+      ImportItemAllWith namespace name wildcardIndex members ->
         [ImportItemWith namespace name members]
+          <> [ImportItemAllWith namespace shrunk wildcardIndex members | shrunk <- shrinkTypeName name]
+          <> [ImportItemAllWith namespace name shrunkIndex members | shrunkIndex <- shrinkWildcardIndex wildcardIndex members]
+          <> [ImportItemAllWith namespace name (min wildcardIndex (length shrunk)) shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do
@@ -295,6 +316,7 @@ instance Arbitrary ImportDecl where
   arbitrary = do
     modName <- genModuleName
     spec <- genMaybeImportSpec
+    asName <- genMaybeImportAs
     pure $
       ImportDecl
         { importDeclAnns = [],
@@ -305,7 +327,7 @@ instance Arbitrary ImportDecl where
           importDeclQualified = False,
           importDeclQualifiedPost = False,
           importDeclModule = modName,
-          importDeclAs = Nothing,
+          importDeclAs = asName,
           importDeclSpec = spec
         }
 
@@ -316,6 +338,9 @@ instance Arbitrary ImportDecl where
       <> [ decl {importDeclSpec = shrunk}
          | shrunk <- shrinkMaybeImportSpec (importDeclSpec decl)
          ]
+      <> [ decl {importDeclAs = shrunk}
+         | shrunk <- shrinkMaybeImportAs (importDeclAs decl)
+         ]
 
 genImportDecls :: Gen [ImportDecl]
 genImportDecls = do
@@ -324,6 +349,13 @@ genImportDecls = do
 
 shrinkImportDecl :: ImportDecl -> [ImportDecl]
 shrinkImportDecl = shrink
+
+genMaybeImportAs :: Gen (Maybe Text)
+genMaybeImportAs = frequency [(3, pure Nothing), (2, Just <$> genModuleName)]
+
+shrinkMaybeImportAs :: Maybe Text -> [Maybe Text]
+shrinkMaybeImportAs Nothing = []
+shrinkMaybeImportAs (Just alias) = Nothing : [Just shrunk | shrunk <- shrinkModuleName alias]
 
 genModuleName :: Gen Text
 genModuleName = do

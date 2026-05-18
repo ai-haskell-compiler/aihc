@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens)
+import Aihc.Parser.Parens (addExprParens, addSignatureTypeParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -265,6 +265,7 @@ buildTests = do
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
+            testCase "parenthesizes infix view expressions inside lambda-cases" test_lambdaCasesViewExprInfixParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "parenthesizes negated typed view expressions" test_viewExprNegatedTypeSigParens,
             testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
@@ -276,6 +277,11 @@ buildTests = do
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
+            testCase "parenthesizes forall kind signatures as signature types" test_signatureTypeParensWrapsForallKindSignatures,
+            testCase "keeps nested kind signatures bare in type contexts" test_typeParensKeepsNestedKindSignaturesBare,
+            testCase "keeps forall kind signatures bare in type contexts" test_typeParensKeepsForallKindSignaturesBare,
+            testCase "keeps splice kind signatures bare in type contexts" test_typeParensKeepsSpliceKindSignaturesBare,
+            testCase "keeps nested kind signatures bare in signature tuples" test_signatureTypeParensKeepsNestedKindSignaturesBare,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1456,6 +1462,19 @@ test_viewExprArrowCommandTypeSigRhsParens = do
         """
   assertParsedStrippedPatternShapeRoundTrip config source
 
+test_lambdaCasesViewExprInfixParens :: Assertion
+test_lambdaCasesViewExprInfixParens = do
+  let config = defaultConfig {parserExtensions = [LambdaCase, ViewPatterns]}
+      source =
+        """
+        _ = \\cases
+              (([]
+              `a` [])
+               -> _) ->
+                []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+
 test_viewExprNegatedTypeSigParens :: Assertion
 test_viewExprNegatedTypeSigParens = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1559,6 +1578,60 @@ test_typeParserParsesBareKindSignature = do
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_signatureTypeParensWrapsForallKindSignatures :: Assertion
+test_signatureTypeParensWrapsForallKindSignatures = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      ty = TForall (ForallTelescope ForallInvisible [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible]) (TKindSig TWildcard TWildcard)
+      rendered = renderPretty (addSignatureTypeParens ty)
+  assertEqual "signature forall kind signature rendering" "forall a. (_ :: _)" rendered
+  case parseSignatureType config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed signature forall kind signature" ty (stripAnnotations (stripParens reparsed))
+    ParseErr bundle ->
+      assertFailure ("expected parse success for signature forall kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_typeParensKeepsNestedKindSignaturesBare :: Assertion
+test_typeParensKeepsNestedKindSignaturesBare =
+  assertEqual
+    "nested kind signatures in contexts should not gain extra parens"
+    (TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard)))
+    ( addTypeParens
+        (TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard)))
+    )
+
+test_typeParensKeepsForallKindSignaturesBare :: Assertion
+test_typeParensKeepsForallKindSignaturesBare = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      ty = TContext [TWildcard] (TForall (ForallTelescope ForallInvisible [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible]) (TKindSig TWildcard TWildcard))
+      rendered = renderPretty (addTypeParens ty)
+  assertEqual "constrained forall kind signature rendering" "_ => forall a. _ :: _" rendered
+  case parseType config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed constrained forall kind signature" ty (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for constrained forall kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_typeParensKeepsSpliceKindSignaturesBare :: Assertion
+test_typeParensKeepsSpliceKindSignaturesBare = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      ty = TContext [TWildcard] (TKindSig (TSplice (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "a")))) TWildcard)
+      rendered = renderPretty (addTypeParens ty)
+  assertEqual "constrained splice kind signature rendering" "_ => $a :: _" rendered
+  case parseType config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed constrained splice kind signature" ty (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for constrained splice kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_signatureTypeParensKeepsNestedKindSignaturesBare :: Assertion
+test_signatureTypeParensKeepsNestedKindSignaturesBare =
+  assertEqual
+    "nested kind signatures in tuple elements should not gain extra parens"
+    (TTuple Boxed Unpromoted [TWildcard, TKindSig TWildcard (TKindSig TWildcard TWildcard)])
+    ( addSignatureTypeParens
+        (TTuple Boxed Unpromoted [TWildcard, TKindSig TWildcard (TKindSig TWildcard TWildcard)])
+    )
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do

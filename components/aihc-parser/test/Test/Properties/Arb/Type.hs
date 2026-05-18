@@ -334,11 +334,11 @@ shrinkType ty =
           <> [TForall telescope inner' | inner' <- shrinkType inner]
       TApp fn arg ->
         [fn, arg]
-          <> [TApp fn' arg | fn' <- shrinkType fn]
+          <> [TApp fn' arg | fn' <- shrinkType fn, isValidTypeAppFunction fn']
           <> [TApp fn arg' | arg' <- shrinkType arg]
       TTypeApp fn arg ->
         [fn, arg]
-          <> [TTypeApp fn' arg | fn' <- shrinkType fn]
+          <> [TTypeApp fn' arg | fn' <- shrinkType fn, isValidTypeAppFunction fn']
           <> [TTypeApp fn arg' | arg' <- shrinkType arg]
       TFun arrowKind lhs rhs ->
         [lhs, rhs]
@@ -371,6 +371,21 @@ shrinkType ty =
       TWildcard ->
         []
       TAnn _ sub -> shrinkType sub
+
+isValidTypeAppFunction :: Type -> Bool
+isValidTypeAppFunction ty =
+  case ty of
+    TAnn _ sub -> isValidTypeAppFunction sub
+    TVar {} -> True
+    TCon {} -> True
+    TBuiltinCon {} -> True
+    TApp fn _ -> isValidTypeAppFunction fn
+    TTypeApp fn _ -> isValidTypeAppFunction fn
+    TInfix {} -> True
+    TParen inner -> isValidTypeAppFunction inner
+    TKindSig inner _ -> isValidTypeAppFunction inner
+    TSplice {} -> True
+    _ -> False
 
 shrinkTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
 shrinkTyVarBinders binders =

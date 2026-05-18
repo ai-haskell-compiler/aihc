@@ -860,7 +860,13 @@ genFamilyTypeApp = do
   pure (foldl TApp f args)
 
 genFamilyTypeAtom :: Gen Type
-genFamilyTypeAtom = genSimpleTypeWithoutFun
+genFamilyTypeAtom = suchThat genSimpleTypeWithoutFun isValidFamilyTypeAtom
+
+isValidFamilyTypeAtom :: Type -> Bool
+isValidFamilyTypeAtom ty =
+  case ty of
+    TWildcard -> False
+    _ -> True
 
 genFamilyLhsArg :: Gen Type
 genFamilyLhsArg = suchThat (scale (min 4) genType) (not . isStarType)
@@ -877,12 +883,69 @@ genDeclPragma = do
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
   synName <- genConUnqualifiedName
-  argName <- genVarId
-  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
-  let args = PatSynPrefixArgs [argName]
-      pat = PCon conName [] [PVar (mkUnqualifiedName NameVarId argName)]
-  dir <- elements [PatSynBidirectional, PatSynUnidirectional]
+  args <- genPatSynArgs
+  pat <- genPatSynPattern args
+  dir <- genPatSynDir synName args pat
   pure $ DeclPatSyn (PatSynDecl synName args pat dir)
+
+genPatSynArgs :: Gen PatSynArgs
+genPatSynArgs =
+  oneof
+    [ PatSynPrefixArgs <$> smallList1 genVarId,
+      PatSynInfixArgs <$> genVarId <*> genVarId,
+      PatSynRecordArgs <$> smallList1 genVarId
+    ]
+
+genPatSynPattern :: PatSynArgs -> Gen Pattern
+genPatSynPattern args = do
+  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConId
+  pure $ case args of
+    PatSynPrefixArgs names ->
+      PCon conName [] [PVar (mkUnqualifiedName NameVarId name) | name <- names]
+    PatSynInfixArgs lhs rhs ->
+      PInfix (PVar (mkUnqualifiedName NameVarId lhs)) conName (PVar (mkUnqualifiedName NameVarId rhs))
+    PatSynRecordArgs fields ->
+      PRecord
+        conName
+        [ RecordField
+            (qualifyName Nothing (mkUnqualifiedName NameVarId field))
+            (PVar (mkUnqualifiedName NameVarId field))
+            False
+        | field <- fields
+        ]
+        False
+
+genPatSynDir :: UnqualifiedName -> PatSynArgs -> Pattern -> Gen PatSynDir
+genPatSynDir synName args pat =
+  frequency
+    [ (2, elements [PatSynBidirectional, PatSynUnidirectional]),
+      (1, PatSynExplicitBidirectional <$> genPatSynMatches synName args pat)
+    ]
+
+genPatSynMatches :: UnqualifiedName -> PatSynArgs -> Pattern -> Gen [Match]
+genPatSynMatches _synName args _pat = do
+  rhs <- genRhs
+  pure
+    [ Match
+        { matchAnns = [],
+          matchHeadForm = patSynMatchHeadForm args,
+          matchPats = patSynMatchPats args,
+          matchRhs = rhs
+        }
+    ]
+
+patSynMatchHeadForm :: PatSynArgs -> MatchHeadForm
+patSynMatchHeadForm args =
+  case args of
+    PatSynInfixArgs {} -> MatchHeadInfix
+    _ -> MatchHeadPrefix
+
+patSynMatchPats :: PatSynArgs -> [Pattern]
+patSynMatchPats args =
+  case args of
+    PatSynPrefixArgs names -> [PVar (mkUnqualifiedName NameVarId name) | name <- names]
+    PatSynInfixArgs lhs rhs -> [PVar (mkUnqualifiedName NameVarId lhs), PVar (mkUnqualifiedName NameVarId rhs)]
+    PatSynRecordArgs fields -> [PVar (mkUnqualifiedName NameVarId field) | field <- fields]
 
 genDeclPatSynSig :: Gen Decl
 genDeclPatSynSig = DeclPatSynSig <$> smallList1 genConUnqualifiedName <*> genType
@@ -905,12 +968,26 @@ genDerivingClauses = smallList0 genDerivingClause
 genDerivingClause :: Gen DerivingClause
 genDerivingClause = do
   strategy <- optional genDerivingStrategy
-  classes <- oneof [Left <$> genSimpleConName, Right <$> smallList0 genType]
+  classes <- oneof [Left <$> genSimpleConName, Right <$> smallList0 genDerivingClauseType]
   pure $
     DerivingClause
       { derivingStrategy = strategy,
         derivingClasses = classes
       }
+
+genDerivingClauseType :: Gen Type
+genDerivingClauseType = suchThat genType isValidDerivingClauseType
+
+isValidDerivingClauseType :: Type -> Bool
+isValidDerivingClauseType ty =
+  case ty of
+    TStar {} -> False
+    TWildcard -> False
+    TForall {} -> False
+    TContext {} -> False
+    TImplicitParam {} -> False
+    TAnn _ inner -> isValidDerivingClauseType inner
+    _ -> True
 
 genDerivingStrategy :: Gen DerivingStrategy
 genDerivingStrategy =
@@ -1297,13 +1374,20 @@ shrinkTypeFamilyInst tfi =
 shrinkTypeFamilyInstLhs :: TypeHeadForm -> Type -> [Type]
 shrinkTypeFamilyInstLhs headForm lhs =
   case headForm of
-    TypeHeadPrefix -> shrinkType lhs
+    TypeHeadPrefix -> shrinkPrefixTypeFamilyInstLhs lhs
     TypeHeadInfix ->
       case lhs of
         TApp (TApp op lhsArg) rhsArg ->
           [TApp (TApp op lhsArg') rhsArg | lhsArg' <- shrinkType lhsArg]
             <> [TApp (TApp op lhsArg) rhsArg' | rhsArg' <- shrinkType rhsArg]
         _ -> []
+
+shrinkPrefixTypeFamilyInstLhs :: Type -> [Type]
+shrinkPrefixTypeFamilyInstLhs lhs =
+  case lhs of
+    TApp familyCon arg ->
+      [TApp familyCon arg' | arg' <- shrinkType arg]
+    _ -> []
 
 shrinkDataFamilyInst :: DataFamilyInst -> [DataFamilyInst]
 shrinkDataFamilyInst dfi =
