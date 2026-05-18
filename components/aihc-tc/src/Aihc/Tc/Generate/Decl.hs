@@ -222,7 +222,7 @@ annotateExprTc locals expected expr =
     ETuple flavor elems -> do
       elemTys <- tupleElemTypesTc expected (length elems)
       elems' <- zipWithM (traverse . annotateExprTc locals) elemTys elems
-      pure (annotateExpr (TcAnnotation expected [] []) (ETuple flavor elems'))
+      pure (annotateExpr (TcAnnotation expected elemTys []) (ETuple flavor elems'))
     EIf cond thenE elseE -> do
       cond' <- annotateExprTc locals boolTy cond
       then' <- annotateExprTc locals expected thenE

@@ -347,8 +347,8 @@ dsExpr (EInfix lhs op rhs) =
   dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExpr expr@EList {} =
   exprTcTypeRequired expr >>= (`dsExprWithType` expr)
-dsExpr expr@(ETuple Boxed _) =
-  exprTcTypeRequired expr >>= (`dsExprWithType` expr)
+dsExpr ETuple {} =
+  desugarBug "missing type-checker annotation for tuple expression"
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (ETypeSig inner _ty) = dsExpr inner
@@ -382,14 +382,13 @@ dsAnnotatedExpr tcAnn inner =
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
+    ETuple Boxed elems -> dsTuple tcAnn elems
     _ -> dsExprWithType (tcAnnType tcAnn) inner
 
 dsExprWithType :: TcType -> Expr -> DsM FcExpr
 dsExprWithType expected (EList elems) = do
   elemTy <- listElemTyM expected
   foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
-dsExprWithType expected (ETuple Boxed elems) =
-  dsTuple expected elems
 dsExprWithType expected (EIf cond thenE elseE) = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
@@ -590,19 +589,14 @@ dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar (nilList charTy) text)
 
-dsTuple :: TcType -> [Maybe Expr] -> DsM FcExpr
-dsTuple expected elems = do
-  elemTys <- tupleElemTypes expected (length elems)
-  elems' <- zipWithM dsMaybeTupleElem elemTys elems
-  pure (foldl' FcApp (tupleConExpr expected elemTys) elems')
-
-tupleElemTypes :: TcType -> Int -> DsM [TcType]
-tupleElemTypes (TcTyCon (TyCon _ arity) elemTys) expectedArity
-  | arity == expectedArity,
-    length elemTys == expectedArity =
-      pure elemTys
-tupleElemTypes ty arity =
-  desugarBug ("missing tuple element type information for " <> show arity <> "-tuple: " <> show ty)
+dsTuple :: TcAnnotation -> [Maybe Expr] -> DsM FcExpr
+dsTuple tcAnn elems = do
+  let elemTys = tcAnnTypeArgs tcAnn
+  if length elemTys == length elems
+    then do
+      elems' <- zipWithM dsMaybeTupleElem elemTys elems
+      pure (foldl' FcApp (tupleConExpr elemTys) elems')
+    else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
 dsMaybeTupleElem _ (Just expr) = dsExpr expr
@@ -610,10 +604,18 @@ dsMaybeTupleElem ty Nothing = do
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
 
-tupleConExpr :: TcType -> [TcType] -> FcExpr
-tupleConExpr resultTy elemTys =
+tupleConExpr :: [TcType] -> FcExpr
+tupleConExpr elemTys =
   let arity = length elemTys
-   in FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (foldr TcFunTy resultTy elemTys))
+   in foldl' FcTyApp (FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (tupleConType elemTys))) elemTys
+
+tupleConType :: [TcType] -> TcType
+tupleConType elemTys =
+  foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultTy tyVars) tyVars
+  where
+    arity = length elemTys
+    tyVars = [TyVarId ("t" <> T.pack (show i)) (Unique (-2100 - i)) | i <- [0 .. arity - 1]]
+    resultTy = TcTyCon (TyCon (tupleConName arity) arity) (map TcTyVar tyVars)
 
 tupleConName :: Int -> Text
 tupleConName arity = "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"

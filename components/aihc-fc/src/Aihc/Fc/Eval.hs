@@ -62,6 +62,7 @@ primitiveEnv =
   Map.fromList
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
+      ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
       ("+#", VPrim "+#" 2 []),
       ("-#", VPrim "-#" 2 []),
