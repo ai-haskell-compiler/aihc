@@ -247,6 +247,7 @@ buildTests = do
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
+            testCase "parenthesizes transform-list-comp group-by infix RHS before using" test_transformListCompGroupByInfixRhsParens,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -274,6 +275,7 @@ buildTests = do
             testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
+            testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
@@ -1543,6 +1545,14 @@ test_signatureTypeParserRejectsImplicitParamBareKindSignature = do
     ParseOk ty ->
       assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
 
+test_typeParserRejectsBareImplicitParamContextAppArg :: Assertion
+test_typeParserRejectsBareImplicitParamContextAppArg = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => (_, (:+) ?a :: _) => _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
 test_declParserRejectsBareKindSignature :: Assertion
 test_declParserRejectsBareKindSignature = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1575,6 +1585,12 @@ test_shrunkDoExpressionsKeepFinalExpression = do
        in assertEqual "invalid do-statement shrinks" [] invalidShrinks
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_transformListCompGroupByInfixRhsParens :: Assertion
+test_transformListCompGroupByInfixRhsParens = do
+  let config = defaultConfig {parserExtensions = [TransformListComp]}
+      source = "_ = [[] | then group by ([] `a` - []) using []]"
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =
