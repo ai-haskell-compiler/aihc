@@ -1068,10 +1068,21 @@ compTransformExprWithoutTypeSigParser = exprInfixChainParser compTransformLexpPa
 -- | TransformListComp still uses the report @lexp@ layering; only its atom
 -- parser changes.
 compTransformLexpParser :: TokParser Expr
-compTransformLexpParser = lexpBaseParser compTransformAppExprParser
+compTransformLexpParser =
+  lexpBlockParser
+    <|> MP.try compTransformNegateExprParser
+    <|> compTransformAppExprParser
 
 compTransformAppExprParser :: TokParser Expr
 compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser
+
+compTransformNegateExprParser :: TokParser Expr
+compTransformNegateExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  _ <- minusTokenValueParser
+  ENegate <$> compTransformNegateOperandParser
+
+compTransformNegateOperandParser :: TokParser Expr
+compTransformNegateOperandParser = reportLexpParser compTransformAppExprParser
 
 -- | Like 'atomOrRecordExprParser' but rejects bare 'by' and 'using' identifiers.
 -- These are treated as contextual keywords in TransformListComp context.

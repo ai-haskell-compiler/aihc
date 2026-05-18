@@ -247,6 +247,7 @@ buildTests = do
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
+            testCase "parenthesizes transform-list-comp group-by infix RHS before using" test_transformListCompGroupByInfixRhsParens,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -1575,6 +1576,12 @@ test_shrunkDoExpressionsKeepFinalExpression = do
        in assertEqual "invalid do-statement shrinks" [] invalidShrinks
     ParseErr bundle ->
       assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+
+test_transformListCompGroupByInfixRhsParens :: Assertion
+test_transformListCompGroupByInfixRhsParens = do
+  let config = defaultConfig {parserExtensions = [TransformListComp]}
+      source = "_ = [[] | then group by ([] `a` - []) using []]"
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =
