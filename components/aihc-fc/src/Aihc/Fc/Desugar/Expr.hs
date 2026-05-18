@@ -42,6 +42,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Tc.Annotations (TcAnnotation (..))
+import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
@@ -360,7 +361,7 @@ dsAnnotatedVar tcAnn name _expr = do
       ty <- lookupTypeName name
       v <- freshVar n ty
       let typedExpr = foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
-      dicts <- mapM dictForPred (tcAnnEvidencePreds tcAnn)
+      dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
       pure (foldl' FcDictApp typedExpr dicts)
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
@@ -405,11 +406,6 @@ splitQualifiedType ty =
    in case body of
         TcQualTy preds inner -> Just (tvs, preds, inner)
         _ -> Nothing
-
-firstJust :: [Maybe a] -> Maybe a
-firstJust [] = Nothing
-firstJust (Just x : _) = Just x
-firstJust (Nothing : xs) = firstJust xs
 
 sameTcType :: TcType -> TcType -> Bool
 sameTcType (TcTyVar left) (TcTyVar right) = tvUnique left == tvUnique right
@@ -650,36 +646,30 @@ listType :: TcType -> TcType
 listType ty =
   TcTyCon (TyCon "[]" 1) [ty]
 
-dictForPred :: Pred -> DsM FcExpr
-dictForPred pred' =
-  case pred' of
-    ClassPred className args -> dictForClass className args
-    EqPred {} -> pure (FcDict [])
-
-dictForClass :: Text -> [TcType] -> DsM FcExpr
-dictForClass className args = do
-  st <- get
-  case Map.lookup (dictKey className args) (dsLocalDicts st) of
-    Just var -> pure (FcVar var)
-    Nothing -> do
-      case firstJust (map (matchInstance className args) (Map.toList (dsTypeEnv st))) of
-        Just (dictName, dictTy, typeArgs, context) -> do
-          contextDicts <- mapM dictForPred context
-          let dictExpr = foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
-          pure (foldl' FcDictApp dictExpr contextDicts)
+dsEvidence :: EvTerm -> DsM FcExpr
+dsEvidence evidence =
+  case evidence of
+    EvGiven (ClassPred className args) -> do
+      st <- get
+      case Map.lookup (dictKey className args) (dsLocalDicts st) of
+        Just var -> pure (FcVar var)
         Nothing ->
-          desugarBug ("missing dictionary for " <> T.unpack (dictKey className args))
-
-matchInstance :: Text -> [TcType] -> (Text, TcType) -> Maybe (Text, TcType, [TcType], [Pred])
-matchInstance className args (dictName, dictTy) = do
-  (tvs, context, body) <- splitQualifiedType dictTy <|> Just ([], [], dictTy)
-  case body of
-    TcTyCon (TyCon dictClass _) headArgs
-      | dictClass == className -> do
-          subst <- matchTypes headArgs args
-          let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
-          Just (dictName, dictTy, typeArgs, map (substPred subst) context)
-    _ -> Nothing
+          desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
+    EvGiven EqPred {} ->
+      pure (FcDict [])
+    EvDict dictName typeArgs contextEvidence -> do
+      dictTy <- lookupType dictName
+      contextDicts <- mapM dsEvidence contextEvidence
+      let dictExpr = foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
+      pure (foldl' FcDictApp dictExpr contextDicts)
+    EvCoercion {} ->
+      pure (FcDict [])
+    EvSuperClass dict index ->
+      (`FcDictSelect` index) <$> dsEvidence dict
+    EvCast dict _co ->
+      dsEvidence dict
+    EvVarTerm {} ->
+      desugarBug "unresolved evidence variable in type-checker annotation"
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map.Map Unique TcType)
 matchTypes patterns targets

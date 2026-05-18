@@ -31,7 +31,9 @@ newtype EvVar = EvVar {evVarUnique :: Unique}
 data EvTerm
   = -- | Reference to an evidence variable (given or previously solved).
     EvVarTerm !EvVar
-  | -- | Dictionary construction: class name, type args, sub-evidence.
+  | -- | Given dictionary from a qualified type.
+    EvGiven !Pred
+  | -- | Dictionary construction: dictionary name, type args, sub-evidence.
     EvDict !Text ![TcType] ![EvTerm]
   | -- | Coercion evidence (for equality constraints).
     EvCoercion !Coercion

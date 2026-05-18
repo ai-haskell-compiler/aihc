@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Dictionary (class constraint) solver.
 --
 -- For the MVP, this is a stub. The full implementation will match
@@ -5,6 +7,7 @@
 -- declarations.
 module Aihc.Tc.Solve.Dict
   ( solveDict,
+    solveDictWithGivens,
     DictResult (..),
   )
 where
@@ -13,12 +16,15 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (applySubst)
-import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances)
+import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupEvidence)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Result of attempting to solve a dictionary constraint.
 data DictResult
@@ -33,18 +39,29 @@ data DictResult
 -- This covers the Haskell 2010 instance path used by the current Prelude:
 -- match a wanted class predicate against an in-scope instance head, solve the
 -- instance context recursively, and bind the wanted evidence to a dictionary
--- term. Given-dictionary selection and overlap handling are deliberately left
--- to the fuller OutsideIn implementation.
+-- term. The plain entry point has no local givens; annotation generation uses
+-- 'solveDictWithGivens' when elaborating inside a qualified binding.
 solveDict :: Ct -> TcM DictResult
-solveDict ct =
+solveDict = solveDictWithGivens []
+
+solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
+solveDictWithGivens givens ct =
   case ctPred ct of
     ClassPred className args -> do
       args' <- mapM zonkType args
-      instances <- getInstances
-      tryInstances className args' instances
+      case givenDict className args' of
+        Just evidence -> do
+          bindEvidence (ctEvVar ct) evidence
+          pure DictSolved
+        Nothing -> do
+          instances <- getInstances
+          tryInstances className args' instances
     _ ->
       pure (DictStuck ct)
   where
+    givenDict className args =
+      EvGiven <$> find (sameClassPred className args) givens
+
     tryInstances _ _ [] = pure (DictStuck ct)
     tryInstances className args (instanceInfo : rest)
       | iiClassName instanceInfo /= className =
@@ -54,19 +71,41 @@ solveDict ct =
             Nothing -> tryInstances className args rest
             Just subst -> do
               let context = map (substPred subst) (iiContext instanceInfo)
+                  dictName = instanceDictName className (iiHead instanceInfo)
+                  typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
               contextEvidence <- mapM solveSubPred context
               case sequence contextEvidence of
                 Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvDict className args evidence)
+                  bindEvidence (ctEvVar ct) (EvDict dictName typeArgs evidence)
                   pure DictSolved
                 Nothing -> tryInstances className args rest
 
     solveSubPred pred' = do
       ev <- freshEvVar
-      result <- solveDict (ct {ctPred = pred', ctEvVar = ev})
-      pure $ case result of
-        DictSolved -> Just (EvVarTerm ev)
-        DictStuck _ -> Nothing
+      result <- solveDictWithGivens givens (ct {ctPred = pred', ctEvVar = ev})
+      case result of
+        DictSolved -> lookupEvidence ev
+        DictStuck _ -> pure Nothing
+
+sameClassPred :: Text -> [TcType] -> Pred -> Bool
+sameClassPred className args pred' =
+  case pred' of
+    ClassPred givenClass givenArgs ->
+      givenClass == className && givenArgs == args
+    EqPred {} ->
+      False
+
+instanceDictName :: Text -> [TcType] -> Text
+instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)
+
+typeSuffix :: TcType -> Text
+typeSuffix ty =
+  case ty of
+    TcTyVar tv -> tvName tv
+    TcTyCon tc [] -> tyConName tc
+    TcTyCon (TyCon "[]" _) [_] -> "List"
+    TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
+    _ -> "T"
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets

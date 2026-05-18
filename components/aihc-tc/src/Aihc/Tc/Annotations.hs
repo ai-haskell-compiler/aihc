@@ -33,6 +33,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Tc.Evidence (EvTerm)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Data.Text qualified as T
 
@@ -45,8 +46,8 @@ data TcAnnotation = TcAnnotation
     tcAnnType :: !TcType,
     -- | Type arguments made explicit at this occurrence.
     tcAnnTypeArgs :: ![TcType],
-    -- | Class predicates whose dictionaries must be passed at this occurrence.
-    tcAnnEvidencePreds :: ![Pred],
+    -- | Evidence terms whose dictionaries must be passed at this occurrence.
+    tcAnnEvidenceTerms :: ![EvTerm],
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
   }
