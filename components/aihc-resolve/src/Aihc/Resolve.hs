@@ -431,12 +431,12 @@ resolveClassDeclItem classDeclItem =
 resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
 resolveInstanceDecl instanceDecl = do
   (forallScope, forallBinders') <- bindTyVarBinders (instanceDeclForall instanceDecl)
-  (context', head') <-
+  (context', head', items') <-
     extendScope forallScope $
-      (,)
+      (,,)
         <$> mapM resolveType (instanceDeclContext instanceDecl)
         <*> resolveType (instanceDeclHead instanceDecl)
-  items' <- mapM resolveInstanceDeclItem (instanceDeclItems instanceDecl)
+        <*> mapM resolveInstanceDeclItem (instanceDeclItems instanceDecl)
   pure
     instanceDecl
       { instanceDeclForall = forallBinders',

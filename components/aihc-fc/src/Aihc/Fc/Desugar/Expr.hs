@@ -341,8 +341,8 @@ dsExpr (EVar name) = do
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
 dsExpr (EChar c _) = pure (FcLit (LitChar c))
 dsExpr (EString s _) = dsStringLiteral s
-dsExpr app@EApp {} =
-  dsApp app
+dsExpr (EApp fun arg) =
+  FcApp <$> dsExpr fun <*> dsExpr arg
 dsExpr (EInfix lhs op rhs) =
   dsExpr (EApp (EApp (EVar op) lhs) rhs)
 dsExpr expr@EList {} =
@@ -380,17 +380,9 @@ dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
   case inner of
     EVar name -> dsAnnotatedVar tcAnn name inner
-    app@EApp {} -> dsApp app
+    EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     _ -> dsExprWithType (tcAnnType tcAnn) inner
-
-dsApp :: Expr -> DsM FcExpr
-dsApp (EApp fun arg) = do
-  f' <- dsExpr fun
-  arg' <- dsExpr arg
-  pure (FcApp f' arg')
-dsApp expr =
-  desugarBug ("expected application expression while desugaring: " <> take 80 (show expr))
 
 dsExprWithType :: TcType -> Expr -> DsM FcExpr
 dsExprWithType expected (EList elems) = do
@@ -683,7 +675,6 @@ matchTypes patterns targets
   | otherwise = foldM matchOne Map.empty (zip patterns targets)
 
 matchOne :: Map.Map Unique TcType -> (TcType, TcType) -> Maybe (Map.Map Unique TcType)
-matchOne subst (_, TcMetaTv {}) = Just subst
 matchOne subst (TcTyVar tv, target) =
   case Map.lookup (tvUnique tv) subst of
     Nothing -> Just (Map.insert (tvUnique tv) target subst)
@@ -785,22 +776,25 @@ listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
 
-surfaceTypeToTc :: Map Text TyVarId -> Type -> TcType
+surfaceTypeToTc :: Map Text TyVarId -> Type -> DsM TcType
 surfaceTypeToTc tvMap ty =
   case ty of
     TVar name ->
       case Map.lookup (unqualifiedNameText name) tvMap of
-        Just tv -> TcTyVar tv
-        Nothing -> TcTyCon (TyCon (unqualifiedNameText name) 0) []
-    TCon name _ -> TcTyCon (TyCon (nameText name) 0) []
-    TList _ [elemTy] -> listType (surfaceTypeToTc tvMap elemTy)
-    TApp f a ->
-      case surfaceTypeToTc tvMap f of
-        TcTyCon tc args -> TcTyCon (tc {tyConArity = tyConArity tc + 1}) (args <> [surfaceTypeToTc tvMap a])
-        fTy -> TcAppTy fTy (surfaceTypeToTc tvMap a)
+        Just tv -> pure (TcTyVar tv)
+        Nothing -> pure (TcTyCon (TyCon (unqualifiedNameText name) 0) [])
+    TCon name _ -> pure (TcTyCon (TyCon (nameText name) 0) [])
+    TList _ [elemTy] -> listType <$> surfaceTypeToTc tvMap elemTy
+    TApp f a -> do
+      fTy <- surfaceTypeToTc tvMap f
+      aTy <- surfaceTypeToTc tvMap a
+      pure $
+        case fTy of
+          TcTyCon tc args -> TcTyCon (tc {tyConArity = tyConArity tc + 1}) (args <> [aTy])
+          _ -> TcAppTy fTy aTy
     TAnn _ inner -> surfaceTypeToTc tvMap inner
     TParen inner -> surfaceTypeToTc tvMap inner
-    _ -> error ("unsupported surface type in FC desugar: " <> show ty)
+    _ -> desugarBug ("unsupported surface type in FC desugar: " <> show ty)
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)

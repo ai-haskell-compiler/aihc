@@ -13,9 +13,10 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (applySubst)
-import Aihc.Tc.Monad (TcM, bindEvidence, getInstances)
+import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (foldM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -53,20 +54,19 @@ solveDict ct =
             Nothing -> tryInstances className args rest
             Just subst -> do
               let context = map (substPred subst) (iiContext instanceInfo)
-              solvedContext <- allM solveSubPred context
-              if solvedContext
-                then do
-                  bindEvidence (ctEvVar ct) (EvDict className args [])
+              contextEvidence <- mapM solveSubPred context
+              case sequence contextEvidence of
+                Just evidence -> do
+                  bindEvidence (ctEvVar ct) (EvDict className args evidence)
                   pure DictSolved
-                else tryInstances className args rest
+                Nothing -> tryInstances className args rest
 
     solveSubPred pred' = do
-      let ev = ctEvVar ct
+      ev <- freshEvVar
       result <- solveDict (ct {ctPred = pred', ctEvVar = ev})
-      pure $
-        case result of
-          DictSolved -> True
-          DictStuck _ -> False
+      pure $ case result of
+        DictSolved -> Just (EvVarTerm ev)
+        DictStuck _ -> Nothing
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets
@@ -95,13 +95,3 @@ matchOne subst (patternTy, targetTy)
 substPred :: Map Unique TcType -> Pred -> Pred
 substPred subst (ClassPred className args) = ClassPred className (map (applySubst subst) args)
 substPred subst (EqPred left right) = EqPred (applySubst subst left) (applySubst subst right)
-
-allM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
-allM _ [] = pure True
-allM f (x : xs) = do
-  ok <- f x
-  if ok then allM f xs else pure False
-
-foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
-foldM _ acc [] = pure acc
-foldM f acc (x : xs) = f acc x >>= \acc' -> foldM f acc' xs

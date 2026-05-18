@@ -44,11 +44,10 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -201,9 +200,12 @@ dsInstanceDict classMethods instanceDecl =
       let tvNames = nub (map tyVarBinderName (instanceDeclForall instanceDecl) <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> instanceHeadTypes (instanceDeclHead instanceDecl)))
           tvIds = [TyVarId name (Unique (-3000 - ix)) | (ix, name) <- zip [0 :: Int ..] tvNames]
           tvMap = Map.fromList (zip tvNames tvIds)
-          headTys = map (surfaceTypeToTc tvMap) (instanceHeadTypes (instanceDeclHead instanceDecl))
           methods = Map.fromListWith (<>) [(name, matches) | (name, matches) <- instanceMethodGroups instanceDecl]
-          orderedMethods = fromMaybe [] (Map.lookup (nameText className) classMethods)
+      headTys <- mapM (surfaceTypeToTc tvMap) (instanceHeadTypes (instanceDeclHead instanceDecl))
+      orderedMethods <-
+        case Map.lookup (nameText className) classMethods of
+          Just names -> pure names
+          Nothing -> desugarBug ("missing class method layout for " <> T.unpack (nameText className))
       contextDicts <- mapM (mkContextDict tvMap) (zip [0 :: Int ..] (instanceDeclContext instanceDecl))
       fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) headTys methods) orderedMethods
       let dictTy = foldr TcForAllTy (TcQualTy (map classDictPred contextDicts) (TcTyCon (TyCon (nameText className) (length headTys)) headTys)) tvIds
@@ -214,7 +216,7 @@ dsInstanceDict classMethods instanceDecl =
 mkContextDict :: Map.Map Text TyVarId -> (Int, Type) -> DsM ClassDict
 mkContextDict tvMap (ix, predTy) = do
   let className = maybe "<constraint>" nameText (instanceHeadName predTy)
-      predArgs = map (surfaceTypeToTc tvMap) (instanceHeadTypes predTy)
+  predArgs <- mapM (surfaceTypeToTc tvMap) (instanceHeadTypes predTy)
   dictVar <- freshVar ("$d" <> T.pack (show ix)) (TcTyCon (TyCon className (length predArgs)) predArgs)
   pure (ClassDict className predArgs dictVar)
 
@@ -235,17 +237,16 @@ methodExpectedType headTys methodName = do
   methodTy <- lookupType methodName
   case splitQualifiedType methodTy of
     Just (_tvs, preds, body) ->
-      let subst =
-            foldr
-              ( \pred' acc ->
-                  acc <|> case pred' of
-                    ClassPred _ classArgs -> matchTypes classArgs headTys
-                    EqPred {} -> Nothing
-              )
-              Nothing
-              preds
-       in maybe (pure body) (pure . (`substType` body)) subst
+      case firstClassPredSubst preds headTys of
+        Just subst -> pure (substType subst body)
+        Nothing -> desugarBug ("missing class method receiver for " <> T.unpack methodName)
     Nothing -> pure methodTy
+
+firstClassPredSubst :: [Pred] -> [TcType] -> Maybe (Map.Map Unique TcType)
+firstClassPredSubst preds headTys =
+  case [classArgs | ClassPred _ classArgs <- preds] of
+    classArgs : _ -> matchTypes classArgs headTys
+    [] -> Nothing
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)

@@ -300,7 +300,7 @@ loadTransitiveModules packageRoots initialModules =
   go Set.empty [] (Set.toAscList initialModules)
   where
     go _ loaded [] =
-      pure (Right (reverse loaded))
+      pure (Right loaded)
     go seen loaded (moduleName : pending)
       | moduleName `Set.member` seen =
           go seen loaded pending
