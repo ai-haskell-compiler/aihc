@@ -54,7 +54,7 @@ import Aihc.Parser.Syntax
     tyVarBinderKind,
     tyVarBinderName,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), annotateExpr)
+import Aihc.Tc.Annotations (TcAnnotation (..), annotateDecl, annotateExpr)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -259,21 +259,27 @@ annotateLocalDeclTc :: Map Text TcType -> Decl -> TcM Decl
 annotateLocalDeclTc locals decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalDeclTc locals inner
-    DeclValue valueDecl -> DeclValue <$> annotateLocalValueDeclTc locals valueDecl
+    DeclValue valueDecl -> do
+      (ty, valueDecl') <- annotateLocalValueDeclTc locals valueDecl
+      pure (annotateDecl (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
     _ -> pure decl
 
-annotateLocalValueDeclTc :: Map Text TcType -> ValueDecl -> TcM ValueDecl
+annotateLocalValueDeclTc :: Map Text TcType -> ValueDecl -> TcM (TcType, ValueDecl)
 annotateLocalValueDeclTc locals valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
       expected <- localBindingType locals (unqualifiedNameText name)
-      FunctionBind name <$> annotateMatchesWithLocalsTc locals expected matches
+      valueDecl' <- FunctionBind name <$> annotateMatchesWithLocalsTc locals expected matches
+      pure (expected, valueDecl')
     PatternBind anns pat rhs ->
       case patternBinderName pat of
         Just (_displayName, name) -> do
           expected <- localBindingType locals name
-          PatternBind anns pat <$> annotateRhsTc locals expected rhs
-        Nothing -> pure valueDecl
+          valueDecl' <- PatternBind anns pat <$> annotateRhsTc locals expected rhs
+          pure (expected, valueDecl')
+        Nothing -> do
+          ty <- missingTypeInfo ("local pattern binding " <> show pat)
+          pure (ty, valueDecl)
 
 localBindingType :: Map Text TcType -> Text -> TcM TcType
 localBindingType locals name =

@@ -393,24 +393,11 @@ dsIf cond thenE elseE = do
 
 dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
 dsCase scrut alts = do
-  scrutTy <- exprTcTypeRequired scrut
+  scrutTy <- exprAnnotationTypeRequired scrut
   scrut' <- dsExpr scrut
   binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder alts')
-
-qualifiedBody :: TcType -> TcType
-qualifiedBody ty =
-  case splitQualifiedType ty of
-    Just (_tvs, _preds, body) -> body
-    Nothing -> snd (peelForAlls ty)
-
-isInstantiableType :: TcType -> Bool
-isInstantiableType ty =
-  case ty of
-    TcForAllTy {} -> True
-    TcQualTy {} -> True
-    _ -> False
 
 instantiateUnannotatedVar :: Text -> FcExpr -> TcType -> DsM FcExpr
 instantiateUnannotatedVar name expr ty =
@@ -455,9 +442,9 @@ sameTcType _ _ = False
 -- stable Core variables so RHSs and the body refer to the same local binders.
 dsLetDecls :: [Decl] -> DsM FcExpr -> DsM FcExpr
 dsLetDecls decls bodyAction = do
-  let groups = groupLocalDecls decls
-      names = map localGroupName groups
-  vars <- mapM localGroupVar groups
+  groups <- groupLocalDecls decls
+  let names = map localGroupName groups
+      vars = map localGroupBinder groups
   let localBindings = zip names vars
   withLocals localBindings $ do
     rhsBindings <- zipWithM dsLocalGroup vars groups
@@ -468,46 +455,71 @@ dsLetDecls decls bodyAction = do
         else FcLet (FcRec rhsBindings) body
 
 data LocalDeclGroup
-  = LocalFunction !Text ![Match]
-  | LocalPattern !Text !(Rhs Expr)
+  = LocalFunction !Text !Var ![Match]
+  | LocalPattern !Text !Var !(Rhs Expr)
 
 localGroupName :: LocalDeclGroup -> Text
 localGroupName group =
   case group of
-    LocalFunction name _ -> name
-    LocalPattern name _ -> name
+    LocalFunction name _ _ -> name
+    LocalPattern name _ _ -> name
 
-groupLocalDecls :: [Decl] -> [LocalDeclGroup]
-groupLocalDecls [] = []
-groupLocalDecls (decl : rest) =
-  case extractLocalFunction decl of
-    Just (name, matches) ->
+localGroupBinder :: LocalDeclGroup -> Var
+localGroupBinder group =
+  case group of
+    LocalFunction _ var _ -> var
+    LocalPattern _ var _ -> var
+
+groupLocalDecls :: [Decl] -> DsM [LocalDeclGroup]
+groupLocalDecls [] = pure []
+groupLocalDecls (decl : rest) = do
+  maybeFun <- extractLocalFunction decl
+  case maybeFun of
+    Just (name, var, matches) -> do
       let (sameNameDecls, rest') = span (hasSameLocalFunctionName name) rest
-          allMatches = matches ++ concatMap (maybe [] snd . extractLocalFunction) sameNameDecls
-       in LocalFunction name allMatches : groupLocalDecls rest'
-    Nothing ->
-      case extractLocalPattern decl of
-        Just group -> group : groupLocalDecls rest
-        Nothing -> groupLocalDecls rest
+      sameGroups <- mapM extractLocalFunctionRequired sameNameDecls
+      let allMatches = matches ++ concatMap (\(_, _, ms) -> ms) sameGroups
+      restGroups <- groupLocalDecls rest'
+      pure (LocalFunction name var allMatches : restGroups)
+    Nothing -> do
+      maybePattern <- extractLocalPattern decl
+      restGroups <- groupLocalDecls rest
+      pure (maybe restGroups (: restGroups) maybePattern)
 
-extractLocalFunction :: Decl -> Maybe (Text, [Match])
+extractLocalFunction :: Decl -> DsM (Maybe (Text, Var, [Match]))
 extractLocalFunction decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind name matches) -> Just (unqualifiedNameText name, matches)
-    _ -> Nothing
+    DeclValue (FunctionBind name matches) -> do
+      let localName = unqualifiedNameText name
+      ty <- localDeclTypeRequired localName decl
+      var <- freshVar localName ty
+      pure (Just (localName, var, matches))
+    _ -> pure Nothing
+
+extractLocalFunctionRequired :: Decl -> DsM (Text, Var, [Match])
+extractLocalFunctionRequired decl = do
+  maybeFun <- extractLocalFunction decl
+  case maybeFun of
+    Just fun -> pure fun
+    Nothing -> desugarBug ("expected local function declaration: " <> take 80 (show decl))
 
 hasSameLocalFunctionName :: Text -> Decl -> Bool
 hasSameLocalFunctionName name decl =
-  case extractLocalFunction decl of
-    Just (declName, _) -> declName == name
-    Nothing -> False
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind declName _) -> unqualifiedNameText declName == name
+    _ -> False
 
-extractLocalPattern :: Decl -> Maybe LocalDeclGroup
+extractLocalPattern :: Decl -> DsM (Maybe LocalDeclGroup)
 extractLocalPattern decl =
   case peelDeclAnn decl of
     DeclValue (PatternBind _ pat rhs) ->
-      LocalPattern <$> barePatternName pat <*> pure rhs
-    _ -> Nothing
+      case barePatternName pat of
+        Just name -> do
+          ty <- localDeclTypeRequired name decl
+          var <- freshVar name ty
+          pure (Just (LocalPattern name var rhs))
+        Nothing -> pure Nothing
+    _ -> pure Nothing
 
 barePatternName :: Pattern -> Maybe Text
 barePatternName pat =
@@ -517,53 +529,28 @@ barePatternName pat =
     PParen inner -> barePatternName inner
     _ -> Nothing
 
-localGroupVar :: LocalDeclGroup -> DsM Var
-localGroupVar group = do
-  ty <- localGroupType group
-  freshVar (localGroupName group) ty
+localDeclTypeRequired :: Text -> Decl -> DsM TcType
+localDeclTypeRequired name decl =
+  case localDeclType decl of
+    Just ty -> pure ty
+    Nothing -> desugarBug ("missing type-checker annotation for local declaration " <> T.unpack name)
 
-localGroupType :: LocalDeclGroup -> DsM TcType
-localGroupType group =
-  case group of
-    LocalFunction _ matches ->
-      case matches of
-        [match] | null (matchPats match) -> rhsKnownType (matchRhs match)
-        _ -> missingLocalType
-    LocalPattern _ rhs -> rhsKnownType rhs
-  where
-    missingLocalType =
-      desugarBug ("missing type information for local declaration: " <> T.unpack (localGroupName group))
-
-rhsKnownType :: Rhs Expr -> DsM TcType
-rhsKnownType (UnguardedRhs _ expr Nothing) = exprKnownType expr
-rhsKnownType _ = desugarBug "missing type information for local RHS"
-
-exprKnownType :: Expr -> DsM TcType
-exprKnownType expr =
-  case expr of
-    EAnn ann inner ->
+localDeclType :: Decl -> Maybe TcType
+localDeclType decl =
+  case decl of
+    DeclAnn ann inner ->
       case fromAnnotation ann of
-        Just tcAnn -> pure (tcAnnType tcAnn)
-        Nothing -> exprKnownType inner
-    EParen inner -> exprKnownType inner
-    ETypeSig inner _ -> exprKnownType inner
-    EInt {} -> pure intTy
-    EChar {} -> pure charTy
-    EString {} -> pure (listType charTy)
-    EVar name
-      | nameText name == "True" || nameText name == "False" -> pure boolTy
-      | otherwise -> lookupTypeName name
-    EList [] -> desugarBug "missing element type information for empty local list"
-    EList (item : _) -> listType <$> exprKnownType item
-    _ -> desugarBug ("missing expression type information for local RHS: " <> take 80 (show expr))
+        Just tcAnn -> Just (tcAnnType tcAnn)
+        Nothing -> localDeclType inner
+    _ -> Nothing
 
 dsLocalGroup :: Var -> LocalDeclGroup -> DsM (Var, FcExpr)
 dsLocalGroup var group =
   case group of
-    LocalFunction _ matches -> do
+    LocalFunction _ _ matches -> do
       rhs <- dsMatches (varType var) matches
       pure (var, rhs)
-    LocalPattern _ rhs -> do
+    LocalPattern _ _ rhs -> do
       rhs' <- dsRhs rhs
       pure (var, rhs')
 
@@ -741,50 +728,22 @@ substType subst ty =
     TcAppTy f a -> TcAppTy (substType subst f) (substType subst a)
     TcMetaTv {} -> ty
 
-exprTcType :: Expr -> DsM (Maybe TcType)
-exprTcType expr =
+exprAnnotationType :: Expr -> Maybe TcType
+exprAnnotationType expr =
   case expr of
     EAnn ann inner ->
       case fromAnnotation ann of
-        Just tcAnn -> pure (Just (tcAnnType tcAnn))
-        Nothing -> exprTcType inner
-    EParen inner -> exprTcType inner
-    EInt {} -> pure (Just intTy)
-    EChar {} -> pure (Just charTy)
-    EString {} -> pure (Just (listType charTy))
-    EVar name
-      | nameText name == "True" || nameText name == "False" ->
-          pure (Just boolTy)
-      | otherwise -> do
-          st <- get
-          case Map.lookup (nameToText name) (dsLocalVars st) of
-            Just var -> pure (Just (varType var))
-            Nothing -> lookupTypeMaybeName name
-    EApp fun arg -> do
-      funTy <- exprTcType fun
-      argTy <- exprTcType arg
-      pure (funTy >>= \fTy -> argTy >>= appResultType fTy)
-    EInfix lhs op rhs -> exprTcType (EApp (EApp (EVar op) lhs) rhs)
-    EList [] -> pure Nothing
-    EList (item : _) -> fmap listType <$> exprTcType item
-    _ -> pure Nothing
+        Just tcAnn -> Just (tcAnnType tcAnn)
+        Nothing -> exprAnnotationType inner
+    EParen inner -> exprAnnotationType inner
+    ETypeSig inner _ -> exprAnnotationType inner
+    _ -> Nothing
 
-appResultType :: TcType -> TcType -> Maybe TcType
-appResultType funTy argTy
-  | isInstantiableType argTy = Nothing
-  | otherwise =
-      case qualifiedBody funTy of
-        TcFunTy formalArg formalResult -> do
-          subst <- matchTypes [formalArg] [argTy]
-          pure (substType subst formalResult)
-        _ -> Nothing
-
-exprTcTypeRequired :: Expr -> DsM TcType
-exprTcTypeRequired expr = do
-  maybeTy <- exprTcType expr
-  case maybeTy of
+exprAnnotationTypeRequired :: Expr -> DsM TcType
+exprAnnotationTypeRequired expr =
+  case exprAnnotationType expr of
     Just ty -> pure ty
-    Nothing -> desugarBug ("missing expression type information for: " <> take 80 (show expr))
+    Nothing -> desugarBug ("missing type-checker annotation for expression: " <> take 80 (show expr))
 
 patternBinderTypesM :: Pattern -> TcType -> DsM [TcType]
 patternBinderTypesM pat scrutTy =
@@ -850,9 +809,6 @@ boolTy = TcTyCon (TyCon "Bool" 0) []
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []
-
-intTy :: TcType
-intTy = TcTyCon (TyCon "Int" 0) []
 
 -- | Desugar a case alternative.
 dsCaseAlt :: TcType -> CaseAlt Expr -> DsM FcAlt
