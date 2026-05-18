@@ -26,7 +26,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    formatParseErrorBundle,
     formatParseErrors,
     parseExpr,
     parseModule,
@@ -175,7 +174,7 @@ evaluateExprCase :: ParserCase -> (Outcome, String)
 evaluateExprCase meta =
   case parseExpr parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (formatParseErrorBundle (casePath meta) (Just (caseInput meta)) err)
+    ParseErr err -> classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) err)
   where
     edition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (caseExtensions meta))
     parserConfig =
@@ -204,7 +203,7 @@ evaluatePatternCase :: ParserCase -> (Outcome, String)
 evaluatePatternCase meta =
   case parsePattern parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (formatParseErrorBundle (casePath meta) (Just (caseInput meta)) err)
+    ParseErr err -> classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) err)
   where
     edition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (caseExtensions meta))
     parserConfig =

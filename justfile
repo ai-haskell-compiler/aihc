@@ -15,7 +15,7 @@ qc:
   while true; do just qc1 || break; done
 
 qc1:
-  cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000 --quickcheck-shrinks 1000000"
+  cabal test all -v0 --test-options="--pattern generated --quickcheck-tests 10000 --quickcheck-shrinks 1000000 --hide-successes"
 
 # Auto-format Nix, Cabal, and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:

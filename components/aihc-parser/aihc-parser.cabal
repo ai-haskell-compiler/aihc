@@ -23,6 +23,7 @@ library
     Aihc.Parser.Internal.Cmd
     Aihc.Parser.Internal.Common
     Aihc.Parser.Internal.Decl
+    Aihc.Parser.Internal.Errors
     Aihc.Parser.Internal.Expr
     Aihc.Parser.Internal.FromTokens
     Aihc.Parser.Internal.Import
@@ -134,6 +135,7 @@ test-suite spec
     Aihc.Parser.Internal.Cmd
     Aihc.Parser.Internal.Common
     Aihc.Parser.Internal.Decl
+    Aihc.Parser.Internal.Errors
     Aihc.Parser.Internal.Expr
     Aihc.Parser.Internal.FromTokens
     Aihc.Parser.Internal.Import

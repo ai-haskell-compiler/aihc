@@ -5,7 +5,7 @@ module Test.Properties.PatternRoundTrip
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrorBundle, parsePattern)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, formatParseErrors, parsePattern)
 import Aihc.Parser.Parens (addPatternParens)
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
@@ -31,7 +31,7 @@ prop_patternPrettyRoundTrip pat =
           counterexample (T.unpack source) $
             case parsePattern patternConfig source of
               ParseErr err ->
-                counterexample (formatParseErrorBundle (parserSourceName patternConfig) (Just source) err) False
+                counterexample (formatParseErrors (parserSourceName patternConfig) (Just source) err) False
               ParseOk parsed ->
                 let actual = stripAnnotations parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

@@ -10,7 +10,7 @@
 
 | Extension                | Status | Tests Passing |
 |--------------------------|:------:|---------------|
-| MagicHash                |   🟢    | 1/1           |
+| MagicHash                |   🟢    | 2/2           |
 | RecordWildCards          |   🟢    | 1/1           |
 | ScopedTypeVariables      |   🟢    | 1/1           |
 | StandaloneKindSignatures |   🟢    | 1/1           |
