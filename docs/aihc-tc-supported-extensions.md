@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 1
-- Supported: 1
+- Total Extensions: 2
+- Supported: 2
 - In Progress: 0
 
 ## Extension Status
@@ -11,4 +11,5 @@
 | Extension  | Status | Tests Passing |
 |------------|:------:|---------------|
 | LambdaCase |   🟢    | 1/1           |
+| MagicHash  |   🟢    | 1/1           |
 

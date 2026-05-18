@@ -51,7 +51,7 @@
 | MagicHash                 |   🟢    | 24/24         |
 | MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
-| MultiWayIf                |   🟢    | 19/19         |
+| MultiWayIf                |   🟢    | 20/20         |
 | NamedFieldPuns            |   🟢    | 6/6           |
 | NamedWildCards            |   🟢    | 5/5           |
 | NegativeLiterals          |   🟢    | 1/1           |
@@ -91,9 +91,9 @@
 | TypeFamilyDependencies    |   🟢    | 4/4           |
 | TypeOperators             |   🟢    | 71/71         |
 | TypeSynonymInstances      |   🟢    | 1/1           |
-| UnboxedSums               |   🟢    | 11/11         |
+| UnboxedSums               |   🟢    | 12/12         |
 | UnboxedTuples             |   🟢    | 21/21         |
 | UndecidableInstances      |   🟢    | 1/1           |
 | UnicodeSyntax             |   🟢    | 21/21         |
-| ViewPatterns              |   🟢    | 23/23         |
+| ViewPatterns              |   🟢    | 24/24         |
 
