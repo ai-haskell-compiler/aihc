@@ -9,7 +9,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    formatParseErrorBundle,
     formatParseErrors,
     parseDecl,
     parseExpr,
@@ -19,7 +18,7 @@ import Aihc.Parser
     parseType,
   )
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens, addSignatureTypeParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addSignatureTypeParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -275,6 +274,7 @@ buildTests = do
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
+            testCase "parenthesizes if view expressions ending with type signatures in decls" test_viewExprIfTypeSigParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -1465,6 +1465,23 @@ test_viewExprMultiWayIfTypeSigParens = do
         """
   assertParsedStrippedDeclShapeRoundTrip config source
 
+test_viewExprIfTypeSigParens :: Assertion
+test_viewExprIfTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      decl =
+        DeclValue
+          ( PatternBind
+              NoMultiplicityTag
+              (PParen (PView (EIf (EList []) (EList []) (ETypeSig (EList []) (TFun ArrowUnrestricted TWildcard TWildcard))) PWildcard))
+              (UnguardedRhs [] (EList []) Nothing)
+          )
+      rendered = renderPretty decl
+  case parseDecl config rendered of
+    ParseOk reparsed ->
+      assertEqual "reparsed if view expression with typed else branch" (stripAnnotations (addDeclParens decl)) (stripAnnotations reparsed)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for if view expression with typed else branch\n" <> formatParseErrors "<test>" Nothing bundle)
+
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
@@ -1611,7 +1628,7 @@ test_signatureTypeParensWrapsForallKindSignatures = do
     ParseOk reparsed ->
       assertEqual "reparsed signature forall kind signature" ty (stripAnnotations (stripParens reparsed))
     ParseErr bundle ->
-      assertFailure ("expected parse success for signature forall kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for signature forall kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_typeParensKeepsNestedKindSignaturesBare :: Assertion
 test_typeParensKeepsNestedKindSignaturesBare =
@@ -1632,7 +1649,7 @@ test_typeParensKeepsForallKindSignaturesBare = do
     ParseOk reparsed ->
       assertEqual "reparsed constrained forall kind signature" ty (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected parse success for constrained forall kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for constrained forall kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_typeParensKeepsSpliceKindSignaturesBare :: Assertion
 test_typeParensKeepsSpliceKindSignaturesBare = do
@@ -1644,7 +1661,7 @@ test_typeParensKeepsSpliceKindSignaturesBare = do
     ParseOk reparsed ->
       assertEqual "reparsed constrained splice kind signature" ty (stripAnnotations reparsed)
     ParseErr bundle ->
-      assertFailure ("expected parse success for constrained splice kind signature\n" <> formatParseErrorBundle "<test>" Nothing bundle)
+      assertFailure ("expected parse success for constrained splice kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_signatureTypeParensKeepsNestedKindSignaturesBare :: Assertion
 test_signatureTypeParensKeepsNestedKindSignaturesBare =

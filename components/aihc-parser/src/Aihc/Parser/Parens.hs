@@ -1770,7 +1770,7 @@ addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
   if viewExprNeedsParens expr
     then wrapExpr True (addExprParens expr)
-    else addExprParens expr
+    else addViewExprInnerParens expr
   where
     viewExprNeedsParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
@@ -1782,6 +1782,19 @@ addViewExprParensWith allowLayoutTypeSig expr =
       case peelExprAnn e of
         ETypeSyntax {} -> True
         _ -> False
+
+    addViewExprInnerParens e =
+      case peelExprAnn e of
+        EIf cond yes no ->
+          EIf
+            (addExprParens cond)
+            (addViewExprIfBranchParens yes)
+            (addViewExprIfBranchParens no)
+        _ -> addExprParens e
+
+    addViewExprIfBranchParens branch =
+      let branch' = addExprParens branch
+       in wrapExpr (trailingTypeSigNeedsParens typeHasFunctionArrow branch') branch'
 
     isBareViewExprBlock e =
       case peelExprAnn e of
