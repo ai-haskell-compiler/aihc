@@ -6,6 +6,18 @@ module Main (main) where
 
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
+  ( ParseResult (..),
+    ParserConfig (..),
+    defaultConfig,
+    formatParseErrorBundle,
+    formatParseErrors,
+    parseDecl,
+    parseExpr,
+    parseModule,
+    parsePattern,
+    parseSignatureType,
+    parseType,
+  )
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
 import Aihc.Parser.Parens (addExprParens, addSignatureTypeParens, addTypeParens)
 import Aihc.Parser.Pretty ()
