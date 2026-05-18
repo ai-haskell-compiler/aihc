@@ -29,7 +29,7 @@ import Aihc.Parser.Lex
     readModuleHeaderExtensionsFromChunks,
     scanAllTokens,
   )
-import Aihc.Parser.Syntax (Extension, SourceSpan (..), applyExtensionSetting, applyImpliedExtensions)
+import Aihc.Parser.Syntax (Extension, SourceSpan, applyExtensionSetting, applyImpliedExtensions)
 import Control.DeepSeq (NFData (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -38,7 +38,7 @@ import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
 import Text.Megaparsec.Stream (Stream (..))
 
--- | Parse error from token parser. Use 'formatParseErrorBundle' from "Parser" to render.
+-- | Raw Megaparsec parse error bundle for low-level parser entry points.
 type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
 
 data FoundToken = FoundToken
@@ -308,10 +308,10 @@ data ParserConfig = ParserConfig
 
 data ParseResult a
   = ParseOk a
-  | ParseErr ParseErrorBundle
+  | ParseErr [(SourceSpan, Text)]
 
 instance (NFData a) => NFData (ParseResult a) where
   rnf parseResult =
     case parseResult of
       ParseOk parsed -> rnf parsed
-      ParseErr bundle -> rnf (show bundle)
+      ParseErr errs -> rnf errs

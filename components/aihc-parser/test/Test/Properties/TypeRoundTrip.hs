@@ -31,7 +31,7 @@ prop_typePrettyRoundTrip ty =
             counterexample (T.unpack source) $
               case parseType typeConfig source of
                 ParseErr err ->
-                  counterexample (formatParseErrorBundle (parserSourceName typeConfig) (Just source) err) False
+                  counterexample (formatParseErrors (parserSourceName typeConfig) (Just source) err) False
                 ParseOk parsed ->
                   let actual = stripAnnotations parsed
                    in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
