@@ -1560,6 +1560,8 @@ addContextBodyParens ty =
       wrapTy
         (startsWithTypeSplice ty')
         (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
+    TContext constraints inner ->
+      TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
     _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 startsWithTypeSplice :: Type -> Bool

@@ -3,12 +3,15 @@
 module Aihc.Dev.Snippet
   ( SnippetOpts (..),
     SnippetReport (..),
+    ReportLine (..),
+    ReportTone (..),
     ParseComparison (..),
     parseExtensionSettingArg,
     runSnippet,
     analyzeSnippet,
     buildSnippetReport,
     renderSnippetReport,
+    renderSnippetReportColored,
   )
 where
 
@@ -39,6 +42,7 @@ import ParserValidation (ValidationError (..), formatDiff, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Exit (exitFailure)
+import System.IO (hIsTerminalDevice, stdout)
 
 data SnippetOpts = SnippetOpts
   { snippetExtensions :: [ExtensionSetting],
@@ -52,8 +56,19 @@ data ParseComparison
   | BothAccept
   deriving (Eq, Show)
 
+data ReportTone
+  = ReportBug
+  | ReportNonBug
+  deriving (Eq, Show)
+
+data ReportLine = ReportLine
+  { reportLineTone :: ReportTone,
+    reportLineText :: String
+  }
+  deriving (Eq, Show)
+
 data SnippetReport = SnippetReport
-  { reportStatusLines :: [String],
+  { reportStatusLines :: [ReportLine],
     reportHasFailure :: Bool
   }
   deriving (Eq, Show)
@@ -63,7 +78,8 @@ runSnippet opts = do
   let sourceTag = fromMaybe "<stdin>" (snippetFile opts)
   source <- maybe TIO.getContents TIO.readFile (snippetFile opts)
   let report = analyzeSnippet sourceTag (snippetExtensions opts) source
-  putStr (renderSnippetReport report)
+  useColor <- hIsTerminalDevice stdout
+  putStr (renderSnippetReportColored useColor report)
   Control.Monad.when (reportHasFailure report) exitFailure
 
 parseExtensionSettingArg :: String -> Either String ExtensionSetting
@@ -87,22 +103,44 @@ analyzeSnippet sourceTag cliExtensions source =
         case comparison of
           BothAccept -> fmap validationErrorMessage (validateParser sourceTag edition extensionSettings source')
           _ -> Nothing
-      parensDiff = parserModule >>= parsedSnippetParensDiff source
+      parensDiff =
+        case comparison of
+          BothAccept -> parserModule >>= parsedSnippetParensDiff source
+          _ -> Nothing
    in buildSnippetReport comparison validationFailure parensDiff
 
 buildSnippetReport :: ParseComparison -> Maybe String -> Maybe String -> SnippetReport
 buildSnippetReport comparison validationFailure parensDiff =
   let statusLines =
         comparisonLines comparison
-          ++ maybe [] pure validationFailure
-          ++ maybe [] pure parensDiff
+          ++ roundtripLines comparison validationFailure
+          ++ parensLines comparison parensDiff
       hasFailure = comparison /= BothAccept || isJust validationFailure || isJust parensDiff
    in SnippetReport statusLines hasFailure
 
 renderSnippetReport :: SnippetReport -> String
-renderSnippetReport report =
-  intercalate "\n" (map (dropWhileEnd (== '\n')) (reportStatusLines report))
+renderSnippetReport = renderSnippetReportColored False
+
+renderSnippetReportColored :: Bool -> SnippetReport -> String
+renderSnippetReportColored useColor report =
+  intercalate "\n" (map (renderReportLine useColor) (reportStatusLines report))
     <> if null (reportStatusLines report) then "" else "\n"
+
+renderReportLine :: Bool -> ReportLine -> String
+renderReportLine useColor line =
+  let text = dropWhileEnd (== '\n') (reportLineText line)
+   in if useColor
+        then colorForTone (reportLineTone line) <> text <> ansiReset
+        else text
+
+colorForTone :: ReportTone -> String
+colorForTone tone =
+  case tone of
+    ReportBug -> "\ESC[31m"
+    ReportNonBug -> "\ESC[32m"
+
+ansiReset :: String
+ansiReset = "\ESC[0m"
 
 compareParseResults :: Bool -> Maybe Module -> ParseComparison
 compareParseResults ghcAccepts parserModule =
@@ -112,16 +150,47 @@ compareParseResults ghcAccepts parserModule =
     (True, Nothing) -> GhcAcceptsAihcRejects
     (True, Just _) -> BothAccept
 
-comparisonLines :: ParseComparison -> [String]
+comparisonLines :: ParseComparison -> [ReportLine]
 comparisonLines comparison =
   case comparison of
     BothReject ->
-      ["Snippet fails to parse with both GHC and aihc-parser."]
+      [ nonBugLine "GHC Parses: Parse failure",
+        nonBugLine "AIHC Parses: Parse failure (Expected)"
+      ]
     GhcRejectsAihcAccepts ->
-      ["Bug found: code rejected by GHC but parsed by aihc-parser."]
+      [ nonBugLine "GHC Parses: Parse failure",
+        bugLine "AIHC Parses: OK (Bug: GHC/AIHC mismatch)"
+      ]
     GhcAcceptsAihcRejects ->
-      ["Bug found: code rejected by aihc-parser but parsed by GHC."]
-    BothAccept -> []
+      [ nonBugLine "GHC Parses: OK",
+        bugLine "AIHC Parses: Parse failure (Bug: GHC/AIHC mismatch)"
+      ]
+    BothAccept ->
+      [ nonBugLine "GHC Parses: OK",
+        nonBugLine "AIHC Parses: OK"
+      ]
+
+roundtripLines :: ParseComparison -> Maybe String -> [ReportLine]
+roundtripLines comparison validationFailure =
+  case (comparison, validationFailure) of
+    (BothAccept, Nothing) -> []
+    (BothAccept, Just message) -> [bugLine ("Roundtrip: Bug found:\n" <> message)]
+    (_, _) -> []
+
+parensLines :: ParseComparison -> Maybe String -> [ReportLine]
+parensLines comparison parensDiff =
+  case comparison of
+    BothAccept ->
+      case parensDiff of
+        Nothing -> [nonBugLine "Minimal Parentheses: OK"]
+        Just message -> [bugLine ("Minimal Parentheses: " <> message)]
+    _ -> [nonBugLine "Minimal Parentheses: Skipped"]
+
+bugLine :: String -> ReportLine
+bugLine = ReportLine ReportBug
+
+nonBugLine :: String -> ReportLine
+nonBugLine = ReportLine ReportNonBug
 
 parseWithAihc :: FilePath -> LanguageEdition -> [ExtensionSetting] -> Text -> Maybe Module
 parseWithAihc sourceTag edition extensionSettings source =
@@ -146,7 +215,7 @@ parsedSnippetParensDiff source modu =
 
 formatParensDiff :: Text -> Text -> String
 formatParensDiff before after =
-  let header = "Bug found: Parens.addModuleParens changes the parsed snippet."
+  let header = "Bug found:"
    in case formatDiff before after of
         Nothing -> header
         Just diffChunk ->
