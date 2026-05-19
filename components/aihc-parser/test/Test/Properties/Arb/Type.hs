@@ -382,6 +382,7 @@ shrinkTyVarBinders binders =
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =
   [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
+    <> [tvb {tyVarBinderKind = Just kind'} | Just kind <- [tyVarBinderKind tvb], kind' <- shrinkType kind]
 
 shrinkForallTelescope :: ForallTelescope -> [ForallTelescope]
 shrinkForallTelescope telescope =
