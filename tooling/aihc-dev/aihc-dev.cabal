@@ -46,6 +46,7 @@ library snippet
     aihc-hackage,
     aihc-parser,
     aihc-parser:parser-tooling-common,
+    aihc-parser-compat,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
     deepseq,

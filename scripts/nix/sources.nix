@@ -21,6 +21,11 @@ in rec {
     ".json"
   ];
 
+  parserCompatSrc = mkComponentSrc "/components/aihc-parser-compat" [
+    ".hs"
+    ".cabal"
+  ];
+
   cppSrc = mkComponentSrc "/components/aihc-cpp" [
     ".hs"
     ".cabal"

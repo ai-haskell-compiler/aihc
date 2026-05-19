@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens)
+import Aihc.Parser.Parens (addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -280,6 +280,7 @@ buildTests = do
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
+            testCase "keeps nested context kind signatures minimal" test_typeParensNestedContextKindSignatureIsMinimal,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1595,6 +1596,11 @@ test_typeParserParsesBareKindSignature = do
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_typeParensNestedContextKindSignatureIsMinimal :: Assertion
+test_typeParensNestedContextKindSignatureIsMinimal = do
+  let ty = TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard))
+  assertEqual "nested context body" ty (addTypeParens ty)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
