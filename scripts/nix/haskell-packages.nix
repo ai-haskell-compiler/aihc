@@ -10,6 +10,13 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-parser-compat = {
+      src = sources.parserCompatSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-cpp = {
       src = sources.cppSrc;
       disableProfiling = false;
