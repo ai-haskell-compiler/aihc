@@ -1758,7 +1758,7 @@ addViewExprParensWith allowLayoutTypeSig expr =
         EParen inner -> EParen (addViewExprInsideExistingParens inner)
         EInfix lhs op rhs ->
           EInfix
-            (addViewInfixLhsParens lhs)
+            (addExprParensIn CtxInfixLhs lhs)
             op
             (addExprParensIn (CtxInfixRhs True) rhs)
         _ -> addExprParens e
@@ -1779,11 +1779,6 @@ addViewExprParensWith allowLayoutTypeSig expr =
     isTypeSigExpr (EAnn _ sub) = isTypeSigExpr sub
     isTypeSigExpr ETypeSig {} = True
     isTypeSigExpr _ = False
-
-    addViewInfixLhsParens lhs =
-      wrapExpr (viewInfixLhsNeedsParens lhs) (addExprParensIn CtxInfixLhs lhs)
-
-    viewInfixLhsNeedsParens = isBlockExpr
 
     viewExprNeedsParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))

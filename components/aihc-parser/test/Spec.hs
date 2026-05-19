@@ -264,6 +264,7 @@ buildTests = do
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
             testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
+            testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -1463,6 +1464,24 @@ test_viewExprInfixLambdaCasesParens = do
   assertParsedStrippedDeclShapeRoundTrip config "_ = [] where _ `a` (((\\case _ -> []) + []) -> _) = []"
   assertParsedStrippedDeclShapeRoundTrip config "_ = [] where ((do [] `a` []) -> _) = []"
   assertParsedStrippedPatternShapeRoundTrip config "(((if | [] -> []) `a` []) -> _)"
+
+test_viewExprBlockInfixLhsNoParens :: Assertion
+test_viewExprBlockInfixLhsNoParens = do
+  let source =
+        """
+        {-# LANGUAGE ViewPatterns #-}
+        module M where
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+      expected =
+        """
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+  assertParsedModulePrettyContains source expected
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do

@@ -555,7 +555,7 @@ prettyPattern pat =
     PCon con typeArgs args -> hsep ([prettyPrefixName con] <> map prettyInvisibleTypeArg typeArgs <> map prettyPattern args)
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
-      nest 2 (prettyExpr viewExpr) <> hardline <> indent 1 ("->" <+> prettyPattern inner)
+      prettyExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
     PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
@@ -1356,7 +1356,7 @@ prettyCaseLayoutAligned [] = " " <> spacedBraces mempty
 prettyCaseLayoutAligned alts = hang 2 (hardline <> vsep alts)
 
 prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
-prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
+prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) = nest 2 $
   case rhs of
     UnguardedRhs _ body whereDecls ->
       hsep (map prettyPattern pats)
