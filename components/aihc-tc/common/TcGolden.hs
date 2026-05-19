@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Golden test infrastructure for the type checker.
 --
@@ -25,17 +26,41 @@ import Aihc.Parser
     defaultConfig,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
+import Aihc.Parser.Syntax
+  ( Annotation,
+    ClassDecl (..),
+    ClassDeclItem (..),
+    Decl (..),
+    Expr (..),
+    Extension,
+    InstanceDecl (..),
+    InstanceDeclItem (..),
+    Module (..),
+    Pattern (..),
+    SourceSpan (..),
+    Type (..),
+    fromAnnotation,
+    moduleName,
+    parseExtensionName,
+  )
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheck)
-import Aihc.Tc.Annotations (renderAnnotatedTcModules, renderTcAnnotations)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
+import Aihc.Tc.Types (Pred (..), TcType, TyCon (..), Unique (..))
+import Control.Applicative ((<|>))
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort, sortOn)
+import Data.Data (Data, cast, gmapQ)
+import Data.List (dropWhileEnd, intercalate, sort, sortOn)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (Typeable)
 import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
@@ -337,6 +362,348 @@ classifyAnnotationFailure tc errDetails =
     StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
     StatusXPass -> (OutcomeFail, "expected xpass, got error: " <> errDetails)
+
+data TcLocatedAnnotation = TcLocatedAnnotation
+  { locatedSpan :: !SourceSpan,
+    locatedKind :: !String,
+    locatedLabel :: !String
+  }
+  deriving (Eq, Show)
+
+renderTcAnnotations :: [Module] -> String
+renderTcAnnotations modules =
+  intercalate "\n" (map renderModule (sortOn fst (map collectModuleTcAnnotations modules)))
+  where
+    renderModule (moduleNameText, annotations) =
+      T.unpack moduleNameText
+        <> ":\n"
+        <> intercalate "\n" (map (("  " <>) . renderLocatedAnnotation) (sortOn annotationKey (filter hasLocatedLabel annotations)))
+
+renderAnnotatedTcModules :: [Text] -> [Module] -> [String]
+renderAnnotatedTcModules sources modules =
+  let moduleSourcePairs = zipWith (\source modu -> (moduleDisplayName modu, source)) sources modules
+      annotationMap = Map.fromList (map collectModuleTcAnnotations modules)
+   in map
+        ( \(name, source) ->
+            renderAnnotatedTcSource source (Map.findWithDefault [] name annotationMap)
+        )
+        (sortOn fst moduleSourcePairs)
+
+collectModuleTcAnnotations :: Module -> (Text, [TcLocatedAnnotation])
+collectModuleTcAnnotations modu =
+  (moduleDisplayName modu, collectTcAnnotations NoSourceSpan modu)
+
+moduleDisplayName :: Module -> Text
+moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
+
+collectTcAnnotations :: (Data a) => SourceSpan -> a -> [TcLocatedAnnotation]
+collectTcAnnotations ambient node =
+  fromMaybe (concat (gmapQ (collectTcAnnotations ambient) node)) $
+    collectDecl <$> cast node
+      <|> collectExpr <$> cast node
+      <|> collectPattern <$> cast node
+      <|> collectType <$> cast node
+      <|> collectClassItem <$> cast node
+      <|> collectInstanceItem <$> cast node
+  where
+    collectDecl (DeclAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationDeclTcItems ambient' inner ann <> collectTcAnnotations ambient' inner
+    collectDecl other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+    collectExpr (EAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationTcItems "expr" ambient' ann <> collectTcAnnotations ambient' inner
+    collectExpr other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+    collectPattern (PAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationTcItems "pattern" ambient' ann <> collectTcAnnotations ambient' inner
+    collectPattern other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+    collectType (TAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationTcItems "type" ambient' ann <> collectTcAnnotations ambient' inner
+    collectType other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+    collectClassItem (ClassItemAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationTcItems "class-item" ambient' ann <> collectTcAnnotations ambient' inner
+    collectClassItem other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+    collectInstanceItem (InstanceItemAnn ann inner) =
+      let ambient' = annotationSourceSpan ambient ann
+       in annotationTcItems "instance-item" ambient' ann <> collectTcAnnotations ambient' inner
+    collectInstanceItem other = concat (gmapQ (collectTcAnnotations ambient) other)
+
+annotationSourceSpan :: SourceSpan -> Annotation -> SourceSpan
+annotationSourceSpan ambient ann =
+  fromMaybe ambient (fromAnnotation @SourceSpan ann)
+
+annotationTcItems :: String -> SourceSpan -> Annotation -> [TcLocatedAnnotation]
+annotationTcItems kind span' ann =
+  concat
+    [ map (locatedTcAnnotation kind span') (maybeToListAnn @TcAnnotation ann),
+      map (locatedTcClassAnnotation span') (maybeToListAnn @TcClassAnnotation ann),
+      map (locatedTcInstanceAnnotation span') (maybeToListAnn @TcInstanceAnnotation ann),
+      map (locatedTcInstanceMethodAnnotation span') (maybeToListAnn @TcInstanceMethodAnnotation ann)
+    ]
+
+annotationDeclTcItems :: SourceSpan -> Decl -> Annotation -> [TcLocatedAnnotation]
+annotationDeclTcItems span' inner ann =
+  concat
+    [ map (locatedTcAnnotation "decl" span') (maybeToListAnn @TcAnnotation ann),
+      map (locatedTcClassAnnotation (refineDeclSpan span' inner)) (maybeToListAnn @TcClassAnnotation ann),
+      map (locatedTcInstanceAnnotation (refineDeclSpan span' inner)) (maybeToListAnn @TcInstanceAnnotation ann),
+      map (locatedTcInstanceMethodAnnotation span') (maybeToListAnn @TcInstanceMethodAnnotation ann)
+    ]
+
+refineDeclSpan :: SourceSpan -> Decl -> SourceSpan
+refineDeclSpan span' decl =
+  case decl of
+    DeclClass classDecl -> spanThroughItems span' (concatMap classItemSourceSpans (classDeclItems classDecl))
+    DeclInstance instanceDecl -> spanThroughItems span' (concatMap instanceItemSourceSpans (instanceDeclItems instanceDecl))
+    _ -> span'
+
+classItemSourceSpans :: ClassDeclItem -> [SourceSpan]
+classItemSourceSpans item =
+  case item of
+    ClassItemAnn ann inner -> annotationSourceSpan NoSourceSpan ann : classItemSourceSpans inner
+    _ -> []
+
+instanceItemSourceSpans :: InstanceDeclItem -> [SourceSpan]
+instanceItemSourceSpans item =
+  case item of
+    InstanceItemAnn ann inner -> annotationSourceSpan NoSourceSpan ann : instanceItemSourceSpans inner
+    _ -> []
+
+spanThroughItems :: SourceSpan -> [SourceSpan] -> SourceSpan
+spanThroughItems span' itemSpans =
+  case latestSourceSpan itemSpans of
+    Nothing -> span'
+    Just itemSpan -> replaceSpanEnd span' itemSpan
+
+latestSourceSpan :: [SourceSpan] -> Maybe SourceSpan
+latestSourceSpan spans =
+  case filter hasSourceSpan spans of
+    [] -> Nothing
+    realSpans -> Just (maximumByEnd realSpans)
+
+maximumByEnd :: [SourceSpan] -> SourceSpan
+maximumByEnd = foldr1 maxEnd
+  where
+    maxEnd left right
+      | sourceSpanEndKey left >= sourceSpanEndKey right = left
+      | otherwise = right
+
+sourceSpanEndKey :: SourceSpan -> (Int, Int)
+sourceSpanEndKey span' =
+  case span' of
+    SourceSpan _ _ _ endLine endCol _ _ -> (endLine, endCol)
+    NoSourceSpan -> (minBound, minBound)
+
+hasSourceSpan :: SourceSpan -> Bool
+hasSourceSpan SourceSpan {} = True
+hasSourceSpan NoSourceSpan = False
+
+replaceSpanEnd :: SourceSpan -> SourceSpan -> SourceSpan
+replaceSpanEnd startSpan endSpan =
+  case (startSpan, endSpan) of
+    (SourceSpan source startLine startCol _ _ startOffset _, SourceSpan _ _ _ endLine endCol _ endOffset) ->
+      SourceSpan source startLine startCol endLine endCol startOffset endOffset
+    _ -> startSpan
+
+maybeToListAnn :: forall a. (Typeable a) => Annotation -> [a]
+maybeToListAnn ann = maybe [] pure (fromAnnotation @a ann)
+
+locatedTcAnnotation :: String -> SourceSpan -> TcAnnotation -> TcLocatedAnnotation
+locatedTcAnnotation kind span' ann =
+  TcLocatedAnnotation
+    { locatedSpan = span',
+      locatedKind = kind,
+      locatedLabel = renderTcAnnotationLabel ann
+    }
+
+locatedTcClassAnnotation :: SourceSpan -> TcClassAnnotation -> TcLocatedAnnotation
+locatedTcClassAnnotation span' _ =
+  TcLocatedAnnotation
+    { locatedSpan = span',
+      locatedKind = "class",
+      locatedLabel = "class"
+    }
+
+locatedTcInstanceAnnotation :: SourceSpan -> TcInstanceAnnotation -> TcLocatedAnnotation
+locatedTcInstanceAnnotation span' ann =
+  TcLocatedAnnotation
+    { locatedSpan = span',
+      locatedKind = "instance",
+      locatedLabel = T.unpack (tcInstanceDictName ann)
+    }
+
+locatedTcInstanceMethodAnnotation :: SourceSpan -> TcInstanceMethodAnnotation -> TcLocatedAnnotation
+locatedTcInstanceMethodAnnotation span' ann =
+  TcLocatedAnnotation
+    { locatedSpan = span',
+      locatedKind = "instance-method",
+      locatedLabel = T.unpack (tcInstanceMethodName ann)
+    }
+
+hasLocatedLabel :: TcLocatedAnnotation -> Bool
+hasLocatedLabel = not . null . locatedLabel
+
+renderLocatedAnnotation :: TcLocatedAnnotation -> String
+renderLocatedAnnotation ann =
+  renderSourceSpan (locatedSpan ann)
+    <> " "
+    <> locatedKind ann
+    <> " => "
+    <> locatedLabel ann
+
+annotationKey :: TcLocatedAnnotation -> (Int, Int, Int, Int, String, String)
+annotationKey ann =
+  case locatedSpan ann of
+    SourceSpan _ startLine startCol endLine endCol _ _ ->
+      (startLine, startCol, endLine, endCol, locatedKind ann, locatedLabel ann)
+    NoSourceSpan ->
+      (maxBound, maxBound, maxBound, maxBound, locatedKind ann, locatedLabel ann)
+
+renderSourceSpan :: SourceSpan -> String
+renderSourceSpan span' =
+  case span' of
+    SourceSpan _ startLine startCol endLine endCol _ _ ->
+      show startLine
+        <> ":"
+        <> show startCol
+        <> "-"
+        <> show endLine
+        <> ":"
+        <> show endCol
+    NoSourceSpan -> "<no-source>"
+
+renderTcAnnotationLabel :: TcAnnotation -> String
+renderTcAnnotationLabel ann =
+  unwords $
+    map renderTypeApplication (tcAnnTypeArgs ann)
+      <> map renderEvTerm (tcAnnEvidenceTerms ann)
+
+renderTypeApplication :: TcType -> String
+renderTypeApplication ty = "@" <> renderTcType ty
+
+renderEvTerm :: EvTerm -> String
+renderEvTerm ev =
+  case ev of
+    EvVarTerm var -> renderEvVar var
+    EvGiven pred' -> "given(" <> renderPred pred' <> ")"
+    EvDict name typeArgs evidence ->
+      "dict "
+        <> T.unpack name
+        <> renderListField " typeArgs" renderTcType typeArgs
+        <> renderListField " evidence" renderEvTerm evidence
+    EvCoercion coercion -> "coercion(" <> renderCoercion coercion <> ")"
+    EvSuperClass inner index -> "super[" <> show index <> "](" <> renderEvTerm inner <> ")"
+    EvCast inner coercion -> "cast(" <> renderEvTerm inner <> ", " <> renderCoercion coercion <> ")"
+
+renderEvVar :: EvVar -> String
+renderEvVar (EvVar (Unique unique)) = "$ev" <> show unique
+
+renderCoercion :: Coercion -> String
+renderCoercion coercion =
+  case coercion of
+    CoVar var -> renderEvVar var
+    Refl ty -> "refl " <> renderTcType ty
+    Sym inner -> "sym(" <> renderCoercion inner <> ")"
+    Trans left right -> "trans(" <> renderCoercion left <> ", " <> renderCoercion right <> ")"
+    TyConAppCo tc coercions -> T.unpack (tyConName tc) <> renderListField " coercions" renderCoercion coercions
+    AxiomInstCo name types -> "axiom " <> T.unpack name <> renderListField " types" renderTcType types
+
+renderPred :: Pred -> String
+renderPred pred' =
+  case pred' of
+    ClassPred cls args -> T.unpack cls <> " " <> unwords (map renderTcType args)
+    EqPred left right -> renderTcType left <> " ~ " <> renderTcType right
+
+renderListField :: String -> (a -> String) -> [a] -> String
+renderListField _ _ [] = ""
+renderListField label renderItem xs = label <> "=" <> renderList renderItem xs
+
+renderList :: (a -> String) -> [a] -> String
+renderList renderItem xs = "[" <> intercalate ", " (map renderItem xs) <> "]"
+
+renderAnnotatedTcSource :: Text -> [TcLocatedAnnotation] -> String
+renderAnnotatedTcSource source annotations =
+  let sourceLines = T.lines source
+      sorted = sortOn annotationKey annotations
+      grouped = groupByLine sorted
+   in intercalate "\n" (concatMap (renderSourceLine grouped) (zip [1 ..] sourceLines))
+
+groupByLine :: [TcLocatedAnnotation] -> Map.Map Int [TcLocatedAnnotation]
+groupByLine = foldr insertAnn Map.empty
+  where
+    insertAnn ann acc =
+      case locatedSpan ann of
+        SourceSpan _ startLine _ _ _ _ _ ->
+          Map.insertWith (<>) startLine [ann] acc
+        NoSourceSpan -> acc
+
+renderSourceLine :: Map.Map Int [TcLocatedAnnotation] -> (Int, Text) -> [String]
+renderSourceLine grouped (lineNum, sourceLine) =
+  let annotations = maybe [] (sortOn annotationStartCol) (Map.lookup lineNum grouped)
+   in T.unpack sourceLine : renderAnnotationLines annotations
+
+annotationStartCol :: TcLocatedAnnotation -> Int
+annotationStartCol ann =
+  case locatedSpan ann of
+    SourceSpan _ _ startCol _ _ _ _ -> startCol
+    NoSourceSpan -> maxBound
+
+renderAnnotationLines :: [TcLocatedAnnotation] -> [String]
+renderAnnotationLines [] = []
+renderAnnotationLines annotations =
+  let items = [(annotationStartCol ann - 1, locatedLabel ann) | ann <- annotations, hasLocatedLabel ann]
+   in layoutAnnotationLines items
+
+type AnnotationItem = (Int, String)
+
+layoutAnnotationLines :: [AnnotationItem] -> [String]
+layoutAnnotationLines [] = []
+layoutAnnotationLines items =
+  let reversed = sortOn (Down . fst) items
+      (currentLine, deferred) = packLine reversed
+   in renderAnnotationLine currentLine deferred : layoutAnnotationLines deferred
+
+packLine :: [AnnotationItem] -> ([AnnotationItem], [AnnotationItem])
+packLine [] = ([], [])
+packLine (rightmost : rest) =
+  let go _ [] fitted deferred = (sortOn fst fitted, sortOn fst deferred)
+      go minCol (item@(col, label) : remaining) fitted deferred =
+        let annotEnd = col + 3 + length label
+            fitsBeforePlaced = annotEnd < minCol
+            crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
+         in if fitsBeforePlaced && not crossesDeferred
+              then go col remaining (item : fitted) deferred
+              else go minCol remaining fitted (item : deferred)
+   in go (fst rightmost) rest [rightmost] []
+
+renderAnnotationLine :: [AnnotationItem] -> [AnnotationItem] -> String
+renderAnnotationLine placedOnLine deferredItems =
+  let deferredCols = map fst deferredItems
+      buildLine _ [] [] = ""
+      buildLine pos placed deferred =
+        case (placed, deferred) of
+          ((col, label) : restPlaced, _)
+            | pos == col ->
+                "\x2514\x2500 " <> label <> buildLine (pos + 3 + length label) restPlaced (filter (>= pos + 3 + length label) deferred)
+          (_, d : restDeferred)
+            | pos == d ->
+                "\x2502" <> buildLine (pos + 1) placed restDeferred
+          _ ->
+            let nextPos = case (placed, deferred) of
+                  ((col, _) : _, d : _) -> min col d
+                  ((col, _) : _, []) -> col
+                  ([], d : _) -> d
+                padding = nextPos - pos
+             in replicate padding ' ' <> buildLine nextPos placed deferred
+   in buildLine 0 (sortOn fst placedOnLine) (sortOn id deferredCols)
 
 progressSummary :: [(TcCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
