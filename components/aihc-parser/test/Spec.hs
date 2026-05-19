@@ -283,6 +283,8 @@ buildTests = do
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
+            testCase "rejects bare context result kind signatures before outer kind signatures" test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature,
+            testCase "parses parenthesized context result kind signatures before outer kind signatures" test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
             testCase "parenthesizes forall body kind signatures in standalone kind signatures" test_standaloneKindSignatureForallBodyKindSigParens,
@@ -1672,6 +1674,30 @@ test_typeParserRejectsBareImplicitParamContextAppArg = do
     ParseErr {} -> pure ()
     ParseOk ty ->
       assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+  case parseDecl config "type X = _ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk decl ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations decl)))
+
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+  case parseDecl config "type X = _ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature declaration\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_declParserRejectsBareKindSignature :: Assertion
 test_declParserRejectsBareKindSignature = do

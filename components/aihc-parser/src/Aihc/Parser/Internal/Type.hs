@@ -44,7 +44,7 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
 --
 -- > type -> btype ['->' type]
 typeParser :: TokParser Type
-typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
+typeParser = label "type" $ forallTypeParser <|> contextOrKindSigTypeParser
 
 -- | Type syntax accepted after expression signatures. This keeps the same
 -- report core while allowing outer @forall@ and context forms.
@@ -57,7 +57,7 @@ kindSigTypeParser =
   optionalSuffix
     (expectedTok TkReservedDoubleColon *> typeSignatureParser)
     TKindSig
-    contextOrFunTypeParser
+    typeFunParser
 
 -- | Extension form:
 --
@@ -89,10 +89,10 @@ typeFunSignatureParser = do
     Nothing -> pure lhs
     Just arrowKind -> TFun arrowKind lhs <$> typeSignatureParser
 
-contextOrFunTypeParser :: TokParser Type
-contextOrFunTypeParser = do
+contextOrKindSigTypeParser :: TokParser Type
+contextOrKindSigTypeParser = do
   isContextType <- startsWithContextType
-  if isContextType then contextTypeParser else typeFunParser
+  if isContextType then contextTypeParser else kindSigTypeParser
 
 -- | Extension form:
 --
