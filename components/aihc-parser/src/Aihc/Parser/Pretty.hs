@@ -555,7 +555,7 @@ prettyPattern pat =
     PCon con typeArgs args -> hsep ([prettyPrefixName con] <> map prettyInvisibleTypeArg typeArgs <> map prettyPattern args)
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
-      prettyExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
+      prettyExpr viewExpr <> nest 1 (hardline <> "->" <+> prettyPattern inner)
     PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
