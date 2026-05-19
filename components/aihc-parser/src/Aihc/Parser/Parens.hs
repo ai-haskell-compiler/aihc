@@ -1350,7 +1350,7 @@ addCompStmtParens stmt =
 addCompTransformExprParens :: Expr -> Expr
 addCompTransformExprParens expr =
   let parenthesized = addExprParens expr
-   in if needsCompTransformParens expr
+   in if needsCompTransformParens parenthesized
         then wrapExpr True parenthesized
         else parenthesized
 
