@@ -53,7 +53,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Data.Data (Data, cast, gmapQ)
-import Data.List (intercalate, sortOn)
+import Data.List (intercalate, partition, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
@@ -348,7 +348,7 @@ locatedTcAnnotation kind span' ann =
     { locatedSpan = span',
       locatedKind = kind,
       locatedSummary = renderTcAnnotation ann,
-      locatedLabel = renderTcType (tcAnnType ann)
+      locatedLabel = renderTcAnnotationLabel ann
     }
 
 locatedTcClassAnnotation :: SourceSpan -> TcClassAnnotation -> TcLocatedAnnotation
@@ -414,6 +414,15 @@ renderTcAnnotation ann =
     <> renderListField " typeArgs" renderTcType (tcAnnTypeArgs ann)
     <> renderListField " evidence" renderEvTerm (tcAnnEvidenceTerms ann)
     <> renderListField " termArgs" renderTcType (tcAnnTermArgTypes ann)
+
+renderTcAnnotationLabel :: TcAnnotation -> String
+renderTcAnnotationLabel ann =
+  unwords $
+    map renderTypeApplication (tcAnnTypeArgs ann)
+      <> map renderEvTerm (tcAnnEvidenceTerms ann)
+
+renderTypeApplication :: TcType -> String
+renderTypeApplication ty = "@" <> renderTcType ty
 
 renderTcClassAnnotation :: TcClassAnnotation -> String
 renderTcClassAnnotation ann =
@@ -531,8 +540,14 @@ annotationStartCol ann =
 renderAnnotationLines :: [TcLocatedAnnotation] -> [String]
 renderAnnotationLines [] = []
 renderAnnotationLines annotations =
-  let items = [(annotationStartCol ann - 1, locatedKind ann <> " " <> locatedLabel ann) | ann <- annotations]
-   in layoutAnnotationLines items
+  let items = [(annotationStartCol ann - 1, locatedLabel ann) | ann <- annotations]
+      (markerItems, labeledItems) = partition (null . snd) items
+      markerCol =
+        case labeledItems of
+          [] -> minimum (map fst markerItems)
+          _ -> minimum (map fst labeledItems)
+      markerLines = replicate (length markerItems) (replicate markerCol ' ' <> "\x2502")
+   in markerLines <> layoutAnnotationLines labeledItems
 
 type AnnotationItem = (Int, String)
 

@@ -12,8 +12,8 @@ annotated:
   - |
     module Test where
     dup x = (x,x)
-            ││ └─ expr a
-            │└─ expr a
-            └─ expr (,) a a
+            │
+            │
+            └─ @a @a
 status: pass
 reason: ""

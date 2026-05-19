@@ -30,24 +30,24 @@ annotated:
     module Test where
     data Bool = False | True
     class Eq a where
-    └─ class class
+    └─ class
       (==) :: a -> a -> Bool
     instance Eq Bool where
-    └─ instance $fEqBool
+    └─ $fEqBool
       False == False = True
-      │                └─ expr Bool
-      └─ instance-method ==
+      │
+      └─ ==
       False == True = False
-      │               └─ expr Bool
-      └─ instance-method ==
+      │
+      └─ ==
       True == False = False
-      │               └─ expr Bool
-      └─ instance-method ==
+      │
+      └─ ==
       True == True = True
-      │              └─ expr Bool
-      └─ instance-method ==
+      │
+      └─ ==
     eqBool :: Bool -> Bool -> Bool
     eqBool = (==)
-             └─ expr Bool -> Bool -> Bool
+             └─ @Bool dict $fEqBool
 status: pass
 reason: ""
