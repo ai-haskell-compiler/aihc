@@ -263,6 +263,7 @@ buildTests = do
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
+            testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -280,6 +281,7 @@ buildTests = do
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
+            testCase "keeps context forall kind signatures minimal as types" test_typeContextForallKindSigParensMinimal,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1449,6 +1451,17 @@ test_viewExprMultiWayIfTypeSigParens = do
         """
   assertParsedStrippedDeclShapeRoundTrip config source
 
+test_viewExprInfixLambdaCasesParens :: Assertion
+test_viewExprInfixLambdaCasesParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        _ = \\cases
+              (([] `a` []) -> _) ->
+                []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
@@ -1593,6 +1606,26 @@ test_typeParserParsesBareKindSignature = do
   case parseType config "_ :: _" of
     ParseOk ty ->
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
+    ParseErr bundle ->
+      assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_typeContextForallKindSigParensMinimal :: Assertion
+test_typeContextForallKindSigParensMinimal = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source = "_ => forall a. _ :: _"
+      expected =
+        TContext
+          [TWildcard]
+          ( TForall
+              ( ForallTelescope
+                  ForallInvisible
+                  [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible]
+              )
+              (TKindSig TWildcard TWildcard)
+          )
+  case parseType config source of
+    ParseOk ty ->
+      assertEqual "context forall kind signature" expected (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 

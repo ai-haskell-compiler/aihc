@@ -1556,6 +1556,10 @@ addContextBodyParens :: Type -> Type
 addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
 addContextBodyParens ty =
   case ty of
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+        (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
         (startsWithTypeSplice ty')
@@ -1747,7 +1751,12 @@ addViewExprParensWith allowLayoutTypeSig expr =
     else addExprParens expr
   where
     viewExprNeedsParens e =
-      isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
+      isInfixExpr e || isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
+
+    isInfixExpr e =
+      case peelExprAnn e of
+        EInfix {} -> True
+        _ -> False
 
     viewExprTypeSigCanStayBare e =
       allowLayoutTypeSig && isBareViewExprBlock e && not (classicIfTypeSigNeedsParens e)

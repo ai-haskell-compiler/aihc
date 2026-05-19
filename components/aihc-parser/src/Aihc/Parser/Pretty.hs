@@ -555,7 +555,7 @@ prettyPattern pat =
     PCon con typeArgs args -> hsep ([prettyPrefixName con] <> map prettyInvisibleTypeArg typeArgs <> map prettyPattern args)
     PInfix lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView viewExpr inner ->
-      prettyExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
+      prettyViewExpr viewExpr <> hardline <> indent 1 ("->" <+> prettyPattern inner)
     PAs name inner -> prettyBinderUName name <> "@" <> prettyPattern inner
     PStrict inner -> "!" <> prettyPattern inner
     PIrrefutable inner -> "~" <> prettyPattern inner
@@ -574,6 +574,14 @@ prettyPattern pat =
           )
     PTypeSig inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
     PSplice body -> "$" <> prettySpliceBody body
+
+prettyViewExpr :: Expr -> Doc ann
+prettyViewExpr expr =
+  case expr of
+    EAnn _ sub -> prettyViewExpr sub
+    EParen inner -> parens (prettyViewExpr inner)
+    EInfix lhs op rhs -> prettyViewExpr lhs <+> prettyNameInfixOp op <+> prettyViewExpr rhs
+    _ -> prettyExpr expr
 
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: RecordField Pattern -> Doc ann
