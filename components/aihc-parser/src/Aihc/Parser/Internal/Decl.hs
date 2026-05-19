@@ -17,7 +17,7 @@ import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAp
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Char (isLower)
 import Data.Functor (($>))
 import Data.Maybe (fromMaybe, isJust)
@@ -150,6 +150,7 @@ typeDeclarationParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
         else
           fail "Standalone kind signatures cannot have type parameters."
     TkReservedEquals -> do
+      rejectDisabledExplicitForallInTypeSynonymBody
       body <- typeParser
       pure $
         DeclTypeSyn
@@ -164,6 +165,21 @@ typeDeclarationParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
             unexpectedExpecting = "'::' or '=' after type declaration head",
             unexpectedContext = []
           }
+
+rejectDisabledExplicitForallInTypeSynonymBody :: TokParser ()
+rejectDisabledExplicitForallInTypeSynonymBody = do
+  explicitForAll <- isExtensionEnabled ExplicitForAll
+  unless explicitForAll $ do
+    hasForall <- MP.lookAhead findForallBeforeDeclEnd
+    when hasForall $ do
+      _ <- MP.manyTill anySingle (MP.lookAhead (expectedTok TkKeywordForall))
+      fail "Illegal symbol `forall' in type"
+  where
+    findForallBeforeDeclEnd =
+      (expectedTok TkKeywordForall $> True)
+        <|> (expectedTok TkSpecialSemicolon $> False)
+        <|> (eofTok $> False)
+        <|> (anySingle *> findForallBeforeDeclEnd)
 
 roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do

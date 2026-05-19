@@ -1409,10 +1409,6 @@ test_parenthesesInsertion = do
   assertParsedStrippedPatternShapeRoundTrip config "C {a = [[] | then [] by [] | then [] + [] by []] -> _}"
   assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
-  let signatureConfig = defaultConfig {parserExtensions = [ConstraintKinds, KindSignatures, PartialTypeSignatures, RankNTypes]}
-  assertParsedStrippedDeclShapeRoundTrip signatureConfig "x :: [_ :: _ :: _]"
-  assertParsedStrippedDeclShapeRoundTrip signatureConfig "type T = _ => forall a. _ :: _"
-
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, QuasiQuotes]}

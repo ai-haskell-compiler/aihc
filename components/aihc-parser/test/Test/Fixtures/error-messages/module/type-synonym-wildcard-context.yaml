@@ -1,0 +1,7 @@
+src: |
+  type X = _ => forall a. _ :: _
+ghc: |
+  test.hs:1:15: error: [GHC-25955] Illegal symbol `forall' in type
+aihc: |
+  test.hs
+  Illegal symbol `forall' in type
