@@ -1,0 +1,10 @@
+extensions: []
+input: |
+  x :: [_ :: _ :: _]
+  x = undefined
+
+  type T = _ => forall a. _ :: _
+ast: |-
+  Module {[DeclTypeSig ["x"] (TList [TKindSig (TWildcard) (TKindSig (TWildcard) (TWildcard))]), DeclValue (PatternBind (PVar "x") (EVar "undefined")), DeclTypeSyn (TypeSynDecl {Prefix "T", TContext [TWildcard] (TForall [TyVarBinder {"a"}] (TKindSig (TWildcard) (TWildcard)))})]}
+status: pass
+reason: nested kind signatures are valid without extra parentheses in delimited and context/forall positions
