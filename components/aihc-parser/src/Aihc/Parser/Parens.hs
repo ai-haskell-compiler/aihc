@@ -1520,7 +1520,7 @@ addSignatureTypeParensShared ctx prec ty =
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
         -- to produce the required parentheses.
         TKindSig ty' kind ->
-          wrapTy True (TKindSig (atom 0 ty') (addKindSigRhsParens kind))
+          wrapTy True (TKindSig (atom 0 ty') (atom 0 kind))
         TContext constraints inner ->
           wrapTy (prec > 0) (TContext (addContextConstraints constraints) (atom 0 inner))
         TSplice body -> TSplice (addSpliceBodyParens body)
@@ -1548,15 +1548,6 @@ addImplicitParamBodyParens :: Type -> Type
 addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens sub)
 addImplicitParamBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
--- | Process the kind to the right of a kind signature. Nested kind
--- signatures associate to the right, so @_ :: _ :: _@ does not need
--- parentheses around the RHS kind signature.
-addKindSigRhsParens :: Type -> Type
-addKindSigRhsParens (TAnn ann sub) = TAnn ann (addKindSigRhsParens sub)
-addKindSigRhsParens (TKindSig ty kind) =
-  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addKindSigRhsParens kind)
-addKindSigRhsParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
-
 -- | Process the body to the right of a constraint arrow in a top-level type
 -- RHS. A kind signature is already delimited there in cases like
 -- @type X = C => T :: K@, but TH splices still need grouping because
@@ -1569,10 +1560,6 @@ addContextBodyParens ty =
       wrapTy
         (startsWithTypeSplice ty')
         (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
-    TForall telescope inner ->
-      TForall
-        (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
-        (addTypeTopLevelParens inner)
     _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 startsWithTypeSplice :: Type -> Bool
@@ -1594,7 +1581,7 @@ addTypeDelimitedParens (TAnn ann sub) = TAnn ann (addTypeDelimitedParens sub)
 addTypeDelimitedParens (TImplicitParam name inner) =
   TImplicitParam name (addImplicitParamBodyParens inner)
 addTypeDelimitedParens (TKindSig ty kind) =
-  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addKindSigRhsParens kind)
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
 addTypeDelimitedParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
@@ -1622,7 +1609,7 @@ addTypeDelimitedParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 addTypeInExplicitParenParens :: Type -> Type
 addTypeInExplicitParenParens (TAnn ann sub) = TAnn ann (addTypeInExplicitParenParens sub)
 addTypeInExplicitParenParens (TKindSig ty kind) =
-  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addKindSigRhsParens kind)
+  TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
 addTypeInExplicitParenParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 addContextConstraintDelimitedParens :: Type -> Type
