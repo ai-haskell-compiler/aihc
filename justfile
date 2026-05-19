@@ -8,14 +8,14 @@ test:
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"
 replay ARGUMENT:
-  cabal test aihc-parser:spec -v0 --test-options='--pattern properties --quickcheck-replay="{{ARGUMENT}}" --hide-successes'
+  cabal test all --jobs=1 -v0 --test-options='--pattern properties --quickcheck-replay="{{ARGUMENT}}" --hide-successes'
 
 # Run QuickCheck with 10000 tests in a loop until failure
 qc:
   while true; do just qc1 || break; done
 
 qc1:
-  cabal test all -v0 --test-options="--pattern generated --quickcheck-tests 10000 --quickcheck-shrinks 1000000 --hide-successes"
+  cabal test all -v0 --jobs=1 --test-options="--quickcheck-tests 10000 --quickcheck-shrinks 1000000 --hide-successes"
 
 # Auto-format Nix, Cabal, and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
