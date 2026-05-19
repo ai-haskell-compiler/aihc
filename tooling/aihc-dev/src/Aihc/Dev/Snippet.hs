@@ -17,6 +17,7 @@ where
 
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser.Compat (dumpGhcAst, sameGhcAst, toGhcHsModuleDecls)
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Parens (addModuleParens)
 import Aihc.Parser.Syntax
@@ -33,11 +34,14 @@ import Aihc.Parser.Syntax
 import Control.Monad
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (dropWhileEnd, intercalate)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import GhcOracle (oracleModuleAstFingerprint)
+import GHC.Hs (GhcPs, HsModule (..))
+import GHC.Types.SrcLoc (unLoc)
+import GhcOracle (parseWithGhcWithExtensions, toGhcExtension)
+import Language.Haskell.Syntax.Decls (HsDecl)
 import ParserValidation (ValidationError (..), formatDiff, validateParser)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -96,9 +100,13 @@ analyzeSnippet sourceTag cliExtensions source =
       defaultEdition = fromMaybe Haskell2010Edition (editionFromExtensionSettings cliExtensions)
       edition = fromMaybe defaultEdition (headerLanguageEdition headerPragmas)
       extensionSettings = cliExtensions ++ headerExtensionSettings headerPragmas
-      ghcAccepts = either (const False) (const True) (oracleModuleAstFingerprint sourceTag edition extensionSettings source)
+      ghcModule = parseWithGhc sourceTag edition extensionSettings source'
       parserModule = parseWithAihc sourceTag edition extensionSettings source'
-      comparison = compareParseResults ghcAccepts parserModule
+      comparison = compareParseResults (either (const False) (const True) ghcModule) parserModule
+      ghcAstFailure =
+        case (comparison, ghcModule, parserModule) of
+          (BothAccept, Right ghcModule', Just parserModule') -> compareSnippetGhcAst parserModule' ghcModule'
+          _ -> Nothing
       validationFailure =
         case comparison of
           BothAccept -> fmap validationErrorMessage (validateParser sourceTag edition extensionSettings source')
@@ -107,15 +115,16 @@ analyzeSnippet sourceTag cliExtensions source =
         case comparison of
           BothAccept -> parserModule >>= parsedSnippetParensDiff source
           _ -> Nothing
-   in buildSnippetReport comparison validationFailure parensDiff
+   in buildSnippetReport comparison ghcAstFailure validationFailure parensDiff
 
-buildSnippetReport :: ParseComparison -> Maybe String -> Maybe String -> SnippetReport
-buildSnippetReport comparison validationFailure parensDiff =
+buildSnippetReport :: ParseComparison -> Maybe String -> Maybe String -> Maybe String -> SnippetReport
+buildSnippetReport comparison ghcAstFailure validationFailure parensDiff =
   let statusLines =
         comparisonLines comparison
+          ++ ghcAstLines comparison ghcAstFailure
           ++ roundtripLines comparison validationFailure
           ++ parensLines comparison parensDiff
-      hasFailure = comparison /= BothAccept || isJust validationFailure || isJust parensDiff
+      hasFailure = comparison /= BothAccept || isJust ghcAstFailure || isJust validationFailure || isJust parensDiff
    in SnippetReport statusLines hasFailure
 
 renderSnippetReport :: SnippetReport -> String
@@ -177,6 +186,15 @@ roundtripLines comparison validationFailure =
     (BothAccept, Just message) -> [bugLine ("Roundtrip: Bug found:\n" <> message)]
     (_, _) -> []
 
+ghcAstLines :: ParseComparison -> Maybe String -> [ReportLine]
+ghcAstLines comparison ghcAstFailure =
+  case comparison of
+    BothAccept ->
+      case ghcAstFailure of
+        Nothing -> [nonBugLine "GHC AST Match: OK"]
+        Just message -> [bugLine ("GHC AST Match: " <> message)]
+    _ -> [nonBugLine "GHC AST Match: Skipped"]
+
 parensLines :: ParseComparison -> Maybe String -> [ReportLine]
 parensLines comparison parensDiff =
   case comparison of
@@ -192,6 +210,11 @@ bugLine = ReportLine ReportBug
 nonBugLine :: String -> ReportLine
 nonBugLine = ReportLine ReportNonBug
 
+parseWithGhc :: FilePath -> LanguageEdition -> [ExtensionSetting] -> Text -> Either Text (HsModule GhcPs)
+parseWithGhc sourceTag edition extensionSettings source =
+  let ghcExtensions = mapMaybe toGhcExtension (effectiveExtensions edition extensionSettings)
+   in parseWithGhcWithExtensions sourceTag ghcExtensions source
+
 parseWithAihc :: FilePath -> LanguageEdition -> [ExtensionSetting] -> Text -> Maybe Module
 parseWithAihc sourceTag edition extensionSettings source =
   let config =
@@ -203,6 +226,45 @@ parseWithAihc sourceTag edition extensionSettings source =
    in case errs of
         [] -> Just modu
         _ -> Nothing
+
+compareSnippetGhcAst :: Module -> HsModule GhcPs -> Maybe String
+compareSnippetGhcAst parserModule ghcModule =
+  let expectedDecls = map unLoc (hsmodDecls ghcModule)
+      actualDecls = toGhcHsModuleDecls parserModule
+   in compareGhcDecls expectedDecls actualDecls
+
+compareGhcDecls :: [HsDecl GhcPs] -> [HsDecl GhcPs] -> Maybe String
+compareGhcDecls expectedDecls actualDecls
+  | length expectedDecls /= length actualDecls =
+      Just
+        ( intercalate
+            "\n"
+            [ "Bug found:",
+              "Declaration count mismatch: GHC parsed "
+                <> show (length expectedDecls)
+                <> ", AIHC converted "
+                <> show (length actualDecls)
+                <> "."
+            ]
+        )
+  | otherwise = firstMismatch (zip3 [1 :: Int ..] expectedDecls actualDecls)
+  where
+    firstMismatch [] = Nothing
+    firstMismatch ((index, expected, actual) : rest)
+      | sameGhcAst expected actual = firstMismatch rest
+      | otherwise = Just (formatGhcAstMismatch index expected actual)
+
+formatGhcAstMismatch :: Int -> HsDecl GhcPs -> HsDecl GhcPs -> String
+formatGhcAstMismatch index expected actual =
+  intercalate
+    "\n"
+    [ "Bug found:",
+      "Declaration " <> show index <> " differs after converting the AIHC AST to GHC AST.",
+      "GHC parser AST:",
+      dropWhileEnd (== '\n') (dumpGhcAst expected),
+      "Converted AIHC AST:",
+      dropWhileEnd (== '\n') (dumpGhcAst actual)
+    ]
 
 parsedSnippetParensDiff :: Text -> Module -> Maybe String
 parsedSnippetParensDiff source modu =

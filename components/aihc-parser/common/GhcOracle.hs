@@ -4,6 +4,7 @@
 module GhcOracle
   ( oracleModuleAstFingerprint,
     oracleModuleAstFingerprintNoCPP,
+    parseWithGhcWithExtensions,
     toGhcExtension,
     fromGhcExtension,
   )
