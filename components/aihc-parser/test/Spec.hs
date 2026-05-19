@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -211,6 +211,7 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
+            testCase "shrunk standalone kind signatures shrink binder kinds" test_shrunkStandaloneKindSignaturesShrinkBinderKinds,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
             testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
@@ -283,6 +284,7 @@ buildTests = do
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
+            testCase "parenthesizes forall body kind signatures in standalone kind signatures" test_standaloneKindSignatureForallBodyKindSigParens,
             testCase "keeps nested context kind signatures minimal" test_typeParensNestedContextKindSignatureIsMinimal,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
@@ -627,6 +629,38 @@ test_shrunkPatternTypeSignaturesShrinkTypes =
     shrinksTypeName (PTypeSig PWildcard (TCon name Unpromoted)) =
       isNothing (nameQualifier name) || nameText name == ":+"
     shrinksTypeName _ = False
+
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds :: Assertion
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds =
+  assertBool "standalone kind signatures should shrink names in forall binder kinds" $
+    any shrinksBinderKind (shrinkDecl decl)
+  where
+    decl =
+      DeclStandaloneKindSig
+        (mkUnqualifiedName NameConSym ":+")
+        ( TForall
+            ForallTelescope
+              { forallTelescopeVisibility = ForallInvisible,
+                forallTelescopeBinders =
+                  [ TyVarBinder
+                      []
+                      "a"
+                      (Just (TVar (mkUnqualifiedName NameVarId "\985\5115####")))
+                      TyVarBSpecified
+                      TyVarBVisible
+                  ]
+              }
+            (TKindSig TWildcard TWildcard)
+        )
+    shrinksBinderKind
+      ( DeclStandaloneKindSig
+          _
+          ( TForall
+              ForallTelescope {forallTelescopeBinders = [TyVarBinder {tyVarBinderKind = Just (TVar name)}]}
+              (TKindSig TWildcard TWildcard)
+            )
+        ) = renderUnqualifiedName name == "a"
+    shrinksBinderKind _ = False
 
 test_shrunkModuleHeaderWithoutWarningMakesProgress :: Assertion
 test_shrunkModuleHeaderWithoutWarningMakesProgress =
@@ -1639,6 +1673,28 @@ test_typeParserParsesBareKindSignature = do
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_standaloneKindSignatureForallBodyKindSigParens :: Assertion
+test_standaloneKindSignatureForallBodyKindSigParens = do
+  let decl =
+        DeclStandaloneKindSig
+          (mkUnqualifiedName NameConSym ":+")
+          ( TForall
+              ForallTelescope
+                { forallTelescopeVisibility = ForallInvisible,
+                  forallTelescopeBinders =
+                    [ TyVarBinder
+                        []
+                        "a"
+                        (Just TWildcard)
+                        TyVarBSpecified
+                        TyVarBVisible
+                    ]
+                }
+              (TKindSig TWildcard TWildcard)
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "standalone kind signature source" "type (:+) :: forall (a :: _). (_ :: _)" source
 
 test_typeParensNestedContextKindSignatureIsMinimal :: Assertion
 test_typeParensNestedContextKindSignatureIsMinimal = do

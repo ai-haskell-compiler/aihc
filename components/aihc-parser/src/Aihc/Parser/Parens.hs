@@ -609,7 +609,7 @@ addDeclParens decl =
     DeclTypeSig names ty -> DeclTypeSig names (addSignatureTypeParens ty)
     DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
     DeclPatSynSig names ty -> DeclPatSynSig names (addSignatureTypeParens ty)
-    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addTypeParens kind)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addStandaloneKindSigParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
@@ -1471,6 +1471,14 @@ addTypeTopLevelParens (TContext constraints inner) =
 addTypeTopLevelParens (TParen inner) =
   TParen (addTypeTopLevelParens inner)
 addTypeTopLevelParens ty = addSignatureTypeParens ty
+
+addStandaloneKindSigParens :: Type -> Type
+addStandaloneKindSigParens (TAnn ann sub) = TAnn ann (addStandaloneKindSigParens sub)
+addStandaloneKindSigParens (TForall telescope inner) =
+  TForall
+    (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+    (addForallBodyParens inner)
+addStandaloneKindSigParens ty = addTypeTopLevelParens ty
 
 addTypeIn :: TypeCtx -> Type -> Type
 addTypeIn ctx ty =

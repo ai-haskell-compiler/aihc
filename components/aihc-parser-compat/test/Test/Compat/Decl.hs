@@ -48,6 +48,7 @@ declCompatTests =
           example "deriving" "data D = D deriving stock Eq",
           example "type synonym" "type Pair a = (a, a)",
           example "standalone kind signature" "type K :: Type",
+          example "standalone kind signature with forall body kind signature" "type (:+) :: forall (a :: _). (_ :: _)",
           example "type family" "type family F a",
           example "data family" "data family DF a",
           example "class" "class C a where method :: a -> a",
