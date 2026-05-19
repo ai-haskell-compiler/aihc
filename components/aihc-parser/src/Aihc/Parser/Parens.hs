@@ -609,7 +609,7 @@ addDeclParens decl =
     DeclTypeSig names ty -> DeclTypeSig names (addSignatureTypeParens ty)
     DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
     DeclPatSynSig names ty -> DeclPatSynSig names (addSignatureTypeParens ty)
-    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addSignatureTypeParens kind)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addTypeParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
