@@ -276,6 +276,7 @@ buildTests = do
             testCase "rejects bare kind signatures as signature types" test_signatureTypeParserRejectsBareKindSignature,
             testCase "parses parenthesized kind signatures as signature types" test_signatureTypeParserParsesParenthesizedKindSignature,
             testCase "parses delimited kind signatures as signature types" test_signatureTypeParserParsesDelimitedKindSignature,
+            testCase "rejects nested bare delimited kind signatures" test_typeParserRejectsNestedBareDelimitedKindSignature,
             testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
@@ -1579,6 +1580,14 @@ test_signatureTypeParserParsesDelimitedKindSignature = do
       assertEqual "delimited kind signature" (TList Unpromoted [TKindSig TWildcard TWildcard]) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_typeParserRejectsNestedBareDelimitedKindSignature :: Assertion
+test_typeParserRejectsNestedBareDelimitedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "[_ :: _ :: _]" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
 
 test_signatureTypeParserRejectsAppArgBareKindSignature :: Assertion
 test_signatureTypeParserRejectsAppArgBareKindSignature = do

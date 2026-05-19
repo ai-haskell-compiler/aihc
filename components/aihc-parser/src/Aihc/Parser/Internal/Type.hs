@@ -55,7 +55,7 @@ typeSignatureParser = label "type" $ forallSignatureTypeParser <|> contextOrFunS
 kindSigTypeParser :: TokParser Type
 kindSigTypeParser =
   optionalSuffix
-    (expectedTok TkReservedDoubleColon *> typeParser)
+    (expectedTok TkReservedDoubleColon *> typeSignatureParser)
     TKindSig
     contextOrFunTypeParser
 

@@ -1748,10 +1748,9 @@ addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
 
 addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
-  let expr' = addExprParens expr
-   in if viewExprNeedsParens expr
-        then wrapExpr True expr'
-        else expr'
+  if viewExprNeedsParens expr
+    then wrapExpr True (addExprParens expr)
+    else addExprParens expr
   where
     viewExprNeedsParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
