@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens, addTypeParens)
+import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -1409,15 +1409,9 @@ test_parenthesesInsertion = do
   assertParsedStrippedPatternShapeRoundTrip config "C {a = [[] | then [] by [] | then [] + [] by []] -> _}"
   assertParsedStrippedExprShapeRoundTrip config "let ((:+) :: _) = [] in []"
 
-  let signatureConfig = defaultConfig {parserExtensions = [KindSignatures, PartialTypeSignatures]}
-      nestedKindSig = TList Unpromoted [TKindSig TWildcard (TKindSig TWildcard TWildcard)]
-      renderedNestedKindSig = renderPretty nestedKindSig
-  assertEqual "nested kind signature rendering" "[_ :: (_ :: _)]" renderedNestedKindSig
-  case parseSignatureType signatureConfig renderedNestedKindSig of
-    ParseOk reparsed ->
-      assertEqual "reparsed nested kind signature" (stripAnnotations (addTypeParens nestedKindSig)) (stripAnnotations reparsed)
-    ParseErr bundle ->
-      assertFailure ("expected generated nested kind signature to reparse, got:\n" <> formatParseErrors "<test>" Nothing bundle)
+  let signatureConfig = defaultConfig {parserExtensions = [ConstraintKinds, KindSignatures, PartialTypeSignatures, RankNTypes]}
+  assertParsedStrippedDeclShapeRoundTrip signatureConfig "x :: [_ :: _ :: _]"
+  assertParsedStrippedDeclShapeRoundTrip signatureConfig "type T = _ => forall a. _ :: _"
 
 test_thTypeQuoteBeforeConstraintExprSig :: Assertion
 test_thTypeQuoteBeforeConstraintExprSig = do
