@@ -609,7 +609,7 @@ addDeclParens decl =
     DeclTypeSig names ty -> DeclTypeSig names (addSignatureTypeParens ty)
     DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
     DeclPatSynSig names ty -> DeclPatSynSig names (addSignatureTypeParens ty)
-    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addSignatureTypeParens kind)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addTypeParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
@@ -1556,6 +1556,10 @@ addContextBodyParens :: Type -> Type
 addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
 addContextBodyParens ty =
   case ty of
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+        (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
         (startsWithTypeSplice ty')

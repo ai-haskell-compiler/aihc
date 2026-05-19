@@ -263,6 +263,8 @@ buildTests = do
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
+            testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
+            testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -274,6 +276,7 @@ buildTests = do
             testCase "rejects bare kind signatures as signature types" test_signatureTypeParserRejectsBareKindSignature,
             testCase "parses parenthesized kind signatures as signature types" test_signatureTypeParserParsesParenthesizedKindSignature,
             testCase "parses delimited kind signatures as signature types" test_signatureTypeParserParsesDelimitedKindSignature,
+            testCase "rejects nested bare delimited kind signatures" test_typeParserRejectsNestedBareDelimitedKindSignature,
             testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
@@ -1450,6 +1453,38 @@ test_viewExprMultiWayIfTypeSigParens = do
         """
   assertParsedStrippedDeclShapeRoundTrip config source
 
+test_viewExprInfixLambdaCasesParens :: Assertion
+test_viewExprInfixLambdaCasesParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        _ = \\cases
+              (([] `a` []) -> _) ->
+                []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where _ `a` (((\\case _ -> []) + []) -> _) = []"
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where ((do [] `a` []) -> _) = []"
+  assertParsedStrippedPatternShapeRoundTrip config "(((if | [] -> []) `a` []) -> _)"
+
+test_viewExprBlockInfixLhsNoParens :: Assertion
+test_viewExprBlockInfixLhsNoParens = do
+  let source =
+        """
+        {-# LANGUAGE ViewPatterns #-}
+        module M where
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+      expected =
+        """
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+  assertParsedModulePrettyContains source expected
+
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
@@ -1547,6 +1582,14 @@ test_signatureTypeParserParsesDelimitedKindSignature = do
     ParseErr bundle ->
       assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
+test_typeParserRejectsNestedBareDelimitedKindSignature :: Assertion
+test_typeParserRejectsNestedBareDelimitedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "[_ :: _ :: _]" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+
 test_signatureTypeParserRejectsAppArgBareKindSignature :: Assertion
 test_signatureTypeParserRejectsAppArgBareKindSignature = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1621,8 +1664,7 @@ test_shrunkDoExpressionsKeepFinalExpression = do
 test_transformListCompGroupByInfixRhsParens :: Assertion
 test_transformListCompGroupByInfixRhsParens = do
   let config = defaultConfig {parserExtensions = [TransformListComp]}
-      source = "_ = [[] | then group by ([] `a` - []) using []]"
-  assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [[] | then group by ([] `a` - []) using []]"
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =

@@ -333,7 +333,19 @@ genRecDoStmtsWith =
         ]
 
 genCompStmtsWith :: Gen [CompStmt]
-genCompStmtsWith = smallList1 genCompStmtWith
+genCompStmtsWith = do
+  firstStmt <- genCompStmtInitialWith
+  restStmts <- smallList0 genCompStmtWith
+  pure (firstStmt : restStmts)
+
+genCompStmtInitialWith :: Gen CompStmt
+genCompStmtInitialWith =
+  scale (`div` 2) $
+    oneof
+      [ CompGen <$> genPattern <*> genExpr,
+        CompGuard <$> genExpr,
+        CompLetDecls <$> smallList0 (DeclValue <$> genDeclValue)
+      ]
 
 genCompStmtWith :: Gen CompStmt
 genCompStmtWith =
@@ -792,7 +804,21 @@ shrinkDoStmt stmt =
     DoAnn _ _ -> []
 
 shrinkCompStmts :: [CompStmt] -> [[CompStmt]]
-shrinkCompStmts = shrinkList shrinkCompStmt
+shrinkCompStmts =
+  filter compStmtsCanStart . shrinkList shrinkCompStmt
+
+compStmtsCanStart :: [CompStmt] -> Bool
+compStmtsCanStart (stmt : _) = not (isTransformCompStmt stmt)
+compStmtsCanStart [] = True
+
+isTransformCompStmt :: CompStmt -> Bool
+isTransformCompStmt stmt =
+  case peelCompStmtAnn stmt of
+    CompThen {} -> True
+    CompThenBy {} -> True
+    CompGroupUsing {} -> True
+    CompGroupByUsing {} -> True
+    _ -> False
 
 -- | Shrink parallel comprehension branches, ensuring each branch has at least one statement
 shrinkParallelCompStmts :: [[CompStmt]] -> [[[CompStmt]]]
@@ -801,7 +827,7 @@ shrinkParallelCompStmts =
   shrinkList shrinkCompStmtsNonEmpty
   where
     shrinkCompStmtsNonEmpty stmts =
-      [stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
+      [stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts'), compStmtsCanStart stmts']
 
 shrinkCompStmt :: CompStmt -> [CompStmt]
 shrinkCompStmt stmt =
