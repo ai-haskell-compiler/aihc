@@ -244,6 +244,7 @@ buildTests = do
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints lambda-case applicative chains without extra parens" test_prettyLambdaCaseApplicativeChain,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
+            testCase "rejects compact explicit type namespace TH splices" test_compactExplicitTypeNamespaceTHSplicesReject,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
@@ -1413,6 +1414,21 @@ test_prettyRecordDotTHSpliceBase = do
   let config = defaultConfig {parserExtensions = [TemplateHaskell, MagicHash, OverloadedRecordDot]}
   assertParsedStrippedExprShapeRoundTrip config "($q#).j7Msfc"
   assertParsedStrippedExprShapeRoundTrip config "($$q#).j7Msfc"
+
+test_compactExplicitTypeNamespaceTHSplicesReject :: Assertion
+test_compactExplicitTypeNamespaceTHSplicesReject = do
+  let config = defaultConfig {parserExtensions = [ExplicitNamespaces, TemplateHaskell, UnboxedSums, ViewPatterns]}
+  case parseExpr config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk expr -> assertFailure ("expected compact type splice expression to fail, got: " <> show (shorthand (stripAnnotations expr)))
+  case parsePattern config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  case parsePattern config "(# | $type _ {} -> _ #)" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice view pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  assertParsedStrippedExprShapeRoundTrip config "$(type _)"
+  assertParsedStrippedPatternShapeRoundTrip config "(# | $(type _) {} -> _ #)"
 
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do

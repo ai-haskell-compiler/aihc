@@ -244,7 +244,10 @@ stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
 thSplicePatternParser :: TokParser Pattern
 thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
-  PSplice <$> atomExprParser
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordType -> MP.empty
+    _ -> PSplice <$> atomExprParser
 
 visibleTypeBinderCoreParser :: TokParser TyVarBinder
 visibleTypeBinderCoreParser =

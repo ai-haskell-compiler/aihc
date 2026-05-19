@@ -1275,6 +1275,7 @@ compactSpliceBodyParser = do
     TkKeywordCase -> MP.empty
     TkKeywordIf -> MP.empty
     TkKeywordProc -> MP.empty
+    TkKeywordType -> MP.empty
     _ -> atomExprParser
 
 thNameQuoteExprParser :: TokParser Expr
