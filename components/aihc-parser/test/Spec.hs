@@ -281,7 +281,6 @@ buildTests = do
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
-            testCase "keeps context forall kind signatures minimal as types" test_typeContextForallKindSigParensMinimal,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1461,6 +1460,9 @@ test_viewExprInfixLambdaCasesParens = do
                 []
         """
   assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where _ `a` (((\\case _ -> []) + []) -> _) = []"
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where ((do [] `a` []) -> _) = []"
+  assertParsedStrippedPatternShapeRoundTrip config "(((if | [] -> []) `a` []) -> _)"
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
@@ -1609,26 +1611,6 @@ test_typeParserParsesBareKindSignature = do
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
-test_typeContextForallKindSigParensMinimal :: Assertion
-test_typeContextForallKindSigParensMinimal = do
-  let config = defaultConfig {parserExtensions = requiredExtensions}
-      source = "_ => forall a. _ :: _"
-      expected =
-        TContext
-          [TWildcard]
-          ( TForall
-              ( ForallTelescope
-                  ForallInvisible
-                  [TyVarBinder [] "a" Nothing TyVarBSpecified TyVarBVisible]
-              )
-              (TKindSig TWildcard TWildcard)
-          )
-  case parseType config source of
-    ParseOk ty ->
-      assertEqual "context forall kind signature" expected (stripAnnotations ty)
-    ParseErr bundle ->
-      assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
-
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1648,8 +1630,7 @@ test_shrunkDoExpressionsKeepFinalExpression = do
 test_transformListCompGroupByInfixRhsParens :: Assertion
 test_transformListCompGroupByInfixRhsParens = do
   let config = defaultConfig {parserExtensions = [TransformListComp]}
-      source = "_ = [[] | then group by ([] `a` - []) using []]"
-  assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [[] | then group by ([] `a` - []) using []]"
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =

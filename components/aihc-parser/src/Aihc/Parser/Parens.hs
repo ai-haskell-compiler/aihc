@@ -1350,7 +1350,7 @@ addCompStmtParens stmt =
 addCompTransformExprParens :: Expr -> Expr
 addCompTransformExprParens expr =
   let parenthesized = addExprParens expr
-   in if needsCompTransformParens parenthesized
+   in if needsCompTransformParens expr
         then wrapExpr True parenthesized
         else parenthesized
 
@@ -1560,6 +1560,8 @@ addContextBodyParens ty =
       TForall
         (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
         (addContextBodyParens inner)
+    TContext constraints inner ->
+      TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
         (startsWithTypeSplice ty')
@@ -1747,16 +1749,32 @@ addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
 addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
   if viewExprNeedsParens expr
-    then wrapExpr True (addExprParens expr)
-    else addExprParens expr
+    then wrapExpr True (addViewExprInnerParens expr)
+    else addViewExprInnerParens expr
   where
-    viewExprNeedsParens e =
-      isInfixExpr e || isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
+    addViewExprInnerParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprInnerParens sub)
+        EParen inner ->
+          case peelExprAnn inner of
+            ESectionL {} -> addExprParens inner
+            ESectionR {} -> addExprParens inner
+            EGetFieldProjection {} -> addExprParens inner
+            _ -> EParen (addViewExprInnerParens inner)
+        EInfix lhs op rhs ->
+          EInfix
+            (addViewInfixLhsParens lhs)
+            op
+            (addExprParensIn (CtxInfixRhs True) rhs)
+        _ -> addExprParens e
 
-    isInfixExpr e =
-      case peelExprAnn e of
-        EInfix {} -> True
-        _ -> False
+    addViewInfixLhsParens lhs =
+      wrapExpr (viewInfixLhsNeedsParens lhs) (addExprParensIn CtxInfixLhs lhs)
+
+    viewInfixLhsNeedsParens = isBlockExpr
+
+    viewExprNeedsParens e =
+      isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
 
     viewExprTypeSigCanStayBare e =
       allowLayoutTypeSig && isBareViewExprBlock e && not (classicIfTypeSigNeedsParens e)
