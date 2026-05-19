@@ -5,15 +5,11 @@ modules:
     dup x = (x,x)
 expected:
   Test:
-    - "2:9-2:14 expr => type=(,) a a typeArgs=[a, a]"
-    - "2:10-2:11 expr => type=a"
-    - "2:12-2:13 expr => type=a"
+    - "2:9-2:14 expr => @a @a"
 annotated:
   - |
     module Test where
     dup x = (x,x)
-            │
-            │
             └─ @a @a
 status: pass
 reason: ""

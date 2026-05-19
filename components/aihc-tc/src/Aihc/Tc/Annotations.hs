@@ -53,7 +53,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Data.Data (Data, cast, gmapQ)
-import Data.List (intercalate, partition, sortOn)
+import Data.List (intercalate, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
@@ -202,7 +202,10 @@ renderTcAnnotations modules =
     renderModule (moduleNameText, annotations) =
       T.unpack moduleNameText
         <> ":\n"
-        <> intercalate "\n" (map (("  " <>) . renderLocatedAnnotation) (sortOn annotationKey annotations))
+        <> intercalate "\n" (map (("  " <>) . renderLocatedAnnotation) (sortOn annotationKey (filter hasLocatedLabel annotations)))
+
+hasLocatedLabel :: TcLocatedAnnotation -> Bool
+hasLocatedLabel = not . null . locatedLabel
 
 -- | Pretty-print module source text with type-checker annotations interleaved.
 renderAnnotatedTcModules :: [Text] -> [Module] -> [String]
@@ -384,7 +387,7 @@ renderLocatedAnnotation ann =
     <> " "
     <> locatedKind ann
     <> " => "
-    <> locatedSummary ann
+    <> locatedLabel ann
 
 annotationKey :: TcLocatedAnnotation -> (Int, Int, Int, Int, String, String)
 annotationKey ann =
@@ -540,14 +543,8 @@ annotationStartCol ann =
 renderAnnotationLines :: [TcLocatedAnnotation] -> [String]
 renderAnnotationLines [] = []
 renderAnnotationLines annotations =
-  let items = [(annotationStartCol ann - 1, locatedLabel ann) | ann <- annotations]
-      (markerItems, labeledItems) = partition (null . snd) items
-      markerCol =
-        case labeledItems of
-          [] -> minimum (map fst markerItems)
-          _ -> minimum (map fst labeledItems)
-      markerLines = replicate (length markerItems) (replicate markerCol ' ' <> "\x2502")
-   in markerLines <> layoutAnnotationLines labeledItems
+  let items = [(annotationStartCol ann - 1, locatedLabel ann) | ann <- annotations, hasLocatedLabel ann]
+   in layoutAnnotationLines items
 
 type AnnotationItem = (Int, String)
 

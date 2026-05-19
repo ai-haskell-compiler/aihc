@@ -4,12 +4,10 @@ modules:
     module Test where
     id x = x
 expected:
-  Test:
-    - "2:8-2:9 expr => type=a"
+  Test: []
 annotated:
   - |
     module Test where
     id x = x
-           │
 status: pass
 reason: ""
