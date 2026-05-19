@@ -1281,6 +1281,12 @@ addDelimitedTypeSigBodyParens :: Expr -> Expr
 addDelimitedTypeSigBodyParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDelimitedTypeSigBodyParens sub)
+    _ -> addTypeSigBodyParens expr
+
+addDoTypeSigBodyParens :: Expr -> Expr
+addDoTypeSigBodyParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addDoTypeSigBodyParens sub)
     EMultiWayIf {} -> wrapExpr True (addExprParens expr)
     _ -> addTypeSigBodyParens expr
 
@@ -1322,7 +1328,7 @@ addDoExprParens :: Expr -> Expr
 addDoExprParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDoExprParens sub)
-    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addSignatureTypeParens ty)
+    ETypeSig inner ty -> ETypeSig (addDoTypeSigBodyParens inner) (addSignatureTypeParens ty)
     _ -> addExprParens expr
 
 addCompStmtParens :: CompStmt -> CompStmt

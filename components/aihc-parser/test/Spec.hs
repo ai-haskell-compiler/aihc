@@ -1607,6 +1607,16 @@ test_recordFieldViewExprTypeSigParens = do
                               -> _)} = []
         """
   assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    C {a = (,
+              if | []
+                     ->
+                      []
+              :: _)
+     -> _}
+    """
 
 test_signatureTypeParserRejectsBareKindSignature :: Assertion
 test_signatureTypeParserRejectsBareKindSignature = do
