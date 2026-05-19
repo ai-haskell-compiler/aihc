@@ -1560,8 +1560,6 @@ addContextBodyParens ty =
       TForall
         (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
         (addContextBodyParens inner)
-    TContext constraints inner ->
-      TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
         (startsWithTypeSplice ty')
