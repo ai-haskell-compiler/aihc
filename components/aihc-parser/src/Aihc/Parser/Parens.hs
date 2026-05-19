@@ -1748,38 +1748,11 @@ addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
 
 addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
-  if viewExprNeedsParens expr
-    then wrapExpr True (addViewExprInnerParens expr)
-    else addViewExprInnerParens expr
+  let expr' = addExprParens expr
+   in if viewExprNeedsParens expr
+        then wrapExpr True expr'
+        else expr'
   where
-    addViewExprInnerParens e =
-      case e of
-        EAnn ann sub -> EAnn ann (addViewExprInnerParens sub)
-        EParen inner -> EParen (addViewExprInsideExistingParens inner)
-        EInfix lhs op rhs ->
-          EInfix
-            (addExprParensIn CtxInfixLhs lhs)
-            op
-            (addExprParensIn (CtxInfixRhs True) rhs)
-        _ -> addExprParens e
-
-    addViewExprInsideExistingParens e =
-      case e of
-        EAnn ann sub -> EAnn ann (addViewExprInsideExistingParens sub)
-        ESectionL lhs op -> ESectionL (addSectionLhsInExistingParens lhs) op
-        ESectionR op rhs -> ESectionR op (addExprParensIn CtxSectionRhs rhs)
-        EGetFieldProjection {} -> e
-        _ -> addViewExprInnerParens e
-
-    addSectionLhsInExistingParens lhs =
-      if isGreedyExpr lhs || isTypeSigExpr lhs
-        then wrapExpr True (addExprParens lhs)
-        else addSectionLhsParens lhs
-
-    isTypeSigExpr (EAnn _ sub) = isTypeSigExpr sub
-    isTypeSigExpr ETypeSig {} = True
-    isTypeSigExpr _ = False
-
     viewExprNeedsParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
 
