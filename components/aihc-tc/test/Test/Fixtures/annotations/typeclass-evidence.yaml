@@ -1,0 +1,53 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+    class Eq a where
+      (==) :: a -> a -> Bool
+    instance Eq Bool where
+      False == False = True
+      False == True = False
+      True == False = False
+      True == True = True
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+expected:
+  Test:
+    - "3:1-4:25 class => methods=[=={index=0, type=forall a. (Eq a) => a -> a -> Bool, tyVars=[a], dict=Eq a}]"
+    - "5:1-9:22 instance => dict=$fEqBool type=Eq Bool headTypes=[Bool] methods=[==]"
+    - "6:3-6:24 instance-method => == type=Bool -> Bool -> Bool"
+    - "6:20-6:24 expr => type=Bool"
+    - "7:3-7:24 instance-method => == type=Bool -> Bool -> Bool"
+    - "7:19-7:24 expr => type=Bool"
+    - "8:3-8:24 instance-method => == type=Bool -> Bool -> Bool"
+    - "8:19-8:24 expr => type=Bool"
+    - "9:3-9:22 instance-method => == type=Bool -> Bool -> Bool"
+    - "9:18-9:22 expr => type=Bool"
+    - "11:10-11:14 expr => type=Bool -> Bool -> Bool typeArgs=[Bool] evidence=[dict $fEqBool]"
+annotated:
+  - |
+    module Test where
+    data Bool = False | True
+    class Eq a where
+    └─ class class
+      (==) :: a -> a -> Bool
+    instance Eq Bool where
+    └─ instance $fEqBool
+      False == False = True
+      │                └─ expr Bool
+      └─ instance-method ==
+      False == True = False
+      │               └─ expr Bool
+      └─ instance-method ==
+      True == False = False
+      │               └─ expr Bool
+      └─ instance-method ==
+      True == True = True
+      │              └─ expr Bool
+      └─ instance-method ==
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+             └─ expr Bool -> Bool -> Bool
+status: pass
+reason: ""

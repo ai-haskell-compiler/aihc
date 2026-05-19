@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    id x = x
+expected:
+  Test:
+    - "2:8-2:9 expr => type=a"
+annotated:
+  - |
+    module Test where
+    id x = x
+           └─ expr a
+status: pass
+reason: ""

@@ -2,6 +2,7 @@
 
 module Test.Tc.Suite
   ( tcTests,
+    tcAnnotationGoldenTests,
     tcGoldenTests,
   )
 where
@@ -49,6 +50,13 @@ tcGoldenTests = do
   let tests = map mkGoldenTest cases
   pure (testGroup "tc-golden" tests)
 
+-- | Build the annotation golden test tree from YAML fixtures.
+tcAnnotationGoldenTests :: IO TestTree
+tcAnnotationGoldenTests = do
+  cases <- TG.loadTcAnnotationCases
+  let tests = map mkAnnotationGoldenTest cases
+  pure (testGroup "tc-annotation-golden" tests)
+
 mkGoldenTest :: TG.TcCase -> TestTree
 mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
   let (outcome, details) = TG.evaluateTcCase tcase
@@ -66,6 +74,27 @@ mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
       assertFailure
         ( "Unexpected pass in TC golden test: "
             <> TG.caseId tcase
+            <> " details="
+            <> details
+        )
+
+mkAnnotationGoldenTest :: TG.TcAnnotationCase -> TestTree
+mkAnnotationGoldenTest tcase = testCase (TG.annotationCaseId tcase) $ do
+  let (outcome, details) = TG.evaluateTcAnnotationCase tcase
+  case outcome of
+    TG.OutcomePass -> pure ()
+    TG.OutcomeXFail -> pure ()
+    TG.OutcomeFail ->
+      assertFailure
+        ( "TC annotation golden test failed: "
+            <> TG.annotationCaseId tcase
+            <> " details="
+            <> details
+        )
+    TG.OutcomeXPass ->
+      assertFailure
+        ( "Unexpected pass in TC annotation golden test: "
+            <> TG.annotationCaseId tcase
             <> " details="
             <> details
         )
