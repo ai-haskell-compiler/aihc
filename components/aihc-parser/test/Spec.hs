@@ -268,6 +268,7 @@ buildTests = do
             testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
             testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
             testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
+            testCase "parenthesizes non-final let block arguments in view expressions" test_viewExprNonfinalLetBlockArgumentParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -1552,6 +1553,21 @@ test_viewExprBlockArgumentNoParens = do
              |  #)
         """
   assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprNonfinalLetBlockArgumentParens :: Assertion
+test_viewExprNonfinalLetBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedExprShapeRoundTrip
+    config
+    """
+    do
+      ([]
+          let _ = []
+            in []
+          []
+         -> _) <- []
+      []
+    """
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
