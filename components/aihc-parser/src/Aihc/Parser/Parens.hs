@@ -1471,7 +1471,7 @@ addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addSignatureTypeParensShare
 addTypeTopLevelParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
-    (addTypeTopLevelParens inner)
+    (addForallBodyParens inner)
 addTypeTopLevelParens (TContext constraints inner) =
   TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
 addTypeTopLevelParens (TParen inner) =
@@ -1563,9 +1563,9 @@ addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens
 addImplicitParamBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body to the right of a constraint arrow in a top-level type
--- RHS. A kind signature is already delimited there in cases like
--- @type X = C => T :: K@, but TH splices still need grouping because
--- @type X = C => $x :: K@ is rejected at the @::@ by GHC.
+-- RHS. A bare kind signature there applies to the whole constrained type:
+-- @type X = C => T :: K@ parses like @type X = (C => T) :: K@.
+-- Parenthesize inner kind signatures to preserve @C => (T :: K)@.
 addContextBodyParens :: Type -> Type
 addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
 addContextBodyParens ty =
@@ -1576,19 +1576,11 @@ addContextBodyParens ty =
         (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
-        (startsWithTypeSplice ty')
+        True
         (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
     TContext constraints inner ->
       TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
     _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
-
-startsWithTypeSplice :: Type -> Bool
-startsWithTypeSplice (TAnn _ sub) = startsWithTypeSplice sub
-startsWithTypeSplice (TParen _) = False
-startsWithTypeSplice TSplice {} = True
-startsWithTypeSplice (TApp f _) = startsWithTypeSplice f
-startsWithTypeSplice (TTypeApp f _) = startsWithTypeSplice f
-startsWithTypeSplice _ = False
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter
@@ -1605,7 +1597,7 @@ addTypeDelimitedParens (TKindSig ty kind) =
 addTypeDelimitedParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
-    (addTypeDelimitedParens inner)
+    (addForallBodyParens inner)
 addTypeDelimitedParens (TContext constraints inner) =
   TContext (map addContextConstraintDelimitedParens constraints) (addTypeDelimitedParens inner)
 addTypeDelimitedParens (TInfix lhs op promoted rhs) =

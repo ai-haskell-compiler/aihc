@@ -65,7 +65,8 @@ kindSigTypeParser =
 forallSignatureTypeParser :: TokParser Type
 forallSignatureTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeSignatureParser
+  body <- typeSignatureParser
+  pure (attachForallBody telescope body)
 
 contextOrFunSignatureTypeParser :: TokParser Type
 contextOrFunSignatureTypeParser = do
@@ -100,7 +101,15 @@ contextOrKindSigTypeParser = do
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeParser
+  body <- typeParser
+  pure (attachForallBody telescope body)
+
+attachForallBody :: ForallTelescope -> Type -> Type
+attachForallBody telescope body =
+  case body of
+    TAnn ann (TKindSig ty kind) -> TAnn ann (TKindSig (TForall telescope ty) kind)
+    TKindSig ty kind -> TKindSig (TForall telescope ty) kind
+    _ -> TForall telescope body
 
 -- | Extension form:
 --
@@ -149,7 +158,12 @@ contextTypeParserWith :: TokParser Type -> TokParser Type
 contextTypeParserWith rhsParser = do
   constraints <- contextItemsParserWith rhsParser typeAtomParser
   expectedTok TkReservedDoubleArrow
-  TContext constraints <$> rhsParser
+  rhs <- rhsParser
+  pure $
+    case rhs of
+      TAnn ann (TKindSig ty kind) -> TAnn ann (TKindSig (TContext constraints ty) kind)
+      TKindSig ty kind -> TKindSig (TContext constraints ty) kind
+      _ -> TContext constraints rhs
 
 -- | Report core plus extension infix-type support:
 --

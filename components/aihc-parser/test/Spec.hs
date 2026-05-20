@@ -288,7 +288,7 @@ buildTests = do
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
             testCase "parenthesizes forall body kind signatures in standalone kind signatures" test_standaloneKindSignatureForallBodyKindSigParens,
-            testCase "keeps nested context kind signatures minimal" test_typeParensNestedContextKindSignatureIsMinimal,
+            testCase "preserves nested context kind signatures" test_typeParensNestedContextKindSignatureIsPreserved,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -1748,10 +1748,11 @@ test_standaloneKindSignatureForallBodyKindSigParens = do
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
   assertEqual "standalone kind signature source" "type (:+) :: forall (a :: _). (_ :: _)" source
 
-test_typeParensNestedContextKindSignatureIsMinimal :: Assertion
-test_typeParensNestedContextKindSignatureIsMinimal = do
+test_typeParensNestedContextKindSignatureIsPreserved :: Assertion
+test_typeParensNestedContextKindSignatureIsPreserved = do
   let ty = TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard))
-  assertEqual "nested context body" ty (addTypeParens ty)
+      expected = TContext [TWildcard] (TContext [TWildcard] (TParen (TKindSig TWildcard TWildcard)))
+  assertEqual "nested context body" expected (addTypeParens ty)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
