@@ -1599,7 +1599,7 @@ addTypeDelimitedParens (TForall telescope inner) =
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
     (addForallBodyParens inner)
 addTypeDelimitedParens (TContext constraints inner) =
-  TContext (map addContextConstraintDelimitedParens constraints) (addTypeDelimitedParens inner)
+  TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
 addTypeDelimitedParens (TInfix lhs op promoted rhs) =
   TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeDelimitedInfixRhs rhs)
 addTypeDelimitedParens (TApp f x) =

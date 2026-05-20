@@ -1,0 +1,6 @@
+extensions: [PartialTypeSignatures, FlexibleContexts]
+equivalent:
+  - "type T a = (_, _ => _ :: _)"
+  - "type T a = (_, (_ => _) :: _)"
+status: pass
+reason: GHC parses a bare kind signature after a tuple-element context as applying to the whole constrained type.

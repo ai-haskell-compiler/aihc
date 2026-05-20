@@ -65,8 +65,7 @@ kindSigTypeParser =
 forallSignatureTypeParser :: TokParser Type
 forallSignatureTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  body <- typeSignatureParser
-  pure (attachForallBody telescope body)
+  attachForallBody telescope <$> typeSignatureParser
 
 contextOrFunSignatureTypeParser :: TokParser Type
 contextOrFunSignatureTypeParser = do
@@ -101,8 +100,7 @@ contextOrKindSigTypeParser = do
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  body <- typeParser
-  pure (attachForallBody telescope body)
+  attachForallBody telescope <$> typeParser
 
 attachForallBody :: ForallTelescope -> Type -> Type
 attachForallBody telescope body =
