@@ -1803,13 +1803,22 @@ addViewExprParensWith allowLayoutTypeSig expr =
        in foldl EApp root' args'
 
     viewExprAppArgCtx isLast arg
-      | viewExprAppArgCanStayBare arg = CtxAppArgNoParens
+      | viewExprAppArgCanStayBare isLast arg = CtxAppArgNoParens
       | isLast = CtxAppArg
       | isGreedyExpr arg = CtxAppArgGreedy
       | otherwise = CtxAppArg
 
-    viewExprAppArgCanStayBare arg =
-      isBlockExpr arg && not (endsWithTypeSig arg)
+    viewExprAppArgCanStayBare isLast arg =
+      isBlockExpr arg
+        && not (endsWithTypeSig arg)
+        && (isLast || not (viewExprBlockArgAbsorbsFollowingAppArg arg))
+
+    viewExprBlockArgAbsorbsFollowingAppArg arg =
+      case peelExprAnn arg of
+        EIf {} -> True
+        ELambdaPats {} -> True
+        ELetDecls {} -> True
+        _ -> False
 
     markLast [] = []
     markLast [x] = [(True, x)]
