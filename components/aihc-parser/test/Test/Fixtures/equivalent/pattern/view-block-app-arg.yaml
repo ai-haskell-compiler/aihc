@@ -1,0 +1,20 @@
+extensions: [BlockArguments, UnboxedSums, ViewPatterns, MultiWayIf]
+equivalent:
+  - |
+    (# []
+           if | let {  }
+                  ->
+                   []
+           []
+          -> _
+         |  #)
+  - |
+    (# []
+           (if | let {  }
+                   ->
+                    [])
+           []
+          -> _
+         |  #)
+status: pass
+reason: A view-pattern arrow bounds the view expression, so block arguments without type signatures can stay bare.

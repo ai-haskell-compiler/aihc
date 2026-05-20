@@ -267,6 +267,7 @@ buildTests = do
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
             testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
             testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
+            testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -1536,6 +1537,21 @@ test_viewExprBlockInfixLhsNoParens = do
            -> _] = []
         """
   assertParsedModulePrettyContains source expected
+
+test_viewExprBlockArgumentNoParens :: Assertion
+test_viewExprBlockArgumentNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | let {  }
+                      ->
+                       []
+               []
+              -> _
+             |  #)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do

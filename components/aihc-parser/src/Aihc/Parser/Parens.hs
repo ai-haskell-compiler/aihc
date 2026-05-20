@@ -1754,11 +1754,57 @@ addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
 
 addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
-  if viewExprNeedsParens expr
-    then wrapExpr True (addExprParens expr)
-    else addExprParens expr
+  wrapExpr (viewExprNeedsOuterParens expr) (addViewExprBodyParens expr)
   where
-    viewExprNeedsParens e =
+    -- View-pattern expressions are followed by @-> pat@ inside a pattern, and
+    -- that arrow gives the expression parser a hard boundary.  That lets block
+    -- arguments stay bare in application chains where ordinary expression
+    -- printing would add parens to protect the following syntax.
+    --
+    -- With MultiWayIf, UnboxedSums, ViewPatterns, and BlockArguments enabled,
+    -- this is valid in a pattern context:
+    --
+    --   f (# [] if | let {} -> [] [] -> _ | #) = ()
+    --
+    -- and parses like:
+    --
+    --   f (# ([] (if | let {} -> []) [] -> _) | #) = ()
+    --
+    -- The same unboxed-sum spelling is not valid as an expression RHS; GHC is
+    -- the source of truth, so this exception only applies while printing view
+    -- patterns.
+    --
+    -- Type signatures remain different.  A block argument ending in @:: T@
+    -- can still capture the following arrow or change the parsed shape, so it
+    -- stays parenthesized:
+    --
+    --   f (([] (if | [] -> [] :: T)) -> p) = ()
+    addViewExprBodyParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprBodyParens sub)
+        EApp {} -> addViewExprAppChainParens e
+        _ -> addExprParens e
+
+    addViewExprAppChainParens e =
+      let (root, args) = flattenApps e
+          root' = addExprParensIn CtxAppFun root
+          args' = [addExprParensIn (viewExprAppArgCtx isLast arg) arg | (isLast, arg) <- markLast args]
+       in foldl EApp root' args'
+
+    viewExprAppArgCtx isLast arg
+      | viewExprAppArgCanStayBare arg = CtxAppArgNoParens
+      | isLast = CtxAppArg
+      | isGreedyExpr arg = CtxAppArgGreedy
+      | otherwise = CtxAppArg
+
+    viewExprAppArgCanStayBare arg =
+      isBlockExpr arg && not (endsWithTypeSig arg)
+
+    markLast [] = []
+    markLast [x] = [(True, x)]
+    markLast (x : xs) = (False, x) : markLast xs
+
+    viewExprNeedsOuterParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
 
     viewExprTypeSigCanStayBare e =
