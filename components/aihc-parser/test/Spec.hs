@@ -250,6 +250,7 @@ buildTests = do
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
             testCase "parenthesizes transform-list-comp group-by infix RHS before using" test_transformListCompGroupByInfixRhsParens,
+            testCase "preserves transform-list-comp then-by lambda-case RHS" test_transformListCompThenByLambdaCaseRhs,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -1806,6 +1807,17 @@ test_transformListCompGroupByInfixRhsParens :: Assertion
 test_transformListCompGroupByInfixRhsParens = do
   let config = defaultConfig {parserExtensions = [TransformListComp]}
   assertParsedStrippedDeclShapeRoundTrip config "_ = [[] | then group by ([] `a` - []) using []]"
+
+test_transformListCompThenByLambdaCaseRhs :: Assertion
+test_transformListCompThenByLambdaCaseRhs = do
+  let config = defaultConfig {parserExtensions = [LambdaCase, TransformListComp]}
+      source =
+        """
+        _ = [[] | let _ = [],
+                  then [] `a` \\case
+                    _ -> [] by []]
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =

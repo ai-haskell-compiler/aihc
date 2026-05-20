@@ -1069,9 +1069,53 @@ compTransformExprWithoutTypeSigParser = exprInfixChainParser compTransformLexpPa
 -- parser changes.
 compTransformLexpParser :: TokParser Expr
 compTransformLexpParser =
-  lexpBlockParser
+  compTransformLambdaExprParser
+    <|> lexpBlockParser
     <|> MP.try compTransformNegateExprParser
     <|> compTransformAppExprParser
+
+compTransformLambdaExprParser :: TokParser Expr
+compTransformLambdaExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+  expectedTok TkReservedBackslash
+  lambdaCaseParser <|> lambdaCasesParser <|> lambdaPatsParser
+  where
+    lambdaCaseParser = do
+      expectedTok TkKeywordCase
+      ELambdaCase <$> bracedSemiSep compTransformCaseAltParser
+
+    lambdaCasesParser = do
+      lambdaCaseEnabled <- isExtensionEnabled LambdaCase
+      guard lambdaCaseEnabled
+      varIdTok "cases"
+      ELambdaCases <$> bracedSemiSep compTransformLambdaCaseAltParser
+
+    lambdaPatsParser = do
+      pats <- MP.some apatParser
+      expectedTok TkReservedRightArrow
+      body <- region "while parsing lambda body" compTransformExprParser
+      pure (ELambdaPats pats body)
+
+compTransformCaseAltParser :: TokParser (CaseAlt Expr)
+compTransformCaseAltParser = withSpan $ do
+  pat <- region "while parsing case alternative" caseAltPatternParser
+  rhs <- region "while parsing case alternative" (caseRhsParserWithBodyParser compTransformExprParser)
+  pure $ \span' ->
+    CaseAlt
+      { caseAltAnns = [mkAnnotation span'],
+        caseAltPattern = pat,
+        caseAltRhs = rhs
+      }
+
+compTransformLambdaCaseAltParser :: TokParser LambdaCaseAlt
+compTransformLambdaCaseAltParser = withSpan $ do
+  pats <- region "while parsing lambda-cases alternative" (MP.many apatParser)
+  rhs <- region "while parsing lambda-cases alternative" (caseRhsParserWithBodyParser compTransformExprParser)
+  pure $ \span' ->
+    LambdaCaseAlt
+      { lambdaCaseAltAnns = [mkAnnotation span'],
+        lambdaCaseAltPats = pats,
+        lambdaCaseAltRhs = rhs
+      }
 
 compTransformAppExprParser :: TokParser Expr
 compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser
