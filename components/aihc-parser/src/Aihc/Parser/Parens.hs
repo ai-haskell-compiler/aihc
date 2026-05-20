@@ -1550,12 +1550,23 @@ addTyVarBinderParens tvb =
   tvb {tyVarBinderKind = fmap addSignatureTypeParens (tyVarBinderKind tvb)}
 
 -- | Process the body of a TForall. The forall body is parsed by
--- 'contextOrFunTypeParser' (not 'typeParser'), so a bare nested TForall
--- would fail to parse and must be wrapped in TParen.
+-- 'typeParser'. A bare kind signature usually changes attachment:
+-- @forall a. t :: k@ parses as @(forall a. t) :: k@, not
+-- @forall a. (t :: k)@. When the kind-signature subject is itself a forall,
+-- however, @forall a. forall b. t :: k@ preserves the nested forall body and
+-- does not need an extra TParen.
 addForallBodyParens :: Type -> Type
 addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
+addForallBodyParens (TKindSig ty kind)
+  | typeStartsWithForall ty =
+      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
 addForallBodyParens ty@(TForall {}) = addSignatureTypeParensShared CtxTypeAtom 0 ty
 addForallBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
+
+typeStartsWithForall :: Type -> Bool
+typeStartsWithForall (TAnn _ sub) = typeStartsWithForall sub
+typeStartsWithForall TForall {} = True
+typeStartsWithForall _ = False
 
 -- | Process the body of a TImplicitParam.
 addImplicitParamBodyParens :: Type -> Type
