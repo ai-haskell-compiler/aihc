@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 63/63         |
+| DataKinds                 |   🟢    | 64/64         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
@@ -26,7 +26,7 @@
 | EmptyDataDecls            |   🟢    | 8/8           |
 | EmptyDataDeriving         |   🟢    | 4/4           |
 | ExistentialQuantification |   🟢    | 7/7           |
-| ExplicitForAll            |   🟢    | 25/25         |
+| ExplicitForAll            |   🟢    | 26/26         |
 | ExplicitLevelImports      |   🟢    | 4/4           |
 | ExplicitNamespaces        |   🟢    | 26/26         |
 | ExtendedLiterals          |   🟢    | 4/4           |
@@ -45,7 +45,7 @@
 | InstanceSigs              |   🟢    | 5/5           |
 | InterruptibleFFI          |   🟢    | 1/1           |
 | JavaScriptFFI             |   🟢    | 1/1           |
-| KindSignatures            |   🟢    | 31/31         |
+| KindSignatures            |   🟢    | 32/32         |
 | LambdaCase                |   🟢    | 22/22         |
 | LinearTypes               |   🟢    | 15/15         |
 | MagicHash                 |   🟢    | 24/24         |
@@ -70,7 +70,7 @@
 | QualifiedDo               |   🟢    | 4/4           |
 | QuantifiedConstraints     |   🟢    | 2/2           |
 | QuasiQuotes               |   🟢    | 11/11         |
-| RankNTypes                |   🟢    | 4/4           |
+| RankNTypes                |   🟢    | 5/5           |
 | RecordWildCards           |   🟢    | 10/10         |
 | RecursiveDo               |   🟢    | 4/4           |
 | RequiredTypeArguments     |   🟢    | 4/4           |
@@ -78,7 +78,7 @@
 | Safe                      |   🟢    | 2/2           |
 | ScopedTypeVariables       |   🟢    | 18/18         |
 | StandaloneDeriving        |   🟢    | 18/18         |
-| StandaloneKindSignatures  |   🟢    | 11/11         |
+| StandaloneKindSignatures  |   🟢    | 12/12         |
 | StarIsType                |   🟢    | 4/4           |
 | TemplateHaskell           |   🟢    | 66/66         |
 | TemplateHaskellQuotes     |   🟢    | 14/14         |
