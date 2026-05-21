@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -1569,15 +1569,7 @@ test_viewExprMultiWayIfAppInfixLhsNoParens = do
               -> _
              |  #)
         """
-  case parsePattern config source of
-    ParseOk pat ->
-      let stripped = stripParens pat
-       in assertEqualShorthand
-            "multi-way-if block argument on view-expression infix lhs"
-            (stripAnnotations stripped)
-            (stripAnnotations (addPatternParens stripped))
-    ParseErr bundle ->
-      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
+  assertParsedStrippedPatternShapeRoundTrip config source
 
 test_viewExprNonfinalLetBlockArgumentParens :: Assertion
 test_viewExprNonfinalLetBlockArgumentParens = do
