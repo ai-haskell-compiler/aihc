@@ -1793,8 +1793,33 @@ addViewExprParensWith allowLayoutTypeSig expr =
     addViewExprBodyParens e =
       case e of
         EAnn ann sub -> EAnn ann (addViewExprBodyParens sub)
+        EInfix {} -> addViewExprInfixParens e
         EApp {} -> addViewExprAppChainParens e
         _ -> addExprParens e
+
+    addViewExprInfixParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprInfixParens sub)
+        EInfix lhs op rhs ->
+          EInfix
+            (addViewExprInfixLhsParens lhs)
+            op
+            (addExprParensIn (CtxInfixRhs False) rhs)
+        _ -> addExprParens e
+
+    addViewExprInfixLhsParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprInfixLhsParens sub)
+        EInfix lhs op rhs ->
+          EInfix
+            (addViewExprInfixLhsParens lhs)
+            op
+            (addExprParensIn (CtxInfixRhs True) rhs)
+        _
+          | viewExprInfixLhsCanStayBare e ->
+              addViewExprAppChainParens e
+          | otherwise ->
+              addExprParensIn CtxInfixLhs e
 
     addViewExprAppChainParens e =
       let (root, args) = flattenApps e
@@ -1818,6 +1843,19 @@ addViewExprParensWith allowLayoutTypeSig expr =
         EIf {} -> True
         ELambdaPats {} -> True
         ELetDecls {} -> True
+        _ -> False
+
+    viewExprInfixLhsCanStayBare e =
+      case peelExprAnn e of
+        EApp {} ->
+          case reverse (snd (flattenApps e)) of
+            arg : _ -> viewExprBlockArgCanPrecedeInfixOp arg
+            [] -> False
+        _ -> False
+
+    viewExprBlockArgCanPrecedeInfixOp arg =
+      case peelExprAnn arg of
+        EMultiWayIf {} -> not (endsWithTypeSig arg)
         _ -> False
 
     markLast [] = []

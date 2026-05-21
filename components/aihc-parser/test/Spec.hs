@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -269,6 +269,7 @@ buildTests = do
             testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
             testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
             testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
+            testCase "leaves multi-way-if app infix lhs view expressions bare" test_viewExprMultiWayIfAppInfixLhsNoParens,
             testCase "parenthesizes non-final let block arguments in view expressions" test_viewExprNonfinalLetBlockArgumentParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
@@ -1554,6 +1555,29 @@ test_viewExprBlockArgumentNoParens = do
              |  #)
         """
   assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprMultiWayIfAppInfixLhsNoParens :: Assertion
+test_viewExprMultiWayIfAppInfixLhsNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | []
+                      ->
+                       []
+             + []
+              -> _
+             |  #)
+        """
+  case parsePattern config source of
+    ParseOk pat ->
+      let stripped = stripParens pat
+       in assertEqualShorthand
+            "multi-way-if block argument on view-expression infix lhs"
+            (stripAnnotations stripped)
+            (stripAnnotations (addPatternParens stripped))
+    ParseErr bundle ->
+      assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> formatParseErrors "<test>" Nothing bundle)
 
 test_viewExprNonfinalLetBlockArgumentParens :: Assertion
 test_viewExprNonfinalLetBlockArgumentParens = do
