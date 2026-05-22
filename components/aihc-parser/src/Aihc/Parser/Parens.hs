@@ -1361,36 +1361,30 @@ addCompTransformExprParens expr =
         else parenthesized
 
 -- | Check if an expression needs parenthesization in a TransformListComp
--- position before 'by' or 'using'. Atomic/self-delimiting expressions are safe;
--- anything else could consume the keyword as part of its body or as applications.
+-- position before 'by' or 'using'. The boundary is safe when the expression
+-- has a closed right edge. Parentheses are only required when that right edge
+-- can consume the trailing keyword as part of a body, application, or type.
 needsCompTransformParens :: Expr -> Bool
 needsCompTransformParens = \case
   EAnn _ sub -> needsCompTransformParens sub
-  -- Atoms: safe, won't consume trailing tokens
-  EVar {} -> False
-  EInt {} -> False
-  EFloat {} -> False
-  EChar {} -> False
-  ECharHash {} -> False
-  EString {} -> False
-  EStringHash {} -> False
-  EOverloadedLabel {} -> False
-  EQuasiQuote {} -> False
-  EList {} -> False
-  EListComp {} -> False
-  EListCompParallel {} -> False
-  ETuple {} -> False
-  EUnboxedSum {} -> False
+  ETypeSig {} -> True
   EParen {} -> False
-  EInfix _ _ rhs -> isOpenEnded rhs
-  EGetFieldProjection {} -> False
-  ETHExpQuote {} -> False
-  ETHTypedQuote {} -> False
-  ETHDeclQuote {} -> False
-  ETHTypeQuote {} -> False
-  ETHPatQuote {} -> False
-  -- Everything else: could consume 'by'/'using'
-  _ -> True
+  EInfix _ _ rhs -> needsCompTransformInfixRhsParens rhs
+  EApp _ arg -> needsCompTransformParens arg
+  ETypeApp fn _ -> needsCompTransformParens fn
+  ENegate inner -> needsCompTransformParens inner
+  EPragma _ inner -> needsCompTransformParens inner
+  expr -> isGreedyExpr expr
+
+needsCompTransformInfixRhsParens :: Expr -> Bool
+needsCompTransformInfixRhsParens = \case
+  EAnn _ sub -> needsCompTransformInfixRhsParens sub
+  EPragma _ inner -> needsCompTransformInfixRhsParens inner
+  -- TransformListComp has a contextual lambda-case parser whose alternatives
+  -- stop before the following transform keyword.
+  ELambdaCase {} -> False
+  ELambdaCases {} -> False
+  expr -> needsCompTransformParens expr
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
