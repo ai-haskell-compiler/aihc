@@ -7,7 +7,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
@@ -211,6 +211,7 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
+            testCase "shrunk standalone kind signatures shrink binder kinds" test_shrunkStandaloneKindSignaturesShrinkBinderKinds,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
             testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
@@ -243,11 +244,13 @@ buildTests = do
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints lambda-case applicative chains without extra parens" test_prettyLambdaCaseApplicativeChain,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
+            testCase "rejects compact explicit type namespace TH splices" test_compactExplicitTypeNamespaceTHSplicesReject,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
             testCase "parenthesizes transform-list-comp group-by infix RHS before using" test_transformListCompGroupByInfixRhsParens,
+            testCase "preserves transform-list-comp then-by lambda-case RHS" test_transformListCompThenByLambdaCaseRhs,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -265,6 +268,10 @@ buildTests = do
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
             testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
             testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
+            testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
+            testCase "leaves multi-way-if app infix lhs view expressions bare" test_viewExprMultiWayIfAppInfixLhsNoParens,
+            testCase "parenthesizes non-final let block arguments in view expressions" test_viewExprNonfinalLetBlockArgumentParens,
+            testCase "parenthesizes non-final proc block arguments in view expressions" test_viewExprNonfinalProcBlockArgumentParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -281,9 +288,12 @@ buildTests = do
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
+            testCase "rejects bare context result kind signatures before outer kind signatures" test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature,
+            testCase "parses parenthesized context result kind signatures before outer kind signatures" test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
-            testCase "keeps nested context kind signatures minimal" test_typeParensNestedContextKindSignatureIsMinimal,
+            testCase "parenthesizes forall body kind signatures in standalone kind signatures" test_standaloneKindSignatureForallBodyKindSigParens,
+            testCase "preserves nested context kind signatures" test_typeParensNestedContextKindSignatureIsPreserved,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -627,6 +637,38 @@ test_shrunkPatternTypeSignaturesShrinkTypes =
     shrinksTypeName (PTypeSig PWildcard (TCon name Unpromoted)) =
       isNothing (nameQualifier name) || nameText name == ":+"
     shrinksTypeName _ = False
+
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds :: Assertion
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds =
+  assertBool "standalone kind signatures should shrink names in forall binder kinds" $
+    any shrinksBinderKind (shrinkDecl decl)
+  where
+    decl =
+      DeclStandaloneKindSig
+        (mkUnqualifiedName NameConSym ":+")
+        ( TForall
+            ForallTelescope
+              { forallTelescopeVisibility = ForallInvisible,
+                forallTelescopeBinders =
+                  [ TyVarBinder
+                      []
+                      "a"
+                      (Just (TVar (mkUnqualifiedName NameVarId "\985\5115####")))
+                      TyVarBSpecified
+                      TyVarBVisible
+                  ]
+              }
+            (TKindSig TWildcard TWildcard)
+        )
+    shrinksBinderKind
+      ( DeclStandaloneKindSig
+          _
+          ( TForall
+              ForallTelescope {forallTelescopeBinders = [TyVarBinder {tyVarBinderKind = Just (TVar name)}]}
+              (TKindSig TWildcard TWildcard)
+            )
+        ) = renderUnqualifiedName name == "a"
+    shrinksBinderKind _ = False
 
 test_shrunkModuleHeaderWithoutWarningMakesProgress :: Assertion
 test_shrunkModuleHeaderWithoutWarningMakesProgress =
@@ -1380,6 +1422,21 @@ test_prettyRecordDotTHSpliceBase = do
   assertParsedStrippedExprShapeRoundTrip config "($q#).j7Msfc"
   assertParsedStrippedExprShapeRoundTrip config "($$q#).j7Msfc"
 
+test_compactExplicitTypeNamespaceTHSplicesReject :: Assertion
+test_compactExplicitTypeNamespaceTHSplicesReject = do
+  let config = defaultConfig {parserExtensions = [ExplicitNamespaces, TemplateHaskell, UnboxedSums, ViewPatterns]}
+  case parseExpr config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk expr -> assertFailure ("expected compact type splice expression to fail, got: " <> show (shorthand (stripAnnotations expr)))
+  case parsePattern config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  case parsePattern config "(# | $type _ {} -> _ #)" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice view pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  assertParsedStrippedExprShapeRoundTrip config "$(type _)"
+  assertParsedStrippedPatternShapeRoundTrip config "(# | $(type _) {} -> _ #)"
+
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
   let config =
@@ -1485,6 +1542,57 @@ test_viewExprBlockInfixLhsNoParens = do
         """
   assertParsedModulePrettyContains source expected
 
+test_viewExprBlockArgumentNoParens :: Assertion
+test_viewExprBlockArgumentNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | let {  }
+                      ->
+                       []
+               []
+              -> _
+             |  #)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprMultiWayIfAppInfixLhsNoParens :: Assertion
+test_viewExprMultiWayIfAppInfixLhsNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | []
+                      ->
+                       []
+             + []
+              -> _
+             |  #)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprNonfinalLetBlockArgumentParens :: Assertion
+test_viewExprNonfinalLetBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedExprShapeRoundTrip
+    config
+    """
+    do
+      ([]
+          let _ = []
+            in []
+          []
+         -> _) <- []
+      []
+    """
+
+test_viewExprNonfinalProcBlockArgumentParens :: Assertion
+test_viewExprNonfinalProcBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source = "([] (proc _ -> [] -<< []) [] -> _)"
+  assertParsedStrippedPatternShapeRoundTrip config source
+
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
@@ -1555,6 +1663,16 @@ test_recordFieldViewExprTypeSigParens = do
                               -> _)} = []
         """
   assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    C {a = (,
+              if | []
+                     ->
+                      []
+              :: _)
+     -> _}
+    """
 
 test_signatureTypeParserRejectsBareKindSignature :: Assertion
 test_signatureTypeParserRejectsBareKindSignature = do
@@ -1623,6 +1741,30 @@ test_typeParserRejectsBareImplicitParamContextAppArg = do
     ParseOk ty ->
       assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
 
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+  case parseDecl config "type X = _ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk decl ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations decl)))
+
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+  case parseDecl config "type X = _ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature declaration\n" <> formatParseErrors "<test>" Nothing bundle)
+
 test_declParserRejectsBareKindSignature :: Assertion
 test_declParserRejectsBareKindSignature = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1640,10 +1782,33 @@ test_typeParserParsesBareKindSignature = do
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
 
-test_typeParensNestedContextKindSignatureIsMinimal :: Assertion
-test_typeParensNestedContextKindSignatureIsMinimal = do
+test_standaloneKindSignatureForallBodyKindSigParens :: Assertion
+test_standaloneKindSignatureForallBodyKindSigParens = do
+  let decl =
+        DeclStandaloneKindSig
+          (mkUnqualifiedName NameConSym ":+")
+          ( TForall
+              ForallTelescope
+                { forallTelescopeVisibility = ForallInvisible,
+                  forallTelescopeBinders =
+                    [ TyVarBinder
+                        []
+                        "a"
+                        (Just TWildcard)
+                        TyVarBSpecified
+                        TyVarBVisible
+                    ]
+                }
+              (TKindSig TWildcard TWildcard)
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "standalone kind signature source" "type (:+) :: forall (a :: _). (_ :: _)" source
+
+test_typeParensNestedContextKindSignatureIsPreserved :: Assertion
+test_typeParensNestedContextKindSignatureIsPreserved = do
   let ty = TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard))
-  assertEqual "nested context body" ty (addTypeParens ty)
+      expected = TContext [TWildcard] (TContext [TWildcard] (TParen (TKindSig TWildcard TWildcard)))
+  assertEqual "nested context body" expected (addTypeParens ty)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
@@ -1665,6 +1830,17 @@ test_transformListCompGroupByInfixRhsParens :: Assertion
 test_transformListCompGroupByInfixRhsParens = do
   let config = defaultConfig {parserExtensions = [TransformListComp]}
   assertParsedStrippedDeclShapeRoundTrip config "_ = [[] | then group by ([] `a` - []) using []]"
+
+test_transformListCompThenByLambdaCaseRhs :: Assertion
+test_transformListCompThenByLambdaCaseRhs = do
+  let config = defaultConfig {parserExtensions = [LambdaCase, TransformListComp]}
+      source =
+        """
+        _ = [[] | let _ = [],
+                  then [] `a` \\case
+                    _ -> [] by []]
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool
 testDoStmtsEndInExpr stmts =

@@ -44,7 +44,7 @@ thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
 --
 -- > type -> btype ['->' type]
 typeParser :: TokParser Type
-typeParser = label "type" $ forallTypeParser <|> kindSigTypeParser
+typeParser = label "type" $ forallTypeParser <|> contextOrKindSigTypeParser
 
 -- | Type syntax accepted after expression signatures. This keeps the same
 -- report core while allowing outer @forall@ and context forms.
@@ -57,7 +57,7 @@ kindSigTypeParser =
   optionalSuffix
     (expectedTok TkReservedDoubleColon *> typeSignatureParser)
     TKindSig
-    contextOrFunTypeParser
+    typeFunParser
 
 -- | Extension form:
 --
@@ -65,7 +65,7 @@ kindSigTypeParser =
 forallSignatureTypeParser :: TokParser Type
 forallSignatureTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeSignatureParser
+  attachForallBody telescope <$> typeSignatureParser
 
 contextOrFunSignatureTypeParser :: TokParser Type
 contextOrFunSignatureTypeParser = do
@@ -89,10 +89,10 @@ typeFunSignatureParser = do
     Nothing -> pure lhs
     Just arrowKind -> TFun arrowKind lhs <$> typeSignatureParser
 
-contextOrFunTypeParser :: TokParser Type
-contextOrFunTypeParser = do
+contextOrKindSigTypeParser :: TokParser Type
+contextOrKindSigTypeParser = do
   isContextType <- startsWithContextType
-  if isContextType then contextTypeParser else typeFunParser
+  if isContextType then contextTypeParser else kindSigTypeParser
 
 -- | Extension form:
 --
@@ -100,7 +100,14 @@ contextOrFunTypeParser = do
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   telescope <- forallTelescopeParser
-  TForall telescope <$> typeParser
+  attachForallBody telescope <$> typeParser
+
+attachForallBody :: ForallTelescope -> Type -> Type
+attachForallBody telescope body =
+  case body of
+    TAnn ann (TKindSig ty kind) -> TAnn ann (TKindSig (TForall telescope ty) kind)
+    TKindSig ty kind -> TKindSig (TForall telescope ty) kind
+    _ -> TForall telescope body
 
 -- | Extension form:
 --
@@ -149,7 +156,12 @@ contextTypeParserWith :: TokParser Type -> TokParser Type
 contextTypeParserWith rhsParser = do
   constraints <- contextItemsParserWith rhsParser typeAtomParser
   expectedTok TkReservedDoubleArrow
-  TContext constraints <$> rhsParser
+  rhs <- rhsParser
+  pure $
+    case rhs of
+      TAnn ann (TKindSig ty kind) -> TAnn ann (TKindSig (TContext constraints ty) kind)
+      TKindSig ty kind -> TKindSig (TContext constraints ty) kind
+      _ -> TContext constraints rhs
 
 -- | Report core plus extension infix-type support:
 --

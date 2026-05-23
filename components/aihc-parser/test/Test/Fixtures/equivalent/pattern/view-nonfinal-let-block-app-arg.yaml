@@ -1,0 +1,16 @@
+extensions: [BlockArguments, ViewPatterns]
+equivalent:
+  - |
+    ([]
+        let _ = []
+          in []
+        []
+       -> _)
+  - |
+    ([]
+        (let _ = []
+           in [])
+        []
+       -> _)
+status: fail
+reason: A non-final let block argument in a view expression absorbs the following application argument unless parenthesized.

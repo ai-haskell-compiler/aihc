@@ -1,0 +1,6 @@
+extensions: [TemplateHaskell, PartialTypeSignatures, FlexibleContexts]
+equivalent:
+  - "type X = _ => $a :: _"
+  - "type X = (_ => $a) :: _"
+status: pass
+reason: GHC parses the unparenthesized kind signature as applying to the whole constrained type.
