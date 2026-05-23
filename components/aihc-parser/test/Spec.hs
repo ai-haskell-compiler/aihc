@@ -271,6 +271,7 @@ buildTests = do
             testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
             testCase "leaves multi-way-if app infix lhs view expressions bare" test_viewExprMultiWayIfAppInfixLhsNoParens,
             testCase "parenthesizes non-final let block arguments in view expressions" test_viewExprNonfinalLetBlockArgumentParens,
+            testCase "parenthesizes non-final proc block arguments in view expressions" test_viewExprNonfinalProcBlockArgumentParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
@@ -1585,6 +1586,12 @@ test_viewExprNonfinalLetBlockArgumentParens = do
          -> _) <- []
       []
     """
+
+test_viewExprNonfinalProcBlockArgumentParens :: Assertion
+test_viewExprNonfinalProcBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source = "([] (proc _ -> [] -<< []) [] -> _)"
+  assertParsedStrippedPatternShapeRoundTrip config source
 
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do

@@ -1837,6 +1837,7 @@ addViewExprParensWith allowLayoutTypeSig expr =
         EIf {} -> True
         ELambdaPats {} -> True
         ELetDecls {} -> True
+        EProc {} -> True
         _ -> False
 
     viewExprInfixLhsCanStayBare e =
