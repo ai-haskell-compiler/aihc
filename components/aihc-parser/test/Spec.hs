@@ -11,6 +11,7 @@ import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
+import Control.DeepSeq (rnf)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Data (Data, dataTypeConstrs, dataTypeOf, gmapQl, isAlgType, showConstr, toConstr)
@@ -82,6 +83,7 @@ import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck qualified as QC
+import Text.Read (readMaybe)
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
@@ -213,6 +215,7 @@ buildTests = do
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
             testCase "shrunk standalone kind signatures shrink binder kinds" test_shrunkStandaloneKindSignaturesShrinkBinderKinds,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
+            testCase "syntax utility functions cover public edge cases" test_syntaxUtilityFunctions,
             testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
             testCase "shrunk wildcard pattern binds do not cycle" test_shrunkWildcardPatternBindsDoNotCycle,
@@ -601,6 +604,78 @@ assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine
       assertEqual "start offset" expectedStartOffset sourceSpanStartOffset
       assertEqual "end offset" expectedEndOffset sourceSpanEndOffset
     NoSourceSpan -> assertFailure "expected SourceSpan, got NoSourceSpan"
+
+assertReadRoundTrip :: (Eq a, Read a, Show a) => String -> [a] -> Assertion
+assertReadRoundTrip label =
+  mapM_ $ \value ->
+    assertEqual (label <> ": " <> show value) (Just value) (readMaybe (show value))
+
+test_syntaxUtilityFunctions :: Assertion
+test_syntaxUtilityFunctions = do
+  assertEqual "known extensions" ([minBound .. maxBound] :: [Extension]) allKnownExtensions
+  mapM_
+    (\ext -> assertEqual ("extension enum round trip: " <> show ext) ext (toEnum (fromEnum ext)))
+    allKnownExtensions
+  assertBool "extension ordering is stable" (AllowAmbiguousTypes < XmlSyntax)
+  assertReadRoundTrip "extension read/show" allKnownExtensions
+  assertReadRoundTrip
+    "extension setting read/show"
+    [ EnableExtension LambdaCase,
+      DisableExtension ImplicitPrelude
+    ]
+  assertEqual "extension alias Cpp" (Just CPP) (parseExtensionName " Cpp ")
+  assertEqual "extension alias DerivingVia" (Just DerivingViaExtension) (parseExtensionName "DerivingVia")
+  assertEqual "extension alias GeneralisedNewtypeDeriving" (Just GeneralizedNewtypeDeriving) (parseExtensionName "GeneralisedNewtypeDeriving")
+  assertEqual "extension alias Safe" (Just SafeHaskell) (parseExtensionName "Safe")
+  assertEqual "extension alias Unsafe" (Just UnsafeHaskell) (parseExtensionName "Unsafe")
+  assertEqual "extension setting disable" (Just (DisableExtension ImplicitPrelude)) (parseExtensionSettingName "NoImplicitPrelude")
+  assertEqual "extension setting fallback" (Just (EnableExtension NondecreasingIndentation)) (parseExtensionSettingName "NondecreasingIndentation")
+  assertEqual "extension setting unknown disable" Nothing (parseExtensionSettingName "NoDefinitelyNotAnExtension")
+
+  assertReadRoundTrip "language edition read/show" ([minBound .. maxBound] :: [LanguageEdition])
+  assertEqual "language edition Haskell98" (Just Haskell98Edition) (parseLanguageEdition " Haskell98 ")
+  assertEqual "language edition Haskell2010" (Just Haskell2010Edition) (parseLanguageEdition "Haskell2010")
+  assertEqual "language edition GHC2021" (Just GHC2021Edition) (parseLanguageEdition "GHC2021")
+  assertEqual "language edition GHC2024" (Just GHC2024Edition) (parseLanguageEdition "GHC2024")
+  assertEqual "language edition unknown" Nothing (parseLanguageEdition "GHC2099")
+  assertEqual
+    "last language edition wins"
+    (Just GHC2024Edition)
+    (editionFromExtensionSettings [EnableExtension Haskell98, DisableExtension LambdaCase, EnableExtension GHC2024])
+  assertEqual "no language edition" Nothing (editionFromExtensionSettings [EnableExtension LambdaCase])
+
+  let spanA = SourceSpan "A.hs" 1 2 1 4 0 2
+      spanB = SourceSpan "A.hs" 2 1 2 5 3 7
+      merged = SourceSpan "A.hs" 1 2 2 5 0 7
+  assertEqual "show no source span" "NoSourceSpan" (show noSourceSpan)
+  assertEqual "show source span" "SourceSpan 1 2 2 5" (show merged)
+  assertEqual "merge source spans" merged (mergeSourceSpans spanA spanB)
+  assertEqual "merge left missing source span" spanB (mergeSourceSpans NoSourceSpan spanB)
+  assertEqual "merge right missing source span" spanA (mergeSourceSpans spanA NoSourceSpan)
+  assertBool "source span ordering" (spanA < spanB)
+  assertBool "source span nfdata" (rnf merged `seq` True)
+
+  assertReadRoundTrip "pragma unpack kind read/show" [UnpackPragma, NoUnpackPragma]
+  assertReadRoundTrip
+    "pragma type read/show"
+    [ PragmaLanguage [EnableExtension LambdaCase, DisableExtension ImplicitPrelude],
+      PragmaInstanceOverlap Overlapping,
+      PragmaWarning "warn",
+      PragmaDeprecated "old",
+      PragmaInline "[1]" "INLINE",
+      PragmaUnpack UnpackPragma,
+      PragmaSource "SOURCE" "",
+      PragmaSCC "loop",
+      PragmaUnknown "CUSTOM"
+    ]
+  assertReadRoundTrip
+    "pragma read/show"
+    [Pragma (PragmaWarning "warn") "{-# WARNING x \"warn\" #-}"]
+  assertReadRoundTrip "numeric type read/show" [TInteger, TIntHash, TWordHash, TInt8Hash, TInt16Hash, TInt32Hash, TInt64Hash, TWord8Hash, TWord16Hash, TWord32Hash, TWord64Hash]
+  assertReadRoundTrip "float type read/show" [TFractional, TFloatHash, TDoubleHash]
+  assertReadRoundTrip "instance overlap pragma read/show" [Overlapping, Overlappable, Overlaps, Incoherent]
+  assertBool "numeric type ordering" (TInteger < TWord64Hash)
+  assertBool "pragma nfdata" (rnf (Pragma (PragmaInline "[1]" "INLINE") "") `seq` True)
 
 test_lexerChunkLaziness :: Assertion
 test_lexerChunkLaziness =

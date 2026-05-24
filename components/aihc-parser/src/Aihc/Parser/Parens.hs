@@ -1730,7 +1730,7 @@ addPatternInUnboxedSum :: Int -> Pattern -> Pattern
 addPatternInUnboxedSum altIdx = addPatternInDelimitedWith (altIdx > 0)
 
 addPatternInRecordField :: Pattern -> Pattern
-addPatternInRecordField = addPatternInDelimitedWith False
+addPatternInRecordField = addPatternInDelimitedWith True
 
 -- | Template Haskell pattern quotes accept typed patterns only when they are
 -- parenthesized: @[p| (a :: T) |]@ parses, but @[p| a :: T |]@ does not.
