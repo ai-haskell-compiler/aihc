@@ -85,7 +85,7 @@
   enableCoverageWithExport = hsLib: drv:
     hsLib.overrideCabal drv (old: {
       configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
-      testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+      testFlags = (old.testFlags or []) ++ ["--hide-successes" "--quickcheck-tests" "10000"];
       preCheck =
         (old.preCheck or "")
         + ''

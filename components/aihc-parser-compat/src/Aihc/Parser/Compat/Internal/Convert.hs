@@ -16,7 +16,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Text qualified as T
 import Data.Text.Read qualified as TR
-import GHC.Builtin.Types (nilDataCon, tupleDataCon, tupleTyCon, unrestrictedFunTyConName)
+import GHC.Builtin.Types (nilDataCon, sumDataCon, tupleDataCon, tupleTyCon, unrestrictedFunTyConName)
 import GHC.Data.FastString (mkFastString)
 import GHC.Hs
 import GHC.Types.Basic
@@ -169,8 +169,8 @@ toConDecl ctor =
        in ConDeclGADT noAnn (nonEmpty (map (lA . toRdrName . A.qualifyName Nothing) names)) (lA (HsOuterImplicit noExtField)) (map forallTele foralls) (toMaybeContext context) details (toGadtResultType details resultTy) Nothing
     A.TupleCon foralls context flavor fields ->
       ConDeclH98 noAnn (lA (getRdrName (tupleDataCon (boxity flavor) (length fields)))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon (map conField fields)) Nothing
-    A.UnboxedSumCon foralls context _pos _arity field ->
-      ConDeclH98 noAnn (lA (mkRdrUnqual (mkDataOcc "UnboxedSumCon"))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon [conField field]) Nothing
+    A.UnboxedSumCon foralls context pos arity field ->
+      ConDeclH98 noAnn (lA (getRdrName (sumDataCon pos arity))) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon [conField field]) Nothing
     A.ListCon foralls context ->
       ConDeclH98 noAnn (lA (getRdrName nilDataCon)) (not (null foralls)) (map toInvisibleTyVarBndr foralls) (toMaybeContext context) (PrefixCon []) Nothing
 
@@ -318,7 +318,7 @@ instanceItem item =
   case A.peelInstanceDeclItemAnn item of
     A.InstanceItemAnn _ inner -> instanceItem inner
     A.InstanceItemBind value -> ([lA (valueBind value)], [], [], [])
-    A.InstanceItemTypeSig names ty -> ([], [lA (typeSig names ty)], [], [])
+    A.InstanceItemTypeSig names ty -> ([], [lA (ClassOpSig noAnn False (map (lA . toRdrName . A.qualifyName Nothing) names) (toSigType ty))], [], [])
     A.InstanceItemFixity assoc namespace prec ops -> ([], [lA (FixSig noAnn (fixitySig assoc namespace prec ops))], [], [])
     A.InstanceItemTypeFamilyInst tfi -> ([], [], [lA (typeFamilyInstDecl tfi)], [])
     A.InstanceItemDataFamilyInst dfi -> ([], [], [], [lA (dataFamilyInstDecl dfi)])
