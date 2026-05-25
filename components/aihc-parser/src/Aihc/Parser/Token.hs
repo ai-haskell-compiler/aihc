@@ -5,20 +5,12 @@ module Aihc.Parser.Token
   ( TokenOrigin (..),
     LexToken (..),
     LexTokenKind (..),
-    pattern TkVarRole,
-    pattern TkVarFamily,
-    pattern TkVarAs,
-    pattern TkVarHiding,
-    pattern TkVarQualified,
-    pattern TkVarSafe,
     readModuleHeaderExtensions,
     readModuleHeaderPragmas,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
     lexTokensWithSourceNameAndExtensions,
     lexModuleTokensWithSourceNameAndExtensions,
-    lexTokens,
-    lexModuleTokens,
   )
 where
 
