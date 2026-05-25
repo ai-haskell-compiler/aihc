@@ -2087,7 +2087,14 @@ addCmdParensIn ctx cmd =
 
 addCmdArrAppLhsParens :: Expr -> Expr
 addCmdArrAppLhsParens lhs =
-  wrapExpr (startsWithBlockExpr lhs || isOpenEnded lhs || endsWithTypeSig lhs || endsWithCmdLayoutTail lhs) (addExprParensPrec 1 lhs)
+  wrapExpr (cmdArrAppLhsNeedsParens lhs) (addExprParensPrec 1 lhs)
+
+cmdArrAppLhsNeedsParens :: Expr -> Bool
+cmdArrAppLhsNeedsParens expr =
+  startsWithBlockExpr expr
+    || isOpenEnded expr
+    || endsWithTypeSig expr
+    || endsWithCmdLayoutTail expr
 
 -- | Arrow tails are parsed outside the expression grammar, so a command lhs that
 -- ends in a layout block needs explicit grouping even when the same expression

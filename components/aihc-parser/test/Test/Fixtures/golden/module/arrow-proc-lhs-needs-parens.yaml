@@ -1,0 +1,6 @@
+extensions: [Arrows, ViewPatterns, BlockArguments]
+input: |
+  module M where
+  f [proc _ -> proc _ -> [] -< [] -<< [] -> _] = ()
+status: fail
+reason: bare proc command lhs must be parenthesized before -<<
