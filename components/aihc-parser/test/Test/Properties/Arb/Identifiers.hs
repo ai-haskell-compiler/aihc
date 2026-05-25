@@ -56,18 +56,14 @@ module Test.Properties.Arb.Identifiers
   )
 where
 
-import Aihc.Parser.Syntax (Extension, Name (..), NameType (..), UnqualifiedName (..), allKnownExtensions, mkUnqualifiedName, qualifyName)
-import Aihc.Parser.Token (isReservedIdentifier)
+import Aihc.Parser.Syntax (Name (..), NameType (..), UnqualifiedName (..), allKnownExtensions, mkUnqualifiedName, qualifyName)
+import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexTokensWithExtensions)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, oneof, shrink, shrinkIntegral, shrinkList, vectorOf)
-
--- | All extensions enabled for maximum keyword coverage in testing.
-allExtensions :: Set.Set Extension
-allExtensions = Set.fromList allKnownExtensions
 
 allChars :: [Char]
 allChars = [minBound .. maxBound]
@@ -176,9 +172,15 @@ isValidGeneratedIdent ident =
           baseIdent /= "_"
             && isValidGeneratedIdentStartChar first
             && T.all isValidGeneratedIdentTailChar rest
-            && not (isReservedIdentifier allExtensions ident)
+            && lexesAsVariableIdentifier ident
         Nothing -> False
     Nothing -> False
+
+lexesAsVariableIdentifier :: Text -> Bool
+lexesAsVariableIdentifier ident =
+  case lexTokensWithExtensions allKnownExtensions ident of
+    [LexToken {lexTokenKind = TkVarId tokIdent}, LexToken {lexTokenKind = TkEOF}] -> tokIdent == ident
+    _ -> False
 
 unsnocMagicHash :: Text -> Maybe (Text, Text)
 unsnocMagicHash ident =
@@ -319,9 +321,9 @@ genFieldName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier allExtensions candidate
-    then genFieldName
-    else pure candidate
+  if lexesAsVariableIdentifier candidate
+    then pure candidate
+    else genFieldName
 
 -------------------------------------------------------------------------------
 -- Quasi-quotation helpers

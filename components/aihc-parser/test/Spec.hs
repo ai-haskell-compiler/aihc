@@ -208,7 +208,7 @@ buildTests = do
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
             testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
             testCase "parses character literals after escaped backslash cons patterns" test_escapedBackslashConsPatternCharLiteralParses,
-            testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
+            testCase "generated identifiers reject lexer keywords" test_generatedIdentifiersRejectLexerKeywords,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
@@ -676,10 +676,10 @@ test_syntaxUtilityFunctions = do
   assertBool "numeric type ordering" (TInteger < TWord64Hash)
   assertBool "pragma nfdata" (rnf (Pragma (PragmaInline "[1]" "INLINE") "") `seq` True)
 
-test_generatedIdentifiersRejectExtensionKeywordRec :: Assertion
-test_generatedIdentifiersRejectExtensionKeywordRec =
-  assertBool "extension keyword 'rec' must not be treated as a valid generated identifier" $
-    not (isValidGeneratedIdent "rec")
+test_generatedIdentifiersRejectLexerKeywords :: Assertion
+test_generatedIdentifiersRejectLexerKeywords =
+  assertBool "lexer keywords must not be treated as valid generated identifiers" $
+    not (any isValidGeneratedIdent ["case", "module", "rec", "mdo", "pattern", "proc", "_"])
 
 test_generatedIdentifiersRejectStandaloneUnderscore :: Assertion
 test_generatedIdentifiersRejectStandaloneUnderscore =

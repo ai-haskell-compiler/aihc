@@ -11,7 +11,6 @@ module Aihc.Parser.Token
     pattern TkVarHiding,
     pattern TkVarQualified,
     pattern TkVarSafe,
-    isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderPragmas,
     lexTokensWithExtensions,

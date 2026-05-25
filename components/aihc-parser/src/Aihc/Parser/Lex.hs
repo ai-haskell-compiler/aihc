@@ -14,7 +14,6 @@ module Aihc.Parser.Lex
     pattern TkVarHiding,
     pattern TkVarQualified,
     pattern TkVarSafe,
-    isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderPragmas,
     lexTokensWithExtensions,
@@ -1024,11 +1023,6 @@ startsWithSymOp t =
   case t of
     c :< _ -> isSymbolicOpChar c
     _ -> False
-
--- | Check if an identifier is reserved given a set of enabled extensions.
--- This includes both base keywords and extension-specific keywords.
-isReservedIdentifier :: Set Extension -> Text -> Bool
-isReservedIdentifier exts txt = isJust (keywordTokenKind exts txt)
 
 keywordTokenKind :: Set Extension -> Text -> Maybe LexTokenKind
 keywordTokenKind exts txt =
