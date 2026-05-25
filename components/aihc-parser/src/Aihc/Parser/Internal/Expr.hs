@@ -4,6 +4,7 @@
 module Aihc.Parser.Internal.Expr
   ( exprParser,
     atomExprParser,
+    cmdArrAppLhsParser,
     lexpParser,
     equationRhsParser,
     caseRhsParserWithBodyParser,
@@ -81,6 +82,26 @@ exprCoreParserWithTypeSigParser typeSigParser = do
     (expectedTok TkReservedDoubleColon *> typeSigParser)
     ETypeSig
     exprCoreParserWithoutTypeSig
+
+-- | Parse the command-arrow LHS nonterminal from GHC's @exp_gen(infixexp)@
+-- grammar:
+--
+-- @
+-- exp : infixexp -< exp
+--     | infixexp -<< exp
+-- @
+--
+-- AIHC parses commands directly rather than through GHC's expression-command
+-- disambiguation, so this context removes the bare @proc@ atom. A parenthesized
+-- @proc@ expression still parses through the ordinary parenthesized atom rule.
+cmdArrAppLhsParser :: TokParser Expr
+cmdArrAppLhsParser =
+  exprInfixChainParser (lexpParserWith CmdArrAppLhsAtom)
+
+data AtomContext
+  = NormalExprAtom
+  | CmdArrAppLhsAtom
+  deriving (Eq)
 
 -- | The operator name used to represent @->@ in view-pattern expressions.
 viewPatArrowName :: Name
@@ -263,15 +284,18 @@ exprInfixChainParser lexp = do
 --
 -- Extensions add more block-like forms at this grammar level.
 lexpParser :: TokParser Expr
-lexpParser = do
+lexpParser = lexpParserWith NormalExprAtom
+
+lexpParserWith :: AtomContext -> TokParser Expr
+lexpParserWith atomContext = do
   mSCC <- optionalHiddenPragma getSCCPragma
   case mSCC of
-    Just sccPragma -> EPragma sccPragma <$> lexpParser
-    Nothing -> lexpBaseParser appExprParser
+    Just sccPragma -> EPragma sccPragma <$> lexpParserWith atomContext
+    Nothing -> lexpBaseParserWith atomContext (appExprParserWith (atomOrRecordExprParserWith atomContext))
 
-lexpBaseParser :: TokParser Expr -> TokParser Expr
-lexpBaseParser appParser =
-  lexpBlockParser
+lexpBaseParserWith :: AtomContext -> TokParser Expr -> TokParser Expr
+lexpBaseParserWith atomContext appParser =
+  lexpBlockParserWith atomContext
     <|> MP.try negateExprParser
     <|> appParser
 
@@ -293,7 +317,10 @@ reportLexpParser appParser =
 --
 -- GHC extensions extend this set with @mdo@, qualified @do@, and @proc@.
 lexpBlockParser :: TokParser Expr
-lexpBlockParser =
+lexpBlockParser = lexpBlockParserWith NormalExprAtom
+
+lexpBlockParserWith :: AtomContext -> TokParser Expr
+lexpBlockParserWith atomContext =
   doExprParser
     <|> mdoExprParser
     <|> qualifiedDoExprParser
@@ -301,8 +328,12 @@ lexpBlockParser =
     <|> ifExprParser
     <|> caseExprParser
     <|> letExprParser
-    <|> procExprParser
+    <|> procBlockParser
     <|> lambdaExprParser
+  where
+    procBlockParser
+      | atomContext == NormalExprAtom = procExprParser
+      | otherwise = MP.empty
 
 getSCCPragma :: Pragma -> Maybe Pragma
 getSCCPragma p = case pragmaType p of
@@ -403,12 +434,15 @@ appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
 -- namespace expressions stay in 'atomExprParser'; they can be record-update
 -- bases only after parentheses make them an @aexp@.
 atomOrRecordExprParser :: TokParser Expr
-atomOrRecordExprParser =
-  recordExprParser <|> atomExprParser
+atomOrRecordExprParser = atomOrRecordExprParserWith NormalExprAtom
+
+atomOrRecordExprParserWith :: AtomContext -> TokParser Expr
+atomOrRecordExprParserWith atomContext =
+  recordExprParser <|> atomExprParserWith atomContext
   where
     recordExprParser :: TokParser Expr
     recordExprParser = do
-      base <- recordBaseAtomExprParser
+      base <- recordBaseAtomExprParserWith atomContext
       applyRecordSuffixes base
 
     applyRecordSuffixes :: Expr -> TokParser Expr
@@ -480,14 +514,14 @@ recordFieldBindingParser = withSpan $ do
 -- >      | '(' qop infixexp ')'
 -- >      | qcon '{' fbind_1 ',' ... ',' fbind_n '}'
 -- >      | aexp<qcon> '{' fbind_1 ',' ... ',' fbind_n '}'
-recordBaseAtomExprParser :: TokParser Expr
-recordBaseAtomExprParser = do
+recordBaseAtomExprParserWith :: AtomContext -> TokParser Expr
+recordBaseAtomExprParserWith atomContext = do
   thAny <- thAnyEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
     _ ->
-      MP.try prefixNegateAtomExprParser
+      MP.try (prefixNegateAtomExprParserWith atomContext)
         <|> MP.try parenOperatorExprParser
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
@@ -511,7 +545,10 @@ recordBaseAtomExprParser = do
 -- This variant also admits extension-only atoms such as block arguments and
 -- explicit namespace syntax when the corresponding extensions are enabled.
 atomExprParser :: TokParser Expr
-atomExprParser = do
+atomExprParser = atomExprParserWith NormalExprAtom
+
+atomExprParserWith :: AtomContext -> TokParser Expr
+atomExprParserWith atomContext = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
   thAny <- thAnyEnabled
   explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
@@ -529,9 +566,9 @@ atomExprParser = do
     TkQualifiedMdo {} | blockArgsEnabled -> qualifiedMdoExprParser
     TkKeywordCase | blockArgsEnabled -> caseExprParser
     TkKeywordIf | blockArgsEnabled -> ifExprParser
-    TkKeywordProc | blockArgsEnabled -> procExprParser
+    TkKeywordProc | blockArgsEnabled && atomContext == NormalExprAtom -> procExprParser
     _ ->
-      MP.try prefixNegateAtomExprParser
+      MP.try (prefixNegateAtomExprParserWith atomContext)
         <|> MP.try parenOperatorExprParser
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
@@ -553,10 +590,10 @@ explicitTypeExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkKeywordType
   ETypeSyntax TypeSyntaxExplicitNamespace <$> typeParser
 
-prefixNegateAtomExprParser :: TokParser Expr
-prefixNegateAtomExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
+prefixNegateAtomExprParserWith :: AtomContext -> TokParser Expr
+prefixNegateAtomExprParserWith atomContext = withSpanAnn (EAnn . mkAnnotation) $ do
   prefixMinusTokenParser
-  ENegate <$> atomExprParser
+  ENegate <$> atomExprParserWith atomContext
 
 negateExprParser :: TokParser Expr
 negateExprParser = withSpanAnn (EAnn . mkAnnotation) $ do

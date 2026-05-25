@@ -7,7 +7,7 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, exprParser, parseLetDeclsParser, parseLetDeclsStmtParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, cmdArrAppLhsParser, exprParser, parseLetDeclsParser, parseLetDeclsStmtParser)
 import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patternParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
@@ -66,7 +66,7 @@ cmd10Parser = do
 
 cmdArrAppParser :: TokParser Cmd
 cmdArrAppParser = do
-  expr <- exprParser
+  expr <- cmdArrAppLhsParser
   (appType, rhs) <- cmdArrTailParser
   pure (CmdArrApp expr appType rhs)
 

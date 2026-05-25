@@ -14,6 +14,7 @@ import Aihc.Parser.Syntax (Decl, Expr, Rhs)
 -- | Parse a full expression
 exprParser :: TokParser Expr
 atomExprParser :: TokParser Expr
+cmdArrAppLhsParser :: TokParser Expr
 lexpParser :: TokParser Expr
 
 -- | Parse the right-hand side of an equation (guarded or unguarded)
