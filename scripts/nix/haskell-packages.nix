@@ -10,6 +10,13 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-parser-compat = {
+      src = sources.parserCompatSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-cpp = {
       src = sources.cppSrc;
       disableProfiling = false;
@@ -78,7 +85,7 @@
   enableCoverageWithExport = hsLib: drv:
     hsLib.overrideCabal drv (old: {
       configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
-      testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+      testFlags = (old.testFlags or []) ++ ["--hide-successes" "--quickcheck-tests" "10000"];
       preCheck =
         (old.preCheck or "")
         + ''

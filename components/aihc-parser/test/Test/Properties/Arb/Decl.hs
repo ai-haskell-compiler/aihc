@@ -234,7 +234,10 @@ genMixedDataCon =
   oneof
     [ genPrefixCon,
       genInfixCon,
-      genRecordCon
+      genRecordCon,
+      genTupleCon,
+      genUnboxedSumCon,
+      genListCon
     ]
 
 genPrefixCon :: Gen DataConDecl
@@ -245,13 +248,59 @@ genPrefixCon = do
   pure (PrefixCon [] [] name fields)
 
 genInfixCon :: Gen DataConDecl
-genInfixCon = InfixCon [] [] <$> genSimpleBangType <*> genConUnqualifiedName <*> genSimpleBangType
+genInfixCon = do
+  forallVars <- genDataConTyVarBinders
+  ctx <- genDataConContext
+  InfixCon forallVars ctx <$> genSimpleBangType <*> genConUnqualifiedName <*> genSimpleBangType
 
 genRecordCon :: Gen DataConDecl
-genRecordCon = RecordCon [] [] <$> genConUnqualifiedName <*> smallList0 genFieldDecl
+genRecordCon = do
+  RecordCon [] [] <$> genConUnqualifiedName <*> smallList0 genFieldDecl
+
+genTupleCon :: Gen DataConDecl
+genTupleCon = do
+  forallVars <- genDataConTyVarBinders
+  ctx <- genDataConContext
+  flavor <- elements [Boxed, Unboxed]
+  fieldCount <-
+    case flavor of
+      Boxed -> elements [0, 2, 3]
+      Unboxed -> elements [0, 1, 2, 3]
+  TupleCon forallVars ctx flavor <$> vectorOf fieldCount genSimpleBangType
+
+genUnboxedSumCon :: Gen DataConDecl
+genUnboxedSumCon = do
+  forallVars <- genDataConTyVarBinders
+  ctx <- genDataConContext
+  arity <- chooseInt (2, 4)
+  pos <- chooseInt (1, arity)
+  UnboxedSumCon forallVars ctx pos arity <$> genSimpleBangType
+
+genListCon :: Gen DataConDecl
+genListCon = ListCon <$> genDataConTyVarBinders <*> genDataConContext
+
+genDataConTyVarBinders :: Gen [TyVarBinder]
+genDataConTyVarBinders = frequency [(4, pure []), (1, smallList1 genSimpleTyVarBinder)]
+
+genDataConContext :: Gen [Type]
+genDataConContext = frequency [(4, pure []), (1, smallList1 genSimpleConstraint)]
 
 genFieldDecl :: Gen FieldDecl
-genFieldDecl = FieldDecl [] <$> smallList1 genVarUnqualifiedName <*> pure Nothing <*> genSimpleBangType
+genFieldDecl = FieldDecl [] <$> smallList1 genVarUnqualifiedName <*> genFieldMultiplicity <*> genSimpleBangType
+
+genFieldMultiplicity :: Gen (Maybe Type)
+genFieldMultiplicity =
+  frequency
+    [ (4, pure Nothing),
+      (1, Just <$> genSimpleMultiplicityType)
+    ]
+
+genSimpleMultiplicityType :: Gen Type
+genSimpleMultiplicityType =
+  oneof
+    [ TVar . mkUnqualifiedName NameVarId <$> genVarId,
+      TCon <$> genConName <*> pure Unpromoted
+    ]
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = smallList1 genGadtCon
@@ -259,7 +308,12 @@ genGadtDataCons = smallList1 genGadtCon
 genGadtCon :: Gen DataConDecl
 genGadtCon = do
   names <- smallList1 genConUnqualifiedName
-  GadtCon [] [] names <$> genGadtBody
+  foralls <- genGadtForalls
+  ctx <- genDataConContext
+  GadtCon foralls ctx names <$> genGadtBody
+
+genGadtForalls :: Gen [ForallTelescope]
+genGadtForalls = pure []
 
 genGadtBody :: Gen GadtBody
 genGadtBody =
@@ -311,18 +365,19 @@ genGadtRecordBody = GadtRecordBody <$> smallList1 genGadtFieldDecl <*> genType
 genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldNames <- smallList1 genVarUnqualifiedName
-  FieldDecl [] fieldNames Nothing . BangType [] [] False False <$> genType
+  multiplicity <- genFieldMultiplicity
+  FieldDecl [] fieldNames multiplicity . BangType [] [] False False <$> genType
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
-  ty <- genType
   annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
+  (ty, pragmas) <- genBangTypePayload annotation
   case annotation of
     NoAnnotation ->
       pure $
         BangType
           { bangAnns = [],
-            bangPragmas = [],
+            bangPragmas = pragmas,
             bangStrict = False,
             bangLazy = False,
             bangType = ty
@@ -331,7 +386,7 @@ genSimpleBangType = do
       pure $
         BangType
           { bangAnns = [],
-            bangPragmas = [],
+            bangPragmas = pragmas,
             bangStrict = True,
             bangLazy = False,
             bangType = ty
@@ -340,11 +395,26 @@ genSimpleBangType = do
       pure $
         BangType
           { bangAnns = [],
-            bangPragmas = [],
+            bangPragmas = pragmas,
             bangStrict = False,
             bangLazy = True,
             bangType = ty
           }
+
+genBangTypePayload :: FieldAnnotation -> Gen (Type, [Pragma])
+genBangTypePayload StrictAnnotation =
+  frequency
+    [ (4, fmap withNoBangPragmas genType),
+      (1, fmap (withBangPragmas [mkPragma (PragmaUnpack UnpackPragma)]) genSimpleTypeWithoutFun),
+      (1, fmap (withBangPragmas [mkPragma (PragmaUnpack NoUnpackPragma)]) genSimpleTypeWithoutFun)
+    ]
+genBangTypePayload _ = fmap withNoBangPragmas genType
+
+withNoBangPragmas :: Type -> (Type, [Pragma])
+withNoBangPragmas ty = (ty, [])
+
+withBangPragmas :: [Pragma] -> Type -> (Type, [Pragma])
+withBangPragmas pragmas ty = (ty, pragmas)
 
 genDeclNewtype :: Gen Decl
 genDeclNewtype = do
@@ -399,9 +469,21 @@ genDeclClass = do
       ClassDecl
         { classDeclContext = ctx,
           classDeclHead = declHead,
-          classDeclFundeps = [],
+          classDeclFundeps = genClassFundepsFromHead declHead,
           classDeclItems = items
         }
+
+genClassFundepsFromHead :: BinderHead UnqualifiedName -> [FunctionalDependency]
+genClassFundepsFromHead head' =
+  case binderHeadTyVarNames head' of
+    determiner : determined : _ -> [FunctionalDependency [] [determiner] [determined]]
+    _ -> []
+
+binderHeadTyVarNames :: BinderHead UnqualifiedName -> [Text]
+binderHeadTyVarNames head' =
+  case head' of
+    PrefixBinderHead _ params -> map tyVarBinderName params
+    InfixBinderHead lhs _ rhs tailParams -> map tyVarBinderName (lhs : rhs : tailParams)
 
 genClassDeclItems :: [TyVarBinder] -> Gen [ClassDeclItem]
 genClassDeclItems params =
@@ -448,7 +530,7 @@ genClassAssociatedDataDeclItem params = do
 genClassPragmaItem :: Gen ClassDeclItem
 genClassPragmaItem = do
   kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
-  ClassItemPragma . (\pt -> Pragma {pragmaType = pt, pragmaRawText = ""}) . PragmaInline kind <$> genVarId
+  ClassItemPragma . mkPragma . PragmaInline kind <$> genVarId
 
 genAssociatedTypeFamilyDecl :: Gen TypeFamilyDecl
 genAssociatedTypeFamilyDecl = do
@@ -456,13 +538,14 @@ genAssociatedTypeFamilyDecl = do
   params <- smallList0 genSimpleTyVarBinder
   explicitFamilyKeyword <- arbitrary
   let headType = TCon (qualifyName Nothing name) Unpromoted
+  resultSig <- genAssociatedTypeFamilyResultSig params
   pure $
     TypeFamilyDecl
       { typeFamilyDeclHeadForm = TypeHeadPrefix,
         typeFamilyDeclExplicitFamilyKeyword = explicitFamilyKeyword,
         typeFamilyDeclHead = headType,
         typeFamilyDeclParams = params,
-        typeFamilyDeclResultSig = Nothing,
+        typeFamilyDeclResultSig = resultSig,
         typeFamilyDeclEquations = Nothing
       }
 
@@ -502,11 +585,97 @@ genAssociatedTypeDefaultInst = do
         typeFamilyInstRhs = rhs
       }
 
+genTypeFamilyResultSig :: Bool -> [TyVarBinder] -> Gen (Maybe TypeFamilyResultSig)
+genTypeFamilyResultSig explicitFamily params =
+  frequency $
+    [(4, pure Nothing), (1, Just . TypeFamilyKindSig <$> genType)]
+      <> [(1, Just <$> genTypeFamilyTyVarSig) | explicitFamily]
+      <> [(1, Just <$> genTypeFamilyInjectiveSig params) | not (null params)]
+
+genAssociatedTypeFamilyResultSig :: [TyVarBinder] -> Gen (Maybe TypeFamilyResultSig)
+genAssociatedTypeFamilyResultSig params =
+  frequency $
+    [(4, pure Nothing), (1, Just . TypeFamilyKindSig <$> genType)]
+      <> [(1, Just <$> genTypeFamilyInjectiveSig params) | not (null params)]
+
+genTypeFamilyTyVarSig :: Gen TypeFamilyResultSig
+genTypeFamilyTyVarSig = TypeFamilyTyVarSig <$> genResultTyVarBinder
+
+genTypeFamilyInjectiveSig :: [TyVarBinder] -> Gen TypeFamilyResultSig
+genTypeFamilyInjectiveSig params = do
+  result <- genResultTyVarBinder
+  let resultName = tyVarBinderName result
+      determined = map tyVarBinderName params
+  pure $
+    TypeFamilyInjectiveSig
+      result
+      TypeFamilyInjectivity
+        { typeFamilyInjectivityAnns = [],
+          typeFamilyInjectivityResult = resultName,
+          typeFamilyInjectivityDetermined = determined
+        }
+
+genResultTyVarBinder :: Gen TyVarBinder
+genResultTyVarBinder =
+  pure (TyVarBinder [] "r" Nothing TyVarBSpecified TyVarBVisible)
+
+genTypeFamilyEquations :: TypeHeadForm -> Type -> [TyVarBinder] -> Gen (Maybe [TypeFamilyEq])
+genTypeFamilyEquations headForm headType params =
+  frequency
+    [ (4, pure Nothing),
+      (1, Just <$> smallList1 (genTypeFamilyEq headForm headType params))
+    ]
+
+genTypeFamilyEq :: TypeHeadForm -> Type -> [TyVarBinder] -> Gen TypeFamilyEq
+genTypeFamilyEq headForm headType params = do
+  lhs <- genTypeFamilyEqLhs headForm headType params
+  rhs <- genType
+  forallVars <- frequency [(4, pure []), (1, smallList1 genSimpleTyVarBinder)]
+  pure $
+    TypeFamilyEq
+      { typeFamilyEqAnns = [],
+        typeFamilyEqForall = forallVars,
+        typeFamilyEqHeadForm = headForm,
+        typeFamilyEqLhs = lhs,
+        typeFamilyEqRhs = rhs
+      }
+
+genTypeFamilyEqLhs :: TypeHeadForm -> Type -> [TyVarBinder] -> Gen Type
+genTypeFamilyEqLhs headForm headType params =
+  case headForm of
+    TypeHeadPrefix -> do
+      args <- vectorOf (length params) genFamilyLhsArg
+      pure (foldl TApp headType args)
+    TypeHeadInfix ->
+      case headType of
+        TInfix _ op promoted _ -> TInfix <$> genFamilyInfixOperand <*> pure op <*> pure promoted <*> genFamilyInfixOperand
+        _ -> pure headType
+
 genDeclInstance :: Gen Decl
 genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix, genDeclInstanceParenInfix]
 
 genInstanceDeclItems :: Gen [InstanceDeclItem]
-genInstanceDeclItems = smallList0 genInstanceAssociatedDataFamilyInstItem
+genInstanceDeclItems =
+  smallList0 $
+    oneof
+      [ InstanceItemBind <$> genFunctionValueDecl,
+        InstanceItemTypeSig <$> smallList1 genVarUnqualifiedName <*> genType,
+        genInstanceFixityItem,
+        InstanceItemTypeFamilyInst <$> genAssociatedTypeDefaultInst,
+        genInstanceAssociatedDataFamilyInstItem,
+        InstanceItemPragma <$> genInstancePragma
+      ]
+
+genInstanceFixityItem :: Gen InstanceDeclItem
+genInstanceFixityItem = do
+  assoc <- elements [Infix, InfixL, InfixR]
+  prec <- elements [Nothing, Just 0, Just 6, Just 9]
+  namespace <- elements [Nothing, Just IEEntityNamespaceType, Just IEEntityNamespaceData]
+  ops <- smallList1 genVarUnqualifiedName
+  pure (InstanceItemFixity assoc namespace prec ops)
+
+genInstancePragma :: Gen Pragma
+genInstancePragma = mkPragma . PragmaInline "INLINE" <$> genVarId
 
 genInstanceAssociatedDataFamilyInstItem :: Gen InstanceDeclItem
 genInstanceAssociatedDataFamilyInstItem = do
@@ -668,12 +837,26 @@ genDeclSplice = do
 
 genDeclForeign :: Gen Decl
 genDeclForeign = do
-  callConv <- elements [CCall, StdCall, CApi, JavaScript]
   direction <- elements [ForeignImport, ForeignExport]
+  entity <- genForeignEntity direction
+  callConv <-
+    case (direction, entity) of
+      (ForeignImport, ForeignEntityDynamic) -> pure CCall
+      (ForeignImport, ForeignEntityWrapper) -> pure CCall
+      (ForeignImport, ForeignEntityAddress {}) -> pure CCall
+      (ForeignImport, _) -> elements [CCall, StdCall, CApi, JavaScript]
+      (ForeignExport, _) -> elements [CCall, StdCall, CApi, JavaScript]
   -- Safety is only valid for imports, not exports
-  safety <- case direction of
-    ForeignImport -> optional $ elements [Safe, Unsafe]
-    ForeignExport -> pure Nothing
+  safety <- case (direction, entity) of
+    (ForeignImport, ForeignEntityDynamic) -> pure Nothing
+    (ForeignImport, ForeignEntityWrapper) -> pure Nothing
+    (ForeignImport, ForeignEntityStatic {}) -> pure Nothing
+    (ForeignImport, ForeignEntityAddress {}) -> pure Nothing
+    (ForeignImport, ForeignEntityOmitted) -> optional $ elements [Safe, Unsafe]
+    (ForeignImport, ForeignEntityNamed _)
+      | callConv == CCall -> optional $ elements [Safe, Unsafe, Interruptible]
+      | otherwise -> optional $ elements [Safe, Unsafe]
+    (ForeignExport, _) -> pure Nothing
   name <- genVarUnqualifiedName
   ty <- genType
   pure $
@@ -682,16 +865,39 @@ genDeclForeign = do
         { foreignDirection = direction,
           foreignCallConv = callConv,
           foreignSafety = safety,
-          foreignEntity = ForeignEntityOmitted,
+          foreignEntity = entity,
           foreignName = name,
           foreignType = ty
         }
+
+genForeignEntity :: ForeignDirection -> Gen ForeignEntitySpec
+genForeignEntity direction =
+  case direction of
+    ForeignImport ->
+      oneof
+        [ pure ForeignEntityDynamic,
+          pure ForeignEntityWrapper,
+          ForeignEntityStatic . Just <$> genForeignSymbol,
+          ForeignEntityAddress . Just <$> genForeignSymbol,
+          ForeignEntityNamed <$> genForeignSymbol,
+          pure ForeignEntityOmitted
+        ]
+    ForeignExport ->
+      oneof
+        [ ForeignEntityNamed <$> genForeignSymbol,
+          pure ForeignEntityOmitted
+        ]
+
+genForeignSymbol :: Gen Text
+genForeignSymbol = elements ["foreign_symbol", "static_name", "js_name"]
 
 genDeclTypeFamilyDecl :: Gen Decl
 genDeclTypeFamilyDecl = do
   name <- genConId
   let headType = TCon (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
   params <- genSimpleTyVarBinders
+  resultSig <- genTypeFamilyResultSig True params
+  equations <- genTypeFamilyEquations TypeHeadPrefix headType params
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
@@ -699,8 +905,8 @@ genDeclTypeFamilyDecl = do
           typeFamilyDeclExplicitFamilyKeyword = True,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
-          typeFamilyDeclResultSig = Nothing,
-          typeFamilyDeclEquations = Nothing
+          typeFamilyDeclResultSig = resultSig,
+          typeFamilyDeclEquations = equations
         }
 
 -- | Generate an infix type family declaration, covering both symbolic operators
@@ -716,15 +922,18 @@ genDeclTypeFamilyDeclInfix = do
       lhsType = TVar (mkUnqualifiedName NameVarId lhsName)
       rhsType = TVar (mkUnqualifiedName NameVarId rhsName)
       headType = TInfix lhsType (qualifyName Nothing name) Unpromoted rhsType
+      params = [lhs, rhs]
+  resultSig <- genTypeFamilyResultSig True params
+  equations <- genTypeFamilyEquations TypeHeadInfix headType params
   pure $
     DeclTypeFamilyDecl $
       TypeFamilyDecl
         { typeFamilyDeclHeadForm = TypeHeadInfix,
           typeFamilyDeclExplicitFamilyKeyword = True,
           typeFamilyDeclHead = headType,
-          typeFamilyDeclParams = [lhs, rhs],
-          typeFamilyDeclResultSig = Nothing,
-          typeFamilyDeclEquations = Nothing
+          typeFamilyDeclParams = params,
+          typeFamilyDeclResultSig = resultSig,
+          typeFamilyDeclEquations = equations
         }
 
 genDeclDataFamilyDecl :: Gen Decl
@@ -734,11 +943,12 @@ genDeclDataFamilyDecl = do
       [ InfixBinderHead <$> genSimpleTyVarBinder <*> genConUnqualifiedName <*> genSimpleTyVarBinder <*> genSimpleTyVarBinders,
         PrefixBinderHead <$> genConUnqualifiedName <*> genSimpleTyVarBinders
       ]
+  kind <- optional genType
   pure $
     DeclDataFamilyDecl $
       DataFamilyDecl
         { dataFamilyDeclHead = head',
-          dataFamilyDeclKind = Nothing
+          dataFamilyDeclKind = kind
         }
 
 genDeclTypeFamilyInst :: Gen Decl
@@ -872,7 +1082,10 @@ isStarType _ = False
 genDeclPragma :: Gen Decl
 genDeclPragma = do
   kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
-  DeclPragma . (\pt -> Pragma {pragmaType = pt, pragmaRawText = ""}) . PragmaInline kind <$> genVarId
+  DeclPragma . mkPragma . PragmaInline kind <$> genVarId
+
+mkPragma :: PragmaType -> Pragma
+mkPragma pt = Pragma {pragmaType = pt, pragmaRawText = ""}
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
@@ -1208,10 +1421,11 @@ shrinkDerivingStrategy strategy =
 
 shrinkClassDecl :: ClassDecl -> [ClassDecl]
 shrinkClassDecl cd =
-  [cd {classDeclHead = head'} | head' <- shrinkBinderHeadName shrinkConName (classDeclHead cd)]
+  [cd {classDeclHead = head', classDeclFundeps = genClassFundepsFromHead head'} | head' <- shrinkBinderHeadName shrinkConName (classDeclHead cd)]
     <> [cd {classDeclItems = is'} | is' <- shrinkList shrinkClassDeclItem (classDeclItems cd)]
-    <> [cd {classDeclHead = head'} | head' <- shrinkBinderHeadParams (classDeclHead cd)]
+    <> [cd {classDeclHead = head', classDeclFundeps = genClassFundepsFromHead head'} | head' <- shrinkBinderHeadParams (classDeclHead cd)]
     <> [cd {classDeclContext = ctx'} | Just ctx <- [classDeclContext cd], ctx' <- Nothing : [Just ctx'' | ctx'' <- shrinkList shrinkType ctx]]
+    <> [cd {classDeclFundeps = []} | not (null (classDeclFundeps cd))]
 
 shrinkClassDeclItem :: ClassDeclItem -> [ClassDeclItem]
 shrinkClassDeclItem item =

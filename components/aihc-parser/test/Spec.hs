@@ -7,10 +7,11 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
-import Aihc.Parser.Parens (addExprParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
+import Control.DeepSeq (rnf)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Data (Data, dataTypeConstrs, dataTypeOf, gmapQl, isAlgType, showConstr, toConstr)
@@ -82,6 +83,7 @@ import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck qualified as QC
+import Text.Read (readMaybe)
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
@@ -211,7 +213,9 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
+            testCase "shrunk standalone kind signatures shrink binder kinds" test_shrunkStandaloneKindSignaturesShrinkBinderKinds,
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
+            testCase "syntax utility functions cover public edge cases" test_syntaxUtilityFunctions,
             testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
             testCase "shrunk wildcard pattern binds do not cycle" test_shrunkWildcardPatternBindsDoNotCycle,
@@ -243,11 +247,13 @@ buildTests = do
             testCase "pretty-prints multi-way if left operands inside unboxed sums with parentheses" test_prettyMultiWayIfInfixLhsInsideUnboxedSum,
             testCase "pretty-prints lambda-case applicative chains without extra parens" test_prettyLambdaCaseApplicativeChain,
             testCase "pretty-prints TH splices before record dots with parentheses" test_prettySpliceRecordDotBase,
+            testCase "rejects compact explicit type namespace TH splices" test_compactExplicitTypeNamespaceTHSplicesReject,
             testCase "pretty-prints infix RHS open-ended expressions inside sections" test_prettyInfixRhsOpenEndedInsideSection,
             testCase "pretty-prints nested infix RHS expressions inside sections" test_prettyNestedInfixRhsInsideSection,
             testCase "pretty-prints right sections with bare infix operands" test_prettyRightSectionInfixOperand,
             testCase "pretty-prints infix RHS open-ended expressions before following infix operators" test_prettyInfixRhsOpenEndedBeforeFollowingInfix,
             testCase "parenthesizes transform-list-comp group-by infix RHS before using" test_transformListCompGroupByInfixRhsParens,
+            testCase "preserves transform-list-comp then-by lambda-case RHS" test_transformListCompThenByLambdaCaseRhs,
             testCase "parenthesizes lambda RHS before following infix operators" test_lambdaInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes if RHS before following infix operators" test_ifInfixRhsBeforeFollowingInfixParens,
             testCase "parenthesizes infix RHS operands inside left sections" test_infixRhsInsideLeftSectionParens,
@@ -263,21 +269,34 @@ buildTests = do
             testCase "parses TH type quotes before constrained expression signatures" test_thTypeQuoteBeforeConstraintExprSig,
             testCase "parenthesizes view expressions ending with applied type signatures" test_viewExprAppliedTypeSigParens,
             testCase "parenthesizes multi-way if view expressions ending with type signatures in decls" test_viewExprMultiWayIfTypeSigParens,
+            testCase "parenthesizes infix view expressions in lambda-cases" test_viewExprInfixLambdaCasesParens,
+            testCase "leaves block infix lhs view expressions bare" test_viewExprBlockInfixLhsNoParens,
+            testCase "leaves view expression block arguments bare" test_viewExprBlockArgumentNoParens,
+            testCase "leaves multi-way-if app infix lhs view expressions bare" test_viewExprMultiWayIfAppInfixLhsNoParens,
+            testCase "parenthesizes non-final let block arguments in view expressions" test_viewExprNonfinalLetBlockArgumentParens,
+            testCase "parenthesizes non-final proc block arguments in view expressions" test_viewExprNonfinalProcBlockArgumentParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-case" test_arrowCommandLhsLambdaCaseParens,
             testCase "parenthesizes arrow-command lhs applications ending in mdo" test_arrowCommandLhsMdoParens,
             testCase "parenthesizes arrow-command lhs applications ending in lambda-cases" test_arrowCommandLhsLambdaCasesParens,
             testCase "parenthesizes typed arrow-command RHS inside view expressions" test_viewExprArrowCommandTypeSigRhsParens,
             testCase "parenthesizes negated typed view expressions" test_viewExprNegatedTypeSigParens,
             testCase "pretty-prints typed view expressions without invalid layout" test_typedViewExprPrettyLayout,
+            testCase "parenthesizes typed classic-if tuple view expressions" test_tupleClassicIfViewExprTypeSigParens,
+            testCase "parenthesizes typed record-field view expressions with layout blocks" test_recordFieldViewExprTypeSigParens,
             testCase "rejects bare kind signatures as signature types" test_signatureTypeParserRejectsBareKindSignature,
             testCase "parses parenthesized kind signatures as signature types" test_signatureTypeParserParsesParenthesizedKindSignature,
             testCase "parses delimited kind signatures as signature types" test_signatureTypeParserParsesDelimitedKindSignature,
+            testCase "rejects nested bare delimited kind signatures" test_typeParserRejectsNestedBareDelimitedKindSignature,
             testCase "rejects bare kind signatures in signature type applications" test_signatureTypeParserRejectsAppArgBareKindSignature,
             testCase "parses parenthesized kind signatures in signature type applications" test_signatureTypeParserParsesAppArgParenthesizedKindSignature,
             testCase "rejects bare kind signatures in signature implicit parameter bodies" test_signatureTypeParserRejectsImplicitParamBareKindSignature,
             testCase "rejects bare implicit parameter type arguments in contexts" test_typeParserRejectsBareImplicitParamContextAppArg,
+            testCase "rejects bare context result kind signatures before outer kind signatures" test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature,
+            testCase "parses parenthesized context result kind signatures before outer kind signatures" test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature,
             testCase "rejects bare kind signatures in value signatures" test_declParserRejectsBareKindSignature,
             testCase "parses bare kind signatures as types" test_typeParserParsesBareKindSignature,
+            testCase "parenthesizes forall body kind signatures in standalone kind signatures" test_standaloneKindSignatureForallBodyKindSigParens,
+            testCase "preserves nested context kind signatures" test_typeParensNestedContextKindSignatureIsPreserved,
             testCase "shrunk do expressions keep a final expression statement" test_shrunkDoExpressionsKeepFinalExpression,
             testCase "formats roundtrip diffs minimally" test_roundtripDiffIsMinimal,
             testCase "bird-track unliteration preserves tab-sensitive layout columns" test_birdTrackUnlitPreservesTabColumns,
@@ -586,6 +605,78 @@ assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine
       assertEqual "end offset" expectedEndOffset sourceSpanEndOffset
     NoSourceSpan -> assertFailure "expected SourceSpan, got NoSourceSpan"
 
+assertReadRoundTrip :: (Eq a, Read a, Show a) => String -> [a] -> Assertion
+assertReadRoundTrip label =
+  mapM_ $ \value ->
+    assertEqual (label <> ": " <> show value) (Just value) (readMaybe (show value))
+
+test_syntaxUtilityFunctions :: Assertion
+test_syntaxUtilityFunctions = do
+  assertEqual "known extensions" ([minBound .. maxBound] :: [Extension]) allKnownExtensions
+  mapM_
+    (\ext -> assertEqual ("extension enum round trip: " <> show ext) ext (toEnum (fromEnum ext)))
+    allKnownExtensions
+  assertBool "extension ordering is stable" (AllowAmbiguousTypes < XmlSyntax)
+  assertReadRoundTrip "extension read/show" allKnownExtensions
+  assertReadRoundTrip
+    "extension setting read/show"
+    [ EnableExtension LambdaCase,
+      DisableExtension ImplicitPrelude
+    ]
+  assertEqual "extension alias Cpp" (Just CPP) (parseExtensionName " Cpp ")
+  assertEqual "extension alias DerivingVia" (Just DerivingViaExtension) (parseExtensionName "DerivingVia")
+  assertEqual "extension alias GeneralisedNewtypeDeriving" (Just GeneralizedNewtypeDeriving) (parseExtensionName "GeneralisedNewtypeDeriving")
+  assertEqual "extension alias Safe" (Just SafeHaskell) (parseExtensionName "Safe")
+  assertEqual "extension alias Unsafe" (Just UnsafeHaskell) (parseExtensionName "Unsafe")
+  assertEqual "extension setting disable" (Just (DisableExtension ImplicitPrelude)) (parseExtensionSettingName "NoImplicitPrelude")
+  assertEqual "extension setting fallback" (Just (EnableExtension NondecreasingIndentation)) (parseExtensionSettingName "NondecreasingIndentation")
+  assertEqual "extension setting unknown disable" Nothing (parseExtensionSettingName "NoDefinitelyNotAnExtension")
+
+  assertReadRoundTrip "language edition read/show" ([minBound .. maxBound] :: [LanguageEdition])
+  assertEqual "language edition Haskell98" (Just Haskell98Edition) (parseLanguageEdition " Haskell98 ")
+  assertEqual "language edition Haskell2010" (Just Haskell2010Edition) (parseLanguageEdition "Haskell2010")
+  assertEqual "language edition GHC2021" (Just GHC2021Edition) (parseLanguageEdition "GHC2021")
+  assertEqual "language edition GHC2024" (Just GHC2024Edition) (parseLanguageEdition "GHC2024")
+  assertEqual "language edition unknown" Nothing (parseLanguageEdition "GHC2099")
+  assertEqual
+    "last language edition wins"
+    (Just GHC2024Edition)
+    (editionFromExtensionSettings [EnableExtension Haskell98, DisableExtension LambdaCase, EnableExtension GHC2024])
+  assertEqual "no language edition" Nothing (editionFromExtensionSettings [EnableExtension LambdaCase])
+
+  let spanA = SourceSpan "A.hs" 1 2 1 4 0 2
+      spanB = SourceSpan "A.hs" 2 1 2 5 3 7
+      merged = SourceSpan "A.hs" 1 2 2 5 0 7
+  assertEqual "show no source span" "NoSourceSpan" (show noSourceSpan)
+  assertEqual "show source span" "SourceSpan 1 2 2 5" (show merged)
+  assertEqual "merge source spans" merged (mergeSourceSpans spanA spanB)
+  assertEqual "merge left missing source span" spanB (mergeSourceSpans NoSourceSpan spanB)
+  assertEqual "merge right missing source span" spanA (mergeSourceSpans spanA NoSourceSpan)
+  assertBool "source span ordering" (spanA < spanB)
+  assertBool "source span nfdata" (rnf merged `seq` True)
+
+  assertReadRoundTrip "pragma unpack kind read/show" [UnpackPragma, NoUnpackPragma]
+  assertReadRoundTrip
+    "pragma type read/show"
+    [ PragmaLanguage [EnableExtension LambdaCase, DisableExtension ImplicitPrelude],
+      PragmaInstanceOverlap Overlapping,
+      PragmaWarning "warn",
+      PragmaDeprecated "old",
+      PragmaInline "[1]" "INLINE",
+      PragmaUnpack UnpackPragma,
+      PragmaSource "SOURCE" "",
+      PragmaSCC "loop",
+      PragmaUnknown "CUSTOM"
+    ]
+  assertReadRoundTrip
+    "pragma read/show"
+    [Pragma (PragmaWarning "warn") "{-# WARNING x \"warn\" #-}"]
+  assertReadRoundTrip "numeric type read/show" [TInteger, TIntHash, TWordHash, TInt8Hash, TInt16Hash, TInt32Hash, TInt64Hash, TWord8Hash, TWord16Hash, TWord32Hash, TWord64Hash]
+  assertReadRoundTrip "float type read/show" [TFractional, TFloatHash, TDoubleHash]
+  assertReadRoundTrip "instance overlap pragma read/show" [Overlapping, Overlappable, Overlaps, Incoherent]
+  assertBool "numeric type ordering" (TInteger < TWord64Hash)
+  assertBool "pragma nfdata" (rnf (Pragma (PragmaInline "[1]" "INLINE") "") `seq` True)
+
 test_lexerChunkLaziness :: Assertion
 test_lexerChunkLaziness =
   -- Test that we can take at least one token without forcing all chunks.
@@ -621,6 +712,38 @@ test_shrunkPatternTypeSignaturesShrinkTypes =
     shrinksTypeName (PTypeSig PWildcard (TCon name Unpromoted)) =
       isNothing (nameQualifier name) || nameText name == ":+"
     shrinksTypeName _ = False
+
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds :: Assertion
+test_shrunkStandaloneKindSignaturesShrinkBinderKinds =
+  assertBool "standalone kind signatures should shrink names in forall binder kinds" $
+    any shrinksBinderKind (shrinkDecl decl)
+  where
+    decl =
+      DeclStandaloneKindSig
+        (mkUnqualifiedName NameConSym ":+")
+        ( TForall
+            ForallTelescope
+              { forallTelescopeVisibility = ForallInvisible,
+                forallTelescopeBinders =
+                  [ TyVarBinder
+                      []
+                      "a"
+                      (Just (TVar (mkUnqualifiedName NameVarId "\985\5115####")))
+                      TyVarBSpecified
+                      TyVarBVisible
+                  ]
+              }
+            (TKindSig TWildcard TWildcard)
+        )
+    shrinksBinderKind
+      ( DeclStandaloneKindSig
+          _
+          ( TForall
+              ForallTelescope {forallTelescopeBinders = [TyVarBinder {tyVarBinderKind = Just (TVar name)}]}
+              (TKindSig TWildcard TWildcard)
+            )
+        ) = renderUnqualifiedName name == "a"
+    shrinksBinderKind _ = False
 
 test_shrunkModuleHeaderWithoutWarningMakesProgress :: Assertion
 test_shrunkModuleHeaderWithoutWarningMakesProgress =
@@ -1374,6 +1497,21 @@ test_prettyRecordDotTHSpliceBase = do
   assertParsedStrippedExprShapeRoundTrip config "($q#).j7Msfc"
   assertParsedStrippedExprShapeRoundTrip config "($$q#).j7Msfc"
 
+test_compactExplicitTypeNamespaceTHSplicesReject :: Assertion
+test_compactExplicitTypeNamespaceTHSplicesReject = do
+  let config = defaultConfig {parserExtensions = [ExplicitNamespaces, TemplateHaskell, UnboxedSums, ViewPatterns]}
+  case parseExpr config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk expr -> assertFailure ("expected compact type splice expression to fail, got: " <> show (shorthand (stripAnnotations expr)))
+  case parsePattern config "$type _" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  case parsePattern config "(# | $type _ {} -> _ #)" of
+    ParseErr {} -> pure ()
+    ParseOk pat -> assertFailure ("expected compact type splice view pattern to fail, got: " <> show (shorthand (stripAnnotations pat)))
+  assertParsedStrippedExprShapeRoundTrip config "$(type _)"
+  assertParsedStrippedPatternShapeRoundTrip config "(# | $(type _) {} -> _ #)"
+
 test_parenthesesInsertion :: Assertion
 test_parenthesesInsertion = do
   let config =
@@ -1447,6 +1585,89 @@ test_viewExprMultiWayIfTypeSigParens = do
         """
   assertParsedStrippedDeclShapeRoundTrip config source
 
+test_viewExprInfixLambdaCasesParens :: Assertion
+test_viewExprInfixLambdaCasesParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        _ = \\cases
+              (([] `a` []) -> _) ->
+                []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where _ `a` (((\\case _ -> []) + []) -> _) = []"
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [] where ((do [] `a` []) -> _) = []"
+  assertParsedStrippedPatternShapeRoundTrip config "(((if | [] -> []) `a` []) -> _)"
+
+test_viewExprBlockInfixLhsNoParens :: Assertion
+test_viewExprBlockInfixLhsNoParens = do
+  let source =
+        """
+        {-# LANGUAGE ViewPatterns #-}
+        module M where
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+      expected =
+        """
+        f [case [] of {  }
+          + []
+           -> _] = []
+        """
+  assertParsedModulePrettyContains source expected
+
+test_viewExprBlockArgumentNoParens :: Assertion
+test_viewExprBlockArgumentNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | let {  }
+                      ->
+                       []
+               []
+              -> _
+             |  #)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprMultiWayIfAppInfixLhsNoParens :: Assertion
+test_viewExprMultiWayIfAppInfixLhsNoParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        (# []
+               if | []
+                      ->
+                       []
+             + []
+              -> _
+             |  #)
+        """
+  assertParsedStrippedPatternShapeRoundTrip config source
+
+test_viewExprNonfinalLetBlockArgumentParens :: Assertion
+test_viewExprNonfinalLetBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedExprShapeRoundTrip
+    config
+    """
+    do
+      ([]
+          let _ = []
+            in []
+          []
+         -> _) <- []
+      []
+    """
+
+test_viewExprNonfinalProcBlockArgumentParens :: Assertion
+test_viewExprNonfinalProcBlockArgumentParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source = "([] (proc _ -> [] -<< []) [] -> _)"
+  assertParsedStrippedPatternShapeRoundTrip config source
+
 test_viewExprArrowCommandTypeSigRhsParens :: Assertion
 test_viewExprArrowCommandTypeSigRhsParens = do
   let config = defaultConfig {parserExtensions = [Arrows, MagicHash, QuasiQuotes, ViewPatterns]}
@@ -1487,11 +1708,45 @@ test_typedViewExprPrettyLayout = do
   assertParsedStrippedPatternShapeRoundTrip
     config
     """
-    ((if | let _ = []
-            ->
-             []
-       :: _)
-     -> _)
+     ((if | let _ = []
+             ->
+              []
+      :: _)
+    -> _)
+    """
+
+test_tupleClassicIfViewExprTypeSigParens :: Assertion
+test_tupleClassicIfViewExprTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    (_, ((if [] then [] else []
+          :: _)
+         -> _))
+    """
+
+test_recordFieldViewExprTypeSigParens :: Assertion
+test_recordFieldViewExprTypeSigParens = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+      source =
+        """
+        _ = []
+            where
+              _ `a` (:+) {a = ((if [] then [] else []
+                               :: _)
+                              -> _)} = []
+        """
+  assertParsedStrippedDeclShapeRoundTrip config source
+  assertParsedStrippedPatternShapeRoundTrip
+    config
+    """
+    C {a = (,
+              if | []
+                     ->
+                      []
+              :: _)
+     -> _}
     """
 
 test_signatureTypeParserRejectsBareKindSignature :: Assertion
@@ -1519,6 +1774,14 @@ test_signatureTypeParserParsesDelimitedKindSignature = do
       assertEqual "delimited kind signature" (TList Unpromoted [TKindSig TWildcard TWildcard]) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for delimited kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_typeParserRejectsNestedBareDelimitedKindSignature :: Assertion
+test_typeParserRejectsNestedBareDelimitedKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "[_ :: _ :: _]" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
 
 test_signatureTypeParserRejectsAppArgBareKindSignature :: Assertion
 test_signatureTypeParserRejectsAppArgBareKindSignature = do
@@ -1553,6 +1816,30 @@ test_typeParserRejectsBareImplicitParamContextAppArg = do
     ParseOk ty ->
       assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
 
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserRejectsBareContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk ty ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations ty)))
+  case parseDecl config "type X = _ => _ :: _ :: _" of
+    ParseErr {} -> pure ()
+    ParseOk decl ->
+      assertFailure ("expected parse failure, got: " <> show (shorthand (stripAnnotations decl)))
+
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature :: Assertion
+test_typeParserParsesParenthesizedContextResultKindSignatureBeforeOuterKindSignature = do
+  let config = defaultConfig {parserExtensions = requiredExtensions}
+  case parseType config "_ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+  case parseDecl config "type X = _ => (_ :: _) :: _" of
+    ParseOk {} -> pure ()
+    ParseErr bundle ->
+      assertFailure ("expected parse success for parenthesized context result kind signature declaration\n" <> formatParseErrors "<test>" Nothing bundle)
+
 test_declParserRejectsBareKindSignature :: Assertion
 test_declParserRejectsBareKindSignature = do
   let config = defaultConfig {parserExtensions = requiredExtensions}
@@ -1569,6 +1856,34 @@ test_typeParserParsesBareKindSignature = do
       assertEqual "type kind signature" (TKindSig TWildcard TWildcard) (stripAnnotations ty)
     ParseErr bundle ->
       assertFailure ("expected parse success for type kind signature\n" <> formatParseErrors "<test>" Nothing bundle)
+
+test_standaloneKindSignatureForallBodyKindSigParens :: Assertion
+test_standaloneKindSignatureForallBodyKindSigParens = do
+  let decl =
+        DeclStandaloneKindSig
+          (mkUnqualifiedName NameConSym ":+")
+          ( TForall
+              ForallTelescope
+                { forallTelescopeVisibility = ForallInvisible,
+                  forallTelescopeBinders =
+                    [ TyVarBinder
+                        []
+                        "a"
+                        (Just TWildcard)
+                        TyVarBSpecified
+                        TyVarBVisible
+                    ]
+                }
+              (TKindSig TWildcard TWildcard)
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty (addDeclParens decl)))
+  assertEqual "standalone kind signature source" "type (:+) :: forall (a :: _). (_ :: _)" source
+
+test_typeParensNestedContextKindSignatureIsPreserved :: Assertion
+test_typeParensNestedContextKindSignatureIsPreserved = do
+  let ty = TContext [TWildcard] (TContext [TWildcard] (TKindSig TWildcard TWildcard))
+      expected = TContext [TWildcard] (TContext [TWildcard] (TParen (TKindSig TWildcard TWildcard)))
+  assertEqual "nested context body" expected (addTypeParens ty)
 
 test_shrunkDoExpressionsKeepFinalExpression :: Assertion
 test_shrunkDoExpressionsKeepFinalExpression = do
@@ -1589,7 +1904,17 @@ test_shrunkDoExpressionsKeepFinalExpression = do
 test_transformListCompGroupByInfixRhsParens :: Assertion
 test_transformListCompGroupByInfixRhsParens = do
   let config = defaultConfig {parserExtensions = [TransformListComp]}
-      source = "_ = [[] | then group by ([] `a` - []) using []]"
+  assertParsedStrippedDeclShapeRoundTrip config "_ = [[] | then group by ([] `a` - []) using []]"
+
+test_transformListCompThenByLambdaCaseRhs :: Assertion
+test_transformListCompThenByLambdaCaseRhs = do
+  let config = defaultConfig {parserExtensions = [LambdaCase, TransformListComp]}
+      source =
+        """
+        _ = [[] | let _ = [],
+                  then [] `a` \\case
+                    _ -> [] by []]
+        """
   assertParsedStrippedDeclShapeRoundTrip config source
 
 testDoStmtsEndInExpr :: [DoStmt Expr] -> Bool

@@ -609,7 +609,7 @@ addDeclParens decl =
     DeclTypeSig names ty -> DeclTypeSig names (addSignatureTypeParens ty)
     DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
     DeclPatSynSig names ty -> DeclPatSynSig names (addSignatureTypeParens ty)
-    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addSignatureTypeParens kind)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addStandaloneKindSigParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
     DeclTypeSyn synDecl ->
@@ -1281,6 +1281,12 @@ addDelimitedTypeSigBodyParens :: Expr -> Expr
 addDelimitedTypeSigBodyParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDelimitedTypeSigBodyParens sub)
+    _ -> addTypeSigBodyParens expr
+
+addDoTypeSigBodyParens :: Expr -> Expr
+addDoTypeSigBodyParens expr =
+  case expr of
+    EAnn ann sub -> EAnn ann (addDoTypeSigBodyParens sub)
     EMultiWayIf {} -> wrapExpr True (addExprParens expr)
     _ -> addTypeSigBodyParens expr
 
@@ -1322,7 +1328,7 @@ addDoExprParens :: Expr -> Expr
 addDoExprParens expr =
   case expr of
     EAnn ann sub -> EAnn ann (addDoExprParens sub)
-    ETypeSig inner ty -> ETypeSig (addDelimitedTypeSigBodyParens inner) (addSignatureTypeParens ty)
+    ETypeSig inner ty -> ETypeSig (addDoTypeSigBodyParens inner) (addSignatureTypeParens ty)
     _ -> addExprParens expr
 
 addCompStmtParens :: CompStmt -> CompStmt
@@ -1355,36 +1361,30 @@ addCompTransformExprParens expr =
         else parenthesized
 
 -- | Check if an expression needs parenthesization in a TransformListComp
--- position before 'by' or 'using'. Atomic/self-delimiting expressions are safe;
--- anything else could consume the keyword as part of its body or as applications.
+-- position before 'by' or 'using'. The boundary is safe when the expression
+-- has a closed right edge. Parentheses are only required when that right edge
+-- can consume the trailing keyword as part of a body, application, or type.
 needsCompTransformParens :: Expr -> Bool
 needsCompTransformParens = \case
   EAnn _ sub -> needsCompTransformParens sub
-  -- Atoms: safe, won't consume trailing tokens
-  EVar {} -> False
-  EInt {} -> False
-  EFloat {} -> False
-  EChar {} -> False
-  ECharHash {} -> False
-  EString {} -> False
-  EStringHash {} -> False
-  EOverloadedLabel {} -> False
-  EQuasiQuote {} -> False
-  EList {} -> False
-  EListComp {} -> False
-  EListCompParallel {} -> False
-  ETuple {} -> False
-  EUnboxedSum {} -> False
+  ETypeSig {} -> True
   EParen {} -> False
-  EInfix _ _ rhs -> isOpenEnded rhs
-  EGetFieldProjection {} -> False
-  ETHExpQuote {} -> False
-  ETHTypedQuote {} -> False
-  ETHDeclQuote {} -> False
-  ETHTypeQuote {} -> False
-  ETHPatQuote {} -> False
-  -- Everything else: could consume 'by'/'using'
-  _ -> True
+  EInfix _ _ rhs -> needsCompTransformInfixRhsParens rhs
+  EApp _ arg -> needsCompTransformParens arg
+  ETypeApp fn _ -> needsCompTransformParens fn
+  ENegate inner -> needsCompTransformParens inner
+  EPragma _ inner -> needsCompTransformParens inner
+  expr -> isGreedyExpr expr
+
+needsCompTransformInfixRhsParens :: Expr -> Bool
+needsCompTransformInfixRhsParens = \case
+  EAnn _ sub -> needsCompTransformInfixRhsParens sub
+  EPragma _ inner -> needsCompTransformInfixRhsParens inner
+  -- TransformListComp has a contextual lambda-case parser whose alternatives
+  -- stop before the following transform keyword.
+  ELambdaCase {} -> False
+  ELambdaCases {} -> False
+  expr -> needsCompTransformParens expr
 
 addArithSeqParens :: ArithSeq -> ArithSeq
 addArithSeqParens seqInfo =
@@ -1465,12 +1465,20 @@ addTypeTopLevelParens (TKindSig ty kind) = TKindSig (addSignatureTypeParensShare
 addTypeTopLevelParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
-    (addTypeTopLevelParens inner)
+    (addForallBodyParens inner)
 addTypeTopLevelParens (TContext constraints inner) =
   TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
 addTypeTopLevelParens (TParen inner) =
   TParen (addTypeTopLevelParens inner)
 addTypeTopLevelParens ty = addSignatureTypeParens ty
+
+addStandaloneKindSigParens :: Type -> Type
+addStandaloneKindSigParens (TAnn ann sub) = TAnn ann (addStandaloneKindSigParens sub)
+addStandaloneKindSigParens (TForall telescope inner) =
+  TForall
+    (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+    (addForallBodyParens inner)
+addStandaloneKindSigParens ty = addTypeTopLevelParens ty
 
 addTypeIn :: TypeCtx -> Type -> Type
 addTypeIn ctx ty =
@@ -1536,12 +1544,23 @@ addTyVarBinderParens tvb =
   tvb {tyVarBinderKind = fmap addSignatureTypeParens (tyVarBinderKind tvb)}
 
 -- | Process the body of a TForall. The forall body is parsed by
--- 'contextOrFunTypeParser' (not 'typeParser'), so a bare nested TForall
--- would fail to parse and must be wrapped in TParen.
+-- 'typeParser'. A bare kind signature usually changes attachment:
+-- @forall a. t :: k@ parses as @(forall a. t) :: k@, not
+-- @forall a. (t :: k)@. When the kind-signature subject is itself a forall,
+-- however, @forall a. forall b. t :: k@ preserves the nested forall body and
+-- does not need an extra TParen.
 addForallBodyParens :: Type -> Type
 addForallBodyParens (TAnn ann sub) = TAnn ann (addForallBodyParens sub)
+addForallBodyParens (TKindSig ty kind)
+  | typeStartsWithForall ty =
+      TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty) (addSignatureTypeParensShared CtxTypeAtom 0 kind)
 addForallBodyParens ty@(TForall {}) = addSignatureTypeParensShared CtxTypeAtom 0 ty
 addForallBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
+
+typeStartsWithForall :: Type -> Bool
+typeStartsWithForall (TAnn _ sub) = typeStartsWithForall sub
+typeStartsWithForall TForall {} = True
+typeStartsWithForall _ = False
 
 -- | Process the body of a TImplicitParam.
 addImplicitParamBodyParens :: Type -> Type
@@ -1549,26 +1568,24 @@ addImplicitParamBodyParens (TAnn ann sub) = TAnn ann (addImplicitParamBodyParens
 addImplicitParamBodyParens ty = addSignatureTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process the body to the right of a constraint arrow in a top-level type
--- RHS. A kind signature is already delimited there in cases like
--- @type X = C => T :: K@, but TH splices still need grouping because
--- @type X = C => $x :: K@ is rejected at the @::@ by GHC.
+-- RHS. A bare kind signature there applies to the whole constrained type:
+-- @type X = C => T :: K@ parses like @type X = (C => T) :: K@.
+-- Parenthesize inner kind signatures to preserve @C => (T :: K)@.
 addContextBodyParens :: Type -> Type
 addContextBodyParens (TAnn ann sub) = TAnn ann (addContextBodyParens sub)
 addContextBodyParens ty =
   case ty of
+    TForall telescope inner ->
+      TForall
+        (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
+        (addContextBodyParens inner)
     TKindSig ty' kind ->
       wrapTy
-        (startsWithTypeSplice ty')
+        True
         (TKindSig (addSignatureTypeParensShared CtxTypeAtom 0 ty') (addSignatureTypeParensShared CtxTypeAtom 0 kind))
+    TContext constraints inner ->
+      TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
     _ -> addSignatureTypeParensShared CtxTypeAtom 0 ty
-
-startsWithTypeSplice :: Type -> Bool
-startsWithTypeSplice (TAnn _ sub) = startsWithTypeSplice sub
-startsWithTypeSplice (TParen _) = False
-startsWithTypeSplice TSplice {} = True
-startsWithTypeSplice (TApp f _) = startsWithTypeSplice f
-startsWithTypeSplice (TTypeApp f _) = startsWithTypeSplice f
-startsWithTypeSplice _ = False
 
 -- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
 -- TKindSig does not need wrapping here because the enclosing delimiter
@@ -1585,9 +1602,9 @@ addTypeDelimitedParens (TKindSig ty kind) =
 addTypeDelimitedParens (TForall telescope inner) =
   TForall
     (telescope {forallTelescopeBinders = map addTyVarBinderParens (forallTelescopeBinders telescope)})
-    (addTypeDelimitedParens inner)
+    (addForallBodyParens inner)
 addTypeDelimitedParens (TContext constraints inner) =
-  TContext (map addContextConstraintDelimitedParens constraints) (addTypeDelimitedParens inner)
+  TContext (map addContextConstraintDelimitedParens constraints) (addContextBodyParens inner)
 addTypeDelimitedParens (TInfix lhs op promoted rhs) =
   TInfix (addTypeIn CtxTypeAppFun lhs) op promoted (addTypeIn CtxTypeDelimitedInfixRhs rhs)
 addTypeDelimitedParens (TApp f x) =
@@ -1688,7 +1705,7 @@ addPatternParens pat =
     PNegLit lit -> PNegLit lit
     PParen inner -> PParen (addPatternInDelimited inner)
     PRecord con fields hasWildcard ->
-      PRecord con [field {recordFieldValue = addPatternInDelimited (recordFieldValue field)} | field <- fields] hasWildcard
+      PRecord con [field {recordFieldValue = addPatternInRecordField (recordFieldValue field)} | field <- fields] hasWildcard
     PTypeSig inner ty -> PTypeSig (addPatternInfixOperandParens inner) (addSignatureTypeParens ty)
     PSplice body -> PSplice (addSpliceBodyParens body)
 
@@ -1711,6 +1728,9 @@ addPatternInDelimitedWith allowLayoutTypeSig pat =
 
 addPatternInUnboxedSum :: Int -> Pattern -> Pattern
 addPatternInUnboxedSum altIdx = addPatternInDelimitedWith (altIdx > 0)
+
+addPatternInRecordField :: Pattern -> Pattern
+addPatternInRecordField = addPatternInDelimitedWith True
 
 -- | Template Haskell pattern quotes accept typed patterns only when they are
 -- parenthesized: @[p| (a :: T) |]@ parses, but @[p| a :: T |]@ does not.
@@ -1739,15 +1759,109 @@ addViewExprParensAllowLayoutTypeSig = addViewExprParensWith True
 
 addViewExprParensWith :: Bool -> Expr -> Expr
 addViewExprParensWith allowLayoutTypeSig expr =
-  if viewExprNeedsParens expr
-    then wrapExpr True (addExprParens expr)
-    else addExprParens expr
+  wrapExpr (viewExprNeedsOuterParens expr) (addViewExprBodyParens expr)
   where
-    viewExprNeedsParens e =
+    -- View-pattern expressions are followed by @-> pat@ inside a pattern, and
+    -- that arrow gives the expression parser a hard boundary.  That lets block
+    -- arguments stay bare in application chains where ordinary expression
+    -- printing would add parens to protect the following syntax.
+    --
+    -- With MultiWayIf, UnboxedSums, ViewPatterns, and BlockArguments enabled,
+    -- this is valid in a pattern context:
+    --
+    --   f (# [] if | let {} -> [] [] -> _ | #) = ()
+    --
+    -- and parses like:
+    --
+    --   f (# ([] (if | let {} -> []) [] -> _) | #) = ()
+    --
+    -- The same unboxed-sum spelling is not valid as an expression RHS; GHC is
+    -- the source of truth, so this exception only applies while printing view
+    -- patterns.
+    --
+    -- Type signatures remain different.  A block argument ending in @:: T@
+    -- can still capture the following arrow or change the parsed shape, so it
+    -- stays parenthesized:
+    --
+    --   f (([] (if | [] -> [] :: T)) -> p) = ()
+    addViewExprBodyParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprBodyParens sub)
+        EInfix {} -> addViewExprInfixParens e
+        EApp {} -> addViewExprAppChainParens e
+        _ -> addExprParens e
+
+    addViewExprInfixParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprInfixParens sub)
+        EInfix lhs op rhs ->
+          EInfix
+            (addViewExprInfixLhsParens lhs)
+            op
+            (addExprParensIn (CtxInfixRhs False) rhs)
+        _ -> addExprParens e
+
+    addViewExprInfixLhsParens e =
+      case e of
+        EAnn ann sub -> EAnn ann (addViewExprInfixLhsParens sub)
+        EInfix lhs op rhs ->
+          EInfix
+            (addViewExprInfixLhsParens lhs)
+            op
+            (addExprParensIn (CtxInfixRhs True) rhs)
+        _
+          | viewExprInfixLhsCanStayBare e ->
+              addViewExprAppChainParens e
+          | otherwise ->
+              addExprParensIn CtxInfixLhs e
+
+    addViewExprAppChainParens e =
+      let (root, args) = flattenApps e
+          root' = addExprParensIn CtxAppFun root
+          args' = [addExprParensIn (viewExprAppArgCtx isLast arg) arg | (isLast, arg) <- markLast args]
+       in foldl EApp root' args'
+
+    viewExprAppArgCtx isLast arg
+      | viewExprAppArgCanStayBare isLast arg = CtxAppArgNoParens
+      | isLast = CtxAppArg
+      | isGreedyExpr arg = CtxAppArgGreedy
+      | otherwise = CtxAppArg
+
+    viewExprAppArgCanStayBare isLast arg =
+      isBlockExpr arg
+        && not (endsWithTypeSig arg)
+        && (isLast || not (viewExprBlockArgAbsorbsFollowingAppArg arg))
+
+    viewExprBlockArgAbsorbsFollowingAppArg arg =
+      case peelExprAnn arg of
+        EIf {} -> True
+        ELambdaPats {} -> True
+        ELetDecls {} -> True
+        EProc {} -> True
+        _ -> False
+
+    viewExprInfixLhsCanStayBare e =
+      case peelExprAnn e of
+        EApp {} ->
+          case reverse (snd (flattenApps e)) of
+            arg : _ -> viewExprBlockArgCanPrecedeInfixOp arg
+            [] -> False
+        _ -> False
+
+    viewExprBlockArgCanPrecedeInfixOp arg =
+      case peelExprAnn arg of
+        EMultiWayIf {} -> not (endsWithTypeSig arg)
+        _ -> False
+
+    markLast [] = []
+    markLast [x] = [(True, x)]
+    markLast (x : xs) = (False, x) : markLast xs
+
+    viewExprNeedsOuterParens e =
       isTypeSyntaxExpr e || (endsWithTypeSig e && not (viewExprTypeSigCanStayBare e))
 
     viewExprTypeSigCanStayBare e =
-      allowLayoutTypeSig && isBareViewExprBlock e
+      allowLayoutTypeSig && isBareViewExprBlock e && not (classicIfTypeSigNeedsParens e)
 
     isTypeSyntaxExpr e =
       case peelExprAnn e of
@@ -1761,6 +1875,16 @@ addViewExprParensWith allowLayoutTypeSig expr =
         EMultiWayIf {} -> True
         ELambdaCase {} -> True
         ELambdaCases {} -> True
+        _ -> False
+
+    classicIfTypeSigNeedsParens e =
+      case peelExprAnn e of
+        EIf _ _ no -> elseBranchHasDirectTypeSig no
+        _ -> False
+
+    elseBranchHasDirectTypeSig branch =
+      case peelExprAnn branch of
+        ETypeSig {} -> True
         _ -> False
 
 addPatternAtomParens :: Pattern -> Pattern

@@ -78,12 +78,6 @@ aihc is developed test-first. Run the full suite with `just check`. When working
     - Oracle test fixtures with inline comments specifying test parameters.
     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
 
-## Pre-PR Review
-
-- Run `coderabbit review --prompt-only` after local checks pass (including `just check`) and before `gh pr create`.
-- If CodeRabbit is offline or rate-limited, skip the review and open the PR.
-- Resolve findings or explicitly justify remaining findings in the PR description.
-
 ## Commits
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):

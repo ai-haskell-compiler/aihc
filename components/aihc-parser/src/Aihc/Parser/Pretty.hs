@@ -1356,7 +1356,7 @@ prettyCaseLayoutAligned [] = " " <> spacedBraces mempty
 prettyCaseLayoutAligned alts = hang 2 (hardline <> vsep alts)
 
 prettyLambdaCaseAlt :: LambdaCaseAlt -> Doc ann
-prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =
+prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) = nest 2 $
   case rhs of
     UnguardedRhs _ body whereDecls ->
       hsep (map prettyPattern pats)
