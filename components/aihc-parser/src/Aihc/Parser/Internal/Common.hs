@@ -211,6 +211,8 @@ renderTokenKind tk = case tk of
   TkKeywordProc -> "keyword 'proc'"
   TkKeywordPattern -> "keyword 'pattern'"
   TkKeywordRec -> "keyword 'rec'"
+  TkKeywordBy -> "keyword 'by'"
+  TkKeywordUsing -> "keyword 'using'"
   _ -> show tk
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a

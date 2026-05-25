@@ -164,6 +164,8 @@ genLexTokenKind =
       pure TkKeywordRec,
       pure TkKeywordMdo,
       pure TkKeywordPattern,
+      pure TkKeywordBy,
+      pure TkKeywordUsing,
       TkQualifiedDo <$> genModuleText,
       TkQualifiedMdo <$> genModuleText,
       pure TkReservedDotDot,

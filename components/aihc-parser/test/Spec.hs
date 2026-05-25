@@ -205,6 +205,7 @@ buildTests = do
             testCase "comments are ignored by layout" test_commentsIgnoredByLayout,
             testCase "comments preserve trivia for negative literals" test_commentsPreserveTriviaForNegativeLiterals,
             testCase "indented hash-line is operator, not directive" test_indentedHashLineIsOperator,
+            testCase "TransformListComp reserves by and using" test_transformListCompReservesByAndUsing,
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
             testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
             testCase "parses character literals after escaped backslash cons patterns" test_escapedBackslashConsPatternCharLiteralParses,
@@ -679,7 +680,21 @@ test_syntaxUtilityFunctions = do
 test_generatedIdentifiersRejectLexerKeywords :: Assertion
 test_generatedIdentifiersRejectLexerKeywords =
   assertBool "lexer keywords must not be treated as valid generated identifiers" $
-    not (any isValidGeneratedIdent ["case", "module", "rec", "mdo", "pattern", "proc", "_"])
+    not (any isValidGeneratedIdent ["case", "module", "rec", "mdo", "pattern", "proc", "by", "using", "_"])
+
+test_transformListCompReservesByAndUsing :: Assertion
+test_transformListCompReservesByAndUsing = do
+  case lexTokensWithExtensions [TransformListComp] "by using" of
+    [ LexToken {lexTokenKind = TkKeywordBy},
+      LexToken {lexTokenKind = TkKeywordUsing},
+      LexToken {lexTokenKind = TkEOF}
+      ] ->
+        pure ()
+    other -> assertFailure ("expected TransformListComp keyword tokens, got: " <> show other)
+  let source = "module M where\nby = (); using = ()\n"
+      cfg = defaultConfig {parserExtensions = [TransformListComp]}
+      (errs, _modu) = parseModule cfg source
+  assertBool "TransformListComp should reject by/using as top-level binders" (not (null errs))
 
 test_generatedIdentifiersRejectStandaloneUnderscore :: Assertion
 test_generatedIdentifiersRejectStandaloneUnderscore =

@@ -1006,6 +1006,8 @@ docTokenKind kind =
     TkKeywordPattern -> "TkKeywordPattern"
     TkKeywordRec -> "TkKeywordRec"
     TkKeywordMdo -> "TkKeywordMdo"
+    TkKeywordBy -> "TkKeywordBy"
+    TkKeywordUsing -> "TkKeywordUsing"
     TkQualifiedDo modName -> "TkQualifiedDo" <+> docText modName
     TkQualifiedMdo modName -> "TkQualifiedMdo" <+> docText modName
     TkPrefixPercent -> "TkPrefixPercent"
