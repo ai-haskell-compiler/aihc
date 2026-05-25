@@ -23,7 +23,7 @@ Find more information here:
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `31/32` (`96.87%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2351/2351` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2353/2353` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `104/104` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
@@ -35,11 +35,11 @@ Find more information here:
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1823 |     790 |    2613 |
 | aihc-fc            |   1743 |    1083 |    2826 |
-| aihc-parser        |  13454 |   17457 |   30911 |
+| aihc-parser        |  13459 |   17688 |   31147 |
 | aihc-parser-compat |   1754 |     736 |    2490 |
 | aihc-resolve       |   2376 |    1565 |    3941 |
 | aihc-tc            |   3430 |    1311 |    4741 |
-| **Total**          |  24580 |   22942 |   47522 |
+| **Total**          |  24585 |   23173 |   47758 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
