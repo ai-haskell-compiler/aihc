@@ -9,13 +9,13 @@ module Aihc.Fmt.Comment
   )
 where
 
-import Aihc.Parser.Lex
+import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Token
   ( LexToken (..),
     LexTokenKind (..),
     TokenOrigin (..),
     lexModuleTokensWithSourceNameAndExtensions,
   )
-import Aihc.Parser.Syntax (SourceSpan (..))
 import Data.Text (Text)
 
 data CommentKind

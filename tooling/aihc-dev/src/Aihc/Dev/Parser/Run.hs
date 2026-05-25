@@ -29,7 +29,6 @@ import Aihc.Cpp
   )
 import Aihc.Cpp qualified as Cpp
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
-import Aihc.Parser.Lex (lexModuleTokensWithExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
   ( Extension (..),
@@ -38,6 +37,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Token (lexModuleTokensWithExtensions, readModuleHeaderPragmas)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)

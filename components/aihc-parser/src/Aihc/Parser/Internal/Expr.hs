@@ -1026,13 +1026,13 @@ compGroupStmtParser = do
   varIdTok "group"
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkVarId "by" -> do
-      varIdTok "by"
+    TkKeywordBy -> do
+      expectedTok TkKeywordBy
       e <- compTransformExprParser
-      varIdTok "using"
+      expectedTok TkKeywordUsing
       CompGroupByUsing e <$> exprParser
-    TkVarId "using" -> do
-      varIdTok "using"
+    TkKeywordUsing -> do
+      expectedTok TkKeywordUsing
       CompGroupUsing <$> exprParser
     _ -> fail "expected 'by' or 'using' after 'group'"
 
@@ -1042,7 +1042,7 @@ compGroupStmtParser = do
 compThenStmtParser :: TokParser CompStmt
 compThenStmtParser = do
   f <- compTransformExprParser
-  mBy <- MP.optional (varIdTok "by")
+  mBy <- MP.optional (expectedTok TkKeywordBy)
   case mBy of
     Just () -> CompThenBy f <$> exprParser
     Nothing -> pure (CompThen f)
@@ -1134,8 +1134,8 @@ compTransformAtomOrRecordExprParser :: TokParser Expr
 compTransformAtomOrRecordExprParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkVarId "by" -> MP.empty
-    TkVarId "using" -> MP.empty
+    TkKeywordBy -> MP.empty
+    TkKeywordUsing -> MP.empty
     _ -> atomOrRecordExprParser
 
 compGenOrGuardParser :: TokParser CompStmt

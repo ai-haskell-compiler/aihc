@@ -31,7 +31,7 @@ Do not optimize by:
 
 At a high level, parsing is:
 
-1. Lex source text into `LexToken`s in [Aihc.Parser.Lex](components/aihc-parser/src/Aihc/Parser/Lex.hs).
+1. Lex source text into `LexToken`s via the public [Aihc.Parser.Token](components/aihc-parser/src/Aihc/Parser/Token.hs) API backed by the internal lexer implementation in [Aihc.Parser.Lex](components/aihc-parser/src/Aihc/Parser/Lex.hs).
 2. Wrap those tokens in `TokStream` in [Aihc.Parser.Types](components/aihc-parser/src/Aihc/Parser/Types.hs).
 3. Run Megaparsec parsers over `TokStream` from [Aihc.Parser](components/aihc-parser/src/Aihc/Parser.hs).
 4. Build syntax trees from the internal parser modules.

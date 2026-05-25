@@ -6,7 +6,7 @@ module Main (main) where
 
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensWithExtensions)
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
@@ -205,11 +205,11 @@ buildTests = do
             testCase "comments are ignored by layout" test_commentsIgnoredByLayout,
             testCase "comments preserve trivia for negative literals" test_commentsPreserveTriviaForNegativeLiterals,
             testCase "indented hash-line is operator, not directive" test_indentedHashLineIsOperator,
-            testCase "can lex lazily from chunks" test_lexerChunkLaziness,
+            testCase "TransformListComp reserves by and using" test_transformListCompReservesByAndUsing,
             testCase "lexes alternate valid character literal spellings" test_alternateCharLiteralSpellingsLexLikeGhc,
             testCase "lexes control-backslash character literal" test_controlBackslashCharLiteralLexes,
             testCase "parses character literals after escaped backslash cons patterns" test_escapedBackslashConsPatternCharLiteralParses,
-            testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
+            testCase "generated identifiers reject lexer keywords" test_generatedIdentifiersRejectLexerKeywords,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk pattern type signatures shrink their types" test_shrunkPatternTypeSignaturesShrinkTypes,
@@ -677,20 +677,24 @@ test_syntaxUtilityFunctions = do
   assertBool "numeric type ordering" (TInteger < TWord64Hash)
   assertBool "pragma nfdata" (rnf (Pragma (PragmaInline "[1]" "INLINE") "") `seq` True)
 
-test_lexerChunkLaziness :: Assertion
-test_lexerChunkLaziness =
-  -- Test that we can take at least one token without forcing all chunks.
-  -- Note: After TkEOF was added, the lexer may need to look ahead to determine
-  -- if there's more input (trivia skipping), so we can't guarantee full laziness.
-  -- This test verifies that the first token can be extracted.
-  case take 1 (lexTokensFromChunks ["x"]) of
-    [LexToken {lexTokenKind = TkVarId "x"}] -> pure ()
-    other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
+test_generatedIdentifiersRejectLexerKeywords :: Assertion
+test_generatedIdentifiersRejectLexerKeywords =
+  assertBool "lexer keywords must not be treated as valid generated identifiers" $
+    not (any isValidGeneratedIdent ["case", "module", "rec", "mdo", "pattern", "proc", "by", "using", "_"])
 
-test_generatedIdentifiersRejectExtensionKeywordRec :: Assertion
-test_generatedIdentifiersRejectExtensionKeywordRec =
-  assertBool "extension keyword 'rec' must not be treated as a valid generated identifier" $
-    not (isValidGeneratedIdent "rec")
+test_transformListCompReservesByAndUsing :: Assertion
+test_transformListCompReservesByAndUsing = do
+  case lexTokensWithExtensions [TransformListComp] "by using" of
+    [ LexToken {lexTokenKind = TkKeywordBy},
+      LexToken {lexTokenKind = TkKeywordUsing},
+      LexToken {lexTokenKind = TkEOF}
+      ] ->
+        pure ()
+    other -> assertFailure ("expected TransformListComp keyword tokens, got: " <> show other)
+  let source = "module M where\nby = (); using = ()\n"
+      cfg = defaultConfig {parserExtensions = [TransformListComp]}
+      (errs, _modu) = parseModule cfg source
+  assertBool "TransformListComp should reject by/using as top-level binders" (not (null errs))
 
 test_generatedIdentifiersRejectStandaloneUnderscore :: Assertion
 test_generatedIdentifiersRejectStandaloneUnderscore =

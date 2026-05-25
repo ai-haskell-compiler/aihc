@@ -1,0 +1,12 @@
+src: |
+  {-# LANGUAGE TransformListComp #-}
+  module TransformListCompByBinder where
+  by = ()
+ghc: |
+  test.hs:3:1: error: [GHC-58481] parse error on input `by'
+aihc: |
+  test.hs:3:1:
+  3 | by = ()
+    | ^^
+  unexpected by
+  expecting end of input

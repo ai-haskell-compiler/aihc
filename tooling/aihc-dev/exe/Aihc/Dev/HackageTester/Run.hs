@@ -4,8 +4,8 @@ module Aihc.Dev.HackageTester.Run (run) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Token (readModuleHeaderPragmas)
 import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)

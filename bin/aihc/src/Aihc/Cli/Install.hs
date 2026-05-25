@@ -31,7 +31,6 @@ import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Syntax
   ( Extension (..),
     ExtensionSetting (..),
@@ -45,6 +44,7 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
     ResolveError (..),

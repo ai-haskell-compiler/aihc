@@ -16,16 +16,16 @@ import Aihc.Parser
     formatParseErrors,
     parseModule,
   )
-import Aihc.Parser.Lex
+import Aihc.Parser.Parens (addModuleParens)
+import Aihc.Parser.Pretty ()
+import Aihc.Parser.Syntax
+import Aihc.Parser.Token
   ( LexToken (..),
     LexTokenKind (..),
     TokenOrigin (..),
     lexModuleTokensWithSourceNameAndExtensions,
     readModuleHeaderPragmas,
   )
-import Aihc.Parser.Parens (addModuleParens)
-import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax
 import Data.ByteString qualified as BS
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)

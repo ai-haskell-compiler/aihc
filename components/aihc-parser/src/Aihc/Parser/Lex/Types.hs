@@ -88,6 +88,8 @@ data LexTokenKind
   | TkKeywordRec
   | TkKeywordMdo
   | TkKeywordPattern
+  | TkKeywordBy
+  | TkKeywordUsing
   | -- QualifiedDo tokens (extension-conditional)
 
     -- | @M.do@ — carries the module qualifier

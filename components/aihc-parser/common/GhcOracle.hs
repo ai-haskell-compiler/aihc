@@ -11,8 +11,8 @@ module GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
-import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Token qualified as Token
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -46,7 +46,7 @@ import Prelude hiding (foldl')
 -- reading in-file pragmas to determine the full effective extension set.
 oracleModuleAstFingerprint :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
 oracleModuleAstFingerprint sourceTag edition extNames input =
-  let initialPragmas = Lex.readModuleHeaderPragmas input
+  let initialPragmas = Token.readModuleHeaderPragmas input
       initialExts = computeEffectiveExtensions edition extNames initialPragmas
       preprocessedInput =
         if Syntax.CPP `elem` initialExts
@@ -59,7 +59,7 @@ oracleModuleAstFingerprint sourceTag edition extNames input =
 -- This version does not preprocess the input for CPP.
 oracleModuleAstFingerprintNoCPP :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
 oracleModuleAstFingerprintNoCPP sourceTag edition extNames input =
-  let pragmas = Lex.readModuleHeaderPragmas input
+  let pragmas = Token.readModuleHeaderPragmas input
       exts = computeEffectiveExtensions edition extNames pragmas
       ghcExts = mapMaybe toGhcExtension exts
    in do

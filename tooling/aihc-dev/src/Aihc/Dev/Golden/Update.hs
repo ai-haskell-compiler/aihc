@@ -21,7 +21,6 @@ import Aihc.Parser
     parseModule,
     parsePattern,
   )
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
   ( Decl (..),
@@ -43,6 +42,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
     parseExtensionSettingName,
   )
+import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
