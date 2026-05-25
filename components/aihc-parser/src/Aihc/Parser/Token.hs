@@ -1,5 +1,3 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 -- | Public token API for consumers that need to inspect lexer output.
 module Aihc.Parser.Token
   ( TokenOrigin (..),
