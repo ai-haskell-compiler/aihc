@@ -20,8 +20,8 @@ import Aihc.Cpp
     preprocess,
   )
 import Aihc.Hackage.Cpp qualified as HackageCpp
-import Aihc.Parser.Lex (readModuleHeaderExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..))
+import Aihc.Parser.Token (readModuleHeaderExtensions, readModuleHeaderPragmas)
 import Data.ByteString (ByteString)
 import Data.Char (toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)

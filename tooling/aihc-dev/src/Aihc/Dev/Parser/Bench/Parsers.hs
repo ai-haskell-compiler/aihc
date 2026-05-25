@@ -27,8 +27,6 @@ import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cpp qualified as HackageCpp
 import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser qualified as Aihc
-import Aihc.Parser.Lex (readModuleHeaderExtensions)
-import Aihc.Parser.Lex qualified as AihcLex
 import Aihc.Parser.Syntax
   ( Extension (CPP),
     LanguageEdition (Haskell98Edition),
@@ -40,6 +38,8 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Syntax qualified as AihcSyntax
+import Aihc.Parser.Token (readModuleHeaderExtensions)
+import Aihc.Parser.Token qualified as AihcToken
 import Control.DeepSeq (NFData (..), deepseq)
 import Control.Monad (mplus)
 import Data.List qualified as List
@@ -110,7 +110,7 @@ lexWithAihcExts = lexWithAihcExtsWithCpp False
 lexWithAihcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
 lexWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
   let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
-      tokens = AihcLex.lexModuleTokensWithExtensions extensions preprocessedSource
+      tokens = AihcToken.lexModuleTokensWithExtensions extensions preprocessedSource
    in tokens `deepseq` ParseSuccess
 
 -- | Parse with haskell-src-exts using extensions from cabal file.

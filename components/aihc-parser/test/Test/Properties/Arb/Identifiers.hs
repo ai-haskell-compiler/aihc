@@ -56,8 +56,8 @@ module Test.Properties.Arb.Identifiers
   )
 where
 
-import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax (Extension, Name (..), NameType (..), UnqualifiedName (..), allKnownExtensions, mkUnqualifiedName, qualifyName)
+import Aihc.Parser.Token (isReservedIdentifier)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Maybe (isJust)
 import Data.Set qualified as Set

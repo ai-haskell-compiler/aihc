@@ -28,7 +28,6 @@ import Aihc.Hackage.Util (chooseBestCabalFile, findCabalFiles, readTextFileLenie
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser (ParserConfig (..), parseModule)
 import Aihc.Parser qualified as Parser
-import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Syntax
   ( Extension (CPP),
     ExtensionSetting (..),
@@ -41,6 +40,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     parseLanguageEdition,
   )
+import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), extractInterface, resolveWithDeps)
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)

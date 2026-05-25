@@ -36,7 +36,6 @@ import Aihc.Hackage.Download qualified as HD
 import Aihc.Hackage.Stackage qualified as HS
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HU
-import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Aihc.Parser.Syntax
   ( Extension (CPP),
     LanguageEdition (Haskell98Edition),
@@ -46,6 +45,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     parseLanguageEdition,
   )
+import Aihc.Parser.Token (readModuleHeaderExtensions)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip

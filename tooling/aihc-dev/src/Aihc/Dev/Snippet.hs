@@ -18,7 +18,6 @@ where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Compat (dumpGhcAst, sameGhcAst, toGhcHsModuleDecls)
-import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Parens (addModuleParens)
 import Aihc.Parser.Syntax
   ( ExtensionSetting,
@@ -31,6 +30,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     stripAnnotations,
   )
+import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Control.Monad
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (dropWhileEnd, intercalate)

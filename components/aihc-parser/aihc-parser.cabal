@@ -12,11 +12,11 @@ synopsis: From-scratch Haskell parser with differential tests
 library
   exposed-modules:
     Aihc.Parser
-    Aihc.Parser.Lex
     Aihc.Parser.Parens
     Aihc.Parser.Pretty
     Aihc.Parser.Shorthand
     Aihc.Parser.Syntax
+    Aihc.Parser.Token
 
   other-modules:
     Aihc.Parser.Internal.CheckPattern
@@ -30,6 +30,7 @@ library
     Aihc.Parser.Internal.Module
     Aihc.Parser.Internal.Pattern
     Aihc.Parser.Internal.Type
+    Aihc.Parser.Lex
     Aihc.Parser.Lex.Header
     Aihc.Parser.Lex.Layout
     Aihc.Parser.Lex.Numbers
@@ -154,6 +155,7 @@ test-suite spec
     Aihc.Parser.Pretty
     Aihc.Parser.Shorthand
     Aihc.Parser.Syntax
+    Aihc.Parser.Token
     Aihc.Parser.Types
     CppSupport
     ExtensionSupport

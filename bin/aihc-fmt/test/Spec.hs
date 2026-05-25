@@ -3,8 +3,8 @@
 module Main (main) where
 
 import Aihc.Fmt (FormatError (..), FormatOptions (..), defaultFormatOptions, formatText)
-import Aihc.Parser.Lex (LexToken (..), TokenOrigin, lexModuleTokensWithExtensions)
 import Aihc.Parser.Syntax (Extension (..), ExtensionSetting (..))
+import Aihc.Parser.Token (LexToken (..), TokenOrigin, lexModuleTokensWithExtensions)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Fmt.CLI (cliTests)
