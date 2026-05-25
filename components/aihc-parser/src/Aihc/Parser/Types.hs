@@ -26,7 +26,7 @@ import Aihc.Parser.Lex
     layoutTransition,
     mkInitialLayoutState,
     mkInitialLexerState,
-    readModuleHeaderExtensionsFromChunks,
+    readModuleHeaderExtensions,
     scanAllTokens,
   )
 import Aihc.Parser.Syntax (Extension, SourceSpan, applyExtensionSetting, applyImpliedExtensions)
@@ -159,7 +159,7 @@ mkTokStreamModule sourceName baseExts input =
             tokStreamEOFEmitted = False
           }
   where
-    headerSettings = readModuleHeaderExtensionsFromChunks [input]
+    headerSettings = readModuleHeaderExtensions input
     effectiveExts = applyImpliedExtensions (foldr applyExtensionSetting baseExts headerSettings)
 
 -- | Create a TokStream from pre-lexed tokens (for testing/compatibility).

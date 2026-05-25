@@ -16,11 +16,7 @@ module Aihc.Parser.Lex
     pattern TkVarSafe,
     isReservedIdentifier,
     readModuleHeaderExtensions,
-    readModuleHeaderExtensionsFromChunks,
     readModuleHeaderPragmas,
-    readModuleHeaderPragmasFromChunks,
-    lexTokensFromChunks,
-    lexModuleTokensFromChunks,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
     lexTokensWithSourceNameAndExtensions,
@@ -89,12 +85,6 @@ lexTokens = lexTokensWithSourceNameAndExtensions "<input>" []
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens = lexModuleTokensWithSourceNameAndExtensions "<input>" []
 
-lexTokensFromChunks :: [Text] -> [LexToken]
-lexTokensFromChunks = lexTokensFromChunksWithExtensions []
-
-lexModuleTokensFromChunks :: [Extension] -> [Text] -> [LexToken]
-lexModuleTokensFromChunks = lexChunksWithExtensions True "<input>"
-
 lexTokensWithExtensions :: [Extension] -> Text -> [LexToken]
 lexTokensWithExtensions = lexTokensWithSourceNameAndExtensions "<input>"
 
@@ -102,40 +92,30 @@ lexModuleTokensWithExtensions :: [Extension] -> Text -> [LexToken]
 lexModuleTokensWithExtensions = lexModuleTokensWithSourceNameAndExtensions "<input>"
 
 lexTokensWithSourceNameAndExtensions :: FilePath -> [Extension] -> Text -> [LexToken]
-lexTokensWithSourceNameAndExtensions sourceName exts input =
-  lexChunksWithExtensions False sourceName exts [input]
+lexTokensWithSourceNameAndExtensions = lexTextWithExtensions False
 
 lexModuleTokensWithSourceNameAndExtensions :: FilePath -> [Extension] -> Text -> [LexToken]
 lexModuleTokensWithSourceNameAndExtensions sourceName baseExts input =
-  lexChunksWithExtensions True sourceName effectiveExts [input]
+  lexTextWithExtensions True sourceName effectiveExts input
   where
-    headerSettings = readModuleHeaderExtensionsFromChunks [input]
+    headerSettings = readModuleHeaderExtensions input
     effectiveExts = applyImpliedExtensions (foldr applyExtensionSetting baseExts headerSettings)
 
-lexTokensFromChunksWithExtensions :: [Extension] -> [Text] -> [LexToken]
-lexTokensFromChunksWithExtensions = lexChunksWithExtensions False "<input>"
-
-lexChunksWithExtensions :: Bool -> FilePath -> [Extension] -> [Text] -> [LexToken]
-lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
+lexTextWithExtensions :: Bool -> FilePath -> [Extension] -> Text -> [LexToken]
+lexTextWithExtensions enableModuleLayout sourceName exts input =
   applyLayoutTokens enableModuleLayout exts (scanTokens env initialLexerState)
   where
-    (env, initialLexerState) = mkInitialLexerState sourceName exts (T.concat chunks)
+    (env, initialLexerState) = mkInitialLexerState sourceName exts input
 
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
-readModuleHeaderExtensions input = readModuleHeaderExtensionsFromChunks [input]
-
-readModuleHeaderExtensionsFromChunks :: [Text] -> [ExtensionSetting]
-readModuleHeaderExtensionsFromChunks chunks =
+readModuleHeaderExtensions input =
   readModuleHeaderExtensionsFromTokens (scanTokens env initialLexerState)
   where
-    (env, initialLexerState) = mkInitialLexerState "<input>" [] (T.concat chunks)
+    (env, initialLexerState) = mkInitialLexerState "<input>" [] input
 
 readModuleHeaderPragmas :: Text -> ModuleHeaderPragmas
-readModuleHeaderPragmas input = readModuleHeaderPragmasFromChunks [input]
-
-readModuleHeaderPragmasFromChunks :: [Text] -> ModuleHeaderPragmas
-readModuleHeaderPragmasFromChunks chunks =
-  separateEditionAndExtensions (readModuleHeaderExtensionsFromChunks chunks)
+readModuleHeaderPragmas input =
+  separateEditionAndExtensions (readModuleHeaderExtensions input)
 
 scanTokens :: LexerEnv -> LexerState -> [LexToken]
 scanTokens env st0 =
