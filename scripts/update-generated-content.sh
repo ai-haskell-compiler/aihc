@@ -104,21 +104,6 @@ parse_progress() {
   ' "$infile"
 }
 
-parse_extension_summary() {
-	local infile="$1"
-	awk '
-    /^- Total Extensions:/ { total=$4 }
-    /^- Supported:/ { supported=$3 }
-    /^- In Progress:/ { in_progress=$4 }
-    END {
-      if (total == "" || supported == "" || in_progress == "") {
-        exit 2
-      }
-      printf "%d\n%d\n%d\n", total, supported, in_progress
-    }
-  ' "$infile"
-}
-
 parse_extension_progress() {
 	local infile="$1"
 	awk '
@@ -293,14 +278,6 @@ tc_total="${tc_vals[4]}"
 tc_implemented="${tc_vals[5]}"
 tc_complete="${tc_vals[6]}"
 
-ext_vals=($(parse_extension_summary "$extension_out")) || {
-	echo "update-generated-content.sh: could not parse extension markdown summary (expected Total Extensions, Supported, In Progress lines after --markdown)." >&2
-	exit 2
-}
-ext_total="${ext_vals[0]}"
-ext_supported="${ext_vals[1]}"
-ext_in_progress="${ext_vals[2]}"
-
 ext_progress_vals=($(parse_extension_progress "$extension_progress_out")) || {
 	echo "update-generated-content.sh: could not parse parser-extension-progress text (expected PASS=/XFAIL=/ lines)." >&2
 	exit 2
@@ -335,10 +312,6 @@ lexer_circles="$(progress_circles "$lexer_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
 tc_circles="$(progress_circles "$tc_complete")"
 
-# extract extension name lists (alphabetically sorted, comma-separated) from the markdown table if present
-ext_supported_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "Supported") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
-ext_in_progress_names="$(awk -F'|' 'BEGIN{names=""} /^\|/ { status=$3; name=$2; gsub(/^[ \t]+|[ \t]+$/, "", name); gsub(/^[ \t]+|[ \t]+$/, "", status); if (status == "In Progress") { if (names=="") names=name; else names=names ", " name } } END{ print names }' "$extension_out")"
-
 cat >"$tmpdir/readme-root-parser.txt" <<EOF2
 \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) ${parser_total_circles}
 EOF2
@@ -365,16 +338,6 @@ EOF2
 
 cat >"$tmpdir/readme-root-tc.txt" <<EOF2
 \`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`) ${tc_circles}
-EOF2
-
-cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
-- \`${parser_implemented}/${parser_total}\` implemented (\`${parser_complete}%\` complete)
-EOF2
-
-cat >"$tmpdir/readme-parser-extension.txt" <<EOF2
-- Total tracked extensions: \`${ext_total}\`
-- Supported: \`${ext_supported}\`
-- In Progress: \`${ext_in_progress}\`
 EOF2
 
 cat >"$tmpdir/readme-cpp.txt" <<EOF2
@@ -511,8 +474,6 @@ replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
-replace_marker_block components/aihc-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
-replace_marker_block components/aihc-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
 replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
