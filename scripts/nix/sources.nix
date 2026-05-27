@@ -6,7 +6,7 @@
         baseName = baseNameOf path;
         matchesSuffix = builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) suffixes;
       in
-        type == "directory" || matchesSuffix || baseName == "LICENSE";
+        type == "directory" || matchesSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md";
     };
 in rec {
   # Source filtering: only include relevant files for each component.
