@@ -29,8 +29,8 @@ without reaching into GHC internals.
 ## What It Supports
 
 `aihc-parser` tracks GHC's parser behavior across Haskell2010 and modern
-Haskell. The test suite checks both whether syntax is accepted and whether the
-parsed result agrees with GHC after pretty-printing and reparsing.
+Haskell. The test suite checks both whether syntax is accepted and whether
+`aihc-parser` builds the same AST that GHC does.
 
 For the current support overview, see
 [aihc-parser-supported-extensions.md](../../docs/aihc-parser-supported-extensions.md).
@@ -44,46 +44,22 @@ For the current support overview, see
   sometimes accept programs that GHC rejects.
 - It is slower than GHC's parser.
 
-The compatibility target is still GHC: accepting less than GHC is a bug;
-accepting more than GHC is currently a known caveat.
+The compatibility target is still GHC: accepting less syntax than GHC is a bug,
+and accepting more syntax than GHC is also a bug. The latter is listed as a
+caveat because it is difficult to test exhaustively, and there are likely still
+bugs of that kind.
 
 ## What Gets Tested
 
 The parser is tested with golden examples, GHC oracle checks, package fixtures,
 and generated syntax. The main properties are:
 
-- GHC compatibility: syntax accepted by GHC should parse with `aihc-parser`.
-- Pretty-print + parse roundtrip: parsed syntax should pretty-print to Haskell
-  that parses again.
-- GHC AST fingerprint preservation: parser output should pretty-print into
-  source that GHC reads as the same AST shape.
+- Roundtripping: parsed syntax should pretty-print to Haskell that parses back
+  into the same `aihc-parser` AST.
+- GHC compatibility: test cases are parsed with both `aihc-parser` and
+  `ghc-lib-parser`; the `aihc-parser` AST is converted into GHC's AST and
+  checked for exact equality with `ghc-lib-parser`'s result.
 - Totality: parser, parenthesization, shorthand rendering, and pretty-printing
   should not throw exceptions on generated inputs.
 - Parentheses stability: required parentheses should be inserted consistently,
   and running the parenthesization pass again should not keep changing the tree.
-- Haskell2010 coverage: the Haskell2010 syntax corpus is expected to pass at
-  100%.
-
-## Tests
-
-From the repository root:
-
-```bash
-cabal test -v0 all --test-options=--hide-successes
-```
-
-For the full local check used before commits:
-
-```bash
-just check
-```
-
-## Contributing Syntax Cases
-
-If you find a GHC-compatible program that `aihc-parser` rejects, please turn it
-into a regression test. The most useful reports include the source snippet, the
-required parser flags, whether GHC accepts it, and the `aihc-parser` error
-message or roundtrip mismatch.
-
-The project is test-first. A compatibility bug is only fixed once the test suite
-can keep it fixed :)
