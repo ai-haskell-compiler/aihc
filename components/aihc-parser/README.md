@@ -1,133 +1,89 @@
-# Haskell Parser
+# aihc-parser
 
-This component contains a from-scratch Haskell parser plus oracle-backed tests.
+`aihc-parser` is a Haskell parser written in Haskell. It parses modules,
+declarations, expressions, patterns, and types into a Haskell AST, and it can
+pretty-print that AST back to source code.
 
-## Haskell2010 Coverage Tracking
+The goal is simple: accept the same Haskell that GHC accepts. The parser is
+intended to be 100% compatible with GHC, and there are currently no known
+compatibility bugs. If you find one, that is a bug worth reporting.
 
-The test suite includes a manifest-driven Haskell2010 syntax corpus under:
-- `test/Test/Fixtures/haskell2010/manifest.tsv`
+## A Quick Taste
 
-Each case is marked with one expected status:
-- `pass`: parser is expected to accept the case
-- `xfail`: known unimplemented syntax; parser is expected to reject it for now
+```console
+% echo 'main = putStrLn "hello world"' | aihc-dev parser
+Module {[DeclValue (PatternBind (PVar "main") (EApp (EVar "putStrLn") (EString "hello world")))]}
+```
 
-Runtime outcomes are reported as:
-- `PASS`: expected `pass`, oracle accepts source, and `parse -> pretty` preserves GHC AST
-- `XFAIL`: expected `xfail`, case still fails oracle and/or round-trip checks
-- `XPASS`: expected `xfail`, case now passes both oracle and round-trip checks
-- `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
+It understands modern GHC syntax too:
 
-Current progress baseline:
-<!-- AUTO-GENERATED: START haskell2010-progress -->
-- `1202/1202` implemented (`100.00%` complete)
-<!-- AUTO-GENERATED: END haskell2010-progress -->
+```console
+% echo 'x = (.f.g)' | aihc-dev parser -XOverloadedRecordDot
+Module {[DeclValue (PatternBind (PVar "x") (EParen (EGetFieldProjection ["f", "g"])))]}
+```
 
-## Extension Coverage Tracking
+Use it when you want a regular library API for source inspection,
+syntax-aware rewriting, Haskell syntax experiments, or compiler-adjacent tools
+without reaching into GHC internals.
 
-Tracked extensions are listed in:
-- `test/Test/Fixtures/extensions.tsv`
+## What It Supports
 
-Each extension can provide a manifest at:
-- `test/Test/Fixtures/<Extension>/manifest.tsv`
+`aihc-parser` tracks GHC's parser behavior across Haskell2010 and modern
+Haskell. The test suite checks both whether syntax is accepted and whether the
+parsed result agrees with GHC after pretty-printing and reparsing.
 
-Current extension baseline:
-<!-- AUTO-GENERATED: START extension-progress -->
-- Total tracked extensions: `86`
-- Supported: `86`
-- In Progress: `0`
-<!-- AUTO-GENERATED: END extension-progress -->
+For the current support overview, see
+[aihc-parser-supported-extensions.md](../../docs/aihc-parser-supported-extensions.md).
 
-Generated report:
-- `../../docs/aihc-parser-supported-extensions.md`
+## Caveats
 
-## Commands
+`aihc-parser` is ready to try, but it is still young:
 
-Run full tests:
+- It is not battle-tested in the way GHC's parser is.
+- It is more lenient than GHC in some places. In other words, `aihc-parser` can
+  sometimes accept programs that GHC rejects.
+- It is slower than GHC's parser.
+
+The compatibility target is still GHC: accepting less than GHC is a bug;
+accepting more than GHC is currently a known caveat.
+
+## What Gets Tested
+
+The parser is tested with golden examples, GHC oracle checks, package fixtures,
+and generated syntax. The main properties are:
+
+- GHC compatibility: syntax accepted by GHC should parse with `aihc-parser`.
+- Pretty-print + parse roundtrip: parsed syntax should pretty-print to Haskell
+  that parses again.
+- GHC AST fingerprint preservation: parser output should pretty-print into
+  source that GHC reads as the same AST shape.
+- Totality: parser, parenthesization, shorthand rendering, and pretty-printing
+  should not throw exceptions on generated inputs.
+- Parentheses stability: required parentheses should be inserted consistently,
+  and running the parenthesization pass again should not keep changing the tree.
+- Haskell2010 coverage: the Haskell2010 syntax corpus is expected to pass at
+  100%.
+
+## Tests
+
+From the repository root:
 
 ```bash
-nix run .#parser-test
+cabal test -v0 all --test-options=--hide-successes
 ```
 
-Run progress summary:
+For the full local check used before commits:
 
 ```bash
-nix run .#parser-progress
+just check
 ```
 
-Run extension support summary:
+## Contributing Syntax Cases
 
-```bash
-nix run .#parser-extension-progress
-```
+If you find a GHC-compatible program that `aihc-parser` rejects, please turn it
+into a regression test. The most useful reports include the source snippet, the
+required parser flags, whether GHC accepts it, and the `aihc-parser` error
+message or roundtrip mismatch.
 
-Strict mode (non-zero exit on regressions or `XPASS`):
-
-```bash
-nix run .#parser-progress-strict
-```
-
-Extension strict mode (non-zero exit on regressions or `XPASS`):
-
-```bash
-nix run .#parser-extension-progress-strict
-```
-
-## Extension Support
-
-Beyond Haskell2010, we track support for various Haskell language extensions. Each extension has its own test directory under:
-- `test/Test/Fixtures/<ExtensionName>/manifest.tsv`
-
-### Generating Extension Status Report
-
-```bash
-nix run .#parser-extension-progress -- --markdown \
-  | sed -n '/^# Haskell Parser Extension Support Status/,$p'
-```
-
-This generates a markdown report showing:
-- Total extensions tracked
-- Supported extensions (all tests passing)
-- Partial support (some tests passing)
-- Haskell2010 baseline
-
-### Adding a New Extension
-
-1. Create a new directory: `test/Test/Fixtures/<ExtensionName>/`
-2. Add test files (valid Haskell source with the extension enabled)
-3. Create `manifest.tsv` with test cases in the same format as Haskell2010
-
-The manifest format:
-```
-<test-id>	<category>	<path/to/file.hs>	<pass|xfail>	<reason>
-```
-
-Example:
-```
-list-comp-parallel-1	expressions	list-comp.hs	pass	parallel list comprehension
-```
-
-### NIX Commands
-
-- `nix run .#parser-extension-progress -- --markdown | sed -n '/^# Haskell Parser Extension Support Status/,$p'` - Generate clean markdown report to stdout
-- `nix build .#extension-report` - Build report to result/ directory
-- `nix flake check` - Includes extension report as part of CI checks
-
-## Hackage Testing
-
-To validate the parser against real-world Haskell packages from Hackage:
-
-```bash
-nix run .#aihc-dev -- hackage-tester <package-name>
-```
-
-Example:
-```bash
-nix run .#aihc-dev -- hackage-tester transformers
-```
-
-The tool:
-- Downloads and caches packages locally in `~/.cache/aihc/hackage/`
-- Runs the in-repo CPP preprocessor before parsing (with best-effort include resolution)
-- Parses Cabal-declared library and executable source files
-- Reports parse errors and roundtrip failures
-- Shows success rate for the package
+The project is test-first. A compatibility bug is only fixed once the test suite
+can keep it fixed :)
