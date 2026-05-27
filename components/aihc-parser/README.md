@@ -27,9 +27,8 @@ of reaching into GHC internals.
 
 ## What It Supports
 
-`aihc-parser` tracks GHC's parser behavior across Haskell2010 and modern
-Haskell. The test suite checks both whether syntax is accepted and whether
-`aihc-parser` builds the same AST that GHC does.
+`aihc-parser` tracks GHC's parser behavior. The test suite checks both whether
+syntax is accepted and whether `aihc-parser` builds the same AST that GHC does.
 
 For the current support overview, see
 [aihc-parser-supported-extensions.md](../../docs/aihc-parser-supported-extensions.md).
