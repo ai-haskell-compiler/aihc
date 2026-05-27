@@ -10,10 +10,10 @@
 
 | Extension                 | Status | Tests Passing |
 |---------------------------|:------:|---------------|
-| Arrows                    |   🟢    | 29/29         |
+| Arrows                    |   🟢    | 30/30         |
 | BangPatterns              |   🟢    | 13/13         |
 | BinaryLiterals            |   🟢    | 3/3           |
-| BlockArguments            |   🟢    | 12/12         |
+| BlockArguments            |   🟢    | 13/13         |
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
@@ -95,5 +95,5 @@
 | UnboxedTuples             |   🟢    | 21/21         |
 | UndecidableInstances      |   🟢    | 1/1           |
 | UnicodeSyntax             |   🟢    | 21/21         |
-| ViewPatterns              |   🟢    | 25/25         |
+| ViewPatterns              |   🟢    | 26/26         |
 
