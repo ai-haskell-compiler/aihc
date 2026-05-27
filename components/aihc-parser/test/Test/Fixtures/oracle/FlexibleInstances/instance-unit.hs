@@ -1,5 +1,5 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE KindSignatures, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, TypeSynonymInstances #-}
+{-# LANGUAGE KindSignatures, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts #-}
 module InstanceUnit where
 
 class Unit x

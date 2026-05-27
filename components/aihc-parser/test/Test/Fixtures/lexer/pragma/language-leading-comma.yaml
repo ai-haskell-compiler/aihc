@@ -4,9 +4,8 @@ input: |
       DataKinds
     , DeriveGeneric
     , DeriveDataTypeable
-    , OverloadedStrings
     #-}
 tokens:
-  - 'TkPragma (PragmaLanguage [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings])'
+  - 'TkPragma (PragmaLanguage [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable])'
   - 'TkEOF'
 status: pass

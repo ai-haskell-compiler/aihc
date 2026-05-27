@@ -4,10 +4,9 @@ input: |
       DataKinds
     , DeriveGeneric
     , DeriveDataTypeable
-    , OverloadedStrings
     #-}
   module Demo where
   x = 1
 ast: |-
-  Module {ModuleHead {"Demo"}, [DataKinds, DeriveGeneric, DeriveDataTypeable, OverloadedStrings], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
+  Module {ModuleHead {"Demo"}, [DataKinds, DeriveGeneric, DeriveDataTypeable], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
 status: pass

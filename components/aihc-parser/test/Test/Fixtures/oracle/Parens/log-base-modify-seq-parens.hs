@@ -1,5 +1,4 @@
 {- ORACLE_TEST pass -}
-{-# LANGUAGE OverloadedStrings #-}
 
 module MonoidAppendParen where
 

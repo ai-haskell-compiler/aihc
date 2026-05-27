@@ -1,7 +1,6 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module StringGapTypeErrorIndentation where
 
