@@ -44,6 +44,11 @@
   mkProgressCheck = name: src: package: command:
     mkSourceCheck name src [package] command;
 
+  cppProgressEnv = hsPkgs.ghcWithPackages (p: [
+    p.aihc-cpp
+    p.cpphs
+  ]);
+
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
   fcTests = mkFcPackageTest hsPkgs.aihc-fc;
@@ -91,8 +96,8 @@
     extension-progress --strict
   '';
 
-  cppProgressStrict = mkProgressCheck "aihc-cpp-progress-strict" (sources.cppSrc pkgs) hsPkgs.aihc-cpp ''
-    cpp-progress --strict
+  cppProgressStrict = mkSourceCheck "aihc-cpp-progress-strict" (sources.cppSrc pkgs) [cppProgressEnv] ''
+    runghc -package-env - -itest app/cpp-progress/Main.hs --strict
   '';
 
   cppDoctest =

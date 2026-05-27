@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0.2] - 2026-05-27
+
+### Fixed
+
+- Removed the internal `cpp-progress` executable from the published Cabal
+  package so Hackage lists `aihc-cpp` as library-only.
+- Included the CPP progress fixtures in the source distribution so Hackage can
+  run the package test suite and report coverage.
+
 ## [1.0.0.1] - 2026-05-27
 
 ### Fixed
