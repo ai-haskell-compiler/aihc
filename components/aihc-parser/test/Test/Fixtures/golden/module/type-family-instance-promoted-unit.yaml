@@ -6,5 +6,5 @@ input: |
   type family T a
   type instance T '() = ()
 ast: |-
-  Module {ModuleHead {"M"}, [DataKinds, TypeFamilies], [DeclTypeFamilyDecl (TypeFamilyDecl {TypeHeadPrefix, True, TCon "T", [TyVarBinder {"a"}]}), DeclTypeFamilyInst (TypeFamilyInst {TypeHeadPrefix, TApp (TCon "T") (TTuple Boxed Promoted []), TTuple Boxed Unpromoted []})]}
+  Module {ModuleHead {"M"}, [DataKinds, TypeFamilies], [DeclTypeFamilyDecl (TypeFamilyDecl {TypeHeadPrefix, True, TCon "T", [TyVarBinder {"a"}]}), DeclTypeFamilyInst (TypeFamilyInst {TypeHeadPrefix, TApp (TCon "T") (TTuple Promoted []), TTuple []})]}
 status: pass

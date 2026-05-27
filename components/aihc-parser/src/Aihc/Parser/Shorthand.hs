@@ -656,10 +656,7 @@ docType ty =
         <+> parens (docType rhs)
     TFun arrowKind a b -> "TFun" <+> hsep (docFunctionTypeFields arrowKind a b)
     TTuple tupleFlavor promoted elems ->
-      "TTuple"
-        <+> pretty (show tupleFlavor)
-        <+> pretty (show promoted)
-        <+> brackets (hsep (punctuate comma (map docType elems)))
+      "TTuple" <+> hsep (docTypeTupleFields tupleFlavor promoted elems)
     TUnboxedSum elems ->
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
@@ -692,6 +689,20 @@ docTypeListFields :: TypePromotion -> [Type] -> [Doc ann]
 docTypeListFields promoted elems =
   promotedFields <> [brackets (hsep (punctuate comma (map docType elems)))]
   where
+    promotedFields =
+      case promoted of
+        Unpromoted -> []
+        Promoted -> ["Promoted"]
+
+docTypeTupleFields :: TupleFlavor -> TypePromotion -> [Type] -> [Doc ann]
+docTypeTupleFields tupleFlavor promoted elems =
+  flavorFields <> promotedFields <> [brackets (hsep (punctuate comma (map docType elems)))]
+  where
+    flavorFields =
+      case tupleFlavor of
+        Boxed -> []
+        _ -> [pretty (show tupleFlavor)]
+
     promotedFields =
       case promoted of
         Unpromoted -> []

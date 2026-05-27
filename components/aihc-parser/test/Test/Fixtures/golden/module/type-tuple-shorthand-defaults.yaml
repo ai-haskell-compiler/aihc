@@ -1,0 +1,11 @@
+extensions: [DataKinds, UnboxedTuples]
+input: |
+  {-# LANGUAGE DataKinds #-}
+  {-# LANGUAGE UnboxedTuples #-}
+  module M where
+  x :: IO ()
+  y :: IO '()
+  z :: IO '(# #)
+ast: |-
+  Module {ModuleHead {"M"}, [DataKinds, UnboxedTuples], [DeclTypeSig ["x"] (TApp (TCon "IO") (TTuple [])), DeclTypeSig ["y"] (TApp (TCon "IO") (TTuple Promoted [])), DeclTypeSig ["z"] (TApp (TCon "IO") (TTuple Unboxed Promoted []))]}
+status: pass
