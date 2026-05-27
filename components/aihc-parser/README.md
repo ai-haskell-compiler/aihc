@@ -54,12 +54,10 @@ bugs of that kind.
 The parser is tested with golden examples, GHC oracle checks, package fixtures,
 and generated syntax. The main properties are:
 
-- Roundtripping: parsed syntax should pretty-print to Haskell that parses back
-  into the same `aihc-parser` AST.
-- GHC compatibility: test cases are parsed with both `aihc-parser` and
-  `ghc-lib-parser`; the `aihc-parser` AST is converted into GHC's AST and
-  checked for exact equality with `ghc-lib-parser`'s result.
-- Totality: parser, parenthesization, shorthand rendering, and pretty-printing
-  should not throw exceptions on generated inputs.
-- Parentheses stability: required parentheses should be inserted consistently,
-  and running the parenthesization pass again should not keep changing the tree.
+- `parse ∘ pretty = id`: pretty-printed ASTs parse back to the same
+  `aihc-parser` AST.
+- `to_ghc_ast ∘ parse = ghc_parse`: parsed ASTs convert to exactly the same
+  GHC AST that `ghc-lib-parser` produces.
+- `parens ∘ parens = parens`: inserting required parentheses is stable.
+- `parse`, `pretty`, `parens`, and shorthand rendering are total on generated
+  inputs.
