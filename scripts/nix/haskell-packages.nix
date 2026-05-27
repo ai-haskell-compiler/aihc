@@ -19,10 +19,6 @@
     };
     aihc-cpp = {
       src = sources.cppSrc;
-      configureFlags = [
-        "--libexecdir=${builtins.placeholder "out"}/bin"
-        "--libexecsubdir="
-      ];
       disableProfiling = false;
       optimizeForChecks = false;
       supportsDocs = true;
@@ -165,21 +161,12 @@ in rec {
         })
       else drv;
 
-    applyConfigureFlags = flags: drv:
-      if flags == []
-      then drv
-      else
-        hsLib.overrideCabal drv (old: {
-          configureFlags = (old.configureFlags or []) ++ flags;
-        });
-
     mkComponent = final: name: spec: let
       baseDrv = final.callCabal2nix name (spec.src pkgs) {};
-      configureFlagsAdjusted = applyConfigureFlags (spec.configureFlags or []) baseDrv;
       profilingAdjusted =
         if spec.disableProfiling
-        then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling configureFlagsAdjusted)
-        else configureFlagsAdjusted;
+        then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)
+        else baseDrv;
       optimizationAdjusted =
         if disableOptimization && spec.optimizeForChecks
         then hsLib.disableOptimization profilingAdjusted

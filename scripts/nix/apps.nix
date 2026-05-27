@@ -7,13 +7,16 @@
   parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-progress";
   lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "lexer-progress";
   extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
-  cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
   tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
+  cppProgressEnv = hsPkgs.ghcWithPackages (p: [
+    p.aihc-cpp
+    p.cpphs
+  ]);
 
   repoRootGuard = ''
     test -d components/aihc-parser || {
@@ -46,6 +49,14 @@
 
   mkComponentApp = name: component: text:
     mkApp name ''
+      set -euo pipefail
+      ${repoRootGuard}
+      cd ${component}
+      ${text}
+    '';
+
+  mkComponentAppWithInputs = name: runtimeInputs: component: text:
+    mkAppWithInputs name runtimeInputs ''
       set -euo pipefail
       ${repoRootGuard}
       cd ${component}
@@ -162,12 +173,12 @@ in {
     cabal test --test-show-details=direct
   '';
 
-  cpp-progress = mkComponentApp "cpp-progress" "components/aihc-cpp" ''
-    ${cppProgressExe} "$@"
+  cpp-progress = mkComponentAppWithInputs "cpp-progress" [pkgs.bash cppProgressEnv] "components/aihc-cpp" ''
+    runghc -package-env - -itest app/cpp-progress/Main.hs "$@"
   '';
 
-  cpp-progress-strict = mkComponentApp "cpp-progress-strict" "components/aihc-cpp" ''
-    ${cppProgressExe} --strict "$@"
+  cpp-progress-strict = mkComponentAppWithInputs "cpp-progress-strict" [pkgs.bash cppProgressEnv] "components/aihc-cpp" ''
+    runghc -package-env - -itest app/cpp-progress/Main.hs --strict "$@"
   '';
 
   resolve-progress = mkComponentApp "resolve-progress" "components/aihc-resolve" ''
