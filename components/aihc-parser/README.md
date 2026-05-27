@@ -58,6 +58,5 @@ and generated syntax. The main properties are:
   `aihc-parser` AST.
 - `to_ghc_ast ∘ parse = ghc_parse`: parsed ASTs convert to exactly the same
   GHC AST that `ghc-lib-parser` produces.
-- `parens ∘ parens = parens`: inserting required parentheses is stable.
 - `parse`, `pretty`, `parens`, and shorthand rendering are total on generated
   inputs.
