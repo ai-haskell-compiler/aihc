@@ -1334,8 +1334,7 @@ test_prettyNestedInfixRhsInsideSection = do
 
 test_prettyRightSectionInfixOperand :: Assertion
 test_prettyRightSectionInfixOperand = do
-  let config = defaultConfig {parserExtensions = [OverloadedStrings]}
-      sources =
+  let sources =
         [ "(/ 10 ^ (3 :: Int))",
           "(<> msg <> \"\\n\")",
           "(++ \" seconds\" ++ dir f)",
@@ -1344,7 +1343,7 @@ test_prettyRightSectionInfixOperand = do
           "(.+^ p ^. vel)",
           "(<?> prettyIndentation ref ++ \" (started at line \" ++ prettyLine ref ++ \")\")"
         ]
-  mapM_ (assertParsedStrippedExprShapeRoundTrip config) sources
+  mapM_ (assertParsedStrippedExprShapeRoundTrip defaultConfig) sources
 
 test_prettyInfixRhsOpenEndedBeforeFollowingInfix :: Assertion
 test_prettyInfixRhsOpenEndedBeforeFollowingInfix = do

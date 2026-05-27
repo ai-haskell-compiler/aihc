@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 86
-- Supported: 86
+- Total Extensions: 83
+- Supported: 83
 - In Progress: 0
 
 ## Extension Status
@@ -17,7 +17,7 @@
 | CApiFFI                   |   🟢    | 4/4           |
 | ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
-| DataKinds                 |   🟢    | 64/64         |
+| DataKinds                 |   🟢    | 65/65         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
@@ -60,7 +60,6 @@
 | OverlappingInstances      |   🟢    | 1/1           |
 | OverloadedLabels          |   🟢    | 6/6           |
 | OverloadedRecordDot       |   🟢    | 8/8           |
-| OverloadedStrings         |   🟢    | 1/1           |
 | PackageImports            |   🟢    | 6/6           |
 | ParallelListComp          |   🟢    | 3/3           |
 | PartialTypeSignatures     |   🟢    | 21/21         |
@@ -90,10 +89,8 @@
 | TypeFamilies              |   🟢    | 61/61         |
 | TypeFamilyDependencies    |   🟢    | 4/4           |
 | TypeOperators             |   🟢    | 71/71         |
-| TypeSynonymInstances      |   🟢    | 1/1           |
 | UnboxedSums               |   🟢    | 13/13         |
-| UnboxedTuples             |   🟢    | 21/21         |
-| UndecidableInstances      |   🟢    | 1/1           |
+| UnboxedTuples             |   🟢    | 22/22         |
 | UnicodeSyntax             |   🟢    | 21/21         |
 | ViewPatterns              |   🟢    | 26/26         |
 
