@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0.1] - 2026-05-27
+
+### Fixed
+
+- Marked the internal `cpp-progress` executable as private so Hackage lists
+  `aihc-cpp` as a library-only package.
+
 ## [1.0.0.0] - 2026-05-27
 
 ### Added
