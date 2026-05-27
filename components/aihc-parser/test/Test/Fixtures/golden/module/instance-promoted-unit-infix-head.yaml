@@ -7,5 +7,5 @@ input: |
   class Infix a b
   instance '() `Infix` ()
 ast: |-
-  Module {ModuleHead {"M"}, [DataKinds, FlexibleInstances, TypeOperators], [DeclClass (ClassDecl {Prefix "Infix" [TyVarBinder {"a"}, TyVarBinder {"b"}]}), DeclInstance (InstanceDecl {TInfix (TTuple Boxed Promoted []) "Infix" (TTuple Boxed Unpromoted [])})]}
+  Module {ModuleHead {"M"}, [DataKinds, FlexibleInstances, TypeOperators], [DeclClass (ClassDecl {Prefix "Infix" [TyVarBinder {"a"}, TyVarBinder {"b"}]}), DeclInstance (InstanceDecl {TInfix (TTuple Promoted []) "Infix" (TTuple [])})]}
 status: pass
