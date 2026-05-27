@@ -1,12 +1,11 @@
 # aihc-parser
 
-`aihc-parser` is a Haskell parser written in Haskell. It parses modules,
-declarations, expressions, patterns, and types into a Haskell AST, and it can
-pretty-print that AST back to source code.
+`aihc-parser` is a Haskell parser library. It parses modules, declarations,
+expressions, patterns, and types into an AST, and can pretty-print that AST
+back to source code.
 
-The goal is simple: accept the same Haskell that GHC accepts. The parser is
-intended to be 100% compatible with GHC, and there are currently no known
-compatibility bugs. If you find one, that is a bug worth reporting.
+Its goal is to accept exactly the same Haskell as GHC. There are currently no
+known compatibility bugs; if you find one, please report it.
 
 ## A Quick Taste
 
@@ -22,9 +21,9 @@ It understands modern GHC syntax too:
 Module {[DeclValue (PatternBind (PVar "x") (EParen (EGetFieldProjection ["f", "g"])))]}
 ```
 
-Use it when you want a regular library API for source inspection,
-syntax-aware rewriting, Haskell syntax experiments, or compiler-adjacent tools
-without reaching into GHC internals.
+Use it for source inspection, syntax-aware rewriting, Haskell syntax
+experiments, or compiler-adjacent tools that want a regular library API instead
+of reaching into GHC internals.
 
 ## What It Supports
 
@@ -37,26 +36,23 @@ For the current support overview, see
 
 ## Caveats
 
-`aihc-parser` is ready to try, but it is still young:
+`aihc-parser` is ready to try, but it has not had anything like GHC's years of
+production exposure.
 
-- It is not battle-tested in the way GHC's parser is.
-- It is more lenient than GHC in some places. In other words, `aihc-parser` can
-  sometimes accept programs that GHC rejects.
-- It is slower than GHC's parser.
+The intended behavior is exact GHC compatibility. Rejecting code that GHC
+accepts is a bug. Accepting code that GHC rejects is also a bug, but that class
+of bug is harder to test exhaustively, so some cases almost certainly remain.
 
-The compatibility target is still GHC: accepting less syntax than GHC is a bug,
-and accepting more syntax than GHC is also a bug. The latter is listed as a
-caveat because it is difficult to test exhaustively, and there are likely still
-bugs of that kind.
+It is also slower than GHC's parser.
 
 ## What Gets Tested
 
-The parser is tested with golden examples, GHC oracle checks, package fixtures,
-and generated syntax. The main properties are:
+The test suite uses golden examples, GHC oracle checks, package fixtures, and
+generated syntax. The core properties are:
 
 - `parse ∘ pretty = id`: pretty-printed ASTs parse back to the same
   `aihc-parser` AST.
 - `to_ghc_ast ∘ parse = ghc_parse`: parsed ASTs convert to exactly the same
   GHC AST that `ghc-lib-parser` produces.
-- `parse`, `pretty`, `parens`, and shorthand rendering are total on generated
+- `parse`, `pretty`, `parens`, and shorthand rendering do not throw on generated
   inputs.
