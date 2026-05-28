@@ -15,8 +15,8 @@
 | BinaryLiterals            |   🟢    | 3/3           |
 | BlockArguments            |   🟢    | 13/13         |
 | CApiFFI                   |   🟢    | 4/4           |
-| ConstraintKinds           |   🟢    | 8/8           |
 | CPP                       |   🟢    | 8/8           |
+| ConstraintKinds           |   🟢    | 8/8           |
 | DataKinds                 |   🟢    | 65/65         |
 | DefaultSignatures         |   🟢    | 4/4           |
 | DerivingStrategies        |   🟢    | 8/8           |
@@ -34,8 +34,8 @@
 | FlexibleInstances         |   🟢    | 18/18         |
 | ForeignFunctionInterface  |   🟢    | 40/40         |
 | FunctionalDependencies    |   🟢    | 7/7           |
-| GADTs                     |   🟢    | 15/15         |
 | GADTSyntax                |   🟢    | 11/11         |
+| GADTs                     |   🟢    | 15/15         |
 | GHC2021                   |   🟢    | 43/43         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
 | Haskell2010               |   🟢    | 17/17         |
@@ -49,9 +49,9 @@
 | LambdaCase                |   🟢    | 23/23         |
 | LinearTypes               |   🟢    | 15/15         |
 | MagicHash                 |   🟢    | 24/24         |
-| MultilineStrings          |   🟢    | 6/6           |
 | MultiParamTypeClasses     |   🟢    | 24/24         |
 | MultiWayIf                |   🟢    | 21/21         |
+| MultilineStrings          |   🟢    | 6/6           |
 | NamedFieldPuns            |   🟢    | 6/6           |
 | NamedWildCards            |   🟢    | 5/5           |
 | NegativeLiterals          |   🟢    | 1/1           |
