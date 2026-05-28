@@ -41,13 +41,21 @@
       touch "$out"
     '';
 
-  mkProgressCheck = name: src: package: command:
-    mkSourceCheck name src [package] command;
-
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
   ]);
+  parserProgressEnv = hsPkgs.ghcWithPackages (p: [
+    p.aihc-parser
+  ]);
+  parserProgressRunghcSetup = ''
+    run_parser_progress() {
+      local parser_pkg tooling_pkg
+      parser_pkg="$(ghc-pkg describe aihc-parser | awk '/^id:/{gsub(/^id:[ \t]*/, ""); print; exit}')"
+      tooling_pkg="$(ghc-pkg describe z-aihc-parser-z-parser-tooling-common | awk '/^id:/{getline; gsub(/^[ \t]+/, ""); print; exit}')"
+      runghc -package-env - -XGHC2021 -package-id="$parser_pkg" -package-id="$tooling_pkg" "$@"
+    }
+  '';
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
@@ -84,16 +92,19 @@
     test "$failed" -eq 0
   '';
 
-  parserProgressStrict = mkProgressCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) hsPkgs.aihc-parser ''
-    parser-progress --strict
+  parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [parserProgressEnv] ''
+    ${parserProgressRunghcSetup}
+    run_parser_progress app/parser-progress/Main.hs --strict
   '';
 
-  lexerProgressStrict = mkProgressCheck "aihc-lexer-progress-strict" (sources.parserSrc pkgs) hsPkgs.aihc-parser ''
-    lexer-progress --strict
+  lexerProgressStrict = mkSourceCheck "aihc-lexer-progress-strict" (sources.parserSrc pkgs) [parserProgressEnv] ''
+    ${parserProgressRunghcSetup}
+    run_parser_progress app/lexer-progress/Main.hs --strict
   '';
 
-  parserExtensionProgressStrict = mkProgressCheck "aihc-parser-extension-progress-strict" (sources.parserSrc pkgs) hsPkgs.aihc-parser ''
-    extension-progress --strict
+  parserExtensionProgressStrict = mkSourceCheck "aihc-parser-extension-progress-strict" (sources.parserSrc pkgs) [parserProgressEnv] ''
+    ${parserProgressRunghcSetup}
+    run_parser_progress app/extension-progress/Main.hs --strict
   '';
 
   cppProgressStrict = mkSourceCheck "aihc-cpp-progress-strict" (sources.cppSrc pkgs) [cppProgressEnv] ''
