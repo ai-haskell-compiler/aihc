@@ -6,6 +6,7 @@ module ExtensionSupport
     CaseMeta (..),
     oracleFixtureRoot,
     caseSourcePath,
+    caseEnabledExtensionNames,
     loadOracleCases,
     classifyOutcome,
     finalizeOutcome,
@@ -46,6 +47,10 @@ oracleFixtureRoot = "test/Test/Fixtures/oracle"
 
 caseSourcePath :: CaseMeta -> FilePath
 caseSourcePath meta = oracleFixtureRoot </> casePath meta
+
+caseEnabledExtensionNames :: CaseMeta -> [Text]
+caseEnabledExtensionNames meta =
+  [Syntax.extensionName ext | Syntax.EnableExtension ext <- caseExtensions meta]
 
 loadOracleCases :: IO [CaseMeta]
 loadOracleCases = do

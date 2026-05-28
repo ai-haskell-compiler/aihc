@@ -1,10 +1,11 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
-import Aihc.Parser.Syntax qualified as Syntax
 import Data.List (sortOn)
 import Data.Map.Strict qualified as M
+import Data.Text (Text)
 import Data.Text qualified as T
 import ExtensionSupport
 import ParserGolden qualified as PG
@@ -103,7 +104,7 @@ convertGoldenStatus status =
 
 groupByExtension ::
   [(CaseMeta, Outcome, String)] ->
-  M.Map Syntax.Extension [(CaseMeta, Outcome, String)]
+  M.Map Text [(CaseMeta, Outcome, String)]
 groupByExtension =
   foldl' insertCase M.empty
   where
@@ -111,9 +112,9 @@ groupByExtension =
       foldl'
         (\m ext -> M.insertWith (<>) ext [caseOutcome] m)
         acc
-        [ext | Syntax.EnableExtension ext <- caseExtensions meta]
+        (caseEnabledExtensionNames meta)
 
-mkExtensionResult :: (Syntax.Extension, [(CaseMeta, Outcome, String)]) -> ExtensionResult
+mkExtensionResult :: (Text, [(CaseMeta, Outcome, String)]) -> ExtensionResult
 mkExtensionResult (name, outcomes) =
   let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
@@ -124,7 +125,7 @@ mkExtensionResult (name, outcomes) =
         | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
         | otherwise = InProgress
    in ExtensionResult
-        { erName = T.unpack (Syntax.extensionName name),
+        { erName = T.unpack name,
           erStatus = status,
           erPassN = passN,
           erXFailN = xfailN,
