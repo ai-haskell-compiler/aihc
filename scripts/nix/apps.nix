@@ -8,24 +8,15 @@
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
   tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
   tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
+  parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
+  lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
+  parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
   ]);
-  parserProgressEnv = hsPkgs.ghcWithPackages (p: [
-    p.aihc-parser
-  ]);
-  parserProgressRunghcSetup = ''
-    run_parser_progress() {
-      local parser_pkg tooling_pkg
-      parser_pkg="$(ghc-pkg describe aihc-parser | awk '/^id:/{gsub(/^id:[ \t]*/, ""); print; exit}')"
-      tooling_pkg="$(ghc-pkg describe z-aihc-parser-z-parser-tooling-common | awk '/^id:/{getline; gsub(/^[ \t]+/, ""); print; exit}')"
-      runghc -package-env - -XGHC2021 -package-id="$parser_pkg" -package-id="$tooling_pkg" "$@"
-    }
-  '';
-
   repoRootGuard = ''
     test -d components/aihc-parser || {
       echo "Run this app from the repository root." >&2
@@ -145,19 +136,16 @@ in {
     cabal test --test-show-details=direct
   '';
 
-  parser-progress = mkComponentAppWithInputs "parser-progress" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/parser-progress/Main.hs "$@"
+  parser-progress = mkComponentApp "parser-progress" "components/aihc-parser" ''
+    ${parserProgressExe} "$@"
   '';
 
-  lexer-progress = mkComponentAppWithInputs "lexer-progress" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/lexer-progress/Main.hs "$@"
+  lexer-progress = mkComponentApp "lexer-progress" "components/aihc-parser" ''
+    ${lexerProgressExe} "$@"
   '';
 
-  parser-extension-progress = mkComponentAppWithInputs "parser-extension-progress" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/extension-progress/Main.hs "$@"
+  parser-extension-progress = mkComponentApp "parser-extension-progress" "components/aihc-parser" ''
+    ${parserExtensionProgressExe} "$@"
   '';
 
   aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash hsPkgs.ghc] ''
@@ -168,19 +156,16 @@ in {
     exec ${aihcExe} "$@"
   '';
 
-  parser-progress-strict = mkComponentAppWithInputs "parser-progress-strict" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/parser-progress/Main.hs --strict
+  parser-progress-strict = mkComponentApp "parser-progress-strict" "components/aihc-parser" ''
+    ${parserProgressExe} --strict
   '';
 
-  lexer-progress-strict = mkComponentAppWithInputs "lexer-progress-strict" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/lexer-progress/Main.hs --strict
+  lexer-progress-strict = mkComponentApp "lexer-progress-strict" "components/aihc-parser" ''
+    ${lexerProgressExe} --strict
   '';
 
-  parser-extension-progress-strict = mkComponentAppWithInputs "parser-extension-progress-strict" [pkgs.bash parserProgressEnv] "components/aihc-parser" ''
-    ${parserProgressRunghcSetup}
-    run_parser_progress app/extension-progress/Main.hs --strict "$@"
+  parser-extension-progress-strict = mkComponentApp "parser-extension-progress-strict" "components/aihc-parser" ''
+    ${parserExtensionProgressExe} --strict "$@"
   '';
 
   cpp-test = mkComponentApp "cpp-test" "components/aihc-cpp" ''
