@@ -1,12 +1,17 @@
 {root}: let
+  matchesSuffix = pkgs: suffixes: path: let
+    baseName = baseNameOf path;
+  in
+    builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) suffixes;
+
   mkComponentSrc = subpath: suffixes: pkgs:
     pkgs.lib.cleanSourceWith {
       src = root + subpath;
       filter = path: type: let
         baseName = baseNameOf path;
-        matchesSuffix = builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) suffixes;
+        matchesSourceSuffix = matchesSuffix pkgs suffixes path;
       in
-        type == "directory" || matchesSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md";
+        type == "directory" || matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md";
     };
 in rec {
   # Source filtering: only include relevant files for each component.
@@ -82,6 +87,20 @@ in rec {
     ".yaml"
     ".yml"
   ];
+
+  parserToolingCommonSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-parser-tooling-common/" relPath;
+        inParserCommon = pkgs.lib.hasPrefix "components/aihc-parser/common/" relPath;
+        inParserApp = pkgs.lib.hasPrefix "components/aihc-parser/app/" relPath;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+      in
+        type == "directory" || ((inToolingCommon || inParserCommon || inParserApp) && matchesSourceSuffix);
+    };
 
   aihcSrc = mkComponentSrc "/bin/aihc" [
     ".hs"

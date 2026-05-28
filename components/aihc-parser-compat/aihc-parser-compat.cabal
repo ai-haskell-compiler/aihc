@@ -34,6 +34,7 @@ test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
+    ../aihc-parser/test
     src
 
   main-is: Spec.hs
@@ -43,11 +44,17 @@ test-suite spec
     Aihc.Parser.Compat.Internal.Ghc
     Test.Compat.Decl
     Test.Compat.Expr
+    Test.Properties.Arb.Decl
+    Test.Properties.Arb.Expr
+    Test.Properties.Arb.Identifiers
+    Test.Properties.Arb.Module
+    Test.Properties.Arb.Pattern
+    Test.Properties.Arb.Type
+    Test.Properties.Arb.Utils
 
   build-depends:
     QuickCheck,
     aihc-parser,
-    aihc-parser:parser-test-support,
     base >=4.16 && <5,
     bytestring,
     containers,

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0.2] - 2026-05-28
+
+### Fixed
+
+- Removed the internal `parser-tooling-common` and `parser-test-support`
+  sublibraries from the published Cabal package so Hackage exposes only the
+  core `aihc-parser` library.
+
 ## [1.0.0.1] - 2026-05-28
 
 ### Fixed

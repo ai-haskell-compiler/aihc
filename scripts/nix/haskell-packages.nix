@@ -66,6 +66,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-parser-tooling-common = {
+      src = sources.parserToolingCommonSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath tooling/aihc-parser-tooling-common";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc = {
       src = sources.aihcSrc;
       disableProfiling = true;
@@ -162,7 +173,12 @@ in rec {
       else drv;
 
     mkComponent = final: name: spec: let
-      baseDrv = final.callCabal2nix name (spec.src pkgs) {};
+      baseDrv =
+        final.callCabal2nixWithOptions
+        name
+        (spec.src pkgs)
+        (spec.cabal2nixOptions or "")
+        {};
       profilingAdjusted =
         if spec.disableProfiling
         then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)
