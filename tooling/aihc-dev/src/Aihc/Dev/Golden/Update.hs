@@ -78,6 +78,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath (joinPath, makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.IO (Handle, hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
+import TcAnnotatedRender (renderAnnotatedTcResults)
 
 data Options = Options
   { optRoot :: !FilePath,
@@ -129,6 +130,7 @@ run opts = do
         updateParserErrorGoldens opts,
         updateResolverGoldens opts,
         updateTcGoldens opts,
+        updateTcAnnotatedGoldens opts,
         updateFcGoldens opts,
         updateFcEvalGoldens opts,
         updateFormatterGoldens opts,
@@ -350,6 +352,30 @@ tcActual value = do
   let results = typecheck parsed
   if all tcmSuccess results
     then Right (trim (unlines [T.unpack (tbDisplayName b) <> " :: " <> renderTcType (tbType b) | r <- results, b <- tcmBindings r]))
+    else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
+
+updateTcAnnotatedGoldens :: Options -> IO Summary
+updateTcAnnotatedGoldens opts =
+  updateYamlTree opts (optRoot opts </> "components/aihc-tc/test/Test/Fixtures/annotated") $ \_ value ->
+    if not (shouldUpdateOutput value)
+      then pure FixtureUnchanged
+      else case tcAnnotatedActual value of
+        Left err -> pure (skipForStatus (textField "status" value) err)
+        Right actual -> do
+          let annotated = parseTextArrayField "annotated" value
+          pure $
+            if either (const True) ((/= map trim actual) . map (trim . T.unpack)) annotated
+              then setValueAt ["annotated"] (toJSON (map T.pack actual)) value
+              else FixtureUnchanged
+
+tcAnnotatedActual :: Value -> Either String [String]
+tcAnnotatedActual value = do
+  exts <- parseExtensions value
+  modules <- parseTextArrayField "modules" value
+  parsed <- traverse (parseModuleText exts) modules
+  let results = typecheck parsed
+  if all tcmSuccess results
+    then Right (map trim (renderAnnotatedTcResults modules results))
     else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
 
 updateFcGoldens :: Options -> IO Summary

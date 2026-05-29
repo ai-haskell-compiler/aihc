@@ -61,6 +61,10 @@
     };
     aihc-dev = {
       src = sources.devSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath tooling/aihc-dev";
+        srcModifier = src: src;
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

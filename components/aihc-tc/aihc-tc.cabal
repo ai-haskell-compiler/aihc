@@ -52,6 +52,8 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
+    TcAnnotatedGolden
+    TcAnnotatedRender
     TcGolden
     Test.Tc.Properties
     Test.Tc.Suite

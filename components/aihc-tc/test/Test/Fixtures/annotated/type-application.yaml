@@ -1,0 +1,22 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ False :: Bool
+       │      └─ True :: Bool
+       └─ Bool :: *
+  id x = x
+  │  └─ x :: a
+  └─ id :: forall a. a -> a
+  false = id False
+  │       └─ type-args: Bool
+  └─ false :: Bool
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  id x = x
+  false = id False
+reason: ''
+status: pass

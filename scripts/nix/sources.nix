@@ -81,12 +81,18 @@ in rec {
     ".cabal"
   ];
 
-  devSrc = mkComponentSrc "/tooling/aihc-dev" [
-    ".hs"
-    ".cabal"
-    ".yaml"
-    ".yml"
-  ];
+  devSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inDev = pkgs.lib.hasPrefix "tooling/aihc-dev/" relPath;
+        inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
+      in
+        type == "directory" || ((inDev || inTcCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+    };
 
   parserToolingCommonSrc = pkgs:
     pkgs.lib.cleanSourceWith {

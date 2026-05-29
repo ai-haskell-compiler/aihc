@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    x = True
+annotated:
+  - |
+    module Test where
+    data Bool = True | False
+         │      │      └─ False :: Bool
+         │      └─ True :: Bool
+         └─ Bool :: *
+    x = True
+    └─ x :: Bool
+status: pass
+reason: ""
