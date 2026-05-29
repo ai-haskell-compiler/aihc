@@ -19,7 +19,7 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`) ○○○○○                                                                                                              |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `218/3427` (`6.36%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2936/2937` (`99.97%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `31/32` (`96.87%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
@@ -35,11 +35,11 @@ Find more information here:
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1820 |     790 |    2610 |
 | aihc-fc            |   1743 |    1083 |    2826 |
-| aihc-parser        |  13435 |   17707 |   31142 |
-| aihc-parser-compat |   1754 |     736 |    2490 |
+| aihc-parser        |  13372 |   17707 |   31079 |
+| aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2376 |    1565 |    3941 |
 | aihc-tc            |   3430 |    1311 |    4741 |
-| **Total**          |  24558 |   23192 |   47750 |
+| **Total**          |  24502 |   23192 |   47694 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
