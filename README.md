@@ -19,7 +19,7 @@ Find more information here:
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | `0/3390` (`0.00%`) ○○○○○                                                                                                              |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `218/3427` (`6.36%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2936/2937` (`99.97%`) ●●●●○ <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `31/32` (`96.87%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
