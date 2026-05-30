@@ -14,7 +14,7 @@ import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
 import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patParser, patternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser, typeSignatureParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, lexTokenSpan, pattern TkVarFamily, pattern TkVarRole)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -815,7 +815,7 @@ foreignDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       ForeignImport -> MP.optional foreignSafetyParser
       ForeignExport -> pure Nothing
   entity <- MP.optional foreignEntityParser
-  name <- foreignBinderNameParser
+  name <- binderNameParser
   expectedTok TkReservedDoubleColon
   ty <- typeSignatureParser
   pure $
@@ -860,38 +860,6 @@ foreignEntityFromString txt
   | txt == "&" = ForeignEntityAddress Nothing
   | Just rest <- T.stripPrefix "&" txt = ForeignEntityAddress (Just rest)
   | otherwise = ForeignEntityNamed txt
-
-foreignBinderNameParser :: TokParser UnqualifiedName
-foreignBinderNameParser =
-  foreignIdentifierNameParser
-    <|> parens foreignOperatorNameParser
-  where
-    foreignIdentifierNameParser =
-      tokenSatisfy "foreign binder" $ \tok ->
-        case lexTokenKind tok of
-          TkVarId ident -> Just (spannedName tok NameVarId ident)
-          TkConId ident -> Just (spannedName tok NameConId ident)
-          _ -> Nothing
-
-    foreignOperatorNameParser =
-      tokenSatisfy "foreign operator" $ \tok ->
-        case lexTokenKind tok of
-          TkVarSym op -> Just (spannedName tok NameVarSym op)
-          TkConSym op -> Just (spannedName tok NameConSym op)
-          TkReservedRightArrow -> Just (spannedName tok NameVarSym "->")
-          TkReservedLeftArrow -> Just (spannedName tok NameVarSym "<-")
-          TkReservedDoubleArrow -> Just (spannedName tok NameVarSym "=>")
-          TkReservedEquals -> Just (spannedName tok NameVarSym "=")
-          TkReservedPipe -> Just (spannedName tok NameVarSym "|")
-          TkReservedDotDot -> Just (spannedName tok NameVarSym "..")
-          TkReservedDoubleColon -> Just (spannedName tok NameVarSym "::")
-          TkReservedColon -> Just (spannedName tok NameConSym ":")
-          TkReservedAt -> Just (spannedName tok NameVarSym "@")
-          _ -> Nothing
-
-    spannedName tok nameType txt =
-      let name = mkUnqualifiedName nameType txt
-       in name {unqualifiedNameAnns = [mkAnnotation (lexTokenSpan tok)]}
 
 traditionalDataDeclParser :: TokParser ([DataConDecl], [DerivingClause])
 traditionalDataDeclParser = do

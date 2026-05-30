@@ -333,8 +333,12 @@ constructorOperatorUnqualifiedNameParser =
 
 binderNameParser :: TokParser UnqualifiedName
 binderNameParser =
-  identifierUnqualifiedNameParser
-    <|> parens operatorUnqualifiedNameParser
+  spanned identifierUnqualifiedNameParser
+    <|> parens (spanned operatorUnqualifiedNameParser)
+  where
+    spanned =
+      withSpanAnn $ \sp name ->
+        name {unqualifiedNameAnns = mkAnnotation sp : unqualifiedNameAnns name}
 
 recordFieldNameParser :: TokParser Name
 recordFieldNameParser =
