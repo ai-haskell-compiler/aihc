@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    map f list = [ f x | x <- list ]
+annotated:
+  - |
+    module Test where
+    map f list = [ f x | x <- list ]
+    │   │ │      │       └─ x :: a
+    │   │ │      └─ type-args: b
+    │   │ └─ list :: [a]
+    │   └─ f :: a -> b
+    └─ map :: forall a b. (a -> b) -> [a] -> [b]
+status: pass
+reason: list comprehensions are traversed by type-checker annotation rendering

@@ -12,6 +12,7 @@ import Aihc.Parser.Syntax
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    CompStmt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -254,8 +255,20 @@ caseAltLabels ambient (CaseAlt anns pat rhs) =
   let ambient' = spanFromAnnotations anns <|> ambient
    in patternLabels ambient' pat <> rhsLabels ambient' rhs
 
-compStmtLabels :: Maybe SourceSpan -> a -> [TcLabel]
-compStmtLabels _ _ = []
+compStmtLabels :: Maybe SourceSpan -> CompStmt -> [TcLabel]
+compStmtLabels ambient stmt =
+  case stmt of
+    CompAnn ann inner -> compStmtLabels (fromAnnotation @SourceSpan ann <|> ambient) inner
+    CompGen pat expr ->
+      let bindingLabels =
+            maybe [] (\elemTy -> patternBindingLabels ambient elemTy pat) (exprListElementType expr)
+       in bindingLabels <> patternLabels ambient pat <> exprLabels ambient expr
+    CompGuard expr -> exprLabels ambient expr
+    CompLetDecls decls -> concatMap (declLabels ambient) decls
+    CompThen expr -> exprLabels ambient expr
+    CompThenBy f byExpr -> exprLabels ambient f <> exprLabels ambient byExpr
+    CompGroupUsing expr -> exprLabels ambient expr
+    CompGroupByUsing byExpr usingExpr -> exprLabels ambient byExpr <> exprLabels ambient usingExpr
 
 patternLabels :: Maybe SourceSpan -> Pattern -> [TcLabel]
 patternLabels ambient pat =
@@ -403,6 +416,14 @@ listElementType :: TcType -> Maybe TcType
 listElementType ty =
   case ty of
     TcTyCon (TyCon "[]" 1) [elemTy] -> Just elemTy
+    _ -> Nothing
+
+exprListElementType :: Expr -> Maybe TcType
+exprListElementType expr =
+  case expr of
+    EAnn ann inner ->
+      (fromAnnotation @TcAnnotation ann >>= listElementType . tcAnnType) <|> exprListElementType inner
+    EParen inner -> exprListElementType inner
     _ -> Nothing
 
 tupleElementTypes :: TcType -> [TcType]

@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    withLet list = [ y | x <- list, let y = x ]
+annotated:
+  - |
+    module Test where
+    withLet list = [ y | x <- list, let y = x ]
+    │       │      │     └─ x :: a      └─ y :: a
+    │       │      └─ type-args: a
+    │       └─ list :: [a]
+    └─ withLet :: forall a. [a] -> [a]
+status: pass
+reason: let qualifiers extend the scope of later qualifiers and the body
