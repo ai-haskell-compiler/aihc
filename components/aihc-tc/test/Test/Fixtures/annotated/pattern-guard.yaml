@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x | True = x
+annotated: []
+status: xfail
+reason: "pattern guards not yet supported in type checker"

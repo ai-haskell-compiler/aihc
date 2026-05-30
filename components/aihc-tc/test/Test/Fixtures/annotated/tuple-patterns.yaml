@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    fst (a, b) = a
+    snd (a, b) = b
+annotated: []
+status: xfail
+reason: "tuple patterns not yet supported in type checker"

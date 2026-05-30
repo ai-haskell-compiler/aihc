@@ -1,0 +1,13 @@
+annotated:
+- |-
+  module Test where
+  f ~x = x
+  │  └─ x :: a
+  └─ f :: forall a. a -> a
+extensions: []
+modules:
+- |
+  module Test where
+  f ~x = x
+reason: ''
+status: pass

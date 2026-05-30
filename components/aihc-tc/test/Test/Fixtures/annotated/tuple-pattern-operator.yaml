@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f (x, y) = x + y
+    (+) a b = a
+annotated: []
+status: xfail
+reason: "tuple patterns with operators not yet supported"

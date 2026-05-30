@@ -1,0 +1,49 @@
+annotated:
+- |-
+  module Test where
+  data Bool = False | True
+       │      │       └─ True :: Bool
+       │      └─ False :: Bool
+       └─ Bool :: *
+  infixr 3 &&
+  (&&) :: Bool -> Bool -> Bool
+  False && _ = False
+        └─ (&&) :: Bool -> Bool -> Bool
+  True && x = x
+       │  └─ x :: Bool
+       └─ (&&) :: Bool -> Bool -> Bool
+  not :: Bool -> Bool
+  not False = True
+  └─ not :: Bool -> Bool
+  not True = False
+  └─ not :: Bool -> Bool
+  otherwise :: Bool
+  otherwise = True
+  └─ otherwise :: Bool
+  infixr 2 ||
+  (||) :: Bool -> Bool -> Bool
+  False || x = x
+        │  └─ x :: Bool
+        └─ (||) :: Bool -> Bool -> Bool
+  True || _ = True
+       └─ (||) :: Bool -> Bool -> Bool
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+  infixr 3 &&
+  (&&) :: Bool -> Bool -> Bool
+  False && _ = False
+  True && x = x
+  not :: Bool -> Bool
+  not False = True
+  not True = False
+  otherwise :: Bool
+  otherwise = True
+  infixr 2 ||
+  (||) :: Bool -> Bool -> Bool
+  False || x = x
+  True || _ = True
+reason: types the Bool API exported by Data.Bool
+status: pass

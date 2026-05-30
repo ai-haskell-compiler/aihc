@@ -5,13 +5,18 @@ annotated:
        │      │      └─ False :: Bool
        │      └─ True :: Bool
        └─ Bool :: *
-  x = True
-  └─ x :: Bool
+  f x = case x of
+  │ └─ x :: Bool
+  └─ f :: Bool -> Bool
+    True -> True
+    False -> False
 extensions: []
 modules:
 - |
   module Test where
   data Bool = True | False
-  x = True
+  f x = case x of
+    True -> True
+    False -> False
 reason: ''
 status: pass

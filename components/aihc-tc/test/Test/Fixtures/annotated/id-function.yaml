@@ -1,0 +1,13 @@
+annotated:
+- |-
+  module Test where
+  id x = x
+  │  └─ x :: a
+  └─ id :: forall a. a -> a
+extensions: []
+modules:
+- |
+  module Test where
+  id x = x
+reason: ''
+status: pass
