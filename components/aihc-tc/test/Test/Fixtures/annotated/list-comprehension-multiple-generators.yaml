@@ -10,9 +10,9 @@ annotated:
     │     │  │    │ │        │        └─ y :: b
     │     │  │    │ │        └─ x :: a
     │     │  │    │ └─ type-args: a, b
-    │     │  │    └─ type-args: (,) a b
+    │     │  │    └─ type-args: (a, b)
     │     │  └─ ys :: [b]
     │     └─ xs :: [a]
-    └─ pairs :: forall a b. [a] -> [b] -> [(,) a b]
+    └─ pairs :: forall a b. [a] -> [b] -> [(a, b)]
 status: pass
 reason: later generators can see earlier generator bindings and produce tuple elements
