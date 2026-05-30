@@ -26,6 +26,7 @@ import StackageProgress.Run qualified as ParserStackageProgressRun
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
+import TcStackageProgress qualified as TSP
 
 main :: IO ()
 main = do
@@ -52,6 +53,7 @@ data Command
   | ParserHackageProgress ParserHackageProgressCLI.Options
   | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
+  | TcStackageProgress TSP.Options
   | UpdateGoldens GoldenUpdate.Options
 
 data ExtractHiOpts = ExtractHiOpts
@@ -140,6 +142,12 @@ commandParser =
           ( info
               (ResolveStackageProgress <$> RSP.optionsParser <**> helper)
               (progDesc "Test name resolver on Stackage snapshot packages")
+          )
+        <> command
+          "tc-stackage-progress"
+          ( info
+              (TcStackageProgress <$> TSP.optionsParser <**> helper)
+              (progDesc "Test type checker on Stackage snapshot packages")
           )
         <> command
           "update-goldens"
@@ -250,5 +258,7 @@ runCommand (ResolvePackage opts) =
   RP.run opts
 runCommand (ResolveStackageProgress opts) =
   RSP.run opts
+runCommand (TcStackageProgress opts) =
+  TSP.run opts
 runCommand (UpdateGoldens opts) =
   GoldenUpdate.run opts

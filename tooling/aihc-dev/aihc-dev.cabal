@@ -143,6 +143,7 @@ executable aihc-dev
     app/hackage-progress
     app/stackage-progress
     app/resolve-stackage-progress
+    app/tc-stackage-progress
 
   other-modules:
     Aihc.Dev.HackageTester.Run
@@ -157,6 +158,7 @@ executable aihc-dev
     StackageProgress.PackageRunner
     StackageProgress.Run
     StackageProgress.Snapshot
+    TcStackageProgress
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
@@ -171,6 +173,7 @@ executable aihc-dev
     aihc-parser,
     aihc-parser-tooling-common,
     aihc-resolve,
+    aihc-tc,
     async,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
@@ -203,6 +206,7 @@ test-suite spec
     app/hackage-progress
     app/stackage-progress
     app/resolve-stackage-progress
+    app/tc-stackage-progress
 
   main-is: Spec.hs
   other-modules:
@@ -217,6 +221,7 @@ test-suite spec
     StackageProgress.PackageRunner
     StackageProgress.Run
     StackageProgress.Snapshot
+    TcStackageProgress
     Test.ExtractHiCompare
     Test.GoldenUpdate
     Test.ParserCLI.Golden
@@ -225,6 +230,7 @@ test-suite spec
     Test.ResolveStackageProgress.PathsModule
     Test.StackageProgress.FileChecker
     Test.StackageProgress.FileCheckerTiming
+    Test.TcStackageProgress
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
@@ -241,6 +247,7 @@ test-suite spec
     aihc-parser-tooling-common,
     aihc-prim,
     aihc-resolve,
+    aihc-tc,
     async,
     base >=4.16 && <5,
     bytestring,
