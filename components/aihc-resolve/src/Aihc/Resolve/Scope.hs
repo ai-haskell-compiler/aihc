@@ -66,6 +66,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -106,7 +107,7 @@ reExportedScope :: ModuleExports -> Module -> Scope
 reExportedScope rawExports modu =
   case moduleExports modu of
     Nothing -> emptyScope
-    Just specs -> foldl' unionScope emptyScope (map exportSpecScope specs)
+    Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
     availableScope = importedScope rawExports modu
 
@@ -154,14 +155,14 @@ exportBundledMemberName = nameText . ieBundledMemberName
 
 topLevelScope :: Module -> Scope
 topLevelScope modu =
-  foldl' addDecl emptyScope (moduleDecls modu)
+  List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel . qualifyName (Just moduleKeyText)
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods fixities = declExportedNames decl
-          scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
-          scope'' = foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
+          scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
+          scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
           scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
           scope'''' = scope''' {scopeRecordFields = recordFields `Map.union` scopeRecordFields scope'''}
           scope''''' = scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
@@ -321,7 +322,7 @@ moduleScope exports modu =
 
 importedScope :: ModuleExports -> Module -> Scope
 importedScope exports modu =
-  foldl' addImport emptyScope (moduleImports modu)
+  List.foldl' addImport emptyScope (moduleImports modu)
   where
     addImport acc importDecl
       | importDeclQualified importDecl || importDeclQualifiedPost importDecl =

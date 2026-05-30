@@ -43,6 +43,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify')
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -259,7 +260,7 @@ data FirstPatternGroup = FirstPatternGroup !Pattern ![Match]
 
 groupFirstPatterns :: [Match] -> [FirstPatternGroup]
 groupFirstPatterns =
-  foldl' insertGroup []
+  List.foldl' insertGroup []
   where
     insertGroup groups match =
       case matchPats match of
@@ -354,9 +355,9 @@ dsAnnotatedVar tcAnn name _expr = do
     Nothing -> do
       ty <- lookupTypeName name
       v <- freshVar n ty
-      let typedExpr = foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
+      let typedExpr = List.foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
       dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
-      pure (foldl' FcDictApp typedExpr dicts)
+      pure (List.foldl' FcDictApp typedExpr dicts)
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
@@ -558,7 +559,7 @@ dsTuple tcAnn elems = do
   if length elemTys == length elems
     then do
       elems' <- zipWithM dsMaybeTupleElem elemTys elems
-      pure (foldl' FcApp (tupleConExpr elemTys) elems')
+      pure (List.foldl' FcApp (tupleConExpr elemTys) elems')
     else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
@@ -570,7 +571,7 @@ dsMaybeTupleElem ty Nothing = do
 tupleConExpr :: [TcType] -> FcExpr
 tupleConExpr elemTys =
   let arity = length elemTys
-   in foldl' FcTyApp (FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (tupleConType elemTys))) elemTys
+   in List.foldl' FcTyApp (FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (tupleConType elemTys))) elemTys
 
 tupleConType :: [TcType] -> TcType
 tupleConType elemTys =
@@ -630,8 +631,8 @@ dsEvidence evidence =
     EvDict dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
       contextDicts <- mapM dsEvidence contextEvidence
-      let dictExpr = foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
-      pure (foldl' FcDictApp dictExpr contextDicts)
+      let dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
+      pure (List.foldl' FcDictApp dictExpr contextDicts)
     EvCoercion {} ->
       pure (FcDict [])
     EvSuperClass dict index ->

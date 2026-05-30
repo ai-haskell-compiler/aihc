@@ -86,6 +86,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -309,7 +310,7 @@ resolveDeclWithSignatureScope termDefinition signatureScopes decl =
       (binderScope, ty') <- resolveTypeSignature ty
       let names' = map (resolveTermDefinitionAt sp termDefinition) names
       let signatureScopes' =
-            foldl'
+            List.foldl'
               (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
               signatureScopes
               names
@@ -1172,7 +1173,7 @@ reassociateResolvedInfixExpr operands names fallbackExpr = do
 buildLeftInfixExpr :: Expr -> [Expr] -> [Name] -> Expr
 buildLeftInfixExpr fallbackExpr [] _ = fallbackExpr
 buildLeftInfixExpr _ (operand : operands) ops =
-  foldl' (\left (op, right) -> EInfix left op right) operand (zip ops operands)
+  List.foldl' (\left (op, right) -> EInfix left op right) operand (zip ops operands)
 
 flattenInfixExpr :: Expr -> ([Expr], [Name])
 flattenInfixExpr expr =
