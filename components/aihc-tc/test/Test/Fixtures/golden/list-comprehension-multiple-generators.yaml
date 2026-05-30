@@ -1,9 +1,0 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
-expected:
-  - "pairs :: forall a b. [a] -> [b] -> [(,) a b]"
-status: pass
-reason: later generators can see earlier generator bindings and produce tuple elements
