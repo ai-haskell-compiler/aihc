@@ -259,7 +259,10 @@ compStmtLabels :: Maybe SourceSpan -> CompStmt -> [TcLabel]
 compStmtLabels ambient stmt =
   case stmt of
     CompAnn ann inner -> compStmtLabels (fromAnnotation @SourceSpan ann <|> ambient) inner
-    CompGen pat expr -> patternLabels ambient pat <> exprLabels ambient expr
+    CompGen pat expr ->
+      let bindingLabels =
+            maybe [] (\elemTy -> patternBindingLabels ambient elemTy pat) (exprListElementType expr)
+       in bindingLabels <> patternLabels ambient pat <> exprLabels ambient expr
     CompGuard expr -> exprLabels ambient expr
     CompLetDecls decls -> concatMap (declLabels ambient) decls
     CompThen expr -> exprLabels ambient expr
@@ -413,6 +416,14 @@ listElementType :: TcType -> Maybe TcType
 listElementType ty =
   case ty of
     TcTyCon (TyCon "[]" 1) [elemTy] -> Just elemTy
+    _ -> Nothing
+
+exprListElementType :: Expr -> Maybe TcType
+exprListElementType expr =
+  case expr of
+    EAnn ann inner ->
+      (fromAnnotation @TcAnnotation ann >>= listElementType . tcAnnType) <|> exprListElementType inner
+    EParen inner -> exprListElementType inner
     _ -> Nothing
 
 tupleElementTypes :: TcType -> [TcType]
