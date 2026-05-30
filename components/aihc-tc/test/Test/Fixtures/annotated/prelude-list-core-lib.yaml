@@ -2,19 +2,19 @@ annotated:
 - |-
   module Test where
   data List a = [] | a : [a]
-       └─ List :: *
+       └─ List ∷ *
   infixr 5 :
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys
-   │      └─ ys :: [a]
-   └─ (++) :: forall a. [a] -> [a] -> [a]
+   │      └─ ys ∷ [a]
+   └─ (++) ∷ ∀ a. [a] → [a] → [a]
   (++) (x : xs) ys = x : (xs ++ ys)
    │    │   │   │  │     └─ type-args: a
    │    │   │   │  └─ type-args: a
-   │    │   │   └─ ys :: [a]
-   │    │   └─ xs :: [a]
-   │    └─ x :: a
-   └─ (++) :: forall a. [a] -> [a] -> [a]
+   │    │   │   └─ ys ∷ [a]
+   │    │   └─ xs ∷ [a]
+   │    └─ x ∷ a
+   └─ (++) ∷ ∀ a. [a] → [a] → [a]
 extensions: []
 modules:
 - |

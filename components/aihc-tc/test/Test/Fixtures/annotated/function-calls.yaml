@@ -2,13 +2,13 @@ annotated:
 - |-
   module Test where
   f x = x
-  │ └─ x :: a
-  └─ f :: forall a. a -> a
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
   g y = f (f y)
   │ │   │  └─ type-args: a
   │ │   └─ type-args: a
-  │ └─ y :: a
-  └─ g :: forall a. a -> a
+  │ └─ y ∷ a
+  └─ g ∷ ∀ a. a → a
 extensions: []
 modules:
 - |

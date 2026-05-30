@@ -8,11 +8,11 @@ modules:
     foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
     test = tuple
 annotated:
-  - |
-    module Test where
-    foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
-                              └─ tuple :: () -> (# Int#, Int# #)
-    test = tuple
-    └─ test :: () -> (# Int#, Int# #)
+- |-
+  module Test where
+  foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
+                            └─ tuple ∷ () → (# Int#, Int# #)
+  test = tuple
+  └─ test ∷ () → (# Int#, Int# #)
 status: pass
 reason: "annotated output includes a prim import whose result is an unboxed tuple"

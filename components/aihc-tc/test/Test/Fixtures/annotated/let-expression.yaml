@@ -2,9 +2,9 @@ annotated:
 - |-
   module Test where
   f x = let y = x in y
-  │ │       └─ y :: a
-  │ └─ x :: a
-  └─ f :: forall a. a -> a
+  │ │       └─ y ∷ a
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
 extensions: []
 modules:
 - |

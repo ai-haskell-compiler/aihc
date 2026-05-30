@@ -2,13 +2,13 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   not True = False
-  └─ not :: Bool -> Bool
+  └─ not ∷ Bool → Bool
   not False = True
-  └─ not :: Bool -> Bool
+  └─ not ∷ Bool → Bool
 extensions: []
 modules:
 - |

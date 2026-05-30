@@ -2,22 +2,22 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   data GADT a where
-       └─ GADT :: *
+       └─ GADT ∷ *
     IsBool :: GADT Bool
-    └─ IsBool :: GADT Bool
+    └─ IsBool ∷ GADT Bool
   not True = False
-  └─ not :: Bool -> Bool
+  └─ not ∷ Bool → Bool
   not False = True
-  └─ not :: Bool -> Bool
-
+  └─ not ∷ Bool → Bool
+  
   fn :: a -> GADT a -> a
   fn x IsBool = not x
-  │  └─ x :: a
-  └─ fn :: forall a. a -> GADT a -> a
+  │  └─ x ∷ a
+  └─ fn ∷ ∀ a. a → GADT a → a
 extensions: []
 modules:
 - |

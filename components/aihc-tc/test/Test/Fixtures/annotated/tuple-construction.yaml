@@ -5,15 +5,15 @@ modules:
     data Bool = True | False
     f x = (x, x)
 annotated:
-  - |
-    module Test where
-    data Bool = True | False
-         │      │      └─ False :: Bool
-         │      └─ True :: Bool
-         └─ Bool :: *
-    f x = (x, x)
-    │ │   └─ type-args: a, a
-    │ └─ x :: a
-    └─ f :: forall a. a -> (a, a)
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
+  f x = (x, x)
+  │ │   └─ type-args: a, a
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → (a, a)
 status: pass
 reason: "tuple construction infers and renders boxed tuple result types"

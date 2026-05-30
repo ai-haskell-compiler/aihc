@@ -27,6 +27,7 @@ module Aihc.Tc.Annotations
 
     -- * Pretty-printing
     renderTcType,
+    renderTcSignature,
   )
 where
 
@@ -120,6 +121,10 @@ annotateExpr ann = EAnn (mkAnnotation ann)
 annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
+-- | Render a binder and its 'TcType' as a human-readable signature.
+renderTcSignature :: Text -> TcType -> String
+renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
+
 -- | Render a 'TcType' as a human-readable string.
 --
 -- Uses a precedence level to decide when to insert parentheses:
@@ -148,14 +153,14 @@ renderTcType = go 0
         unwords (T.unpack (tyConName tc) : map (go 2) args)
     go p (TcFunTy a b) =
       parenIf (p >= 1) $
-        go 1 a ++ " -> " ++ go 0 b
+        go 1 a ++ " → " ++ go 0 b
     go p (TcForAllTy tv body) =
       let (tvs, inner) = collectForAlls body
        in parenIf (p >= 1) $
-            "forall " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
+            "∀ " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
     go p (TcQualTy preds body) =
       parenIf (p >= 1) $
-        "(" ++ unwords (map showPred preds) ++ ") => " ++ go 0 body
+        "(" ++ unwords (map showPred preds) ++ ") ⇒ " ++ go 0 body
     go p (TcAppTy f a) =
       parenIf (p >= 2) $
         go 1 f ++ " " ++ go 2 a

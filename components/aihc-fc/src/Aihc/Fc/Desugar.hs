@@ -34,7 +34,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
@@ -85,7 +85,7 @@ desugarModuleWithTcResult tcResult _m =
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
-showBinding b = T.unpack (tbDisplayName b) ++ " :: " ++ renderTcType (tbType b)
+showBinding b = renderTcSignature (tbDisplayName b) (tbType b)
 
 showTcFailure :: TcModuleResult -> [String]
 showTcFailure tcResult =
