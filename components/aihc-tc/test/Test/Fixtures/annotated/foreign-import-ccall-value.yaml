@@ -12,7 +12,7 @@ annotated:
     data Word64
          └─ Word64 :: *
     foreign import ccall unsafe "rdtsc.h" rdtsc :: Word64
-                                 └─ rdtsc :: Word64
+                                          └─ rdtsc :: Word64
     test = rdtsc
     └─ test :: Word64
 status: pass

@@ -10,7 +10,7 @@ annotated:
   - |
     module Test where
     foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
-                         └─ i8_addition :: Int8# -> Int8# -> Int8#
+                                      └─ i8_addition :: Int8# -> Int8# -> Int8#
     test = i8_addition
     └─ test :: Int8# -> Int8# -> Int8#
 status: pass
