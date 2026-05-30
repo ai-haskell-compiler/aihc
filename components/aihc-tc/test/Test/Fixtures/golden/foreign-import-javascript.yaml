@@ -1,0 +1,16 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+    data Double
+    data IO a
+    foreign import javascript unsafe "performance.now" js_now :: IO Double
+    test = js_now
+expected:
+  - "Double :: *"
+  - "IO :: *"
+  - "js_now :: IO Double"
+  - "test :: IO Double"
+status: pass
+reason: "foreign import javascript uses the same declared-type registration path as C FFI imports"

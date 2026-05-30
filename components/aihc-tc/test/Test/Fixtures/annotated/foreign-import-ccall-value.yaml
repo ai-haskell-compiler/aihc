@@ -1,0 +1,19 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+    data Word64
+    foreign import ccall unsafe "rdtsc.h" rdtsc :: Word64
+    test = rdtsc
+annotated:
+  - |
+    module Test where
+    data Word64
+         └─ Word64 :: *
+    foreign import ccall unsafe "rdtsc.h" rdtsc :: Word64
+                                 └─ rdtsc :: Word64
+    test = rdtsc
+    └─ test :: Word64
+status: pass
+reason: "annotated output includes a ccall imported value and a later use"

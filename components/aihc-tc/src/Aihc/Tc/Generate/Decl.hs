@@ -13,7 +13,6 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
-    CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -720,7 +719,7 @@ collectRawSigs decls = Map.fromList $ concatMap extractSig decls
     extractSig (DeclTypeSig names ty) =
       [(unqualifiedNameText n, ty) | n <- names]
     extractSig (DeclForeign foreignDecl)
-      | isForeignPrimImport foreignDecl =
+      | isForeignImport foreignDecl =
           [(unqualifiedNameText (foreignName foreignDecl), foreignType foreignDecl)]
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = []
@@ -783,10 +782,15 @@ convertSurfaceType tvMap ty = case peeledTy of
           _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
   TFun _ a b ->
     TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
-  TTuple _ _ args ->
+  TTuple flavor _ args ->
     let tys = map (convertSurfaceType tvMap) args
         n = length tys
-        tc = TyCon ("(" <> mconcat (replicate (n - 1) ",") <> ")") n
+        tc = TyCon (tupleConText flavor n) n
+     in TcTyCon tc tys
+  TUnboxedSum args ->
+    let tys = map (convertSurfaceType tvMap) args
+        n = length tys
+        tc = TyCon ("(#" <> bars (n - 1) <> "#)") n
      in TcTyCon tc tys
   TList _ args ->
     case args of
@@ -1068,18 +1072,17 @@ registerDecl (DeclData dd) = registerDataDecl dd
 registerDecl (DeclClass classDecl) = registerClassDecl classDecl
 registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
 registerDecl (DeclForeign foreignDecl)
-  | isForeignPrimImport foreignDecl =
-      registerForeignPrimImport foreignDecl
+  | isForeignImport foreignDecl =
+      registerForeignImport foreignDecl
 registerDecl (DeclAnn _ inner) = registerDecl inner
 registerDecl _ = pure []
 
-isForeignPrimImport :: ForeignDecl -> Bool
-isForeignPrimImport foreignDecl =
+isForeignImport :: ForeignDecl -> Bool
+isForeignImport foreignDecl =
   foreignDirection foreignDecl == ForeignImport
-    && foreignCallConv foreignDecl == CPrim
 
-registerForeignPrimImport :: ForeignDecl -> TcM [TcBindingResult]
-registerForeignPrimImport foreignDecl = do
+registerForeignImport :: ForeignDecl -> TcM [TcBindingResult]
+registerForeignImport foreignDecl = do
   scheme <- sigToScheme (foreignType foreignDecl)
   let name = unqualifiedNameText (foreignName foreignDecl)
       displayName = renderBinderName (foreignName foreignDecl)

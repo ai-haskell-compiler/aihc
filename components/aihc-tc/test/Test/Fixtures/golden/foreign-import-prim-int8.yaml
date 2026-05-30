@@ -1,0 +1,13 @@
+extensions:
+  - GHCForeignImportPrim
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
+    test = i8_addition
+expected:
+  - "i8_addition :: Int8# -> Int8# -> Int8#"
+  - "test :: Int8# -> Int8# -> Int8#"
+status: pass
+reason: "foreign import prim registers primitive functions with unboxed argument and result types"
