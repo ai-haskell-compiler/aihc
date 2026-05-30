@@ -44,8 +44,6 @@ extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-e
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
-tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
-tc_extension_markdown_cmd="${TC_EXTENSION_PROGRESS_CMD:-nix run .#tc-extension-progress}"
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- parser-stackage-progress --snapshot lts-24.33 --jobs 1}"
 resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
 tc_stackage_cmd="${TC_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- tc-stackage-progress --snapshot lts-24.33}"
@@ -64,8 +62,6 @@ extension_progress_out="$tmpdir/extension-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
-tc_out="$tmpdir/tc-progress.txt"
-tc_extension_out="$tmpdir/tc-extension-progress.md"
 stackage_out="$tmpdir/stackage-progress.txt"
 resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
 tc_stackage_out="$tmpdir/tc-stackage-progress.txt"
@@ -78,8 +74,6 @@ run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
-run_cmd "$tc_cmd" >"$tc_out"
-run_cmd "$tc_extension_markdown_cmd" | sed -n '/^# Type Checker Extension Support Status/,$p' >"$tc_extension_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
 run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
 run_cmd "$tc_stackage_cmd" >"$tc_stackage_out" || true
@@ -286,18 +280,6 @@ resolve_total="${resolve_vals[4]}"
 resolve_implemented="${resolve_vals[5]}"
 resolve_complete="${resolve_vals[6]}"
 
-tc_vals=($(parse_progress "$tc_out")) || {
-	echo "update-generated-content.sh: could not parse tc-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-tc_pass="${tc_vals[0]}"
-tc_xfail="${tc_vals[1]}"
-tc_xpass="${tc_vals[2]}"
-tc_fail="${tc_vals[3]}"
-tc_total="${tc_vals[4]}"
-tc_implemented="${tc_vals[5]}"
-tc_complete="${tc_vals[6]}"
-
 ext_progress_vals=($(parse_extension_progress "$extension_progress_out")) || {
 	echo "update-generated-content.sh: could not parse parser-extension-progress text (expected PASS=/XFAIL=/ lines)." >&2
 	exit 2
@@ -339,7 +321,6 @@ resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
 tc_stackage_circles="$(progress_circles "$tc_stackage_complete")"
 lexer_circles="$(progress_circles "$lexer_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
-tc_circles="$(progress_circles "$tc_complete")"
 
 cat >"$tmpdir/readme-root-parser.txt" <<EOF2
 \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) ${parser_total_circles}
@@ -367,10 +348,6 @@ EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
 \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
-EOF2
-
-cat >"$tmpdir/readme-root-tc.txt" <<EOF2
-\`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`) ${tc_circles}
 EOF2
 
 cat >"$tmpdir/readme-cpp.txt" <<EOF2
@@ -482,15 +459,6 @@ else
 fi
 
 if [ "$mode" = "--update" ]; then
-	cp "$tc_extension_out" docs/aihc-tc-supported-extensions.md
-else
-	if ! cmp -s docs/aihc-tc-supported-extensions.md "$tc_extension_out"; then
-		echo "Generated file out of date: docs/aihc-tc-supported-extensions.md" >&2
-		stale=1
-	fi
-fi
-
-if [ "$mode" = "--update" ]; then
 	cp "$resolve_extension_out" docs/aihc-resolve-supported-extensions.md
 else
 	if ! cmp -s docs/aihc-resolve-supported-extensions.md "$resolve_extension_out"; then
@@ -506,7 +474,6 @@ replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root
 replace_marker_inline README.md "tc-stackage-progress" "$tmpdir/readme-root-tc-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
-replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
 replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 

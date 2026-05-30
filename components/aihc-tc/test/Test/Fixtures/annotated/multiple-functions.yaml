@@ -5,13 +5,19 @@ annotated:
        │      │      └─ False :: Bool
        │      └─ True :: Bool
        └─ Bool :: *
-  x = True
-  └─ x :: Bool
+  id x = x
+  │  └─ x :: a
+  └─ id :: forall a. a -> a
+  const x y = x
+  │     │ └─ y :: b
+  │     └─ x :: a
+  └─ const :: forall a b. a -> b -> a
 extensions: []
 modules:
 - |
   module Test where
   data Bool = True | False
-  x = True
+  id x = x
+  const x y = x
 reason: ''
 status: pass

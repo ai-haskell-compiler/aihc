@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x | x == x = x
+    (==) a b = True
+annotated: []
+status: xfail
+reason: "pattern guards with expressions not yet supported"

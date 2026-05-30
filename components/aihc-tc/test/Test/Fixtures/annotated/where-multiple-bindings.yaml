@@ -1,0 +1,29 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ False :: Bool
+       │      └─ True :: Bool
+       └─ Bool :: *
+  f x y = x + y
+  │ │ └─ y :: b
+  │ └─ x :: a
+  └─ f :: forall a b. a -> b -> a
+    where
+      (+) a b = a
+      │   │ └─ b :: b
+      │   └─ a :: a
+      └─ (+) :: forall a b. a -> b -> a
+      zero = True
+      └─ zero :: Bool
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  f x y = x + y
+    where
+      (+) a b = a
+      zero = True
+reason: ''
+status: pass

@@ -1,0 +1,23 @@
+annotated:
+- |-
+  module Test where
+  (++) :: [a] -> [a] -> [a]
+  [] ++ bs = bs
+     │  └─ bs :: [a]
+     └─ (++) :: forall a. [a] -> [a] -> [a]
+  (a:as) ++ bs = a : (as ++ bs)
+   │ │   │  │  │     └─ type-args: a
+   │ │   │  │  └─ type-args: a
+   │ │   │  └─ bs :: [a]
+   │ │   └─ (++) :: forall a. [a] -> [a] -> [a]
+   │ └─ as :: [a]
+   └─ a :: a
+extensions: []
+modules:
+- |
+  module Test where
+  (++) :: [a] -> [a] -> [a]
+  [] ++ bs = bs
+  (a:as) ++ bs = a : (as ++ bs)
+reason: polymorphic list signatures quantify variables inside list types
+status: pass

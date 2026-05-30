@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Test where
+  data List a = [] | a : [a]
+       └─ List :: *
+  infixr 5 :
+  (++) :: [a] -> [a] -> [a]
+  (++) [] ys = ys
+   │      └─ ys :: [a]
+   └─ (++) :: forall a. [a] -> [a] -> [a]
+  (++) (x : xs) ys = x : (xs ++ ys)
+   │    │   │   │  │     └─ type-args: a
+   │    │   │   │  └─ type-args: a
+   │    │   │   └─ ys :: [a]
+   │    │   └─ xs :: [a]
+   │    └─ x :: a
+   └─ (++) :: forall a. [a] -> [a] -> [a]
+extensions: []
+modules:
+- |
+  module Test where
+  data List a = [] | a : [a]
+  infixr 5 :
+  (++) :: [a] -> [a] -> [a]
+  (++) [] ys = ys
+  (++) (x : xs) ys = x : (xs ++ ys)
+reason: Prelude-style List declarations share the builtin list type used by list syntax
+status: pass

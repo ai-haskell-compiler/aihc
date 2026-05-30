@@ -6,8 +6,6 @@
   hsPkgs = mkHsPkgs pkgs;
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
-  tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
-  tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
   parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
   lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
@@ -192,20 +190,8 @@ in {
     ${resolveExtensionProgressExe} "$@"
   '';
 
-  tc-progress = mkComponentApp "tc-progress" "components/aihc-tc" ''
-    ${tcProgressExe} "$@"
-  '';
-
-  tc-progress-strict = mkComponentApp "tc-progress-strict" "components/aihc-tc" ''
-    ${tcProgressExe} --strict "$@"
-  '';
-
   tc-test = mkComponentApp "tc-test" "components/aihc-tc" ''
     cabal test --test-show-details=direct
-  '';
-
-  tc-extension-progress = mkComponentApp "tc-extension-progress" "components/aihc-tc" ''
-    ${tcExtensionProgressExe} "$@"
   '';
 
   generate-reports = mkReportsApp "generate-reports" ''

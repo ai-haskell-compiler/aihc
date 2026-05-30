@@ -588,18 +588,30 @@ Build in this order, each stage adding to the previous:
 
 ## 12. Testing strategy
 
-### 12.1 Golden tests
+### 12.1 Annotated golden tests
 
-Place fixtures in `components/aihc-tc/test/Test/Fixtures/golden/`.
+Place fixtures in `components/aihc-tc/test/Test/Fixtures/annotated/`.
 
-Each fixture is a `.hs` file containing a Haskell snippet. The expected
-output is the annotated type information for each binding and sub-expression,
-rendered in a deterministic text format.
+Each fixture is a YAML file containing one or more Haskell modules. The
+expected output is the source overlaid with annotated type information for each
+binding and sub-expression, rendered in a deterministic text format.
 
-**Format**: for each annotated node, emit one line:
+**Format**: the `annotated` field contains one rendered overlay per module:
 
-```
-<span> <construct> :: <type> [evidence: <evidence>] [coercions: <coercions>]
+```yaml
+extensions: []
+modules:
+  - |
+    module Test where
+    id x = x
+annotated:
+  - |
+    module Test where
+    id x = x
+    │  └─ x :: a
+    └─ id :: forall a. a -> a
+status: pass
+reason: ""
 ```
 
 Fixtures should cover:

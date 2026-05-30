@@ -1,0 +1,16 @@
+annotated:
+- |-
+  module Test where
+  f x = let g y = h y; h z = z in g x
+  │ │       │ └─ y :: a│ └─ z :: a
+  │ │       │          └─ h :: forall a. a -> a
+  │ │       └─ g :: forall a. a -> a
+  │ └─ x :: a
+  └─ f :: forall a. a -> a
+extensions: []
+modules:
+- |
+  module Test where
+  f x = let g y = h y; h z = z in g x
+reason: ''
+status: pass

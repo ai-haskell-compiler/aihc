@@ -1,9 +1,0 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    id = \x -> x
-expected:
-  - "id :: forall a. a -> a"
-status: pass
-reason: ""
