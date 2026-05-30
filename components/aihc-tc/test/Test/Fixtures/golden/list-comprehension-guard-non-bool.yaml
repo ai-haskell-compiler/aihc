@@ -1,0 +1,7 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    bad xs = [ x | x <- xs, 1 ]
+status: fail
+reason: list comprehension guards must be Bool, not Int

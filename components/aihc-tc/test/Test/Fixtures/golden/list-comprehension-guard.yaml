@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    filter f list = [ x | x <- list, f x ]
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "filter :: forall a. (a -> Bool) -> [a] -> [a]"
+status: pass
+reason: list comprehension guards must typecheck as Bool

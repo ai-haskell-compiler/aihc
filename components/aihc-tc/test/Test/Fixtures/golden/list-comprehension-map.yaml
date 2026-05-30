@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    map f list = [ f x | x <- list ]
+expected:
+  - "map :: forall a b. (a -> b) -> [a] -> [b]"
+status: pass
+reason: list comprehension generator introduces an element binding used by the body
