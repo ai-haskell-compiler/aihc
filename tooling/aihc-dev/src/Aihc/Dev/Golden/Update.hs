@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheck, typecheckModulesWithEnv)
+import Aihc.Tc (TcModuleResult (..), typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
 import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
@@ -129,7 +129,6 @@ run opts = do
         updateLexerGoldens opts,
         updateParserErrorGoldens opts,
         updateResolverGoldens opts,
-        updateTcGoldens opts,
         updateTcAnnotatedGoldens opts,
         updateFcGoldens opts,
         updateFcEvalGoldens opts,
@@ -334,25 +333,6 @@ resolverActual value = do
   parsed <- traverse (parseModuleText exts) modules
   let result = resolve parsed
   Right (renderResolveResult result, renderAnnotatedResolveResult modules result)
-
-updateTcGoldens :: Options -> IO Summary
-updateTcGoldens opts =
-  updateYamlTree opts (optRoot opts </> "components/aihc-tc/test/Test/Fixtures/golden") $ \_ value ->
-    if not (shouldUpdateOutput value)
-      then pure FixtureUnchanged
-      else case tcActual value of
-        Left err -> pure (skipForStatus (textField "status" value) err)
-        Right actual -> updateExpectedText value actual
-
-tcActual :: Value -> Either String String
-tcActual value = do
-  exts <- parseExtensions value
-  modules <- parseTextArrayField "modules" value
-  parsed <- traverse (parseModuleText exts) modules
-  let results = typecheck parsed
-  if all tcmSuccess results
-    then Right (trim (unlines [T.unpack (tbDisplayName b) <> " :: " <> renderTcType (tbType b) | r <- results, b <- tcmBindings r]))
-    else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
 
 updateTcAnnotatedGoldens :: Options -> IO Summary
 updateTcAnnotatedGoldens opts =
