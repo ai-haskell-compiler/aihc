@@ -6,7 +6,7 @@ annotated:
        │      └─ True :: Bool
        └─ Bool :: *
   data GADT a where
-       └─ GADT :: *
+       └─ GADT :: * -> *
     IsBool :: GADT Bool
     └─ IsBool :: GADT Bool
   not True = False

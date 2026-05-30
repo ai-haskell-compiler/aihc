@@ -19,6 +19,8 @@ module Aihc.Tc.Monad
     -- * Meta-variable solutions
     writeMetaTv,
     readMetaTv,
+    writeKindMeta,
+    readKindMeta,
 
     -- * Evidence
     bindEvidence,
@@ -33,6 +35,9 @@ module Aihc.Tc.Monad
     extendTermEnv,
     extendTermEnvPermanent,
     getTermEnv,
+    lookupTyCon,
+    extendTyConEnvPermanent,
+    getTyConEnv,
     localTcOptions,
     tcMonoLocalBinds,
     tcMonomorphismRestriction,
@@ -53,7 +58,7 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
-import Aihc.Tc.Env (InstanceInfo)
+import Aihc.Tc.Env (InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -128,12 +133,16 @@ data TcState = TcState
     tcsNextUnique :: !Int,
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(Map Unique TcType),
+    -- | Solutions for kind meta-variables.
+    tcsKindSolutions :: !(Map Unique Kind),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
     tcsDiagnostics :: ![TcDiagnostic],
     -- | Global term bindings (accumulated by top-level declarations).
     tcsGlobalTerms :: !(Map Text TcBinder),
+    -- | Global type constructors accumulated by top-level declarations.
+    tcsGlobalTyCons :: !(Map Text TyConInfo),
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
@@ -147,9 +156,11 @@ initTcState =
   TcState
     { tcsNextUnique = 0,
       tcsMetaSolutions = Map.empty,
+      tcsKindSolutions = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = builtinTerms,
+      tcsGlobalTyCons = Map.empty,
       tcsInstances = [],
       tcsGadtCons = Set.empty
     }
@@ -199,6 +210,16 @@ readMetaTv :: Unique -> TcM (Maybe TcType)
 readMetaTv u = lift $ gets $ \s ->
   Map.lookup u (tcsMetaSolutions s)
 
+-- | Record the solution for a kind meta-variable.
+writeKindMeta :: Unique -> Kind -> TcM ()
+writeKindMeta u kind = lift $ modify' $ \s ->
+  s {tcsKindSolutions = Map.insert u kind (tcsKindSolutions s)}
+
+-- | Look up the current solution for a kind meta-variable.
+readKindMeta :: Unique -> TcM (Maybe Kind)
+readKindMeta u = lift $ gets $ \s ->
+  Map.lookup u (tcsKindSolutions s)
+
 -- | Bind an evidence variable to an evidence term.
 bindEvidence :: EvVar -> EvTerm -> TcM ()
 bindEvidence (EvVar u) ev = lift $ modify' $ \s ->
@@ -236,6 +257,16 @@ extendTermEnv name binder =
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+
+lookupTyCon :: Text -> TcM (Maybe TyConInfo)
+lookupTyCon name = lift $ gets $ \s -> Map.lookup name (tcsGlobalTyCons s)
+
+getTyConEnv :: TcM (Map Text TyConInfo)
+getTyConEnv = lift $ gets tcsGlobalTyCons
+
+extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
+extendTyConEnvPermanent name info = lift $ modify' $ \s ->
+  s {tcsGlobalTyCons = Map.insert name info (tcsGlobalTyCons s)}
 
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = lift $ modify' $ \s ->

@@ -22,6 +22,7 @@ library
     Aihc.Tc.Generate.Decl
     Aihc.Tc.Generate.Expr
     Aihc.Tc.Instantiate
+    Aihc.Tc.Kind
     Aihc.Tc.Monad
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize

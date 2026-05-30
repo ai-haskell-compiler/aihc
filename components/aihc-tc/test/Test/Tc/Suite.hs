@@ -38,6 +38,7 @@ tcTests =
       testGroup "if-then-else" ifTests,
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
+      testGroup "kinds" kindTests,
       testGroup "annotations" annotationTests,
       testGroup "error-cases" errorTests
     ]
@@ -161,6 +162,34 @@ variableTests =
       assertBool "should fail" (not (tcResultSuccess result))
       assertBool "should have diagnostics" (not (null (tcResultDiagnostics result)))
   ]
+
+kindTests :: [TestTree]
+kindTests =
+  [ testCase "rejects unsaturated type constructor in signature" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \data M a = J a | N\n\
+                \fn :: M\n\
+                \fn = fn\n"
+      assertBool "module should fail" (not (tcmSuccess result))
+      assertBool "should report a kind mismatch" (any isKindMismatch (tcmDiagnostics result)),
+    testCase "accepts saturated type constructor in signature" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \data M a = J a | N\n\
+                \fn :: M Int\n\
+                \fn = N\n"
+      assertBool "module should typecheck" (tcmSuccess result)
+  ]
+  where
+    isKindMismatch diag =
+      case diagKind diag of
+        KindMismatch {} -> True
+        _ -> False
 
 annotationTests :: [TestTree]
 annotationTests =

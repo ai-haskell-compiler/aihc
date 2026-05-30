@@ -13,7 +13,7 @@ annotated:
     data Double
          └─ Double :: *
     data IO a
-         └─ IO :: *
+         └─ IO :: * -> *
     foreign import javascript unsafe "performance.now" js_now :: IO Double
                                                        └─ js_now :: IO Double
     test = js_now

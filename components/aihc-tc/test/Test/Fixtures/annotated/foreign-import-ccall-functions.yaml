@@ -15,7 +15,7 @@ annotated:
     data CInt
          └─ CInt :: *
     data IO a
-         └─ IO :: *
+         └─ IO :: * -> *
     foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
                                       └─ plus1 :: CInt -> IO CInt
     foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt

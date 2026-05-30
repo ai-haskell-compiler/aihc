@@ -18,6 +18,7 @@ module Aihc.Tc.Types
     -- * Types
     TcType (..),
     TyCon (..),
+    Kind (..),
     TypeScheme (..),
 
     -- * Predicates
@@ -55,6 +56,14 @@ data TyCon = TyCon
   { tyConName :: !Text,
     tyConArity :: !Int
   }
+  deriving (Eq, Ord, Show)
+
+-- | Kinds for the type language checked by @aihc-tc@.
+data Kind
+  = KType
+  | KConstraint
+  | KFun !Kind !Kind
+  | KMeta !Unique
   deriving (Eq, Ord, Show)
 
 -- | Internal type representation.
