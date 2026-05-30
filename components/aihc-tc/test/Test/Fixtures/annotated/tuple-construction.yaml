@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = (x, x)
+annotated: []
+status: xfail
+reason: "tuple construction not yet supported"

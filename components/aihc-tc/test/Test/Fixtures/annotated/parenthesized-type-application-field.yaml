@@ -1,0 +1,13 @@
+annotated:
+- |-
+  module Test where
+  data Chan a = Chan (Foo Int)
+       │        └─ Chan :: Foo Int -> Chan a
+       └─ Chan :: Foo Int -> Chan a
+extensions: []
+modules:
+- |
+  module Test where
+  data Chan a = Chan (Foo Int)
+reason: ''
+status: pass

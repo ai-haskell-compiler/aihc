@@ -5,13 +5,16 @@ annotated:
        │      │      └─ False :: Bool
        │      └─ True :: Bool
        └─ Bool :: *
-  x = True
-  └─ x :: Bool
-extensions: []
+  not = \case True -> False
+  └─ not :: Bool -> Bool
+              False -> True
+extensions:
+- LambdaCase
 modules:
 - |
   module Test where
   data Bool = True | False
-  x = True
+  not = \case True -> False
+              False -> True
 reason: ''
 status: pass
