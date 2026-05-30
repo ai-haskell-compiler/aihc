@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
+    TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -373,10 +374,15 @@ convertSurfaceType tvMap ty =
             _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
     TFun _ a b ->
       TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
-    TTuple _ _ args ->
+    TTuple flavor _ args ->
       let tys = map (convertSurfaceType tvMap) args
           n = length tys
-          tc = TyCon ("(" <> mconcat (replicate (n - 1) ",") <> ")") n
+          tc = TyCon (tupleConText flavor n) n
+       in TcTyCon tc tys
+    TUnboxedSum args ->
+      let tys = map (convertSurfaceType tvMap) args
+          n = length tys
+          tc = TyCon ("(#" <> bars (n - 1) <> "#)") n
        in TcTyCon tc tys
     TList _ args ->
       case args of
@@ -398,6 +404,22 @@ namedTypeCon name = TcTyCon (TyCon name 0) []
 
 listType :: TcType -> TcType
 listType ty = TcTyCon (TyCon "[]" 1) [ty]
+
+tupleConText :: TupleFlavor -> Int -> Text
+tupleConText flavor arity =
+  case flavor of
+    Boxed -> "(" <> commas arity <> ")"
+    Unboxed -> "(#" <> commas arity <> "#)"
+
+commas :: Int -> Text
+commas n
+  | n <= 1 = ""
+  | otherwise = mconcat (replicate (n - 1) ",")
+
+bars :: Int -> Text
+bars n
+  | n <= 0 = ""
+  | otherwise = mconcat (replicate n "|")
 
 skolemize :: TypeScheme -> TcM TcType
 skolemize (ForAll tvs _preds body) = do

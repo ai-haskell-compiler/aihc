@@ -135,6 +135,14 @@ renderTcType = go 0
     go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
+    go _ (TcTyCon (TyCon name arity) args)
+      | isBoxedTupleCon name arity,
+        arity == length args =
+          "(" ++ commaSep (map (go 0) args) ++ ")"
+    go _ (TcTyCon (TyCon name arity) args)
+      | isUnboxedTupleCon name arity,
+        arity == length args =
+          "(# " ++ commaSep (map (go 0) args) ++ " #)"
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
         unwords (T.unpack (tyConName tc) : map (go 2) args)
@@ -159,6 +167,18 @@ renderTcType = go 0
 
     parenIf False s = s
     parenIf True s = "(" ++ s ++ ")"
+
+    commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
+
+    isBoxedTupleCon name arity =
+      name == T.pack "(" <> commas arity <> T.pack ")"
+
+    isUnboxedTupleCon name arity =
+      name == T.pack "(#" <> commas arity <> T.pack "#)"
+
+    commas arity
+      | arity <= 1 = T.empty
+      | otherwise = T.replicate (arity - 1) (T.pack ",")
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

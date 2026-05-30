@@ -17,6 +17,8 @@ import Aihc.Parser.Syntax
     DataDecl (..),
     Decl (..),
     Expr (..),
+    ForeignDecl (..),
+    ForeignDirection (..),
     GuardQualifier (..),
     GuardedRhs (..),
     InstanceDecl (..),
@@ -88,6 +90,7 @@ topLevelBindingLabels source bindings modu =
     goDecl ambient (DeclData dataDecl) = topLevelTypeDeclLabels source ambient bindingTypes (dataDeclBinders dataDecl)
     goDecl ambient (DeclNewtype newtypeDecl) = topLevelTypeDeclLabels source ambient bindingTypes (newtypeDeclBinders newtypeDecl)
     goDecl ambient (DeclTypeSyn typeSynDecl) = topLevelTypeDeclLabels source ambient bindingTypes [binderInfo (binderHeadName (typeSynHead typeSynDecl))]
+    goDecl ambient (DeclForeign foreignDecl) = topLevelForeignDeclLabels source ambient bindingTypes foreignDecl
     goDecl _ _ = []
 
 topLevelValueBinders :: ValueDecl -> [(Text, Maybe SourceSpan)]
@@ -116,6 +119,15 @@ topLevelTypeDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> [(T
 topLevelTypeDeclLabels source ambient bindingTypes binders =
   [ TcLabel sp (T.unpack displayName <> " :: " <> renderTcType ty)
   | (displayName, maybeSpan) <- binders,
+    Just ty <- [Map.lookup displayName bindingTypes],
+    Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
+  ]
+
+topLevelForeignDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> ForeignDecl -> [TcLabel]
+topLevelForeignDeclLabels source ambient bindingTypes foreignDecl =
+  [ TcLabel sp (T.unpack displayName <> " :: " <> renderTcType ty)
+  | foreignDirection foreignDecl == ForeignImport,
+    let (displayName, maybeSpan) = binderInfo (foreignName foreignDecl),
     Just ty <- [Map.lookup displayName bindingTypes],
     Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
   ]
