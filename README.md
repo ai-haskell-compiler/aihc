@@ -17,7 +17,7 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | `0/3390` (`0.00%`) ○○○○○                                                                                                              |
+| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `0/3390` (`0.00%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `218/3427` (`6.36%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |

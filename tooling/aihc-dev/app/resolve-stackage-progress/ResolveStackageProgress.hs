@@ -10,8 +10,10 @@ module ResolveStackageProgress
     gatherDepExports,
     kahnLayers,
     optionsParser,
+    parseFileInfo,
     phase1Parallel,
     processLayers,
+    renderResolveError,
     resolveOnePackage,
     run,
   )

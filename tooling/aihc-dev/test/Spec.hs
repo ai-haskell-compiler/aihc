@@ -21,6 +21,7 @@ import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimin
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Test.Tasty.QuickCheck qualified as QC
+import Test.TcStackageProgress (tcStackageProgressTests)
 
 main :: IO ()
 main = do
@@ -76,6 +77,7 @@ main = do
       resolveStackagePathsModuleTests,
       stackageProgressFileCheckerTests,
       stackageProgressFileCheckerTimingTests,
+      tcStackageProgressTests,
       cliTestsTree
     ]
 
