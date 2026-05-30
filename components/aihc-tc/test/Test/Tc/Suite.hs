@@ -2,6 +2,7 @@
 
 module Test.Tc.Suite
   ( tcTests,
+    tcAnnotatedGoldenTests,
     tcGoldenTests,
   )
 where
@@ -24,6 +25,7 @@ import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Data.Maybe (maybeToList)
 import Data.Text (Text)
+import TcAnnotatedGolden qualified as TAG
 import TcGolden qualified as TG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -49,6 +51,13 @@ tcGoldenTests = do
   let tests = map mkGoldenTest cases
   pure (testGroup "tc-golden" tests)
 
+-- | Build the inline annotated golden test tree from YAML fixtures.
+tcAnnotatedGoldenTests :: IO TestTree
+tcAnnotatedGoldenTests = do
+  cases <- TAG.loadTcAnnotatedCases
+  let tests = map mkAnnotatedGoldenTest cases
+  pure (testGroup "tc-annotated-golden" tests)
+
 mkGoldenTest :: TG.TcCase -> TestTree
 mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
   let (outcome, details) = TG.evaluateTcCase tcase
@@ -66,6 +75,27 @@ mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
       assertFailure
         ( "Unexpected pass in TC golden test: "
             <> TG.caseId tcase
+            <> " details="
+            <> details
+        )
+
+mkAnnotatedGoldenTest :: TAG.TcAnnotatedCase -> TestTree
+mkAnnotatedGoldenTest tcase = testCase (TAG.caseId tcase) $ do
+  let (outcome, details) = TAG.evaluateTcAnnotatedCase tcase
+  case outcome of
+    TAG.OutcomePass -> pure ()
+    TAG.OutcomeXFail -> pure ()
+    TAG.OutcomeFail ->
+      assertFailure
+        ( "TC annotated golden test failed: "
+            <> TAG.caseId tcase
+            <> " details="
+            <> details
+        )
+    TAG.OutcomeXPass ->
+      assertFailure
+        ( "Unexpected pass in TC annotated golden test: "
+            <> TAG.caseId tcase
             <> " details="
             <> details
         )

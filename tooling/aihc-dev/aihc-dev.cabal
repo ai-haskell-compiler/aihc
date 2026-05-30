@@ -99,12 +99,16 @@ library parser-tools
   default-language: GHC2021
 
 library golden-tools
-  hs-source-dirs: src
+  hs-source-dirs:
+    src
+    ../../components/aihc-tc/common
+
   exposed-modules:
     Aihc.Dev.Golden.Update
 
   other-modules:
     Aihc.Dev.Parser.Run
+    TcAnnotatedRender
 
   build-depends:
     aeson >=2.0 && <2.3,

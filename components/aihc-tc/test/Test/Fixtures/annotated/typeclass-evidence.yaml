@@ -1,0 +1,40 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+    class Eq a where
+      (==) :: a -> a -> Bool
+    instance Eq Bool where
+      False == False = True
+      False == True = False
+      True == False = False
+      True == True = True
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+annotated:
+  - |
+    module Test where
+    data Bool = False | True
+         │      │       └─ True :: Bool
+         │      └─ False :: Bool
+         └─ Bool :: *
+    class Eq a where
+    └─ == :: forall a. (Eq a) => a -> a -> Bool
+      (==) :: a -> a -> Bool
+    instance Eq Bool where
+    └─ $fEqBool :: () => Eq Bool
+      False == False = True
+      └─ == :: Bool -> Bool -> Bool
+      False == True = False
+      └─ == :: Bool -> Bool -> Bool
+      True == False = False
+      └─ == :: Bool -> Bool -> Bool
+      True == True = True
+      └─ == :: Bool -> Bool -> Bool
+    eqBool :: Bool -> Bool -> Bool
+    eqBool = (==)
+    │        └─ type-args: Bool; evidence: $fEqBool
+    └─ eqBool :: Bool -> Bool -> Bool
+status: pass
+reason: ""

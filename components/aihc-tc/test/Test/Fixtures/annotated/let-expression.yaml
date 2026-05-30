@@ -1,0 +1,14 @@
+annotated:
+- |-
+  module Test where
+  f x = let y = x in y
+  │ │       └─ y :: a
+  │ └─ x :: a
+  └─ f :: forall a. a -> a
+extensions: []
+modules:
+- |
+  module Test where
+  f x = let y = x in y
+reason: ''
+status: pass

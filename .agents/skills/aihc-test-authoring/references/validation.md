@@ -25,7 +25,7 @@ cabal run -v0 aihc-dev -- update-goldens --dry-run
 cabal run -v0 aihc-dev -- update-goldens
 ```
 
-Run it from the repository root. Use `--root <dir>` only when invoking it from another working directory. The updater scans parser AST goldens, lexer goldens, parser error messages, resolver goldens, TC goldens, FC goldens, FC eval outputs, formatter goldens, and parser CLI goldens. It updates generated expectation fields such as `ast`, `tokens`, `expected`, `output`, and `annotated` only for `pass` and `xpass` fixtures; `fail` and `xfail` cases are skipped because their expected output is not the current success contract.
+Run it from the repository root. Use `--root <dir>` only when invoking it from another working directory. The updater scans parser AST goldens, lexer goldens, parser error messages, resolver goldens, TC goldens, TC annotated goldens, FC goldens, FC eval outputs, formatter goldens, and parser CLI goldens. It updates generated expectation fields such as `ast`, `tokens`, `expected`, `output`, and `annotated` only for `pass` and `xpass` fixtures; `fail` and `xfail` cases are skipped because their expected output is not the current success contract.
 
 After running without `--dry-run`, inspect the diff before accepting it. A changed golden is evidence that behavior changed, not evidence that the new behavior is correct. Keep intentional fixture metadata (`status`, `reason`, extension lists, dependencies, module sources, and expression sources) under review.
 
