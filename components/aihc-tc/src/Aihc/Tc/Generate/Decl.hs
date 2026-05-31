@@ -900,7 +900,7 @@ tcDeclGroup sigs (SingleDecl d) =
     DeclValue (PatternBind _ pat rhs)
       | Just (displayName, name) <- patternBinderName pat,
         Just scheme <- Map.lookup name sigs ->
-          tcFunctionWithSig displayName name scheme [zeroArgMatch rhs]
+          tcFunctionWithSig displayName name scheme [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
     _ -> tcDecl d
 tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
   let name = unqualifiedNameText binder
@@ -1194,7 +1194,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.
   Just (displayName, name) -> do
-    tcFunctionInfer displayName name [zeroArgMatch rhs]
+    tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
   -- Non-trivial pattern binding: infer the RHS type without generalization.
   Nothing -> do
     ty <- tcRhs rhs
@@ -1211,14 +1211,34 @@ patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
-zeroArgMatch :: Rhs Expr -> Match
-zeroArgMatch rhs =
+zeroArgMatch :: SourceSpan -> Rhs Expr -> Match
+zeroArgMatch sp rhs =
   Match
-    { matchAnns = [],
+    { matchAnns = sourceSpanAnn sp,
       matchHeadForm = MatchHeadPrefix,
       matchPats = [],
       matchRhs = rhs
     }
+
+sourceSpanAnn :: SourceSpan -> [Annotation]
+sourceSpanAnn NoSourceSpan = []
+sourceSpanAnn sp = [mkAnnotation sp]
+
+orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+orSourceSpan NoSourceSpan fallback = fallback
+orSourceSpan sp _ = sp
+
+patternSpan :: Pattern -> SourceSpan
+patternSpan pat =
+  case pat of
+    PAnn ann inner ->
+      fromMaybe (patternSpan inner) (fromAnnotation ann)
+    PVar name -> sourceSpanFromAnns (unqualifiedNameAnns name)
+    PParen inner -> patternSpan inner
+    PAs name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)
+    PStrict inner -> patternSpan inner
+    PIrrefutable inner -> patternSpan inner
+    _ -> NoSourceSpan
 
 -- | Convert a type scheme to a displayable type.
 schemeToType :: TypeScheme -> TcType

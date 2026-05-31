@@ -136,9 +136,16 @@ evaluateTcAnnotatedCase tc =
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
           let results = typecheck modules
-           in if all tcmSuccess results
-                then classifySuccess tc (renderAnnotatedTcResults (caseModules tc) results)
-                else classifyFailure tc (renderDiags results)
+              actual = renderAnnotatedTcResults (caseModules tc) results
+              hasTypeErrors = not (all tcmSuccess results)
+           in case caseStatus tc of
+                StatusFail
+                  | hasTypeErrors -> classifyFailure tc (renderDiags results)
+                  | otherwise -> classifySuccess tc actual
+                StatusXFail
+                  | hasTypeErrors -> classifyFailure tc (renderDiags results)
+                  | otherwise -> classifySuccess tc actual
+                _ -> classifySuccess tc actual
   where
     parseOne input =
       let config =

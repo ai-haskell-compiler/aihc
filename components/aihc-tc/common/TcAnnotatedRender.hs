@@ -47,8 +47,10 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
+import Aihc.Tc.Constraint (CtOrigin (..))
+import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
-import Aihc.Tc.Types (Pred (..), TyCon (..), Unique (..))
+import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
 import Control.Applicative ((<|>))
 import Data.List (intercalate, sortOn)
 import Data.Map.Strict qualified as Map
@@ -75,8 +77,108 @@ data TcLabel = TcLabel
 collectTcLabels :: Text -> TcModuleResult -> [TcLabel]
 collectTcLabels source result =
   sortOn labelKey $
-    topLevelBindingLabels source (tcmBindings result) (tcmModule result)
-      <> concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
+    filterLabelsOnDiagnosticLines diagnostics $
+      topLevelBindingLabels source (tcmBindings result) (tcmModule result)
+        <> concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
+        <> diagnostics
+  where
+    diagnostics = diagnosticLabels (tcmDiagnostics result)
+
+filterLabelsOnDiagnosticLines :: [TcLabel] -> [TcLabel] -> [TcLabel]
+filterLabelsOnDiagnosticLines diagnostics =
+  filter $ \label ->
+    isDiagnosticLabel label || maybe True (`notElem` diagnosticLines) (labelLine label)
+  where
+    diagnosticLines = mapMaybe labelLine diagnostics
+
+isDiagnosticLabel :: TcLabel -> Bool
+isDiagnosticLabel label =
+  case labelText label of
+    'e' : 'r' : 'r' : 'o' : 'r' : ':' : _ -> True
+    'w' : 'a' : 'r' : 'n' : 'i' : 'n' : 'g' : ':' : _ -> True
+    _ -> False
+
+labelLine :: TcLabel -> Maybe Int
+labelLine label =
+  case labelSpan label of
+    SourceSpan _ startLine _ _ _ _ _ -> Just startLine
+    NoSourceSpan -> Nothing
+
+diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
+diagnosticLabels =
+  mapMaybe diagnosticLabel
+
+diagnosticLabel :: TcDiagnostic -> Maybe TcLabel
+diagnosticLabel diagnostic =
+  case diagnosticSpan diagnostic of
+    NoSourceSpan -> Nothing
+    sp -> Just (TcLabel sp (renderDiagnostic diagnostic))
+
+diagnosticSpan :: TcDiagnostic -> SourceSpan
+diagnosticSpan diagnostic =
+  case diagLoc diagnostic of
+    NoSourceSpan -> originSpan (diagnosticOrigin diagnostic)
+    sp -> sp
+
+diagnosticOrigin :: TcDiagnostic -> Maybe CtOrigin
+diagnosticOrigin diagnostic =
+  case diagKind diagnostic of
+    UnificationError _ _ origin -> Just origin
+    UnsolvedWanted _ origin -> Just origin
+    _ -> Nothing
+
+originSpan :: Maybe CtOrigin -> SourceSpan
+originSpan origin =
+  case origin of
+    Just (AppOrigin sp) -> sp
+    Just (LambdaOrigin sp) -> sp
+    Just (LetOrigin sp) -> sp
+    Just (LitOrigin sp) -> sp
+    Just (SigOrigin sp) -> sp
+    Just (CaseBranchOrigin sp) -> sp
+    Just (UnifyOrigin sp) -> sp
+    _ -> NoSourceSpan
+
+renderDiagnostic :: TcDiagnostic -> String
+renderDiagnostic diagnostic =
+  severityPrefix (diagSeverity diagnostic) <> ": " <> renderDiagnosticKind (diagKind diagnostic)
+
+severityPrefix :: TcSeverity -> String
+severityPrefix TcError = "error"
+severityPrefix TcWarning = "warning"
+
+renderDiagnosticKind :: TcErrorKind -> String
+renderDiagnosticKind kind =
+  case kind of
+    UnificationError left right _ ->
+      "couldn't match " <> renderTcType left <> " with " <> renderTcType right
+    OccursCheckError unique ty ->
+      "occurs check failed: " <> renderUnique unique <> " occurs in " <> renderTcType ty
+    UnboundVariable name ->
+      "unbound variable " <> name
+    KindMismatch expected actual ->
+      "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
+    UnsolvedWanted pred' _ ->
+      "unsolved constraint " <> renderPred pred'
+    OtherError message ->
+      message
+
+renderKind :: Kind -> String
+renderKind kind =
+  case kind of
+    KType -> "*"
+    KConstraint -> "Constraint"
+    KFun arg result -> renderKindArg arg <> " -> " <> renderKind result
+    KMeta unique -> renderUnique unique
+
+renderKindArg :: Kind -> String
+renderKindArg kind =
+  case kind of
+    KFun {} -> "(" <> renderKind kind <> ")"
+    _ -> renderKind kind
+
+renderUnique :: Unique -> String
+renderUnique (Unique unique) = "?" <> show unique
 
 topLevelBindingLabels :: Text -> [TcBindingResult] -> Module -> [TcLabel]
 topLevelBindingLabels source bindings modu =

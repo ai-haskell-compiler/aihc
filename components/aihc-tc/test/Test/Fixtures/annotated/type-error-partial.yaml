@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    y = ()
+    x :: ()
+    x = []
+annotated:
+  - |-
+    module Test where
+    y = ()
+    └─ y ∷ ()
+    x :: ()
+    x = []
+    └─ error: couldn't match [?1] with ()
+status: pass
+reason: type errors should render alongside successful annotations
