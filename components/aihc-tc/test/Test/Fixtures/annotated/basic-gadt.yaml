@@ -6,14 +6,14 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   data GADT a where
-       └─ GADT ∷ *
+       └─ GADT ∷ * → *
     IsBool :: GADT Bool
     └─ IsBool ∷ GADT Bool
   not True = False
   └─ not ∷ Bool → Bool
   not False = True
   └─ not ∷ Bool → Bool
-  
+
   fn :: a -> GADT a -> a
   fn x IsBool = not x
   │  └─ x ∷ a

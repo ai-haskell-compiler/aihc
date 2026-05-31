@@ -32,6 +32,8 @@ data TcErrorKind
     OccursCheckError !Unique !TcType
   | -- | Unbound variable.
     UnboundVariable !String
+  | -- | Type-level expression has a different kind than expected.
+    KindMismatch !Kind !Kind
   | -- | Unsolved wanted constraint.
     UnsolvedWanted !Pred !CtOrigin
   | -- | Other error with a message.

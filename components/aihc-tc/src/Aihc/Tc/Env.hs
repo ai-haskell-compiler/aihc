@@ -49,7 +49,8 @@ emptyGlobalEnv =
 data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
-    tciTyCon :: !TyCon
+    tciTyCon :: !TyCon,
+    tciKind :: !Kind
   }
   deriving (Show)
 

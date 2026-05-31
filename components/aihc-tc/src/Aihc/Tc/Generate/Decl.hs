@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for declarations.
@@ -37,12 +38,10 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TupleFlavor (..),
     Type (..),
-    TypeBuiltinCon (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
     binderHeadParams,
-    forallTelescopeBinders,
     fromAnnotation,
     gadtBodyResultType,
     instanceHeadName,
@@ -51,8 +50,6 @@ import Aihc.Parser.Syntax
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
-    peelTypeHead,
-    tyVarBinderKind,
     tyVarBinderName,
   )
 import Aihc.Tc.Annotations
@@ -66,13 +63,14 @@ import Aihc.Tc.Annotations
     annotateExpr,
   )
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (InstanceInfo (..))
+import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferLocalDeclBinders, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Instantiate qualified
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -187,10 +185,10 @@ annotateInstanceDeclTc classMethods instanceDecl =
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
-          headTys = map (convertSurfaceType tvMap) headArgTypes
           classNameText = nameText className
-          dictName = instanceDictName classNameText headTys
-      context <- mapM (surfacePredToPred tvMap) (instanceDeclContext instanceDecl)
+      headTys <- mapM (convertSurfaceType tvMap) headArgTypes
+      let dictName = instanceDictName classNameText headTys
+      context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       let contextDicts = map predDictBinder context
           dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
           methodOrder = fromMaybe [] (Map.lookup classNameText classMethods)
@@ -724,100 +722,6 @@ collectRawSigs decls = Map.fromList $ concatMap extractSig decls
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = []
 
--- | Collect free type variable names from a surface type.
-freeTypeVars :: Type -> [Text]
-freeTypeVars = nub . go
-  where
-    go (TVar name) = [unqualifiedNameText name]
-    go (TApp f a) = go f ++ go a
-    go (TTypeApp f a) = go f ++ go a
-    go (TInfix lhs _ _ rhs) = go lhs ++ go rhs
-    go (TFun _ a b) = go a ++ go b
-    go (TTuple _ _ args) = concatMap go args
-    go (TUnboxedSum args) = concatMap go args
-    go (TList _ args) = concatMap go args
-    go (TParen inner) = go inner
-    go (TAnn _ inner) = go inner
-    go (TKindSig inner kindTy) = go inner ++ go kindTy
-    go (TImplicitParam _ inner) = go inner
-    go (TContext preds inner) = concatMap go preds ++ go inner
-    go (TForall telescope inner) =
-      (concatMap binderKindVars (forallTelescopeBinders telescope) ++ go inner)
-        \\ map tyVarBinderName (forallTelescopeBinders telescope)
-    go _ = []
-    binderKindVars binder = maybe [] go (tyVarBinderKind binder)
-
--- | Convert a surface type to a TcType, using a map from variable names to
--- TyVarIds for any type variables in scope.
-convertSurfaceType :: Map Text TyVarId -> Type -> TcType
-convertSurfaceType tvMap ty = case peeledTy of
-  TVar name ->
-    let n = unqualifiedNameText name
-     in case Map.lookup n tvMap of
-          Just tvId -> TcTyVar tvId
-          Nothing -> TcTyCon (TyCon n 0) []
-  TCon name _ ->
-    namedTypeCon (nameText name)
-  TBuiltinCon TBuiltinList ->
-    TcTyCon (TyCon "[]" 1) []
-  TBuiltinCon TBuiltinCons ->
-    TcTyCon (TyCon ":" 2) []
-  TBuiltinCon (TBuiltinTuple arity) ->
-    TcTyCon (TyCon ("(" <> mconcat (replicate (arity - 1) ",") <> ")") arity) []
-  TBuiltinCon TBuiltinArrow ->
-    TcTyCon (TyCon "(->)" 2) []
-  TApp {} ->
-    -- Collect the full application chain to get the arity right.
-    let (headTy, args) = collectTApps peeledTy
-        convertedArgs = map (convertSurfaceType tvMap) args
-        arity = length args
-     in case peelTypeHead headTy of
-          TCon name _ ->
-            TcTyCon (TyCon (canonicalTypeConName arity (nameText name)) arity) convertedArgs
-          TVar name ->
-            let n = unqualifiedNameText name
-             in case Map.lookup n tvMap of
-                  Just tvId -> foldl TcAppTy (TcTyVar tvId) convertedArgs
-                  Nothing -> foldl TcAppTy (TcTyCon (TyCon n 0) []) convertedArgs
-          _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
-  TFun _ a b ->
-    TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
-  TTuple flavor _ args ->
-    let tys = map (convertSurfaceType tvMap) args
-        n = length tys
-        tc = TyCon (tupleConText flavor n) n
-     in TcTyCon tc tys
-  TUnboxedSum args ->
-    let tys = map (convertSurfaceType tvMap) args
-        n = length tys
-        tc = TyCon ("(#" <> bars (n - 1) <> "#)") n
-     in TcTyCon tc tys
-  TList _ args ->
-    case args of
-      [arg] ->
-        listType (convertSurfaceType tvMap arg)
-      _ ->
-        TcMetaTv (Unique (-1))
-  _ -> TcMetaTv (Unique (-1))
-  where
-    peeledTy = peelTypeHead ty
-
--- | Collect the head and all arguments from a chain of type applications.
-collectTApps :: Type -> (Type, [Type])
-collectTApps ty = go ty []
-  where
-    go (TApp f a) acc = go (peelTypeHead f) (a : acc)
-    go t acc = (t, acc)
-
-namedTypeCon :: Text -> TcType
-namedTypeCon "String" = listType (TcTyCon (TyCon "Char" 0) [])
-namedTypeCon "List" = TcTyCon (TyCon "[]" 1) []
-namedTypeCon name = TcTyCon (TyCon name 0) []
-
-canonicalTypeConName :: Int -> Text -> Text
-canonicalTypeConName 1 "List" = "[]"
-canonicalTypeConName _ name = name
-
 listType :: TcType -> TcType
 listType ty = TcTyCon (TyCon "[]" 1) [ty]
 
@@ -826,27 +730,8 @@ splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
 
-surfacePredToPred :: Map Text TyVarId -> Type -> TcM Pred
-surfacePredToPred tvMap ty =
-  case instanceHeadName ty of
-    Just className ->
-      pure (ClassPred (nameText className) (map (convertSurfaceType tvMap) (instanceHeadTypes ty)))
-    Nothing ->
-      do
-        emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
-        pure (ClassPred "<invalid-predicate>" [])
-
--- | Convert a surface type signature to a TypeScheme.
--- Free type variables become universally quantified type variables.
-sigToScheme :: Type -> TcM TypeScheme
-sigToScheme ty = do
-  let (context, body) = splitContext ty
-      freeVars = freeTypeVars ty
-  tvIds <- mapM freshSkolemTv freeVars
-  let tvMap = Map.fromList (zip freeVars tvIds)
-      tcTy = convertSurfaceType tvMap body
-  preds <- mapM (surfacePredToPred tvMap) context
-  pure (ForAll tvIds preds tcTy)
+simpleTvKindEnv :: Map Text TyVarId -> TvKindEnv
+simpleTvKindEnv = Map.map (,KType)
 
 -- | Instantiate a type scheme with fresh skolems for type-checking.
 -- Unlike regular instantiation (which uses metas), this produces rigid
@@ -1095,24 +980,35 @@ registerClassDecl :: ClassDecl -> TcM [TcBindingResult]
 registerClassDecl classDecl = do
   let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
       params = binderHeadParams (classDeclHead classDecl)
-      paramNames = map tyVarBinderName params
-  paramTyVars <- mapM freshSkolemTv paramNames
-  let paramMap = Map.fromList (zip paramNames paramTyVars)
+  paramInfos <- makeParamEnv params
+  let paramTyVars = map paramTyVar paramInfos
+      paramKinds = map paramKind paramInfos
+      paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
       classPred = ClassPred className (map TcTyVar paramTyVars)
-  superPreds <- concat <$> traverse (mapM (surfacePredToPred paramMap)) (maybeToList (classDeclContext classDecl))
-  concat <$> mapM (registerClassItem classPred superPreds paramMap paramTyVars) (classDeclItems classDecl)
+  classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
+  extendTyConEnvPermanent
+    className
+    TyConInfo
+      { tciName = className,
+        tciArity = length params,
+        tciTyCon = TyCon className (length params),
+        tciKind = classKind
+      }
+  superPreds <- concat <$> traverse (mapM (surfacePredToPred paramTvEnv)) (maybeToList (classDeclContext classDecl))
+  concat <$> mapM (registerClassItem classPred superPreds paramTvEnv paramTyVars) (classDeclItems classDecl)
 
-registerClassItem :: Pred -> [Pred] -> Map Text TyVarId -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
-registerClassItem classPred superPreds classTvMap classTyVars item =
+registerClassItem :: Pred -> [Pred] -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
+registerClassItem classPred superPreds classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemTypeSig names ty -> do
       let (context, body) = splitContext ty
-          classVarNames = Map.keys classTvMap
+          classVarNames = Map.keys classTvEnv
           freeVars = freeTypeVars ty \\ classVarNames
       extraTyVars <- mapM freshSkolemTv freeVars
-      let tvMap = classTvMap <> Map.fromList (zip freeVars extraTyVars)
-          methodBody = convertSurfaceType tvMap body
-      contextPreds <- mapM (surfacePredToPred tvMap) context
+      extraKinds <- mapM (const freshKindMeta) freeVars
+      let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
+      methodBody <- checkSurfaceType tvEnv body KType
+      contextPreds <- mapM (surfacePredToPred tvEnv) context
       let preds = classPred : superPreds <> contextPreds
           scheme = ForAll (classTyVars <> extraTyVars) preds methodBody
           declaredTy = schemeToType scheme
@@ -1137,10 +1033,10 @@ registerInstanceDecl instanceDecl =
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgs))
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
-          headTys = map (convertSurfaceType tvMap) headArgs
           classNameText = nameText className
-          dictName = instanceDictName classNameText headTys
-      context <- mapM (surfacePredToPred tvMap) (instanceDeclContext instanceDecl)
+      headTys <- mapM (convertSurfaceType tvMap) headArgs
+      let dictName = instanceDictName classNameText headTys
+      context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
       addInstance
         InstanceInfo
@@ -1180,13 +1076,20 @@ registerDataDecl dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
-      starKind = TcTyCon (TyCon "*" 0) []
-      tyConResult = TcBindingResult tyName tyName starKind
-  -- Create TyVarIds for the type parameters.
-  paramVarIds <- mapM (freshSkolemTv . tyVarBinderName) params
-  let paramMap = Map.fromList (zip (map tyVarBinderName params) paramVarIds)
       tc = dataDeclTyCon tyName arity
-  conResults <- mapM (registerDataCon tc paramMap paramVarIds) (dataDeclConstructors dd)
+  paramInfos <- makeParamEnv params
+  tyConKind <- tyConKindFromParams paramInfos (dataDeclKind dd)
+  extendTyConEnvPermanent
+    tyName
+    TyConInfo
+      { tciName = tyName,
+        tciArity = arity,
+        tciTyCon = tc,
+        tciKind = tyConKind
+      }
+  conResults <- mapM (registerDataCon tc paramInfos) (dataDeclConstructors dd)
+  zonkedKind <- defaultKindMetas tyConKind
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure (tyConResult : conResults)
 
 dataDeclTyCon :: Text -> Int -> TyCon
@@ -1195,49 +1098,53 @@ dataDeclTyCon name arity = TyCon name arity
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
-registerDataCon :: TyCon -> Map Text TyVarId -> [TyVarId] -> DataConDecl -> TcM TcBindingResult
-registerDataCon tc paramMap paramVarIds con = case con of
-  DataConAnn _ inner -> registerDataCon tc paramMap paramVarIds inner
+registerDataCon :: TyCon -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
+registerDataCon tc paramInfos con = case con of
+  DataConAnn _ inner -> registerDataCon tc paramInfos inner
   PrefixCon _docs _ctx conName args ->
-    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType) args)
+    mapM (fieldTypeTc . bangType) args >>= registerNamedDataCon (unqualifiedNameText conName)
   InfixCon _docs _ctx lhs conName rhs ->
-    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType) [lhs, rhs])
+    mapM (fieldTypeTc . bangType) [lhs, rhs] >>= registerNamedDataCon (unqualifiedNameText conName)
   RecordCon _docs _ctx conName fields ->
-    registerNamedDataCon (unqualifiedNameText conName) (map (convertSurfaceType paramMap . bangType . fieldType) fields)
+    mapM (fieldTypeTc . bangType . fieldType) fields >>= registerNamedDataCon (unqualifiedNameText conName)
   TupleCon _docs _ctx flavor fields ->
-    registerNamedDataCon (tupleConText flavor (length fields)) (map (convertSurfaceType paramMap . bangType) fields)
+    mapM (fieldTypeTc . bangType) fields >>= registerNamedDataCon (tupleConText flavor (length fields))
   UnboxedSumCon _docs _ctx pos arity field ->
-    registerNamedDataCon (unboxedSumConText pos arity) [convertSurfaceType paramMap (bangType field)]
+    fieldTypeTc (bangType field) >>= \fieldTy -> registerNamedDataCon (unboxedSumConText pos arity) [fieldTy]
   ListCon {} ->
     registerNamedDataCon "[]" []
   GadtCon _forallBinders _ctx names body ->
-    -- Parse the GADT constructor's declared result type.
-    let resultSurfTy = gadtBodyResultType body
-        argSurfTys = gadtBodyArgTypes body
-        gadtResTy = convertSurfaceType paramMap resultSurfTy
-        gadtArgTys = map (convertSurfaceType paramMap) argSurfTys
-        -- The constructor's full type: arg1 -> arg2 -> ... -> resultType
-        conTy = foldr TcFunTy gadtResTy gadtArgTys
-        -- GADT constructors are universally quantified over no extra vars
-        -- (the data type's params are handled via given equalities on match).
-        gadtScheme = ForAll [] [] conTy
-     in do
-          mapM_
-            ( \n -> do
-                let nm = unqualifiedNameText n
-                extendTermEnvPermanent nm (TcIdBinder nm gadtScheme Closed)
-                markGadtCon nm
-            )
-            names
-          case names of
-            (n : _) -> do
-              zonkedTy <- zonkType conTy
-              let name = unqualifiedNameText n
-               in pure (TcBindingResult name name zonkedTy)
-            [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
+    do
+      let resultSurfTy = gadtBodyResultType body
+          argSurfTys = gadtBodyArgTypes body
+      gadtResTy <- checkSurfaceType paramEnv resultSurfTy KType
+      gadtArgTys <- mapM (\argTy -> checkSurfaceType paramEnv argTy KType) argSurfTys
+      let conTy = foldr TcFunTy gadtResTy gadtArgTys
+          gadtScheme = ForAll [] [] conTy
+      mapM_
+        ( \n -> do
+            let nm = unqualifiedNameText n
+            extendTermEnvPermanent nm (TcIdBinder nm gadtScheme Closed)
+            markGadtCon nm
+        )
+        names
+      case names of
+        (n : _) -> do
+          zonkedTy <- zonkType conTy
+          let name = unqualifiedNameText n
+           in pure (TcBindingResult name name zonkedTy)
+        [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
   where
+    paramEnv =
+      Map.fromList
+        [ (paramName param, (paramTyVar param, paramKind param))
+        | param <- paramInfos
+        ]
+    paramVarIds = map paramTyVar paramInfos
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
     conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
+
+    fieldTypeTc ty = checkSurfaceType paramEnv ty KType
 
     registerNamedDataCon name argTys = do
       let conTy = foldr TcFunTy resTy argTys

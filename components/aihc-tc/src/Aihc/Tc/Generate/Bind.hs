@@ -24,20 +24,17 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
-    TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    forallTelescopeBinders,
     nameText,
     peelDeclAnn,
-    peelTypeHead,
-    tyVarBinderName,
     unqualifiedNameText,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Instantiate qualified
+import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
@@ -327,99 +324,6 @@ collectRawSigs decls = Map.fromList $ concatMap extractSig decls
       [(unqualifiedNameText n, ty) | n <- names]
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = []
-
-freeTypeVars :: Type -> [Text]
-freeTypeVars = nub . go
-  where
-    go (TVar name) = [unqualifiedNameText name]
-    go (TApp f a) = go f ++ go a
-    go (TFun _ a b) = go a ++ go b
-    go (TParen inner) = go inner
-    go (TAnn _ inner) = go inner
-    go (TContext _preds inner) = go inner
-    go (TForall telescope inner) =
-      go inner \\ map tyVarBinderName (forallTelescopeBinders telescope)
-    go _ = []
-
-sigToScheme :: Type -> TcM TypeScheme
-sigToScheme ty = do
-  let freeVars = freeTypeVars ty
-  tvIds <- mapM freshSkolemTv freeVars
-  let tvMap = Map.fromList (zip freeVars tvIds)
-      tcTy = convertSurfaceType tvMap ty
-  pure (ForAll tvIds [] tcTy)
-
-convertSurfaceType :: Map Text TyVarId -> Type -> TcType
-convertSurfaceType tvMap ty =
-  case peeledTy of
-    TVar name ->
-      let n = unqualifiedNameText name
-       in case Map.lookup n tvMap of
-            Just tvId -> TcTyVar tvId
-            Nothing -> TcTyCon (TyCon n 0) []
-    TCon name _ ->
-      namedTypeCon (nameText name)
-    TApp {} ->
-      let (headTy, args) = collectTApps peeledTy
-          convertedArgs = map (convertSurfaceType tvMap) args
-          arity = length args
-       in case peelTypeHead headTy of
-            TCon name _ ->
-              TcTyCon (TyCon (nameText name) arity) convertedArgs
-            TVar name ->
-              let n = unqualifiedNameText name
-               in case Map.lookup n tvMap of
-                    Just tvId -> foldl TcAppTy (TcTyVar tvId) convertedArgs
-                    Nothing -> foldl TcAppTy (TcTyCon (TyCon n 0) []) convertedArgs
-            _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
-    TFun _ a b ->
-      TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
-    TTuple flavor _ args ->
-      let tys = map (convertSurfaceType tvMap) args
-          n = length tys
-          tc = TyCon (tupleConText flavor n) n
-       in TcTyCon tc tys
-    TUnboxedSum args ->
-      let tys = map (convertSurfaceType tvMap) args
-          n = length tys
-          tc = TyCon ("(#" <> bars (n - 1) <> "#)") n
-       in TcTyCon tc tys
-    TList _ args ->
-      case args of
-        [arg] -> listType (convertSurfaceType tvMap arg)
-        _ -> TcMetaTv (Unique (-1))
-    _ -> TcMetaTv (Unique (-1))
-  where
-    peeledTy = peelTypeHead ty
-
-collectTApps :: Type -> (Type, [Type])
-collectTApps ty = go ty []
-  where
-    go (TApp f a) acc = go (peelTypeHead f) (a : acc)
-    go t acc = (t, acc)
-
-namedTypeCon :: Text -> TcType
-namedTypeCon "String" = listType (TcTyCon (TyCon "Char" 0) [])
-namedTypeCon name = TcTyCon (TyCon name 0) []
-
-listType :: TcType -> TcType
-listType ty = TcTyCon (TyCon "[]" 1) [ty]
-
-tupleConText :: TupleFlavor -> Int -> Text
-tupleConText flavor arity =
-  case flavor of
-    Boxed -> "(" <> commas arity <> ")"
-    Unboxed -> "(#" <> commas arity <> "#)"
-
-commas :: Int -> Text
-commas n
-  | n <= 1 = ""
-  | otherwise = mconcat (replicate (n - 1) ",")
-
-bars :: Int -> Text
-bars n
-  | n <= 0 = ""
-  | otherwise = mconcat (replicate n "|")
 
 skolemize :: TypeScheme -> TcM TcType
 skolemize (ForAll tvs _preds body) = do

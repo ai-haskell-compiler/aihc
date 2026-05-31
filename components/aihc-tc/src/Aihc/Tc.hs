@@ -25,6 +25,7 @@ module Aihc.Tc
 
     -- * Re-exports for convenience
     TcType (..),
+    Kind (..),
     TyCon (..),
     TyVarId (..),
     TypeScheme (..),
@@ -177,6 +178,7 @@ typecheckModuleWithState st m =
             st'
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
+                tcsKindSolutions = Map.empty,
                 tcsEvBinds = Map.empty
               }
        in (result, nextState)
