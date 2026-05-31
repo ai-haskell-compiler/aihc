@@ -2,31 +2,31 @@ annotated:
 - |-
   module Test where
   data Bool = False | True
-       │      │       └─ True :: Bool
-       │      └─ False :: Bool
-       └─ Bool :: *
+       │      │       └─ True ∷ Bool
+       │      └─ False ∷ Bool
+       └─ Bool ∷ *
   infixr 3 &&
   (&&) :: Bool -> Bool -> Bool
   False && _ = False
-        └─ (&&) :: Bool -> Bool -> Bool
+        └─ (&&) ∷ Bool → Bool → Bool
   True && x = x
-       │  └─ x :: Bool
-       └─ (&&) :: Bool -> Bool -> Bool
+       │  └─ x ∷ Bool
+       └─ (&&) ∷ Bool → Bool → Bool
   not :: Bool -> Bool
   not False = True
-  └─ not :: Bool -> Bool
+  └─ not ∷ Bool → Bool
   not True = False
-  └─ not :: Bool -> Bool
+  └─ not ∷ Bool → Bool
   otherwise :: Bool
   otherwise = True
-  └─ otherwise :: Bool
+  └─ otherwise ∷ Bool
   infixr 2 ||
   (||) :: Bool -> Bool -> Bool
   False || x = x
-        │  └─ x :: Bool
-        └─ (||) :: Bool -> Bool -> Bool
+        │  └─ x ∷ Bool
+        └─ (||) ∷ Bool → Bool → Bool
   True || _ = True
-       └─ (||) :: Bool -> Bool -> Bool
+       └─ (||) ∷ Bool → Bool → Bool
 extensions: []
 modules:
 - |

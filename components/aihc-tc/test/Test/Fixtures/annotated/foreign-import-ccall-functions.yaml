@@ -10,19 +10,19 @@ modules:
     test1 = plus1
     test2 = plus2
 annotated:
-  - |
-    module Test where
-    data CInt
-         └─ CInt :: *
-    data IO a
-         └─ IO :: * -> *
-    foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
-                                      └─ plus1 :: CInt -> IO CInt
-    foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt
-                                                     └─ plus2 :: CInt -> CInt -> IO CInt
-    test1 = plus1
-    └─ test1 :: CInt -> IO CInt
-    test2 = plus2
-    └─ test2 :: CInt -> CInt -> IO CInt
+- |-
+  module Test where
+  data CInt
+       └─ CInt ∷ *
+  data IO a
+       └─ IO ∷ * → *
+  foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
+                                    └─ plus1 ∷ CInt → IO CInt
+  foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt
+                                                   └─ plus2 ∷ CInt → CInt → IO CInt
+  test1 = plus1
+  └─ test1 ∷ CInt → IO CInt
+  test2 = plus2
+  └─ test2 ∷ CInt → CInt → IO CInt
 status: pass
 reason: "annotated output includes ccall and capi imported functions and later uses"

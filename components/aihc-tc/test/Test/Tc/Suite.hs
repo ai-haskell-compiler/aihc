@@ -208,7 +208,16 @@ annotationTests =
       assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" (tcmModule result))
       assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
       assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
-      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result))
+      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result)),
+    testCase "type rendering uses unicode syntax" $ do
+      let a = TyVarId "a" (Unique 1)
+          aTy = TcTyVar a
+          eqA = ClassPred "Eq" [aTy]
+          ty = TcForAllTy a (TcQualTy [eqA] (TcFunTy aTy aTy))
+      assertEqual
+        "rendered signature"
+        "f ∷ ∀ a. (Eq a) ⇒ a → a"
+        (renderTcSignature "f" ty)
   ]
 
 annotationModule :: Module

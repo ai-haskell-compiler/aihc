@@ -39,7 +39,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), renderTcType)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -104,7 +104,7 @@ topLevelValueDeclLabels source ambient bindingTypes valueDecl =
   signatureLabels <> argLabels
   where
     signatureLabels =
-      [ TcLabel sp (T.unpack displayName <> " :: " <> renderTcType ty)
+      [ TcLabel sp (renderTcSignature displayName ty)
       | (displayName, maybeSpan) <- topLevelValueBinders valueDecl,
         Just ty <- [Map.lookup displayName bindingTypes],
         Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
@@ -117,7 +117,7 @@ topLevelValueDeclLabels source ambient bindingTypes valueDecl =
 
 topLevelTypeDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> [(Text, Maybe SourceSpan)] -> [TcLabel]
 topLevelTypeDeclLabels source ambient bindingTypes binders =
-  [ TcLabel sp (T.unpack displayName <> " :: " <> renderTcType ty)
+  [ TcLabel sp (renderTcSignature displayName ty)
   | (displayName, maybeSpan) <- binders,
     Just ty <- [Map.lookup displayName bindingTypes],
     Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
@@ -125,7 +125,7 @@ topLevelTypeDeclLabels source ambient bindingTypes binders =
 
 topLevelForeignDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> ForeignDecl -> [TcLabel]
 topLevelForeignDeclLabels source ambient bindingTypes foreignDecl =
-  [ TcLabel sp (T.unpack displayName <> " :: " <> renderTcType ty)
+  [ TcLabel sp (renderTcSignature displayName ty)
   | foreignDirection foreignDecl == ForeignImport,
     let (displayName, maybeSpan) = binderInfo (foreignName foreignDecl),
     Just ty <- [Map.lookup displayName bindingTypes],
@@ -161,7 +161,7 @@ classAnnotationLabels :: Maybe SourceSpan -> TcClassAnnotation -> Decl -> [TcLab
 classAnnotationLabels ambient (TcClassAnnotation methods) decl =
   case decl of
     DeclClass classDecl ->
-      [ TcLabel sp (T.unpack methodName <> " :: " <> renderTcType methodTy)
+      [ TcLabel sp (renderTcSignature methodName methodTy)
       | method <- methods,
         let methodName = tcClassMethodName method,
         let methodTy = tcClassMethodType method,
@@ -171,7 +171,7 @@ classAnnotationLabels ambient (TcClassAnnotation methods) decl =
 
 instanceAnnotationLabels :: Maybe SourceSpan -> TcInstanceAnnotation -> Decl -> [TcLabel]
 instanceAnnotationLabels ambient tcAnn _decl =
-  [ TcLabel sp (T.unpack (tcInstanceDictName tcAnn) <> " :: " <> renderTcType (tcInstanceDictType tcAnn))
+  [ TcLabel sp (renderTcSignature (tcInstanceDictName tcAnn) (tcInstanceDictType tcAnn))
   | Just sp <- [ambient]
   ]
 
@@ -182,7 +182,7 @@ instanceItemLabels ambient item =
       let ambient' = fromAnnotation @SourceSpan ann <|> ambient
           methodLabels = case fromAnnotation @TcInstanceMethodAnnotation ann of
             Just tcAnn ->
-              [ TcLabel sp (T.unpack (tcInstanceMethodName tcAnn) <> " :: " <> renderTcType (tcInstanceMethodType tcAnn))
+              [ TcLabel sp (renderTcSignature (tcInstanceMethodName tcAnn) (tcInstanceMethodType tcAnn))
               | Just sp <- [instanceMethodSpan (tcInstanceMethodName tcAnn) inner <|> ambient']
               ]
             Nothing -> []
@@ -360,7 +360,7 @@ valueBindingLabels ambient ty valueDecl =
   signatureLabels <> valueArgBindingLabels ambient valueDecl ty
   where
     signatureLabels =
-      [ TcLabel sp (T.unpack (renderBinderName binder) <> " :: " <> renderTcType ty)
+      [ TcLabel sp (renderTcSignature (renderBinderName binder) ty)
       | binder <- valueDeclBinders valueDecl,
         Just sp <- [spanFromUnqualifiedName binder <|> ambient]
       ]
@@ -406,7 +406,7 @@ patternBindingLabels ambient ty pat =
 
 binderLabel :: Maybe SourceSpan -> TcType -> UnqualifiedName -> [TcLabel]
 binderLabel ambient ty name =
-  [ TcLabel sp (T.unpack (renderBinderName name) <> " :: " <> renderTcType ty)
+  [ TcLabel sp (renderTcSignature (renderBinderName name) ty)
   | Just sp <- [spanFromUnqualifiedName name <|> ambient]
   ]
 

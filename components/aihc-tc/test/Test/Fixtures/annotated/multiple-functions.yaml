@@ -2,16 +2,16 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   id x = x
-  │  └─ x :: a
-  └─ id :: forall a. a -> a
+  │  └─ x ∷ a
+  └─ id ∷ ∀ a. a → a
   const x y = x
-  │     │ └─ y :: b
-  │     └─ x :: a
-  └─ const :: forall a b. a -> b -> a
+  │     │ └─ y ∷ b
+  │     └─ x ∷ a
+  └─ const ∷ ∀ a b. a → b → a
 extensions: []
 modules:
 - |

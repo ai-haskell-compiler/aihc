@@ -2,19 +2,19 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   f x = x + one
-  │ └─ x :: a
-  └─ f :: forall a. a -> a
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
     where
       (+) a b = a
-      │   │ └─ b :: b
-      │   └─ a :: a
-      └─ (+) :: forall a b. a -> b -> a
+      │   │ └─ b ∷ b
+      │   └─ a ∷ a
+      └─ (+) ∷ ∀ a b. a → b → a
       one = True
-      └─ one :: Bool
+      └─ one ∷ Bool
 extensions: []
 modules:
 - |
