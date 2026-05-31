@@ -2,12 +2,12 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   f x = case x of
-  │ └─ x :: Bool
-  └─ f :: Bool -> Bool
+  │ └─ x ∷ Bool
+  └─ f ∷ Bool → Bool
     True -> True
     False -> False
 extensions: []

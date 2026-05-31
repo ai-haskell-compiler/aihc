@@ -2,8 +2,8 @@ annotated:
 - |-
   module Test where
   f ~x = x
-  │  └─ x :: a
-  └─ f :: forall a. a -> a
+  │  └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
 extensions: []
 modules:
 - |

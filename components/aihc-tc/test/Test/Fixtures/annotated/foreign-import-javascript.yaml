@@ -8,15 +8,15 @@ modules:
     foreign import javascript unsafe "performance.now" js_now :: IO Double
     test = js_now
 annotated:
-  - |
-    module Test where
-    data Double
-         └─ Double :: *
-    data IO a
-         └─ IO :: *
-    foreign import javascript unsafe "performance.now" js_now :: IO Double
-                                                       └─ js_now :: IO Double
-    test = js_now
-    └─ test :: IO Double
+- |-
+  module Test where
+  data Double
+       └─ Double ∷ *
+  data IO a
+       └─ IO ∷ *
+  foreign import javascript unsafe "performance.now" js_now :: IO Double
+                                                     └─ js_now ∷ IO Double
+  test = js_now
+  └─ test ∷ IO Double
 status: pass
 reason: "annotated output includes a javascript foreign import and a later use"

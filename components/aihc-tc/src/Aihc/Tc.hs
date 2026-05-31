@@ -35,11 +35,12 @@ module Aihc.Tc
     TcErrorKind (..),
     TcSeverity (..),
     renderTcType,
+    renderTcSignature,
   )
 where
 
 import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
-import Aihc.Tc.Annotations (TcAnnotation (..), renderTcType)
+import Aihc.Tc.Annotations (TcAnnotation (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)

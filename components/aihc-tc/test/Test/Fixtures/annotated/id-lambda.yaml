@@ -3,7 +3,7 @@ annotated:
   module Test where
   id = \x -> x
   │    └─ term-args: a
-  └─ id :: forall a. a -> a
+  └─ id ∷ ∀ a. a → a
 extensions: []
 modules:
 - |

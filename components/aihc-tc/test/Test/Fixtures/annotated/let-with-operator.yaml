@@ -2,20 +2,19 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False :: Bool
-       │      └─ True :: Bool
-       └─ Bool :: *
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
   f x = let y = x + one in y
-  │ │       │ └─ type-args: a, Bool
-  │ │       └─ y :: a
-  │ └─ x :: a
-  └─ f :: forall a. a -> a
+  │ └─ x ∷ a│ └─ type-args: a, Bool
+  │         └─ y ∷ a
+  └─ f ∷ ∀ a. a → a
   (+) a b = a
-   │  │ └─ b :: b
-   │  └─ a :: a
-   └─ (+) :: forall a b. a -> b -> a
+   │  │ └─ b ∷ b
+   │  └─ a ∷ a
+   └─ (+) ∷ ∀ a b. a → b → a
   one = True
-  └─ one :: Bool
+  └─ one ∷ Bool
 extensions: []
 modules:
 - |
