@@ -17,7 +17,7 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `0/3390` (`0.00%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
+| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `114/3427` (`3.33%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `218/3427` (`6.36%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
@@ -35,11 +35,11 @@ Find more information here:
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1820 |     790 |    2610 |
 | aihc-fc            |   1743 |    1083 |    2826 |
-| aihc-parser        |  13372 |   17707 |   31079 |
+| aihc-parser        |  13376 |   17707 |   31083 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2376 |    1565 |    3941 |
-| aihc-tc            |   3430 |    1311 |    4741 |
-| **Total**          |  24502 |   23192 |   47694 |
+| aihc-tc            |   3713 |    2184 |    5897 |
+| **Total**          |  24789 |   24065 |   48854 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
