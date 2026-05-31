@@ -5,18 +5,16 @@ annotated:
        │      │      └─ False ∷ Bool
        │      └─ True ∷ Bool
        └─ Bool ∷ *
-  id x = x
-  │  └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
-  false = id False
-  │       └─ type-args: Bool
-  └─ false ∷ Bool
+  f x = case x of
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
+    y -> y
 extensions: []
 modules:
 - |
   module Test where
   data Bool = True | False
-  id x = x
-  false = id False
+  f x = case x of
+    y -> y
 reason: ''
 status: pass

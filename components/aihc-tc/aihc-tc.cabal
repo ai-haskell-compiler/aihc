@@ -54,7 +54,6 @@ test-suite spec
   other-modules:
     TcAnnotatedGolden
     TcAnnotatedRender
-    TcGolden
     Test.Tc.Properties
     Test.Tc.Suite
 
@@ -79,52 +78,4 @@ test-suite spec
     -rtsopts
     -with-rtsopts=-N
 
-  default-language: GHC2021
-
-executable tc-progress
-  hs-source-dirs:
-    app/tc-progress
-    common
-
-  main-is: Main.hs
-  other-modules:
-    TcGolden
-
-  build-depends:
-    aeson,
-    aihc-parser,
-    aihc-tc,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    text,
-    yaml,
-
-  ghc-options: -Wall
-  default-language: GHC2021
-
-executable tc-extension-progress
-  hs-source-dirs:
-    app/tc-extension-progress
-    common
-
-  main-is: Main.hs
-  other-modules:
-    TcGolden
-
-  build-depends:
-    aeson,
-    aihc-parser,
-    aihc-tc,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    text,
-    yaml,
-
-  ghc-options: -Wall
   default-language: GHC2021

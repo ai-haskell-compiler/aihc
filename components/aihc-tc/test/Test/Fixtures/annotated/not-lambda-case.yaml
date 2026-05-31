@@ -5,18 +5,16 @@ annotated:
        │      │      └─ False ∷ Bool
        │      └─ True ∷ Bool
        └─ Bool ∷ *
-  id x = x
-  │  └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
-  false = id False
-  │       └─ type-args: Bool
-  └─ false ∷ Bool
-extensions: []
+  not = \case True -> False
+  └─ not ∷ Bool → Bool
+              False -> True
+extensions:
+- LambdaCase
 modules:
 - |
   module Test where
   data Bool = True | False
-  id x = x
-  false = id False
+  not = \case True -> False
+              False -> True
 reason: ''
 status: pass

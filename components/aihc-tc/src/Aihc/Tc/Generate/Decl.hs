@@ -13,10 +13,10 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
-    CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    CompStmt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -271,6 +271,11 @@ annotateExprTc locals givens expected expr =
       elemTy <- maybe (missingTypeInfo "list element type") pure (listElemTyTc expected <|> elemTyFromItems)
       elems' <- mapM (annotateExprTc locals givens elemTy) elems
       pure (annotateExpr (TcAnnotation expected [elemTy] [] []) (EList elems'))
+    EListComp body stmts -> do
+      elemTy <- maybe (missingTypeInfo "list comprehension element type") pure (listElemTyTc expected)
+      (locals', stmts') <- annotateCompStmtsTc locals givens stmts
+      body' <- annotateExprTc locals' givens elemTy body
+      pure (annotateExpr (TcAnnotation expected [elemTy] [] []) (EListComp body' stmts'))
     ETuple flavor elems -> do
       elemTys <- tupleElemTypesTc expected (length elems)
       elems' <- zipWithM (traverse . annotateExprTc locals givens) elemTys elems
@@ -338,6 +343,56 @@ localBindingType locals name =
   case Map.lookup name locals of
     Just ty -> pure ty
     Nothing -> missingTypeInfo ("local binding " <> T.unpack name)
+
+annotateCompStmtsTc :: Map Text TcType -> [Pred] -> [CompStmt] -> TcM (Map Text TcType, [CompStmt])
+annotateCompStmtsTc locals _givens [] = pure (locals, [])
+annotateCompStmtsTc locals givens (stmt : rest) =
+  case stmt of
+    CompAnn ann inner -> do
+      (locals', stmts') <- annotateCompStmtsTc locals givens (inner : rest)
+      case stmts' of
+        inner' : rest' -> pure (locals', CompAnn ann inner' : rest')
+        [] -> pure (locals', [])
+    CompGen pat src -> do
+      maybeSrcTy <- exprTypeMaybeTc locals src
+      elemTy <-
+        case maybeSrcTy >>= listElemTyTc of
+          Just ty -> pure ty
+          Nothing -> missingTypeInfo ("list comprehension generator element type for " <> take 80 (show src))
+      src' <- annotateExprTc locals givens (listType elemTy) src
+      patBindings <- patternBindingsFrom pat elemTy
+      let localsWithPat = locals <> Map.fromList patBindings
+      (locals', rest') <- annotateCompStmtsTc localsWithPat givens rest
+      pure (locals', CompGen pat src' : rest')
+    CompGuard guard -> do
+      guard' <- annotateExprTc locals givens boolTy guard
+      (locals', rest') <- annotateCompStmtsTc locals givens rest
+      pure (locals', CompGuard guard' : rest')
+    CompLetDecls decls -> do
+      (letTypes, decls') <- annotateLocalDeclsTc givens locals decls
+      let localsWithDecls = locals <> letTypes
+      (locals', rest') <- annotateCompStmtsTc localsWithDecls givens rest
+      pure (locals', CompLetDecls decls' : rest')
+    CompThen expr -> do
+      expr' <- annotateExprTc locals givens expectedTransformType expr
+      (locals', rest') <- annotateCompStmtsTc locals givens rest
+      pure (locals', CompThen expr' : rest')
+    CompThenBy f byExpr -> do
+      f' <- annotateExprTc locals givens expectedTransformType f
+      byExpr' <- annotateExprTc locals givens expectedTransformType byExpr
+      (locals', rest') <- annotateCompStmtsTc locals givens rest
+      pure (locals', CompThenBy f' byExpr' : rest')
+    CompGroupUsing expr -> do
+      expr' <- annotateExprTc locals givens expectedTransformType expr
+      (locals', rest') <- annotateCompStmtsTc locals givens rest
+      pure (locals', CompGroupUsing expr' : rest')
+    CompGroupByUsing byExpr usingExpr -> do
+      byExpr' <- annotateExprTc locals givens expectedTransformType byExpr
+      usingExpr' <- annotateExprTc locals givens expectedTransformType usingExpr
+      (locals', rest') <- annotateCompStmtsTc locals givens rest
+      pure (locals', CompGroupByUsing byExpr' usingExpr' : rest')
+  where
+    expectedTransformType = TcMetaTv (Unique (-1))
 
 annotateCaseAltTc :: Map Text TcType -> [Pred] -> TcType -> TcType -> CaseAlt Expr -> TcM (CaseAlt Expr)
 annotateCaseAltTc locals givens scrutTy expected (CaseAlt anns pat rhs) = do
@@ -664,7 +719,7 @@ collectRawSigs decls = Map.fromList $ concatMap extractSig decls
     extractSig (DeclTypeSig names ty) =
       [(unqualifiedNameText n, ty) | n <- names]
     extractSig (DeclForeign foreignDecl)
-      | isForeignPrimImport foreignDecl =
+      | isForeignImport foreignDecl =
           [(unqualifiedNameText (foreignName foreignDecl), foreignType foreignDecl)]
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = []
@@ -727,10 +782,15 @@ convertSurfaceType tvMap ty = case peeledTy of
           _ -> foldl TcAppTy (convertSurfaceType tvMap headTy) convertedArgs
   TFun _ a b ->
     TcFunTy (convertSurfaceType tvMap a) (convertSurfaceType tvMap b)
-  TTuple _ _ args ->
+  TTuple flavor _ args ->
     let tys = map (convertSurfaceType tvMap) args
         n = length tys
-        tc = TyCon ("(" <> mconcat (replicate (n - 1) ",") <> ")") n
+        tc = TyCon (tupleConText flavor n) n
+     in TcTyCon tc tys
+  TUnboxedSum args ->
+    let tys = map (convertSurfaceType tvMap) args
+        n = length tys
+        tc = TyCon ("(#" <> bars (n - 1) <> "#)") n
      in TcTyCon tc tys
   TList _ args ->
     case args of
@@ -1012,18 +1072,17 @@ registerDecl (DeclData dd) = registerDataDecl dd
 registerDecl (DeclClass classDecl) = registerClassDecl classDecl
 registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
 registerDecl (DeclForeign foreignDecl)
-  | isForeignPrimImport foreignDecl =
-      registerForeignPrimImport foreignDecl
+  | isForeignImport foreignDecl =
+      registerForeignImport foreignDecl
 registerDecl (DeclAnn _ inner) = registerDecl inner
 registerDecl _ = pure []
 
-isForeignPrimImport :: ForeignDecl -> Bool
-isForeignPrimImport foreignDecl =
+isForeignImport :: ForeignDecl -> Bool
+isForeignImport foreignDecl =
   foreignDirection foreignDecl == ForeignImport
-    && foreignCallConv foreignDecl == CPrim
 
-registerForeignPrimImport :: ForeignDecl -> TcM [TcBindingResult]
-registerForeignPrimImport foreignDecl = do
+registerForeignImport :: ForeignDecl -> TcM [TcBindingResult]
+registerForeignImport foreignDecl = do
   scheme <- sigToScheme (foreignType foreignDecl)
   let name = unqualifiedNameText (foreignName foreignDecl)
       displayName = renderBinderName (foreignName foreignDecl)

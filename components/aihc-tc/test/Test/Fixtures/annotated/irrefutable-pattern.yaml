@@ -1,14 +1,13 @@
 annotated:
 - |-
   module Test where
-  f x = let y = x in y
-  │ │       └─ y ∷ a
-  │ └─ x ∷ a
+  f ~x = x
+  │  └─ x ∷ a
   └─ f ∷ ∀ a. a → a
 extensions: []
 modules:
 - |
   module Test where
-  f x = let y = x in y
+  f ~x = x
 reason: ''
 status: pass

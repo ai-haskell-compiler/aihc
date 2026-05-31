@@ -1,17 +1,17 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ False ∷ Bool
+       │      └─ True ∷ Bool
+       └─ Bool ∷ *
+  x = True
+  └─ x ∷ Bool
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    x = True
-annotated:
-  - |
-    module Test where
-    data Bool = True | False
-         │      │      └─ False :: Bool
-         │      └─ True :: Bool
-         └─ Bool :: *
-    x = True
-    └─ x :: Bool
+- |
+  module Test where
+  data Bool = True | False
+  x = True
+reason: ''
 status: pass
-reason: ""

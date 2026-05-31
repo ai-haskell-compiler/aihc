@@ -8,15 +8,16 @@ annotated:
   id x = x
   │  └─ x ∷ a
   └─ id ∷ ∀ a. a → a
-  false = id False
-  │       └─ type-args: Bool
-  └─ false ∷ Bool
+  const x y = x
+  │     │ └─ y ∷ b
+  │     └─ x ∷ a
+  └─ const ∷ ∀ a b. a → b → a
 extensions: []
 modules:
 - |
   module Test where
   data Bool = True | False
   id x = x
-  false = id False
+  const x y = x
 reason: ''
 status: pass

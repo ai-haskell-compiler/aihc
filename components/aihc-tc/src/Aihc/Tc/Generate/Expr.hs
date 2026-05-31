@@ -18,6 +18,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
+    CompStmt (..),
     Expr (..),
     LambdaCaseAlt (..),
     Name (..),
@@ -91,6 +92,8 @@ inferExpr expr = case expr of
   ETuple _flavor elems -> inferTuple NoSourceSpan elems
   -- List
   EList elems -> inferList NoSourceSpan elems
+  -- List comprehension
+  EListComp body quals -> inferListComp NoSourceSpan body quals
   -- Unsupported expression forms for MVP.
   other -> do
     emitError NoSourceSpan (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
@@ -300,6 +303,51 @@ inferList sp elems = case elems of
     mkElemEq headTy (elemTy, _) = do
       ev <- freshEvVar
       pure $ mkWantedCt (EqPred headTy elemTy) ev (AppOrigin sp) sp
+
+-- | Infer the type of a list comprehension.
+--
+-- A generator @pat <- xs@ constrains @xs@ to be a list of the pattern
+-- type and brings the pattern variables into scope for later qualifiers
+-- and the body. A guard must be 'Bool'. A @let@ qualifier behaves like an
+-- expression-local @let@ over the remaining qualifiers and body.
+inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (TcType, [Ct])
+inferListComp sp body quals = do
+  (bodyTy, cts) <- inferCompQuals quals (inferExpr body)
+  pure (listType bodyTy, cts)
+  where
+    listType elemTy = TcTyCon listTyCon' [elemTy]
+    listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
+
+    inferCompQuals [] action = action
+    inferCompQuals (qual : rest) action =
+      case qual of
+        CompAnn _ inner ->
+          inferCompQuals (inner : rest) action
+        CompGen pat src -> do
+          elemTy <- freshMetaTv
+          (srcTy, srcCts) <- inferExpr src
+          patCts <- inferPatternConstraints sp elemTy pat
+          ev <- freshEvVar
+          let srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin sp) sp
+              bindings = extractPatternBindings (pat, elemTy)
+          (bodyTy, bodyCts) <- withPatternBindings bindings (inferCompQuals rest action)
+          pure (bodyTy, srcCts ++ patCts ++ [srcListCt] ++ bodyCts)
+        CompGuard guard -> do
+          (guardTy, guardCts) <- inferExpr guard
+          ev <- freshEvVar
+          let guardCt = mkWantedCt (EqPred guardTy boolTyCon) ev (AppOrigin sp) sp
+          (bodyTy, bodyCts) <- inferCompQuals rest action
+          pure (bodyTy, guardCts ++ [guardCt] ++ bodyCts)
+        CompLetDecls decls ->
+          inferLocalDecls inferExpr decls (inferCompQuals rest action)
+        CompThen {} -> unsupportedQual qual rest action
+        CompThenBy {} -> unsupportedQual qual rest action
+        CompGroupUsing {} -> unsupportedQual qual rest action
+        CompGroupByUsing {} -> unsupportedQual qual rest action
+
+    unsupportedQual qual rest action = do
+      emitError NoSourceSpan (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
+      inferCompQuals rest action
 
 -- | Convert a surface Name to Text for lookup.
 nameToText :: Name -> Text

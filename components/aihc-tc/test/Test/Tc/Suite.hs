@@ -3,7 +3,6 @@
 module Test.Tc.Suite
   ( tcTests,
     tcAnnotatedGoldenTests,
-    tcGoldenTests,
   )
 where
 
@@ -26,7 +25,6 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import TcAnnotatedGolden qualified as TAG
-import TcGolden qualified as TG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -44,40 +42,12 @@ tcTests =
       testGroup "error-cases" errorTests
     ]
 
--- | Build the golden test tree from YAML fixtures.
-tcGoldenTests :: IO TestTree
-tcGoldenTests = do
-  cases <- TG.loadTcCases
-  let tests = map mkGoldenTest cases
-  pure (testGroup "tc-golden" tests)
-
 -- | Build the inline annotated golden test tree from YAML fixtures.
 tcAnnotatedGoldenTests :: IO TestTree
 tcAnnotatedGoldenTests = do
   cases <- TAG.loadTcAnnotatedCases
   let tests = map mkAnnotatedGoldenTest cases
   pure (testGroup "tc-annotated-golden" tests)
-
-mkGoldenTest :: TG.TcCase -> TestTree
-mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
-  let (outcome, details) = TG.evaluateTcCase tcase
-  case outcome of
-    TG.OutcomePass -> pure ()
-    TG.OutcomeXFail -> pure () -- known failure, expected
-    TG.OutcomeFail ->
-      assertFailure
-        ( "TC golden test failed: "
-            <> TG.caseId tcase
-            <> " details="
-            <> details
-        )
-    TG.OutcomeXPass ->
-      assertFailure
-        ( "Unexpected pass in TC golden test: "
-            <> TG.caseId tcase
-            <> " details="
-            <> details
-        )
 
 mkAnnotatedGoldenTest :: TAG.TcAnnotatedCase -> TestTree
 mkAnnotatedGoldenTest tcase = testCase (TAG.caseId tcase) $ do
@@ -209,7 +179,16 @@ annotationTests =
       assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" (tcmModule result))
       assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
       assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
-      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result))
+      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result)),
+    testCase "type rendering uses unicode syntax" $ do
+      let a = TyVarId "a" (Unique 1)
+          aTy = TcTyVar a
+          eqA = ClassPred "Eq" [aTy]
+          ty = TcForAllTy a (TcQualTy [eqA] (TcFunTy aTy aTy))
+      assertEqual
+        "rendered signature"
+        "f ∷ ∀ a. (Eq a) ⇒ a → a"
+        (renderTcSignature "f" ty)
   ]
 
 annotationModule :: Module

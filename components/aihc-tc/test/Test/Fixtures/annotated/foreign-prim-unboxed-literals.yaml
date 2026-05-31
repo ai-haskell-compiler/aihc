@@ -1,0 +1,20 @@
+annotated:
+- |-
+  module Test where
+  foreign import prim (+#) :: Int# -> Int# -> Int#
+                       └─ (+#) ∷ Int# → Int# → Int#
+  int# = 10#
+  └─ int# ∷ Int#
+  word# = 10##
+  └─ word# ∷ Word#
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+  foreign import prim (+#) :: Int# -> Int# -> Int#
+  int# = 10#
+  word# = 10##
+reason: foreign import prim registers unboxed primitive functions and MagicHash literals
+  keep their unboxed types
+status: pass

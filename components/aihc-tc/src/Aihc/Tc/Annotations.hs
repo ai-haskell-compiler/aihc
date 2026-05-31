@@ -27,6 +27,7 @@ module Aihc.Tc.Annotations
 
     -- * Pretty-printing
     renderTcType,
+    renderTcSignature,
   )
 where
 
@@ -120,6 +121,10 @@ annotateExpr ann = EAnn (mkAnnotation ann)
 annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
+-- | Render a binder and its 'TcType' as a human-readable signature.
+renderTcSignature :: Text -> TcType -> String
+renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
+
 -- | Render a 'TcType' as a human-readable string.
 --
 -- Uses a precedence level to decide when to insert parentheses:
@@ -135,19 +140,27 @@ renderTcType = go 0
     go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
+    go _ (TcTyCon (TyCon name arity) args)
+      | isBoxedTupleCon name arity,
+        arity == length args =
+          "(" ++ commaSep (map (go 0) args) ++ ")"
+    go _ (TcTyCon (TyCon name arity) args)
+      | isUnboxedTupleCon name arity,
+        arity == length args =
+          "(# " ++ commaSep (map (go 0) args) ++ " #)"
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
         unwords (T.unpack (tyConName tc) : map (go 2) args)
     go p (TcFunTy a b) =
       parenIf (p >= 1) $
-        go 1 a ++ " -> " ++ go 0 b
+        go 1 a ++ " → " ++ go 0 b
     go p (TcForAllTy tv body) =
       let (tvs, inner) = collectForAlls body
        in parenIf (p >= 1) $
-            "forall " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
+            "∀ " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
     go p (TcQualTy preds body) =
       parenIf (p >= 1) $
-        "(" ++ unwords (map showPred preds) ++ ") => " ++ go 0 body
+        "(" ++ unwords (map showPred preds) ++ ") ⇒ " ++ go 0 body
     go p (TcAppTy f a) =
       parenIf (p >= 2) $
         go 1 f ++ " " ++ go 2 a
@@ -159,6 +172,18 @@ renderTcType = go 0
 
     parenIf False s = s
     parenIf True s = "(" ++ s ++ ")"
+
+    commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
+
+    isBoxedTupleCon name arity =
+      name == T.pack "(" <> commas arity <> T.pack ")"
+
+    isUnboxedTupleCon name arity =
+      name == T.pack "(#" <> commas arity <> T.pack "#)"
+
+    commas arity
+      | arity <= 1 = T.empty
+      | otherwise = T.replicate (arity - 1) (T.pack ",")
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

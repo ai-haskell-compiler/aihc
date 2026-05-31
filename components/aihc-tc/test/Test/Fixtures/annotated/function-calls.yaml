@@ -1,0 +1,19 @@
+annotated:
+- |-
+  module Test where
+  f x = x
+  │ └─ x ∷ a
+  └─ f ∷ ∀ a. a → a
+  g y = f (f y)
+  │ │   │  └─ type-args: a
+  │ │   └─ type-args: a
+  │ └─ y ∷ a
+  └─ g ∷ ∀ a. a → a
+extensions: []
+modules:
+- |
+  module Test where
+  f x = x
+  g y = f (f y)
+reason: ''
+status: pass

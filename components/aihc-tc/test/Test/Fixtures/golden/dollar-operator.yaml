@@ -1,9 +1,0 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    f $ x = f x
-expected:
-  - "($) :: forall a b. (a -> b) -> a -> b"
-status: pass
-reason: ""

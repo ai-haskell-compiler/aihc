@@ -1,0 +1,14 @@
+annotated:
+- |-
+  module Test where
+  f x = let loop y = loop y in x
+  │ └─ x ∷ a│    └─ y ∷ a
+  │         └─ loop ∷ ∀ a b. a → b
+  └─ f ∷ ∀ a. a → a
+extensions: []
+modules:
+- |
+  module Test where
+  f x = let loop y = loop y in x
+reason: ''
+status: pass

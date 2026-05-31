@@ -1,0 +1,11 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    type MyBool = Bool
+    data Bool = True | False
+    x :: MyBool
+    x = True
+annotated: []
+status: xfail
+reason: "type synonyms not yet supported in type checker"

@@ -1,0 +1,10 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    asPattern xs@(x:rest) = xs
+    (:) a b = a
+annotated: []
+status: xfail
+reason: "as-patterns not yet supported"

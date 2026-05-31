@@ -1,0 +1,8 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    bad xs = [ x | x <- xs, 1 ]
+annotated: []
+status: fail
+reason: list comprehension guards must be Bool, not Int
