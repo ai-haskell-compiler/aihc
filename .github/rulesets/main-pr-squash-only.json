@@ -29,7 +29,11 @@
       "type": "required_status_checks",
       "parameters": {
         "contexts": [
-          "flake-check"
+          "flake-check",
+          "Build components with GHC 9.8.4",
+          "Build components with GHC 9.10.3",
+          "Build components with GHC 9.12.4",
+          "Build components with GHC 9.14.1"
         ],
         "strict": false
       }
