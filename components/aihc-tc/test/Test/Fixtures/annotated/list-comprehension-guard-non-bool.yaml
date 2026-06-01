@@ -3,6 +3,10 @@ modules:
   - |
     module Test where
     bad xs = [ x | x <- xs, 1 ]
-annotated: []
-status: fail
+annotated:
+  - |-
+    module Test where
+    bad xs = [ x | x <- xs, 1 ]
+                            └─ error: couldn't match Int with Bool
+status: pass
 reason: list comprehension guards must be Bool, not Int
