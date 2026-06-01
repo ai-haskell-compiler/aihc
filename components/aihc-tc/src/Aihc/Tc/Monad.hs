@@ -51,9 +51,12 @@ module Aihc.Tc.Monad
     isGadtCon,
 
     -- * Diagnostics
+    DiagnosticCheckpoint,
+    diagnosticCheckpoint,
     emitDiagnostic,
     emitError,
     getDiagnostics,
+    hasErrorsSince,
   )
 where
 
@@ -85,6 +88,12 @@ type Identity = Either TcAbort
 -- | Fatal abort (internal error, not a user-facing diagnostic).
 newtype TcAbort = TcAbort String
   deriving (Show)
+
+-- | A stable point in the diagnostic stream. Callers use this to decide
+-- whether a local phase produced errors without inspecting rendered messages
+-- or source locations.
+newtype DiagnosticCheckpoint = DiagnosticCheckpoint Int
+  deriving (Eq, Show)
 
 -- | Run the type checker computation.
 runTcM :: TcEnv -> TcState -> TcM a -> Either TcAbort (a, TcState)
@@ -318,6 +327,17 @@ emitError loc kind =
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]
 getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
+
+diagnosticCheckpoint :: TcM DiagnosticCheckpoint
+diagnosticCheckpoint = lift $ gets (DiagnosticCheckpoint . length . tcsDiagnostics)
+
+-- | True when any error, not warning, was emitted after the checkpoint.
+hasErrorsSince :: DiagnosticCheckpoint -> TcM Bool
+hasErrorsSince (DiagnosticCheckpoint checkpoint) =
+  lift $ gets $ \s ->
+    any isError (take (length (tcsDiagnostics s) - checkpoint) (tcsDiagnostics s))
+  where
+    isError diagnostic = diagSeverity diagnostic == TcError
 
 -- | Record that a constructor is a GADT constructor.
 markGadtCon :: Text -> TcM ()

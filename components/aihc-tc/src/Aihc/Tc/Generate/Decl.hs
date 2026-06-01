@@ -125,23 +125,38 @@ tcModule m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
-  annotatedModule <- annotateModuleTc m
+  -- Only bindings that checked without errors are eligible for value
+  -- annotations. Failed bindings remain in the recovery environment, but
+  -- they must not be rendered as successful inferred types.
+  annotatedModule <- annotateModuleTc (Set.fromList (map tbName valueResults)) m
   pure (dataResults ++ valueResults, annotatedModule)
 
-annotateModuleTc :: Module -> TcM Module
-annotateModuleTc m = do
+annotateModuleTc :: Set.Set Text -> Module -> TcM Module
+annotateModuleTc checkedValueNames m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods) (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateDeclTc :: Map Text [Text] -> Decl -> TcM Decl
-annotateDeclTc classMethods decl =
+annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
+annotateDeclTc classMethods checkedValueNames decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods inner
-    DeclValue valueDecl -> DeclValue <$> annotateValueDeclTc valueDecl
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
+    DeclValue valueDecl
+      | valueDeclWasChecked checkedValueNames valueDecl -> DeclValue <$> annotateValueDeclTc valueDecl
+      | otherwise -> pure decl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
     _ -> pure decl
+
+valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
+valueDeclWasChecked checkedValueNames valueDecl =
+  any (`Set.member` checkedValueNames) (valueDeclBinderNames valueDecl)
+
+valueDeclBinderNames :: ValueDecl -> [Text]
+valueDeclBinderNames valueDecl =
+  case valueDecl of
+    FunctionBind binder _ -> [unqualifiedNameText binder]
+    PatternBind _ pat _ -> patternBinders pat
 
 annotateClassDeclTc :: ClassDecl -> TcM Decl
 annotateClassDeclTc classDecl = do
@@ -919,6 +934,7 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
 -- constraints using the signature's skolems as given equalities.
 tcFunctionWithSig :: Text -> Text -> TypeScheme -> [Match] -> TcM [TcBindingResult]
 tcFunctionWithSig displayName name scheme matches = do
+  checkpoint <- diagnosticCheckpoint
   extendTermEnvPermanent name (TcIdBinder name scheme Closed)
   -- Open the scheme with skolems (not metas) for checking.
   sigTy <- skolemize scheme
@@ -932,23 +948,32 @@ tcFunctionWithSig displayName name scheme matches = do
       allCts = concat ctsList
       allImpls = concat implsList
   _ <- solveWithImpls allCts allImpls
-  -- Report the declared scheme as the binding's type.
-  let declaredTy = schemeToType scheme
-  zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult name displayName zonkedTy]
+  failed <- hasErrorsSince checkpoint
+  if failed
+    then pure []
+    else do
+      -- Report the declared scheme as the binding's type.
+      let declaredTy = schemeToType scheme
+      zonkedTy <- zonkType declaredTy
+      pure [TcBindingResult name displayName zonkedTy]
 
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM [TcBindingResult]
 tcFunctionInfer displayName name matches = do
+  checkpoint <- diagnosticCheckpoint
   placeholderTy <- freshMetaTv
   extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
   (ty, cts, impls) <- tcMatches matches
   _ <- solveWithImpls cts impls
-  scheme <- generalizeIgnoring [name] ty []
-  let schemeTy = schemeToType scheme
-  zonkedTy <- zonkType schemeTy
-  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
-  pure [TcBindingResult name displayName zonkedTy]
+  failed <- hasErrorsSince checkpoint
+  if failed
+    then pure []
+    else do
+      scheme <- generalizeIgnoring [name] ty []
+      let schemeTy = schemeToType scheme
+      zonkedTy <- zonkType schemeTy
+      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+      pure [TcBindingResult name displayName zonkedTy]
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
