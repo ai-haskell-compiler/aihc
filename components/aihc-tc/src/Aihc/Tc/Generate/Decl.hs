@@ -1104,21 +1104,22 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
 -- constraints using the signature's skolems as given equalities.
 tcFunctionWithSig :: Text -> Text -> TypeScheme -> [Match] -> TcM [TcBindingResult]
 tcFunctionWithSig displayName name scheme matches = do
-  checkpoint <- diagnosticCheckpoint
-  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
-  -- Open the scheme with skolems (not metas) for checking.
-  sigTy <- skolemize scheme
-  let nArgs = case matches of
-        (m : _) -> length (matchPats m)
-        [] -> 0
-      (argTys, resTy) = splitFunTy sigTy nArgs
-  -- Check each equation against the signature types.
-  results <- mapM (tcMatchEquation argTys resTy) matches
-  let (ctsList, implsList) = unzip results
-      allCts = concat ctsList
-      allImpls = concat implsList
-  _ <- solveWithImpls allCts allImpls
-  failed <- hasErrorsSince checkpoint
+  ((), failed) <-
+    withErrorTracking $ do
+      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+      -- Open the scheme with skolems (not metas) for checking.
+      sigTy <- skolemize scheme
+      let nArgs = case matches of
+            (m : _) -> length (matchPats m)
+            [] -> 0
+          (argTys, resTy) = splitFunTy sigTy nArgs
+      -- Check each equation against the signature types.
+      results <- mapM (tcMatchEquation argTys resTy) matches
+      let (ctsList, implsList) = unzip results
+          allCts = concat ctsList
+          allImpls = concat implsList
+      _ <- solveWithImpls allCts allImpls
+      pure ()
   if failed
     then pure []
     else do
@@ -1130,12 +1131,13 @@ tcFunctionWithSig displayName name scheme matches = do
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM [TcBindingResult]
 tcFunctionInfer displayName name matches = do
-  checkpoint <- diagnosticCheckpoint
   placeholderTy <- freshMetaTv
-  extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
-  (ty, cts, impls) <- tcMatches matches
-  _ <- solveWithImpls cts impls
-  failed <- hasErrorsSince checkpoint
+  ((ty, _, _), failed) <-
+    withErrorTracking $ do
+      extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
+      result@(_, cts', impls') <- tcMatches matches
+      _ <- solveWithImpls cts' impls'
+      pure result
   if failed
     then pure []
     else do

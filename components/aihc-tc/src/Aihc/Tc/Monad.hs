@@ -51,12 +51,10 @@ module Aihc.Tc.Monad
     isGadtCon,
 
     -- * Diagnostics
-    DiagnosticCheckpoint,
-    diagnosticCheckpoint,
     emitDiagnostic,
     emitError,
     getDiagnostics,
-    hasErrorsSince,
+    withErrorTracking,
   )
 where
 
@@ -88,12 +86,6 @@ type Identity = Either TcAbort
 -- | Fatal abort (internal error, not a user-facing diagnostic).
 newtype TcAbort = TcAbort String
   deriving (Show)
-
--- | A stable point in the diagnostic stream. Callers use this to decide
--- whether a local phase produced errors without inspecting rendered messages
--- or source locations.
-newtype DiagnosticCheckpoint = DiagnosticCheckpoint Int
-  deriving (Eq, Show)
 
 -- | Run the type checker computation.
 runTcM :: TcEnv -> TcState -> TcM a -> Either TcAbort (a, TcState)
@@ -328,14 +320,22 @@ emitError loc kind =
 getDiagnostics :: TcM [TcDiagnostic]
 getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
 
-diagnosticCheckpoint :: TcM DiagnosticCheckpoint
-diagnosticCheckpoint = lift $ gets (DiagnosticCheckpoint . length . tcsDiagnostics)
+-- | Run a recoverable phase and report whether it emitted any errors.
+--
+-- The type checker intentionally keeps going after many local errors so later
+-- declarations can still be checked. Callers that produce successful
+-- elaboration metadata use this to avoid treating a recovered binding as a
+-- checked binding.
+withErrorTracking :: TcM a -> TcM (a, Bool)
+withErrorTracking action = do
+  before <- currentErrorCount
+  result <- action
+  after <- currentErrorCount
+  pure (result, after > before)
 
--- | True when any error, not warning, was emitted after the checkpoint.
-hasErrorsSince :: DiagnosticCheckpoint -> TcM Bool
-hasErrorsSince (DiagnosticCheckpoint checkpoint) =
-  lift $ gets $ \s ->
-    any isError (take (length (tcsDiagnostics s) - checkpoint) (tcsDiagnostics s))
+currentErrorCount :: TcM Int
+currentErrorCount =
+  lift $ gets $ length . filter isError . tcsDiagnostics
   where
     isError diagnostic = diagSeverity diagnostic == TcError
 
