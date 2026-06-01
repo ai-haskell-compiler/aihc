@@ -1,0 +1,12 @@
+packages:
+  components/aihc-cpp
+  components/aihc-parser
+  components/aihc-resolve
+  components/aihc-tc
+  components/aihc-fc
+
+-- aihc-parser-compat tracks ghc-lib-parser and is intentionally excluded from
+-- this project; no single ghc-lib-parser release supports the full GHC matrix.
+
+tests: False
+benchmarks: False

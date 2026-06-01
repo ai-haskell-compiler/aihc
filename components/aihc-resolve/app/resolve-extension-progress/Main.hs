@@ -8,6 +8,7 @@ module Main (main) where
 
 import Aihc.Parser.Syntax qualified as Syntax
 import Data.List (sortOn)
+import Data.List qualified as List
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
 import ResolverGolden
@@ -44,11 +45,11 @@ groupByExtension ::
   [(ResolverCase, Outcome, String)] ->
   M.Map Syntax.Extension [(ResolverCase, Outcome, String)]
 groupByExtension =
-  foldl' insertCase M.empty
+  List.foldl' insertCase M.empty
   where
     insertCase :: M.Map Syntax.Extension [(ResolverCase, Outcome, String)] -> (ResolverCase, Outcome, String) -> M.Map Syntax.Extension [(ResolverCase, Outcome, String)]
     insertCase acc (tc, outcome, details) =
-      foldl' (\m ext -> M.insertWith (++) ext [(tc, outcome, details)] m) acc (caseExtensions tc)
+      List.foldl' (\m ext -> M.insertWith (++) ext [(tc, outcome, details)] m) acc (caseExtensions tc)
 
 mkExtensionResult :: (Syntax.Extension, [(ResolverCase, Outcome, String)]) -> ExtensionResult
 mkExtensionResult (name, outcomes) =
