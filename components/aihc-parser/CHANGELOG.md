@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Simplified the Cabal package synopsis for cleaner Hackage metadata.
+- Added `tested-with` metadata for supported GHC versions and tightened
+  package bounds to the validated dependency range.
 
 ### Fixed
 
