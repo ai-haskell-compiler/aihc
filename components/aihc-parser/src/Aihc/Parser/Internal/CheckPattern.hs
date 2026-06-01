@@ -20,7 +20,7 @@ module Aihc.Parser.Internal.CheckPattern
   )
 where
 
-import Aihc.Parser.Internal.Common (isConLikeName)
+import Aihc.Parser.Internal.Common (isConLikeName, nameToUnqualified)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
@@ -179,10 +179,6 @@ checkNegLitPattern inner = case inner of
 -- variable operators like @+@ or @*@ are not.
 isConLikeOp :: Name -> Bool
 isConLikeOp = isConLikeName
-
-nameToUnqualified :: Name -> UnqualifiedName
-nameToUnqualified name =
-  UnqualifiedName (nameType name) (nameText name) (nameAnns name)
 
 -- | Try to interpret an expression as a view pattern @expr -> expr@.
 -- Returns 'Just' the corresponding 'PView' when the expression is an

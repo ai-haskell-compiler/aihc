@@ -18,7 +18,6 @@ import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
-import Data.Text (Text)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -72,9 +71,9 @@ conOperatorParser =
     symbolicConOp =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
-          TkConSym op -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym op))
-          TkQConSym modName op -> Just (Name (Just modName) NameConSym op [mkAnnotation (lexTokenSpan tok)])
-          TkReservedColon -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym ":"))
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym op))
+          TkQConSym modName op -> Just (mkNameAt tok (Just modName) NameConSym op)
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym ":"))
           _ -> Nothing
     backtickConOp =
       MP.try $
@@ -447,11 +446,11 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         operatorPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           tok' <- anySingle
           case lexTokenKind tok' of
-            TkVarSym op -> pure (PVar (spannedUnqualifiedName tok' NameVarSym op))
-            TkConSym op -> pure (PCon (qualifyName Nothing (spannedUnqualifiedName tok' NameConSym op)) [] [])
-            TkQConSym modName op -> pure (PCon (Name (Just modName) NameConSym op [mkAnnotation (lexTokenSpan tok')]) [] [])
-            TkReservedColon -> pure (PCon (qualifyName Nothing (spannedUnqualifiedName tok' NameConSym ":")) [] [])
-            TkReservedAt -> pure (PVar (spannedUnqualifiedName tok' NameVarSym "@"))
+            TkVarSym op -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym op))
+            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym op)) [] [])
+            TkQConSym modName op -> pure (PCon (mkNameAt tok' (Just modName) NameConSym op) [] [])
+            TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym ":")) [] [])
+            TkReservedAt -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym "@"))
             _ ->
               MP.customFailure
                 UnexpectedTokenExpecting
@@ -535,11 +534,3 @@ isPatternAppHead pat =
     PCon {} -> True
     PVar name -> isConLikeNameType (unqualifiedNameType name)
     _ -> False
-
-nameToUnqualified :: Name -> UnqualifiedName
-nameToUnqualified name =
-  UnqualifiedName (nameType name) (nameText name) (nameAnns name)
-
-spannedUnqualifiedName :: LexToken -> NameType -> Text -> UnqualifiedName
-spannedUnqualifiedName tok ty txt =
-  UnqualifiedName ty txt [mkAnnotation (lexTokenSpan tok)]

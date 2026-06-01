@@ -19,11 +19,10 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser)
-import Aihc.Parser.Lex (LexToken, LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Data.Char (isLower)
 import Data.Functor (($>))
-import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec ((<|>))
 import Text.Megaparsec qualified as MP
@@ -262,15 +261,15 @@ typeInfixOperatorParser =
     unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
-          TkReservedColon -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym ":"), Unpromoted)
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym ":"), Unpromoted)
           TkVarSym op
             | op /= "."
                 && op /= "!"
                 && op /= "'" ->
-                Just (qualifyName Nothing (spannedUnqualifiedName tok NameVarSym op), Unpromoted)
-          TkConSym op -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym op), Unpromoted)
-          TkQVarSym modName op -> Just (spannedName tok (Just modName) NameVarSym op, Unpromoted)
-          TkQConSym modName op -> Just (spannedName tok (Just modName) NameConSym op, Unpromoted)
+                Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym op), Unpromoted)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym op), Unpromoted)
+          TkQVarSym modName op -> Just (mkNameAt tok (Just modName) NameVarSym op, Unpromoted)
+          TkQConSym modName op -> Just (mkNameAt tok (Just modName) NameConSym op, Unpromoted)
           _ -> Nothing
 
     backtickTypeOperatorParser = MP.try $ do
@@ -282,10 +281,10 @@ typeInfixOperatorParser =
     typeOperatorIdentifierParser =
       tokenSatisfy "type operator identifier" $ \tok ->
         case lexTokenKind tok of
-          TkVarId name -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameVarId name))
-          TkConId name -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConId name))
-          TkQVarId modName name -> Just (spannedName tok (Just modName) NameVarId name)
-          TkQConId modName name -> Just (spannedName tok (Just modName) NameConId name)
+          TkVarId name -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId name))
+          TkConId name -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConId name))
+          TkQVarId modName name -> Just (mkNameAt tok (Just modName) NameVarId name)
+          TkQConId modName name -> Just (mkNameAt tok (Just modName) NameConId name)
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do
@@ -295,13 +294,13 @@ typeInfixOperatorParser =
       -- or ':$$: for a promoted user-defined type operator)
       tokenSatisfy "promoted type infix operator" $ \tok ->
         case lexTokenKind tok of
-          TkReservedColon -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym ":"), Promoted)
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym ":"), Promoted)
           TkVarSym sym
             | sym /= "." && sym /= "!" ->
-                Just (qualifyName Nothing (spannedUnqualifiedName tok NameVarSym sym), Promoted)
-          TkConSym sym -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym sym), Promoted)
-          TkQVarSym modQual sym -> Just (spannedName tok (Just modQual) NameVarSym sym, Promoted)
-          TkQConSym modQual sym -> Just (spannedName tok (Just modQual) NameConSym sym, Promoted)
+                Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym sym), Promoted)
+          TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym sym), Promoted)
+          TkQVarSym modQual sym -> Just (mkNameAt tok (Just modQual) NameVarSym sym, Promoted)
+          TkQConSym modQual sym -> Just (mkNameAt tok (Just modQual) NameConSym sym, Promoted)
           _ -> Nothing
 
 -- | Report core:
@@ -442,13 +441,13 @@ typeParenOperatorParser = withSpanAnn (TAnn . mkAnnotation) $ do
   unicodeSyntax <- isExtensionEnabled UnicodeSyntax
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameVarSym sym))
-      TkConSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym sym))
-      TkQVarSym modQual sym -> Just (spannedName tok (Just modQual) NameVarSym sym)
-      TkQConSym modQual sym -> Just (spannedName tok (Just modQual) NameConSym sym)
+      TkVarSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym sym))
+      TkConSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym sym))
+      TkQVarSym modQual sym -> Just (mkNameAt tok (Just modQual) NameVarSym sym)
+      TkQConSym modQual sym -> Just (mkNameAt tok (Just modQual) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
-      TkReservedRightArrow -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameVarSym "->"))
-      TkReservedColon -> Just (qualifyName Nothing (spannedUnqualifiedName tok NameConSym ":"))
+      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym "->"))
+      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym ":"))
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
@@ -578,15 +577,3 @@ promoteBuiltinCon con =
           TBuiltinCons -> mkUnqualifiedName NameConSym ":"
     )
     Promoted
-
-nameToUnqualified :: Name -> UnqualifiedName
-nameToUnqualified name =
-  UnqualifiedName (nameType name) (nameText name) (nameAnns name)
-
-spannedUnqualifiedName :: LexToken -> NameType -> Text -> UnqualifiedName
-spannedUnqualifiedName tok ty txt =
-  UnqualifiedName ty txt [mkAnnotation (lexTokenSpan tok)]
-
-spannedName :: LexToken -> Maybe Text -> NameType -> Text -> Name
-spannedName tok qualifier ty txt =
-  Name qualifier ty txt [mkAnnotation (lexTokenSpan tok)]

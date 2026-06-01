@@ -11,6 +11,9 @@ module Aihc.Parser.Internal.Common
     hiddenPragma,
     optionalHiddenPragma,
     moduleNameParser,
+    nameToUnqualified,
+    mkUnqualifiedNameAt,
+    mkNameAt,
     identifierNameParser,
     identifierUnqualifiedNameParser,
     identifierTextParser,
@@ -432,6 +435,10 @@ mkUnqualifiedNameAt tok ty txt =
 mkNameAt :: LexToken -> Maybe Text -> NameType -> Text -> Name
 mkNameAt tok qualifier ty txt =
   Name qualifier ty txt [mkAnnotation (lexTokenSpan tok)]
+
+nameToUnqualified :: Name -> UnqualifiedName
+nameToUnqualified name =
+  UnqualifiedName (nameType name) (nameText name) (nameAnns name)
 
 stringTextParser :: TokParser Text
 stringTextParser =
