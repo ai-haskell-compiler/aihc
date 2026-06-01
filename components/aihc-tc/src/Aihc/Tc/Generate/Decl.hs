@@ -7,6 +7,7 @@
 -- Processes top-level data declarations and value bindings from a module.
 module Aihc.Tc.Generate.Decl
   ( tcModule,
+    moduleBindings,
     TcBindingResult (..),
   )
 where
@@ -111,14 +112,124 @@ data TcBindingResult = TcBindingResult
   }
   deriving (Show)
 
--- | Type-check a module, returning the inferred types for each
--- top-level declaration: type constructors (with their kinds),
--- data constructors (with their types), and value bindings.
-tcModule :: Module -> TcM ([TcBindingResult], Module)
+moduleBindings :: Module -> [TcBindingResult]
+moduleBindings modu =
+  concatMap declBindings (moduleDecls modu)
+
+declBindings :: Decl -> [TcBindingResult]
+declBindings decl =
+  case decl of
+    DeclAnn ann inner ->
+      annotationBindings ann inner <> declBindings inner
+    DeclData dataDecl ->
+      concatMap dataConBindings (dataDeclConstructors dataDecl)
+    _ -> []
+
+annotationBindings :: Annotation -> Decl -> [TcBindingResult]
+annotationBindings ann decl =
+  tcAnnotationBindings ann decl
+    <> classAnnotationBindings ann decl
+    <> instanceAnnotationBindings ann
+
+tcAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
+tcAnnotationBindings ann decl =
+  case fromAnnotation ann of
+    Nothing -> []
+    Just tcAnn ->
+      case decl of
+        DeclValue valueDecl ->
+          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          | (name, displayName) <- valueDeclBindingNames valueDecl
+          ]
+        DeclData dataDecl ->
+          let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+           in [TcBindingResult name name (tcAnnType tcAnn)]
+        DeclForeign foreignDecl ->
+          let name = unqualifiedNameText (foreignName foreignDecl)
+              displayName = renderBinderName (foreignName foreignDecl)
+           in [TcBindingResult name displayName (tcAnnType tcAnn)]
+        _ -> []
+
+classAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
+classAnnotationBindings ann decl =
+  case (fromAnnotation ann, decl) of
+    (Just (TcClassAnnotation methods), DeclClass {}) ->
+      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
+      | method <- methods
+      ]
+    _ -> []
+
+instanceAnnotationBindings :: Annotation -> [TcBindingResult]
+instanceAnnotationBindings ann =
+  case fromAnnotation ann of
+    Just instAnn ->
+      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
+    Nothing -> []
+
+dataConBindings :: DataConDecl -> [TcBindingResult]
+dataConBindings dataConDecl =
+  case dataConDecl of
+    DataConAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn ->
+          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          | (name, displayName) <- dataConBindingNames inner
+          ]
+        Nothing -> dataConBindings inner
+    _ -> []
+
+valueDeclBindingNames :: ValueDecl -> [(Text, Text)]
+valueDeclBindingNames valueDecl =
+  case valueDecl of
+    FunctionBind binder _ -> [binderBindingName binder]
+    PatternBind _ pat _ -> patternBindingNames pat
+
+patternBindingNames :: Pattern -> [(Text, Text)]
+patternBindingNames pat =
+  case pat of
+    PVar name -> [binderBindingName name]
+    PAnn _ inner -> patternBindingNames inner
+    PParen inner -> patternBindingNames inner
+    PAs name inner -> binderBindingName name : patternBindingNames inner
+    PStrict inner -> patternBindingNames inner
+    PIrrefutable inner -> patternBindingNames inner
+    PInfix lhs _ rhs -> patternBindingNames lhs <> patternBindingNames rhs
+    PCon _ _ pats -> concatMap patternBindingNames pats
+    _ -> []
+
+dataConBindingNames :: DataConDecl -> [(Text, Text)]
+dataConBindingNames dataConDecl =
+  case dataConDecl of
+    DataConAnn _ inner -> dataConBindingNames inner
+    PrefixCon _ _ name _ -> [dataConBindingName name]
+    InfixCon _ _ _ name _ -> [dataConBindingName name]
+    RecordCon _ _ name _ -> [dataConBindingName name]
+    GadtCon _ _ names _ -> map dataConBindingName names
+    TupleCon _ _ flavor fields ->
+      let name = tupleConText flavor (length fields)
+       in [(name, name)]
+    UnboxedSumCon _ _ pos arity _ ->
+      let name = unboxedSumConText pos arity
+       in [(name, name)]
+    ListCon {} -> [("[]", "[]")]
+
+binderBindingName :: UnqualifiedName -> (Text, Text)
+binderBindingName name =
+  (unqualifiedNameText name, renderBinderName name)
+
+dataConBindingName :: UnqualifiedName -> (Text, Text)
+dataConBindingName name =
+  let raw = unqualifiedNameText name
+   in (raw, raw)
+
+-- | Type-check a module, returning the same syntax tree annotated with the
+-- inferred interface. Call 'moduleBindings' when a flat compatibility view is
+-- needed by older callers.
+tcModule :: Module -> TcM Module
 tcModule m = do
   -- Phase 1: collect data declarations, register constructors,
   --          and report their types.
-  dataResults <- concat <$> mapM registerDecl (moduleDecls m)
+  mapM_ registerDecl (moduleDecls m)
   -- Phase 2: collect type signatures and convert them to schemes.
   let rawSigs = collectRawSigs (moduleDecls m)
   schemes <- traverse sigToScheme rawSigs
@@ -128,8 +239,7 @@ tcModule m = do
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotatedModule <- annotateModuleTc (Set.fromList (map tbName valueResults)) m
-  pure (dataResults ++ valueResults, annotatedModule)
+  annotateModuleTc (Set.fromList (map tbName valueResults)) m
 
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
 annotateModuleTc checkedValueNames m = do
@@ -142,8 +252,13 @@ annotateDeclTc classMethods checkedValueNames decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
     DeclValue valueDecl
-      | valueDeclWasChecked checkedValueNames valueDecl -> DeclValue <$> annotateValueDeclTc valueDecl
+      | valueDeclWasChecked checkedValueNames valueDecl -> do
+          (ty, valueDecl') <- annotateValueDeclTc valueDecl
+          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
+    DeclData dataDecl -> annotateDataDeclTc dataDecl
+    DeclForeign foreignDecl
+      | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
     _ -> pure decl
@@ -177,18 +292,73 @@ annotateClassMethod index methodName = do
         tcClassMethodIndex = index
       }
 
-annotateValueDeclTc :: ValueDecl -> TcM ValueDecl
+annotateDataDeclTc :: DataDecl -> TcM Decl
+annotateDataDeclTc dataDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+  ty <- tyConBindingType tyName
+  constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
+  pure (annotateDeclAt (unqualifiedNameSpan (binderHeadName (dataDeclHead dataDecl))) (TcAnnotation ty [] [] []) (DeclData (dataDecl {dataDeclConstructors = constructors})))
+
+annotateDataConDeclTc :: DataConDecl -> TcM DataConDecl
+annotateDataConDeclTc dataConDecl = do
+  case dataConBindingNames dataConDecl of
+    [] -> pure dataConDecl
+    (name, _) : _ -> do
+      ty <- dataConBindingType name
+      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [])) dataConDecl)
+
+dataConBindingType :: Text -> TcM TcType
+dataConBindingType name = do
+  mBinder <- lookupTerm name
+  case mBinder of
+    Just (TcIdBinder _ (ForAll _ _ body) _) -> zonkType body
+    Just (TcMonoIdBinder _ ty) -> zonkType ty
+    Nothing -> missingTypeInfo ("data constructor " <> T.unpack name)
+
+annotateForeignDeclTc :: ForeignDecl -> TcM Decl
+annotateForeignDeclTc foreignDecl = do
+  ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
+  pure (annotateDeclAt (unqualifiedNameSpan (foreignName foreignDecl)) (TcAnnotation ty [] [] []) (DeclForeign foreignDecl))
+
+annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
+annotateDeclAt NoSourceSpan tcAnn decl =
+  annotateDecl tcAnn decl
+annotateDeclAt sp tcAnn decl =
+  DeclAnn (mkAnnotation sp) (annotateDecl tcAnn decl)
+
+valueDeclSpan :: ValueDecl -> SourceSpan
+valueDeclSpan valueDecl =
+  case valueDecl of
+    FunctionBind name _ -> unqualifiedNameSpan name
+    PatternBind _ pat _ -> patternSpan pat
+
+unqualifiedNameSpan :: UnqualifiedName -> SourceSpan
+unqualifiedNameSpan =
+  sourceSpanFromAnns . unqualifiedNameAnns
+
+tyConBindingType :: Text -> TcM TcType
+tyConBindingType name = do
+  mInfo <- lookupTyCon name
+  case mInfo of
+    Just info -> kindToTcType <$> defaultKindMetas (tciKind info)
+    Nothing -> missingTypeInfo ("type constructor " <> T.unpack name)
+
+annotateValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
 annotateValueDeclTc valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
       expected <- bindingType (unqualifiedNameText name)
-      FunctionBind name <$> annotateMatchesTc expected matches
+      valueDecl' <- FunctionBind name <$> annotateMatchesTc expected matches
+      pure (expected, valueDecl')
     PatternBind anns pat rhs ->
       case patternBinderName pat of
         Just (_displayName, name) -> do
           expected <- bindingType name
-          PatternBind anns pat <$> annotateRhsTc Map.empty (qualifiedPreds expected) expected rhs
-        Nothing -> pure valueDecl
+          valueDecl' <- PatternBind anns pat <$> annotateRhsTc Map.empty (qualifiedPreds expected) expected rhs
+          pure (expected, valueDecl')
+        Nothing -> do
+          ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
+          pure (ty, valueDecl)
 
 annotateInstanceDeclTc :: Map Text [Text] -> InstanceDecl -> TcM Decl
 annotateInstanceDeclTc classMethods instanceDecl =

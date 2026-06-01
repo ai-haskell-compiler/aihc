@@ -39,7 +39,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), renderTcSignature, renderTcType)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), renderTcSignature, renderTcType, tcmBindings)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -63,7 +63,7 @@ renderAnnotatedTcResults sources results =
   map renderOne (sortOn (moduleDisplayName . tcmModule . snd) (zip sources results))
   where
     renderOne (source, result) =
-      renderAnnotatedSource source (collectTcLabels source result)
+      renderAnnotatedSource source (collectTcLabels result)
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe "<unnamed>" (moduleName modu)
@@ -77,11 +77,11 @@ data TcLabel = TcLabel
 sourceLabel :: SourceSpan -> String -> TcLabel
 sourceLabel = TcLabel
 
-collectTcLabels :: Text -> TcModuleResult -> [TcLabel]
-collectTcLabels source result =
+collectTcLabels :: TcModuleResult -> [TcLabel]
+collectTcLabels result =
   sortOn labelKey $
-    topLevelBindingLabels source (tcmBindings result) (tcmModule result)
-      <> concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
+    topLevelBindingLabels (tcmBindings result) (tcmModule result)
+      <> concatMap (topLevelDeclLabels Nothing) (moduleDecls (tcmModule result))
       <> diagnosticLabels (tcmDiagnostics result)
 
 diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
@@ -160,19 +160,19 @@ renderKindArg kind =
 renderUnique :: Unique -> String
 renderUnique (Unique unique) = "?" <> show unique
 
-topLevelBindingLabels :: Text -> [TcBindingResult] -> Module -> [TcLabel]
-topLevelBindingLabels source bindings modu =
+topLevelBindingLabels :: [TcBindingResult] -> Module -> [TcLabel]
+topLevelBindingLabels bindings modu =
   concatMap (goDecl Nothing) (moduleDecls modu)
   where
     bindingTypes = Map.fromList [(tbDisplayName b, tbType b) | b <- bindings]
 
     goDecl ambient (DeclAnn ann inner) =
       goDecl (fromAnnotation @SourceSpan ann <|> ambient) inner
-    goDecl ambient (DeclValue valueDecl) = topLevelValueDeclLabels source ambient bindingTypes valueDecl
-    goDecl ambient (DeclData dataDecl) = topLevelTypeDeclLabels source ambient bindingTypes (dataDeclBinders dataDecl)
-    goDecl ambient (DeclNewtype newtypeDecl) = topLevelTypeDeclLabels source ambient bindingTypes (newtypeDeclBinders newtypeDecl)
-    goDecl ambient (DeclTypeSyn typeSynDecl) = topLevelTypeDeclLabels source ambient bindingTypes [binderInfo (binderHeadName (typeSynHead typeSynDecl))]
-    goDecl ambient (DeclForeign foreignDecl) = topLevelForeignDeclLabels source ambient bindingTypes foreignDecl
+    goDecl ambient (DeclValue valueDecl) = topLevelValueDeclLabels ambient bindingTypes valueDecl
+    goDecl ambient (DeclData dataDecl) = topLevelTypeDeclLabels ambient bindingTypes (dataDeclBinders dataDecl)
+    goDecl ambient (DeclNewtype newtypeDecl) = topLevelTypeDeclLabels ambient bindingTypes (newtypeDeclBinders newtypeDecl)
+    goDecl ambient (DeclTypeSyn typeSynDecl) = topLevelTypeDeclLabels ambient bindingTypes [binderInfo (binderHeadName (typeSynHead typeSynDecl))]
+    goDecl ambient (DeclForeign foreignDecl) = topLevelForeignDeclLabels ambient bindingTypes foreignDecl
     goDecl _ _ = []
 
 topLevelValueBinders :: ValueDecl -> [(Text, Maybe SourceSpan)]
@@ -181,15 +181,15 @@ topLevelValueBinders valueDecl =
   | binder <- valueDeclBinders valueDecl
   ]
 
-topLevelValueDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> ValueDecl -> [TcLabel]
-topLevelValueDeclLabels source ambient bindingTypes valueDecl =
+topLevelValueDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> ValueDecl -> [TcLabel]
+topLevelValueDeclLabels ambient bindingTypes valueDecl =
   signatureLabels <> argLabels
   where
     signatureLabels =
       [ sourceLabel sp (renderTcSignature displayName ty)
       | (displayName, maybeSpan) <- topLevelValueBinders valueDecl,
         Just ty <- [Map.lookup displayName bindingTypes],
-        Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
+        Just sp <- [maybeSpan <|> ambient]
       ]
     argLabels =
       case valueDecl of
@@ -197,46 +197,88 @@ topLevelValueDeclLabels source ambient bindingTypes valueDecl =
           maybe [] (valueArgBindingLabels ambient valueDecl) (Map.lookup (renderBinderName binder) bindingTypes)
         PatternBind {} -> []
 
-topLevelTypeDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> [(Text, Maybe SourceSpan)] -> [TcLabel]
-topLevelTypeDeclLabels source ambient bindingTypes binders =
+topLevelTypeDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> [(Text, Maybe SourceSpan)] -> [TcLabel]
+topLevelTypeDeclLabels ambient bindingTypes binders =
   [ sourceLabel sp (renderTcSignature displayName ty)
   | (displayName, maybeSpan) <- binders,
     Just ty <- [Map.lookup displayName bindingTypes],
-    Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
+    Just sp <- [maybeSpan <|> ambient]
   ]
 
-topLevelForeignDeclLabels :: Text -> Maybe SourceSpan -> Map.Map Text TcType -> ForeignDecl -> [TcLabel]
-topLevelForeignDeclLabels source ambient bindingTypes foreignDecl =
+topLevelForeignDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> ForeignDecl -> [TcLabel]
+topLevelForeignDeclLabels ambient bindingTypes foreignDecl =
   [ sourceLabel sp (renderTcSignature displayName ty)
   | foreignDirection foreignDecl == ForeignImport,
     let (displayName, maybeSpan) = binderInfo (foreignName foreignDecl),
     Just ty <- [Map.lookup displayName bindingTypes],
-    Just sp <- [resolveBinderSpan source displayName maybeSpan ambient]
+    Just sp <- [maybeSpan <|> ambient]
   ]
 
+topLevelDeclLabels :: Maybe SourceSpan -> Decl -> [TcLabel]
+topLevelDeclLabels =
+  declLabelsWith True
+
 declLabels :: Maybe SourceSpan -> Decl -> [TcLabel]
-declLabels ambient decl =
+declLabels =
+  declLabelsWith False
+
+declLabelsWith :: Bool -> Maybe SourceSpan -> Decl -> [TcLabel]
+declLabelsWith suppressInterfaceLabels ambient decl =
   case decl of
     DeclAnn ann inner ->
       let ambient' = fromAnnotation @SourceSpan ann <|> ambient
           labels = case fromAnnotation @TcAnnotation ann of
-            Just tcAnn -> bindingAnnotationLabels ambient' tcAnn inner
-            Nothing -> []
+            Just tcAnn
+              | not (suppressInterfaceLabels && isInterfaceDecl inner) -> bindingAnnotationLabels ambient' tcAnn inner
+            _ -> []
           classLabels = case fromAnnotation @TcClassAnnotation ann of
             Just tcAnn -> classAnnotationLabels ambient' tcAnn inner
             Nothing -> []
           instanceLabels = case fromAnnotation @TcInstanceAnnotation ann of
             Just tcAnn -> instanceAnnotationLabels ambient' tcAnn inner
             Nothing -> []
-       in labels <> classLabels <> instanceLabels <> declLabels ambient' inner
+       in labels <> classLabels <> instanceLabels <> declLabelsWith suppressInterfaceLabels ambient' inner
     DeclValue valueDecl -> valueDeclLabels ambient valueDecl
+    DeclData dataDecl
+      | not suppressInterfaceLabels -> concatMap (dataConDeclLabels ambient) (dataDeclConstructors dataDecl)
     DeclInstance instanceDecl -> concatMap (instanceItemLabels ambient) (instanceDeclItems instanceDecl)
     _ -> []
+
+isInterfaceDecl :: Decl -> Bool
+isInterfaceDecl decl =
+  case decl of
+    DeclValue {} -> True
+    DeclData {} -> True
+    DeclForeign {} -> True
+    _ -> False
 
 bindingAnnotationLabels :: Maybe SourceSpan -> TcAnnotation -> Decl -> [TcLabel]
 bindingAnnotationLabels ambient tcAnn decl =
   case decl of
     DeclValue valueDecl -> valueBindingLabels ambient (tcAnnType tcAnn) valueDecl
+    DeclData dataDecl ->
+      [ sourceLabel sp (renderTcSignature (renderBinderName (binderHeadName (dataDeclHead dataDecl))) (tcAnnType tcAnn))
+      | Just sp <- [ambient]
+      ]
+    DeclForeign foreignDecl ->
+      [ sourceLabel sp (renderTcSignature (renderBinderName (foreignName foreignDecl)) (tcAnnType tcAnn))
+      | Just sp <- [spanFromUnqualifiedName (foreignName foreignDecl) <|> ambient]
+      ]
+    _ -> []
+
+dataConDeclLabels :: Maybe SourceSpan -> DataConDecl -> [TcLabel]
+dataConDeclLabels ambient dataConDecl =
+  case dataConDecl of
+    DataConAnn ann inner ->
+      let ambient' = fromAnnotation @SourceSpan ann <|> ambient
+          own = case fromAnnotation @TcAnnotation ann of
+            Just tcAnn ->
+              [ sourceLabel sp (renderTcSignature displayName (tcAnnType tcAnn))
+              | (displayName, maybeSpan) <- dataConBinders ambient' inner,
+                Just sp <- [maybeSpan <|> ambient']
+              ]
+            Nothing -> []
+       in own <> dataConDeclLabels ambient' inner
     _ -> []
 
 classAnnotationLabels :: Maybe SourceSpan -> TcClassAnnotation -> Decl -> [TcLabel]
@@ -557,38 +599,6 @@ binderInfoWithAmbient :: Maybe SourceSpan -> UnqualifiedName -> (Text, Maybe Sou
 binderInfoWithAmbient ambient name =
   let (displayName, maybeSpan) = binderInfo name
    in (displayName, maybeSpan <|> ambient)
-
-resolveBinderSpan :: Text -> Text -> Maybe SourceSpan -> Maybe SourceSpan -> Maybe SourceSpan
-resolveBinderSpan source displayName maybeSpan ambient =
-  maybeSpan <|> (ambient >>= findTextInSpan source (binderSearchText displayName))
-
-binderSearchText :: Text -> Text
-binderSearchText displayName =
-  fromMaybe displayName $
-    T.stripPrefix "(" displayName >>= T.stripSuffix ")"
-
-findTextInSpan :: Text -> Text -> SourceSpan -> Maybe SourceSpan
-findTextInSpan source needle SourceSpan {sourceSpanSourceName = sourceName, sourceSpanStartLine = line, sourceSpanStartCol = startCol, sourceSpanStartOffset = startOffset}
-  | T.null needle = Nothing
-  | otherwise = do
-      sourceLine <- lineAt line source
-      let prefixWidth = max 0 (startCol - 1)
-          searchable = T.drop prefixWidth sourceLine
-      needleOffset <- findNeedleOffset needle searchable
-      let col = startCol + needleOffset
-          endCol = col + T.length needle
-          offset = startOffset + needleOffset
-      pure (SourceSpan sourceName line col line endCol offset (offset + T.length needle))
-findTextInSpan _ _ NoSourceSpan = Nothing
-
-findNeedleOffset :: Text -> Text -> Maybe Int
-findNeedleOffset needle haystack =
-  let (before, matchAndAfter) = T.breakOn needle haystack
-   in if T.null matchAndAfter then Nothing else Just (T.length before)
-
-lineAt :: Int -> Text -> Maybe Text
-lineAt line source =
-  listToMaybe (drop (line - 1) (T.lines source))
 
 classMethodSpan :: Text -> ClassDecl -> Maybe SourceSpan
 classMethodSpan methodName classDecl =

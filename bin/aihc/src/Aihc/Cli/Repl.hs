@@ -43,6 +43,7 @@ import Aihc.Tc
     TypeScheme (..),
     Unique (..),
     renderTcType,
+    tcmBindings,
     typecheckModuleWithEnv,
   )
 import Control.Monad.IO.Class (liftIO)

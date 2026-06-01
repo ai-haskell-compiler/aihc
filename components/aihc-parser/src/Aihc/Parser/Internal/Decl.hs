@@ -14,7 +14,7 @@ import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningPragmaParser)
 import Aihc.Parser.Internal.Pattern (apatParser, lpatParser, patParser, patternParser)
 import Aihc.Parser.Internal.Type (arrowKindParser, forallTelescopeParser, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser, typeSignatureParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
+import Aihc.Parser.Lex (LexToken, LexTokenKind (..), lexTokenKind, lexTokenSpan, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -607,10 +607,10 @@ fixityOperatorParser =
     symbolicOperatorParser =
       tokenSatisfy "fixity operator" $ \tok ->
         case lexTokenKind tok of
-          TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
-          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
-          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
-          TkReservedRightArrow -> Just (mkUnqualifiedName NameVarSym "->")
+          TkVarSym op -> Just (spannedName tok NameVarSym op)
+          TkConSym op -> Just (spannedName tok NameConSym op)
+          TkReservedColon -> Just (spannedName tok NameConSym ":")
+          TkReservedRightArrow -> Just (spannedName tok NameVarSym "->")
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick
@@ -1232,15 +1232,22 @@ declHeadParserWith opParser =
       pure (PrefixBinderHead name (params <> tailParams))
 
 typeDeclHeadParser :: TokParser (BinderHead UnqualifiedName)
-typeDeclHeadParser = declHeadParserWith (unqualifiedNameFromText <$> typeSynonymOperatorParser)
+typeDeclHeadParser = declHeadParserWith typeSynonymOperatorParser
 
-typeSynonymOperatorParser :: TokParser Text
+typeSynonymOperatorParser :: TokParser UnqualifiedName
 typeSynonymOperatorParser =
-  operatorTextParser <|> backtickTypeSynonymIdentifierParser
+  symbolicTypeSynonymOperatorParser <|> backtickTypeSynonymIdentifierParser
   where
+    symbolicTypeSynonymOperatorParser =
+      tokenSatisfy "type synonym operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op -> Just (spannedName tok NameVarSym op)
+          TkConSym op -> Just (spannedName tok NameConSym op)
+          TkReservedAt -> Just (spannedName tok NameVarSym "@")
+          _ -> Nothing
     backtickTypeSynonymIdentifierParser = do
       expectedTok TkSpecialBacktick
-      op <- identifierTextParser
+      op <- identifierUnqualifiedNameParser
       expectedTok TkSpecialBacktick
       pure op
 
@@ -1285,7 +1292,7 @@ classHeadParser :: TokParser (BinderHead UnqualifiedName)
 classHeadParser = declHeadParserWith (nameToUnqualified <$> typeFamilyOperatorParser)
 
 nameToUnqualified :: Name -> UnqualifiedName
-nameToUnqualified name = mkUnqualifiedName (nameType name) (nameText name)
+nameToUnqualified name = UnqualifiedName (nameType name) (nameText name) (nameAnns name)
 
 binderHeadToTypeFamilyHead :: SourceSpan -> BinderHead UnqualifiedName -> (TypeHeadForm, Type, [TyVarBinder])
 binderHeadToTypeFamilyHead span' binderHead =
@@ -1523,12 +1530,14 @@ constructorOperatorParser =
   symbolicConstructorOperatorParser <|> backtickConstructorIdentifierParser
   where
     symbolicConstructorOperatorParser =
-      tokenSatisfy "constructor operator" $ \tok ->
-        case lexTokenKind tok of
-          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
-          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
-          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
-          _ -> Nothing
+      (qualifyName Nothing <$> constructorOperatorUnqualifiedNameParser)
+        <|> tokenSatisfy
+          "qualified constructor operator"
+          ( \tok ->
+              case lexTokenKind tok of
+                TkQConSym modName op -> Just (Name (Just modName) NameConSym op [mkAnnotation (lexTokenSpan tok)])
+                _ -> Nothing
+          )
     backtickConstructorIdentifierParser = do
       expectedTok TkSpecialBacktick
       op <- constructorNameParser
@@ -1570,7 +1579,7 @@ patSynNameParser =
   constructorUnqualifiedNameParser
     <|> do
       op <- parens constructorOperatorParser
-      pure (mkUnqualifiedName (nameType op) (nameText op))
+      pure (nameToUnqualified op)
 
 -- | Parse a pattern synonym declaration.
 -- Handles prefix, infix, and record forms with all three directionalities.
@@ -1600,7 +1609,11 @@ patSynInfixLhsParser = do
   lhs <- lowerIdentifierParser
   op <- constructorOperatorParser
   rhs <- lowerIdentifierParser
-  pure (mkUnqualifiedName (nameType op) (nameText op), PatSynInfixArgs lhs rhs)
+  pure (nameToUnqualified op, PatSynInfixArgs lhs rhs)
+
+spannedName :: LexToken -> NameType -> Text -> UnqualifiedName
+spannedName tok ty txt =
+  UnqualifiedName ty txt [mkAnnotation (lexTokenSpan tok)]
 
 -- | Parse a record or prefix pattern synonym LHS.
 -- Record: @Con {field1, field2, ...}@

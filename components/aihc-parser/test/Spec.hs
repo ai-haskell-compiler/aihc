@@ -15,7 +15,7 @@ import Control.DeepSeq (rnf)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (ord)
 import Data.Data (Data, dataTypeConstrs, dataTypeOf, gmapQl, isAlgType, showConstr, toConstr)
-import Data.Maybe (isNothing)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -217,6 +217,7 @@ buildTests = do
             testCase "shrunk module headers without warnings make progress" test_shrunkModuleHeaderWithoutWarningMakesProgress,
             testCase "syntax utility functions cover public edge cases" test_syntaxUtilityFunctions,
             testCase "shrunk class default pattern binds make progress" test_shrunkClassDefaultPatternBindMakesProgress,
+            testCase "parsed binders carry source spans" test_parsedBindersCarrySourceSpans,
             testCase "shrunk arrow command infix lhs modules make progress" test_shrunkArrowCommandInfixLhsModuleMakesProgress,
             testCase "shrunk wildcard pattern binds do not cycle" test_shrunkWildcardPatternBindsDoNotCycle,
             testCase "shrunk infix expression left operands do not cycle" test_shrunkInfixExprLeftOperandsDoNotCycle,
@@ -523,6 +524,38 @@ test_hashLineDirectivePreservesLayout =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         assertEqual "expected two declarations" 2 (length (moduleDecls modu))
 
+test_parsedBindersCarrySourceSpans :: Assertion
+test_parsedBindersCarrySourceSpans =
+  let source =
+        T.unlines
+          [ "data T a = MkT { field :: a } | a :*: a",
+            "f x = x",
+            "(+) x y = x",
+            "foreign import ccall \"foo\" c_foo :: ()"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclAnn _ (DeclData dataDecl),
+            DeclAnn _ (DeclValue (FunctionBind valueName _)),
+            DeclAnn _ (DeclValue (FunctionBind operatorName _)),
+            DeclAnn _ (DeclForeign foreignDecl)
+            ] -> do
+              assertUnqualifiedNameSpan "type constructor" "<input>" 1 6 1 7 5 6 (binderHeadName (dataDeclHead dataDecl))
+              case dataDeclConstructors dataDecl of
+                [ DataConAnn _ (RecordCon _ _ recordCon [FieldDecl {fieldNames = [fieldName]}]),
+                  DataConAnn _ (InfixCon _ _ _ infixCon _)
+                  ] -> do
+                    assertUnqualifiedNameSpan "record constructor" "<input>" 1 12 1 15 11 14 recordCon
+                    assertUnqualifiedNameSpan "record field" "<input>" 1 18 1 23 17 22 fieldName
+                    assertUnqualifiedNameSpan "infix constructor" "<input>" 1 35 1 38 34 37 infixCon
+                other -> assertFailure ("expected record and infix constructors, got: " <> show other)
+              assertUnqualifiedNameSpan "value binder" "<input>" 2 1 2 2 40 41 valueName
+              assertUnqualifiedNameSpan "operator binder" "<input>" 3 2 3 3 49 50 operatorName
+              assertUnqualifiedNameSpan "foreign binder" "<input>" 4 28 4 33 87 92 (foreignName foreignDecl)
+          other -> assertFailure ("expected data, value, operator, and foreign declarations, got: " <> show other)
+
 test_emptyCaseLayoutAtEof :: Assertion
 test_emptyCaseLayoutAtEof =
   let source = "x = case () of"
@@ -604,6 +637,12 @@ assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine
       assertEqual "start offset" expectedStartOffset sourceSpanStartOffset
       assertEqual "end offset" expectedEndOffset sourceSpanEndOffset
     NoSourceSpan -> assertFailure "expected SourceSpan, got NoSourceSpan"
+
+assertUnqualifiedNameSpan :: String -> FilePath -> Int -> Int -> Int -> Int -> Int -> Int -> UnqualifiedName -> Assertion
+assertUnqualifiedNameSpan label expectedName expectedStartLine expectedStartCol expectedEndLine expectedEndCol expectedStartOffset expectedEndOffset name =
+  case mapMaybe (fromAnnotation :: Annotation -> Maybe SourceSpan) (unqualifiedNameAnns name) of
+    span' : _ -> assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine expectedEndCol expectedStartOffset expectedEndOffset span'
+    [] -> assertFailure ("expected SourceSpan annotation for " <> label <> ", got none")
 
 assertReadRoundTrip :: (Eq a, Read a, Show a) => String -> [a] -> Assertion
 assertReadRoundTrip label =
@@ -968,7 +1007,8 @@ test_magicHashExportParses =
    in case errs of
         [] ->
           case moduleHead modu of
-            Just ModuleHead {moduleHeadExports = Just [ExportAnn _ (ExportVar _ _ name)]} | name == qualifyName Nothing (mkUnqualifiedName NameVarId "f##") -> pure ()
+            Just ModuleHead {moduleHeadExports = Just [ExportAnn _ (ExportVar _ _ name)]}
+              | stripAnnotations name == qualifyName Nothing (mkUnqualifiedName NameVarId "f##") -> pure ()
             other -> assertFailure ("expected export of f##, got: " <> show other)
         _ -> assertFailure ("expected parse success for MagicHash export, got: " <> formatParseErrors "<quickcheck>" (Just source) errs)
 
@@ -1197,10 +1237,10 @@ test_bundledExportWildcardPosition = do
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         assertBool ("expected reparsed pretty output to succeed, got: " <> show reparseErrs) (null reparseErrs)
-        case moduleExports modu of
-          Just [ExportAnn _ (ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"])] ->
-            case moduleExports reparsed of
-              Just [ExportAnn _ (ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"])] ->
+        case moduleExports (stripAnnotations modu) of
+          Just [ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"]] ->
+            case moduleExports (stripAnnotations reparsed) of
+              Just [ExportWithAll _ Nothing "T" 0 [IEBundledMember Nothing "P", IEBundledMember (Just IEBundledNamespaceData) "Q"]] ->
                 pure ()
               other ->
                 assertFailure ("unexpected reparsed export AST: " <> show other)
@@ -2034,7 +2074,7 @@ test_associatedDataFamilyOperatorName = do
       case map peelDeclAnn (moduleDecls modu) of
         [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl dataFamilyDecl)]}
           ]
-            | binderHeadName (dataFamilyDeclHead dataFamilyDecl) == expectedName,
+            | stripAnnotations (binderHeadName (dataFamilyDeclHead dataFamilyDecl)) == expectedName,
               map tyVarBinderName (binderHeadParams (dataFamilyDeclHead dataFamilyDecl)) == ["a"],
               isNothing (dataFamilyDeclKind dataFamilyDecl) ->
                 pure ()
@@ -2053,7 +2093,7 @@ test_associatedDataFamilyInfixOperatorName = do
         [ DeclClass ClassDecl {classDeclItems = [ClassItemAnn _ (ClassItemDataFamilyDecl dataFamilyDecl)]}
           ]
             | binderHeadForm (dataFamilyDeclHead dataFamilyDecl) == TypeHeadInfix,
-              binderHeadName (dataFamilyDeclHead dataFamilyDecl) == expectedName,
+              stripAnnotations (binderHeadName (dataFamilyDeclHead dataFamilyDecl)) == expectedName,
               map tyVarBinderName (binderHeadParams (dataFamilyDeclHead dataFamilyDecl)) == ["a", "b"],
               isNothing (dataFamilyDeclKind dataFamilyDecl) ->
                 pure ()

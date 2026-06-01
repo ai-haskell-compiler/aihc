@@ -10,7 +10,7 @@ where
 
 import Aihc.Cpp (Result (..))
 import Aihc.Dev.Parser.Run qualified as ParserRun
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModule, desugarModuleWithTcResult, evalProgramBinding, renderProgram, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModule, desugarModuleWithBindings, evalProgramBinding, renderProgram, renderRawValue)
 import Aihc.Fmt (defaultFormatOptions, formatErrorMessage, formatExtensions, formatText)
 import Aihc.Parser
   ( ParseResult (..),
@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
-import Aihc.Tc (TcModuleResult (..), typecheck, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
 import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
@@ -406,7 +406,8 @@ fcEvalActual opts value =
             let tcResults = typecheckModulesWithEnv [] resolvedModules
              in if all tcmSuccess tcResults
                   then
-                    let dsResults = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
+                    let allBindings = moduleGroupBindings tcResults
+                        dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
                      in if all dsSuccess dsResults
                           then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
                           else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
@@ -530,11 +531,9 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
-moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
-moduleGroupTcResults results =
-  [result {tcmBindings = allBindings} | result <- results]
-  where
-    allBindings = concatMap tcmBindings results
+moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings =
+  concatMap tcmBindings
 
 updateFormatterGoldens :: Options -> IO Summary
 updateFormatterGoldens opts =

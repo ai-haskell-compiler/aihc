@@ -34,12 +34,13 @@ module Aihc.Fc
 
     -- * Desugaring
     desugarModule,
+    desugarModuleWithBindings,
     desugarModuleWithTcResult,
     DesugarResult (..),
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithTcResult)
+import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBindings, desugarModuleWithTcResult)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)

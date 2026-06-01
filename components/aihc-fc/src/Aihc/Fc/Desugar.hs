@@ -7,6 +7,7 @@
 module Aihc.Fc.Desugar
   ( -- * Entry point
     desugarModule,
+    desugarModuleWithBindings,
     desugarModuleWithTcResult,
     DesugarResult (..),
   )
@@ -34,7 +35,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, typecheckModule)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcmBindings, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
@@ -59,7 +60,11 @@ desugarModule m = desugarModuleWithTcResult (typecheckModule m) m
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
 desugarModuleWithTcResult :: TcModuleResult -> Module -> DesugarResult
-desugarModuleWithTcResult tcResult _m =
+desugarModuleWithTcResult tcResult =
+  desugarModuleWithBindings (tcmBindings tcResult) tcResult
+
+desugarModuleWithBindings :: [TcBindingResult] -> TcModuleResult -> Module -> DesugarResult
+desugarModuleWithBindings bindings tcResult _m =
   if not (tcmSuccess tcResult)
     then
       DesugarResult
@@ -68,7 +73,7 @@ desugarModuleWithTcResult tcResult _m =
           dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries (tcmBindings tcResult))
+      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
        in case runStateT (dsModule (tcmModule tcResult)) (DsState 1000 typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
