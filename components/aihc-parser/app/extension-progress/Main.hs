@@ -4,6 +4,7 @@
 module Main (main) where
 
 import Data.List (sortOn)
+import Data.List qualified as List
 import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -106,10 +107,10 @@ groupByExtension ::
   [(CaseMeta, Outcome, String)] ->
   M.Map Text [(CaseMeta, Outcome, String)]
 groupByExtension =
-  foldl' insertCase M.empty
+  List.foldl' insertCase M.empty
   where
     insertCase acc caseOutcome@(meta, _, _) =
-      foldl'
+      List.foldl'
         (\m ext -> M.insertWith (<>) ext [caseOutcome] m)
         acc
         (caseEnabledExtensionNames meta)
