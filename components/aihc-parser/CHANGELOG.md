@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0.3] - 2026-06-01
+
+### Changed
+
+- Simplified the Cabal package synopsis for cleaner Hackage metadata.
+
+### Fixed
+
+- Preserved source-span annotations on binder names so downstream consumers can
+  locate binders parsed from declarations such as foreign imports.
+
 ## [1.0.0.2] - 2026-05-28
 
 ### Fixed
