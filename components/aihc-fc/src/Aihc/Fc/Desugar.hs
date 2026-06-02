@@ -13,7 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhsWithType, freshUnique, freshVar, lookupType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhs, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -310,5 +310,5 @@ dsGroup grp = do
   body <-
     case grp of
       DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsRhsWithType (Just ty) rhs
+      DeclPattern _ rhs -> dsRhs rhs
   pure (FcTopBind (FcNonRec var body))

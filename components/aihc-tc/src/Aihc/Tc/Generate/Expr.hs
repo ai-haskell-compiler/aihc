@@ -113,7 +113,8 @@ inferVar sp name = do
         OccurrenceElaboration
           { occurrenceElabType = instType inst,
             occurrenceElabTypeArgs = instTypeArgs inst,
-            occurrenceElabEvidenceVars = map ctEvVar cts
+            occurrenceElabEvidenceVars = map ctEvVar cts,
+            occurrenceElabTermArgTypes = []
           }
       let ty = instType inst
       pure (ty, cts)
@@ -124,7 +125,8 @@ inferVar sp name = do
           OccurrenceElaboration
             { occurrenceElabType = ty,
               occurrenceElabTypeArgs = [],
-              occurrenceElabEvidenceVars = []
+              occurrenceElabEvidenceVars = [],
+              occurrenceElabTermArgTypes = []
             }
         pure (ty, [])
     Nothing -> do
@@ -149,6 +151,14 @@ inferLambda _sp pats body = do
   -- Infer the body under the extended environment.
   (bodyTy, bodyCts) <- withPatternBindings bindings (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
+  recordOccurrenceElaboration
+    lambdaOccurrenceKey
+    OccurrenceElaboration
+      { occurrenceElabType = funTy,
+        occurrenceElabTypeArgs = [],
+        occurrenceElabEvidenceVars = [],
+        occurrenceElabTermArgTypes = argTys
+      }
   pure (funTy, bodyCts)
 
 -- | Infer the type of a lambda-case expression.
@@ -300,7 +310,8 @@ inferTuple _sp elems = do
     OccurrenceElaboration
       { occurrenceElabType = tupleTy,
         occurrenceElabTypeArgs = tys,
-        occurrenceElabEvidenceVars = []
+        occurrenceElabEvidenceVars = [],
+        occurrenceElabTermArgTypes = []
       }
   pure (tupleTy, cts)
   where
@@ -334,7 +345,8 @@ inferList sp elems = case elems of
         OccurrenceElaboration
           { occurrenceElabType = listTy,
             occurrenceElabTypeArgs = [elemTy],
-            occurrenceElabEvidenceVars = []
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
           }
     mkElemEq headTy (elemTy, _) = do
       ev <- freshEvVar
@@ -345,6 +357,9 @@ tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
 
 listOccurrenceKey :: OccurrenceKey
 listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
+
+lambdaOccurrenceKey :: OccurrenceKey
+lambdaOccurrenceKey = OccurrenceKey "$lambda" NoSourceSpan
 
 -- | Infer the type of a list comprehension.
 --

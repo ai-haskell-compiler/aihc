@@ -524,8 +524,11 @@ annotateExprTc locals expr =
       pure (annotateExpr ann (ETuple flavor elems'))
     EIf cond thenE elseE ->
       EIf <$> annotateExprTc locals cond <*> annotateExprTc locals thenE <*> annotateExprTc locals elseE
-    ELambdaPats pats body ->
-      ELambdaPats pats <$> annotateExprTc locals body
+    ELambdaPats pats body -> do
+      body' <- annotateExprTc locals body
+      ann <- annotationForSyntaxOccurrence lambdaOccurrenceKey "lambda patterns"
+      pats' <- annotateLambdaPatterns (tcAnnTermArgTypes ann) pats
+      pure (ELambdaPats pats' body')
     ECase scrut alts -> do
       scrut' <- annotateExprTc locals scrut
       alts' <- mapM (annotateCaseAltTc locals) alts
@@ -705,7 +708,8 @@ annotationForOccurrenceElaboration elaboration = do
   ty <- zonkType (occurrenceElabType elaboration)
   typeArgs <- mapM zonkType (occurrenceElabTypeArgs elaboration)
   evidenceTerms <- mapM evidenceForEvVar (occurrenceElabEvidenceVars elaboration)
-  pure (TcAnnotation ty typeArgs evidenceTerms [])
+  termArgTypes <- mapM zonkType (occurrenceElabTermArgTypes elaboration)
+  pure (TcAnnotation ty typeArgs evidenceTerms termArgTypes)
 
 evidenceForEvVar :: EvVar -> TcM EvTerm
 evidenceForEvVar ev = do
@@ -725,6 +729,21 @@ tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
 
 listOccurrenceKey :: OccurrenceKey
 listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
+
+lambdaOccurrenceKey :: OccurrenceKey
+lambdaOccurrenceKey = OccurrenceKey "$lambda" NoSourceSpan
+
+annotateLambdaPatterns :: [TcType] -> [Pattern] -> TcM [Pattern]
+annotateLambdaPatterns tys pats
+  | length tys == length pats =
+      pure (zipWith annotatePattern tys pats)
+  | otherwise = do
+      _ <- missingTypeInfo ("lambda pattern types for " <> show (length pats) <> " pattern(s)")
+      pure pats
+
+annotatePattern :: TcType -> Pattern -> Pattern
+annotatePattern ty =
+  PAnn (mkAnnotation (TcAnnotation ty [] [] []))
 
 bindingType :: Text -> TcM TcType
 bindingType name = do

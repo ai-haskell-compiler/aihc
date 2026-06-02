@@ -167,7 +167,8 @@ data OccurrenceKey = OccurrenceKey !Text !SourceSpan
 data OccurrenceElaboration = OccurrenceElaboration
   { occurrenceElabType :: !TcType,
     occurrenceElabTypeArgs :: ![TcType],
-    occurrenceElabEvidenceVars :: ![EvVar]
+    occurrenceElabEvidenceVars :: ![EvVar],
+    occurrenceElabTermArgTypes :: ![TcType]
   }
   deriving (Show)
 
