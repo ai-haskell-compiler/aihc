@@ -8,10 +8,17 @@ module Aihc.Tc.Constraint
 
     -- * Constraint origins
     CtOrigin (..),
+    CtProvenance (..),
+    EqProvenance (..),
+    TypeOrigin (..),
+    TypeRole (..),
+    TypeTrace (..),
 
     -- * Constraints
     Ct (..),
     mkWantedCt,
+    mkWantedEqCt,
+    ctEqProvenance,
 
     -- * Implications
     Implication (..),
@@ -49,12 +56,53 @@ data CtOrigin
   | UnifyOrigin !SourceSpan
   deriving (Eq, Show)
 
+-- | The diagnostic role a type played in an equality.
+data TypeRole
+  = ActualType
+  | ExpectedType
+  | RequiredType
+  | InferredType
+  deriving (Eq, Show)
+
+-- | Where one side of a type constraint came from.
+data TypeOrigin
+  = UnknownTypeOrigin
+  | ExpressionTypeOrigin !SourceSpan
+  | ListElementTypeOrigin !SourceSpan
+  | TypeSignatureOrigin !Text !SourceSpan
+  | ConstraintTypeOrigin !CtOrigin
+  deriving (Eq, Show)
+
+-- | A type plus the diagnostic role and source of that type information.
+data TypeTrace = TypeTrace
+  { typeTraceType :: !TcType,
+    typeTraceRole :: !TypeRole,
+    typeTraceOrigin :: !TypeOrigin
+  }
+  deriving (Eq, Show)
+
+-- | Expected-vs-actual provenance for an equality constraint.
+data EqProvenance = EqProvenance
+  { eqActualTrace :: !TypeTrace,
+    eqExpectedTrace :: !TypeTrace,
+    eqContextOrigins :: ![TypeOrigin],
+    eqPrimarySpan :: !SourceSpan
+  }
+  deriving (Eq, Show)
+
+-- | Diagnostic provenance carried by a constraint.
+data CtProvenance
+  = FromCtOrigin !CtOrigin
+  | FromEqProvenance !EqProvenance
+  deriving (Eq, Show)
+
 -- | A constraint to be solved.
 data Ct = Ct
   { ctPred :: !Pred,
     ctFlavor :: !CtFlavor,
     ctEvVar :: !EvVar,
     ctOrigin :: !CtOrigin,
+    ctProvenance :: !CtProvenance,
     ctLoc :: !SourceSpan
   }
   deriving (Show)
@@ -67,8 +115,36 @@ mkWantedCt p ev orig loc =
       ctFlavor = Wanted,
       ctEvVar = ev,
       ctOrigin = orig,
+      ctProvenance = FromCtOrigin orig,
       ctLoc = loc
     }
+
+-- | Create a wanted equality constraint with expected-vs-actual diagnostic
+-- provenance. The solver may reorient or decompose the predicate, but the
+-- provenance keeps the source-facing roles stable for error reporting.
+mkWantedEqCt :: TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> SourceSpan -> Ct
+mkWantedEqCt actual expected ev orig loc =
+  Ct
+    { ctPred = EqPred (typeTraceType actual) (typeTraceType expected),
+      ctFlavor = Wanted,
+      ctEvVar = ev,
+      ctOrigin = orig,
+      ctProvenance =
+        FromEqProvenance
+          EqProvenance
+            { eqActualTrace = actual,
+              eqExpectedTrace = expected,
+              eqContextOrigins = [],
+              eqPrimarySpan = loc
+            },
+      ctLoc = loc
+    }
+
+ctEqProvenance :: Ct -> Maybe EqProvenance
+ctEqProvenance ct =
+  case ctProvenance ct of
+    FromEqProvenance provenance -> Just provenance
+    FromCtOrigin {} -> Nothing
 
 -- | An implication constraint.
 --

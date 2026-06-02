@@ -43,9 +43,12 @@ import Data.Text qualified as T
 --
 -- Returns the inferred type and a list of wanted constraints.
 inferExpr :: Expr -> TcM (TcType, [Ct])
-inferExpr expr = case expr of
+inferExpr = inferExprAt NoSourceSpan
+
+inferExprAt :: SourceSpan -> Expr -> TcM (TcType, [Ct])
+inferExprAt ambient expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar NoSourceSpan (nameToText name)
+  EVar name -> inferVar (exprSpan expr `orSourceSpan` ambient) (nameToText name)
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
   -- literals keep their primitive, unboxed type.
   EInt _ numericType _ -> pure (numericLiteralType numericType, [])
@@ -58,45 +61,45 @@ inferExpr expr = case expr of
   -- primitive String type constructor.
   EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
-  ELambdaPats pats body -> inferLambda NoSourceSpan pats body
+  ELambdaPats pats body -> inferLambda (exprSpan expr `orSourceSpan` ambient) pats body
   -- Lambda case: \case { pat -> body; ... }
-  ELambdaCase alts -> inferLambdaCase NoSourceSpan alts
+  ELambdaCase alts -> inferLambdaCase (exprSpan expr `orSourceSpan` ambient) alts
   -- Multi-argument lambda cases: \cases { p1 p2 -> body; ... }
-  ELambdaCases alts -> inferLambdaCases NoSourceSpan alts
+  ELambdaCases alts -> inferLambdaCases (exprSpan expr `orSourceSpan` ambient) alts
   -- Application: f x
-  EApp fun arg -> inferApp NoSourceSpan fun arg
+  EApp fun arg -> inferApp (exprSpan expr `orSourceSpan` ambient) fun arg
   -- Infix application: a `op` b
-  EInfix lhs op rhs -> inferExpr (EApp (EApp (EVar op) lhs) rhs)
+  EInfix lhs op rhs -> inferExprAt (exprSpan expr `orSourceSpan` ambient) (EApp (EApp (EVar op) lhs) rhs)
   -- If-then-else
-  EIf cond thenE elseE -> inferIf NoSourceSpan cond thenE elseE
+  EIf cond thenE elseE -> inferIf (exprSpan expr `orSourceSpan` ambient) cond thenE elseE
   -- Case expression
-  ECase scrutinee alts -> inferCase NoSourceSpan scrutinee alts
+  ECase scrutinee alts -> inferCase (exprSpan expr `orSourceSpan` ambient) scrutinee alts
   -- Let expression
   ELetDecls decls body ->
     inferLocalDecls inferExpr decls (inferExpr body)
   -- Parenthesized expression
-  EParen inner -> inferExpr inner
+  EParen inner -> inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
   -- Type signature: (e :: T)
   ETypeSig inner _ty -> do
     -- MVP: just infer the inner expression.
     -- Full version would check against the given type.
-    inferExpr inner
+    inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
   -- Negation
   ENegate inner -> do
     (innerTy, cs) <- inferExpr inner
     -- For MVP, just return the inner type.
     pure (innerTy, cs)
   -- Annotated expression (from other passes, e.g. resolve).
-  EAnn _ann inner -> inferExpr inner
+  EAnn ann inner -> inferExprAt (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
   -- Tuple
-  ETuple _flavor elems -> inferTuple NoSourceSpan elems
+  ETuple _flavor elems -> inferTuple (exprSpan expr `orSourceSpan` ambient) elems
   -- List
-  EList elems -> inferList NoSourceSpan elems
+  EList elems -> inferList (exprSpan expr `orSourceSpan` ambient) elems
   -- List comprehension
-  EListComp body quals -> inferListComp NoSourceSpan body quals
+  EListComp body quals -> inferListComp (exprSpan expr `orSourceSpan` ambient) body quals
   -- Unsupported expression forms for MVP.
   other -> do
-    emitError NoSourceSpan (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
+    emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
     pure (ty, [])
 
@@ -172,7 +175,27 @@ inferLambdaCases sp alts = do
 -- Each alternative's pattern is checked against the scrutinee type,
 -- and each RHS must unify with the expected result type.
 inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM [Ct]
-inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
+inferCaseAlts _sp _scrutTy _resTy [] = pure []
+inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
+  (firstBranchSp, firstRhsSp, firstRhsTy, firstCts) <- inferAlt firstAlt
+  resultEv <- freshEvVar
+  let resultCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = firstRhsTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin firstRhsSp
+            }
+          TypeTrace
+            { typeTraceType = resTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin firstBranchSp)
+            }
+          resultEv
+          (CaseBranchOrigin firstRhsSp)
+          firstRhsSp
+  restCts <- concat <$> mapM (inferAltAgainst firstBranchSp firstRhsTy) restAlts
+  pure (firstCts ++ [resultCt] ++ restCts)
   where
     inferAlt (CaseAlt altAnns pat rhs) = do
       let altSp = sourceSpanFromAnns altAnns
@@ -182,10 +205,28 @@ inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
       patCts <- inferPatternConstraints branchSp scrutTy pat
       -- Infer the RHS under the pattern bindings.
       (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
-      -- RHS must match the expected result type.
+      let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
+      pure (branchSp, rhsSp, rhsTy, patCts ++ rhsCts)
+
+    inferAltAgainst expectedBranchSp expectedTy alt = do
+      (branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
       ev <- freshEvVar
-      let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (CaseBranchOrigin branchSp) branchSp
-      pure (patCts ++ rhsCts ++ [rhsCt])
+      let rhsCt =
+            mkWantedEqCt
+              TypeTrace
+                { typeTraceType = rhsTy,
+                  typeTraceRole = ActualType,
+                  typeTraceOrigin = ExpressionTypeOrigin rhsSp
+                }
+              TypeTrace
+                { typeTraceType = expectedTy,
+                  typeTraceRole = ExpectedType,
+                  typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin expectedBranchSp)
+                }
+              ev
+              (CaseBranchOrigin branchSp)
+              rhsSp
+      pure (cts ++ [rhsCt])
 
 inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM [Ct]
 inferLambdaCaseAlt sp argTys resTy alt = do
@@ -292,17 +333,35 @@ inferList sp elems = case elems of
     elemTy <- freshMetaTv
     pure (TcTyCon listTyCon' [elemTy], [])
   (e : es) -> do
+    let headSp = exprSpan e `orSourceSpan` sp
     (headTy, headCts) <- inferExpr e
-    results <- mapM inferExpr es
-    let tailCts = concatMap snd results
+    results <- mapM inferElem es
+    let tailCts = concatMap (\(_, elemCts, _) -> elemCts) results
     -- All elements must have the same type.
-    eqCts <- mapM (mkElemEq headTy) results
+    eqCts <- mapM (mkElemEq headSp headTy) results
     pure (TcTyCon listTyCon' [headTy], headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
-    mkElemEq headTy (elemTy, _) = do
+    inferElem elemExpr = do
+      (elemTy, elemCts) <- inferExpr elemExpr
+      pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
+    mkElemEq headSp headTy (elemTy, _, elemSp) = do
       ev <- freshEvVar
-      pure $ mkWantedCt (EqPred headTy elemTy) ev (AppOrigin sp) sp
+      pure $
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = elemTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin elemSp
+            }
+          TypeTrace
+            { typeTraceType = headTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ListElementTypeOrigin headSp
+            }
+          ev
+          (AppOrigin elemSp)
+          elemSp
 
 -- | Infer the type of a list comprehension.
 --
@@ -361,6 +420,12 @@ compStmtSpan compStmt =
   case compStmt of
     CompAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
     _ -> NoSourceSpan
+
+rhsExprSpan :: Rhs Expr -> SourceSpan
+rhsExprSpan rhs =
+  case rhs of
+    UnguardedRhs anns expr _ -> exprSpan expr `orSourceSpan` sourceSpanFromAnns anns
+    GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
 exprSpan :: Expr -> SourceSpan
 exprSpan expr =
