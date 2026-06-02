@@ -6,8 +6,9 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x = let y = x + one in y
-  │ └─ x ∷ a│     └─ type-args: a, Bool
-  │         └─ y ∷ a
+  │ │       │     └─ type-args: a, Bool
+  │ │       └─ y ∷ a
+  │ └─ x ∷ a
   └─ f ∷ ∀ a. a → a
   (+) a b = a
    │  │ └─ b ∷ b

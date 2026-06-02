@@ -51,7 +51,7 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
 import Control.Applicative ((<|>))
-import Data.List (intercalate, sortOn)
+import Data.List (intercalate, isPrefixOf, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -674,15 +674,21 @@ layoutAnnotationLines items =
 packLine :: [AnnotationItem] -> ([AnnotationItem], [AnnotationItem])
 packLine [] = ([], [])
 packLine (rightmost : rest) =
-  let go _minCol [] fitted deferred = (fitted, deferred)
+  let lineHasElaboration = annotationItemIsElaboration rightmost
+      go _minCol [] fitted deferred = (fitted, deferred)
       go minCol (item@(col, label) : remaining) fitted deferred =
         let annotEnd = col + 3 + length label
             fitsBeforePlaced = annotEnd < minCol
             crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
-         in if fitsBeforePlaced && not crossesDeferred
+            sameLabelKind = annotationItemIsElaboration item == lineHasElaboration
+         in if sameLabelKind && fitsBeforePlaced && not crossesDeferred
               then go col remaining (item : fitted) deferred
               else go minCol remaining fitted (item : deferred)
    in go (fst rightmost) rest [rightmost] []
+
+annotationItemIsElaboration :: AnnotationItem -> Bool
+annotationItemIsElaboration (_, label) =
+  any (`isPrefixOf` label) ["type-args:", "evidence:", "term-args:"]
 
 renderAnnotationLine :: [AnnotationItem] -> [AnnotationItem] -> String
 renderAnnotationLine placedOnLine deferredItems =

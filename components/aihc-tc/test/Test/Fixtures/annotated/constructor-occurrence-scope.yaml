@@ -8,7 +8,7 @@ annotated:
   │  └─ x ∷ a
   └─ id ∷ ∀ a. a → a
   truth = id True
-  │     └─ type-args: Truth
+  │       └─ type-args: Truth
   └─ truth ∷ Truth
 extensions: []
 modules:

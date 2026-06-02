@@ -639,10 +639,16 @@ annotateVarTc :: Expr -> Name -> TcM Expr
 annotateVarTc expr name = do
   maybeOccurrenceAnn <- annotationForNameOccurrence name
   case maybeOccurrenceAnn of
-    Just ann -> pure (annotateExpr ann expr)
+    Just ann -> pure (annotateExprAt (sourceSpanFromAnns (nameAnns name)) ann expr)
     Nothing -> do
       _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
       pure expr
+
+annotateExprAt :: SourceSpan -> TcAnnotation -> Expr -> Expr
+annotateExprAt sp ann expr =
+  case sp of
+    NoSourceSpan -> annotateExpr ann expr
+    _ -> EAnn (mkAnnotation sp) (annotateExpr ann expr)
 
 annotateInfixOperatorTc :: Name -> TcM Name
 annotateInfixOperatorTc name = do

@@ -9,7 +9,7 @@ annotated:
   │  └─ x ∷ a
   └─ id ∷ ∀ a. a → a
   false = id False
-  │     └─ type-args: Bool
+  │       └─ type-args: Bool
   └─ false ∷ Bool
 extensions: []
 modules:
