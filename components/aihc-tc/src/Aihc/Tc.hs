@@ -180,7 +180,8 @@ typecheckModuleWithState st m =
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
                 tcsEvBinds = Map.empty,
-                tcsOccurrenceElaborations = Map.empty
+                tcsOccurrenceElaborations = Map.empty,
+                tcsBindingElaborations = Map.empty
               }
        in (result, nextState)
   where

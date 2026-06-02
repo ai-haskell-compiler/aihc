@@ -15,6 +15,8 @@ module Aihc.Tc.Monad
     OccurrenceElaboration (..),
     recordOccurrenceElaboration,
     takeOccurrenceElaboration,
+    recordBindingElaboration,
+    takeBindingElaboration,
 
     -- * Fresh names
     freshUnique,
@@ -157,7 +159,11 @@ data TcState = TcState
     -- | Instantiation and evidence variables emitted for polymorphic
     -- occurrences during constraint generation. The annotation pass consumes
     -- these in source traversal order after solving.
-    tcsOccurrenceElaborations :: !(Map OccurrenceKey [OccurrenceElaboration])
+    tcsOccurrenceElaborations :: !(Map OccurrenceKey [OccurrenceElaboration]),
+    -- | Types assigned to local declaration binders during constraint
+    -- generation. The annotation pass consumes them without reconstructing
+    -- lexical scope.
+    tcsBindingElaborations :: !(Map OccurrenceKey [TcType])
   }
   deriving (Show)
 
@@ -185,7 +191,8 @@ initTcState =
       tcsGlobalTyCons = Map.empty,
       tcsInstances = [],
       tcsGadtCons = Set.empty,
-      tcsOccurrenceElaborations = Map.empty
+      tcsOccurrenceElaborations = Map.empty,
+      tcsBindingElaborations = Map.empty
     }
 
 builtinTerms :: Map Text TcBinder
@@ -268,6 +275,24 @@ takeOccurrenceElaboration key = lift $ do
             | otherwise = Map.insert key rest (tcsOccurrenceElaborations st)
       modify' (\s -> s {tcsOccurrenceElaborations = elaborations'})
       pure (Just elaboration)
+    _ ->
+      pure Nothing
+
+recordBindingElaboration :: OccurrenceKey -> TcType -> TcM ()
+recordBindingElaboration key ty = lift $ modify' $ \s ->
+  let existing = Map.findWithDefault [] key (tcsBindingElaborations s)
+   in s {tcsBindingElaborations = Map.insert key (existing <> [ty]) (tcsBindingElaborations s)}
+
+takeBindingElaboration :: OccurrenceKey -> TcM (Maybe TcType)
+takeBindingElaboration key = lift $ do
+  st <- get
+  case Map.lookup key (tcsBindingElaborations st) of
+    Just (ty : rest) -> do
+      let elaborations'
+            | null rest = Map.delete key (tcsBindingElaborations st)
+            | otherwise = Map.insert key rest (tcsBindingElaborations st)
+      modify' (\s -> s {tcsBindingElaborations = elaborations'})
+      pure (Just ty)
     _ ->
       pure Nothing
 
