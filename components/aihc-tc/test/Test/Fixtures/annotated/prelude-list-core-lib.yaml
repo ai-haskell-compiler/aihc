@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   data List a = [] | a : [a]
-       └─ List ∷ * → *
+       └─ List ∷ * → * └─ (:) ∷ a → [a] → [a]
   infixr 5 :
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys

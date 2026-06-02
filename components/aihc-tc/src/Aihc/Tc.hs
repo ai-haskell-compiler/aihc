@@ -22,6 +22,7 @@ module Aihc.Tc
     TcResult (..),
     TcModuleResult (..),
     TcBindingResult (..),
+    tcmBindings,
 
     -- * Re-exports for convenience
     TcType (..),
@@ -43,7 +44,7 @@ where
 import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
 import Aihc.Tc.Annotations (TcAnnotation (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), tcModule)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -99,9 +100,7 @@ typecheckExprM expr = do
 
 -- | Result of type-checking a module.
 data TcModuleResult = TcModuleResult
-  { -- | Inferred types for each top-level binding.
-    tcmBindings :: ![TcBindingResult],
-    -- | Module annotated with type-checker elaboration data.
+  { -- | Module annotated with type-checker elaboration data.
     tcmModule :: !Module,
     -- | Diagnostics (errors and warnings) produced.
     tcmDiagnostics :: ![TcDiagnostic],
@@ -109,6 +108,10 @@ data TcModuleResult = TcModuleResult
     tcmSuccess :: !Bool
   }
   deriving (Show)
+
+tcmBindings :: TcModuleResult -> [TcBindingResult]
+tcmBindings =
+  moduleBindings . tcmModule
 
 -- | Type-check a single module, processing data declarations and
 -- value bindings.
@@ -123,8 +126,7 @@ typecheckModuleWithEnv importedTerms m =
     [result] -> result
     _ ->
       TcModuleResult
-        { tcmBindings = [],
-          tcmModule = m,
+        { tcmModule = m,
           tcmDiagnostics = [],
           tcmSuccess = False
         }
@@ -157,20 +159,18 @@ typecheckModuleWithState st m =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m) of
     Left _abort ->
       ( TcModuleResult
-          { tcmBindings = [],
-            tcmModule = m,
+          { tcmModule = m,
             tcmDiagnostics = [],
             tcmSuccess = False
           },
         st
       )
-    Right ((bindings, annotatedModule), st') ->
+    Right (annotatedModule, st') ->
       let diags = reverse (tcsDiagnostics st')
           hasErrors = any isError diags
           result =
             TcModuleResult
-              { tcmBindings = bindings,
-                tcmModule = annotatedModule,
+              { tcmModule = annotatedModule,
                 tcmDiagnostics = diags,
                 tcmSuccess = not hasErrors
               }

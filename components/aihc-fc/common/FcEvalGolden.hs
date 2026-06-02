@@ -10,7 +10,7 @@ module FcEvalGolden
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithTcResult, evalProgramBinding, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderRawValue)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcModuleResult (..), typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheckModulesWithEnv)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -159,7 +159,8 @@ evaluateFcEvalCase tc =
                     let tcResults = typecheckModulesWithEnv [] resolvedModules
                      in if all tcmSuccess tcResults
                           then
-                            let results = zipWith desugarModuleWithTcResult (moduleGroupTcResults tcResults) resolvedModules
+                            let allBindings = moduleGroupBindings tcResults
+                                results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
                              in if all dsSuccess results
                                   then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
                                     Right actual -> classifySuccess tc (T.unpack actual)
@@ -240,11 +241,9 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
-moduleGroupTcResults :: [TcModuleResult] -> [TcModuleResult]
-moduleGroupTcResults results =
-  [result {tcmBindings = allBindings} | result <- results]
-  where
-    allBindings = concatMap tcmBindings results
+moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings =
+  concatMap tcmBindings
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =

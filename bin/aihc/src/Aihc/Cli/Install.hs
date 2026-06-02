@@ -64,6 +64,7 @@ import Aihc.Tc
     TyVarId (..),
     Unique (..),
     renderTcType,
+    tcmBindings,
     typecheckModule,
   )
 import Control.Applicative ((<|>))

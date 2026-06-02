@@ -25,7 +25,7 @@ import Aihc.Parser.Syntax
   ( Extension,
     parseExtensionName,
   )
-import Aihc.Tc (TcModuleResult (..), typecheck)
+import Aihc.Tc (typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -39,7 +39,6 @@ import TcAnnotatedRender (renderAnnotatedTcResults)
 
 data ExpectedStatus
   = StatusPass
-  | StatusFail
   | StatusXPass
   | StatusXFail
   deriving (Eq, Show)
@@ -136,9 +135,8 @@ evaluateTcAnnotatedCase tc =
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
           let results = typecheck modules
-           in if all tcmSuccess results
-                then classifySuccess tc (renderAnnotatedTcResults (caseModules tc) results)
-                else classifyFailure tc (renderDiags results)
+              actual = renderAnnotatedTcResults (caseModules tc) results
+           in classifySuccess tc actual
   where
     parseOne input =
       let config =
@@ -150,8 +148,6 @@ evaluateTcAnnotatedCase tc =
        in if null errs
             then Right ast
             else Left (show errs)
-    renderDiags results =
-      unlines [show d | r <- results, d <- tcmDiagnostics r]
 
 classifySuccess :: TcAnnotatedCase -> [String] -> (Outcome, String)
 classifySuccess tc actual =
@@ -167,8 +163,6 @@ classifySuccess tc actual =
                   <> "\nactual:\n"
                   <> unlines actual
               )
-        StatusFail ->
-          (OutcomeFail, "expected failure but TC succeeded")
         StatusXFail
           | outputMatches -> (OutcomeXPass, "known bug still passes unexpectedly")
           | otherwise -> (OutcomeXFail, "")
@@ -180,7 +174,6 @@ classifyFailure :: TcAnnotatedCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =
   case caseStatus tc of
     StatusPass -> (OutcomeFail, "expected success, got error: " <> errDetails)
-    StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
     StatusXPass -> (OutcomeFail, "expected xpass, got error: " <> errDetails)
 
@@ -213,7 +206,6 @@ parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =
   case map toLower (trim (T.unpack raw)) of
     "pass" -> Right StatusPass
-    "fail" -> Right StatusFail
     "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
     _ -> Left ("Invalid status in " <> path <> ": " <> T.unpack raw)

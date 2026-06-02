@@ -35,7 +35,7 @@ import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -312,42 +312,62 @@ inferList sp elems = case elems of
 -- expression-local @let@ over the remaining qualifiers and body.
 inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (TcType, [Ct])
 inferListComp sp body quals = do
-  (bodyTy, cts) <- inferCompQuals quals (inferExpr body)
+  (bodyTy, cts) <- inferCompQuals sp quals (inferExpr body)
   pure (listType bodyTy, cts)
   where
     listType elemTy = TcTyCon listTyCon' [elemTy]
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
 
-    inferCompQuals [] action = action
-    inferCompQuals (qual : rest) action =
+    inferCompQuals _ [] action = action
+    inferCompQuals ambient (qual : rest) action =
       case qual of
         CompAnn _ inner ->
-          inferCompQuals (inner : rest) action
+          inferCompQuals (compStmtSpan qual `orSourceSpan` ambient) (inner : rest) action
         CompGen pat src -> do
           elemTy <- freshMetaTv
           (srcTy, srcCts) <- inferExpr src
-          patCts <- inferPatternConstraints sp elemTy pat
+          patCts <- inferPatternConstraints ambient elemTy pat
           ev <- freshEvVar
-          let srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin sp) sp
+          let srcSp = exprSpan src `orSourceSpan` ambient
+              srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
               bindings = extractPatternBindings (pat, elemTy)
-          (bodyTy, bodyCts) <- withPatternBindings bindings (inferCompQuals rest action)
+          (bodyTy, bodyCts) <- withPatternBindings bindings (inferCompQuals ambient rest action)
           pure (bodyTy, srcCts ++ patCts ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
-          let guardCt = mkWantedCt (EqPred guardTy boolTyCon) ev (AppOrigin sp) sp
-          (bodyTy, bodyCts) <- inferCompQuals rest action
+          let guardSp = exprSpan guard `orSourceSpan` ambient
+              guardCt = mkWantedCt (EqPred guardTy boolTyCon) ev (AppOrigin guardSp) guardSp
+          (bodyTy, bodyCts) <- inferCompQuals ambient rest action
           pure (bodyTy, guardCts ++ [guardCt] ++ bodyCts)
         CompLetDecls decls ->
-          inferLocalDecls inferExpr decls (inferCompQuals rest action)
-        CompThen {} -> unsupportedQual qual rest action
-        CompThenBy {} -> unsupportedQual qual rest action
-        CompGroupUsing {} -> unsupportedQual qual rest action
-        CompGroupByUsing {} -> unsupportedQual qual rest action
+          inferLocalDecls inferExpr decls (inferCompQuals ambient rest action)
+        CompThen {} -> unsupportedQual qual ambient rest action
+        CompThenBy {} -> unsupportedQual qual ambient rest action
+        CompGroupUsing {} -> unsupportedQual qual ambient rest action
+        CompGroupByUsing {} -> unsupportedQual qual ambient rest action
 
-    unsupportedQual qual rest action = do
-      emitError NoSourceSpan (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
-      inferCompQuals rest action
+    unsupportedQual qual ambient rest action = do
+      let qualSp = compStmtSpan qual `orSourceSpan` ambient
+      emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
+      inferCompQuals ambient rest action
+
+orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+orSourceSpan NoSourceSpan fallback = fallback
+orSourceSpan sp _ = sp
+
+compStmtSpan :: CompStmt -> SourceSpan
+compStmtSpan compStmt =
+  case compStmt of
+    CompAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
+    _ -> NoSourceSpan
+
+exprSpan :: Expr -> SourceSpan
+exprSpan expr =
+  case expr of
+    EAnn ann inner ->
+      fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
+    _ -> NoSourceSpan
 
 -- | Convert a surface Name to Text for lookup.
 nameToText :: Name -> Text

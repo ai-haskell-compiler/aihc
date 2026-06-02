@@ -20,7 +20,7 @@ module Aihc.Parser.Internal.CheckPattern
   )
 where
 
-import Aihc.Parser.Internal.Common (isConLikeName)
+import Aihc.Parser.Internal.Common (isConLikeName, nameToUnqualified)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
@@ -37,7 +37,7 @@ checkPattern expr = case expr of
     | nameText name == "_" -> Right PWildcard
     | isConLikeName name -> Right (PCon name [] [])
     | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
-    | otherwise -> Right (PVar (mkUnqualifiedName (nameType name) (nameText name)))
+    | otherwise -> Right (PVar (nameToUnqualified name))
   ETypeSyntax form ty -> Right (PTypeSyntax form ty)
   -- Parenthesized expression
   -- When the inner expression is a view-pattern arrow (@expr -> expr@),

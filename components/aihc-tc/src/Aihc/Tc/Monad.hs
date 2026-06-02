@@ -54,6 +54,7 @@ module Aihc.Tc.Monad
     emitDiagnostic,
     emitError,
     getDiagnostics,
+    withErrorTracking,
   )
 where
 
@@ -318,6 +319,25 @@ emitError loc kind =
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]
 getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
+
+-- | Run a recoverable phase and report whether it emitted any errors.
+--
+-- The type checker intentionally keeps going after many local errors so later
+-- declarations can still be checked. Callers that produce successful
+-- elaboration metadata use this to avoid treating a recovered binding as a
+-- checked binding.
+withErrorTracking :: TcM a -> TcM (a, Bool)
+withErrorTracking action = do
+  before <- currentErrorCount
+  result <- action
+  after <- currentErrorCount
+  pure (result, after > before)
+
+currentErrorCount :: TcM Int
+currentErrorCount =
+  lift $ gets $ length . filter isError . tcsDiagnostics
+  where
+    isError diagnostic = diagSeverity diagnostic == TcError
 
 -- | Record that a constructor is a GADT constructor.
 markGadtCon :: Text -> TcM ()

@@ -71,9 +71,9 @@ conOperatorParser =
     symbolicConOp =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
-          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
-          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
-          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym op))
+          TkQConSym modName op -> Just (mkNameAt tok (Just modName) NameConSym op)
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym ":"))
           _ -> Nothing
     backtickConOp =
       MP.try $
@@ -278,7 +278,7 @@ varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
       pure $
         if isConLikeName name
           then PCon name [] []
-          else PVar (mkUnqualifiedName (nameType name) (nameText name))
+          else PVar (nameToUnqualified name)
 
 recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
@@ -290,7 +290,7 @@ recordFieldPatternParser = do
       pure (RecordField field pat False)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure (RecordField field (PVar (mkUnqualifiedName (nameType field) (nameText field))) True)
+      pure (RecordField field (PVar (nameToUnqualified field)) True)
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
 recordPatternFieldListParser :: TokParser ([RecordField Pattern], Bool)
@@ -446,11 +446,11 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
         operatorPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           tok' <- anySingle
           case lexTokenKind tok' of
-            TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
-            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [] [])
-            TkQConSym modName op -> pure (PCon (mkName (Just modName) NameConSym op) [] [])
-            TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym ":")) [] [])
-            TkReservedAt -> pure (PVar (mkUnqualifiedName NameVarSym "@"))
+            TkVarSym op -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym op))
+            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym op)) [] [])
+            TkQConSym modName op -> pure (PCon (mkNameAt tok' (Just modName) NameConSym op) [] [])
+            TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym ":")) [] [])
+            TkReservedAt -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym "@"))
             _ ->
               MP.customFailure
                 UnexpectedTokenExpecting
