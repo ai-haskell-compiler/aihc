@@ -2,9 +2,14 @@ extensions: []
 modules:
   - |
     module Test where
-    data Bool = True | False
     asPattern xs@(x:rest) = xs
-    (:) a b = a
-annotated: []
-status: xfail
-reason: "as-patterns not yet supported"
+annotated:
+  - |-
+    module Test where
+    asPattern xs@(x:rest) = xs
+    │         │   │ └─ rest ∷ [a]
+    │         │   └─ x ∷ a
+    │         └─ xs ∷ [a]
+    └─ asPattern ∷ ∀ a. [a] → [a]
+status: pass
+reason: ""
