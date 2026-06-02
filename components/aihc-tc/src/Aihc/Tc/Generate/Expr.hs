@@ -34,6 +34,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey)
 import Aihc.Tc.Types
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -45,7 +46,7 @@ import Data.Text qualified as T
 inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar (sourceSpanFromAnns (nameAnns name)) (nameToText name)
+  EVar name -> inferVar name
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
   -- literals keep their primitive, unboxed type.
   EInt _ numericType _ -> pure (numericLiteralType numericType, [])
@@ -101,15 +102,17 @@ inferExpr expr = case expr of
     pure (ty, [])
 
 -- | Infer the type of a variable reference.
-inferVar :: SourceSpan -> Text -> TcM (TcType, [Ct])
-inferVar sp name = do
+inferVar :: Name -> TcM (TcType, [Ct])
+inferVar nameSyntax = do
+  let sp = sourceSpanFromAnns (nameAnns nameSyntax)
+      name = nameToText nameSyntax
+      maybeKey = nameOccurrenceKey nameSyntax
   mBinder <- lookupTerm name
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
-      recordOccurrenceElaboration
-        (OccurrenceKey name sp)
+      recordVarOccurrence maybeKey $
         OccurrenceElaboration
           { occurrenceElabType = instType inst,
             occurrenceElabTypeArgs = instTypeArgs inst,
@@ -118,21 +121,25 @@ inferVar sp name = do
           }
       let ty = instType inst
       pure (ty, cts)
-    Just (TcMonoIdBinder _ ty) ->
-      do
-        recordOccurrenceElaboration
-          (OccurrenceKey name sp)
-          OccurrenceElaboration
-            { occurrenceElabType = ty,
-              occurrenceElabTypeArgs = [],
-              occurrenceElabEvidenceVars = [],
-              occurrenceElabTermArgTypes = []
-            }
-        pure (ty, [])
+    Just (TcMonoIdBinder _ ty) -> do
+      recordVarOccurrence maybeKey $
+        OccurrenceElaboration
+          { occurrenceElabType = ty,
+            occurrenceElabTypeArgs = [],
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
+      pure (ty, [])
     Nothing -> do
       emitError sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv
       pure (ty, [])
+
+recordVarOccurrence :: Maybe OccurrenceKey -> OccurrenceElaboration -> TcM ()
+recordVarOccurrence maybeKey elaboration =
+  case maybeKey of
+    Just key -> recordOccurrenceElaboration key elaboration
+    Nothing -> pure ()
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
@@ -353,13 +360,13 @@ inferList sp elems = case elems of
       pure $ mkWantedCt (EqPred headTy elemTy) ev (AppOrigin sp) sp
 
 tupleOccurrenceKey :: OccurrenceKey
-tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
+tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
 
 listOccurrenceKey :: OccurrenceKey
-listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
+listOccurrenceKey = syntaxOccurrenceKey "$list"
 
 lambdaOccurrenceKey :: OccurrenceKey
-lambdaOccurrenceKey = OccurrenceKey "$lambda" NoSourceSpan
+lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
 
 -- | Infer the type of a list comprehension.
 --

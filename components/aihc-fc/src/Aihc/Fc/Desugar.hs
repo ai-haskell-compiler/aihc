@@ -35,6 +35,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
+import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcmBindings, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -54,7 +55,16 @@ data DesugarResult = DesugarResult
 
 -- | Desugar a module: parse, typecheck, then translate to Core.
 desugarModule :: Module -> DesugarResult
-desugarModule m = desugarModuleWithTcResult (typecheckModule m) m
+desugarModule m =
+  case resolve [m] of
+    ResolveResult {resolvedModules = [resolved], resolveErrors = []} ->
+      desugarModuleWithTcResult (typecheckModule resolved) resolved
+    ResolveResult {resolveErrors} ->
+      DesugarResult
+        { dsProgram = FcProgram [],
+          dsSuccess = False,
+          dsErrors = ["resolve error: " <> show resolveErrors]
+        }
 
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload

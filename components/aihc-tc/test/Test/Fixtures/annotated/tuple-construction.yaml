@@ -1,9 +1,3 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = True | False
-    f x = (x, x)
 annotated:
 - |-
   module Test where
@@ -12,8 +6,14 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x = (x, x)
-  │ │   └─ type-args: a, a
+  │ │ └─ type-args: a, a
   │ └─ x ∷ a
   └─ f ∷ ∀ a. a → (a, a)
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  f x = (x, x)
+reason: tuple construction infers and renders boxed tuple result types
 status: pass
-reason: "tuple construction infers and renders boxed tuple result types"

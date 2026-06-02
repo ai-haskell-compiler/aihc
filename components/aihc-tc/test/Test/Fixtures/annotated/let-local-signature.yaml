@@ -2,8 +2,9 @@ annotated:
 - |-
   module Test where
   f x = let g :: a -> a; g y = y in g x
-  │ └─ x ∷ a             │ └─ y ∷ a └─ type-args: a
-  └─ f ∷ ∀ a. a → a      └─ g ∷ ∀ a. a → a
+  │ │ └─ type-args: a    │ └─ y ∷ a
+  │ └─ x ∷ a             └─ g ∷ ∀ a. a → a
+  └─ f ∷ ∀ a. a → a
 extensions: []
 modules:
 - |

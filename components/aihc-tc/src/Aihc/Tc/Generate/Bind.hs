@@ -14,8 +14,7 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Parser.Syntax
-  ( Annotation,
-    CaseAlt (..),
+  ( CaseAlt (..),
     Decl (..),
     Expr (..),
     Match (..),
@@ -27,7 +26,6 @@ import Aihc.Parser.Syntax
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    fromAnnotation,
     nameText,
     peelDeclAnn,
     unqualifiedNameText,
@@ -37,6 +35,7 @@ import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (unqualifiedNameOccurrenceKey)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -45,7 +44,6 @@ import Data.Foldable (for_)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -99,7 +97,7 @@ declBindingKeys :: Decl -> [(OccurrenceKey, Text)]
 declBindingKeys decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name _) ->
-      [(occurrenceKeyForUnqualifiedName name, unqualifiedNameText name)]
+      maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name)
     DeclValue (PatternBind _ pat _) ->
       patternBindingKeys pat
     _ -> []
@@ -107,10 +105,10 @@ declBindingKeys decl =
 patternBindingKeys :: Pattern -> [(OccurrenceKey, Text)]
 patternBindingKeys pat =
   case pat of
-    PVar name -> [(occurrenceKeyForUnqualifiedName name, unqualifiedNameText name)]
+    PVar name -> maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name)
     PAnn _ inner -> patternBindingKeys inner
     PParen inner -> patternBindingKeys inner
-    PAs name inner -> (occurrenceKeyForUnqualifiedName name, unqualifiedNameText name) : patternBindingKeys inner
+    PAs name inner -> maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name) <> patternBindingKeys inner
     PStrict inner -> patternBindingKeys inner
     PIrrefutable inner -> patternBindingKeys inner
     PList items -> concatMap patternBindingKeys items
@@ -120,16 +118,6 @@ patternBindingKeys pat =
     PCon _ _ pats -> concatMap patternBindingKeys pats
     PTypeSig inner _ -> patternBindingKeys inner
     _ -> []
-
-occurrenceKeyForUnqualifiedName :: UnqualifiedName -> OccurrenceKey
-occurrenceKeyForUnqualifiedName name =
-  OccurrenceKey (unqualifiedNameText name) (sourceSpanFromAnns (unqualifiedNameAnns name))
-
-sourceSpanFromAnns :: [Annotation] -> SourceSpan
-sourceSpanFromAnns anns =
-  case mapMaybe fromAnnotation anns of
-    [] -> NoSourceSpan
-    sp : _ -> sp
 
 monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> Text -> TcM (Text, TcBinder)
 monomorphicBinder sigs placeholders name =

@@ -8,7 +8,7 @@ annotated:
   │  └─ x ∷ a
   └─ id ∷ ∀ a. a → a
   truth = id True
-  │       └─ type-args: Truth
+  │     └─ type-args: Truth
   └─ truth ∷ Truth
 extensions: []
 modules:
@@ -17,5 +17,6 @@ modules:
   data Truth = True
   id x = x
   truth = id True
-reason: constructor occurrence annotations must come from the current scope, not builtin spellings
+reason: constructor occurrence annotations must come from the current scope, not builtin
+  spellings
 status: pass

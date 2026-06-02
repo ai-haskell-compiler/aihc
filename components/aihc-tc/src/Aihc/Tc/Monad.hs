@@ -12,6 +12,7 @@ module Aihc.Tc.Monad
 
     -- * Occurrence elaboration
     OccurrenceKey (..),
+    ResolvedOccurrenceKey (..),
     OccurrenceElaboration (..),
     recordOccurrenceElaboration,
     takeOccurrenceElaboration,
@@ -167,7 +168,15 @@ data TcState = TcState
   }
   deriving (Show)
 
-data OccurrenceKey = OccurrenceKey !Text !SourceSpan
+data OccurrenceKey
+  = OccurrenceResolved !ResolvedOccurrenceKey
+  | OccurrenceSyntax !Text
+  deriving (Eq, Ord, Show)
+
+data ResolvedOccurrenceKey
+  = ResolvedTopLevelKey !Text
+  | ResolvedLocalKey !Int
+  | ResolvedBuiltinKey !Text
   deriving (Eq, Ord, Show)
 
 data OccurrenceElaboration = OccurrenceElaboration

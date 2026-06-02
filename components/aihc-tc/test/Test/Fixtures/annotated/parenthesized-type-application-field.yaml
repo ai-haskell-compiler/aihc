@@ -1,6 +1,12 @@
 annotated:
 - |-
   module Test where
+  data Int = I
+       │     └─ I ∷ Int
+       └─ Int ∷ *
+  data Foo a = Foo
+       │       └─ Foo ∷ Foo a
+       └─ Foo ∷ * → *
   data Chan a = Chan (Foo Int)
        │        └─ Chan ∷ Foo Int → Chan a
        └─ Chan ∷ * → *
@@ -8,6 +14,8 @@ extensions: []
 modules:
 - |
   module Test where
+  data Int = I
+  data Foo a = Foo
   data Chan a = Chan (Foo Int)
 reason: ''
 status: pass

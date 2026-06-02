@@ -73,6 +73,7 @@ import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey, unqualifiedNameOccurrenceKey)
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
@@ -564,7 +565,9 @@ annotateLocalValueDeclTc valueDecl =
 
 bindingTypeForLocalName :: UnqualifiedName -> TcM TcType
 bindingTypeForLocalName name =
-  bindingTypeForLocalBinder (unqualifiedNameText name) (occurrenceKeyForUnqualifiedName name)
+  case unqualifiedNameOccurrenceKey name of
+    Just key -> bindingTypeForLocalBinder (unqualifiedNameText name) key
+    Nothing -> missingTypeInfo ("resolved local binding " <> T.unpack (unqualifiedNameText name))
 
 bindingTypeForPattern :: Pattern -> TcM TcType
 bindingTypeForPattern pat =
@@ -582,7 +585,7 @@ bindingTypeForLocalBinder name key = do
 localPatternBinderKey :: Pattern -> Maybe (Text, OccurrenceKey)
 localPatternBinderKey pat =
   case pat of
-    PVar name -> Just (unqualifiedNameText name, occurrenceKeyForUnqualifiedName name)
+    PVar name -> (unqualifiedNameText name,) <$> unqualifiedNameOccurrenceKey name
     PParen inner -> localPatternBinderKey inner
     PAnn _ inner -> localPatternBinderKey inner
     _ -> Nothing
@@ -656,10 +659,13 @@ annotateName ann name =
 
 annotationForNameOccurrence :: Name -> TcM (Maybe TcAnnotation)
 annotationForNameOccurrence name = do
-  maybeElaboration <- takeOccurrenceElaboration (occurrenceKeyForName name)
-  case maybeElaboration of
-    Just elaboration ->
-      Just <$> annotationForOccurrenceElaboration elaboration
+  case nameOccurrenceKey name of
+    Just key -> do
+      maybeElaboration <- takeOccurrenceElaboration key
+      case maybeElaboration of
+        Just elaboration ->
+          Just <$> annotationForOccurrenceElaboration elaboration
+        Nothing -> pure Nothing
     Nothing -> pure Nothing
 
 annotationForSyntaxOccurrence :: OccurrenceKey -> String -> TcM TcAnnotation
@@ -689,22 +695,14 @@ evidenceForEvVar ev = do
       _ <- missingTypeInfo ("evidence for " <> show ev)
       pure (EvVarTerm ev)
 
-occurrenceKeyForName :: Name -> OccurrenceKey
-occurrenceKeyForName name =
-  OccurrenceKey (nameToText name) (sourceSpanFromAnns (nameAnns name))
-
-occurrenceKeyForUnqualifiedName :: UnqualifiedName -> OccurrenceKey
-occurrenceKeyForUnqualifiedName name =
-  OccurrenceKey (unqualifiedNameText name) (sourceSpanFromAnns (unqualifiedNameAnns name))
-
 tupleOccurrenceKey :: OccurrenceKey
-tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
+tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
 
 listOccurrenceKey :: OccurrenceKey
-listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
+listOccurrenceKey = syntaxOccurrenceKey "$list"
 
 lambdaOccurrenceKey :: OccurrenceKey
-lambdaOccurrenceKey = OccurrenceKey "$lambda" NoSourceSpan
+lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
 
 annotateLambdaPatterns :: [TcType] -> [Pattern] -> TcM [Pattern]
 annotateLambdaPatterns tys pats
@@ -819,11 +817,6 @@ substPred subst (EqPred left right) = EqPred (substType subst left) (substType s
 
 substType :: Map Unique TcType -> TcType -> TcType
 substType = Aihc.Tc.Instantiate.applySubst
-
-nameToText :: Name -> Text
-nameToText n = case nameQualifier n of
-  Nothing -> nameText n
-  Just q -> q <> "." <> nameText n
 
 -- | Collect type signatures from a list of declarations.
 collectRawSigs :: [Decl] -> Map Text Type

@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     fromAnnotation,
   )
+import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -181,6 +182,7 @@ kindTests =
             typecheckModule $
               parseM
                 "module Test where\n\
+                \data Int = I\n\
                 \data M a = J a | N\n\
                 \fn :: M Int\n\
                 \fn = N\n"
@@ -265,7 +267,9 @@ parseM input =
   let config = defaultConfig {parserSourceName = "<test>"}
       (errs, modu) = parseModule config input
    in if null errs
-        then modu
+        then case resolve [modu] of
+          ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
+          ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
         else error ("Parse error in test: " ++ show errs)
 
 evidenceDictNames :: Module -> [Text]

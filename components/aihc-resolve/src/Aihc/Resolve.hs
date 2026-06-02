@@ -30,10 +30,10 @@ import Aihc.Parser.Syntax
     ArrowKind (..),
     BangType (..),
     BinderHead (..),
-    CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    CompStmt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -43,7 +43,6 @@ import Aihc.Parser.Syntax
     FixityAssoc (..),
     ForallTelescope (..),
     ForeignDecl (..),
-    ForeignDirection (..),
     GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
@@ -355,10 +354,8 @@ resolveDeclCore termDefinition decl =
     DeclDefault tys ->
       DeclDefault <$> mapM resolveType tys
     DeclFixity {} -> pure decl
-    DeclForeign foreignDecl
-      | isForeignPrimImport foreignDecl ->
-          DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
-      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclForeign foreignDecl ->
+      DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -387,11 +384,6 @@ resolveForeignDecl termDefinition foreignDecl = do
   let name' = resolveTermDefinitionAt sp termDefinition (foreignName foreignDecl)
   ty' <- resolveType (foreignType foreignDecl)
   pure foreignDecl {foreignName = name', foreignType = ty'}
-
-isForeignPrimImport :: ForeignDecl -> Bool
-isForeignPrimImport foreignDecl =
-  foreignDirection foreignDecl == ForeignImport
-    && foreignCallConv foreignDecl == CPrim
 
 resolveClassDecl :: ClassDecl -> ResolveM ClassDecl
 resolveClassDecl classDecl = do
@@ -605,7 +597,10 @@ resolveExpr expr =
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
     EQuasiQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    EListComp {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EListComp body stmts -> do
+      (scope, stmts') <- resolveCompStmts stmts
+      body' <- withScope scope (resolveExpr body)
+      pure (EListComp body' stmts')
     EListCompParallel {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHExpQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHTypedQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
@@ -618,6 +613,52 @@ resolveExpr expr =
 
 resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe Expr)
 resolveMaybeExpr = traverse resolveExpr
+
+resolveCompStmts :: [CompStmt] -> ResolveM (Scope, [CompStmt])
+resolveCompStmts stmts = do
+  scope <- currentScope
+  go scope stmts
+  where
+    go scope stmts' =
+      withScope scope $
+        case stmts' of
+          [] -> pure (scope, [])
+          stmt : rest -> do
+            (scope', stmt') <- resolveCompStmt scope stmt
+            (scope'', rest') <- go scope' rest
+            pure (scope'', stmt' : rest')
+
+resolveCompStmt :: Scope -> CompStmt -> ResolveM (Scope, CompStmt)
+resolveCompStmt scope stmt =
+  case stmt of
+    CompAnn ann inner -> do
+      (scope', inner') <- withPushedSpan ann (resolveCompStmt scope inner)
+      pure (scope', CompAnn ann inner')
+    CompGen pat src -> do
+      src' <- resolveExpr src
+      (patScope, pat') <- bindPattern pat
+      pure (unionScope patScope scope, CompGen pat' src')
+    CompGuard guard -> do
+      guard' <- resolveExpr guard
+      pure (scope, CompGuard guard')
+    CompLetDecls decls -> do
+      (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
+      decls' <- extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls)
+      pure (unionScope localScope scope, CompLetDecls decls')
+    CompThen expr -> do
+      expr' <- resolveExpr expr
+      pure (scope, CompThen expr')
+    CompThenBy f byExpr -> do
+      f' <- resolveExpr f
+      byExpr' <- resolveExpr byExpr
+      pure (scope, CompThenBy f' byExpr')
+    CompGroupUsing expr -> do
+      expr' <- resolveExpr expr
+      pure (scope, CompGroupUsing expr')
+    CompGroupByUsing byExpr usingExpr -> do
+      byExpr' <- resolveExpr byExpr
+      usingExpr' <- resolveExpr usingExpr
+      pure (scope, CompGroupByUsing byExpr' usingExpr')
 
 resolveCaseAlt :: CaseAlt Expr -> ResolveM (CaseAlt Expr)
 resolveCaseAlt alt =
