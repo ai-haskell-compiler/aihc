@@ -33,13 +33,14 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeIgnoring)
+import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -221,12 +222,11 @@ tcMatches inferExpr matches@(m0 : _) = do
 tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM [Ct]
 tcMatchEquation inferExpr argTys resTy match = do
   let pats = matchPats match
-      bindings = concatMap extractPatternBindings (zip pats argTys)
-  patCts <- concat <$> zipWithM (inferPatternConstraints NoSourceSpan) pats argTys
-  (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhsWithLocals inferExpr (matchRhs match))
+  patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
+  (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (patCts ++ rhsCts ++ [resCt])
+  pure (pcWantedCts patCheck ++ rhsCts ++ [resCt])
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM [Ct]
 unifyMatchRhs inferExpr expectedTy match = do
@@ -234,25 +234,6 @@ unifyMatchRhs inferExpr expectedTy match = do
   ev <- freshEvVar
   let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
   pure (rhsCts ++ [eqCt])
-
-inferPatternConstraints :: SourceSpan -> Pattern -> TcType -> TcM [Ct]
-inferPatternConstraints sp pat scrutTy =
-  case pat of
-    PCon name _typeArgs _subPats -> do
-      let conName = nameToText name
-      mBinder <- lookupTerm conName
-      case mBinder of
-        Just (TcIdBinder _ scheme _) -> do
-          (conTy, _preds) <- Aihc.Tc.Instantiate.instantiate scheme
-          let conResTy = resultType conTy
-          ev <- freshEvVar
-          pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
-        _ -> pure []
-    PAnn _ann inner -> inferPatternConstraints sp inner scrutTy
-    PParen inner -> inferPatternConstraints sp inner scrutTy
-    PStrict inner -> inferPatternConstraints sp inner scrutTy
-    PIrrefutable inner -> inferPatternConstraints sp inner scrutTy
-    _ -> pure []
 
 shouldGeneralizeLocal :: Set.Set Text -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
@@ -352,43 +333,6 @@ patternBinderName (PVar n) = Just (renderBinderName n, unqualifiedNameText n)
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
-
-extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
-extractPatternBindings (pat, ty) =
-  case pat of
-    PVar uname -> [(unqualifiedNameText uname, ty)]
-    PAnn _ann inner -> extractPatternBindings (inner, ty)
-    PParen inner -> extractPatternBindings (inner, ty)
-    PWildcard {} -> []
-    PLit {} -> []
-    PNegLit {} -> []
-    PAs name inner -> (unqualifiedNameText name, ty) : extractPatternBindings (inner, ty)
-    PStrict inner -> extractPatternBindings (inner, ty)
-    PIrrefutable inner -> extractPatternBindings (inner, ty)
-    PCon _name _typeArgs subPats ->
-      concatMap (\p -> extractPatternBindings (p, ty)) subPats
-    PInfix lhs op rhs
-      | nameText op == ":" ->
-          let elemTy = listElementType ty
-           in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
-      | otherwise ->
-          extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
-    _ -> []
-
-withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
-withPatternBindings [] action = action
-withPatternBindings ((name, ty) : rest) action =
-  extendTermEnv name (TcMonoIdBinder name ty) (withPatternBindings rest action)
-
-listElementType :: TcType -> TcType
-listElementType ty =
-  case ty of
-    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
-    _ -> ty
-
-resultType :: TcType -> TcType
-resultType (TcFunTy _ res) = resultType res
-resultType ty = ty
 
 renderBinderName :: UnqualifiedName -> Text
 renderBinderName uname =
