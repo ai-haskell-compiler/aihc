@@ -113,6 +113,20 @@ data TcBindingResult = TcBindingResult
   }
   deriving (Show)
 
+data UserSig = UserSig
+  { userSigName :: !Text,
+    userSigType :: !Type,
+    userSigSpan :: !SourceSpan
+  }
+  deriving (Show)
+
+data CheckedSig = CheckedSig
+  { checkedSigName :: !Text,
+    checkedSigScheme :: !TypeScheme,
+    checkedSigSpan :: !SourceSpan
+  }
+  deriving (Show)
+
 moduleBindings :: Module -> [TcBindingResult]
 moduleBindings modu =
   concatMap declBindings (moduleDecls modu)
@@ -232,8 +246,8 @@ tcModule m = do
   --          and report their types.
   mapM_ registerDecl (moduleDecls m)
   -- Phase 2: collect type signatures and convert them to schemes.
-  let rawSigs = collectRawSigs (moduleDecls m)
-  schemes <- traverse sigToScheme rawSigs
+  let rawSigs = collectUserSigs (moduleDecls m)
+  schemes <- traverse checkUserSig rawSigs
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
@@ -959,16 +973,33 @@ boolTy :: TcType
 boolTy = TcTyCon (TyCon "Bool" 0) []
 
 -- | Collect type signatures from a list of declarations.
-collectRawSigs :: [Decl] -> Map Text Type
-collectRawSigs decls = Map.fromList $ concatMap extractSig decls
+collectUserSigs :: [Decl] -> Map Text UserSig
+collectUserSigs decls = Map.fromList $ concatMap (extractSig NoSourceSpan) decls
   where
-    extractSig (DeclTypeSig names ty) =
-      [(unqualifiedNameText n, ty) | n <- names]
-    extractSig (DeclForeign foreignDecl)
+    extractSig ambient (DeclTypeSig names ty) =
+      [ (name, UserSig name ty sigSp)
+      | n <- names,
+        let name = unqualifiedNameText n,
+        let sigSp = ambient `orSourceSpan` unqualifiedNameSpan n `orSourceSpan` typeSpan ty
+      ]
+    extractSig ambient (DeclForeign foreignDecl)
       | isForeignImport foreignDecl =
-          [(unqualifiedNameText (foreignName foreignDecl), foreignType foreignDecl)]
-    extractSig (DeclAnn _ inner) = extractSig inner
-    extractSig _ = []
+          let name = unqualifiedNameText (foreignName foreignDecl)
+              sigSp = ambient `orSourceSpan` unqualifiedNameSpan (foreignName foreignDecl) `orSourceSpan` typeSpan (foreignType foreignDecl)
+           in [(name, UserSig name (foreignType foreignDecl) sigSp)]
+    extractSig ambient (DeclAnn ann inner) =
+      extractSig (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
+    extractSig _ _ = []
+
+checkUserSig :: UserSig -> TcM CheckedSig
+checkUserSig userSig = do
+  scheme <- sigToScheme (userSigType userSig)
+  pure
+    CheckedSig
+      { checkedSigName = userSigName userSig,
+        checkedSigScheme = scheme,
+        checkedSigSpan = userSigSpan userSig
+      }
 
 listType :: TcType -> TcType
 listType ty = TcTyCon (TyCon "[]" 1) [ty]
@@ -1142,21 +1173,21 @@ patternBinders pat =
     _ -> []
 
 -- | Type-check a declaration group.
-tcDeclGroup :: Map Text TypeScheme -> DeclGroup -> TcM [TcBindingResult]
+tcDeclGroup :: Map Text CheckedSig -> DeclGroup -> TcM [TcBindingResult]
 tcDeclGroup sigs (SingleDecl d) =
   case peelDeclAnn d of
     DeclValue (PatternBind _ pat rhs)
       | Just (displayName, name) <- patternBinderName pat,
-        Just scheme <- Map.lookup name sigs ->
-          tcFunctionWithSig displayName name scheme [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+        Just sig <- Map.lookup name sigs ->
+          tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
     _ -> tcDecl d
 tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   case Map.lookup name sigs of
-    Just scheme -> do
+    Just sig -> do
       -- Use the declared type signature for checking.
-      tcFunctionWithSig displayName name scheme matches
+      tcFunctionWithSig displayName name sig matches
     Nothing -> do
       -- No signature: infer the type.
       tcFunctionInfer displayName name matches
@@ -1165,8 +1196,9 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
 -- The signature's type variables are opened as rigid skolems so that
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
-tcFunctionWithSig :: Text -> Text -> TypeScheme -> [Match] -> TcM [TcBindingResult]
-tcFunctionWithSig displayName name scheme matches = do
+tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM [TcBindingResult]
+tcFunctionWithSig displayName name sig matches = do
+  let scheme = checkedSigScheme sig
   ((), failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
@@ -1177,7 +1209,7 @@ tcFunctionWithSig displayName name scheme matches = do
             [] -> 0
           (argTys, resTy) = splitFunTy sigTy nArgs
       -- Check each equation against the signature types.
-      results <- mapM (tcMatchEquation argTys resTy) matches
+      results <- mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
       let (ctsList, implsList) = unzip results
           allCts = concat ctsList
           allImpls = concat implsList
@@ -1500,6 +1532,32 @@ patternSpan pat =
     PIrrefutable inner -> patternSpan inner
     _ -> NoSourceSpan
 
+typeSpan :: Type -> SourceSpan
+typeSpan ty =
+  case ty of
+    TAnn ann inner ->
+      fromMaybe (typeSpan inner) (fromAnnotation @SourceSpan ann)
+    TParen inner -> typeSpan inner
+    TForall _ inner -> typeSpan inner
+    TContext _ inner -> typeSpan inner
+    TKindSig inner _ -> typeSpan inner
+    _ -> NoSourceSpan
+
+rhsExprSpan :: Rhs Expr -> SourceSpan
+rhsExprSpan rhs =
+  case rhs of
+    UnguardedRhs anns expr _ -> exprSpan expr `orSourceSpan` sourceSpanFromAnns anns
+    GuardedRhss anns _ _ -> sourceSpanFromAnns anns
+
+exprSpan :: Expr -> SourceSpan
+exprSpan expr =
+  case expr of
+    EAnn ann inner ->
+      fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
+    EParen inner -> exprSpan inner
+    ETypeSig inner _ -> exprSpan inner
+    _ -> NoSourceSpan
+
 -- | Convert a type scheme to a displayable type.
 schemeToType :: TypeScheme -> TcType
 schemeToType (ForAll [] [] ty) = ty
@@ -1529,7 +1587,7 @@ tcMatches matches@(m0 : _) = do
       argTys <- mapM (const freshMetaTv) [1 .. nArgs]
       resTy <- freshMetaTv
       -- Process each equation.
-      results <- mapM (tcMatchEquation argTys resTy) matches
+      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
       let (ctsList, implsList) = unzip results
           allCts = concat ctsList
           allImpls = concat implsList
@@ -1538,8 +1596,8 @@ tcMatches matches@(m0 : _) = do
 
 -- | Type-check a single match equation against expected arg/result types.
 -- Returns flat wanted constraints and implication constraints.
-tcMatchEquation :: [TcType] -> TcType -> Match -> TcM ([Ct], [Implication])
-tcMatchEquation argTys resTy match = do
+tcMatchEquation :: Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM ([Ct], [Implication])
+tcMatchEquation expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkPatternsWithGivens sp (zip pats argTys)
@@ -1547,7 +1605,22 @@ tcMatchEquation argTys resTy match = do
   (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
-  let resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+  let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
+      resCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = rhsTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin rhsSp
+            }
+          TypeTrace
+            { typeTraceType = resTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = fromMaybe (ConstraintTypeOrigin (AppOrigin sp)) expectedOrigin
+            }
+          ev
+          (AppOrigin rhsSp)
+          rhsSp
   let givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts
@@ -1573,7 +1646,22 @@ unifyMatchRhs expectedTy match = do
   (rhsTy, rhsCts) <- inferRhsExpr (matchRhs match)
   ev <- freshEvVar
   let sp = sourceSpanFromAnns (matchAnns match)
-  let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin sp) sp
+      rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
+      eqCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = rhsTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin rhsSp
+            }
+          TypeTrace
+            { typeTraceType = expectedTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ConstraintTypeOrigin (AppOrigin sp)
+            }
+          ev
+          (AppOrigin rhsSp)
+          rhsSp
   pure (rhsCts ++ [eqCt])
 
 -- | Infer the type of a right-hand side expression.

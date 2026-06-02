@@ -30,7 +30,7 @@ solveEquality ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1
     t2' <- zonkType t2
-    solveEq ct t1' t2'
+    solveEq (ct {ctPred = EqPred t1' t2'}) t1' t2'
   _ -> pure (EqStuck ct)
 
 -- | Solve an equality between two zonked types.

@@ -7,7 +7,7 @@ module Aihc.Tc.Error
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
-import Aihc.Tc.Constraint (CtOrigin)
+import Aihc.Tc.Constraint (CtOrigin, EqProvenance)
 import Aihc.Tc.Types
 
 -- | A diagnostic produced by the type checker.
@@ -27,7 +27,7 @@ data TcSeverity
 -- | Kinds of type checking errors.
 data TcErrorKind
   = -- | Could not unify two types.
-    UnificationError !TcType !TcType !CtOrigin
+    UnificationError !TcType !TcType !CtOrigin !(Maybe EqProvenance)
   | -- | Occurs check failure (infinite type).
     OccursCheckError !Unique !TcType
   | -- | Unbound variable.

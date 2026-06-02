@@ -114,6 +114,7 @@ constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
                 ctFlavor = Given,
                 ctEvVar = ev,
                 ctOrigin = AppOrigin sp,
+                ctProvenance = FromCtOrigin (AppOrigin sp),
                 ctLoc = sp
               }
           ]
