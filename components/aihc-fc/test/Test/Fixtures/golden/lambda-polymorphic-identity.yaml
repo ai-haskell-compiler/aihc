@@ -1,0 +1,12 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    id = \x -> x
+expected: |
+  id : ∀ a. a → a =
+    Λa.
+      λx : a.
+        x
+status: pass
+reason: desugars inferred polymorphic lambda binder types from type-checker annotations
