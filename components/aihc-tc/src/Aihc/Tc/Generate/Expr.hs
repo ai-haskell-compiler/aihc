@@ -32,7 +32,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
-import Aihc.Tc.Instantiate (instantiate)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -45,7 +45,7 @@ import Data.Text qualified as T
 inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar NoSourceSpan (nameToText name)
+  EVar name -> inferVar (sourceSpanFromAnns (nameAnns name)) (nameToText name)
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
   -- literals keep their primitive, unboxed type.
   EInt _ numericType _ -> pure (numericLiteralType numericType, [])
@@ -106,11 +106,27 @@ inferVar sp name = do
   mBinder <- lookupTerm name
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
-      (ty, preds) <- instantiate scheme
-      cts <- mapM (predToCt sp name) preds
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp name) (instPreds inst)
+      recordOccurrenceElaboration
+        (OccurrenceKey name sp)
+        OccurrenceElaboration
+          { occurrenceElabType = instType inst,
+            occurrenceElabTypeArgs = instTypeArgs inst,
+            occurrenceElabEvidenceVars = map ctEvVar cts
+          }
+      let ty = instType inst
       pure (ty, cts)
     Just (TcMonoIdBinder _ ty) ->
-      pure (ty, [])
+      do
+        recordOccurrenceElaboration
+          (OccurrenceKey name sp)
+          OccurrenceElaboration
+            { occurrenceElabType = ty,
+              occurrenceElabTypeArgs = [],
+              occurrenceElabEvidenceVars = []
+            }
+        pure (ty, [])
     Nothing -> do
       emitError sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv

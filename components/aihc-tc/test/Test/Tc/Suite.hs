@@ -210,6 +210,17 @@ annotationTests =
       assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
       assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
       assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result)),
+    testCase "polymorphic occurrence type arguments are finalized" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \f x = x\n\
+                \g y = f (f y)\n"
+          typeArgs = concatMap tcAnnTypeArgs (exprAnnotations (tcmModule result))
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "expected polymorphic occurrence type arguments" (not (null typeArgs))
+      assertBool "type arguments should not leak unsolved metas" (not (any hasMetaTcType typeArgs)),
     testCase "type rendering uses unicode syntax" $ do
       let a = TyVarId "a" (Unique 1)
           aTy = TcTyVar a
@@ -276,6 +287,20 @@ hasGivenClass className =
     isGiven (EvSuperClass ev _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev
     isGiven _ = False
+
+hasMetaTcType :: TcType -> Bool
+hasMetaTcType ty =
+  case ty of
+    TcMetaTv {} -> True
+    TcTyCon _ args -> any hasMetaTcType args
+    TcFunTy arg result -> hasMetaTcType arg || hasMetaTcType result
+    TcForAllTy _ body -> hasMetaTcType body
+    TcQualTy preds body -> any hasMetaPred preds || hasMetaTcType body
+    TcAppTy fun arg -> hasMetaTcType fun || hasMetaTcType arg
+    TcTyVar {} -> False
+  where
+    hasMetaPred (ClassPred _ args) = any hasMetaTcType args
+    hasMetaPred (EqPred left right) = hasMetaTcType left || hasMetaTcType right
 
 hasClassMethod :: Text -> Int -> Module -> Bool
 hasClassMethod methodName methodIndex =

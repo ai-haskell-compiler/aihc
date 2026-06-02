@@ -4,7 +4,9 @@
 -- with fresh meta-variables, and emits wanted constraints for the scheme's
 -- predicates.
 module Aihc.Tc.Instantiate
-  ( instantiate,
+  ( Instantiation (..),
+    instantiate,
+    instantiateWithArgs,
     applySubst,
   )
 where
@@ -13,18 +15,36 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Map.Strict qualified as Map
 
+data Instantiation = Instantiation
+  { instType :: !TcType,
+    instTypeArgs :: ![TcType],
+    instPreds :: ![Pred]
+  }
+  deriving (Eq, Show)
+
 -- | Instantiate a type scheme.
 --
 -- Returns the instantiated monotype and the wanted predicates
 -- (constraints that must be satisfied at the use site).
 instantiate :: TypeScheme -> TcM (TcType, [Pred])
-instantiate (ForAll tvs preds body) = do
+instantiate scheme = do
+  inst <- instantiateWithArgs scheme
+  pure (instType inst, instPreds inst)
+
+instantiateWithArgs :: TypeScheme -> TcM Instantiation
+instantiateWithArgs (ForAll tvs preds body) = do
   -- Create a fresh meta-variable for each quantified type variable.
   subst <- Map.fromList <$> mapM mkSubst tvs
   let substTy = applySubst subst
-  let body' = substTy body
-  let preds' = map (substPred subst) preds
-  pure (body', preds')
+      body' = substTy body
+      preds' = map (substPred subst) preds
+      typeArgs = map (substTy . TcTyVar) tvs
+  pure
+    Instantiation
+      { instType = body',
+        instTypeArgs = typeArgs,
+        instPreds = preds'
+      }
   where
     mkSubst tv = do
       meta <- freshMetaTv

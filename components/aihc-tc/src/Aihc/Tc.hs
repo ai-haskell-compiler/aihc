@@ -179,7 +179,8 @@ typecheckModuleWithState st m =
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
-                tcsEvBinds = Map.empty
+                tcsEvBinds = Map.empty,
+                tcsOccurrenceElaborations = Map.empty
               }
        in (result, nextState)
   where

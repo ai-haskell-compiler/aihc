@@ -66,7 +66,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferLocalDeclBinders, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -74,7 +74,7 @@ import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
@@ -236,6 +236,10 @@ tcModule m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
+  -- Phase 4: type-check instance method bodies. They are not top-level
+  -- value bindings, but their occurrences still need the same instantiation
+  -- and evidence records as ordinary expressions.
+  mapM_ tcInstanceDeclBodies (moduleDecls m)
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
@@ -406,6 +410,64 @@ annotateInstanceItemTc givens headTys item =
           pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName expected)) (InstanceItemBind (PatternBind anns pat rhs')))
         Nothing -> pure item
     _ -> pure item
+
+tcInstanceDeclBodies :: Decl -> TcM ()
+tcInstanceDeclBodies (DeclAnn _ inner) =
+  tcInstanceDeclBodies inner
+tcInstanceDeclBodies (DeclInstance instanceDecl) =
+  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
+    (_, []) -> pure ()
+    (Nothing, _) -> pure ()
+    (Just _className, headArgTypes) -> do
+      let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
+          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
+      tvIds <- mapM freshSkolemTv freeVars
+      let tvMap = Map.fromList (zip freeVars tvIds)
+      headTys <- mapM (convertSurfaceType tvMap) headArgTypes
+      givens <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
+      mapM_ (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
+tcInstanceDeclBodies _ =
+  pure ()
+
+tcInstanceItemBody :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM ()
+tcInstanceItemBody givens headTys item =
+  case item of
+    InstanceItemAnn _ inner ->
+      tcInstanceItemBody givens headTys inner
+    InstanceItemBind (FunctionBind name matches) -> do
+      expected <- methodExpectedType headTys (unqualifiedNameText name)
+      let (argTys, resTy) = splitFunTy expected (matchArity matches)
+      results <- mapM (tcMatchEquation argTys resTy) matches
+      solveInstanceBodyConstraints givens results
+    InstanceItemBind (PatternBind _ pat rhs) ->
+      case patternBinderName pat of
+        Just (_displayName, methodName) -> do
+          expected <- methodExpectedType headTys methodName
+          results <- mapM (tcMatchEquation [] expected) [zeroArgMatch (patternSpan pat) rhs]
+          solveInstanceBodyConstraints givens results
+        Nothing -> pure ()
+    _ -> pure ()
+
+matchArity :: [Match] -> Int
+matchArity (match : _) = length (matchPats match)
+matchArity [] = 0
+
+solveInstanceBodyConstraints :: [Pred] -> [([Ct], [Implication])] -> TcM ()
+solveInstanceBodyConstraints givens results = do
+  let (ctsList, implsList) = unzip results
+      cts = concat ctsList
+      impls = concat implsList
+  solveBodyConstraintsWithGivens givens cts impls
+
+solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
+solveBodyConstraintsWithGivens givens cts impls = do
+  _ <- solveWithImpls cts impls
+  mapM_ solveClassCt cts
+  where
+    solveClassCt ct@Ct {ctPred = ClassPred {}} = do
+      _ <- solveDictWithGivens givens ct
+      pure ()
+    solveClassCt _ = pure ()
 
 annotateMatchesTc :: TcType -> [Match] -> TcM [Match]
 annotateMatchesTc expected =
@@ -589,14 +651,14 @@ annotateCaseAltTc locals givens scrutTy expected (CaseAlt anns pat rhs) = do
   pure (CaseAlt anns pat rhs')
 
 annotateVarTc :: Map Text TcType -> [Pred] -> TcType -> Expr -> Name -> TcM Expr
-annotateVarTc locals givens expected expr name =
+annotateVarTc locals _givens expected expr name =
   case lookupLocalName name locals of
     Just ty -> pure (annotateExpr (TcAnnotation ty [] [] []) expr)
     Nothing -> do
       mBinder <- lookupTermName name
       case mBinder of
         Just (TcIdBinder _ scheme _) -> do
-          ann <- annotationForScheme givens scheme expected
+          ann <- annotationForScheme name scheme expected
           pure (annotateExpr ann expr)
         Just (TcMonoIdBinder _ ty) ->
           pure (annotateExpr (TcAnnotation ty [] [] []) expr)
@@ -605,14 +667,14 @@ annotateVarTc locals givens expected expr name =
           pure expr
 
 annotateInfixOperatorTc :: Map Text TcType -> [Pred] -> TcType -> Name -> TcM Name
-annotateInfixOperatorTc locals givens expected name =
+annotateInfixOperatorTc locals _givens expected name =
   case lookupLocalName name locals of
     Just ty -> pure (annotateName (TcAnnotation ty [] [] []) name)
     Nothing -> do
       mBinder <- lookupTermName name
       case mBinder of
         Just (TcIdBinder _ scheme _) -> do
-          ann <- annotationForScheme givens scheme expected
+          ann <- annotationForScheme name scheme expected
           pure (annotateName ann name)
         Just (TcMonoIdBinder _ ty) ->
           pure (annotateName (TcAnnotation ty [] [] []) name)
@@ -624,44 +686,38 @@ annotateName :: TcAnnotation -> Name -> Name
 annotateName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
 
-annotationForScheme :: [Pred] -> TypeScheme -> TcType -> TcM TcAnnotation
-annotationForScheme givens scheme@(ForAll tvs preds body) expected =
-  let needsInstantiation = not (null tvs && null preds)
-   in do
-        subst <-
-          case matchTypes [body] [expected] of
-            Just subst -> pure subst
-            Nothing
-              | needsInstantiation -> do
-                  _ <- missingTypeInfo ("instantiation of " <> show scheme <> " at " <> show expected)
-                  pure Map.empty
-              | otherwise -> pure Map.empty
-        let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
-            evidencePreds = map (substPred subst) preds
-            occurrenceTy = case tvs of
-              [] -> schemeToType scheme
-              _ -> expected
-        evidenceTerms <- mapM (evidenceForPred givens) evidencePreds
-        pure (TcAnnotation occurrenceTy typeArgs evidenceTerms [])
+annotationForScheme :: Name -> TypeScheme -> TcType -> TcM TcAnnotation
+annotationForScheme name scheme expected = do
+  maybeElaboration <- takeOccurrenceElaboration (occurrenceKeyForName name)
+  case maybeElaboration of
+    Just elaboration ->
+      annotationForOccurrenceElaboration elaboration
+    Nothing
+      | ForAll [] [] _ <- scheme ->
+          pure (TcAnnotation (schemeToType scheme) [] [] [])
+    Nothing -> do
+      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name) <> " at " <> show expected)
+      pure (TcAnnotation (schemeToType scheme) [] [] [])
 
-evidenceForPred :: [Pred] -> Pred -> TcM EvTerm
-evidenceForPred givens pred' =
-  case pred' of
-    ClassPred {} -> do
-      ev <- freshEvVar
-      result <- solveDictWithGivens givens (mkWantedCt pred' ev (OccurrenceOf "<annotation>") NoSourceSpan)
-      case result of
-        DictSolved -> do
-          maybeEvidence <- lookupEvidence ev
-          case maybeEvidence of
-            Just evidence -> pure evidence
-            Nothing -> do
-              _ <- missingTypeInfo ("evidence for solved predicate " <> show pred')
-              pure (EvGiven pred')
-        DictStuck _ ->
-          pure (EvGiven pred')
-    EqPred left _right ->
-      pure (EvCoercion (Refl left))
+annotationForOccurrenceElaboration :: OccurrenceElaboration -> TcM TcAnnotation
+annotationForOccurrenceElaboration elaboration = do
+  ty <- zonkType (occurrenceElabType elaboration)
+  typeArgs <- mapM zonkType (occurrenceElabTypeArgs elaboration)
+  evidenceTerms <- mapM evidenceForEvVar (occurrenceElabEvidenceVars elaboration)
+  pure (TcAnnotation ty typeArgs evidenceTerms [])
+
+evidenceForEvVar :: EvVar -> TcM EvTerm
+evidenceForEvVar ev = do
+  maybeEvidence <- lookupEvidence ev
+  case maybeEvidence of
+    Just evidence -> pure evidence
+    Nothing -> do
+      _ <- missingTypeInfo ("evidence for " <> show ev)
+      pure (EvVarTerm ev)
+
+occurrenceKeyForName :: Name -> OccurrenceKey
+occurrenceKeyForName name =
+  OccurrenceKey (nameToText name) (sourceSpanFromAnns (nameAnns name))
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
@@ -980,13 +1036,14 @@ splitContext ty = ([], ty)
 simpleTvKindEnv :: Map Text TyVarId -> TvKindEnv
 simpleTvKindEnv = Map.map (,KType)
 
--- | Instantiate a type scheme with fresh skolems for type-checking.
+-- | Instantiate a type scheme with fresh skolems for type-checking while
+-- preserving the scheme predicates as scoped givens for the checked body.
 -- Unlike regular instantiation (which uses metas), this produces rigid
 -- type variables that cannot be unified during constraint solving.
-skolemize :: TypeScheme -> TcM TcType
-skolemize (ForAll tvs _preds body) = do
+skolemizeQualified :: TypeScheme -> TcM ([Pred], TcType)
+skolemizeQualified (ForAll tvs preds body) = do
   subst <- Map.fromList <$> mapM mkSubst tvs
-  pure (Aihc.Tc.Instantiate.applySubst subst body)
+  pure (map (substPred subst) preds, substType subst body)
   where
     mkSubst tv = do
       sk <- freshSkolemTv (tvName tv)
@@ -1170,7 +1227,7 @@ tcFunctionWithSig displayName name scheme matches = do
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
-      sigTy <- skolemize scheme
+      (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
             (m : _) -> length (matchPats m)
             [] -> 0
@@ -1180,8 +1237,7 @@ tcFunctionWithSig displayName name scheme matches = do
       let (ctsList, implsList) = unzip results
           allCts = concat ctsList
           allImpls = concat implsList
-      _ <- solveWithImpls allCts allImpls
-      pure ()
+      solveBodyConstraintsWithGivens sigPreds allCts allImpls
   if failed
     then pure []
     else do
@@ -1204,10 +1260,41 @@ tcFunctionInfer displayName name matches = do
     then pure []
     else do
       scheme <- generalizeIgnoring [name] ty []
+      commitGeneralizedMetas ty scheme
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       pure [TcBindingResult name displayName zonkedTy]
+
+commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
+commitGeneralizedMetas ty (ForAll _ _ body) = do
+  ty' <- zonkType ty
+  mapM_ commit (metaTyVarPairs ty' body)
+  where
+    commit (meta, tv) = writeMetaTv meta (TcTyVar tv)
+
+metaTyVarPairs :: TcType -> TcType -> [(Unique, TyVarId)]
+metaTyVarPairs (TcMetaTv u) (TcTyVar tv) = [(u, tv)]
+metaTyVarPairs (TcTyCon tc args) (TcTyCon targetTc targetArgs)
+  | tc == targetTc,
+    length args == length targetArgs =
+      concat (zipWith metaTyVarPairs args targetArgs)
+metaTyVarPairs (TcFunTy a b) (TcFunTy targetA targetB) =
+  metaTyVarPairs a targetA <> metaTyVarPairs b targetB
+metaTyVarPairs (TcAppTy f a) (TcAppTy targetF targetA) =
+  metaTyVarPairs f targetF <> metaTyVarPairs a targetA
+metaTyVarPairs (TcQualTy preds body) (TcQualTy targetPreds targetBody) =
+  concat (zipWith metaTyVarPairsPred preds targetPreds) <> metaTyVarPairs body targetBody
+metaTyVarPairs _ _ = []
+
+metaTyVarPairsPred :: Pred -> Pred -> [(Unique, TyVarId)]
+metaTyVarPairsPred (ClassPred className args) (ClassPred targetClass targetArgs)
+  | className == targetClass,
+    length args == length targetArgs =
+      concat (zipWith metaTyVarPairs args targetArgs)
+metaTyVarPairsPred (EqPred left right) (EqPred targetLeft targetRight) =
+  metaTyVarPairs left targetLeft <> metaTyVarPairs right targetRight
+metaTyVarPairsPred _ _ = []
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
