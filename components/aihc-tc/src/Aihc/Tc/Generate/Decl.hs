@@ -70,6 +70,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferLocalDeclBinders, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
+import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
@@ -1123,17 +1124,17 @@ freeVarsRhs rhs =
 freeVarsExpr :: Expr -> [Text]
 freeVarsExpr expr =
   case expr of
-    EVar name -> [patNameToText name]
+    EVar name -> [nameToText name]
     EAnn _ inner -> freeVarsExpr inner
     EIf cond trueBranch falseBranch ->
       freeVarsExpr cond ++ freeVarsExpr trueBranch ++ freeVarsExpr falseBranch
     ELambdaPats pats body ->
       freeVarsExpr body \\ concatMap patternBinders pats
     EInfix lhs op rhs ->
-      patNameToText op : freeVarsExpr lhs ++ freeVarsExpr rhs
+      nameToText op : freeVarsExpr lhs ++ freeVarsExpr rhs
     ENegate inner -> freeVarsExpr inner
-    ESectionL inner op -> patNameToText op : freeVarsExpr inner
-    ESectionR op inner -> patNameToText op : freeVarsExpr inner
+    ESectionL inner op -> nameToText op : freeVarsExpr inner
+    ESectionR op inner -> nameToText op : freeVarsExpr inner
     ELetDecls decls body ->
       let localBinders = concatMap declBinders decls
        in (concatMap freeVarsDecl decls ++ freeVarsExpr body) \\ localBinders
@@ -1599,13 +1600,9 @@ tcMatchEquation :: Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM ([Ct],
 tcMatchEquation expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
-  -- Bind pattern variables with their corresponding arg types.
-  let bindings = concatMap extractPatternBindings (zip pats argTys)
-  -- Collect pattern constraints, separating GADT givens from regular wanteds.
-  (wantedPatCts, givenCts) <-
-    unzipPair . concat <$> zipWithM (inferPatConstraints sp) pats argTys
+  patCheck <- checkPatternsWithGivens sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
-  (rhsTy, rhsCts) <- withPatBindings bindings (inferRhsExpr (matchRhs match))
+  (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
@@ -1624,7 +1621,8 @@ tcMatchEquation expectedOrigin argTys resTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  let bodyWanteds = wantedPatCts ++ rhsCts ++ [resCt]
+  let givenCts = pcGivenCts patCheck
+      bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts
     then -- No GADT givens: emit everything as flat wanteds.
       pure (bodyWanteds, [])
@@ -1641,52 +1639,6 @@ tcMatchEquation expectedOrigin argTys resTy match = do
                 implInfo = AppOrigin sp
               }
       pure ([], [impl])
-
--- | Unzip a list of pairs of constraint lists.
-unzipPair :: [([Ct], [Ct])] -> ([Ct], [Ct])
-unzipPair pairs =
-  let (as, bs) = unzip pairs
-   in (concat as, concat bs)
-
--- | Infer constraints from a single pattern, separated into regular wanted
--- constraints (for non-GADT constructors) and given constraints (for GADT
--- constructors that refine the scrutinee's type parameters).
---
--- Returns @(wantedCts, givenCts)@.
-inferPatConstraints :: SourceSpan -> Pattern -> TcType -> TcM [([Ct], [Ct])]
-inferPatConstraints sp pat scrutTy = case pat of
-  PCon name _typeArgs _subPats -> do
-    let conName = patNameToText name
-    mBinder <- lookupTerm conName
-    case mBinder of
-      Just (TcIdBinder _ scheme _) -> do
-        (conTy, _preds) <- instantiateSch scheme
-        let conResTy = resultType conTy
-        ev <- freshEvVar
-        gadtCon <- isGadtCon conName
-        if gadtCon
-          then do
-            -- GADT constructor: emit the scrutinee equality as a GIVEN.
-            let givenCt =
-                  Ct
-                    { ctPred = EqPred scrutTy conResTy,
-                      ctFlavor = Given,
-                      ctEvVar = ev,
-                      ctOrigin = AppOrigin sp,
-                      ctProvenance = FromCtOrigin (AppOrigin sp),
-                      ctLoc = sp
-                    }
-            pure [([], [givenCt])]
-          else do
-            -- Regular constructor: emit as a WANTED constraint.
-            let wantedCt = mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp
-            pure [([wantedCt], [])]
-      _ -> pure [([], [])]
-  PAnn _ann inner -> inferPatConstraints sp inner scrutTy
-  PParen inner -> inferPatConstraints sp inner scrutTy
-  PStrict inner -> inferPatConstraints sp inner scrutTy
-  PIrrefutable inner -> inferPatConstraints sp inner scrutTy
-  _ -> pure [([], [])]
 
 -- | Unify an additional match equation's RHS with the expected type.
 unifyMatchRhs :: TcType -> Match -> TcM [Ct]
@@ -1711,55 +1663,6 @@ unifyMatchRhs expectedTy match = do
           (AppOrigin rhsSp)
           rhsSp
   pure (rhsCts ++ [eqCt])
-
--- | Convert a Name to Text for lookup.
-patNameToText :: Name -> Text
-patNameToText n = case nameQualifier n of
-  Nothing -> nameText n
-  Just q -> q <> "." <> nameText n
-
--- | Extract the result type from a (possibly nested) function type.
-resultType :: TcType -> TcType
-resultType (TcFunTy _ res) = resultType res
-resultType ty = ty
-
--- | Instantiate a type scheme (delegating to the Instantiate module).
-instantiateSch :: TypeScheme -> TcM (TcType, [Pred])
-instantiateSch = Aihc.Tc.Instantiate.instantiate
-
--- | Extract variable bindings from a pattern paired with its expected type.
-extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
-extractPatternBindings (pat, ty) = case pat of
-  PVar uname -> [(unqualifiedNameText uname, ty)]
-  PAnn _ann inner -> extractPatternBindings (inner, ty)
-  PParen inner -> extractPatternBindings (inner, ty)
-  PWildcard {} -> []
-  PLit {} -> []
-  PNegLit {} -> []
-  PAs name inner -> (unqualifiedNameText name, ty) : extractPatternBindings (inner, ty)
-  PStrict inner -> extractPatternBindings (inner, ty)
-  PIrrefutable inner -> extractPatternBindings (inner, ty)
-  PCon _name _typeArgs subPats ->
-    concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix lhs op rhs
-    | nameText op == ":" ->
-        let elemTy = listElementType ty
-         in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
-    | otherwise ->
-        extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
-  _ -> []
-
-listElementType :: TcType -> TcType
-listElementType ty =
-  case ty of
-    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
-    _ -> ty
-
--- | Run a computation with pattern bindings in scope.
-withPatBindings :: [(Text, TcType)] -> TcM a -> TcM a
-withPatBindings [] m = m
-withPatBindings ((name, ty) : rest) m =
-  extendTermEnv name (TcMonoIdBinder name ty) (withPatBindings rest m)
 
 -- | Infer the type of a right-hand side expression.
 inferRhsExpr :: Rhs Expr -> TcM (TcType, [Ct])

@@ -21,6 +21,7 @@ library
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl
     Aihc.Tc.Generate.Expr
+    Aihc.Tc.Generate.Pattern
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
