@@ -46,6 +46,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, modify')
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -327,7 +328,7 @@ dsExpr (EString s _) = dsStringLiteral s
 dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
 dsExpr (EInfix lhs op rhs) =
-  dsExpr (EApp (EApp (EVar op) lhs) rhs)
+  dsInfix lhs op rhs
 dsExpr EList {} =
   desugarBug "missing type-checker annotation for list expression"
 dsExpr ETuple {} =
@@ -369,8 +370,19 @@ dsAnnotatedExpr tcAnn inner =
     ETuple Boxed elems -> dsTuple tcAnn elems
     ELambdaPats pats body -> dsLambda tcAnn pats body
     EIf cond thenE elseE -> dsIf cond thenE elseE
+    EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+
+dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
+dsInfix lhs op rhs =
+  FcApp <$> (FcApp <$> dsInfixOperator op <*> dsExpr lhs) <*> dsExpr rhs
+
+dsInfixOperator :: Name -> DsM FcExpr
+dsInfixOperator op =
+  case nameTcAnnotation op of
+    Just tcAnn -> dsAnnotatedVar tcAnn op (EVar op)
+    Nothing -> dsExpr (EVar op)
 
 dsIf :: Expr -> Expr -> Expr -> DsM FcExpr
 dsIf cond thenE elseE = do
@@ -652,6 +664,10 @@ exprAnnotationType expr =
     EParen inner -> exprAnnotationType inner
     ETypeSig inner _ -> exprAnnotationType inner
     _ -> Nothing
+
+nameTcAnnotation :: Name -> Maybe TcAnnotation
+nameTcAnnotation =
+  listToMaybe . mapMaybe fromAnnotation . nameAnns
 
 exprAnnotationTypeRequired :: Expr -> DsM TcType
 exprAnnotationTypeRequired expr =
