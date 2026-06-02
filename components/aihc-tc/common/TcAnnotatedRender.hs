@@ -18,7 +18,6 @@ import Aihc.Parser.Syntax
     Decl (..),
     Expr (..),
     ForeignDecl (..),
-    ForeignDirection (..),
     GuardQualifier (..),
     GuardedRhs (..),
     InstanceDecl (..),
@@ -39,7 +38,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), TcType (..), renderTcSignature, renderTcType, tcmBindings)
+import Aihc.Tc (TcModuleResult (..), TcType (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -80,8 +79,9 @@ sourceLabel = TcLabel
 collectTcLabels :: TcModuleResult -> [TcLabel]
 collectTcLabels result =
   sortOn labelKey $
-    topLevelBindingLabels (tcmBindings result) (tcmModule result)
-      <> concatMap (topLevelDeclLabels Nothing) (moduleDecls (tcmModule result))
+    -- The annotated AST is the source of truth: it preserves source placement
+    -- and distinct binders that a flat binding table can conflate.
+    concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
       <> diagnosticLabels (tcmDiagnostics result)
 
 diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
@@ -160,76 +160,13 @@ renderKindArg kind =
 renderUnique :: Unique -> String
 renderUnique (Unique unique) = "?" <> show unique
 
-topLevelBindingLabels :: [TcBindingResult] -> Module -> [TcLabel]
-topLevelBindingLabels bindings modu =
-  concatMap (goDecl Nothing) (moduleDecls modu)
-  where
-    bindingTypes = Map.fromList [(tbDisplayName b, tbType b) | b <- bindings]
-
-    goDecl ambient (DeclAnn ann inner) =
-      goDecl (fromAnnotation @SourceSpan ann <|> ambient) inner
-    goDecl ambient (DeclValue valueDecl) = topLevelValueDeclLabels ambient bindingTypes valueDecl
-    goDecl ambient (DeclData dataDecl) = topLevelTypeDeclLabels ambient bindingTypes (dataDeclBinders dataDecl)
-    goDecl ambient (DeclNewtype newtypeDecl) = topLevelTypeDeclLabels ambient bindingTypes (newtypeDeclBinders newtypeDecl)
-    goDecl ambient (DeclTypeSyn typeSynDecl) = topLevelTypeDeclLabels ambient bindingTypes [binderInfo (binderHeadName (typeSynHead typeSynDecl))]
-    goDecl ambient (DeclForeign foreignDecl) = topLevelForeignDeclLabels ambient bindingTypes foreignDecl
-    goDecl _ _ = []
-
-topLevelValueBinders :: ValueDecl -> [(Text, Maybe SourceSpan)]
-topLevelValueBinders valueDecl =
-  [ (renderBinderName binder, spanFromUnqualifiedName binder)
-  | binder <- valueDeclBinders valueDecl
-  ]
-
-topLevelValueDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> ValueDecl -> [TcLabel]
-topLevelValueDeclLabels ambient bindingTypes valueDecl =
-  signatureLabels <> argLabels
-  where
-    signatureLabels =
-      [ sourceLabel sp (renderTcSignature displayName ty)
-      | (displayName, maybeSpan) <- topLevelValueBinders valueDecl,
-        Just ty <- [Map.lookup displayName bindingTypes],
-        Just sp <- [maybeSpan <|> ambient]
-      ]
-    argLabels =
-      case valueDecl of
-        FunctionBind binder _ ->
-          maybe [] (valueArgBindingLabels ambient valueDecl) (Map.lookup (renderBinderName binder) bindingTypes)
-        PatternBind {} -> []
-
-topLevelTypeDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> [(Text, Maybe SourceSpan)] -> [TcLabel]
-topLevelTypeDeclLabels ambient bindingTypes binders =
-  [ sourceLabel sp (renderTcSignature displayName ty)
-  | (displayName, maybeSpan) <- binders,
-    Just ty <- [Map.lookup displayName bindingTypes],
-    Just sp <- [maybeSpan <|> ambient]
-  ]
-
-topLevelForeignDeclLabels :: Maybe SourceSpan -> Map.Map Text TcType -> ForeignDecl -> [TcLabel]
-topLevelForeignDeclLabels ambient bindingTypes foreignDecl =
-  [ sourceLabel sp (renderTcSignature displayName ty)
-  | foreignDirection foreignDecl == ForeignImport,
-    let (displayName, maybeSpan) = binderInfo (foreignName foreignDecl),
-    Just ty <- [Map.lookup displayName bindingTypes],
-    Just sp <- [maybeSpan <|> ambient]
-  ]
-
-topLevelDeclLabels :: Maybe SourceSpan -> Decl -> [TcLabel]
-topLevelDeclLabels =
-  declLabelsWith True
-
 declLabels :: Maybe SourceSpan -> Decl -> [TcLabel]
-declLabels =
-  declLabelsWith False
-
-declLabelsWith :: Bool -> Maybe SourceSpan -> Decl -> [TcLabel]
-declLabelsWith suppressInterfaceLabels ambient decl =
+declLabels ambient decl =
   case decl of
     DeclAnn ann inner ->
       let ambient' = fromAnnotation @SourceSpan ann <|> ambient
           labels = case fromAnnotation @TcAnnotation ann of
-            Just tcAnn
-              | not (suppressInterfaceLabels && isInterfaceDecl inner) -> bindingAnnotationLabels ambient' tcAnn inner
+            Just tcAnn -> bindingAnnotationLabels ambient' tcAnn inner
             _ -> []
           classLabels = case fromAnnotation @TcClassAnnotation ann of
             Just tcAnn -> classAnnotationLabels ambient' tcAnn inner
@@ -237,34 +174,29 @@ declLabelsWith suppressInterfaceLabels ambient decl =
           instanceLabels = case fromAnnotation @TcInstanceAnnotation ann of
             Just tcAnn -> instanceAnnotationLabels ambient' tcAnn inner
             Nothing -> []
-       in labels <> classLabels <> instanceLabels <> declLabelsWith suppressInterfaceLabels ambient' inner
+       in labels <> classLabels <> instanceLabels <> declLabels ambient' inner
     DeclValue valueDecl -> valueDeclLabels ambient valueDecl
-    DeclData dataDecl
-      | not suppressInterfaceLabels -> concatMap (dataConDeclLabels ambient) (dataDeclConstructors dataDecl)
+    DeclData dataDecl -> concatMap (dataConDeclLabels ambient) (dataDeclConstructors dataDecl)
+    DeclNewtype newtypeDecl -> maybe [] (dataConDeclLabels ambient) (newtypeDeclConstructor newtypeDecl)
     DeclInstance instanceDecl -> concatMap (instanceItemLabels ambient) (instanceDeclItems instanceDecl)
     _ -> []
-
-isInterfaceDecl :: Decl -> Bool
-isInterfaceDecl decl =
-  case decl of
-    DeclValue {} -> True
-    DeclData {} -> True
-    DeclForeign {} -> True
-    _ -> False
 
 bindingAnnotationLabels :: Maybe SourceSpan -> TcAnnotation -> Decl -> [TcLabel]
 bindingAnnotationLabels ambient tcAnn decl =
   case decl of
     DeclValue valueDecl -> valueBindingLabels ambient (tcAnnType tcAnn) valueDecl
-    DeclData dataDecl ->
-      [ sourceLabel sp (renderTcSignature (renderBinderName (binderHeadName (dataDeclHead dataDecl))) (tcAnnType tcAnn))
-      | Just sp <- [ambient]
-      ]
-    DeclForeign foreignDecl ->
-      [ sourceLabel sp (renderTcSignature (renderBinderName (foreignName foreignDecl)) (tcAnnType tcAnn))
-      | Just sp <- [spanFromUnqualifiedName (foreignName foreignDecl) <|> ambient]
-      ]
+    DeclData dataDecl -> declBinderLabels ambient (tcAnnType tcAnn) [binderHeadName (dataDeclHead dataDecl)]
+    DeclNewtype newtypeDecl -> declBinderLabels ambient (tcAnnType tcAnn) [binderHeadName (newtypeDeclHead newtypeDecl)]
+    DeclTypeSyn typeSynDecl -> declBinderLabels ambient (tcAnnType tcAnn) [binderHeadName (typeSynHead typeSynDecl)]
+    DeclForeign foreignDecl -> declBinderLabels ambient (tcAnnType tcAnn) [foreignName foreignDecl]
     _ -> []
+
+declBinderLabels :: Maybe SourceSpan -> TcType -> [UnqualifiedName] -> [TcLabel]
+declBinderLabels ambient ty binders =
+  [ sourceLabel sp (renderTcSignature (renderBinderName binder) ty)
+  | binder <- binders,
+    Just sp <- [spanFromUnqualifiedName binder <|> ambient]
+  ]
 
 dataConDeclLabels :: Maybe SourceSpan -> DataConDecl -> [TcLabel]
 dataConDeclLabels ambient dataConDecl =
@@ -571,14 +503,6 @@ tupleElementTypes ty =
 
 unqualifiedNameTextFromPatternOperator :: Name -> Text
 unqualifiedNameTextFromPatternOperator = nameText
-
-dataDeclBinders :: DataDecl -> [(Text, Maybe SourceSpan)]
-dataDeclBinders dataDecl =
-  binderInfo (binderHeadName (dataDeclHead dataDecl)) : concatMap (dataConBinders Nothing) (dataDeclConstructors dataDecl)
-
-newtypeDeclBinders :: NewtypeDecl -> [(Text, Maybe SourceSpan)]
-newtypeDeclBinders newtypeDecl =
-  binderInfo (binderHeadName (newtypeDeclHead newtypeDecl)) : maybe [] (dataConBinders Nothing) (newtypeDeclConstructor newtypeDecl)
 
 dataConBinders :: Maybe SourceSpan -> DataConDecl -> [(Text, Maybe SourceSpan)]
 dataConBinders ambient dataConDecl =
