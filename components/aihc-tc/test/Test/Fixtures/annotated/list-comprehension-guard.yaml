@@ -12,8 +12,7 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   filter f list = [ x | x <- list, f x ]
-  │      │ │      │     └─ x ∷ a
-  │      │ │      └─ type-args: a
+  │      │ │            └─ x ∷ a
   │      │ └─ list ∷ [a]
   │      └─ f ∷ a → Bool
   └─ filter ∷ ∀ a. (a → Bool) → [a] → [a]

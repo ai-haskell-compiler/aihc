@@ -6,6 +6,7 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x = x + one
+  │ │     └─ type-args: a, Bool
   │ └─ x ∷ a
   └─ f ∷ ∀ a. a → a
     where

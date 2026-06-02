@@ -7,10 +7,7 @@ annotated:
 - |-
   module Test where
   pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
-  │     │  │    │ │        └─ x ∷ a └─ y ∷ b
-  │     │  │    │ └─ type-args: a, b
-  │     │  │    └─ type-args: (a, b)
-  │     │  └─ ys ∷ [b]
+  │     │  └─ ys ∷ [b]     └─ x ∷ a └─ y ∷ b
   │     └─ xs ∷ [a]
   └─ pairs ∷ ∀ a b. [a] → [b] → [(a, b)]
 status: pass

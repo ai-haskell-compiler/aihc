@@ -9,6 +9,7 @@ module Aihc.Fc.Desugar.Expr
   ( dsMatches,
     dsMatchesWithDicts,
     dsRhs,
+    dsRhsWithType,
     DsM,
     DsState (..),
     ClassDict (..),
@@ -20,6 +21,7 @@ module Aihc.Fc.Desugar.Expr
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure)
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -145,7 +147,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
             let (tyLams, afterForAlls) = peelForAlls ty
                 dictPreds = fst (peelQuals afterForAlls)
             dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
-            body <- withDicts dicts (dsRhs (matchRhs m0))
+            body <- withDicts dicts (dsRhsWithType (Just (qualifiedBody afterForAlls)) (matchRhs m0))
             let dictLamExpr
                   | abstractDicts = foldr (FcDictLam . classDictVar) body dicts
                   | otherwise = body
@@ -190,6 +192,9 @@ peelQuals :: TcType -> ([Pred], TcType)
 peelQuals (TcQualTy preds body) = (preds, body)
 peelQuals ty = ([], ty)
 
+qualifiedBody :: TcType -> TcType
+qualifiedBody ty = snd (peelQuals (snd (peelForAlls ty)))
+
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
 predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
@@ -208,7 +213,7 @@ peelFunTys _ ty = ([], ty)
 -- For variable patterns, binds the pattern variable to the scrutinee
 -- and recurses on remaining arguments.
 buildCaseChain :: [Var] -> TcType -> [Match] -> DsM FcExpr
-buildCaseChain [] _resTy (m : _) = dsRhs (matchRhs m)
+buildCaseChain [] resTy (m : _) = dsRhsWithType (Just resTy) (matchRhs m)
 buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
@@ -301,18 +306,24 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
       pure (FcAlt con binders body)
 
 dsRhs :: Rhs Expr -> DsM FcExpr
-dsRhs (UnguardedRhs _sp expr maybeDecls) =
+dsRhs = dsRhsWithType Nothing
+
+dsRhsWithType :: Maybe TcType -> Rhs Expr -> DsM FcExpr
+dsRhsWithType expectedTy (UnguardedRhs _sp expr maybeDecls) =
   case maybeDecls of
-    Nothing -> dsExpr expr
-    Just decls -> dsLetDecls decls (dsExpr expr)
-dsRhs GuardedRhss {} =
+    Nothing -> dsExprWithType expectedTy expr
+    Just decls -> dsLetDecls decls (dsExprWithType expectedTy expr)
+dsRhsWithType _ GuardedRhss {} =
   desugarBug "unsupported guarded RHS after type checking"
 
 dsExpr :: Expr -> DsM FcExpr
-dsExpr (EAnn ann inner)
+dsExpr = dsExprWithType Nothing
+
+dsExprWithType :: Maybe TcType -> Expr -> DsM FcExpr
+dsExprWithType expectedTy (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
-      dsAnnotatedExpr tcAnn inner
-dsExpr (EVar name) = do
+      dsAnnotatedExpr expectedTy tcAnn inner
+dsExprWithType _ (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
   mLocal <- lookupLocalName name
@@ -322,29 +333,33 @@ dsExpr (EVar name) = do
       ty <- lookupTypeName name
       v <- freshVar n ty
       pure (FcVar v)
-dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
-dsExpr (EChar c _) = pure (FcLit (LitChar c))
-dsExpr (EString s _) = dsStringLiteral s
-dsExpr (EApp fun arg) =
-  FcApp <$> dsExpr fun <*> dsExpr arg
-dsExpr (EInfix lhs op rhs) =
+dsExprWithType _ (EInt i _ _) = pure (FcLit (LitInt i))
+dsExprWithType _ (EChar c _) = pure (FcLit (LitChar c))
+dsExprWithType _ (EString s _) = dsStringLiteral s
+dsExprWithType _ (EApp fun arg) = do
+  argTy <- appArgTypeM fun
+  FcApp <$> dsExpr fun <*> dsExprWithType argTy arg
+dsExprWithType _ (EInfix lhs op rhs) =
   dsInfix lhs op rhs
-dsExpr EList {} =
-  desugarBug "missing type-checker annotation for list expression"
-dsExpr ETuple {} =
-  desugarBug "missing type-checker annotation for tuple expression"
-dsExpr (EParen inner) = dsExpr inner
-dsExpr (EAnn _ann inner) = dsExpr inner
-dsExpr (ETypeSig inner _ty) = dsExpr inner
-dsExpr EIf {} =
-  desugarBug "missing type-checker annotation for if expression"
-dsExpr ECase {} =
-  desugarBug "missing type-checker annotation for case expression"
-dsExpr ELambdaPats {} =
-  desugarBug "missing type-checker annotation for lambda expression"
-dsExpr (ELetDecls decls body) =
-  dsLetDecls decls (dsExpr body)
-dsExpr expr =
+dsExprWithType expectedTy (EList elems) = do
+  ty <- expectedTypeRequired "list expression" expectedTy
+  dsList ty elems
+dsExprWithType expectedTy (ETuple Boxed elems) = do
+  ty <- expectedTypeRequired "tuple expression" expectedTy
+  dsTuple ty elems
+dsExprWithType expectedTy (EParen inner) = dsExprWithType expectedTy inner
+dsExprWithType expectedTy (EAnn _ann inner) = dsExprWithType expectedTy inner
+dsExprWithType expectedTy (ETypeSig inner _ty) = dsExprWithType expectedTy inner
+dsExprWithType expectedTy (EIf cond thenE elseE) =
+  dsIf expectedTy cond thenE elseE
+dsExprWithType expectedTy (ECase scrut alts) =
+  dsCase expectedTy scrut alts
+dsExprWithType expectedTy (ELambdaPats pats body) = do
+  ty <- expectedTypeRequired "lambda expression" expectedTy
+  dsLambda ty pats body
+dsExprWithType expectedTy (ELetDecls decls body) =
+  dsLetDecls decls (dsExprWithType expectedTy body)
+dsExprWithType _ expr =
   desugarBug ("unsupported expression form after type checking: " <> take 80 (show expr))
 
 dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
@@ -360,23 +375,26 @@ dsAnnotatedVar tcAnn name _expr = do
       dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
       pure (List.foldl' FcDictApp typedExpr dicts)
 
-dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
-dsAnnotatedExpr tcAnn inner =
+dsAnnotatedExpr :: Maybe TcType -> TcAnnotation -> Expr -> DsM FcExpr
+dsAnnotatedExpr expectedTy tcAnn inner =
   case inner of
     EVar name -> dsAnnotatedVar tcAnn name inner
-    EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
-    ELetDecls decls body -> dsLetDecls decls (dsExpr body)
-    EList elems -> dsList tcAnn elems
-    ETuple Boxed elems -> dsTuple tcAnn elems
-    ELambdaPats pats body -> dsLambda tcAnn pats body
-    EIf cond thenE elseE -> dsIf cond thenE elseE
+    EApp fun arg -> do
+      argTy <- appArgTypeM fun
+      FcApp <$> dsExpr fun <*> dsExprWithType argTy arg
+    ELetDecls decls body -> dsLetDecls decls (dsExprWithType expectedTy body)
+    EList elems -> dsList (tcAnnType tcAnn) elems
+    ETuple Boxed elems -> dsTuple (tcAnnType tcAnn) elems
+    ELambdaPats pats body -> dsLambda (tcAnnType tcAnn) pats body
+    EIf cond thenE elseE -> dsIf (Just (tcAnnType tcAnn)) cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
-    ECase scrut alts -> dsCase scrut alts
+    ECase scrut alts -> dsCase (Just (tcAnnType tcAnn)) scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
 
 dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
-dsInfix lhs op rhs =
-  FcApp <$> (FcApp <$> dsInfixOperator op <*> dsExpr lhs) <*> dsExpr rhs
+dsInfix lhs op rhs = do
+  (lhsTy, rhsTy) <- infixArgTypesM op
+  FcApp <$> (FcApp <$> dsInfixOperator op <*> dsExprWithType lhsTy lhs) <*> dsExprWithType rhsTy rhs
 
 dsInfixOperator :: Name -> DsM FcExpr
 dsInfixOperator op =
@@ -384,11 +402,11 @@ dsInfixOperator op =
     Just tcAnn -> dsAnnotatedVar tcAnn op (EVar op)
     Nothing -> dsExpr (EVar op)
 
-dsIf :: Expr -> Expr -> Expr -> DsM FcExpr
-dsIf cond thenE elseE = do
+dsIf :: Maybe TcType -> Expr -> Expr -> Expr -> DsM FcExpr
+dsIf expectedTy cond thenE elseE = do
   cond' <- dsExpr cond
-  then' <- dsExpr thenE
-  else' <- dsExpr elseE
+  then' <- dsExprWithType expectedTy thenE
+  else' <- dsExprWithType expectedTy elseE
   binder <- freshVar "_if" boolTy
   pure
     ( FcCase
@@ -399,13 +417,81 @@ dsIf cond thenE elseE = do
         ]
     )
 
-dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
-dsCase scrut alts = do
-  scrutTy <- exprAnnotationTypeRequired scrut
+dsCase :: Maybe TcType -> Expr -> [CaseAlt Expr] -> DsM FcExpr
+dsCase expectedTy scrut alts = do
   scrut' <- dsExpr scrut
+  scrutTy <-
+    case exprAnnotationType scrut of
+      Just ty -> pure ty
+      Nothing -> fcExprTypeM scrut'
   binder <- freshVar "_case" scrutTy
-  alts' <- mapM (dsCaseAlt scrutTy) alts
+  alts' <- mapM (dsCaseAlt expectedTy scrutTy) alts
   pure (FcCase scrut' binder alts')
+
+appArgTypeM :: Expr -> DsM (Maybe TcType)
+appArgTypeM fun = do
+  maybeFunTy <- exprTypeMaybeM Nothing fun
+  pure (maybeFunTy >>= funArgType)
+
+infixArgTypesM :: Name -> DsM (Maybe TcType, Maybe TcType)
+infixArgTypesM op = do
+  maybeOpTy <- nameTypeMaybeM op
+  pure $
+    case maybeOpTy >>= funArgAndResult of
+      Just (lhsTy, partialTy) ->
+        case funArgType partialTy of
+          Just rhsTy -> (Just lhsTy, Just rhsTy)
+          Nothing -> (Just lhsTy, Nothing)
+      Nothing -> (Nothing, Nothing)
+
+exprTypeMaybeM :: Maybe TcType -> Expr -> DsM (Maybe TcType)
+exprTypeMaybeM expectedTy expr =
+  case expr of
+    EAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn -> pure (Just (tcAnnType tcAnn))
+        Nothing -> exprTypeMaybeM expectedTy inner
+    EParen inner -> exprTypeMaybeM expectedTy inner
+    ETypeSig inner _ -> exprTypeMaybeM expectedTy inner
+    EVar name -> nameTypeMaybeM name
+    EInt {} -> pure (Just intTy)
+    EChar {} -> pure (Just charTy)
+    EString {} -> pure (Just (listType charTy))
+    EApp fun _arg -> do
+      maybeFunTy <- exprTypeMaybeM Nothing fun
+      pure (maybeFunTy >>= funResultType)
+    EInfix _lhs op _rhs -> do
+      maybeOpTy <- nameTypeMaybeM op
+      pure (maybeOpTy >>= funResultType >>= funResultType)
+    EList {} -> pure expectedTy
+    ETuple {} -> pure expectedTy
+    EIf {} -> pure expectedTy
+    ECase {} -> pure expectedTy
+    ELambdaPats {} -> pure expectedTy
+    ELetDecls _ body -> exprTypeMaybeM expectedTy body
+    _ -> pure Nothing
+
+nameTypeMaybeM :: Name -> DsM (Maybe TcType)
+nameTypeMaybeM name =
+  case nameTcAnnotation name of
+    Just tcAnn -> pure (Just (tcAnnType tcAnn))
+    Nothing -> do
+      maybeLocal <- lookupLocalName name
+      case maybeLocal of
+        Just var -> pure (Just (varType var))
+        Nothing -> lookupTypeMaybeName name
+
+funArgType :: TcType -> Maybe TcType
+funArgType ty = fst <$> funArgAndResult ty
+
+funResultType :: TcType -> Maybe TcType
+funResultType ty = snd <$> funArgAndResult ty
+
+funArgAndResult :: TcType -> Maybe (TcType, TcType)
+funArgAndResult ty =
+  case qualifiedBody ty of
+    TcFunTy argTy resTy -> Just (argTy, resTy)
+    _ -> Nothing
 
 -- | Desugar local let/where declarations as a recursive Core let.
 --
@@ -522,30 +608,27 @@ dsLocalGroup var group =
       rhs <- dsMatches (varType var) matches
       pure (var, rhs)
     LocalPattern _ _ rhs -> do
-      rhs' <- dsRhs rhs
+      rhs' <- dsRhsWithType (Just (varType var)) rhs
       pure (var, rhs')
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar (nilList charTy) text)
 
-dsList :: TcAnnotation -> [Expr] -> DsM FcExpr
-dsList tcAnn elems =
-  case tcAnnTypeArgs tcAnn of
-    [elemTy] ->
-      foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
-    elemTys ->
-      desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
+dsList :: TcType -> [Expr] -> DsM FcExpr
+dsList listTy elems = do
+  elemTy <- listElemTyM listTy
+  foldr (consList elemTy) (nilList elemTy) <$> mapM (dsExprWithType (Just elemTy)) elems
 
-dsLambda :: TcAnnotation -> [Pattern] -> Expr -> DsM FcExpr
-dsLambda tcAnn pats body = do
-  let argTys = tcAnnTermArgTypes tcAnn
+dsLambda :: TcType -> [Pattern] -> Expr -> DsM FcExpr
+dsLambda funTy pats body = do
+  let (argTys, resTy) = peelFunTys (length pats) (qualifiedBody funTy)
   if length argTys == length pats
     then do
       vars <- zipWithM freshVar (map lambdaArgName pats) argTys
-      body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
+      body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExprWithType (Just resTy) body)
       pure (foldr FcLam body' vars)
-    else desugarBug ("lambda annotation arity mismatch: expected " <> show (length pats) <> " argument type(s), got " <> show (length argTys))
+    else desugarBug ("lambda type arity mismatch: expected " <> show (length pats) <> " argument type(s), got " <> show (length argTys))
 
 lambdaArgName :: Pattern -> Text
 lambdaArgName pat =
@@ -565,17 +648,17 @@ lambdaPatternBindings pat var =
     PAs name inner -> (unqualifiedNameText name, var) : lambdaPatternBindings inner var
     _ -> []
 
-dsTuple :: TcAnnotation -> [Maybe Expr] -> DsM FcExpr
-dsTuple tcAnn elems = do
-  let elemTys = tcAnnTypeArgs tcAnn
+dsTuple :: TcType -> [Maybe Expr] -> DsM FcExpr
+dsTuple tupleTy elems = do
+  elemTys <- tupleElemTysM tupleTy (length elems)
   if length elemTys == length elems
     then do
       elems' <- zipWithM dsMaybeTupleElem elemTys elems
       pure (List.foldl' FcApp (tupleConExpr elemTys) elems')
-    else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
+    else desugarBug ("tuple type arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
-dsMaybeTupleElem _ (Just expr) = dsExpr expr
+dsMaybeTupleElem ty (Just expr) = dsExprWithType (Just ty) expr
 dsMaybeTupleElem ty Nothing = do
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
@@ -669,12 +752,6 @@ nameTcAnnotation :: Name -> Maybe TcAnnotation
 nameTcAnnotation =
   listToMaybe . mapMaybe fromAnnotation . nameAnns
 
-exprAnnotationTypeRequired :: Expr -> DsM TcType
-exprAnnotationTypeRequired expr =
-  case exprAnnotationType expr of
-    Just ty -> pure ty
-    Nothing -> desugarBug ("missing type-checker annotation for expression: " <> take 80 (show expr))
-
 patternBinderTypesM :: Pattern -> TcType -> DsM [TcType]
 patternBinderTypesM pat scrutTy =
   case pat of
@@ -698,6 +775,57 @@ listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
 
+tupleElemTysM :: TcType -> Int -> DsM [TcType]
+tupleElemTysM (TcTyCon (TyCon _ arity) elemTys) expectedArity
+  | arity == expectedArity,
+    length elemTys == expectedArity =
+      pure elemTys
+tupleElemTysM ty expectedArity =
+  desugarBug ("missing tuple element type information while desugaring " <> show expectedArity <> "-tuple: " <> show ty)
+
+expectedTypeRequired :: String -> Maybe TcType -> DsM TcType
+expectedTypeRequired _ (Just ty) = pure ty
+expectedTypeRequired context Nothing =
+  desugarBug ("missing contextual type while desugaring " <> context)
+
+fcExprTypeM :: FcExpr -> DsM TcType
+fcExprTypeM expr =
+  case expr of
+    FcVar var -> pure (varType var)
+    FcLit lit -> pure (litType lit)
+    FcApp fun _arg -> do
+      funTy <- qualifiedBody <$> fcExprTypeM fun
+      case funTy of
+        TcFunTy _argTy resTy -> pure resTy
+        _ -> desugarBug ("application to non-function type while desugaring: " <> show funTy)
+    FcDictApp fun _dict -> do
+      funTy <- fcExprTypeM fun
+      case funTy of
+        TcQualTy (_pred : preds) body -> pure (if null preds then body else TcQualTy preds body)
+        TcFunTy _argTy resTy -> pure resTy
+        _ -> desugarBug ("dictionary application to non-qualified type while desugaring: " <> show funTy)
+    FcTyApp fun ty -> do
+      funTy <- fcExprTypeM fun
+      case funTy of
+        TcForAllTy tv body -> pure (substType (Map.singleton tv ty) body)
+        _ -> desugarBug ("type application to non-forall type while desugaring: " <> show funTy)
+    FcLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
+    FcTyLam tv body -> TcForAllTy tv <$> fcExprTypeM body
+    FcDictLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
+    FcDict _fields -> pure (TcTyCon (TyCon "Dict" 0) [])
+    FcDictSelect {} -> desugarBug "dictionary selection lacks field type annotation while desugaring"
+    FcLet _bind body -> fcExprTypeM body
+    FcCase _scrut _binder alts ->
+      case alts of
+        [] -> desugarBug "case expression has no alternatives while desugaring"
+        FcAlt _ _ body : _ -> fcExprTypeM body
+    FcCast inner _co -> fcExprTypeM inner
+
+litType :: Literal -> TcType
+litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
+litType (LitChar _) = TcTyCon (TyCon "Char" 0) []
+litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
+
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
 
@@ -717,16 +845,19 @@ typeKey ty =
 boolTy :: TcType
 boolTy = TcTyCon (TyCon "Bool" 0) []
 
+intTy :: TcType
+intTy = TcTyCon (TyCon "Int" 0) []
+
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []
 
 -- | Desugar a case alternative.
-dsCaseAlt :: TcType -> CaseAlt Expr -> DsM FcAlt
-dsCaseAlt scrutTy (CaseAlt _anns pat rhs) = do
+dsCaseAlt :: Maybe TcType -> TcType -> CaseAlt Expr -> DsM FcAlt
+dsCaseAlt expectedTy scrutTy (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
   binderTys <- patternBinderTypesM pat scrutTy
   binders <- zipWithM freshVar binderNames binderTys
-  body <- dsRhs rhs
+  body <- dsRhsWithType expectedTy rhs
   pure (FcAlt con binders body)
 
 -- | Convert a Name to Text.
