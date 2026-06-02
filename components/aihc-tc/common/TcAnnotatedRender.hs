@@ -562,7 +562,7 @@ classItemMethodSpans methodName ambient item =
     ClassItemDefault valueDecl ->
       [ sp
       | binder <- valueDeclBinders valueDecl,
-        renderBinderName binder == methodName,
+        unqualifiedNameText binder == methodName,
         Just sp <- [spanFromUnqualifiedName binder <|> ambient]
       ]
     _ -> []
@@ -571,7 +571,7 @@ matchingNameSpans :: Text -> Maybe SourceSpan -> [UnqualifiedName] -> [SourceSpa
 matchingNameSpans methodName ambient names =
   [ sp
   | name <- names,
-    renderBinderName name == methodName,
+    unqualifiedNameText name == methodName,
     Just sp <- [spanFromUnqualifiedName name <|> ambient]
   ]
 
@@ -582,7 +582,7 @@ instanceMethodSpan methodName item =
       listToMaybe
         [ sp
         | binder <- valueDeclBinders valueDecl,
-          renderBinderName binder == methodName,
+          unqualifiedNameText binder == methodName,
           Just sp <- [spanFromUnqualifiedName binder]
         ]
     InstanceItemAnn ann inner -> instanceMethodSpan methodName inner <|> fromAnnotation @SourceSpan ann

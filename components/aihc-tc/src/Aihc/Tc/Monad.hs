@@ -5,6 +5,7 @@ module Aihc.Tc.Monad
   ( -- * Monad
     TcM,
     runTcM,
+    abortTc,
 
     -- * State
     TcState (..),
@@ -99,6 +100,9 @@ newtype TcAbort = TcAbort String
 -- | Run the type checker computation.
 runTcM :: TcEnv -> TcState -> TcM a -> Either TcAbort (a, TcState)
 runTcM env st m = runStateT (runReaderT m env) st
+
+abortTc :: String -> TcM a
+abortTc msg = lift (lift (Left (TcAbort msg)))
 
 -- | The local typing environment (read-only within a scope).
 data TcEnv = TcEnv

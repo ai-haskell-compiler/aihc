@@ -65,8 +65,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -697,9 +696,8 @@ evidenceForEvVar ev = do
   maybeEvidence <- lookupEvidence ev
   case maybeEvidence of
     Just evidence -> pure evidence
-    Nothing -> do
-      _ <- missingTypeInfo ("evidence for " <> show ev)
-      pure (EvVarTerm ev)
+    Nothing ->
+      abortTc ("internal type annotation error: missing evidence for " <> show ev)
 
 tupleOccurrenceKey :: OccurrenceKey
 tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
@@ -750,10 +748,9 @@ firstClassPredSubst preds headTys =
     classArgs : _ -> matchTypes classArgs headTys
     [] -> Nothing
 
-missingTypeInfo :: String -> TcM TcType
-missingTypeInfo msg = do
-  emitError NoSourceSpan (OtherError ("internal type annotation error: missing " <> msg))
-  pure (TcMetaTv (Unique (-1)))
+missingTypeInfo :: String -> TcM a
+missingTypeInfo msg =
+  abortTc ("internal type annotation error: missing " <> msg)
 
 selectorDictTypeTc :: Text -> TcType -> TcM TcType
 selectorDictTypeTc methodName methodTy =
