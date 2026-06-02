@@ -2,6 +2,7 @@ annotated:
 - |-
   module Test where
   id = \x -> x
+  │     └─ x ∷ a
   └─ id ∷ ∀ a. a → a
 extensions: []
 modules:
