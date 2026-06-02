@@ -638,16 +638,8 @@ annotateVarTc expr name = do
   case maybeOccurrenceAnn of
     Just ann -> pure (annotateExpr ann expr)
     Nothing -> do
-      mBinder <- lookupTermName name
-      case mBinder of
-        Just (TcIdBinder _ scheme _) -> do
-          ann <- fallbackAnnotationForScheme name scheme
-          pure (annotateExpr ann expr)
-        Just (TcMonoIdBinder _ ty) ->
-          pure (annotateExpr (TcAnnotation ty [] [] []) expr)
-        Nothing -> do
-          _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
-          pure expr
+      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
+      pure expr
 
 annotateInfixOperatorTc :: Name -> TcM Name
 annotateInfixOperatorTc name = do
@@ -655,16 +647,8 @@ annotateInfixOperatorTc name = do
   case maybeOccurrenceAnn of
     Just ann -> pure (annotateName ann name)
     Nothing -> do
-      mBinder <- lookupTermName name
-      case mBinder of
-        Just (TcIdBinder _ scheme _) -> do
-          ann <- fallbackAnnotationForScheme name scheme
-          pure (annotateName ann name)
-        Just (TcMonoIdBinder _ ty) ->
-          pure (annotateName (TcAnnotation ty [] [] []) name)
-        Nothing -> do
-          _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
-          pure name
+      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
+      pure name
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName ann name =
@@ -687,14 +671,6 @@ annotationForSyntaxOccurrence key what = do
     Nothing -> do
       ty <- missingTypeInfo ("elaboration for " <> what)
       pure (TcAnnotation ty [] [] [])
-
-fallbackAnnotationForScheme :: Name -> TypeScheme -> TcM TcAnnotation
-fallbackAnnotationForScheme name scheme
-  | ForAll [] [] _ <- scheme =
-      pure (TcAnnotation (schemeToType scheme) [] [] [])
-  | otherwise = do
-      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
-      pure (TcAnnotation (schemeToType scheme) [] [] [])
 
 annotationForOccurrenceElaboration :: OccurrenceElaboration -> TcM TcAnnotation
 annotationForOccurrenceElaboration elaboration = do
@@ -848,13 +824,6 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-lookupTermName :: Name -> TcM (Maybe TcBinder)
-lookupTermName name = do
-  qualified <- lookupTerm (nameToText name)
-  case qualified of
-    Just binder -> pure (Just binder)
-    Nothing -> lookupTerm (nameText name)
 
 -- | Collect type signatures from a list of declarations.
 collectRawSigs :: [Decl] -> Map Text Type
