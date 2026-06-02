@@ -1,0 +1,21 @@
+annotated:
+- |-
+  module Test where
+  data Truth = True
+       │       └─ True ∷ Truth
+       └─ Truth ∷ *
+  id x = x
+  │  └─ x ∷ a
+  └─ id ∷ ∀ a. a → a
+  truth = id True
+  │       └─ type-args: Truth
+  └─ truth ∷ Truth
+extensions: []
+modules:
+- |
+  module Test where
+  data Truth = True
+  id x = x
+  truth = id True
+reason: constructor occurrence annotations must come from the current scope, not builtin spellings
+status: pass

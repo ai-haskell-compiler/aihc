@@ -447,8 +447,12 @@ annotateExprTc locals givens expected expr =
       fun' <- annotateExprTc locals givens (TcFunTy argTy expected) fun
       arg' <- annotateExprTc locals givens argTy arg
       pure (annotateExpr (TcAnnotation expected [] [] []) (EApp fun' arg'))
-    EInfix lhs op rhs ->
-      annotateExprTc locals givens expected (EApp (EApp (EVar op) lhs) rhs)
+    EInfix lhs op rhs -> do
+      (lhsTy, rhsTy) <- infixArgTypesTc locals op lhs rhs expected
+      lhs' <- annotateExprTc locals givens lhsTy lhs
+      op' <- annotateInfixOperatorTc locals givens (TcFunTy lhsTy (TcFunTy rhsTy expected)) op
+      rhs' <- annotateExprTc locals givens rhsTy rhs
+      pure (annotateExpr (TcAnnotation expected [] [] []) (EInfix lhs' op' rhs'))
     EList elems -> do
       elemTyFromItems <- listElemTypeFromItems locals elems
       elemTy <- maybe (missingTypeInfo "list element type") pure (listElemTyTc expected <|> elemTyFromItems)
@@ -600,6 +604,26 @@ annotateVarTc locals givens expected expr name =
           _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
           pure expr
 
+annotateInfixOperatorTc :: Map Text TcType -> [Pred] -> TcType -> Name -> TcM Name
+annotateInfixOperatorTc locals givens expected name =
+  case lookupLocalName name locals of
+    Just ty -> pure (annotateName (TcAnnotation ty [] [] []) name)
+    Nothing -> do
+      mBinder <- lookupTermName name
+      case mBinder of
+        Just (TcIdBinder _ scheme _) -> do
+          ann <- annotationForScheme givens scheme expected
+          pure (annotateName ann name)
+        Just (TcMonoIdBinder _ ty) ->
+          pure (annotateName (TcAnnotation ty [] [] []) name)
+        Nothing -> do
+          _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
+          pure name
+
+annotateName :: TcAnnotation -> Name -> Name
+annotateName ann name =
+  name {nameAnns = nameAnns name <> [mkAnnotation ann]}
+
 annotationForScheme :: [Pred] -> TypeScheme -> TcType -> TcM TcAnnotation
 annotationForScheme givens scheme@(ForAll tvs preds body) expected =
   let needsInstantiation = not (null tvs && null preds)
@@ -669,6 +693,39 @@ appArgTypeFromFunTc funTy expected =
       pure (substType subst formalArg)
     _ -> Nothing
 
+infixArgTypesTc :: Map Text TcType -> Name -> Expr -> Expr -> TcType -> TcM (TcType, TcType)
+infixArgTypesTc locals op lhs rhs expected = do
+  maybeOpTy <- exprTypeMaybeNameTc locals op
+  maybeLhsTy <- exprTypeMaybeTc locals lhs
+  maybeRhsTy <- exprTypeMaybeTc locals rhs
+  let derived = maybeOpTy >>= (`infixArgTypesFromOpTc` expected)
+  lhsTy <-
+    case maybeLhsTy of
+      Just ty | isUsableKnownType ty -> pure ty
+      _ ->
+        case derived of
+          Just (ty, _) -> pure ty
+          Nothing -> missingTypeInfo ("infix left argument for " <> T.unpack (nameText op))
+  rhsTy <-
+    case maybeRhsTy of
+      Just ty | isUsableKnownType ty -> pure ty
+      _ ->
+        case derived of
+          Just (_, ty) -> pure ty
+          Nothing -> missingTypeInfo ("infix right argument for " <> T.unpack (nameText op))
+  pure (lhsTy, rhsTy)
+
+infixArgTypesFromOpTc :: TcType -> TcType -> Maybe (TcType, TcType)
+infixArgTypesFromOpTc opTy expected =
+  case qualifiedBody opTy of
+    TcFunTy formalLhs rest ->
+      case qualifiedBody rest of
+        TcFunTy formalRhs formalResult -> do
+          subst <- matchTypes [formalResult] [expected]
+          pure (substType subst formalLhs, substType subst formalRhs)
+        _ -> Nothing
+    _ -> Nothing
+
 exprTypeMaybeTc :: Map Text TcType -> Expr -> TcM (Maybe TcType)
 exprTypeMaybeTc locals expr =
   case expr of
@@ -677,19 +734,24 @@ exprTypeMaybeTc locals expr =
     EInt {} -> pure (Just intTy)
     EChar {} -> pure (Just charTy)
     EString {} -> pure (Just (listType charTy))
-    EVar name
-      | nameText name == "True" || nameText name == "False" -> pure (Just boolTy)
-      | otherwise ->
-          case lookupLocalName name locals of
-            Just ty -> pure (Just ty)
-            Nothing -> fmap binderType <$> lookupTermName name
+    EVar name -> exprTypeMaybeNameTc locals name
     EApp fun arg -> do
       funTy <- exprTypeMaybeTc locals fun
       argTy <- exprTypeMaybeTc locals arg
       pure (funTy >>= \fTy -> argTy >>= appResultTypeTc fTy)
-    EInfix lhs op rhs -> exprTypeMaybeTc locals (EApp (EApp (EVar op) lhs) rhs)
+    EInfix lhs op rhs -> do
+      opTy <- exprTypeMaybeNameTc locals op
+      lhsTy <- exprTypeMaybeTc locals lhs
+      rhsTy <- exprTypeMaybeTc locals rhs
+      pure (opTy >>= \fTy -> lhsTy >>= appResultTypeTc fTy >>= \partialTy -> rhsTy >>= appResultTypeTc partialTy)
     EList (item : _) -> fmap listType <$> exprTypeMaybeTc locals item
     _ -> pure Nothing
+
+exprTypeMaybeNameTc :: Map Text TcType -> Name -> TcM (Maybe TcType)
+exprTypeMaybeNameTc locals name =
+  case lookupLocalName name locals of
+    Just ty -> pure (Just ty)
+    Nothing -> fmap binderType <$> lookupTermName name
 
 appResultTypeTc :: TcType -> TcType -> Maybe TcType
 appResultTypeTc funTy argTy

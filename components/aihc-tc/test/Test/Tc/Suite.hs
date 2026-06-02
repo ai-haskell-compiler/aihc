@@ -15,6 +15,7 @@ import Aihc.Parser.Syntax
     InstanceDeclItem (..),
     Match (..),
     Module (..),
+    Name (..),
     Rhs (..),
     ValueDecl (..),
     fromAnnotation,
@@ -22,7 +23,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Data.Maybe (maybeToList)
+import Data.Maybe (mapMaybe, maybeToList)
 import Data.Text (Text)
 import TcAnnotatedGolden qualified as TAG
 import Test.Tasty (TestTree, testGroup)
@@ -361,7 +362,7 @@ exprExprAnnotations expr =
     EAnn ann inner ->
       maybeToList (fromAnnotation ann) <> exprExprAnnotations inner
     EApp fun arg -> exprExprAnnotations fun <> exprExprAnnotations arg
-    EInfix lhs op rhs -> exprExprAnnotations lhs <> exprExprAnnotations (EVar op) <> exprExprAnnotations rhs
+    EInfix lhs op rhs -> exprExprAnnotations lhs <> nameExprAnnotations op <> exprExprAnnotations rhs
     EList elems -> concatMap exprExprAnnotations elems
     ETuple _ elems -> concatMap (maybe [] exprExprAnnotations) elems
     EIf cond thenE elseE -> exprExprAnnotations cond <> exprExprAnnotations thenE <> exprExprAnnotations elseE
@@ -371,6 +372,10 @@ exprExprAnnotations expr =
     EParen inner -> exprExprAnnotations inner
     ETypeSig inner _ -> exprExprAnnotations inner
     _ -> []
+
+nameExprAnnotations :: Name -> [TcAnnotation]
+nameExprAnnotations name =
+  mapMaybe fromAnnotation (nameAnns name)
 
 caseAltExprAnnotations :: CaseAlt Expr -> [TcAnnotation]
 caseAltExprAnnotations (CaseAlt _ _ rhs) = rhsExprAnnotations rhs

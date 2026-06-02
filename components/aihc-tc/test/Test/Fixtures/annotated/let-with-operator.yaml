@@ -6,7 +6,7 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x = let y = x + one in y
-  │ └─ x ∷ a│ └─ type-args: a, Bool
+  │ └─ x ∷ a│     └─ type-args: a, Bool
   │         └─ y ∷ a
   └─ f ∷ ∀ a. a → a
   (+) a b = a

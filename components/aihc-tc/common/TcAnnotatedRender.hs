@@ -295,7 +295,7 @@ exprLabels ambient expr =
        in own <> exprLabels ambient' inner
     EIf cond thenE elseE -> exprLabels ambient cond <> exprLabels ambient thenE <> exprLabels ambient elseE
     ELambdaPats pats body -> concatMap (patternLabels ambient) pats <> exprLabels ambient body
-    EInfix lhs _ rhs -> exprLabels ambient lhs <> exprLabels ambient rhs
+    EInfix lhs op rhs -> exprLabels ambient lhs <> nameElaborationLabels ambient op <> exprLabels ambient rhs
     ENegate inner -> exprLabels ambient inner
     ESectionL lhs _ -> exprLabels ambient lhs
     ESectionR _ rhs -> exprLabels ambient rhs
@@ -362,6 +362,15 @@ elaborationLabel maybeSpan ann =
   case (maybeSpan, renderElaboration ann) of
     (Just sp, Just label) -> [sourceLabel sp label]
     _ -> []
+
+nameElaborationLabels :: Maybe SourceSpan -> Name -> [TcLabel]
+nameElaborationLabels ambient name =
+  let maybeSpan = spanFromAnnotations (nameAnns name) <|> ambient
+   in [ label
+      | ann <- nameAnns name,
+        Just tcAnn <- [fromAnnotation @TcAnnotation ann],
+        label <- elaborationLabel maybeSpan tcAnn
+      ]
 
 renderElaboration :: TcAnnotation -> Maybe String
 renderElaboration ann =
