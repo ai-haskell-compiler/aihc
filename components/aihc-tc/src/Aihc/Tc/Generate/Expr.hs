@@ -294,7 +294,15 @@ inferTuple _sp elems = do
   -- Represent tuples as TcTyCon with a tuple type constructor.
   let n = length tys
   let tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
-  pure (TcTyCon tc tys, cts)
+  let tupleTy = TcTyCon tc tys
+  recordOccurrenceElaboration
+    tupleOccurrenceKey
+    OccurrenceElaboration
+      { occurrenceElabType = tupleTy,
+        occurrenceElabTypeArgs = tys,
+        occurrenceElabEvidenceVars = []
+      }
+  pure (tupleTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -306,19 +314,37 @@ inferList :: SourceSpan -> [Expr] -> TcM (TcType, [Ct])
 inferList sp elems = case elems of
   [] -> do
     elemTy <- freshMetaTv
-    pure (TcTyCon listTyCon' [elemTy], [])
+    let listTy = TcTyCon listTyCon' [elemTy]
+    recordListElaboration listTy elemTy
+    pure (listTy, [])
   (e : es) -> do
     (headTy, headCts) <- inferExpr e
     results <- mapM inferExpr es
     let tailCts = concatMap snd results
     -- All elements must have the same type.
     eqCts <- mapM (mkElemEq headTy) results
-    pure (TcTyCon listTyCon' [headTy], headCts ++ tailCts ++ eqCts)
+    let listTy = TcTyCon listTyCon' [headTy]
+    recordListElaboration listTy headTy
+    pure (listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
+    recordListElaboration listTy elemTy =
+      recordOccurrenceElaboration
+        listOccurrenceKey
+        OccurrenceElaboration
+          { occurrenceElabType = listTy,
+            occurrenceElabTypeArgs = [elemTy],
+            occurrenceElabEvidenceVars = []
+          }
     mkElemEq headTy (elemTy, _) = do
       ev <- freshEvVar
       pure $ mkWantedCt (EqPred headTy elemTy) ev (AppOrigin sp) sp
+
+tupleOccurrenceKey :: OccurrenceKey
+tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
+
+listOccurrenceKey :: OccurrenceKey
+listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
 
 -- | Infer the type of a list comprehension.
 --

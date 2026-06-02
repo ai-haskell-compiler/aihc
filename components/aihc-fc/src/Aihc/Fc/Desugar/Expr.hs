@@ -341,12 +341,10 @@ dsExprWithType _ (EApp fun arg) = do
   FcApp <$> dsExpr fun <*> dsExprWithType argTy arg
 dsExprWithType _ (EInfix lhs op rhs) =
   dsInfix lhs op rhs
-dsExprWithType expectedTy (EList elems) = do
-  ty <- expectedTypeRequired "list expression" expectedTy
-  dsList ty elems
-dsExprWithType expectedTy (ETuple Boxed elems) = do
-  ty <- expectedTypeRequired "tuple expression" expectedTy
-  dsTuple ty elems
+dsExprWithType _ EList {} =
+  desugarBug "missing type-checker annotation for list literal"
+dsExprWithType _ ETuple {} =
+  desugarBug "missing type-checker annotation for tuple literal"
 dsExprWithType expectedTy (EParen inner) = dsExprWithType expectedTy inner
 dsExprWithType expectedTy (EAnn _ann inner) = dsExprWithType expectedTy inner
 dsExprWithType expectedTy (ETypeSig inner _ty) = dsExprWithType expectedTy inner
@@ -383,8 +381,8 @@ dsAnnotatedExpr expectedTy tcAnn inner =
       argTy <- appArgTypeM fun
       FcApp <$> dsExpr fun <*> dsExprWithType argTy arg
     ELetDecls decls body -> dsLetDecls decls (dsExprWithType expectedTy body)
-    EList elems -> dsList (tcAnnType tcAnn) elems
-    ETuple Boxed elems -> dsTuple (tcAnnType tcAnn) elems
+    EList elems -> dsList tcAnn elems
+    ETuple Boxed elems -> dsTuple tcAnn elems
     ELambdaPats pats body -> dsLambda (tcAnnType tcAnn) pats body
     EIf cond thenE elseE -> dsIf (Just (tcAnnType tcAnn)) cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
@@ -615,10 +613,13 @@ dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar (nilList charTy) text)
 
-dsList :: TcType -> [Expr] -> DsM FcExpr
-dsList listTy elems = do
-  elemTy <- listElemTyM listTy
-  foldr (consList elemTy) (nilList elemTy) <$> mapM (dsExprWithType (Just elemTy)) elems
+dsList :: TcAnnotation -> [Expr] -> DsM FcExpr
+dsList tcAnn elems =
+  case tcAnnTypeArgs tcAnn of
+    [elemTy] ->
+      foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
+    elemTys ->
+      desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
 
 dsLambda :: TcType -> [Pattern] -> Expr -> DsM FcExpr
 dsLambda funTy pats body = do
@@ -648,17 +649,17 @@ lambdaPatternBindings pat var =
     PAs name inner -> (unqualifiedNameText name, var) : lambdaPatternBindings inner var
     _ -> []
 
-dsTuple :: TcType -> [Maybe Expr] -> DsM FcExpr
-dsTuple tupleTy elems = do
-  elemTys <- tupleElemTysM tupleTy (length elems)
+dsTuple :: TcAnnotation -> [Maybe Expr] -> DsM FcExpr
+dsTuple tcAnn elems = do
+  let elemTys = tcAnnTypeArgs tcAnn
   if length elemTys == length elems
     then do
       elems' <- zipWithM dsMaybeTupleElem elemTys elems
       pure (List.foldl' FcApp (tupleConExpr elemTys) elems')
-    else desugarBug ("tuple type arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
+    else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
-dsMaybeTupleElem ty (Just expr) = dsExprWithType (Just ty) expr
+dsMaybeTupleElem _ (Just expr) = dsExpr expr
 dsMaybeTupleElem ty Nothing = do
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
@@ -774,14 +775,6 @@ listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
-
-tupleElemTysM :: TcType -> Int -> DsM [TcType]
-tupleElemTysM (TcTyCon (TyCon _ arity) elemTys) expectedArity
-  | arity == expectedArity,
-    length elemTys == expectedArity =
-      pure elemTys
-tupleElemTysM ty expectedArity =
-  desugarBug ("missing tuple element type information while desugaring " <> show expectedArity <> "-tuple: " <> show ty)
 
 expectedTypeRequired :: String -> Maybe TcType -> DsM TcType
 expectedTypeRequired _ (Just ty) = pure ty

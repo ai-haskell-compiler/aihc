@@ -510,14 +510,18 @@ annotateExprTc locals expr =
       op' <- annotateInfixOperatorTc locals op
       rhs' <- annotateExprTc locals rhs
       pure (EInfix lhs' op' rhs')
-    EList elems ->
-      EList <$> mapM (annotateExprTc locals) elems
+    EList elems -> do
+      elems' <- mapM (annotateExprTc locals) elems
+      ann <- annotationForSyntaxOccurrence listOccurrenceKey "list literal"
+      pure (annotateExpr ann (EList elems'))
     EListComp body stmts -> do
       (locals', stmts') <- annotateCompStmtsTc locals stmts
       body' <- annotateExprTc locals' body
       pure (EListComp body' stmts')
-    ETuple flavor elems ->
-      ETuple flavor <$> mapM (traverse (annotateExprTc locals)) elems
+    ETuple flavor elems -> do
+      elems' <- mapM (traverse (annotateExprTc locals)) elems
+      ann <- annotationForSyntaxOccurrence tupleOccurrenceKey "tuple literal"
+      pure (annotateExpr ann (ETuple flavor elems'))
     EIf cond thenE elseE ->
       EIf <$> annotateExprTc locals cond <*> annotateExprTc locals thenE <*> annotateExprTc locals elseE
     ELambdaPats pats body ->
@@ -678,6 +682,16 @@ annotationForNameOccurrence name = do
       Just <$> annotationForOccurrenceElaboration elaboration
     Nothing -> pure Nothing
 
+annotationForSyntaxOccurrence :: OccurrenceKey -> String -> TcM TcAnnotation
+annotationForSyntaxOccurrence key what = do
+  maybeElaboration <- takeOccurrenceElaboration key
+  case maybeElaboration of
+    Just elaboration ->
+      annotationForOccurrenceElaboration elaboration
+    Nothing -> do
+      ty <- missingTypeInfo ("elaboration for " <> what)
+      pure (TcAnnotation ty [] [] [])
+
 fallbackAnnotationForScheme :: Name -> TypeScheme -> TcM TcAnnotation
 fallbackAnnotationForScheme name scheme
   | ForAll [] [] _ <- scheme =
@@ -705,6 +719,12 @@ evidenceForEvVar ev = do
 occurrenceKeyForName :: Name -> OccurrenceKey
 occurrenceKeyForName name =
   OccurrenceKey (nameToText name) (sourceSpanFromAnns (nameAnns name))
+
+tupleOccurrenceKey :: OccurrenceKey
+tupleOccurrenceKey = OccurrenceKey "$tuple" NoSourceSpan
+
+listOccurrenceKey :: OccurrenceKey
+listOccurrenceKey = OccurrenceKey "$list" NoSourceSpan
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
