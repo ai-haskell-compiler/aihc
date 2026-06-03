@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Main where
@@ -11,14 +12,6 @@ annotated:
   data FoundType = FoundConstructor
        │           └─ v ValidModule
        └─ t ValidModule
-expected:
-  Main:
-  - 2:31-2:50 MissingConstructor => (value) Error not exported
-  - 3:1-3:2 x => (value) Main.x
-  - 3:5-3:23 MissingConstructor => (value) Error unbound
-  ValidModule:
-  - 2:6-2:15 FoundType => (type) ValidModule.FoundType
-  - 2:18-2:34 FoundConstructor => (value) ValidModule.FoundConstructor
 extensions: []
 modules:
 - |

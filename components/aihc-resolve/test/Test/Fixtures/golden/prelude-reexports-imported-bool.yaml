@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Data.Bool (Bool(False, True), not, (&&)) where
@@ -38,31 +39,6 @@ annotated:
   └─ v Prelude
           True
           └─ v Data.Bool
-expected: |
-  Data.Bool:
-    8:6-8:10 Bool => (type) Data.Bool.Bool
-    8:13-8:18 False => (value) Data.Bool.False
-    8:21-8:25 True => (value) Data.Bool.True
-    9:1-9:4 not => (value) Data.Bool.not
-    9:13-9:17 True => (value) Data.Bool.True
-    10:1-10:4 not => (value) Data.Bool.not
-    10:12-10:17 False => (value) Data.Bool.False
-    11:1-11:3 && => (value) Data.Bool.&&
-    11:14-11:19 False => (value) Data.Bool.False
-    12:1-12:3 && => (value) Data.Bool.&&
-    12:9-12:10 x => (value) Local 0 x
-    12:13-12:14 x => (value) Local 0 x
-  Main:
-    2:1-2:2 x => (value) Main.x
-    2:5-2:7 && => (value) Data.Bool.&&
-    2:6-2:9 not => (value) Data.Bool.not
-    2:10-2:15 False => (value) Data.Bool.False
-    2:17-2:21 True => (value) Data.Bool.True
-    2:25-2:30 False => (value) Data.Bool.False
-  Prelude:
-    9:1-9:2 p => (value) Prelude.p
-    9:5-9:8 not => (value) Data.Bool.not
-    9:9-9:13 True => (value) Data.Bool.True
 extensions: []
 modules:
 - |

@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module ClassMod where
@@ -10,12 +11,6 @@ annotated:
   f = pick
   │   └─ v ClassMod
   └─ v Main
-expected:
-  ClassMod:
-  - 2:7-2:10 Box => (type) ClassMod.Box
-  Main:
-  - 4:1-4:2 f => (value) Main.f
-  - 4:5-4:9 pick => (value) ClassMod.pick
 extensions: []
 modules:
 - |

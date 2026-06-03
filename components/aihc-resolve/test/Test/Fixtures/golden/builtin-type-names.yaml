@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Main where
@@ -14,16 +15,6 @@ annotated:
           x#
           └─ v 0
           1#
-expected:
-  Main:
-  - 2:8-2:16 GHC.Exts => (module) Error not found
-  - 3:1-3:2 f => (value) Main.f
-  - 3:6-3:10 Int# => (type) Builtin Int#
-  - 3:14-3:18 Int# => (type) Builtin Int#
-  - 4:1-4:2 f => (value) Main.f
-  - 4:3-4:5 x# => (value) Local 0 x#
-  - 4:8-4:15 addInt# => (value) Error unbound
-  - 4:16-4:18 x# => (value) Local 0 x#
 extensions:
 - MagicHash
 modules:

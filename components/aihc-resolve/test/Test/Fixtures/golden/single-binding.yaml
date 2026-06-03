@@ -1,15 +1,13 @@
+---
 extensions: []
 modules:
-  - |
-    module Main where
-    x = 1
-expected:
-  Main:
-    - "2:1-2:2 x => (value) Main.x"
+- |
+  module Main where
+  x = 1
 annotated:
-  - |
-    module Main where
-    x = 1
-    └─ v Main
+- |
+  module Main where
+  x = 1
+  └─ v Main
 status: pass
-reason: ""
+reason: ''

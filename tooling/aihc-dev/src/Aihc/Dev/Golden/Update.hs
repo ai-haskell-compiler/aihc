@@ -317,26 +317,20 @@ updateResolverGoldens opts =
       then pure FixtureUnchanged
       else case resolverActual value of
         Left err -> pure (FixtureSkipped err)
-        Right (actualExpected, actualAnnotated) -> do
-          let expected = parseExpectedField "expected" value
-              annotated = parseTextArrayField "annotated" value
+        Right actualAnnotated -> do
+          let annotated = parseTextArrayField "annotated" value
           pure $
             applyFieldUpdates
-              [ (["expected"], String (T.pack actualExpected), either (const True) ((/= trim actualExpected) . trim . T.unpack) expected),
-                (["annotated"], toJSON (map T.pack actualAnnotated), either (const True) ((/= map trim actualAnnotated) . map (trim . T.unpack)) annotated)
-              ]
+              [(["annotated"], toJSON (map T.pack actualAnnotated), either (const True) ((/= map trim actualAnnotated) . map (trim . T.unpack)) annotated)]
               value
 
-resolverActual :: Value -> Either String (String, [String])
+resolverActual :: Value -> Either String [String]
 resolverActual value = do
   exts <- parseExtensions value
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
   let result = resolve parsed
-  Right
-    ( RG.renderResolveResult result,
-      RG.renderAnnotatedResolveResult defaultConfig {parserExtensions = exts, parserSourceName = "<resolver-annotated>"} result
-    )
+  Right (RG.renderAnnotatedResolveResult defaultConfig {parserExtensions = exts, parserSourceName = "<resolver-annotated>"} result)
 
 updateTcAnnotatedGoldens :: Options -> IO Summary
 updateTcAnnotatedGoldens opts =

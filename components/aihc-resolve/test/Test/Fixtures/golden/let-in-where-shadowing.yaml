@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Main where
@@ -10,15 +11,6 @@ annotated:
         x = x
         │   └─ v 1
         └─ v 1
-expected:
-  Main:
-  - 2:1-2:3 fn => (value) Main.fn
-  - 2:4-2:5 x => (value) Local 0 x
-  - 2:12-2:13 x => (value) Local 2 x
-  - 2:16-2:17 x => (value) Local 2 x
-  - 2:21-2:22 x => (value) Local 2 x
-  - 2:29-2:30 x => (value) Local 1 x
-  - 2:33-2:34 x => (value) Local 1 x
 extensions: []
 modules:
 - |

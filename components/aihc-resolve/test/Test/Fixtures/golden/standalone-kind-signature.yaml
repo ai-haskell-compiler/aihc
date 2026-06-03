@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Main where
@@ -11,14 +12,6 @@ annotated:
   └─ v Main
   x = 42
   └─ v Main
-expected:
-  Main:
-  - 2:1-2:30 DeclStandaloneKindSig => (value) Error unhandled syntax
-  - 3:6-3:14 Identity => (type) Main.Identity
-  - 4:1-4:2 x => (value) Main.x
-  - 4:6-4:14 Identity => (type) Main.Identity
-  - 4:15-4:18 Int => (type) Error unbound
-  - 5:1-5:2 x => (value) Main.x
 extensions:
 - StandaloneKindSignatures
 modules:

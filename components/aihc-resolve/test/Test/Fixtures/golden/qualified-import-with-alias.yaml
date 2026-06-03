@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Data.Config where
@@ -13,15 +14,6 @@ annotated:
         + Config.maxRetries
         │ └─ v Data.Config
         └─ v Error unbound
-expected:
-  Data.Config:
-  - 2:1-2:14 defaultConfig => (value) Data.Config.defaultConfig
-  - 3:1-3:11 maxRetries => (value) Data.Config.maxRetries
-  Main:
-  - 3:1-3:10 useConfig => (value) Main.useConfig
-  - 3:11-3:12 + => (value) Error unbound
-  - 3:13-3:33 defaultConfig => (value) Data.Config.defaultConfig
-  - 3:36-3:53 maxRetries => (value) Data.Config.maxRetries
 extensions: []
 modules:
 - |

@@ -1,3 +1,4 @@
+---
 annotated:
 - |-
   module Main where
@@ -11,14 +12,6 @@ annotated:
   └─ v Main
           10#
           32#
-expected:
-  Main:
-  - 2:1-2:3 +# => (value) Main.+#
-  - 2:29-2:33 Int# => (type) Builtin Int#
-  - 2:37-2:41 Int# => (type) Builtin Int#
-  - 2:45-2:49 Int# => (type) Builtin Int#
-  - 3:1-3:3 x# => (value) Main.x#
-  - 3:6-3:10 +# => (value) Main.+#
 extensions:
 - MagicHash
 modules:
