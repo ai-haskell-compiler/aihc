@@ -70,6 +70,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-testing = {
+      src = sources.testingSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath tooling/aihc-testing";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-parser-tooling-common = {
       src = sources.parserToolingCommonSrc;
       cabal2nixOptions = {

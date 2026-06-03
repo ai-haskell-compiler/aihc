@@ -19,11 +19,13 @@ library
     aeson,
     aihc-parser,
     aihc-resolve,
+    aihc-testing,
     base >=4.16 && <5,
     bytestring,
     containers,
     directory,
     filepath,
+    prettyprinter,
     text,
     yaml,
 

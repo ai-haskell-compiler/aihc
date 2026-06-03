@@ -23,7 +23,6 @@ module Aihc.Resolve.Span
     annotatePattern,
     annotateType,
     annotateImport,
-    annotateImportErrors,
     importModuleNameSpan,
     importMemberNameSpan,
     declKeywordNameSpan,
@@ -162,10 +161,6 @@ annotateType annotation = TAnn (mkAnnotation annotation)
 annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =
   importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
-
-annotateImportErrors :: [ResolutionAnnotation] -> ImportDecl -> ImportDecl
-annotateImportErrors annotations importDecl =
-  importDecl {importDeclAnns = map mkAnnotation annotations <> importDeclAnns importDecl}
 
 importModuleNameSpan :: ImportDecl -> SourceSpan
 importModuleNameSpan importDecl =

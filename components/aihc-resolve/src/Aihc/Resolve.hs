@@ -20,8 +20,6 @@ module Aihc.Resolve
     ResolutionNamespace (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
-    renderResolveResult,
-    renderAnnotatedResolveResult,
   )
 where
 
@@ -102,6 +100,7 @@ ownResolveErrors node =
   declResolutionErrors (cast node)
     <> classDeclItemResolutionErrors (cast node)
     <> importResolutionErrors (cast node)
+    <> importItemResolutionErrors (cast node)
     <> nameResolutionErrors (cast node)
     <> unqualifiedNameResolutionErrors (cast node)
     <> patternResolutionErrors (cast node)
@@ -124,6 +123,12 @@ importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
 importResolutionErrors maybeImport =
   case maybeImport of
     Just importDecl -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (importDeclAnns importDecl))
+    _ -> []
+
+importItemResolutionErrors :: Maybe ImportItem -> [ResolveError]
+importItemResolutionErrors maybeItem =
+  case maybeItem of
+    Just (ImportAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
     _ -> []
 
 nameResolutionErrors :: Maybe Name -> [ResolveError]
@@ -174,29 +179,27 @@ resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
 resolveWithDeps depExports modules =
   ResolveResult
     { resolvedModules = modules',
-      resolvedAnnotations = extraAnnotations,
-      resolveErrors = collectResolveErrors modules' <> concatMap (mapMaybe annotationResolveError . snd) extraAnnotations
+      resolveErrors = collectResolveErrors modules'
     }
   where
     step currentNextLocal modu =
-      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
-       in (nextLocal', (annotations, modu'))
+      let (nextLocal', modu') = resolveModule exports currentNextLocal modu
+       in (nextLocal', modu')
     (_, resolved) = mapAccumL step 0 modules
-    modules' = map snd resolved
-    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
+    modules' = resolved
     ownExports = collectModuleExports modules
     exports = ownExports `Map.union` depExports
 
 extractInterface :: ResolveResult -> ModuleExports
 extractInterface = collectModuleExports . resolvedModules
 
-resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
+resolveModule :: ModuleExports -> Int -> Module -> (Int, Module)
 resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', annotations, decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
-   in (nextLocal', annotations, modu' {moduleDecls = decls'})
+      (nextLocal', decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+   in (nextLocal', modu' {moduleDecls = decls'})
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports exports =
@@ -204,7 +207,7 @@ resolveModuleImports exports =
   where
     resolveModuleImport importDecl
       | Just originScope <- Map.lookup (importDeclModule importDecl) exports =
-          annotateImportErrors (missingImportItemAnnotations originScope importDecl) importDecl
+          annotateMissingImportItems originScope importDecl
       | otherwise = annotateImport (missingModuleImportAnnotation importDecl) importDecl
 
 missingModuleImportAnnotation :: ImportDecl -> ResolutionAnnotation
@@ -216,12 +219,22 @@ missingModuleImportAnnotation importDecl =
         ResolutionNamespaceModule
         (ResolvedError "not found")
 
-missingImportItemAnnotations :: Scope -> ImportDecl -> [ResolutionAnnotation]
-missingImportItemAnnotations originScope importDecl =
+annotateMissingImportItems :: Scope -> ImportDecl -> ImportDecl
+annotateMissingImportItems originScope importDecl =
   case importDeclSpec importDecl of
-    Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      mapMaybe (missingImportItemAnnotation originScope) importSpecItems
-    _ -> []
+    Just importSpec@ImportSpec {importSpecHiding = False, importSpecItems} ->
+      importDecl {importDeclSpec = Just importSpec {importSpecItems = map annotateItem importSpecItems}}
+    _ -> importDecl
+  where
+    annotateItem item =
+      case missingImportItemAnnotation originScope item of
+        Nothing -> item
+        Just annotation -> annotateImportItemError annotation item
+
+annotateImportItemError :: ResolutionAnnotation -> ImportItem -> ImportItem
+annotateImportItemError annotation item =
+  -- Keep the diagnostic span as the carrier span for annotated-source overlays.
+  ImportAnn (mkAnnotation annotation) (ImportAnn (mkAnnotation (resolutionSpan annotation)) item)
 
 missingImportItemAnnotation :: Scope -> ImportItem -> Maybe ResolutionAnnotation
 missingImportItemAnnotation originScope item =

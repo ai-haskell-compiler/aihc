@@ -9,6 +9,7 @@ module ResolverGolden
     parseResolverCaseText,
     evaluateResolverCase,
     progressSummary,
+    renderAnnotatedResolveResult,
   )
 where
 
@@ -18,19 +19,35 @@ import Aihc.Parser
     formatParseErrors,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Resolve (renderAnnotatedResolveResult, renderResolveResult, resolve)
+import Aihc.Parser.Syntax
+  ( Annotation,
+    Extension,
+    Module,
+    Name (..),
+    fromAnnotation,
+    moduleName,
+    parseExtensionName,
+    renderName,
+  )
+import Aihc.Resolve
+  ( ResolutionAnnotation (..),
+    ResolutionNamespace (..),
+    ResolveResult (..),
+    ResolvedName (..),
+    resolve,
+  )
+import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Data.Aeson ((.!=), (.:), (.:?))
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort, sortOn)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
+import Prettyprinter (Doc, pretty)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
@@ -53,7 +70,6 @@ data ResolverCase = ResolverCase
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
-    caseExpected :: !String,
     caseAnnotated :: ![String],
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -85,11 +101,10 @@ parseResolverCaseText path source = do
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (extNames, modules, expectedText, annotatedTexts, statusText, reasonText) <- parseYamlFixture path value
+  (extNames, modules, annotatedTexts, statusText, reasonText) <- parseYamlFixture path value
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
-  expected <- validateExpected path status (T.unpack expectedText)
   annotated <- validateAnnotated path status (map (trim . T.unpack) annotatedTexts)
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
@@ -100,23 +115,21 @@ parseResolverCaseText path source = do
         casePath = relPath,
         caseExtensions = exts,
         caseModules = modules,
-        caseExpected = expected,
         caseAnnotated = annotated,
         caseStatus = status,
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], Text, [Text], Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], [Text], Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "resolver fixture" $ \obj -> do
         exts <- obj .: "extensions"
         modules <- obj .: "modules" >>= parseModules
-        expectedText <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
         annotatedTexts <- obj .: "annotated" >>= parseAnnotatedList
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (exts, modules, expectedText, annotatedTexts, statusText, reasonText)
+        pure (exts, modules, annotatedTexts, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
@@ -137,26 +150,6 @@ parseAnnotatedList = withArray "annotated" $ \arr -> do
     parseAnnotatedEntry (Y.String t) = pure t
     parseAnnotatedEntry _ = fail "each annotated entry must be a string"
 
-parseExpectedValue :: Y.Value -> Y.Parser Text
-parseExpectedValue value =
-  case value of
-    Y.String txt -> pure txt
-    Y.Array arr -> T.intercalate "\n" <$> mapM parseExpectedLine (toList arr)
-    Y.Object obj ->
-      T.intercalate "\n"
-        <$> mapM parseExpectedModule (sortOn (Key.toText . fst) (KeyMap.toList obj))
-    _ -> fail "expected must be a string or a list of strings"
-  where
-    toList = foldr (:) []
-    parseExpectedModule (moduleName, moduleValue) = do
-      moduleLines <- parseExpectedModuleLines moduleValue
-      pure (Key.toText moduleName <> ":\n" <> T.intercalate "\n" (map ("  " <>) moduleLines))
-    parseExpectedModuleLines (Y.String txt) = pure [txt]
-    parseExpectedModuleLines (Y.Array arr) = mapM parseExpectedLine (toList arr)
-    parseExpectedModuleLines _ = fail "each expected module value must be a string or a list of strings"
-    parseExpectedLine (Y.String txt) = pure txt
-    parseExpectedLine _ = fail "each expected list entry must be a string"
-
 evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
   let parsedModules = map parseOne (caseModules meta)
@@ -164,15 +157,10 @@ evaluateResolverCase meta =
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right modules ->
           let result = resolve modules
-              actual = showResolved result
               actualAnnotated = showAnnotated result
-              outputMatches = actual == caseExpected meta && (null (caseAnnotated meta) || actualAnnotated == caseAnnotated meta)
+              outputMatches = actualAnnotated == caseAnnotated meta
            in case caseStatus meta of
                 StatusPass
-                  | actual /= caseExpected meta ->
-                      ( OutcomeFail,
-                        "expected:\n" <> caseExpected meta <> "\nfound:\n" <> actual
-                      )
                   | actualAnnotated /= caseAnnotated meta ->
                       ( OutcomeFail,
                         "annotated:\nexpected:\n" <> unlines (caseAnnotated meta) <> "\nfound:\n" <> unlines actualAnnotated
@@ -183,7 +171,7 @@ evaluateResolverCase meta =
                   | otherwise -> (OutcomeXFail, "")
                 StatusXPass
                   | outputMatches -> (OutcomeXPass, "known bug still passes unexpectedly")
-                  | otherwise -> (OutcomeFail, "expected xpass output match but got output=" <> actual)
+                  | otherwise -> (OutcomeFail, "expected xpass annotated output match")
   where
     parserConfig input =
       defaultConfig
@@ -195,7 +183,6 @@ evaluateResolverCase meta =
        in if null errs
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
-    showResolved = renderResolveResult
     showAnnotated = renderAnnotatedResolveResult (caseModules meta)
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
@@ -207,6 +194,46 @@ progressSummary outcomes =
   )
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
+
+renderAnnotatedResolveResult :: [Text] -> ResolveResult -> [String]
+renderAnnotatedResolveResult sources result =
+  case compare (length sources) (length modules) of
+    LT -> error "renderAnnotatedResolveResult: fewer source texts than modules"
+    GT -> error "renderAnnotatedResolveResult: more source texts than modules"
+    EQ ->
+      let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
+       in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
+  where
+    modules = resolvedModules result
+
+resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
+resolutionAnnotationDoc annotation = do
+  resolution <- fromAnnotation annotation
+  pure (pretty (annotationLabel resolution))
+
+moduleDisplayName :: Module -> Text
+moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
+
+annotationLabel :: ResolutionAnnotation -> Text
+annotationLabel ann =
+  renderConciseNamespace (resolutionNamespace ann)
+    <> " "
+    <> renderConciseOrigin (resolutionTarget ann)
+
+renderConciseNamespace :: ResolutionNamespace -> Text
+renderConciseNamespace namespace =
+  case namespace of
+    ResolutionNamespaceTerm -> "v"
+    ResolutionNamespaceType -> "t"
+    ResolutionNamespaceModule -> "m"
+
+renderConciseOrigin :: ResolvedName -> Text
+renderConciseOrigin resolvedName =
+  case resolvedName of
+    ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
+    ResolvedBuiltin name -> "Builtin " <> name
+    ResolvedError msg -> T.pack ("Error " <> msg)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
@@ -247,14 +274,6 @@ validateReason path status reason =
    in case status of
         StatusXFail | null trimmed -> Left ("[reason] is required for xfail status in " <> path)
         StatusXPass | null trimmed -> Left ("[reason] is required for xpass status in " <> path)
-        _ -> Right trimmed
-
-validateExpected :: FilePath -> ExpectedStatus -> String -> Either String String
-validateExpected path status expected =
-  let trimmed = trim expected
-   in case status of
-        StatusPass | null trimmed -> Left ("[expected] is required for pass status in " <> path)
-        StatusXPass | null trimmed -> Left ("[expected] is required for xpass status in " <> path)
         _ -> Right trimmed
 
 validateAnnotated :: FilePath -> ExpectedStatus -> [String] -> Either String [String]

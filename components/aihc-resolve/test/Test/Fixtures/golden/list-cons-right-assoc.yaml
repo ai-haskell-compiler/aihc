@@ -1,33 +1,23 @@
+annotated:
+- |-
+  module Main where
+  xs = 'a' : 'b' : 'c' : []
+  └─ v Main│     │     └─ v Prelude
+           │     └─ v Prelude
+           └─ v Prelude
+- |-
+  module Prelude where
+  data List a = [] | a : [a]
+       └─ t Prelude    └─ v Prelude
+  infixr 5 :
 extensions: []
 modules:
-  - |
-    module Prelude where
-    data List a = [] | a : [a]
-    infixr 5 :
-  - |
-    module Main where
-    xs = 'a' : 'b' : 'c' : []
-expected:
-  Main:
-    - "2:1-2:3 xs => (value) Main.xs"
-    - "2:4-2:5 : => (value) Prelude.:"
-    - "2:4-2:5 : => (value) Prelude.:"
-    - "2:4-2:5 : => (value) Prelude.:"
-  Prelude:
-    - "2:6-2:10 List => (type) Prelude.List"
-    - "2:20-2:21 : => (value) Prelude.:"
-annotated:
-  - |
-    module Main where
-    xs = 'a' : 'b' : 'c' : []
-    │  └─ v Prelude
-    │  └─ v Prelude
-    │  └─ v Prelude
-    └─ v Main
-  - |
-    module Prelude where
-    data List a = [] | a : [a]
-         └─ t Prelude  └─ v Prelude
-    infixr 5 :
-status: pass
+- |
+  module Prelude where
+  data List a = [] | a : [a]
+  infixr 5 :
+- |
+  module Main where
+  xs = 'a' : 'b' : 'c' : []
 reason: reassociates list cons to the right using Prelude fixity
+status: pass

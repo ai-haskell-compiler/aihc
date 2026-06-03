@@ -43,7 +43,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
-import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), resolve, resolveWithDeps)
 import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
@@ -73,6 +73,7 @@ import Options.Applicative hiding (value)
 import Options.Applicative qualified as OA
 import ParserErrorGolden qualified as PEG
 import ParserGolden qualified as PG
+import ResolverGolden qualified as RG
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getTemporaryDirectory, listDirectory, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (joinPath, makeRelative, normalise, takeDirectory, takeExtension, (</>))
@@ -316,23 +317,20 @@ updateResolverGoldens opts =
       then pure FixtureUnchanged
       else case resolverActual value of
         Left err -> pure (FixtureSkipped err)
-        Right (actualExpected, actualAnnotated) -> do
-          let expected = parseExpectedField "expected" value
-              annotated = parseTextArrayField "annotated" value
+        Right actualAnnotated -> do
+          let annotated = parseTextArrayField "annotated" value
           pure $
             applyFieldUpdates
-              [ (["expected"], String (T.pack actualExpected), either (const True) ((/= trim actualExpected) . trim . T.unpack) expected),
-                (["annotated"], toJSON (map T.pack actualAnnotated), either (const True) ((/= map trim actualAnnotated) . map (trim . T.unpack)) annotated)
-              ]
+              [(["annotated"], toJSON (map T.pack actualAnnotated), either (const True) ((/= map trim actualAnnotated) . map (trim . T.unpack)) annotated)]
               value
 
-resolverActual :: Value -> Either String (String, [String])
+resolverActual :: Value -> Either String [String]
 resolverActual value = do
   exts <- parseExtensions value
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
   let result = resolve parsed
-  Right (renderResolveResult result, renderAnnotatedResolveResult modules result)
+  Right (RG.renderAnnotatedResolveResult modules result)
 
 updateTcAnnotatedGoldens :: Options -> IO Summary
 updateTcAnnotatedGoldens opts =

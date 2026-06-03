@@ -71,6 +71,18 @@ in rec {
     ".cabal"
   ];
 
+  testingSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inTesting = pkgs.lib.hasPrefix "tooling/aihc-testing/" relPath;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+      in
+        type == "directory" || (inTesting && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+    };
+
   primSrc = mkComponentSrc "/core-libs/aihc-prim" [
     ".hs"
     ".cabal"
@@ -89,9 +101,10 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inDev = pkgs.lib.hasPrefix "tooling/aihc-dev/" relPath;
         inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
+        inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
       in
-        type == "directory" || ((inDev || inTcCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+        type == "directory" || ((inDev || inTcCommon || inResolveCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
     };
 
   parserToolingCommonSrc = pkgs:
