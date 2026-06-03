@@ -24,9 +24,9 @@ unify loc origin t1 t2 = do
   result <- unifyTypes t1' t2'
   case result of
     Right () -> pure ()
+    Left (UnificationError left right _ provenance) ->
+      emitError loc (UnificationError left right origin provenance)
     Left err -> emitError loc err
-  where
-    _ = origin -- carried for future error-reporting enhancement
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())
@@ -50,7 +50,7 @@ unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
   r2 <- unifyTypes a1 a2
   pure $ r1 >> r2
 unifyTypes t1 t2 =
-  pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan)
+  pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing
 
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: Unique -> TcType -> TcM (Either TcErrorKind ())

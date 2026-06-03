@@ -102,7 +102,7 @@ processEq wl ct = do
       -- Report the error.
       case ctPred errCt of
         EqPred t1 t2 ->
-          emitError (ctLoc errCt) (UnificationError t1 t2 (ctOrigin errCt))
+          emitError (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
         p ->
           emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
       pure wl
@@ -173,10 +173,29 @@ solveWantedWithGivens givens ct = case ctPred ct of
       EqError errCt ->
         case ctPred errCt of
           EqPred et1 et2 ->
-            emitError (ctLoc errCt) (UnificationError et1 et2 (ctOrigin errCt))
+            emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
           p ->
             emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
   _ -> pure ()
+
+zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
+zonkCtEqProvenance ct =
+  traverse zonkEqProvenance (ctEqProvenance ct)
+
+zonkEqProvenance :: EqProvenance -> TcM EqProvenance
+zonkEqProvenance provenance = do
+  actual <- zonkTypeTrace (eqActualTrace provenance)
+  expected <- zonkTypeTrace (eqExpectedTrace provenance)
+  pure
+    provenance
+      { eqActualTrace = actual,
+        eqExpectedTrace = expected
+      }
+
+zonkTypeTrace :: TypeTrace -> TcM TypeTrace
+zonkTypeTrace trace' = do
+  ty <- zonkType (typeTraceType trace')
+  pure (trace' {typeTraceType = ty})
 
 -- | Strict left fold in a monad.
 foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a

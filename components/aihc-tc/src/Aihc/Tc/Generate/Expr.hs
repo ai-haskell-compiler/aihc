@@ -26,13 +26,13 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
-    UnqualifiedName (..),
     fromAnnotation,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
+import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey)
 import Aihc.Tc.Types
@@ -44,9 +44,12 @@ import Data.Text qualified as T
 --
 -- Returns the inferred type and a list of wanted constraints.
 inferExpr :: Expr -> TcM (TcType, [Ct])
-inferExpr expr = case expr of
+inferExpr = inferExprAt NoSourceSpan
+
+inferExprAt :: SourceSpan -> Expr -> TcM (TcType, [Ct])
+inferExprAt ambient expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar name
+  EVar name -> inferVar (exprSpan expr `orSourceSpan` ambient) name
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
   -- literals keep their primitive, unboxed type.
   EInt _ numericType _ -> pure (numericLiteralType numericType, [])
@@ -59,52 +62,52 @@ inferExpr expr = case expr of
   -- primitive String type constructor.
   EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
-  ELambdaPats pats body -> inferLambda NoSourceSpan pats body
+  ELambdaPats pats body -> inferLambda (exprSpan expr `orSourceSpan` ambient) pats body
   -- Lambda case: \case { pat -> body; ... }
-  ELambdaCase alts -> inferLambdaCase NoSourceSpan alts
+  ELambdaCase alts -> inferLambdaCase (exprSpan expr `orSourceSpan` ambient) alts
   -- Multi-argument lambda cases: \cases { p1 p2 -> body; ... }
-  ELambdaCases alts -> inferLambdaCases NoSourceSpan alts
+  ELambdaCases alts -> inferLambdaCases (exprSpan expr `orSourceSpan` ambient) alts
   -- Application: f x
-  EApp fun arg -> inferApp NoSourceSpan fun arg
+  EApp fun arg -> inferApp (exprSpan expr `orSourceSpan` ambient) fun arg
   -- Infix application: a `op` b
-  EInfix lhs op rhs -> inferExpr (EApp (EApp (EVar op) lhs) rhs)
+  EInfix lhs op rhs -> inferExprAt (exprSpan expr `orSourceSpan` ambient) (EApp (EApp (EVar op) lhs) rhs)
   -- If-then-else
-  EIf cond thenE elseE -> inferIf NoSourceSpan cond thenE elseE
+  EIf cond thenE elseE -> inferIf (exprSpan expr `orSourceSpan` ambient) cond thenE elseE
   -- Case expression
-  ECase scrutinee alts -> inferCase NoSourceSpan scrutinee alts
+  ECase scrutinee alts -> inferCase (exprSpan expr `orSourceSpan` ambient) scrutinee alts
   -- Let expression
   ELetDecls decls body ->
     inferLocalDecls inferExpr decls (inferExpr body)
   -- Parenthesized expression
-  EParen inner -> inferExpr inner
+  EParen inner -> inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
   -- Type signature: (e :: T)
   ETypeSig inner _ty -> do
     -- MVP: just infer the inner expression.
     -- Full version would check against the given type.
-    inferExpr inner
+    inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
   -- Negation
   ENegate inner -> do
     (innerTy, cs) <- inferExpr inner
     -- For MVP, just return the inner type.
     pure (innerTy, cs)
   -- Annotated expression (from other passes, e.g. resolve).
-  EAnn _ann inner -> inferExpr inner
+  EAnn ann inner -> inferExprAt (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
   -- Tuple
-  ETuple _flavor elems -> inferTuple NoSourceSpan elems
+  ETuple _flavor elems -> inferTuple (exprSpan expr `orSourceSpan` ambient) elems
   -- List
-  EList elems -> inferList NoSourceSpan elems
+  EList elems -> inferList (exprSpan expr `orSourceSpan` ambient) elems
   -- List comprehension
-  EListComp body quals -> inferListComp NoSourceSpan body quals
+  EListComp body quals -> inferListComp (exprSpan expr `orSourceSpan` ambient) body quals
   -- Unsupported expression forms for MVP.
   other -> do
-    emitError NoSourceSpan (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
+    emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
     pure (ty, [])
 
 -- | Infer the type of a variable reference.
-inferVar :: Name -> TcM (TcType, [Ct])
-inferVar nameSyntax = do
-  let sp = sourceSpanFromAnns (nameAnns nameSyntax)
+inferVar :: SourceSpan -> Name -> TcM (TcType, [Ct])
+inferVar ambient nameSyntax = do
+  let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
       name = nameToText nameSyntax
       maybeKey = nameOccurrenceKey nameSyntax
   mBinder <- lookupTerm name
@@ -150,13 +153,13 @@ predToCt sp name p = do
 
 -- | Infer the type of a lambda expression.
 inferLambda :: SourceSpan -> [Pattern] -> Expr -> TcM (TcType, [Ct])
-inferLambda _sp pats body = do
+inferLambda sp pats body = do
   -- Create a fresh meta-variable for each pattern and bind pattern
   -- variables into the environment.
   argTys <- mapM (const freshMetaTv) pats
-  let bindings = concatMap extractPatternBindings (zip pats argTys)
+  patCheck <- checkPatterns sp (zip pats argTys)
   -- Infer the body under the extended environment.
-  (bodyTy, bodyCts) <- withPatternBindings bindings (inferExpr body)
+  (bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
   recordOccurrenceElaboration
     lambdaOccurrenceKey
@@ -166,7 +169,7 @@ inferLambda _sp pats body = do
         occurrenceElabEvidenceVars = [],
         occurrenceElabTermArgTypes = argTys
       }
-  pure (funTy, bodyCts)
+  pure (funTy, pcWantedCts patCheck ++ bodyCts)
 
 -- | Infer the type of a lambda-case expression.
 --
@@ -205,63 +208,66 @@ inferLambdaCases sp alts = do
 -- Each alternative's pattern is checked against the scrutinee type,
 -- and each RHS must unify with the expected result type.
 inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM [Ct]
-inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
+inferCaseAlts _sp _scrutTy _resTy [] = pure []
+inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
+  (firstBranchSp, firstRhsSp, firstRhsTy, firstCts) <- inferAlt firstAlt
+  resultEv <- freshEvVar
+  let resultCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = firstRhsTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin firstRhsSp
+            }
+          TypeTrace
+            { typeTraceType = resTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin firstBranchSp)
+            }
+          resultEv
+          (CaseBranchOrigin firstRhsSp)
+          firstRhsSp
+  restCts <- concat <$> mapM (inferAltAgainst firstBranchSp firstRhsTy) restAlts
+  pure (firstCts ++ [resultCt] ++ restCts)
   where
     inferAlt (CaseAlt altAnns pat rhs) = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = combineSourceSpan altSp sp
-      let bindings = extractPatternBindings (pat, scrutTy)
-      -- Emit constraint: pattern's constructor result type ~ scrutinee type.
-      patCts <- inferPatternConstraints branchSp scrutTy pat
+      patCheck <- checkPattern branchSp pat scrutTy
       -- Infer the RHS under the pattern bindings.
-      (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
-      -- RHS must match the expected result type.
+      (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
+      let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
+      pure (branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
+
+    inferAltAgainst expectedBranchSp expectedTy alt = do
+      (branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
       ev <- freshEvVar
-      let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (CaseBranchOrigin branchSp) branchSp
-      pure (patCts ++ rhsCts ++ [rhsCt])
+      let rhsCt =
+            mkWantedEqCt
+              TypeTrace
+                { typeTraceType = rhsTy,
+                  typeTraceRole = ActualType,
+                  typeTraceOrigin = ExpressionTypeOrigin rhsSp
+                }
+              TypeTrace
+                { typeTraceType = expectedTy,
+                  typeTraceRole = ExpectedType,
+                  typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin expectedBranchSp)
+                }
+              ev
+              (CaseBranchOrigin branchSp)
+              rhsSp
+      pure (cts ++ [rhsCt])
 
 inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM [Ct]
 inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
-      bindings = concatMap extractPatternBindings (zip pats argTys)
-  patCts <- concat <$> sequence [inferPatternConstraints sp argTy pat | (pat, argTy) <- zip pats argTys]
-  (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
+  patCheck <- checkPatterns sp (zip pats argTys)
+  (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
   let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
-  pure (patCts ++ rhsCts ++ [rhsCt])
-
--- | Infer constraints from a pattern.
---
--- For constructor patterns, we emit an equality between the constructor's
--- result type and the scrutinee type. For variable/wildcard/literal patterns,
--- no extra constraints are needed (the variable just gets the scrutinee type).
-inferPatternConstraints :: SourceSpan -> TcType -> Pattern -> TcM [Ct]
-inferPatternConstraints sp scrutTy pat = case pat of
-  PCon name _typeArgs _subPats -> do
-    -- Look up the constructor; if found, emit scrutTy ~ constructor result type.
-    let conName = nameToText name
-    mBinder <- lookupTerm conName
-    case mBinder of
-      Just (TcIdBinder _ scheme _) -> do
-        (conTy, _preds) <- instantiate scheme
-        -- For a nullary constructor (no args), conTy is the result type.
-        -- For a constructor with args, conTy is a function type whose
-        -- result is the data type. We need to extract the result type.
-        let conResTy = resultType conTy
-        ev <- freshEvVar
-        pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
-      _ -> pure []
-  PAnn _ann inner -> inferPatternConstraints sp scrutTy inner
-  PParen inner -> inferPatternConstraints sp scrutTy inner
-  PStrict inner -> inferPatternConstraints sp scrutTy inner
-  PIrrefutable inner -> inferPatternConstraints sp scrutTy inner
-  _ -> pure []
-
--- | Extract the result type from a (possibly nested) function type.
-resultType :: TcType -> TcType
-resultType (TcFunTy _ res) = resultType res
-resultType ty = ty
+  pure (pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
 sourceSpanFromAnns anns =
@@ -336,16 +342,20 @@ inferList sp elems = case elems of
     recordListElaboration listTy elemTy
     pure (listTy, [])
   (e : es) -> do
+    let headSp = exprSpan e `orSourceSpan` sp
     (headTy, headCts) <- inferExpr e
-    results <- mapM inferExpr es
-    let tailCts = concatMap snd results
+    results <- mapM inferElem es
+    let tailCts = concatMap (\(_, elemCts, _) -> elemCts) results
     -- All elements must have the same type.
-    eqCts <- mapM (mkElemEq headTy) results
+    eqCts <- mapM (mkElemEq headSp headTy) results
     let listTy = TcTyCon listTyCon' [headTy]
     recordListElaboration listTy headTy
     pure (listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
+    inferElem elemExpr = do
+      (elemTy, elemCts) <- inferExpr elemExpr
+      pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
     recordListElaboration listTy elemTy =
       recordOccurrenceElaboration
         listOccurrenceKey
@@ -355,9 +365,23 @@ inferList sp elems = case elems of
             occurrenceElabEvidenceVars = [],
             occurrenceElabTermArgTypes = []
           }
-    mkElemEq headTy (elemTy, _) = do
+    mkElemEq headSp headTy (elemTy, _, elemSp) = do
       ev <- freshEvVar
-      pure $ mkWantedCt (EqPred headTy elemTy) ev (AppOrigin sp) sp
+      pure $
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = elemTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin elemSp
+            }
+          TypeTrace
+            { typeTraceType = headTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ListElementTypeOrigin headSp
+            }
+          ev
+          (AppOrigin elemSp)
+          elemSp
 
 tupleOccurrenceKey :: OccurrenceKey
 tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
@@ -390,13 +414,12 @@ inferListComp sp body quals = do
         CompGen pat src -> do
           elemTy <- freshMetaTv
           (srcTy, srcCts) <- inferExpr src
-          patCts <- inferPatternConstraints ambient elemTy pat
+          patCheck <- checkPattern ambient pat elemTy
           ev <- freshEvVar
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
-              bindings = extractPatternBindings (pat, elemTy)
-          (bodyTy, bodyCts) <- withPatternBindings bindings (inferCompQuals ambient rest action)
-          pure (bodyTy, srcCts ++ patCts ++ [srcListCt] ++ bodyCts)
+          (bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
+          pure (bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
@@ -425,6 +448,12 @@ compStmtSpan compStmt =
   case compStmt of
     CompAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
     _ -> NoSourceSpan
+
+rhsExprSpan :: Rhs Expr -> SourceSpan
+rhsExprSpan rhs =
+  case rhs of
+    UnguardedRhs anns expr _ -> exprSpan expr `orSourceSpan` sourceSpanFromAnns anns
+    GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
 exprSpan :: Expr -> SourceSpan
 exprSpan expr =
@@ -478,49 +507,3 @@ stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]
 
 boolTyCon :: TcType
 boolTyCon = TcTyCon (TyCon "Bool" 0) []
-
--- | Extract variable bindings from a pattern paired with its expected type.
---
--- For a 'PVar', we bind the variable name to the given type.
--- For a 'PCon' (constructor pattern), we return bindings for sub-patterns
--- but assign fresh types to them (the constructor arg types are not yet
--- tracked in the MVP).
--- Other patterns are handled minimally for the MVP.
-extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
-extractPatternBindings (pat, ty) = case pat of
-  PVar uname -> [(unqualifiedNameText uname, ty)]
-  PAnn _ann inner -> extractPatternBindings (inner, ty)
-  PParen inner -> extractPatternBindings (inner, ty)
-  PWildcard {} -> []
-  PLit {} -> []
-  PNegLit {} -> []
-  PAs name inner -> (unqualifiedNameText name, ty) : extractPatternBindings (inner, ty)
-  PStrict inner -> extractPatternBindings (inner, ty)
-  PIrrefutable inner -> extractPatternBindings (inner, ty)
-  -- For constructor patterns like (True), (Just x), etc. the overall
-  -- pattern type doesn't directly give us the sub-pattern types. But
-  -- we can still extract the variable names for binding purposes.
-  PCon _name _typeArgs subPats ->
-    -- Each sub-pattern gets an unknown type (we'd need constructor info
-    -- to assign proper types). For the MVP, they're not needed since
-    -- constructor pattern matching in function heads is handled by tcMatches.
-    concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix lhs op rhs
-    | nameText op == ":" ->
-        let elemTy = listElementType ty
-         in extractPatternBindings (lhs, elemTy) ++ extractPatternBindings (rhs, ty)
-    | otherwise ->
-        extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
-  _ -> []
-
-listElementType :: TcType -> TcType
-listElementType ty =
-  case ty of
-    TcTyCon (TyCon "[]" 1) [elemTy] -> elemTy
-    _ -> ty
-
--- | Run a computation with pattern bindings in scope.
-withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
-withPatternBindings [] m = m
-withPatternBindings ((name, ty) : rest) m =
-  extendTermEnv name (TcMonoIdBinder name ty) (withPatternBindings rest m)

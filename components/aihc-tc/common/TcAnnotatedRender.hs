@@ -46,7 +46,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
-import Aihc.Tc.Constraint (CtOrigin (..))
+import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
@@ -86,24 +86,50 @@ collectTcLabels result =
 
 diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
 diagnosticLabels =
-  mapMaybe diagnosticLabel
+  concatMap diagnosticLabelsFor
 
-diagnosticLabel :: TcDiagnostic -> Maybe TcLabel
-diagnosticLabel diagnostic =
+diagnosticLabelsFor :: TcDiagnostic -> [TcLabel]
+diagnosticLabelsFor diagnostic =
   case diagnosticSpan diagnostic of
-    NoSourceSpan -> Nothing
-    sp -> Just (sourceLabel sp (renderDiagnostic diagnostic))
+    NoSourceSpan -> []
+    sp -> sourceLabel sp (renderDiagnostic diagnostic) : diagnosticRelatedLabels diagnostic
+
+diagnosticRelatedLabels :: TcDiagnostic -> [TcLabel]
+diagnosticRelatedLabels diagnostic =
+  case diagKind diagnostic of
+    UnificationError _ _ _ (Just provenance) ->
+      mapMaybe (typeOriginNote "note" Nothing) (eqContextOrigins provenance)
+    _ -> []
+  where
+    typeOriginNote prefix maybeTy origin =
+      case origin of
+        TypeSignatureOrigin name sp ->
+          Just $
+            sourceLabel sp $
+              prefix
+                <> ": type signature for "
+                <> T.unpack name
+                <> " provides expected type"
+                <> maybe "" ((" " <>) . renderTcType) maybeTy
+        ConstraintTypeOrigin ctOrigin ->
+          case originSpan (Just ctOrigin) of
+            NoSourceSpan -> Nothing
+            sp -> Just (sourceLabel sp (prefix <> ": related type information came from " <> renderOrigin ctOrigin))
+        _ -> Nothing
 
 diagnosticSpan :: TcDiagnostic -> SourceSpan
 diagnosticSpan diagnostic =
   case diagLoc diagnostic of
-    NoSourceSpan -> originSpan (diagnosticOrigin diagnostic)
+    NoSourceSpan ->
+      case diagKind diagnostic of
+        UnificationError _ _ _ (Just provenance) -> eqPrimarySpan provenance
+        _ -> originSpan (diagnosticOrigin diagnostic)
     sp -> sp
 
 diagnosticOrigin :: TcDiagnostic -> Maybe CtOrigin
 diagnosticOrigin diagnostic =
   case diagKind diagnostic of
-    UnificationError _ _ origin -> Just origin
+    UnificationError _ _ origin _ -> Just origin
     UnsolvedWanted _ origin -> Just origin
     _ -> Nothing
 
@@ -119,6 +145,19 @@ originSpan origin =
     Just (UnifyOrigin sp) -> sp
     _ -> NoSourceSpan
 
+renderOrigin :: CtOrigin -> String
+renderOrigin origin =
+  case origin of
+    OccurrenceOf name -> "the occurrence of " <> T.unpack name
+    AppOrigin {} -> "an application"
+    LambdaOrigin {} -> "a lambda expression"
+    LetOrigin {} -> "a let binding"
+    LitOrigin {} -> "a literal"
+    SigOrigin {} -> "a type signature"
+    CaseBranchOrigin {} -> "a case branch"
+    InstOrigin name -> "the instance " <> T.unpack name
+    UnifyOrigin {} -> "a unification constraint"
+
 renderDiagnostic :: TcDiagnostic -> String
 renderDiagnostic diagnostic =
   severityPrefix (diagSeverity diagnostic) <> ": " <> renderDiagnosticKind (diagKind diagnostic)
@@ -130,8 +169,12 @@ severityPrefix TcWarning = "warning"
 renderDiagnosticKind :: TcErrorKind -> String
 renderDiagnosticKind kind =
   case kind of
-    UnificationError left right _ ->
-      "couldn't match " <> renderTcType left <> " with " <> renderTcType right
+    UnificationError left right _ maybeProvenance ->
+      case maybeProvenance of
+        Just provenance ->
+          renderTypeMismatch provenance
+        Nothing ->
+          "couldn't match " <> renderTcType left <> " with " <> renderTcType right
     OccursCheckError unique ty ->
       "occurs check failed: " <> renderUnique unique <> " occurs in " <> renderTcType ty
     UnboundVariable name ->
@@ -142,6 +185,37 @@ renderDiagnosticKind kind =
       "unsolved constraint " <> renderPred pred'
     OtherError message ->
       message
+
+renderTypeMismatch :: EqProvenance -> String
+renderTypeMismatch provenance =
+  typeRoleNoun (typeTraceRole actual)
+    <> " has type "
+    <> renderTcType (typeTraceType actual)
+    <> ", but expected "
+    <> renderTcType (typeTraceType expected)
+    <> renderExpectedOrigin (typeTraceOrigin expected)
+  where
+    actual = eqActualTrace provenance
+    expected = eqExpectedTrace provenance
+
+renderExpectedOrigin :: TypeOrigin -> String
+renderExpectedOrigin origin =
+  case origin of
+    ListElementTypeOrigin _ ->
+      " from an earlier list element"
+    TypeSignatureOrigin name _ ->
+      " from the type signature for " <> T.unpack name
+    ConstraintTypeOrigin ctOrigin ->
+      " from " <> renderOrigin ctOrigin
+    _ -> ""
+
+typeRoleNoun :: TypeRole -> String
+typeRoleNoun role =
+  case role of
+    ActualType -> "expression"
+    ExpectedType -> "expected type"
+    RequiredType -> "required type"
+    InferredType -> "inferred type"
 
 renderKind :: Kind -> String
 renderKind kind =
