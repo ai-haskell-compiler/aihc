@@ -330,7 +330,7 @@ resolverActual value = do
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
   let result = resolve parsed
-  Right (RG.renderAnnotatedResolveResult defaultConfig {parserExtensions = exts, parserSourceName = "<resolver-annotated>"} result)
+  Right (RG.renderAnnotatedResolveResult modules result)
 
 updateTcAnnotatedGoldens :: Options -> IO Summary
 updateTcAnnotatedGoldens opts =

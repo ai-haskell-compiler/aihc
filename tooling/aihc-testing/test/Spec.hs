@@ -17,6 +17,7 @@ import Aihc.Parser.Syntax
     stripAnnotations,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModule)
+import Aihc.Testing.AnnotatedModule qualified as AnnotatedModule
 import Control.Exception (SomeException, evaluate, try)
 import Data.Text qualified as Text
 import Prettyprinter (Doc, hardline, pretty)
@@ -39,6 +40,8 @@ main =
         testCase "throws on pretty/reparse parse failure" testParseFailure,
         testCase "throws on stripped AST mismatch" testShapeMismatch,
         testCase "throws on multiline annotation labels" testMultilineLabel,
+        testCase "renders source text without pretty-printing" testSourceTextRendering,
+        testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
         testProperty "accepts repository QuickCheck options" True
       ]
 
@@ -90,6 +93,21 @@ testMultilineLabel = do
   result <- throws (renderAnnotatedModule testConfig multilineAnnotationDoc modu)
   assertBool "expected multiline label exception" result
 
+testSourceTextRendering :: IO ()
+testSourceTextRendering = do
+  let source = "x = f y z"
+      modu = annotateRhsName "arg" (parseModuleOrFail source)
+  assertEqual
+    "source text is not reflowed"
+    "x = f y z\n        \9492\9472 arg"
+    (AnnotatedModule.renderAnnotatedModuleSource testAnnotationDoc source modu)
+
+testSourceModuleCountMismatch :: IO ()
+testSourceModuleCountMismatch = do
+  let modu = parseModuleOrFail "x = 1"
+  result <- throws (show (AnnotatedModule.renderAnnotatedModuleSources testAnnotationDoc [] [modu]))
+  assertBool "expected count mismatch exception" result
+
 testConfig :: ParserConfig
 testConfig = defaultConfig {parserSourceName = "<test>"}
 
@@ -116,9 +134,17 @@ annotateRhsName label modu =
   where
     annotateValueDecl valueDecl =
       case valueDecl of
-        PatternBind multiplicity pat (UnguardedRhs anns (EVar name) whereDecls) ->
-          PatternBind multiplicity pat (UnguardedRhs anns (EVar (annotateName label name)) whereDecls)
+        PatternBind multiplicity pat (UnguardedRhs anns expr whereDecls) ->
+          PatternBind multiplicity pat (UnguardedRhs anns (annotateRightmostName label expr) whereDecls)
         _ -> error "annotateRhsName: unexpected value declaration"
+
+annotateRightmostName :: String -> Expr -> Expr
+annotateRightmostName label expr =
+  case expr of
+    EAnn ann inner -> EAnn ann (annotateRightmostName label inner)
+    EVar name -> EVar (annotateName label name)
+    EApp fun arg -> EApp fun (annotateRightmostName label arg)
+    _ -> error "annotateRightmostName: unexpected expression"
 
 annotateName :: String -> Name -> Name
 annotateName label name =

@@ -1,15 +1,18 @@
----
 annotated:
 - |-
   module Main where
-  data Person = Person {name :: String, age :: Int}
-       │        └─ v Main       │              └─ t Error unbound
-       └─ t Main                └─ t Error unbound
+  data Person = Person
+       │        └─ v Main
+       └─ t Main
+    { name :: String
+              └─ t Error unbound
+    , age :: Int
+             └─ t Error unbound
+    }
   getAge :: Person -> Int
   └─ v Main └─ t Main └─ t Error unbound
-  getAge (Person {name = n, age = a}) = a
-  └─ v Main              └─ v 0   │     └─ v 1
-                                  └─ v 1
+  getAge (Person { name = n, age = a }) = a
+  └─ v Main               └─ v 0   └─ v 1 └─ v 1
 extensions: []
 modules:
 - |

@@ -36,7 +36,7 @@ import Aihc.Resolve
     ResolvedName (..),
     resolve,
   )
-import Aihc.Testing.AnnotatedModule (renderAnnotatedModules)
+import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -183,13 +183,7 @@ evaluateResolverCase meta =
        in if null errs
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
-    showAnnotated =
-      renderAnnotatedResolveResult
-        ( defaultConfig
-            { parserSourceName = "<resolver-annotated>",
-              parserExtensions = caseExtensions meta
-            }
-        )
+    showAnnotated = renderAnnotatedResolveResult (caseModules meta)
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -201,9 +195,16 @@ progressSummary outcomes =
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
 
-renderAnnotatedResolveResult :: ParserConfig -> ResolveResult -> [String]
-renderAnnotatedResolveResult parserConfig result =
-  renderAnnotatedModules parserConfig resolutionAnnotationDoc (sortOn moduleDisplayName (resolvedModules result))
+renderAnnotatedResolveResult :: [Text] -> ResolveResult -> [String]
+renderAnnotatedResolveResult sources result =
+  case compare (length sources) (length modules) of
+    LT -> error "renderAnnotatedResolveResult: fewer source texts than modules"
+    GT -> error "renderAnnotatedResolveResult: more source texts than modules"
+    EQ ->
+      let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
+       in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
+  where
+    modules = resolvedModules result
 
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
 resolutionAnnotationDoc annotation = do

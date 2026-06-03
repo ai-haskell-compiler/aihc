@@ -1,4 +1,3 @@
----
 annotated:
 - |-
   module Main where
@@ -8,13 +7,11 @@ annotated:
    │    │ └─ v 1
    │    └─ v 0
    └─ v Main
-  bad = 'a'
+  bad = 'a' +++ 'b' +++ 'c'
+  │     │   │       └─ v Main
+  │     │   └─ v Main
   │     └─ v Error ambiguous fixity
   └─ v Main
-        +++ 'b'
-        └─ v Main
-        +++ 'c'
-        └─ v Main
 extensions: []
 modules:
 - |

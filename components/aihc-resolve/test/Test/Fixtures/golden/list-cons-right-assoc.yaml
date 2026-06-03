@@ -1,15 +1,10 @@
----
 annotated:
 - |-
   module Main where
-  xs = 'a'
-  └─ v Main
-        : ('b'
-        └─ v Prelude
-        : ('c'
-        └─ v Prelude
-        : []))
-        └─ v Prelude
+  xs = 'a' : 'b' : 'c' : []
+  └─ v Main│     │     └─ v Prelude
+           │     └─ v Prelude
+           └─ v Prelude
 - |-
   module Prelude where
   data List a = [] | a : [a]

@@ -1,7 +1,12 @@
----
 annotated:
 - |-
-  module Data.Bool (Bool(False, True), not, (&&)) where
+  module Data.Bool
+    ( Bool (False, True),
+      not,
+      (&&),
+    )
+  where
+
   data Bool = False | True
        │      │       └─ v Data.Bool
        │      └─ v Data.Bool
@@ -21,24 +26,26 @@ annotated:
        └─ v Data.Bool
 - |-
   module Main where
-  x = (not
+  x = (not False, True && False)
+  │    │   │      │    │  └─ v Data.Bool
+  │    │   │      │    └─ v Data.Bool
+  │    │   │      └─ v Data.Bool
+  │    │   └─ v Data.Bool
   │    └─ v Data.Bool
   └─ v Main
-           False,
-           └─ v Data.Bool
-         True
-         └─ v Data.Bool
-         && False)
-         │  └─ v Data.Bool
-         └─ v Data.Bool
 - |-
-  module Prelude (Bool(..), not, (&&)) where
-  import Data.Bool (Bool(..), not, (&&))
-  p = not
+  module Prelude
+    ( Bool (..),
+      not,
+      (&&),
+    )
+  where
+
+  import Data.Bool (Bool (..), not, (&&))
+  p = not True
+  │   │   └─ v Data.Bool
   │   └─ v Data.Bool
   └─ v Prelude
-          True
-          └─ v Data.Bool
 extensions: []
 modules:
 - |

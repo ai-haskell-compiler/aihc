@@ -1,4 +1,3 @@
----
 annotated:
 - |-
   module Main where
@@ -8,15 +7,10 @@ annotated:
                 └─ v Main
   prepend :: a -> List a -> List a
   └─ v Main       └─ t Main └─ t Main
-  prepend x xs = (:)
-  │       │ │     └─ v Main
-  │       │ └─ v 1
-  │       └─ v 0
-  └─ v Main
-          x
-          └─ v 0
-          xs
-          └─ v 1
+  prepend x xs = (:) x xs
+  │       │ └─ v 1│  │ └─ v 1
+  │       └─ v 0  │  └─ v 0
+  └─ v Main       └─ v Main
 extensions: []
 modules:
 - |

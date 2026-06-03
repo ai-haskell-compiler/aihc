@@ -1,18 +1,12 @@
----
 annotated:
 - |-
   module Main where
   cons :: a -> [a] -> [a]
   └─ v Main
-  cons x xs = (:)
-  │    │ │     └─ v Builtin :
-  │    │ └─ v 1
-  │    └─ v 0
-  └─ v Main
-          x
-          └─ v 0
-          xs
-          └─ v 1
+  cons x xs = (:) x xs
+  │    │ └─ v 1│  │ └─ v 1
+  │    └─ v 0  │  └─ v 0
+  └─ v Main    └─ v Builtin :
 extensions: []
 modules:
 - |

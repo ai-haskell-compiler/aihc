@@ -1,4 +1,3 @@
----
 annotated:
 - |-
   module ClassMod where
@@ -7,7 +6,8 @@ annotated:
     pick :: a -> a
 - |-
   module Main where
-  import ClassMod (Box(pick))
+  import ClassMod (Box (pick))
+
   f = pick
   │   └─ v ClassMod
   └─ v Main

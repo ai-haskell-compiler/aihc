@@ -5,6 +5,8 @@
 module Aihc.Testing.AnnotatedModule
   ( renderAnnotatedModule,
     renderAnnotatedModules,
+    renderAnnotatedModuleSource,
+    renderAnnotatedModuleSources,
   )
 where
 
@@ -66,6 +68,19 @@ renderAnnotatedModules :: ParserConfig -> (Annotation -> Maybe (Doc ann)) -> [Mo
 renderAnnotatedModules parserConfig renderAnnotation =
   map (renderAnnotatedModule parserConfig renderAnnotation)
 
+renderAnnotatedModuleSource :: (Annotation -> Maybe (Doc ann)) -> T.Text -> Module -> String
+renderAnnotatedModuleSource renderAnnotation source modu =
+  length labels `seq` renderAnnotatedSource (T.unpack source) labels
+  where
+    labels = collectLabels renderAnnotation modu modu
+
+renderAnnotatedModuleSources :: (Annotation -> Maybe (Doc ann)) -> [T.Text] -> [Module] -> [String]
+renderAnnotatedModuleSources renderAnnotation sources modules =
+  case compare (length sources) (length modules) of
+    LT -> error "renderAnnotatedModuleSources: fewer source texts than modules"
+    GT -> error "renderAnnotatedModuleSources: more source texts than modules"
+    EQ -> zipWith (renderAnnotatedModuleSource renderAnnotation) sources modules
+
 data PlacedLabel = PlacedLabel
   { placedSpan :: !SourceSpan,
     placedText :: !String
@@ -121,7 +136,7 @@ collectExpr renderAnnotation original reparsed = do
   pure $
     case (originalExpr, reparsedExpr) of
       (EAnn originalAnn originalInner, EAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (EAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedExpr) [originalAnn]
@@ -137,7 +152,7 @@ collectType renderAnnotation original reparsed = do
   pure $
     case (originalType, reparsedType) of
       (TAnn originalAnn originalInner, TAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (TAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedType) [originalAnn]
@@ -153,7 +168,7 @@ collectPattern renderAnnotation original reparsed = do
   pure $
     case (originalPattern, reparsedPattern) of
       (PAnn originalAnn originalInner, PAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (PAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedPattern) [originalAnn]
@@ -169,7 +184,7 @@ collectDecl renderAnnotation original reparsed = do
   pure $
     case (originalDecl, reparsedDecl) of
       (DeclAnn originalAnn originalInner, DeclAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (DeclAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedDecl) [originalAnn]
@@ -185,7 +200,7 @@ collectDataConDecl renderAnnotation original reparsed = do
   pure $
     case (originalDecl, reparsedDecl) of
       (DataConAnn originalAnn originalInner, DataConAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (DataConAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedDecl) [originalAnn]
@@ -201,7 +216,7 @@ collectLiteral renderAnnotation original reparsed = do
   pure $
     case (originalLiteral, reparsedLiteral) of
       (LitAnn originalAnn originalInner, LitAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (LitAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedLiteral) [originalAnn]
@@ -217,7 +232,7 @@ collectGuardQualifier renderAnnotation original reparsed = do
   pure $
     case (originalQualifier, reparsedQualifier) of
       (GuardAnn originalAnn originalInner, GuardAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (GuardAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedQualifier) [originalAnn]
@@ -242,7 +257,7 @@ collectDoStmtPair :: (Data body) => (Annotation -> Maybe (Doc ann)) -> DoStmt bo
 collectDoStmtPair renderAnnotation originalStmt reparsedStmt =
   case (originalStmt, reparsedStmt) of
     (DoAnn originalAnn originalInner, DoAnn reparsedAnn reparsedInner) ->
-      labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+      labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
         <> collectPair renderAnnotation originalInner reparsedInner
     (DoAnn originalAnn originalInner, _) ->
       labelsAt renderAnnotation (firstSourceSpan reparsedStmt) [originalAnn]
@@ -258,7 +273,7 @@ collectCompStmt renderAnnotation original reparsed = do
   pure $
     case (originalStmt, reparsedStmt) of
       (CompAnn originalAnn originalInner, CompAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (CompAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedStmt) [originalAnn]
@@ -274,7 +289,7 @@ collectArithSeq renderAnnotation original reparsed = do
   pure $
     case (originalSeq, reparsedSeq) of
       (ArithSeqAnn originalAnn originalInner, ArithSeqAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (ArithSeqAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedSeq) [originalAnn]
@@ -290,7 +305,7 @@ collectClassDeclItem renderAnnotation original reparsed = do
   pure $
     case (originalItem, reparsedItem) of
       (ClassItemAnn originalAnn originalInner, ClassItemAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (ClassItemAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
@@ -306,7 +321,7 @@ collectInstanceDeclItem renderAnnotation original reparsed = do
   pure $
     case (originalItem, reparsedItem) of
       (InstanceItemAnn originalAnn originalInner, InstanceItemAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (InstanceItemAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
@@ -322,7 +337,7 @@ collectCmd renderAnnotation original reparsed = do
   pure $
     case (originalCmd, reparsedCmd) of
       (CmdAnn originalAnn originalInner, CmdAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (CmdAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedCmd) [originalAnn]
@@ -338,7 +353,7 @@ collectExportSpec renderAnnotation original reparsed = do
   pure $
     case (originalSpec, reparsedSpec) of
       (ExportAnn originalAnn originalInner, ExportAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (ExportAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedSpec) [originalAnn]
@@ -354,7 +369,7 @@ collectImportItem renderAnnotation original reparsed = do
   pure $
     case (originalItem, reparsedItem) of
       (ImportAnn originalAnn originalInner, ImportAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn]
+        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
           <> collectPair renderAnnotation originalInner reparsedInner
       (ImportAnn originalAnn originalInner, _) ->
         labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
@@ -418,6 +433,12 @@ spanFromAnnotations =
 spanFromAnnotation :: Annotation -> SourceSpan
 spanFromAnnotation =
   fromMaybe NoSourceSpan . fromAnnotation @SourceSpan
+
+annotationCarrierSpan :: (Data a) => Annotation -> a -> SourceSpan
+annotationCarrierSpan annotation inner =
+  case spanFromAnnotation annotation of
+    NoSourceSpan -> firstSourceSpan inner
+    span' -> span'
 
 firstSourceSpan :: (Data a) => a -> SourceSpan
 firstSourceSpan node =

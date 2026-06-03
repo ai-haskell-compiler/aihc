@@ -1,16 +1,10 @@
----
 annotated:
 - |-
   module Main where
-  fn x = let x = x
-  │  └─ v 0  │   └─ v 2
-  └─ v Main  └─ v 2
-           in x
-              └─ v 2
-      where
-        x = x
-        │   └─ v 1
-        └─ v 1
+  fn x = let x = x in x where x = x
+  │  └─ v 0  │   │    └─ v 2  │   └─ v 1
+  └─ v Main  │   └─ v 2       └─ v 1
+             └─ v 2
 extensions: []
 modules:
 - |

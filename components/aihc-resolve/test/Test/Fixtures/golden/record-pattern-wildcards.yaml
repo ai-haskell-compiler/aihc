@@ -1,15 +1,20 @@
----
 annotated:
 - |-
   module Main where
-  data Person = Person {name :: String, age :: Int, email :: String}
-       │        └─ v Main       │              │             └─ t Error unbound
-       └─ t Main                │              └─ t Error unbound
-                                └─ t Error unbound
+  data Person = Person
+       │        └─ v Main
+       └─ t Main
+    { name :: String
+              └─ t Error unbound
+    , age :: Int
+             └─ t Error unbound
+    , email :: String
+               └─ t Error unbound
+    }
   getAge :: Person -> Int
   └─ v Main └─ t Main └─ t Error unbound
-  getAge (Person {name = n, ..}) = age
-  └─ v Main              └─ v 0    └─ v 1
+  getAge (Person { name = n, .. }) = age
+  └─ v Main               └─ v 0     └─ v 1
 extensions:
 - RecordWildCards
 modules:

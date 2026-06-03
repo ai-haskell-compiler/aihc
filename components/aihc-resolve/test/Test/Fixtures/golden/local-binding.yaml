@@ -1,12 +1,9 @@
----
 annotated:
 - |-
   module Main where
-  f = let y = 10
-  │       └─ v 0
+  f = let y = 10 in y
+  │       └─ v 0    └─ v 0
   └─ v Main
-        in y
-           └─ v 0
 extensions: []
 modules:
 - |
