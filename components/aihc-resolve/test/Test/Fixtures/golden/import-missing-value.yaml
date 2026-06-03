@@ -1,9 +1,8 @@
----
 annotated:
 - |-
   module Main where
   import ValidModule (missing_fn)
-  └─ v Error not exported
+                      └─ v Error not exported
   x = missing_fn
   │   └─ v Error unbound
   └─ v Main

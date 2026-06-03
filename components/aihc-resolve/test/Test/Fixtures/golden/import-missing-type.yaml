@@ -1,9 +1,8 @@
----
 annotated:
 - |-
   module Main where
   import ValidModule (MissingType)
-  └─ t Error not exported
+                      └─ t Error not exported
   x :: MissingType
   │    └─ t Error unbound
   └─ v Main

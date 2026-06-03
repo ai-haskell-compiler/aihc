@@ -1,9 +1,8 @@
----
 annotated:
 - |-
   module Main where
   import ValidModule (FoundType(MissingConstructor))
-  └─ v Error not exported
+                                └─ v Error not exported
   x = MissingConstructor
   │   └─ v Error unbound
   └─ v Main
