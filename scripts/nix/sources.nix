@@ -71,10 +71,17 @@ in rec {
     ".cabal"
   ];
 
-  testingSrc = mkComponentSrc "/tooling/aihc-testing" [
-    ".hs"
-    ".cabal"
-  ];
+  testingSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inTesting = pkgs.lib.hasPrefix "tooling/aihc-testing/" relPath;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+      in
+        type == "directory" || (inTesting && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+    };
 
   primSrc = mkComponentSrc "/core-libs/aihc-prim" [
     ".hs"
