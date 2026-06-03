@@ -1,31 +1,43 @@
-extensions: []
-modules:
-  - |
-    module Data.Bool
-      ( Bool (False, True),
-        not,
-        (&&),
-      )
-    where
-
-    data Bool = False | True
-    not False = True
-    not True = False
-    False && _ = False
-    True && x = x
-  - |
-    module Prelude
-      ( Bool (..),
-        not,
-        (&&),
-      )
-    where
-
-    import Data.Bool (Bool (..), not, (&&))
-    p = not True
-  - |
-    module Main where
-    x = (not False, True && False)
+annotated:
+- |-
+  module Data.Bool (Bool(False, True), not, (&&)) where
+  data Bool = False | True
+       │      │       └─ v Data.Bool
+       │      └─ v Data.Bool
+       └─ t Data.Bool
+  not False = True
+  │           └─ v Data.Bool
+  └─ v Data.Bool
+  not True = False
+  │          └─ v Data.Bool
+  └─ v Data.Bool
+  False && _ = False
+        │      └─ v Data.Bool
+        └─ v Data.Bool
+  True && x = x
+       │  │   └─ v 0
+       │  └─ v 0
+       └─ v Data.Bool
+- |-
+  module Main where
+  x = (not
+  │    └─ v Data.Bool
+  └─ v Main
+           False,
+           └─ v Data.Bool
+         True
+         └─ v Data.Bool
+         && False)
+         │  └─ v Data.Bool
+         └─ v Data.Bool
+- |-
+  module Prelude (Bool(..), not, (&&)) where
+  import Data.Bool (Bool(..), not, (&&))
+  p = not
+  │   └─ v Data.Bool
+  └─ v Prelude
+          True
+          └─ v Data.Bool
 expected: |
   Data.Bool:
     8:6-8:10 Bool => (type) Data.Bool.Bool
@@ -51,53 +63,33 @@ expected: |
     9:1-9:2 p => (value) Prelude.p
     9:5-9:8 not => (value) Data.Bool.not
     9:9-9:13 True => (value) Data.Bool.True
-annotated:
-  - |
-    module Data.Bool
-      ( Bool (False, True),
-        not,
-        (&&),
-      )
-    where
+extensions: []
+modules:
+- |
+  module Data.Bool
+    ( Bool (False, True),
+      not,
+      (&&),
+    )
+  where
 
-    data Bool = False | True
-         │      │       └─ v Data.Bool
-         │      └─ v Data.Bool
-         └─ t Data.Bool
-    not False = True
-    │           └─ v Data.Bool
-    └─ v Data.Bool
-    not True = False
-    │          └─ v Data.Bool
-    └─ v Data.Bool
-    False && _ = False
-    │            └─ v Data.Bool
-    └─ v Data.Bool
-    True && x = x
-    │       │   └─ v 0
-    │       └─ v 0
-    └─ v Data.Bool
-  - |
-    module Main where
-    x = (not False, True && False)
-    │   ││   │      │       └─ v Data.Bool
-    │   ││   │      └─ v Data.Bool
-    │   ││   └─ v Data.Bool
-    │   │└─ v Data.Bool
-    │   └─ v Data.Bool
-    └─ v Main
-  - |
-    module Prelude
-      ( Bool (..),
-        not,
-        (&&),
-      )
-    where
+  data Bool = False | True
+  not False = True
+  not True = False
+  False && _ = False
+  True && x = x
+- |
+  module Prelude
+    ( Bool (..),
+      not,
+      (&&),
+    )
+  where
 
-    import Data.Bool (Bool (..), not, (&&))
-    p = not True
-    │   │   └─ v Data.Bool
-    │   └─ v Data.Bool
-    └─ v Prelude
-status: pass
+  import Data.Bool (Bool (..), not, (&&))
+  p = not True
+- |
+  module Main where
+  x = (not False, True && False)
 reason: re-exports imported Bool names through Prelude
+status: pass

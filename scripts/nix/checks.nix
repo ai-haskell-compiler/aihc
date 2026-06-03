@@ -54,6 +54,7 @@
   fcTests = mkFcPackageTest hsPkgs.aihc-fc;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
+  testingTests = mkPackageTest hsPkgs.aihc-testing;
   devTests = mkPackageTest hsPkgs.aihc-dev;
   aihcTests = mkPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
@@ -132,6 +133,7 @@ in {
   fc-tests = fcTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
+  testing-tests = testingTests;
   dev-tests = devTests;
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
@@ -167,6 +169,10 @@ in {
     {
       name = "tc-tests";
       path = tcTests;
+    }
+    {
+      name = "testing-tests";
+      path = testingTests;
     }
     {
       name = "dev-tests";

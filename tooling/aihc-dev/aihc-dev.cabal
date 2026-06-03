@@ -102,12 +102,14 @@ library golden-tools
   hs-source-dirs:
     src
     ../../components/aihc-tc/common
+    ../../components/aihc-resolve/common
 
   exposed-modules:
     Aihc.Dev.Golden.Update
 
   other-modules:
     Aihc.Dev.Parser.Run
+    ResolverGolden
     TcAnnotatedRender
 
   build-depends:
@@ -120,6 +122,7 @@ library golden-tools
     aihc-parser-tooling-common,
     aihc-resolve,
     aihc-tc,
+    aihc-testing,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.8,
@@ -257,6 +260,7 @@ test-suite spec
     filepath,
     haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
     process >=1.6 && <1.8,
     tasty,
     tasty-hunit,

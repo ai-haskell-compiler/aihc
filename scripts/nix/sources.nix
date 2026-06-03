@@ -71,6 +71,11 @@ in rec {
     ".cabal"
   ];
 
+  testingSrc = mkComponentSrc "/tooling/aihc-testing" [
+    ".hs"
+    ".cabal"
+  ];
+
   primSrc = mkComponentSrc "/core-libs/aihc-prim" [
     ".hs"
     ".cabal"
@@ -89,9 +94,10 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inDev = pkgs.lib.hasPrefix "tooling/aihc-dev/" relPath;
         inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
+        inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
       in
-        type == "directory" || ((inDev || inTcCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+        type == "directory" || ((inDev || inTcCommon || inResolveCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
     };
 
   parserToolingCommonSrc = pkgs:

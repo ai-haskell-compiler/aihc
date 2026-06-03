@@ -20,8 +20,6 @@ module Aihc.Resolve
     ResolutionNamespace (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
-    renderResolveResult,
-    renderAnnotatedResolveResult,
   )
 where
 

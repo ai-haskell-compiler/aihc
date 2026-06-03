@@ -1,32 +1,31 @@
-extensions: []
-modules:
-  - |
-    module ClassMod where
-    class Box a where
-      pick :: a -> a
-  - |
-    module Main where
-    import ClassMod (Box (pick))
-
-    f = pick
+annotated:
+- |-
+  module ClassMod where
+  class Box a where
+        └─ t ClassMod
+    pick :: a -> a
+- |-
+  module Main where
+  import ClassMod (Box(pick))
+  f = pick
+  │   └─ v ClassMod
+  └─ v Main
 expected:
   ClassMod:
-    - "2:7-2:10 Box => (type) ClassMod.Box"
+  - 2:7-2:10 Box => (type) ClassMod.Box
   Main:
-    - "4:1-4:2 f => (value) Main.f"
-    - "4:5-4:9 pick => (value) ClassMod.pick"
-annotated:
-  - |
-    module ClassMod where
-    class Box a where
-          └─ t ClassMod
-      pick :: a -> a
-  - |
-    module Main where
-    import ClassMod (Box (pick))
+  - 4:1-4:2 f => (value) Main.f
+  - 4:5-4:9 pick => (value) ClassMod.pick
+extensions: []
+modules:
+- |
+  module ClassMod where
+  class Box a where
+    pick :: a -> a
+- |
+  module Main where
+  import ClassMod (Box (pick))
 
-    f = pick
-    │   └─ v ClassMod
-    └─ v Main
+  f = pick
+reason: ''
 status: pass
-reason: ""

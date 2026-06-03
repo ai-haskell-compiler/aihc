@@ -1,0 +1,49 @@
+cabal-version: 3.8
+name: aihc-testing
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+license-file: LICENSE
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: Shared test support for aihc
+description:
+  Shared test support for the aihc workspace.
+
+library
+  hs-source-dirs: src
+  exposed-modules:
+    Aihc.Testing.AnnotatedModule
+
+  build-depends:
+    aihc-parser,
+    base >=4.16 && <5,
+    containers,
+    prettyprinter,
+    text >=1.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  build-depends:
+    aihc-parser,
+    aihc-testing,
+    base >=4.16 && <5,
+    prettyprinter,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  default-language: GHC2021

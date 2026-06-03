@@ -43,7 +43,7 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
-import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), resolve, resolveWithDeps)
 import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
@@ -73,6 +73,7 @@ import Options.Applicative hiding (value)
 import Options.Applicative qualified as OA
 import ParserErrorGolden qualified as PEG
 import ParserGolden qualified as PG
+import ResolverGolden qualified as RG
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getTemporaryDirectory, listDirectory, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (joinPath, makeRelative, normalise, takeDirectory, takeExtension, (</>))
@@ -332,7 +333,10 @@ resolverActual value = do
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
   let result = resolve parsed
-  Right (renderResolveResult result, renderAnnotatedResolveResult modules result)
+  Right
+    ( RG.renderResolveResult result,
+      RG.renderAnnotatedResolveResult defaultConfig {parserExtensions = exts, parserSourceName = "<resolver-annotated>"} result
+    )
 
 updateTcAnnotatedGoldens :: Options -> IO Summary
 updateTcAnnotatedGoldens opts =

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module ResolverGolden
   ( ExpectedStatus (..),
@@ -9,6 +11,8 @@ module ResolverGolden
     parseResolverCaseText,
     evaluateResolverCase,
     progressSummary,
+    renderResolveResult,
+    renderAnnotatedResolveResult,
   )
 where
 
@@ -18,19 +22,52 @@ import Aihc.Parser
     formatParseErrors,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Resolve (renderAnnotatedResolveResult, renderResolveResult, resolve)
+import Aihc.Parser.Syntax
+  ( Annotation,
+    ClassDeclItem (..),
+    Decl,
+    Expr,
+    Extension,
+    ImportDecl (..),
+    Module,
+    Name (..),
+    Pattern,
+    SourceSpan (..),
+    Type,
+    UnqualifiedName (..),
+    fromAnnotation,
+    moduleName,
+    parseExtensionName,
+    renderName,
+    renderUnqualifiedName,
+  )
+import Aihc.Resolve
+  ( ResolutionAnnotation (..),
+    ResolutionNamespace (..),
+    ResolveResult (..),
+    ResolvedName (..),
+    resolve,
+    pattern DeclResolution,
+    pattern EResolution,
+    pattern PResolution,
+    pattern TResolution,
+  )
+import Aihc.Testing.AnnotatedModule (renderAnnotatedModules)
 import Data.Aeson ((.!=), (.:), (.:?))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort, sortOn)
+import Data.Data (Data, cast, gmapQ)
+import Data.List (dropWhileEnd, intercalate, sort, sortOn)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
+import Prettyprinter (Doc, pretty)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
@@ -148,9 +185,9 @@ parseExpectedValue value =
     _ -> fail "expected must be a string or a list of strings"
   where
     toList = foldr (:) []
-    parseExpectedModule (moduleName, moduleValue) = do
+    parseExpectedModule (expectedModuleName, moduleValue) = do
       moduleLines <- parseExpectedModuleLines moduleValue
-      pure (Key.toText moduleName <> ":\n" <> T.intercalate "\n" (map ("  " <>) moduleLines))
+      pure (Key.toText expectedModuleName <> ":\n" <> T.intercalate "\n" (map ("  " <>) moduleLines))
     parseExpectedModuleLines (Y.String txt) = pure [txt]
     parseExpectedModuleLines (Y.Array arr) = mapM parseExpectedLine (toList arr)
     parseExpectedModuleLines _ = fail "each expected module value must be a string or a list of strings"
@@ -196,7 +233,13 @@ evaluateResolverCase meta =
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showResolved = renderResolveResult
-    showAnnotated = renderAnnotatedResolveResult (caseModules meta)
+    showAnnotated =
+      renderAnnotatedResolveResult
+        ( defaultConfig
+            { parserSourceName = "<resolver-annotated>",
+              parserExtensions = caseExtensions meta
+            }
+        )
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -207,6 +250,172 @@ progressSummary outcomes =
   )
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
+
+renderResolveResult :: ResolveResult -> String
+renderResolveResult result =
+  intercalate "\n" (map renderModuleAnnotations (sortOn fst (mergeModules (collectModules (resolvedModules result) <> resolvedAnnotations result))))
+
+renderAnnotatedResolveResult :: ParserConfig -> ResolveResult -> [String]
+renderAnnotatedResolveResult parserConfig result =
+  renderAnnotatedModules parserConfig resolutionAnnotationDoc (sortOn moduleDisplayName (resolvedModules result))
+
+resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
+resolutionAnnotationDoc annotation = do
+  resolution <- fromAnnotation annotation
+  pure (pretty (annotationLabel resolution))
+
+renderResolvedName :: ResolvedName -> String
+renderResolvedName resolvedName =
+  case resolvedName of
+    ResolvedTopLevel name -> T.unpack (renderName name)
+    ResolvedLocal uniqueId localName -> "Local " <> show uniqueId <> " " <> T.unpack (renderUnqualifiedName localName)
+    ResolvedBuiltin name -> "Builtin " <> T.unpack name
+    ResolvedError msg -> "Error " <> msg
+
+renderResolutionAnnotation :: ResolutionAnnotation -> String
+renderResolutionAnnotation ann =
+  renderSourceSpan (resolutionSpan ann)
+    <> " "
+    <> T.unpack (resolutionName ann)
+    <> " => "
+    <> renderResolutionNamespace (resolutionNamespace ann)
+    <> " "
+    <> renderResolvedName (resolutionTarget ann)
+
+renderResolutionNamespace :: ResolutionNamespace -> String
+renderResolutionNamespace namespace =
+  case namespace of
+    ResolutionNamespaceTerm -> "(value)"
+    ResolutionNamespaceType -> "(type)"
+    ResolutionNamespaceModule -> "(module)"
+
+annotationKey :: ResolutionAnnotation -> (Int, Int, Int, Int, Text)
+annotationKey ann =
+  case resolutionSpan ann of
+    SourceSpan _ startLine startCol endLine endCol _ _ ->
+      (startLine, startCol, endLine, endCol, resolutionName ann)
+    NoSourceSpan ->
+      (maxBound, maxBound, maxBound, maxBound, resolutionName ann)
+
+renderSourceSpan :: SourceSpan -> String
+renderSourceSpan span' =
+  case span' of
+    SourceSpan _ startLine startCol endLine endCol _ _ ->
+      show startLine
+        <> ":"
+        <> show startCol
+        <> "-"
+        <> show endLine
+        <> ":"
+        <> show endCol
+    NoSourceSpan -> "<no-source>"
+
+collectModules :: [Module] -> [(Text, [ResolutionAnnotation])]
+collectModules = map collectModuleAnnotations
+
+mergeModules :: [(Text, [ResolutionAnnotation])] -> [(Text, [ResolutionAnnotation])]
+mergeModules modules =
+  Map.toList (Map.fromListWith (<>) modules)
+
+collectModuleAnnotations :: Module -> (Text, [ResolutionAnnotation])
+collectModuleAnnotations modu =
+  (moduleDisplayName modu, collectAnnotations modu)
+
+collectAnnotations :: (Data a) => a -> [ResolutionAnnotation]
+collectAnnotations node =
+  ownAnnotation node <> concat (gmapQ collectAnnotations node)
+
+ownAnnotation :: (Data a) => a -> [ResolutionAnnotation]
+ownAnnotation node =
+  declResolution (cast node)
+    <> classDeclItemResolution (cast node)
+    <> importResolution (cast node)
+    <> nameResolution (cast node)
+    <> unqualifiedNameResolution (cast node)
+    <> patternResolution (cast node)
+    <> typeResolution (cast node)
+    <> exprResolution (cast node)
+
+declResolution :: Maybe Decl -> [ResolutionAnnotation]
+declResolution maybeDecl =
+  case maybeDecl of
+    Just (DeclResolution resolution) -> [resolution]
+    _ -> []
+
+classDeclItemResolution :: Maybe ClassDeclItem -> [ResolutionAnnotation]
+classDeclItemResolution maybeItem =
+  case maybeItem of
+    Just (ClassItemAnn (fromAnnotation -> Just resolution) _) -> [resolution]
+    _ -> []
+
+importResolution :: Maybe ImportDecl -> [ResolutionAnnotation]
+importResolution maybeImport =
+  case maybeImport of
+    Just importDecl -> importResolutionAnnotations importDecl
+    _ -> []
+
+importResolutionAnnotations :: ImportDecl -> [ResolutionAnnotation]
+importResolutionAnnotations = mapMaybe fromAnnotation . importDeclAnns
+
+nameResolution :: Maybe Name -> [ResolutionAnnotation]
+nameResolution maybeName =
+  case maybeName of
+    Just name -> mapMaybe fromAnnotation (nameAnns name)
+    _ -> []
+
+unqualifiedNameResolution :: Maybe UnqualifiedName -> [ResolutionAnnotation]
+unqualifiedNameResolution maybeName =
+  case maybeName of
+    Just name -> mapMaybe fromAnnotation (unqualifiedNameAnns name)
+    _ -> []
+
+patternResolution :: Maybe Pattern -> [ResolutionAnnotation]
+patternResolution maybePattern =
+  case maybePattern of
+    Just (PResolution resolution) -> [resolution]
+    _ -> []
+
+typeResolution :: Maybe Type -> [ResolutionAnnotation]
+typeResolution maybeType =
+  case maybeType of
+    Just (TResolution resolution) -> [resolution]
+    _ -> []
+
+exprResolution :: Maybe Expr -> [ResolutionAnnotation]
+exprResolution maybeExpr =
+  case maybeExpr of
+    Just (EResolution resolution) -> [resolution]
+    _ -> []
+
+renderModuleAnnotations :: (Text, [ResolutionAnnotation]) -> String
+renderModuleAnnotations (moduleNameText, annotations) =
+  T.unpack moduleNameText
+    <> ":\n"
+    <> intercalate "\n" (map (("  " <>) . renderResolutionAnnotation) (sortOn annotationKey annotations))
+
+moduleDisplayName :: Module -> Text
+moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
+
+annotationLabel :: ResolutionAnnotation -> Text
+annotationLabel ann =
+  renderConciseNamespace (resolutionNamespace ann)
+    <> " "
+    <> renderConciseOrigin (resolutionTarget ann)
+
+renderConciseNamespace :: ResolutionNamespace -> Text
+renderConciseNamespace namespace =
+  case namespace of
+    ResolutionNamespaceTerm -> "v"
+    ResolutionNamespaceType -> "t"
+    ResolutionNamespaceModule -> "m"
+
+renderConciseOrigin :: ResolvedName -> Text
+renderConciseOrigin resolvedName =
+  case resolvedName of
+    ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
+    ResolvedBuiltin name -> "Builtin " <> name
+    ResolvedError msg -> T.pack ("Error " <> msg)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
