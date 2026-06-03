@@ -27,7 +27,6 @@ where
 
 import Aihc.Parser.Syntax
   ( BinderHead,
-    CallConv (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
@@ -181,7 +180,7 @@ declExportedNames decl =
           DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty
     DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
     DeclForeign foreignDecl
-      | foreignDirection foreignDecl == ForeignImport && foreignCallConv foreignDecl == CPrim ->
+      | foreignDirection foreignDecl == ForeignImport ->
           DeclExports [foreignName foreignDecl] [] Map.empty Map.empty Map.empty Map.empty
       | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
     DeclFixity assoc mNamespace mPrec ops
@@ -480,6 +479,7 @@ builtinTypeNames =
     "Constraint",
     -- Unboxed primitive types (GHC.Prim / GHC.Types)
     "Int#",
+    "Int8#",
     "Word#",
     "Char#",
     "Float#",

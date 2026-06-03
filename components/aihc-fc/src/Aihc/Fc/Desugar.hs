@@ -13,7 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, dsRhs, freshUnique, freshVar, lookupType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -35,6 +35,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
+import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcmBindings, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -54,7 +55,16 @@ data DesugarResult = DesugarResult
 
 -- | Desugar a module: parse, typecheck, then translate to Core.
 desugarModule :: Module -> DesugarResult
-desugarModule m = desugarModuleWithTcResult (typecheckModule m) m
+desugarModule m =
+  case resolve [m] of
+    ResolveResult {resolvedModules = [resolved], resolveErrors = []} ->
+      desugarModuleWithTcResult (typecheckModule resolved) resolved
+    ResolveResult {resolveErrors} ->
+      DesugarResult
+        { dsProgram = FcProgram [],
+          dsSuccess = False,
+          dsErrors = ["resolve error: " <> show resolveErrors]
+        }
 
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload
@@ -310,5 +320,14 @@ dsGroup grp = do
   body <-
     case grp of
       DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsRhs rhs
+      DeclPattern _ rhs -> dsMatches ty [rhsAsMatch rhs]
   pure (FcTopBind (FcNonRec var body))
+
+rhsAsMatch :: Rhs Expr -> Match
+rhsAsMatch rhs =
+  Match
+    { matchAnns = [],
+      matchHeadForm = MatchHeadPrefix,
+      matchPats = [],
+      matchRhs = rhs
+    }

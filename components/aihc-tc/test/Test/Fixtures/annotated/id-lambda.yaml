@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   id = \x -> x
-  │    └─ term-args: a
+  │     └─ x ∷ a
   └─ id ∷ ∀ a. a → a
 extensions: []
 modules:

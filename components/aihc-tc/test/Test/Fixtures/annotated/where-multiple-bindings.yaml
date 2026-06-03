@@ -6,6 +6,7 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x y = x + y
+  │ │ │     └─ type-args: a, b
   │ │ └─ y ∷ b
   │ └─ x ∷ a
   └─ f ∷ ∀ a b. a → b → a

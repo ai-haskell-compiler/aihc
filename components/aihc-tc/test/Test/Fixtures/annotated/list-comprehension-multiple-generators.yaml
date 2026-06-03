@@ -1,17 +1,16 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
 annotated:
 - |-
   module Test where
   pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
-  │     │  │    │ │        └─ x ∷ a └─ y ∷ b
-  │     │  │    │ └─ type-args: a, b
-  │     │  │    └─ type-args: (a, b)
+  │     │  │      │        └─ x ∷ a └─ y ∷ b
+  │     │  │      └─ type-args: a, b
   │     │  └─ ys ∷ [b]
   │     └─ xs ∷ [a]
   └─ pairs ∷ ∀ a b. [a] → [b] → [(a, b)]
-status: pass
+extensions: []
+modules:
+- |
+  module Test where
+  pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
 reason: later generators can see earlier generator bindings and produce tuple elements
+status: pass

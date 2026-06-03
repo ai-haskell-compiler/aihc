@@ -65,20 +65,19 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Generalize (generalizeIgnoring)
-import Aihc.Tc.Generate.Bind (inferLocalDeclBinders, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey, unqualifiedNameOccurrenceKey)
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub, (\\))
@@ -251,6 +250,10 @@ tcModule m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
+  -- Phase 4: type-check instance method bodies. They are not top-level
+  -- value bindings, but their occurrences still need the same instantiation
+  -- and evidence records as ordinary expressions.
+  mapM_ tcInstanceDeclBodies (moduleDecls m)
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
@@ -362,15 +365,15 @@ annotateValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
 annotateValueDeclTc valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
-      expected <- bindingType (unqualifiedNameText name)
-      valueDecl' <- FunctionBind name <$> annotateMatchesTc expected matches
-      pure (expected, valueDecl')
+      bindingTy <- bindingType (unqualifiedNameText name)
+      valueDecl' <- FunctionBind name <$> annotateMatchesTc bindingTy matches
+      pure (bindingTy, valueDecl')
     PatternBind anns pat rhs ->
       case patternBinderName pat of
-        Just (_displayName, name) -> do
-          expected <- bindingType name
-          valueDecl' <- PatternBind anns pat <$> annotateRhsTc Map.empty (qualifiedPreds expected) expected rhs
-          pure (expected, valueDecl')
+        Just (_, name) -> do
+          bindingTy <- bindingType name
+          valueDecl' <- PatternBind anns pat <$> annotateRhsTc rhs
+          pure (bindingTy, valueDecl')
         Nothing -> do
           ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
           pure (ty, valueDecl)
@@ -401,282 +404,336 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceContextDicts = contextDicts,
                 tcInstanceMethodOrder = methodOrder
               }
-      items <- mapM (annotateInstanceItemTc context headTys) (instanceDeclItems instanceDecl)
+      items <- mapM (annotateInstanceItemTc headTys) (instanceDeclItems instanceDecl)
       pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
 
-annotateInstanceItemTc :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
-annotateInstanceItemTc givens headTys item =
+annotateInstanceItemTc :: [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
+annotateInstanceItemTc headTys item =
   case item of
-    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> annotateInstanceItemTc givens headTys inner
+    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> annotateInstanceItemTc headTys inner
     InstanceItemBind (FunctionBind name matches) -> do
       let methodName = unqualifiedNameText name
-      expected <- methodExpectedType headTys (unqualifiedNameText name)
-      matches' <- annotateMatchesWithLocalsAndGivensTc Map.empty givens expected matches
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName expected)) (InstanceItemBind (FunctionBind name matches')))
+      methodTy <- methodExpectedType headTys (unqualifiedNameText name)
+      matches' <- annotateMatchesTc methodTy matches
+      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name matches')))
     InstanceItemBind (PatternBind anns pat rhs) ->
       case patternBinderName pat of
-        Just (_displayName, methodName) -> do
-          expected <- methodExpectedType headTys methodName
-          rhs' <- annotateRhsTc Map.empty givens expected rhs
-          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName expected)) (InstanceItemBind (PatternBind anns pat rhs')))
+        Just (_, methodName) -> do
+          methodTy <- methodExpectedType headTys methodName
+          rhs' <- annotateRhsTc rhs
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat rhs')))
         Nothing -> pure item
     _ -> pure item
 
+tcInstanceDeclBodies :: Decl -> TcM ()
+tcInstanceDeclBodies (DeclAnn _ inner) =
+  tcInstanceDeclBodies inner
+tcInstanceDeclBodies (DeclInstance instanceDecl) =
+  case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
+    (_, []) -> pure ()
+    (Nothing, _) -> pure ()
+    (Just _, headArgTypes) -> do
+      let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
+          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
+      tvIds <- mapM freshSkolemTv freeVars
+      let tvMap = Map.fromList (zip freeVars tvIds)
+      headTys <- mapM (convertSurfaceType tvMap) headArgTypes
+      givens <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
+      mapM_ (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
+tcInstanceDeclBodies _ =
+  pure ()
+
+tcInstanceItemBody :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM ()
+tcInstanceItemBody givens headTys item =
+  case item of
+    InstanceItemAnn _ inner ->
+      tcInstanceItemBody givens headTys inner
+    InstanceItemBind (FunctionBind name matches) -> do
+      methodTy <- methodExpectedType headTys (unqualifiedNameText name)
+      let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
+      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
+      solveInstanceBodyConstraints givens results
+    InstanceItemBind (PatternBind _ pat rhs) ->
+      case patternBinderName pat of
+        Just (_, methodName) -> do
+          methodTy <- methodExpectedType headTys methodName
+          results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
+          solveInstanceBodyConstraints givens results
+        Nothing -> pure ()
+    _ -> pure ()
+
+matchArity :: [Match] -> Int
+matchArity (match : _) = length (matchPats match)
+matchArity [] = 0
+
+solveInstanceBodyConstraints :: [Pred] -> [([Ct], [Implication])] -> TcM ()
+solveInstanceBodyConstraints givens results = do
+  let (ctsList, implsList) = unzip results
+      cts = concat ctsList
+      impls = concat implsList
+  solveBodyConstraintsWithGivens givens cts impls
+
+solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
+solveBodyConstraintsWithGivens givens cts impls = do
+  _ <- solveWithImpls cts impls
+  mapM_ solveClassCt cts
+  where
+    solveClassCt ct@Ct {ctPred = ClassPred {}} = do
+      _ <- solveDictWithGivens givens ct
+      pure ()
+    solveClassCt _ = pure ()
+
 annotateMatchesTc :: TcType -> [Match] -> TcM [Match]
-annotateMatchesTc expected =
-  annotateMatchesWithLocalsAndGivensTc Map.empty (qualifiedPreds expected) expected
+annotateMatchesTc _bindingTy =
+  mapM annotateMatchTc
 
-annotateMatchesWithLocalsAndGivensTc :: Map Text TcType -> [Pred] -> TcType -> [Match] -> TcM [Match]
-annotateMatchesWithLocalsAndGivensTc locals givens expected =
-  mapM (annotateMatchTc locals givens expected)
-
-annotateMatchTc :: Map Text TcType -> [Pred] -> TcType -> Match -> TcM Match
-annotateMatchTc outerLocals givens expected match = do
-  let (argTys, resTy) = splitFunTy (qualifiedBody expected) (length (matchPats match))
-  matchLocals <- Map.fromList . concat <$> zipWithM patternBindingsFrom (matchPats match) argTys
-  let locals = outerLocals <> matchLocals
-  rhs <- annotateRhsTc locals givens resTy (matchRhs match)
+annotateMatchTc :: Match -> TcM Match
+annotateMatchTc match = do
+  rhs <- annotateRhsTc (matchRhs match)
   pure (match {matchRhs = rhs})
 
-annotateRhsTc :: Map Text TcType -> [Pred] -> TcType -> Rhs Expr -> TcM (Rhs Expr)
-annotateRhsTc locals givens expected rhs =
+annotateRhsTc :: Rhs Expr -> TcM (Rhs Expr)
+annotateRhsTc rhs =
   case rhs of
     UnguardedRhs sp expr Nothing -> do
-      expr' <- annotateExprTc locals givens expected expr
+      expr' <- annotateExprTc expr
       pure (UnguardedRhs sp expr' Nothing)
     UnguardedRhs sp expr (Just decls) -> do
-      (localTypes, decls') <- annotateLocalDeclsTc givens locals decls
-      expr' <- annotateExprTc (locals <> localTypes) givens expected expr
+      decls' <- annotateLocalDeclsTc decls
+      expr' <- annotateExprTc expr
       pure (UnguardedRhs sp expr' (Just decls'))
     GuardedRhss {} -> pure rhs
 
-annotateExprTc :: Map Text TcType -> [Pred] -> TcType -> Expr -> TcM Expr
-annotateExprTc locals givens expected expr =
+annotateExprTc :: Expr -> TcM Expr
+annotateExprTc expr =
   case expr of
-    EVar name -> annotateVarTc locals givens expected expr name
-    EAnn ann inner -> EAnn ann <$> annotateExprTc locals givens expected inner
-    EParen inner -> EParen <$> annotateExprTc locals givens expected inner
-    ETypeSig inner ty -> (`ETypeSig` ty) <$> annotateExprTc locals givens expected inner
-    EApp fun arg -> do
-      argTy <- appArgTypeTc locals fun arg expected
-      fun' <- annotateExprTc locals givens (TcFunTy argTy expected) fun
-      arg' <- annotateExprTc locals givens argTy arg
-      pure (annotateExpr (TcAnnotation expected [] [] []) (EApp fun' arg'))
+    EVar name -> annotateVarTc expr name
+    EAnn ann inner -> EAnn ann <$> annotateExprTc inner
+    EParen inner -> EParen <$> annotateExprTc inner
+    ETypeSig inner ty -> (`ETypeSig` ty) <$> annotateExprTc inner
+    EApp fun arg ->
+      EApp <$> annotateExprTc fun <*> annotateExprTc arg
     EInfix lhs op rhs -> do
-      (lhsTy, rhsTy) <- infixArgTypesTc locals op lhs rhs expected
-      lhs' <- annotateExprTc locals givens lhsTy lhs
-      op' <- annotateInfixOperatorTc locals givens (TcFunTy lhsTy (TcFunTy rhsTy expected)) op
-      rhs' <- annotateExprTc locals givens rhsTy rhs
-      pure (annotateExpr (TcAnnotation expected [] [] []) (EInfix lhs' op' rhs'))
+      lhs' <- annotateExprTc lhs
+      op' <- annotateInfixOperatorTc op
+      rhs' <- annotateExprTc rhs
+      pure (EInfix lhs' op' rhs')
     EList elems -> do
-      elemTyFromItems <- listElemTypeFromItems locals elems
-      elemTy <- maybe (missingTypeInfo "list element type") pure (listElemTyTc expected <|> elemTyFromItems)
-      elems' <- mapM (annotateExprTc locals givens elemTy) elems
-      pure (annotateExpr (TcAnnotation expected [elemTy] [] []) (EList elems'))
+      elems' <- mapM annotateExprTc elems
+      ann <- annotationForSyntaxOccurrence listOccurrenceKey "list literal"
+      pure (annotateExpr ann (EList elems'))
     EListComp body stmts -> do
-      elemTy <- maybe (missingTypeInfo "list comprehension element type") pure (listElemTyTc expected)
-      (locals', stmts') <- annotateCompStmtsTc locals givens stmts
-      body' <- annotateExprTc locals' givens elemTy body
-      pure (annotateExpr (TcAnnotation expected [elemTy] [] []) (EListComp body' stmts'))
+      stmts' <- annotateCompStmtsTc stmts
+      body' <- annotateExprTc body
+      pure (EListComp body' stmts')
     ETuple flavor elems -> do
-      elemTys <- tupleElemTypesTc expected (length elems)
-      elems' <- zipWithM (traverse . annotateExprTc locals givens) elemTys elems
-      pure (annotateExpr (TcAnnotation expected elemTys [] []) (ETuple flavor elems'))
-    EIf cond thenE elseE -> do
-      cond' <- annotateExprTc locals givens boolTy cond
-      then' <- annotateExprTc locals givens expected thenE
-      else' <- annotateExprTc locals givens expected elseE
-      pure (annotateExpr (TcAnnotation expected [] [] []) (EIf cond' then' else'))
+      elems' <- mapM (traverse annotateExprTc) elems
+      ann <- annotationForSyntaxOccurrence tupleOccurrenceKey "tuple literal"
+      pure (annotateExpr ann (ETuple flavor elems'))
+    EIf cond thenE elseE ->
+      EIf <$> annotateExprTc cond <*> annotateExprTc thenE <*> annotateExprTc elseE
     ELambdaPats pats body -> do
-      let (argTys, resTy) = splitFunTy (qualifiedBody expected) (length pats)
-      patBindings <- concat <$> zipWithM patternBindingsFrom pats argTys
-      let locals' = locals <> Map.fromList patBindings
-      body' <- annotateExprTc locals' givens resTy body
-      pure (annotateExpr (TcAnnotation expected [] [] argTys) (ELambdaPats pats body'))
+      body' <- annotateExprTc body
+      ann <- annotationForSyntaxOccurrence lambdaOccurrenceKey "lambda patterns"
+      pats' <- annotateLambdaPatterns (tcAnnTermArgTypes ann) pats
+      pure (ELambdaPats pats' body')
     ECase scrut alts -> do
-      maybeScrutTy <- exprTypeMaybeTc locals scrut
-      scrutTy <- maybe (missingTypeInfo ("case scrutinee type for " <> take 80 (show scrut))) pure maybeScrutTy
-      scrut' <- annotateExprTc locals givens scrutTy scrut
-      alts' <- mapM (annotateCaseAltTc locals givens scrutTy expected) alts
-      pure (annotateExpr (TcAnnotation expected [] [] []) (ECase scrut' alts'))
+      scrut' <- annotateExprTc scrut
+      alts' <- mapM annotateCaseAltTc alts
+      pure (ECase scrut' alts')
     ELetDecls decls body -> do
-      (localTypes, decls') <- annotateLocalDeclsTc givens locals decls
-      body' <- annotateExprTc (locals <> localTypes) givens expected body
-      pure (annotateExpr (TcAnnotation expected [] [] []) (ELetDecls decls' body'))
+      decls' <- annotateLocalDeclsTc decls
+      body' <- annotateExprTc body
+      pure (ELetDecls decls' body')
     _ -> pure expr
 
-annotateLocalDeclsTc :: [Pred] -> Map Text TcType -> [Decl] -> TcM (Map Text TcType, [Decl])
-annotateLocalDeclsTc givens outerLocals decls = do
-  let ambientBinders = [(name, TcMonoIdBinder name ty) | (name, ty) <- Map.toList outerLocals]
-  binders <- inferLocalDeclBinders inferExpr ambientBinders decls
-  let localTypes = Map.fromList [(name, binderType binder) | (name, binder) <- binders]
-      locals = outerLocals <> localTypes
-  decls' <- mapM (annotateLocalDeclTc givens locals) decls
-  pure (localTypes, decls')
+annotateLocalDeclsTc :: [Decl] -> TcM [Decl]
+annotateLocalDeclsTc =
+  mapM annotateLocalDeclTc
 
-annotateLocalDeclTc :: [Pred] -> Map Text TcType -> Decl -> TcM Decl
-annotateLocalDeclTc givens locals decl =
+annotateLocalDeclTc :: Decl -> TcM Decl
+annotateLocalDeclTc decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalDeclTc givens locals inner
+    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalDeclTc inner
     DeclValue valueDecl -> do
-      (ty, valueDecl') <- annotateLocalValueDeclTc givens locals valueDecl
+      (ty, valueDecl') <- annotateLocalValueDeclTc valueDecl
       pure (annotateDecl (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
     _ -> pure decl
 
-annotateLocalValueDeclTc :: [Pred] -> Map Text TcType -> ValueDecl -> TcM (TcType, ValueDecl)
-annotateLocalValueDeclTc givens locals valueDecl =
+annotateLocalValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
+annotateLocalValueDeclTc valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
-      expected <- localBindingType locals (unqualifiedNameText name)
-      valueDecl' <- FunctionBind name <$> annotateMatchesWithLocalsAndGivensTc locals givens expected matches
-      pure (expected, valueDecl')
+      bindingTy <- bindingTypeForLocalName name
+      valueDecl' <- FunctionBind name <$> annotateMatchesTc bindingTy matches
+      pure (bindingTy, valueDecl')
     PatternBind anns pat rhs ->
       case patternBinderName pat of
-        Just (_displayName, name) -> do
-          expected <- localBindingType locals name
-          valueDecl' <- PatternBind anns pat <$> annotateRhsTc locals givens expected rhs
-          pure (expected, valueDecl')
+        Just (_, _name) -> do
+          bindingTy <- bindingTypeForPattern pat
+          valueDecl' <- PatternBind anns pat <$> annotateRhsTc rhs
+          pure (bindingTy, valueDecl')
         Nothing -> do
           ty <- missingTypeInfo ("local pattern binding " <> show pat)
           pure (ty, valueDecl)
 
-localBindingType :: Map Text TcType -> Text -> TcM TcType
-localBindingType locals name =
-  case Map.lookup name locals of
-    Just ty -> pure ty
+bindingTypeForLocalName :: UnqualifiedName -> TcM TcType
+bindingTypeForLocalName name =
+  case unqualifiedNameOccurrenceKey name of
+    Just key -> bindingTypeForLocalBinder (unqualifiedNameText name) key
+    Nothing -> missingTypeInfo ("resolved local binding " <> T.unpack (unqualifiedNameText name))
+
+bindingTypeForPattern :: Pattern -> TcM TcType
+bindingTypeForPattern pat =
+  case localPatternBinderKey pat of
+    Just (name, key) -> bindingTypeForLocalBinder name key
+    Nothing -> missingTypeInfo ("local pattern binding " <> show pat)
+
+bindingTypeForLocalBinder :: Text -> OccurrenceKey -> TcM TcType
+bindingTypeForLocalBinder name key = do
+  maybeTy <- takeBindingElaboration key
+  case maybeTy of
+    Just ty -> zonkType ty
     Nothing -> missingTypeInfo ("local binding " <> T.unpack name)
 
-annotateCompStmtsTc :: Map Text TcType -> [Pred] -> [CompStmt] -> TcM (Map Text TcType, [CompStmt])
-annotateCompStmtsTc locals _givens [] = pure (locals, [])
-annotateCompStmtsTc locals givens (stmt : rest) =
+localPatternBinderKey :: Pattern -> Maybe (Text, OccurrenceKey)
+localPatternBinderKey pat =
+  case pat of
+    PVar name -> (unqualifiedNameText name,) <$> unqualifiedNameOccurrenceKey name
+    PParen inner -> localPatternBinderKey inner
+    PAnn _ inner -> localPatternBinderKey inner
+    _ -> Nothing
+
+annotateCompStmtsTc :: [CompStmt] -> TcM [CompStmt]
+annotateCompStmtsTc [] = pure []
+annotateCompStmtsTc (stmt : rest) =
   case stmt of
     CompAnn ann inner -> do
-      (locals', stmts') <- annotateCompStmtsTc locals givens (inner : rest)
+      stmts' <- annotateCompStmtsTc (inner : rest)
       case stmts' of
-        inner' : rest' -> pure (locals', CompAnn ann inner' : rest')
-        [] -> pure (locals', [])
+        inner' : rest' -> pure (CompAnn ann inner' : rest')
+        [] -> pure []
     CompGen pat src -> do
-      maybeSrcTy <- exprTypeMaybeTc locals src
-      elemTy <-
-        case maybeSrcTy >>= listElemTyTc of
-          Just ty -> pure ty
-          Nothing -> missingTypeInfo ("list comprehension generator element type for " <> take 80 (show src))
-      src' <- annotateExprTc locals givens (listType elemTy) src
-      patBindings <- patternBindingsFrom pat elemTy
-      let localsWithPat = locals <> Map.fromList patBindings
-      (locals', rest') <- annotateCompStmtsTc localsWithPat givens rest
-      pure (locals', CompGen pat src' : rest')
+      src' <- annotateExprTc src
+      rest' <- annotateCompStmtsTc rest
+      pure (CompGen pat src' : rest')
     CompGuard guard -> do
-      guard' <- annotateExprTc locals givens boolTy guard
-      (locals', rest') <- annotateCompStmtsTc locals givens rest
-      pure (locals', CompGuard guard' : rest')
+      guard' <- annotateExprTc guard
+      rest' <- annotateCompStmtsTc rest
+      pure (CompGuard guard' : rest')
     CompLetDecls decls -> do
-      (letTypes, decls') <- annotateLocalDeclsTc givens locals decls
-      let localsWithDecls = locals <> letTypes
-      (locals', rest') <- annotateCompStmtsTc localsWithDecls givens rest
-      pure (locals', CompLetDecls decls' : rest')
+      decls' <- annotateLocalDeclsTc decls
+      rest' <- annotateCompStmtsTc rest
+      pure (CompLetDecls decls' : rest')
     CompThen expr -> do
-      expr' <- annotateExprTc locals givens expectedTransformType expr
-      (locals', rest') <- annotateCompStmtsTc locals givens rest
-      pure (locals', CompThen expr' : rest')
+      expr' <- annotateExprTc expr
+      rest' <- annotateCompStmtsTc rest
+      pure (CompThen expr' : rest')
     CompThenBy f byExpr -> do
-      f' <- annotateExprTc locals givens expectedTransformType f
-      byExpr' <- annotateExprTc locals givens expectedTransformType byExpr
-      (locals', rest') <- annotateCompStmtsTc locals givens rest
-      pure (locals', CompThenBy f' byExpr' : rest')
+      f' <- annotateExprTc f
+      byExpr' <- annotateExprTc byExpr
+      rest' <- annotateCompStmtsTc rest
+      pure (CompThenBy f' byExpr' : rest')
     CompGroupUsing expr -> do
-      expr' <- annotateExprTc locals givens expectedTransformType expr
-      (locals', rest') <- annotateCompStmtsTc locals givens rest
-      pure (locals', CompGroupUsing expr' : rest')
+      expr' <- annotateExprTc expr
+      rest' <- annotateCompStmtsTc rest
+      pure (CompGroupUsing expr' : rest')
     CompGroupByUsing byExpr usingExpr -> do
-      byExpr' <- annotateExprTc locals givens expectedTransformType byExpr
-      usingExpr' <- annotateExprTc locals givens expectedTransformType usingExpr
-      (locals', rest') <- annotateCompStmtsTc locals givens rest
-      pure (locals', CompGroupByUsing byExpr' usingExpr' : rest')
-  where
-    expectedTransformType = TcMetaTv (Unique (-1))
+      byExpr' <- annotateExprTc byExpr
+      usingExpr' <- annotateExprTc usingExpr
+      rest' <- annotateCompStmtsTc rest
+      pure (CompGroupByUsing byExpr' usingExpr' : rest')
 
-annotateCaseAltTc :: Map Text TcType -> [Pred] -> TcType -> TcType -> CaseAlt Expr -> TcM (CaseAlt Expr)
-annotateCaseAltTc locals givens scrutTy expected (CaseAlt anns pat rhs) = do
-  patBindings <- patternBindingsFrom pat scrutTy
-  let locals' = locals <> Map.fromList patBindings
-  rhs' <- annotateRhsTc locals' givens expected rhs
+annotateCaseAltTc :: CaseAlt Expr -> TcM (CaseAlt Expr)
+annotateCaseAltTc (CaseAlt anns pat rhs) = do
+  rhs' <- annotateRhsTc rhs
   pure (CaseAlt anns pat rhs')
 
-annotateVarTc :: Map Text TcType -> [Pred] -> TcType -> Expr -> Name -> TcM Expr
-annotateVarTc locals givens expected expr name =
-  case lookupLocalName name locals of
-    Just ty -> pure (annotateExpr (TcAnnotation ty [] [] []) expr)
+annotateVarTc :: Expr -> Name -> TcM Expr
+annotateVarTc expr name = do
+  maybeOccurrenceAnn <- annotationForNameOccurrence name
+  case maybeOccurrenceAnn of
+    Just ann -> pure (annotateExprAt (sourceSpanFromAnns (nameAnns name)) ann expr)
     Nothing -> do
-      mBinder <- lookupTermName name
-      case mBinder of
-        Just (TcIdBinder _ scheme _) -> do
-          ann <- annotationForScheme givens scheme expected
-          pure (annotateExpr ann expr)
-        Just (TcMonoIdBinder _ ty) ->
-          pure (annotateExpr (TcAnnotation ty [] [] []) expr)
-        Nothing -> do
-          _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
-          pure expr
+      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
+      pure expr
 
-annotateInfixOperatorTc :: Map Text TcType -> [Pred] -> TcType -> Name -> TcM Name
-annotateInfixOperatorTc locals givens expected name =
-  case lookupLocalName name locals of
-    Just ty -> pure (annotateName (TcAnnotation ty [] [] []) name)
+annotateExprAt :: SourceSpan -> TcAnnotation -> Expr -> Expr
+annotateExprAt sp ann expr =
+  case sp of
+    NoSourceSpan -> annotateExpr ann expr
+    _ -> EAnn (mkAnnotation sp) (annotateExpr ann expr)
+
+annotateInfixOperatorTc :: Name -> TcM Name
+annotateInfixOperatorTc name = do
+  maybeOccurrenceAnn <- annotationForNameOccurrence name
+  case maybeOccurrenceAnn of
+    Just ann -> pure (annotateName ann name)
     Nothing -> do
-      mBinder <- lookupTermName name
-      case mBinder of
-        Just (TcIdBinder _ scheme _) -> do
-          ann <- annotationForScheme givens scheme expected
-          pure (annotateName ann name)
-        Just (TcMonoIdBinder _ ty) ->
-          pure (annotateName (TcAnnotation ty [] [] []) name)
-        Nothing -> do
-          _ <- missingTypeInfo ("variable " <> T.unpack (nameText name))
-          pure name
+      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
+      pure name
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
 
-annotationForScheme :: [Pred] -> TypeScheme -> TcType -> TcM TcAnnotation
-annotationForScheme givens scheme@(ForAll tvs preds body) expected =
-  let needsInstantiation = not (null tvs && null preds)
-   in do
-        subst <-
-          case matchTypes [body] [expected] of
-            Just subst -> pure subst
-            Nothing
-              | needsInstantiation -> do
-                  _ <- missingTypeInfo ("instantiation of " <> show scheme <> " at " <> show expected)
-                  pure Map.empty
-              | otherwise -> pure Map.empty
-        let typeArgs = [substType subst (TcTyVar tv) | tv <- tvs]
-            evidencePreds = map (substPred subst) preds
-            occurrenceTy = case tvs of
-              [] -> schemeToType scheme
-              _ -> expected
-        evidenceTerms <- mapM (evidenceForPred givens) evidencePreds
-        pure (TcAnnotation occurrenceTy typeArgs evidenceTerms [])
+annotationForNameOccurrence :: Name -> TcM (Maybe TcAnnotation)
+annotationForNameOccurrence name = do
+  case nameOccurrenceKey name of
+    Just key -> do
+      maybeElaboration <- takeOccurrenceElaboration key
+      case maybeElaboration of
+        Just elaboration ->
+          Just <$> annotationForOccurrenceElaboration elaboration
+        Nothing -> pure Nothing
+    Nothing -> pure Nothing
 
-evidenceForPred :: [Pred] -> Pred -> TcM EvTerm
-evidenceForPred givens pred' =
-  case pred' of
-    ClassPred {} -> do
-      ev <- freshEvVar
-      result <- solveDictWithGivens givens (mkWantedCt pred' ev (OccurrenceOf "<annotation>") NoSourceSpan)
-      case result of
-        DictSolved -> do
-          maybeEvidence <- lookupEvidence ev
-          case maybeEvidence of
-            Just evidence -> pure evidence
-            Nothing -> do
-              _ <- missingTypeInfo ("evidence for solved predicate " <> show pred')
-              pure (EvGiven pred')
-        DictStuck _ ->
-          pure (EvGiven pred')
-    EqPred left _right ->
-      pure (EvCoercion (Refl left))
+annotationForSyntaxOccurrence :: OccurrenceKey -> String -> TcM TcAnnotation
+annotationForSyntaxOccurrence key what = do
+  maybeElaboration <- takeOccurrenceElaboration key
+  case maybeElaboration of
+    Just elaboration ->
+      annotationForOccurrenceElaboration elaboration
+    Nothing -> do
+      ty <- missingTypeInfo ("elaboration for " <> what)
+      pure (TcAnnotation ty [] [] [])
+
+annotationForOccurrenceElaboration :: OccurrenceElaboration -> TcM TcAnnotation
+annotationForOccurrenceElaboration elaboration = do
+  ty <- zonkType (occurrenceElabType elaboration)
+  typeArgs <- mapM zonkType (occurrenceElabTypeArgs elaboration)
+  evidenceTerms <- mapM evidenceForEvVar (occurrenceElabEvidenceVars elaboration)
+  termArgTypes <- mapM zonkType (occurrenceElabTermArgTypes elaboration)
+  pure (TcAnnotation ty typeArgs evidenceTerms termArgTypes)
+
+evidenceForEvVar :: EvVar -> TcM EvTerm
+evidenceForEvVar ev = do
+  maybeEvidence <- lookupEvidence ev
+  case maybeEvidence of
+    Just evidence -> pure evidence
+    Nothing ->
+      abortTc ("internal type annotation error: missing evidence for " <> show ev)
+
+tupleOccurrenceKey :: OccurrenceKey
+tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
+
+listOccurrenceKey :: OccurrenceKey
+listOccurrenceKey = syntaxOccurrenceKey "$list"
+
+lambdaOccurrenceKey :: OccurrenceKey
+lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
+
+annotateLambdaPatterns :: [TcType] -> [Pattern] -> TcM [Pattern]
+annotateLambdaPatterns tys pats
+  | length tys == length pats =
+      pure (zipWith annotatePattern tys pats)
+  | otherwise = do
+      _ <- missingTypeInfo ("lambda pattern types for " <> show (length pats) <> " pattern(s)")
+      pure pats
+
+annotatePattern :: TcType -> Pattern -> Pattern
+annotatePattern ty =
+  PAnn (mkAnnotation (TcAnnotation ty [] [] []))
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
@@ -689,114 +746,6 @@ binderType :: TcBinder -> TcType
 binderType (TcIdBinder _ scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder _ ty) = ty
 
-appArgTypeTc :: Map Text TcType -> Expr -> Expr -> TcType -> TcM TcType
-appArgTypeTc locals fun arg expected = do
-  maybeArgTy <- exprTypeMaybeTc locals arg
-  case maybeArgTy of
-    Just ty | isUsableKnownType ty -> pure ty
-    _ -> do
-      maybeFunTy <- exprTypeMaybeTc locals fun
-      case maybeFunTy >>= (`appArgTypeFromFunTc` expected) of
-        Just ty -> pure ty
-        Nothing -> missingTypeInfo ("application argument for " <> take 80 (show arg))
-
-appArgTypeFromFunTc :: TcType -> TcType -> Maybe TcType
-appArgTypeFromFunTc funTy expected =
-  case qualifiedBody funTy of
-    TcFunTy formalArg formalResult -> do
-      subst <- matchTypes [formalResult] [expected]
-      pure (substType subst formalArg)
-    _ -> Nothing
-
-infixArgTypesTc :: Map Text TcType -> Name -> Expr -> Expr -> TcType -> TcM (TcType, TcType)
-infixArgTypesTc locals op lhs rhs expected = do
-  maybeOpTy <- exprTypeMaybeNameTc locals op
-  maybeLhsTy <- exprTypeMaybeTc locals lhs
-  maybeRhsTy <- exprTypeMaybeTc locals rhs
-  let derived = maybeOpTy >>= (`infixArgTypesFromOpTc` expected)
-  lhsTy <-
-    case maybeLhsTy of
-      Just ty | isUsableKnownType ty -> pure ty
-      _ ->
-        case derived of
-          Just (ty, _) -> pure ty
-          Nothing -> missingTypeInfo ("infix left argument for " <> T.unpack (nameText op))
-  rhsTy <-
-    case maybeRhsTy of
-      Just ty | isUsableKnownType ty -> pure ty
-      _ ->
-        case derived of
-          Just (_, ty) -> pure ty
-          Nothing -> missingTypeInfo ("infix right argument for " <> T.unpack (nameText op))
-  pure (lhsTy, rhsTy)
-
-infixArgTypesFromOpTc :: TcType -> TcType -> Maybe (TcType, TcType)
-infixArgTypesFromOpTc opTy expected =
-  case qualifiedBody opTy of
-    TcFunTy formalLhs rest ->
-      case qualifiedBody rest of
-        TcFunTy formalRhs formalResult -> do
-          subst <- matchTypes [formalResult] [expected]
-          pure (substType subst formalLhs, substType subst formalRhs)
-        _ -> Nothing
-    _ -> Nothing
-
-exprTypeMaybeTc :: Map Text TcType -> Expr -> TcM (Maybe TcType)
-exprTypeMaybeTc locals expr =
-  case expr of
-    EAnn _ inner -> exprTypeMaybeTc locals inner
-    EParen inner -> exprTypeMaybeTc locals inner
-    EInt {} -> pure (Just intTy)
-    EChar {} -> pure (Just charTy)
-    EString {} -> pure (Just (listType charTy))
-    EVar name -> exprTypeMaybeNameTc locals name
-    EApp fun arg -> do
-      funTy <- exprTypeMaybeTc locals fun
-      argTy <- exprTypeMaybeTc locals arg
-      pure (funTy >>= \fTy -> argTy >>= appResultTypeTc fTy)
-    EInfix lhs op rhs -> do
-      opTy <- exprTypeMaybeNameTc locals op
-      lhsTy <- exprTypeMaybeTc locals lhs
-      rhsTy <- exprTypeMaybeTc locals rhs
-      pure (opTy >>= \fTy -> lhsTy >>= appResultTypeTc fTy >>= \partialTy -> rhsTy >>= appResultTypeTc partialTy)
-    EList (item : _) -> fmap listType <$> exprTypeMaybeTc locals item
-    _ -> pure Nothing
-
-exprTypeMaybeNameTc :: Map Text TcType -> Name -> TcM (Maybe TcType)
-exprTypeMaybeNameTc locals name =
-  case lookupLocalName name locals of
-    Just ty -> pure (Just ty)
-    Nothing -> fmap binderType <$> lookupTermName name
-
-appResultTypeTc :: TcType -> TcType -> Maybe TcType
-appResultTypeTc funTy argTy
-  | isInstantiableType argTy = Nothing
-  | otherwise =
-      case qualifiedBody funTy of
-        TcFunTy formalArg formalResult -> do
-          subst <- matchTypes [formalArg] [argTy]
-          pure (substType subst formalResult)
-        _ -> Nothing
-
-patternBindingsFrom :: Pattern -> TcType -> TcM [(Text, TcType)]
-patternBindingsFrom pat ty =
-  case pat of
-    PVar name -> pure [(unqualifiedNameText name, ty)]
-    PAnn _ inner -> patternBindingsFrom inner ty
-    PParen inner -> patternBindingsFrom inner ty
-    PAs name inner -> ((unqualifiedNameText name, ty) :) <$> patternBindingsFrom inner ty
-    PStrict inner -> patternBindingsFrom inner ty
-    PIrrefutable inner -> patternBindingsFrom inner ty
-    PInfix lhs op rhs
-      | nameText op == ":" ->
-          case listElemTyTc ty of
-            Just elemTy -> (++) <$> patternBindingsFrom lhs elemTy <*> patternBindingsFrom rhs ty
-            Nothing -> do
-              _ <- missingTypeInfo ("list pattern element type for " <> take 80 (show pat))
-              pure []
-      | otherwise -> (++) <$> patternBindingsFrom lhs ty <*> patternBindingsFrom rhs ty
-    _ -> pure []
-
 methodExpectedType :: [TcType] -> Text -> TcM TcType
 methodExpectedType headTys methodName = do
   mBinder <- lookupTerm methodName
@@ -808,57 +757,21 @@ methodExpectedType headTys methodName = do
     Just (TcMonoIdBinder _ ty) -> pure ty
     Nothing -> missingTypeInfo ("class method " <> T.unpack methodName)
 
-listElemTyTc :: TcType -> Maybe TcType
-listElemTyTc (TcTyCon (TyCon "[]" 1) [elemTy]) = Just elemTy
-listElemTyTc _ = Nothing
-
-listElemTypeFromItems :: Map Text TcType -> [Expr] -> TcM (Maybe TcType)
-listElemTypeFromItems _ [] = pure Nothing
-listElemTypeFromItems locals (item : _) = exprTypeMaybeTc locals item
-
-tupleElemTypesTc :: TcType -> Int -> TcM [TcType]
-tupleElemTypesTc (TcTyCon (TyCon _ arity) elemTys) expectedArity
-  | arity == expectedArity,
-    length elemTys == expectedArity =
-      pure elemTys
-tupleElemTypesTc ty arity =
-  replicate arity <$> missingTypeInfo ("tuple element types for " <> show arity <> "-tuple: " <> show ty)
-
 firstClassPredSubst :: [Pred] -> [TcType] -> Maybe (Map Unique TcType)
 firstClassPredSubst preds headTys =
   case [classArgs | ClassPred _ classArgs <- preds] of
     classArgs : _ -> matchTypes classArgs headTys
     [] -> Nothing
 
-missingTypeInfo :: String -> TcM TcType
-missingTypeInfo msg = do
-  emitError NoSourceSpan (OtherError ("internal type annotation error: missing " <> msg))
-  pure (TcMetaTv (Unique (-1)))
-
-qualifiedBody :: TcType -> TcType
-qualifiedBody ty =
-  case splitQualifiedType ty of
-    Just (_tvs, _preds, body) -> body
-    Nothing -> snd (peelForAlls ty)
+missingTypeInfo :: String -> TcM a
+missingTypeInfo msg =
+  abortTc ("internal type annotation error: missing " <> msg)
 
 selectorDictTypeTc :: Text -> TcType -> TcM TcType
 selectorDictTypeTc methodName methodTy =
   case snd (peelForAlls methodTy) of
     TcQualTy (pred' : _) _ -> pure (predType pred')
     _ -> missingTypeInfo ("class dictionary type for method selector " <> T.unpack methodName)
-
-qualifiedPreds :: TcType -> [Pred]
-qualifiedPreds ty =
-  case splitQualifiedType ty of
-    Just (_tvs, preds, _body) -> preds
-    Nothing -> []
-
-splitQualifiedType :: TcType -> Maybe ([TyVarId], [Pred], TcType)
-splitQualifiedType ty =
-  let (tvs, body) = peelForAlls ty
-   in case body of
-        TcQualTy preds inner -> Just (tvs, preds, inner)
-        _ -> Nothing
 
 peelForAlls :: TcType -> ([TyVarId], TcType)
 peelForAlls (TcForAllTy tv body) =
@@ -892,30 +805,6 @@ classItemMethodNames item =
     ClassItemTypeSig names _ -> map unqualifiedNameText names
     _ -> []
 
-isInstantiableType :: TcType -> Bool
-isInstantiableType ty =
-  case ty of
-    TcForAllTy {} -> True
-    TcQualTy {} -> True
-    _ -> False
-
-isUsableKnownType :: TcType -> Bool
-isUsableKnownType ty = not (isInstantiableType ty) && not (hasMetaType ty)
-
-hasMetaType :: TcType -> Bool
-hasMetaType ty =
-  case ty of
-    TcMetaTv {} -> True
-    TcTyCon _ args -> any hasMetaType args
-    TcFunTy a b -> hasMetaType a || hasMetaType b
-    TcForAllTy _ body -> hasMetaType body
-    TcQualTy preds body -> any hasMetaPred preds || hasMetaType body
-    TcAppTy f a -> hasMetaType f || hasMetaType a
-    TcTyVar {} -> False
-  where
-    hasMetaPred (ClassPred _ args) = any hasMetaType args
-    hasMetaPred (EqPred left right) = hasMetaType left || hasMetaType right
-
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets
   | length patterns /= length targets = Nothing
@@ -947,31 +836,6 @@ substPred subst (EqPred left right) = EqPred (substType subst left) (substType s
 substType :: Map Unique TcType -> TcType -> TcType
 substType = Aihc.Tc.Instantiate.applySubst
 
-nameToText :: Name -> Text
-nameToText n = case nameQualifier n of
-  Nothing -> nameText n
-  Just q -> q <> "." <> nameText n
-
-lookupLocalName :: Name -> Map Text TcType -> Maybe TcType
-lookupLocalName name locals =
-  Map.lookup (nameToText name) locals <|> Map.lookup (nameText name) locals
-
-lookupTermName :: Name -> TcM (Maybe TcBinder)
-lookupTermName name = do
-  qualified <- lookupTerm (nameToText name)
-  case qualified of
-    Just binder -> pure (Just binder)
-    Nothing -> lookupTerm (nameText name)
-
-intTy :: TcType
-intTy = TcTyCon (TyCon "Int" 0) []
-
-charTy :: TcType
-charTy = TcTyCon (TyCon "Char" 0) []
-
-boolTy :: TcType
-boolTy = TcTyCon (TyCon "Bool" 0) []
-
 -- | Collect type signatures from a list of declarations.
 collectUserSigs :: [Decl] -> Map Text UserSig
 collectUserSigs decls = Map.fromList $ concatMap (extractSig NoSourceSpan) decls
@@ -1001,9 +865,6 @@ checkUserSig userSig = do
         checkedSigSpan = userSigSpan userSig
       }
 
-listType :: TcType -> TcType
-listType ty = TcTyCon (TyCon "[]" 1) [ty]
-
 splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
@@ -1012,13 +873,14 @@ splitContext ty = ([], ty)
 simpleTvKindEnv :: Map Text TyVarId -> TvKindEnv
 simpleTvKindEnv = Map.map (,KType)
 
--- | Instantiate a type scheme with fresh skolems for type-checking.
+-- | Instantiate a type scheme with fresh skolems for type-checking while
+-- preserving the scheme predicates as scoped givens for the checked body.
 -- Unlike regular instantiation (which uses metas), this produces rigid
 -- type variables that cannot be unified during constraint solving.
-skolemize :: TypeScheme -> TcM TcType
-skolemize (ForAll tvs _preds body) = do
+skolemizeQualified :: TypeScheme -> TcM ([Pred], TcType)
+skolemizeQualified (ForAll tvs preds body) = do
   subst <- Map.fromList <$> mapM mkSubst tvs
-  pure (Aihc.Tc.Instantiate.applySubst subst body)
+  pure (map (substPred subst) preds, substType subst body)
   where
     mkSubst tv = do
       sk <- freshSkolemTv (tvName tv)
@@ -1147,6 +1009,12 @@ freeVarsExpr expr =
     EApp fun arg -> freeVarsExpr fun ++ freeVarsExpr arg
     _ -> []
 
+nameToText :: Name -> Text
+nameToText name =
+  case nameQualifier name of
+    Nothing -> nameText name
+    Just qualifier -> qualifier <> "." <> nameText name
+
 freeVarsAlt :: CaseAlt Expr -> [Text]
 freeVarsAlt (CaseAlt _ pat rhs) =
   freeVarsRhs rhs \\ patternBinders pat
@@ -1203,7 +1071,7 @@ tcFunctionWithSig displayName name sig matches = do
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
-      sigTy <- skolemize scheme
+      (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
             (m : _) -> length (matchPats m)
             [] -> 0
@@ -1213,8 +1081,7 @@ tcFunctionWithSig displayName name sig matches = do
       let (ctsList, implsList) = unzip results
           allCts = concat ctsList
           allImpls = concat implsList
-      _ <- solveWithImpls allCts allImpls
-      pure ()
+      solveBodyConstraintsWithGivens sigPreds allCts allImpls
   if failed
     then pure []
     else do
@@ -1237,10 +1104,41 @@ tcFunctionInfer displayName name matches = do
     then pure []
     else do
       scheme <- generalizeIgnoring [name] ty []
+      commitGeneralizedMetas ty scheme
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       pure [TcBindingResult name displayName zonkedTy]
+
+commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
+commitGeneralizedMetas ty (ForAll _ _ body) = do
+  ty' <- zonkType ty
+  mapM_ commit (metaTyVarPairs ty' body)
+  where
+    commit (meta, tv) = writeMetaTv meta (TcTyVar tv)
+
+metaTyVarPairs :: TcType -> TcType -> [(Unique, TyVarId)]
+metaTyVarPairs (TcMetaTv u) (TcTyVar tv) = [(u, tv)]
+metaTyVarPairs (TcTyCon tc args) (TcTyCon targetTc targetArgs)
+  | tc == targetTc,
+    length args == length targetArgs =
+      concat (zipWith metaTyVarPairs args targetArgs)
+metaTyVarPairs (TcFunTy a b) (TcFunTy targetA targetB) =
+  metaTyVarPairs a targetA <> metaTyVarPairs b targetB
+metaTyVarPairs (TcAppTy f a) (TcAppTy targetF targetA) =
+  metaTyVarPairs f targetF <> metaTyVarPairs a targetA
+metaTyVarPairs (TcQualTy preds body) (TcQualTy targetPreds targetBody) =
+  concat (zipWith metaTyVarPairsPred preds targetPreds) <> metaTyVarPairs body targetBody
+metaTyVarPairs _ _ = []
+
+metaTyVarPairsPred :: Pred -> Pred -> [(Unique, TyVarId)]
+metaTyVarPairsPred (ClassPred className args) (ClassPred targetClass targetArgs)
+  | className == targetClass,
+    length args == length targetArgs =
+      concat (zipWith metaTyVarPairs args targetArgs)
+metaTyVarPairsPred (EqPred left right) (EqPred targetLeft targetRight) =
+  metaTyVarPairs left targetLeft <> metaTyVarPairs right targetRight
+metaTyVarPairsPred _ _ = []
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.

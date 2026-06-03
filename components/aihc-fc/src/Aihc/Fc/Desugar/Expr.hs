@@ -20,6 +20,7 @@ module Aihc.Fc.Desugar.Expr
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure)
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -190,6 +191,9 @@ peelQuals :: TcType -> ([Pred], TcType)
 peelQuals (TcQualTy preds body) = (preds, body)
 peelQuals ty = ([], ty)
 
+qualifiedBody :: TcType -> TcType
+qualifiedBody ty = snd (peelQuals (snd (peelForAlls ty)))
+
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
 predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
@@ -330,18 +334,18 @@ dsExpr (EApp fun arg) =
 dsExpr (EInfix lhs op rhs) =
   dsInfix lhs op rhs
 dsExpr EList {} =
-  desugarBug "missing type-checker annotation for list expression"
+  desugarBug "missing type-checker annotation for list literal"
 dsExpr ETuple {} =
-  desugarBug "missing type-checker annotation for tuple expression"
+  desugarBug "missing type-checker annotation for tuple literal"
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (ETypeSig inner _ty) = dsExpr inner
-dsExpr EIf {} =
-  desugarBug "missing type-checker annotation for if expression"
-dsExpr ECase {} =
-  desugarBug "missing type-checker annotation for case expression"
-dsExpr ELambdaPats {} =
-  desugarBug "missing type-checker annotation for lambda expression"
+dsExpr (EIf cond thenE elseE) =
+  dsIf cond thenE elseE
+dsExpr (ECase scrut alts) =
+  dsCase scrut alts
+dsExpr (ELambdaPats pats body) =
+  dsLambda pats body
 dsExpr (ELetDecls decls body) =
   dsLetDecls decls (dsExpr body)
 dsExpr expr =
@@ -368,7 +372,7 @@ dsAnnotatedExpr tcAnn inner =
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     EList elems -> dsList tcAnn elems
     ETuple Boxed elems -> dsTuple tcAnn elems
-    ELambdaPats pats body -> dsLambda tcAnn pats body
+    ELambdaPats pats body -> dsLambda pats body
     EIf cond thenE elseE -> dsIf cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
@@ -401,8 +405,11 @@ dsIf cond thenE elseE = do
 
 dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
 dsCase scrut alts = do
-  scrutTy <- exprAnnotationTypeRequired scrut
   scrut' <- dsExpr scrut
+  scrutTy <-
+    case exprAnnotationType scrut of
+      Just ty -> pure ty
+      Nothing -> fcExprTypeM scrut'
   binder <- freshVar "_case" scrutTy
   alts' <- mapM (dsCaseAlt scrutTy) alts
   pure (FcCase scrut' binder alts')
@@ -537,15 +544,12 @@ dsList tcAnn elems =
     elemTys ->
       desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
 
-dsLambda :: TcAnnotation -> [Pattern] -> Expr -> DsM FcExpr
-dsLambda tcAnn pats body = do
-  let argTys = tcAnnTermArgTypes tcAnn
-  if length argTys == length pats
-    then do
-      vars <- zipWithM freshVar (map lambdaArgName pats) argTys
-      body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
-      pure (foldr FcLam body' vars)
-    else desugarBug ("lambda annotation arity mismatch: expected " <> show (length pats) <> " argument type(s), got " <> show (length argTys))
+dsLambda :: [Pattern] -> Expr -> DsM FcExpr
+dsLambda pats body = do
+  argTys <- mapM lambdaPatternTypeRequired pats
+  vars <- zipWithM freshVar (map lambdaArgName pats) argTys
+  body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
+  pure (foldr FcLam body' vars)
 
 lambdaArgName :: Pattern -> Text
 lambdaArgName pat =
@@ -669,12 +673,6 @@ nameTcAnnotation :: Name -> Maybe TcAnnotation
 nameTcAnnotation =
   listToMaybe . mapMaybe fromAnnotation . nameAnns
 
-exprAnnotationTypeRequired :: Expr -> DsM TcType
-exprAnnotationTypeRequired expr =
-  case exprAnnotationType expr of
-    Just ty -> pure ty
-    Nothing -> desugarBug ("missing type-checker annotation for expression: " <> take 80 (show expr))
-
 patternBinderTypesM :: Pattern -> TcType -> DsM [TcType]
 patternBinderTypesM pat scrutTy =
   case pat of
@@ -697,6 +695,64 @@ listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
+
+lambdaPatternTypeRequired :: Pattern -> DsM TcType
+lambdaPatternTypeRequired pat =
+  case patternAnnotationType pat of
+    Just ty -> pure ty
+    Nothing -> desugarBug ("missing type-checker annotation for lambda pattern: " <> take 80 (show pat))
+
+patternAnnotationType :: Pattern -> Maybe TcType
+patternAnnotationType pat =
+  case pat of
+    PAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn -> Just (tcAnnType tcAnn)
+        Nothing -> patternAnnotationType inner
+    PParen inner -> patternAnnotationType inner
+    PStrict inner -> patternAnnotationType inner
+    PIrrefutable inner -> patternAnnotationType inner
+    PAs _ inner -> patternAnnotationType inner
+    PTypeSig inner _ -> patternAnnotationType inner
+    _ -> Nothing
+
+fcExprTypeM :: FcExpr -> DsM TcType
+fcExprTypeM expr =
+  case expr of
+    FcVar var -> pure (varType var)
+    FcLit lit -> pure (litType lit)
+    FcApp fun _arg -> do
+      funTy <- qualifiedBody <$> fcExprTypeM fun
+      case funTy of
+        TcFunTy _argTy resTy -> pure resTy
+        _ -> desugarBug ("application to non-function type while desugaring: " <> show funTy)
+    FcDictApp fun _dict -> do
+      funTy <- fcExprTypeM fun
+      case funTy of
+        TcQualTy (_pred : preds) body -> pure (if null preds then body else TcQualTy preds body)
+        TcFunTy _argTy resTy -> pure resTy
+        _ -> desugarBug ("dictionary application to non-qualified type while desugaring: " <> show funTy)
+    FcTyApp fun ty -> do
+      funTy <- fcExprTypeM fun
+      case funTy of
+        TcForAllTy tv body -> pure (substType (Map.singleton tv ty) body)
+        _ -> desugarBug ("type application to non-forall type while desugaring: " <> show funTy)
+    FcLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
+    FcTyLam tv body -> TcForAllTy tv <$> fcExprTypeM body
+    FcDictLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
+    FcDict _fields -> pure (TcTyCon (TyCon "Dict" 0) [])
+    FcDictSelect {} -> desugarBug "dictionary selection lacks field type annotation while desugaring"
+    FcLet _bind body -> fcExprTypeM body
+    FcCase _scrut _binder alts ->
+      case alts of
+        [] -> desugarBug "case expression has no alternatives while desugaring"
+        FcAlt _ _ body : _ -> fcExprTypeM body
+    FcCast inner _co -> fcExprTypeM inner
+
+litType :: Literal -> TcType
+litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
+litType (LitChar _) = TcTyCon (TyCon "Char" 0) []
+litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)

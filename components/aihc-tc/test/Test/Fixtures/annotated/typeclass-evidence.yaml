@@ -1,17 +1,3 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = False | True
-    class Eq a where
-      (==) :: a -> a -> Bool
-    instance Eq Bool where
-      False == False = True
-      False == True = False
-      True == False = False
-      True == True = True
-    eqBool :: Bool -> Bool -> Bool
-    eqBool = (==)
 annotated:
 - |-
   module Test where
@@ -20,21 +6,35 @@ annotated:
        │      └─ False ∷ Bool
        └─ Bool ∷ *
   class Eq a where
-  └─ == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
     (==) :: a -> a -> Bool
+     └─ == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
   instance Eq Bool where
   └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
-    └─ == ∷ Bool → Bool → Bool
+          └─ == ∷ Bool → Bool → Bool
     False == True = False
-    └─ == ∷ Bool → Bool → Bool
+          └─ == ∷ Bool → Bool → Bool
     True == False = False
-    └─ == ∷ Bool → Bool → Bool
+         └─ == ∷ Bool → Bool → Bool
     True == True = True
-    └─ == ∷ Bool → Bool → Bool
+         └─ == ∷ Bool → Bool → Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
-  │        └─ type-args: Bool; evidence: $fEqBool
+  │         └─ type-args: Bool; evidence: $fEqBool
   └─ eqBool ∷ Bool → Bool → Bool
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+  class Eq a where
+    (==) :: a -> a -> Bool
+  instance Eq Bool where
+    False == False = True
+    False == True = False
+    True == False = False
+    True == True = True
+  eqBool :: Bool -> Bool -> Bool
+  eqBool = (==)
+reason: ''
 status: pass
-reason: ""

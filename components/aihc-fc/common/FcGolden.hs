@@ -15,7 +15,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModule)
+import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithBindings)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
   ( ParserConfig (..),
@@ -23,6 +23,8 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
+import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -132,10 +134,19 @@ evaluateFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          let results = map desugarModule modules
-           in if all dsSuccess results
-                then classifySuccess tc (renderResults results)
-                else classifyFailure tc (renderErrors results)
+          case resolve modules of
+            ResolveResult {resolvedModules, resolveErrors = []} ->
+              let tcResults = typecheck resolvedModules
+               in if all tcmSuccess tcResults
+                    then
+                      let allBindings = moduleGroupBindings tcResults
+                          results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                       in if all dsSuccess results
+                            then classifySuccess tc (renderResults results)
+                            else classifyFailure tc (renderErrors results)
+                    else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
+            ResolveResult {resolveErrors} ->
+              classifyFailure tc ("resolve error: " <> show resolveErrors)
   where
     parseOne input =
       let config =
@@ -151,6 +162,14 @@ evaluateFcCase tc =
       unlines (map (renderProgram . dsProgram) results)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
+
+moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings =
+  concatMap tcmBindings
+
+renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors results =
+  unlines [show d | r <- results, d <- tcmDiagnostics r]
 
 classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =

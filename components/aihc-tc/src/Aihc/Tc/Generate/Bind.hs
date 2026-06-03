@@ -3,7 +3,6 @@
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
   ( InferExpr,
-    inferLocalDeclBinders,
     inferLocalDecls,
     inferRhsWithLocals,
     collectRawSigs,
@@ -37,10 +36,12 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (unqualifiedNameOccurrenceKey)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
+import Data.Foldable (for_)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -67,35 +68,57 @@ inferLocalDecls inferExpr decls body = do
       then do
         _ <- solveConstraints bindingCts
         polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
+        recordLocalBindingElaborations decls polyBinders
         withLocalBinders polyBinders $ do
           (bodyTy, bodyCts) <- body
           pure (bodyTy, bodyCts)
       else do
+        monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
+        recordLocalBindingElaborations decls monoBinders
         (bodyTy, bodyCts) <- body
         pure (bodyTy, bindingCts ++ bodyCts)
 
-inferLocalDeclBinders :: InferExpr -> [(Text, TcBinder)] -> [Decl] -> TcM [(Text, TcBinder)]
-inferLocalDeclBinders inferExpr ambientBinders decls =
-  withLocalBinders ambientBinders $ do
-    inferLocalDeclBindersInner inferExpr decls
+recordLocalBindingElaborations :: [Decl] -> [(Text, TcBinder)] -> TcM ()
+recordLocalBindingElaborations decls binders = do
+  let binderTypes = Map.fromList [(name, binderType binder) | (name, binder) <- binders]
+  mapM_ (recordOne binderTypes) (localBindingKeys decls)
+  where
+    recordOne binderTypes (key, name) =
+      for_ (Map.lookup name binderTypes) (recordBindingElaboration key)
 
-inferLocalDeclBindersInner :: InferExpr -> [Decl] -> TcM [(Text, TcBinder)]
-inferLocalDeclBindersInner inferExpr decls = do
-  let rawSigs = collectRawSigs decls
-      groups = groupValueDecls decls
-      binders = nub (concatMap groupBinders groups)
-      binderSet = Set.fromList binders
-      ignored = binders
-  sigs <- traverse sigToScheme rawSigs
-  placeholders <- traverse (placeholderFor sigs) binders
-  let placeholderMap = Map.fromList placeholders
-  shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholderMap $ do
-    bindingCts <- concat <$> mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
-    _ <- solveConstraints bindingCts
-    if shouldGen
-      then traverse (generalizedBinder sigs ignored placeholderMap) binders
-      else traverse (monomorphicBinder sigs placeholderMap) binders
+binderType :: TcBinder -> TcType
+binderType (TcIdBinder _ scheme _) = schemeToType scheme
+binderType (TcMonoIdBinder _ ty) = ty
+
+localBindingKeys :: [Decl] -> [(OccurrenceKey, Text)]
+localBindingKeys =
+  concatMap declBindingKeys
+
+declBindingKeys :: Decl -> [(OccurrenceKey, Text)]
+declBindingKeys decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind name _) ->
+      maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name)
+    DeclValue (PatternBind _ pat _) ->
+      patternBindingKeys pat
+    _ -> []
+
+patternBindingKeys :: Pattern -> [(OccurrenceKey, Text)]
+patternBindingKeys pat =
+  case pat of
+    PVar name -> maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name)
+    PAnn _ inner -> patternBindingKeys inner
+    PParen inner -> patternBindingKeys inner
+    PAs name inner -> maybe [] (\key -> [(key, unqualifiedNameText name)]) (unqualifiedNameOccurrenceKey name) <> patternBindingKeys inner
+    PStrict inner -> patternBindingKeys inner
+    PIrrefutable inner -> patternBindingKeys inner
+    PList items -> concatMap patternBindingKeys items
+    PTuple _ items -> concatMap patternBindingKeys items
+    PUnboxedSum _ _ inner -> patternBindingKeys inner
+    PInfix lhs _ rhs -> patternBindingKeys lhs <> patternBindingKeys rhs
+    PCon _ _ pats -> concatMap patternBindingKeys pats
+    PTypeSig inner _ -> patternBindingKeys inner
+    _ -> []
 
 monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> Text -> TcM (Text, TcBinder)
 monomorphicBinder sigs placeholders name =

@@ -2,6 +2,7 @@ annotated:
 - |-
   module Test where
   f x = let g :: a -> a; g y = y in g x
+  │ │                    │ │        └─ type-args: a
   │ └─ x ∷ a             │ └─ y ∷ a
   └─ f ∷ ∀ a. a → a      └─ g ∷ ∀ a. a → a
 extensions: []

@@ -1,6 +1,6 @@
 -- | Entry point for the aihc type checker.
 --
--- The type checker consumes a parsed (and optionally name-resolved) AST
+-- The type checker consumes a parsed and name-resolved AST
 -- and produces the same AST annotated with typing information. It does
 -- not transform the tree structure.
 --
@@ -179,7 +179,9 @@ typecheckModuleWithState st m =
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
-                tcsEvBinds = Map.empty
+                tcsEvBinds = Map.empty,
+                tcsOccurrenceElaborations = Map.empty,
+                tcsBindingElaborations = Map.empty
               }
        in (result, nextState)
   where

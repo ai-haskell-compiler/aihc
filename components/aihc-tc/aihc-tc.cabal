@@ -25,6 +25,7 @@ library
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
+    Aihc.Tc.NameKey
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Dict
@@ -38,6 +39,7 @@ library
   hs-source-dirs: src
   build-depends:
     aihc-parser,
+    aihc-resolve,
     base >=4.16 && <5,
     containers,
     text >=1.2,
@@ -62,6 +64,7 @@ test-suite spec
   build-depends:
     aeson,
     aihc-parser,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,

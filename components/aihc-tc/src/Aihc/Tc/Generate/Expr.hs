@@ -32,8 +32,9 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Instantiate (instantiate)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Monad
+import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey)
 import Aihc.Tc.Types
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -48,7 +49,7 @@ inferExpr = inferExprAt NoSourceSpan
 inferExprAt :: SourceSpan -> Expr -> TcM (TcType, [Ct])
 inferExprAt ambient expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar name -> inferVar (exprSpan expr `orSourceSpan` ambient) (nameToText name)
+  EVar name -> inferVar (exprSpan expr `orSourceSpan` ambient) name
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
   -- literals keep their primitive, unboxed type.
   EInt _ numericType _ -> pure (numericLiteralType numericType, [])
@@ -104,20 +105,44 @@ inferExprAt ambient expr = case expr of
     pure (ty, [])
 
 -- | Infer the type of a variable reference.
-inferVar :: SourceSpan -> Text -> TcM (TcType, [Ct])
-inferVar sp name = do
+inferVar :: SourceSpan -> Name -> TcM (TcType, [Ct])
+inferVar ambient nameSyntax = do
+  let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
+      name = nameToText nameSyntax
+      maybeKey = nameOccurrenceKey nameSyntax
   mBinder <- lookupTerm name
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
-      (ty, preds) <- instantiate scheme
-      cts <- mapM (predToCt sp name) preds
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp name) (instPreds inst)
+      recordVarOccurrence maybeKey $
+        OccurrenceElaboration
+          { occurrenceElabType = instType inst,
+            occurrenceElabTypeArgs = instTypeArgs inst,
+            occurrenceElabEvidenceVars = map ctEvVar cts,
+            occurrenceElabTermArgTypes = []
+          }
+      let ty = instType inst
       pure (ty, cts)
-    Just (TcMonoIdBinder _ ty) ->
+    Just (TcMonoIdBinder _ ty) -> do
+      recordVarOccurrence maybeKey $
+        OccurrenceElaboration
+          { occurrenceElabType = ty,
+            occurrenceElabTypeArgs = [],
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
       pure (ty, [])
     Nothing -> do
       emitError sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv
       pure (ty, [])
+
+recordVarOccurrence :: Maybe OccurrenceKey -> OccurrenceElaboration -> TcM ()
+recordVarOccurrence maybeKey elaboration =
+  case maybeKey of
+    Just key -> recordOccurrenceElaboration key elaboration
+    Nothing -> pure ()
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
@@ -136,6 +161,14 @@ inferLambda sp pats body = do
   -- Infer the body under the extended environment.
   (bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
+  recordOccurrenceElaboration
+    lambdaOccurrenceKey
+    OccurrenceElaboration
+      { occurrenceElabType = funTy,
+        occurrenceElabTypeArgs = [],
+        occurrenceElabEvidenceVars = [],
+        occurrenceElabTermArgTypes = argTys
+      }
   pure (funTy, pcWantedCts patCheck ++ bodyCts)
 
 -- | Infer the type of a lambda-case expression.
@@ -284,7 +317,16 @@ inferTuple _sp elems = do
   -- Represent tuples as TcTyCon with a tuple type constructor.
   let n = length tys
   let tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
-  pure (TcTyCon tc tys, cts)
+  let tupleTy = TcTyCon tc tys
+  recordOccurrenceElaboration
+    tupleOccurrenceKey
+    OccurrenceElaboration
+      { occurrenceElabType = tupleTy,
+        occurrenceElabTypeArgs = tys,
+        occurrenceElabEvidenceVars = [],
+        occurrenceElabTermArgTypes = []
+      }
+  pure (tupleTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -296,7 +338,9 @@ inferList :: SourceSpan -> [Expr] -> TcM (TcType, [Ct])
 inferList sp elems = case elems of
   [] -> do
     elemTy <- freshMetaTv
-    pure (TcTyCon listTyCon' [elemTy], [])
+    let listTy = TcTyCon listTyCon' [elemTy]
+    recordListElaboration listTy elemTy
+    pure (listTy, [])
   (e : es) -> do
     let headSp = exprSpan e `orSourceSpan` sp
     (headTy, headCts) <- inferExpr e
@@ -304,12 +348,23 @@ inferList sp elems = case elems of
     let tailCts = concatMap (\(_, elemCts, _) -> elemCts) results
     -- All elements must have the same type.
     eqCts <- mapM (mkElemEq headSp headTy) results
-    pure (TcTyCon listTyCon' [headTy], headCts ++ tailCts ++ eqCts)
+    let listTy = TcTyCon listTyCon' [headTy]
+    recordListElaboration listTy headTy
+    pure (listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
       (elemTy, elemCts) <- inferExpr elemExpr
       pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
+    recordListElaboration listTy elemTy =
+      recordOccurrenceElaboration
+        listOccurrenceKey
+        OccurrenceElaboration
+          { occurrenceElabType = listTy,
+            occurrenceElabTypeArgs = [elemTy],
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
     mkElemEq headSp headTy (elemTy, _, elemSp) = do
       ev <- freshEvVar
       pure $
@@ -327,6 +382,15 @@ inferList sp elems = case elems of
           ev
           (AppOrigin elemSp)
           elemSp
+
+tupleOccurrenceKey :: OccurrenceKey
+tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
+
+listOccurrenceKey :: OccurrenceKey
+listOccurrenceKey = syntaxOccurrenceKey "$list"
+
+lambdaOccurrenceKey :: OccurrenceKey
+lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
 
 -- | Infer the type of a list comprehension.
 --

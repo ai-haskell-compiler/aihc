@@ -10,7 +10,7 @@ where
 
 import Aihc.Cpp (Result (..))
 import Aihc.Dev.Parser.Run qualified as ParserRun
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModule, desugarModuleWithBindings, evalProgramBinding, renderProgram, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderProgram, renderRawValue)
 import Aihc.Fmt (defaultFormatOptions, formatErrorMessage, formatExtensions, formatText)
 import Aihc.Parser
   ( ParseResult (..),
@@ -353,10 +353,13 @@ tcAnnotatedActual value = do
   exts <- parseExtensions value
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
-  let results = typecheck parsed
-  if all tcmSuccess results
-    then Right (map trim (renderAnnotatedTcResults modules results))
-    else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
+  case resolve parsed of
+    ResolveResult {resolvedModules, resolveErrors = []} ->
+      let results = typecheck resolvedModules
+       in if all tcmSuccess results
+            then Right (map trim (renderAnnotatedTcResults modules results))
+            else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
+    ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 updateFcGoldens :: Options -> IO Summary
 updateFcGoldens opts =
@@ -372,10 +375,18 @@ fcActual value = do
   exts <- parseExtensions value
   modules <- parseTextArrayField "modules" value
   parsed <- traverse (parseModuleText exts) modules
-  let results = map desugarModule parsed
-  if all dsSuccess results
-    then Right (trim (unlines (map (renderProgram . dsProgram) results)))
-    else Left (unlines [err | r <- results, err <- dsErrors r])
+  case resolve parsed of
+    ResolveResult {resolvedModules, resolveErrors = []} ->
+      let tcResults = typecheck resolvedModules
+       in if all tcmSuccess tcResults
+            then
+              let allBindings = moduleGroupBindings tcResults
+                  dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+               in if all dsSuccess dsResults
+                    then Right (trim (unlines (map (renderProgram . dsProgram) dsResults)))
+                    else Left (unlines [err | r <- dsResults, err <- dsErrors r])
+            else Left ("typecheck error: " <> renderTcErrors tcResults)
+    ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 updateFcEvalGoldens :: Options -> IO Summary
 updateFcEvalGoldens opts =

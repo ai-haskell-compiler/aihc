@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     fromAnnotation,
   )
+import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -181,6 +182,7 @@ kindTests =
             typecheckModule $
               parseM
                 "module Test where\n\
+                \data Int = I\n\
                 \data M a = J a | N\n\
                 \fn :: M Int\n\
                 \fn = N\n"
@@ -210,6 +212,17 @@ annotationTests =
       assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
       assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
       assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result)),
+    testCase "polymorphic occurrence type arguments are finalized" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \f x = x\n\
+                \g y = f (f y)\n"
+          typeArgs = concatMap tcAnnTypeArgs (exprAnnotations (tcmModule result))
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "expected polymorphic occurrence type arguments" (not (null typeArgs))
+      assertBool "type arguments should not leak unsolved metas" (not (any hasMetaTcType typeArgs)),
     testCase "type rendering uses unicode syntax" $ do
       let a = TyVarId "a" (Unique 1)
           aTy = TcTyVar a
@@ -254,7 +267,9 @@ parseM input =
   let config = defaultConfig {parserSourceName = "<test>"}
       (errs, modu) = parseModule config input
    in if null errs
-        then modu
+        then case resolve [modu] of
+          ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
+          ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
         else error ("Parse error in test: " ++ show errs)
 
 evidenceDictNames :: Module -> [Text]
@@ -276,6 +291,20 @@ hasGivenClass className =
     isGiven (EvSuperClass ev _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev
     isGiven _ = False
+
+hasMetaTcType :: TcType -> Bool
+hasMetaTcType ty =
+  case ty of
+    TcMetaTv {} -> True
+    TcTyCon _ args -> any hasMetaTcType args
+    TcFunTy arg result -> hasMetaTcType arg || hasMetaTcType result
+    TcForAllTy _ body -> hasMetaTcType body
+    TcQualTy preds body -> any hasMetaPred preds || hasMetaTcType body
+    TcAppTy fun arg -> hasMetaTcType fun || hasMetaTcType arg
+    TcTyVar {} -> False
+  where
+    hasMetaPred (ClassPred _ args) = any hasMetaTcType args
+    hasMetaPred (EqPred left right) = hasMetaTcType left || hasMetaTcType right
 
 hasClassMethod :: Text -> Int -> Module -> Bool
 hasClassMethod methodName methodIndex =

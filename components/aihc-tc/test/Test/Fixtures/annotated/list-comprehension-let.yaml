@@ -7,8 +7,7 @@ annotated:
 - |-
   module Test where
   withLet list = [ y | x <- list, let y = x ]
-  │       │      │     └─ x ∷ a       └─ y ∷ a
-  │       │      └─ type-args: a
+  │       │            └─ x ∷ a       └─ y ∷ a
   │       └─ list ∷ [a]
   └─ withLet ∷ ∀ a. [a] → [a]
 status: pass

@@ -51,7 +51,7 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
 import Control.Applicative ((<|>))
-import Data.List (intercalate, sortOn)
+import Data.List (intercalate, isPrefixOf, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -415,7 +415,12 @@ compStmtLabels ambient stmt =
 patternLabels :: Maybe SourceSpan -> Pattern -> [TcLabel]
 patternLabels ambient pat =
   case pat of
-    PAnn ann inner -> patternLabels (fromAnnotation @SourceSpan ann <|> ambient) inner
+    PAnn ann inner ->
+      let ambient' = fromAnnotation @SourceSpan ann <|> ambient
+          own = case fromAnnotation @TcAnnotation ann of
+            Just tcAnn -> patternAnnotationLabels ambient' (tcAnnType tcAnn) inner
+            Nothing -> []
+       in own <> patternLabels ambient' inner
     PParen inner -> patternLabels ambient inner
     PAs _ inner -> patternLabels ambient inner
     PStrict inner -> patternLabels ambient inner
@@ -429,6 +434,17 @@ patternLabels ambient pat =
     PRecord _ fields _ -> concatMap (patternLabels ambient . recordFieldValue) fields
     PTypeSig inner _ -> patternLabels ambient inner
     PSplice expr -> exprLabels ambient expr
+    _ -> []
+
+patternAnnotationLabels :: Maybe SourceSpan -> TcType -> Pattern -> [TcLabel]
+patternAnnotationLabels ambient ty pat =
+  case pat of
+    PVar name -> binderLabel ambient ty name
+    PParen inner -> patternAnnotationLabels ambient ty inner
+    PAs name _ -> binderLabel ambient ty name
+    PStrict inner -> patternAnnotationLabels ambient ty inner
+    PIrrefutable inner -> patternAnnotationLabels ambient ty inner
+    PTypeSig inner _ -> patternAnnotationLabels ambient ty inner
     _ -> []
 
 elaborationLabel :: Maybe SourceSpan -> TcAnnotation -> [TcLabel]
@@ -620,7 +636,7 @@ classItemMethodSpans methodName ambient item =
     ClassItemDefault valueDecl ->
       [ sp
       | binder <- valueDeclBinders valueDecl,
-        renderBinderName binder == methodName,
+        unqualifiedNameText binder == methodName,
         Just sp <- [spanFromUnqualifiedName binder <|> ambient]
       ]
     _ -> []
@@ -629,7 +645,7 @@ matchingNameSpans :: Text -> Maybe SourceSpan -> [UnqualifiedName] -> [SourceSpa
 matchingNameSpans methodName ambient names =
   [ sp
   | name <- names,
-    renderBinderName name == methodName,
+    unqualifiedNameText name == methodName,
     Just sp <- [spanFromUnqualifiedName name <|> ambient]
   ]
 
@@ -640,7 +656,7 @@ instanceMethodSpan methodName item =
       listToMaybe
         [ sp
         | binder <- valueDeclBinders valueDecl,
-          renderBinderName binder == methodName,
+          unqualifiedNameText binder == methodName,
           Just sp <- [spanFromUnqualifiedName binder]
         ]
     InstanceItemAnn ann inner -> instanceMethodSpan methodName inner <|> fromAnnotation @SourceSpan ann
@@ -748,15 +764,21 @@ layoutAnnotationLines items =
 packLine :: [AnnotationItem] -> ([AnnotationItem], [AnnotationItem])
 packLine [] = ([], [])
 packLine (rightmost : rest) =
-  let go _minCol [] fitted deferred = (fitted, deferred)
+  let lineHasElaboration = annotationItemIsElaboration rightmost
+      go _minCol [] fitted deferred = (fitted, deferred)
       go minCol (item@(col, label) : remaining) fitted deferred =
         let annotEnd = col + 3 + length label
             fitsBeforePlaced = annotEnd < minCol
             crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
-         in if fitsBeforePlaced && not crossesDeferred
+            sameLabelKind = annotationItemIsElaboration item == lineHasElaboration
+         in if sameLabelKind && fitsBeforePlaced && not crossesDeferred
               then go col remaining (item : fitted) deferred
               else go minCol remaining fitted (item : deferred)
    in go (fst rightmost) rest [rightmost] []
+
+annotationItemIsElaboration :: AnnotationItem -> Bool
+annotationItemIsElaboration (_, label) =
+  any (`isPrefixOf` label) ["type-args:", "evidence:", "term-args:"]
 
 renderAnnotationLine :: [AnnotationItem] -> [AnnotationItem] -> String
 renderAnnotationLine placedOnLine deferredItems =
