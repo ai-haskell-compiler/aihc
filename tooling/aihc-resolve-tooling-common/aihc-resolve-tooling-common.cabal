@@ -1,0 +1,56 @@
+cabal-version: 3.8
+name: aihc-resolve-tooling-common
+version: 0.1.0.0
+build-type: Simple
+license: Unlicense
+author: David Himmelstrup
+maintainer: lemmih@gmail.com
+category: Development
+synopsis: Internal resolver tooling support for aihc
+description:
+  Internal resolver test and developer tooling support for the aihc workspace.
+
+library
+  hs-source-dirs: ../../components/aihc-resolve/common
+  exposed-modules:
+    ResolverGolden
+
+  build-depends:
+    aeson,
+    aihc-parser,
+    aihc-resolve,
+    aihc-testing,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    prettyprinter,
+    text,
+    yaml,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable resolve-progress
+  main-is: Main.hs
+  hs-source-dirs: app/resolve-progress
+  build-depends:
+    aihc-resolve-tooling-common,
+    base >=4.16 && <5,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable resolve-extension-progress
+  main-is: Main.hs
+  hs-source-dirs: app/resolve-extension-progress
+  build-depends:
+    aihc-parser,
+    aihc-resolve-tooling-common,
+    base >=4.16 && <5,
+    containers,
+    text,
+
+  ghc-options: -Wall
+  default-language: GHC2021

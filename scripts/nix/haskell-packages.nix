@@ -92,6 +92,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-resolve-tooling-common = {
+      src = sources.resolveToolingCommonSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath tooling/aihc-resolve-tooling-common";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc = {
       src = sources.aihcSrc;
       disableProfiling = true;

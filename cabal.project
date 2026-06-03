@@ -13,6 +13,7 @@ packages:
   tooling/aihc-hackage
   tooling/aihc-testing
   tooling/aihc-parser-tooling-common
+  tooling/aihc-resolve-tooling-common
   tooling/aihc-dev
 
 tests: True

@@ -114,6 +114,18 @@ in rec {
         type == "directory" || ((inToolingCommon || inParserCommon || inParserApp) && matchesSourceSuffix);
     };
 
+  resolveToolingCommonSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-resolve-tooling-common/" relPath;
+        inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+      in
+        type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
+    };
+
   aihcSrc = mkComponentSrc "/bin/aihc" [
     ".hs"
     ".cabal"

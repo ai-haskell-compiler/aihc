@@ -4,8 +4,8 @@
   mkCoverageReport,
 }: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
-  resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
-  resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
+  resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
+  resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
   parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
   lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
