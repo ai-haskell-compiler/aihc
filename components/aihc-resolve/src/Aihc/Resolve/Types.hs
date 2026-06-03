@@ -63,7 +63,6 @@ data ResolveError
 
 data ResolveResult = ResolveResult
   { resolvedModules :: [Module],
-    resolvedAnnotations :: [(Text, [ResolutionAnnotation])],
     resolveErrors :: [ResolveError]
   }
   deriving (Show)

@@ -179,29 +179,27 @@ resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
 resolveWithDeps depExports modules =
   ResolveResult
     { resolvedModules = modules',
-      resolvedAnnotations = extraAnnotations,
-      resolveErrors = collectResolveErrors modules' <> concatMap (mapMaybe annotationResolveError . snd) extraAnnotations
+      resolveErrors = collectResolveErrors modules'
     }
   where
     step currentNextLocal modu =
-      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
-       in (nextLocal', (annotations, modu'))
+      let (nextLocal', modu') = resolveModule exports currentNextLocal modu
+       in (nextLocal', modu')
     (_, resolved) = mapAccumL step 0 modules
-    modules' = map snd resolved
-    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
+    modules' = resolved
     ownExports = collectModuleExports modules
     exports = ownExports `Map.union` depExports
 
 extractInterface :: ResolveResult -> ModuleExports
 extractInterface = collectModuleExports . resolvedModules
 
-resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
+resolveModule :: ModuleExports -> Int -> Module -> (Int, Module)
 resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', annotations, decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
-   in (nextLocal', annotations, modu' {moduleDecls = decls'})
+      (nextLocal', decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+   in (nextLocal', modu' {moduleDecls = decls'})
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports exports =

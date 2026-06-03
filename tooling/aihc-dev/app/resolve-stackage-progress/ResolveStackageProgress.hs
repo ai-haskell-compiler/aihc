@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -48,7 +47,7 @@ import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Exception (SomeException, displayException, evaluate, try)
+import Control.Exception (SomeException, displayException, try)
 import Control.Monad (mplus)
 import Control.Monad qualified
 import Data.ByteString qualified as BS
@@ -306,8 +305,6 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
           let modules = map fst pairs
               srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
               resolveResult = resolveWithDeps depExports modules
-              !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
-          _ <- evaluate annCount
           case resolveErrors resolveResult of
             [] -> pure (PkgSuccess (extractInterface resolveResult))
             resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcTexts) resolveErrs)))

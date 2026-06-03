@@ -179,8 +179,6 @@ typecheckOnePackageOrThrow _offline _pkg info depExports = do
           let modules = map fst pairs
               srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
               resolveResult = resolveWithDeps depExports modules
-              !annCount = sum (map (length . snd) (resolvedAnnotations resolveResult))
-          _ <- evaluate annCount
           case resolveErrors resolveResult of
             [] -> typecheckResolvedPackage resolveResult
             resolveErrs -> pure (RSP.PkgFailed (unlines (map (RSP.renderResolveError srcTexts) resolveErrs)))
