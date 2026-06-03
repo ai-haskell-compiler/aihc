@@ -1,6 +1,6 @@
 module Main (main) where
 
-import qualified ResolverGolden as RG
+import ResolverGolden qualified as RG
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 
