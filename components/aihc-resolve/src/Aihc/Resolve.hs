@@ -526,7 +526,7 @@ resolveExpr :: Expr -> ResolveM Expr
 resolveExpr expr =
   case expr of
     EAnn ann inner ->
-      withPushedSpan ann (resolveExpr inner)
+      EAnn ann <$> withPushedSpan ann (resolveExpr inner)
     EVar name ->
       EVar <$> resolveTermUse name
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
