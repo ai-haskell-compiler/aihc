@@ -32,7 +32,7 @@ Prefer a single focused fixture over a large scenario unless the behavior only a
 - `aihc-cpp`: read `references/aihc-cpp.md` for `cpphs` progress fixtures and preprocessor unit tests.
 - `aihc-parser`: read `references/aihc-parser.md` for parser golden, equivalent, lexer golden, error-message, oracle, unit, performance, and property tests.
 - `aihc-resolve`: read `references/aihc-resolve.md` for resolver golden fixtures and unit tests.
-- `aihc-tc`: read `references/aihc-tc.md` for type-checker golden fixtures, unit tests, and properties.
+- `aihc-tc`: read `references/aihc-tc.md` for type-checker annotated golden fixtures, unit tests, and properties.
 - `aihc-fc`: read `references/aihc-fc.md` for FC golden fixtures, eval fixtures, and unit tests.
 - Shared commands and status semantics: read `references/validation.md`.
 
