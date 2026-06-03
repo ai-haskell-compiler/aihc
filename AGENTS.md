@@ -8,6 +8,25 @@
 - Run full test suite (fast): `just check`
 - Run full test suite (slow, isolated sandbox): `nix flake check`
 
+## Component Boundaries
+
+Each component owns one compiler domain. Domains must not overlap.
+
+| Component | Input | Output | Owns |
+| --- | --- | --- | --- |
+| `aihc-cpp` | Haskell source text plus CPP config/includes | preprocessed Haskell source text, include requests, diagnostics | preprocessing only |
+| `aihc-parser` | preprocessed Haskell source text | surface AST, tokens/trivia, parse diagnostics | lexing/parsing only |
+| `aihc-resolve` | parsed surface modules | same surface AST annotated with binding/use resolution, exports, resolve diagnostics | name resolution only |
+| `aihc-tc` | resolved surface AST | same surface AST annotated with types, kinds, evidence, type diagnostics | Haskell type checking only |
+| `aihc-fc` | type-checked surface AST | System FC program, System FC lint/eval diagnostics | desugaring and System FC only |
+
+Do not duplicate an upstream responsibility downstream. `aihc-tc` must not do
+name resolution; `aihc-fc` must not do Haskell type checking, though it may lint
+types that already exist in System FC. If a feature in a downstream component
+needs upstream facts, change the upstream component and consume its output. For
+example, an `aihc-fc` feature that needs new Haskell typing information requires
+an `aihc-tc` change, not local type checking in `aihc-fc`.
+
 ## Mandatory Pre-Commit Workflow
 
 **These steps MUST be completed before every commit. No exceptions.**
