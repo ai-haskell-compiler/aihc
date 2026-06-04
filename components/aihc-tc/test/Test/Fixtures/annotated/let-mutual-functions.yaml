@@ -2,8 +2,7 @@ annotated:
 - |-
   module Test where
   f x = let g y = h y; h z = z in g x
-  │ │       │ │        │ │        └─ type-args: a
-  │ └─ x ∷ a│ └─ y ∷ a │ └─ z ∷ a
+  │ └─ x ∷ a│ └─ y ∷ a │ └─ z ∷ a └─ type-args: a
   │         │          └─ h ∷ ∀ a. a → a
   │         └─ g ∷ ∀ a. a → a
   └─ f ∷ ∀ a. a → a

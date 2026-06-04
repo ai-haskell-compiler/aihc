@@ -36,6 +36,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     fromAnnotation,
+    mkAnnotation,
     moduleName,
   )
 import Aihc.Tc (TcModuleResult (..), TcType (..), renderTcSignature, renderTcType)
@@ -50,22 +51,36 @@ import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), Ty
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
+import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Control.Applicative ((<|>))
-import Data.List (intercalate, isPrefixOf, sortOn)
-import Data.Map.Strict qualified as Map
+import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Prettyprinter (Doc, pretty)
 
 renderAnnotatedTcResults :: [Text] -> [TcModuleResult] -> [String]
 renderAnnotatedTcResults sources results =
-  map renderOne (sortOn (moduleDisplayName . tcmModule . snd) (zip sources results))
+  case compare (length sources) (length results) of
+    LT -> error "renderAnnotatedTcResults: fewer source texts than type-checker results"
+    GT -> error "renderAnnotatedTcResults: more source texts than type-checker results"
+    EQ ->
+      let moduleSources = sortOn (moduleDisplayName . tcmModule . snd) (zip sources results)
+       in renderAnnotatedModuleSources renderedTcLabelDoc (map fst moduleSources) (map annotatedModule moduleSources)
   where
-    renderOne (source, result) =
-      renderAnnotatedSource source (collectTcLabels result)
+    annotatedModule (_, result) =
+      attachRenderedLabels (collectTcLabels result) (tcmModule result)
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe "<unnamed>" (moduleName modu)
+
+newtype RenderedTcLabel = RenderedTcLabel String
+  deriving (Eq, Show)
+
+renderedTcLabelDoc :: Annotation -> Maybe (Doc ann)
+renderedTcLabelDoc annotation = do
+  RenderedTcLabel label <- fromAnnotation annotation
+  pure (pretty label)
 
 data TcLabel = TcLabel
   { labelSpan :: !SourceSpan,
@@ -76,6 +91,24 @@ data TcLabel = TcLabel
 sourceLabel :: SourceSpan -> String -> TcLabel
 sourceLabel = TcLabel
 
+attachRenderedLabels :: [TcLabel] -> Module -> Module
+attachRenderedLabels labels modu =
+  modu {moduleDecls = attachToDecls (moduleDecls modu)}
+  where
+    concreteLabels =
+      [ label
+      | label <- labels,
+        labelSpan label /= NoSourceSpan
+      ]
+
+    attachToDecls [] = []
+    attachToDecls (decl : decls) = foldr attachLabel decl concreteLabels : decls
+
+    attachLabel label decl =
+      DeclAnn
+        (mkAnnotation (RenderedTcLabel (labelText label)))
+        (DeclAnn (mkAnnotation (labelSpan label)) decl)
+
 collectTcLabels :: TcModuleResult -> [TcLabel]
 collectTcLabels result =
   sortOn labelKey $
@@ -83,6 +116,12 @@ collectTcLabels result =
     -- and distinct binders that a flat binding table can conflate.
     concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
       <> diagnosticLabels (tcmDiagnostics result)
+
+labelKey :: TcLabel -> (Int, Int, String)
+labelKey label =
+  case labelSpan label of
+    SourceSpan _ startLine startCol _ _ _ _ -> (startLine, startCol, labelText label)
+    NoSourceSpan -> (maxBound, maxBound, labelText label)
 
 diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
 diagnosticLabels =
@@ -714,89 +753,3 @@ renderPred pred' =
   case pred' of
     ClassPred cls args -> T.unpack cls <> concatMap ((" " <>) . renderTcType) args
     EqPred left right -> renderTcType left <> " ~ " <> renderTcType right
-
-renderAnnotatedSource :: Text -> [TcLabel] -> String
-renderAnnotatedSource source labels =
-  let sourceLines = T.lines source
-      grouped = groupByLine labels
-   in intercalate "\n" (concatMap (renderSourceLine grouped) (zip [1 ..] sourceLines))
-
-groupByLine :: [TcLabel] -> Map.Map Int [TcLabel]
-groupByLine = foldr insertLabel Map.empty
-  where
-    insertLabel label acc =
-      case labelSpan label of
-        SourceSpan _ startLine _ _ _ _ _ ->
-          Map.insertWith (<>) startLine [label] acc
-        NoSourceSpan -> acc
-
-renderSourceLine :: Map.Map Int [TcLabel] -> (Int, Text) -> [String]
-renderSourceLine grouped (lineNum, srcLine) =
-  let labels = maybe [] (sortOn labelStartCol) (Map.lookup lineNum grouped)
-   in T.unpack srcLine : renderAnnotationLines labels
-
-labelStartCol :: TcLabel -> Int
-labelStartCol label =
-  case labelSpan label of
-    SourceSpan _ _ startCol _ _ _ _ -> startCol
-    NoSourceSpan -> maxBound
-
-labelKey :: TcLabel -> (Int, Int, String)
-labelKey label =
-  case labelSpan label of
-    SourceSpan _ startLine startCol _ _ _ _ -> (startLine, startCol, labelText label)
-    NoSourceSpan -> (maxBound, maxBound, labelText label)
-
-type AnnotationItem = (Int, String)
-
-renderAnnotationLines :: [TcLabel] -> [String]
-renderAnnotationLines [] = []
-renderAnnotationLines labels =
-  layoutAnnotationLines [(labelStartCol label - 1, labelText label) | label <- labels]
-
-layoutAnnotationLines :: [AnnotationItem] -> [String]
-layoutAnnotationLines [] = []
-layoutAnnotationLines items =
-  let reversed = reverse items
-      (currentLine, deferred) = packLine reversed
-   in renderAnnotationLine currentLine deferred : layoutAnnotationLines deferred
-
-packLine :: [AnnotationItem] -> ([AnnotationItem], [AnnotationItem])
-packLine [] = ([], [])
-packLine (rightmost : rest) =
-  let lineHasElaboration = annotationItemIsElaboration rightmost
-      go _minCol [] fitted deferred = (fitted, deferred)
-      go minCol (item@(col, label) : remaining) fitted deferred =
-        let annotEnd = col + 3 + length label
-            fitsBeforePlaced = annotEnd < minCol
-            crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
-            sameLabelKind = annotationItemIsElaboration item == lineHasElaboration
-         in if sameLabelKind && fitsBeforePlaced && not crossesDeferred
-              then go col remaining (item : fitted) deferred
-              else go minCol remaining fitted (item : deferred)
-   in go (fst rightmost) rest [rightmost] []
-
-annotationItemIsElaboration :: AnnotationItem -> Bool
-annotationItemIsElaboration (_, label) =
-  any (`isPrefixOf` label) ["type-args:", "evidence:", "term-args:"]
-
-renderAnnotationLine :: [AnnotationItem] -> [AnnotationItem] -> String
-renderAnnotationLine placedOnLine deferredItems =
-  let deferredCols = map fst deferredItems
-      buildLine _ [] [] = ""
-      buildLine pos placed deferred =
-        case (placed, deferred) of
-          ((col, label) : restPlaced, _)
-            | pos == col ->
-                "\x2514\x2500 " <> label <> buildLine (pos + 3 + length label) restPlaced (filter (>= pos + 3 + length label) deferred)
-          (_, d : restDeferred)
-            | pos == d ->
-                "\x2502" <> buildLine (pos + 1) placed restDeferred
-          _ ->
-            let nextPos = case (placed, deferred) of
-                  ((col, _) : _, d : _) -> min col d
-                  ((col, _) : _, []) -> col
-                  ([], d : _) -> d
-                padding = nextPos - pos
-             in replicate padding ' ' <> buildLine nextPos placed deferred
-   in buildLine 0 (sortOn fst placedOnLine) (sortOn id deferredCols)
