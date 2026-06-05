@@ -9,6 +9,7 @@ where
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
+    CompStmt (..),
     Decl (..),
     Expr (..),
     InstanceDecl (..),
@@ -390,6 +391,7 @@ exprExprAnnotations expr =
   case expr of
     EAnn ann inner ->
       maybeToList (fromAnnotation ann) <> exprExprAnnotations inner
+    EVar name -> nameExprAnnotations name
     EApp fun arg -> exprExprAnnotations fun <> exprExprAnnotations arg
     EInfix lhs op rhs -> exprExprAnnotations lhs <> nameExprAnnotations op <> exprExprAnnotations rhs
     EList elems -> concatMap exprExprAnnotations elems
@@ -397,6 +399,7 @@ exprExprAnnotations expr =
     EIf cond thenE elseE -> exprExprAnnotations cond <> exprExprAnnotations thenE <> exprExprAnnotations elseE
     ECase scrut alts -> exprExprAnnotations scrut <> concatMap caseAltExprAnnotations alts
     ELetDecls decls body -> concatMap declExprAnnotations decls <> exprExprAnnotations body
+    EListComp body stmts -> exprExprAnnotations body <> concatMap compStmtExprAnnotations stmts
     ELambdaPats _ body -> exprExprAnnotations body
     EParen inner -> exprExprAnnotations inner
     ETypeSig inner _ -> exprExprAnnotations inner
@@ -408,6 +411,18 @@ nameExprAnnotations name =
 
 caseAltExprAnnotations :: CaseAlt Expr -> [TcAnnotation]
 caseAltExprAnnotations (CaseAlt _ _ rhs) = rhsExprAnnotations rhs
+
+compStmtExprAnnotations :: CompStmt -> [TcAnnotation]
+compStmtExprAnnotations stmt =
+  case stmt of
+    CompAnn _ inner -> compStmtExprAnnotations inner
+    CompGen _ src -> exprExprAnnotations src
+    CompGuard guard -> exprExprAnnotations guard
+    CompLetDecls decls -> concatMap declExprAnnotations decls
+    CompThen expr -> exprExprAnnotations expr
+    CompThenBy f byExpr -> exprExprAnnotations f <> exprExprAnnotations byExpr
+    CompGroupUsing expr -> exprExprAnnotations expr
+    CompGroupByUsing byExpr usingExpr -> exprExprAnnotations byExpr <> exprExprAnnotations usingExpr
 
 -- | Tests for error cases.
 errorTests :: [TestTree]

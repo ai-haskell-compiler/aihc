@@ -316,6 +316,9 @@ dsExpr :: Expr -> DsM FcExpr
 dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
       dsAnnotatedExpr tcAnn inner
+dsExpr (EVar name)
+  | Just tcAnn <- nameTcAnnotation name =
+      dsAnnotatedVar tcAnn name (EVar name)
 dsExpr (EVar name) = do
   let n = nameToText name
   -- Check local bindings first (pattern/lambda variables).
