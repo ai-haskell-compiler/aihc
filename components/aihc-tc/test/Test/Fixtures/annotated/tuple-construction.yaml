@@ -6,7 +6,7 @@ annotated:
        │      └─ True ∷ Bool
        └─ Bool ∷ *
   f x = (x, x)
-  │ │   └─ type-args: a, a
+  │ │    └─ type-args: a, a
   │ └─ x ∷ a
   └─ f ∷ ∀ a. a → (a, a)
 extensions: []

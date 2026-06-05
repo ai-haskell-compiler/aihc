@@ -34,7 +34,7 @@ module Aihc.Tc
     Pred (..),
     Unique (..),
     TcAnnotation (..),
-    TcRenderedAnnotation (..),
+    TcBindingAnnotation (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
@@ -43,17 +43,19 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcRenderedAnnotation (..), renderTcSignature, renderTcType)
+import Aihc.Parser.Syntax (Annotation, Decl (..), Expr, Extension (..), Module (..), SourceSpan (..), applyExtensionSetting, applyImpliedExtensions, fromAnnotation, mkAnnotation)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcBindingAnnotation (..), renderTcSignature, renderTcType)
+import Aihc.Tc.Constraint (eqPrimarySpan)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
-import Aihc.Tc.RenderedAnnotations (annotateRenderedTcLabels, tcModuleDiagnostics)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Data (Data, cast, gmapQ)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Text (Text)
 
 -- | Result of type checking.
@@ -169,7 +171,7 @@ typecheckModuleWithState st m =
           hasErrors = any isError diags
           result =
             TcModuleResult
-              { tcmModule = annotateRenderedTcLabels diags annotatedModule,
+              { tcmModule = annotateModuleDiagnostics diags annotatedModule,
                 tcmSuccess = not hasErrors
               }
           nextState =
@@ -196,3 +198,40 @@ typecheckModuleWithState st m =
 -- | Type-check a list of modules.
 typecheck :: [Module] -> [TcModuleResult]
 typecheck = typecheckModulesWithEnv []
+
+annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
+annotateModuleDiagnostics diagnostics modu =
+  case moduleDecls modu of
+    [] -> modu {moduleAnns = moduleAnns modu <> map mkAnnotation diagnostics}
+    decl : decls -> modu {moduleDecls = foldr annotateDiagnostic decl diagnostics : decls}
+  where
+    annotateDiagnostic diagnostic =
+      annotateDeclDiagnostic (diagnosticSpan diagnostic) diagnostic
+
+annotateDeclDiagnostic :: SourceSpan -> TcDiagnostic -> Decl -> Decl
+annotateDeclDiagnostic NoSourceSpan diagnostic decl =
+  DeclAnn (mkAnnotation diagnostic) decl
+annotateDeclDiagnostic span' diagnostic decl =
+  DeclAnn (mkAnnotation diagnostic) (DeclAnn (mkAnnotation span') decl)
+
+diagnosticSpan :: TcDiagnostic -> SourceSpan
+diagnosticSpan diagnostic =
+  case diagLoc diagnostic of
+    NoSourceSpan ->
+      case diagKind diagnostic of
+        UnificationError _ _ _ (Just provenance) -> eqPrimarySpan provenance
+        _ -> NoSourceSpan
+    span' -> span'
+
+tcModuleDiagnostics :: Module -> [TcDiagnostic]
+tcModuleDiagnostics =
+  collectDiagnostics
+  where
+    collectDiagnostics :: (Data a) => a -> [TcDiagnostic]
+    collectDiagnostics node =
+      maybe [] annotationDiagnostics (cast node)
+        <> concat (gmapQ collectDiagnostics node)
+
+    annotationDiagnostics :: Annotation -> [TcDiagnostic]
+    annotationDiagnostics annotation =
+      maybeToList (fromAnnotation annotation)

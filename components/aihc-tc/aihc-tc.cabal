@@ -26,7 +26,6 @@ library
     Aihc.Tc.Kind
     Aihc.Tc.Monad
     Aihc.Tc.NameKey
-    Aihc.Tc.RenderedAnnotations
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Dict

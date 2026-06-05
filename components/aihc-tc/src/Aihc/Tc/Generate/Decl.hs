@@ -55,6 +55,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
+    TcBindingAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -78,6 +79,7 @@ import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub, (\\))
@@ -272,7 +274,7 @@ annotateDeclTc classMethods checkedValueNames decl =
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueNames valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc valueDecl
-          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
+          pure (annotateTypedDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclForeign foreignDecl
@@ -294,7 +296,9 @@ valueDeclBinderNames valueDecl =
 annotateClassDeclTc :: ClassDecl -> TcM Decl
 annotateClassDeclTc classDecl = do
   methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
-  pure (DeclAnn (mkAnnotation (TcClassAnnotation methods)) (DeclClass classDecl))
+  let methodTypes = Map.fromList [(tcClassMethodName method, tcClassMethodType method) | method <- methods]
+      items = map (annotateClassItemBindings methodTypes) (classDeclItems classDecl)
+  pure (DeclAnn (mkAnnotation (TcClassAnnotation methods)) (DeclClass (classDecl {classDeclItems = items})))
 
 annotateClassMethod :: Int -> Text -> TcM TcClassMethodAnnotation
 annotateClassMethod index methodName = do
@@ -315,7 +319,7 @@ annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
-  pure (annotateDeclAt (unqualifiedNameSpan (binderHeadName (dataDeclHead dataDecl))) (TcAnnotation ty [] [] []) (DeclData (dataDecl {dataDeclConstructors = constructors})))
+  pure (annotateTypedDeclAt (unqualifiedNameSpan (binderHeadName (dataDeclHead dataDecl))) (TcAnnotation ty [] [] []) (DeclData (dataDecl {dataDeclConstructors = constructors})))
 
 annotateDataConDeclTc :: DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc dataConDecl = do
@@ -323,7 +327,7 @@ annotateDataConDeclTc dataConDecl = do
     [] -> pure dataConDecl
     (name, _) : _ -> do
       ty <- dataConBindingType name
-      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [])) dataConDecl)
+      pure (annotateDataConBindings ty (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [])) dataConDecl))
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
@@ -336,13 +340,72 @@ dataConBindingType name = do
 annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
-  pure (annotateDeclAt (unqualifiedNameSpan (foreignName foreignDecl)) (TcAnnotation ty [] [] []) (DeclForeign foreignDecl))
+  pure (annotateTypedDeclAt (unqualifiedNameSpan (foreignName foreignDecl)) (TcAnnotation ty [] [] []) (DeclForeign foreignDecl))
 
-annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
-annotateDeclAt NoSourceSpan tcAnn decl =
-  annotateDecl tcAnn decl
-annotateDeclAt sp tcAnn decl =
-  DeclAnn (mkAnnotation sp) (annotateDecl tcAnn decl)
+annotateTypedDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
+annotateTypedDeclAt sp tcAnn decl =
+  annotateAt sp (foldr annotateBinding (annotateDecl tcAnn decl) (declBindingLabels (tcAnnType tcAnn) decl))
+
+annotateBinding :: (Text, TcType) -> Decl -> Decl
+annotateBinding (name, ty) =
+  DeclAnn (mkAnnotation (TcBindingAnnotation name ty))
+
+annotateAt :: SourceSpan -> Decl -> Decl
+annotateAt NoSourceSpan decl = decl
+annotateAt sp decl = DeclAnn (mkAnnotation sp) decl
+
+declBindingLabels :: TcType -> Decl -> [(Text, TcType)]
+declBindingLabels ty decl =
+  case decl of
+    DeclValue valueDecl -> [(displayName, ty) | (_, displayName) <- valueDeclBindingNames valueDecl]
+    DeclData dataDecl -> [(unqualifiedNameText (binderHeadName (dataDeclHead dataDecl)), ty)]
+    DeclForeign foreignDecl -> [(renderBinderName (foreignName foreignDecl), ty)]
+    _ -> []
+
+annotateDataConBindings :: TcType -> DataConDecl -> DataConDecl
+annotateDataConBindings ty dataConDecl =
+  foldr annotateOne dataConDecl (dataConRenderedBindingNames dataConDecl)
+  where
+    annotateOne (_, displayName) =
+      DataConAnn (mkAnnotation (TcBindingAnnotation displayName ty))
+
+dataConRenderedBindingNames :: DataConDecl -> [(Text, Text)]
+dataConRenderedBindingNames dataConDecl =
+  case dataConDecl of
+    DataConAnn _ inner -> dataConRenderedBindingNames inner
+    PrefixCon _ _ name _ -> [binderBindingName name]
+    InfixCon _ _ _ name _ -> [binderBindingName name]
+    RecordCon _ _ name _ -> [binderBindingName name]
+    GadtCon _ _ names _ -> map binderBindingName names
+    TupleCon {} -> []
+    UnboxedSumCon {} -> []
+    ListCon {} -> []
+
+annotateClassItemBindings :: Map Text TcType -> ClassDeclItem -> ClassDeclItem
+annotateClassItemBindings methodTypes item =
+  case item of
+    ClassItemAnn ann inner -> ClassItemAnn ann (annotateClassItemBindings methodTypes inner)
+    ClassItemTypeSig names _ ->
+      foldr annotateMethod item names
+    ClassItemDefaultSig name _ ->
+      annotateMethod name item
+    ClassItemDefault valueDecl ->
+      annotateClassDefaultValue methodTypes valueDecl item
+    _ -> item
+  where
+    annotateMethod name =
+      case Map.lookup (unqualifiedNameText name) methodTypes of
+        Just ty -> ClassItemAnn (mkAnnotation (unqualifiedNameSpan name)) . ClassItemAnn (mkAnnotation (TcBindingAnnotation (unqualifiedNameText name) ty))
+        Nothing -> id
+
+annotateClassDefaultValue :: Map Text TcType -> ValueDecl -> ClassDeclItem -> ClassDeclItem
+annotateClassDefaultValue methodTypes valueDecl item =
+  foldr annotateDefaultName item (valueDeclBindingNames valueDecl)
+  where
+    annotateDefaultName (_, displayName) =
+      case Map.lookup displayName methodTypes of
+        Just ty -> ClassItemAnn (mkAnnotation (TcBindingAnnotation displayName ty))
+        Nothing -> id
 
 valueDeclSpan :: ValueDecl -> SourceSpan
 valueDeclSpan valueDecl =
@@ -405,7 +468,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceMethodOrder = methodOrder
               }
       items <- mapM (annotateInstanceItemTc headTys) (instanceDeclItems instanceDecl)
-      pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
+      pure (DeclAnn (mkAnnotation (TcBindingAnnotation dictName dictTy)) (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items}))))
 
 annotateInstanceItemTc :: [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
 annotateInstanceItemTc headTys item =
@@ -415,15 +478,28 @@ annotateInstanceItemTc headTys item =
       let methodName = unqualifiedNameText name
       methodTy <- methodExpectedType headTys (unqualifiedNameText name)
       matches' <- annotateMatchesTc methodTy matches
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name matches')))
+      pure (annotateInstanceMethod name methodTy (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name matches'))))
     InstanceItemBind (PatternBind anns pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
           methodTy <- methodExpectedType headTys methodName
           rhs' <- annotateRhsTc rhs
-          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat rhs')))
+          pure (annotateInstancePatternMethod methodName methodTy pat (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat rhs'))))
         Nothing -> pure item
     _ -> pure item
+
+annotateInstanceMethod :: UnqualifiedName -> TcType -> InstanceDeclItem -> InstanceDeclItem
+annotateInstanceMethod name ty =
+  InstanceItemAnn (mkAnnotation (unqualifiedNameSpan name))
+    . InstanceItemAnn (mkAnnotation (TcBindingAnnotation (unqualifiedNameText name) ty))
+
+annotateInstancePatternMethod :: Text -> TcType -> Pattern -> InstanceDeclItem -> InstanceDeclItem
+annotateInstancePatternMethod methodName ty pat =
+  case patternBinderName pat of
+    Just (displayName, _)
+      | displayName == methodName -> InstanceItemAnn (mkAnnotation (TcBindingAnnotation displayName ty))
+      | otherwise -> InstanceItemAnn (mkAnnotation (TcBindingAnnotation displayName ty))
+    Nothing -> id
 
 tcInstanceDeclBodies :: Decl -> TcM ()
 tcInstanceDeclBodies (DeclAnn _ inner) =
@@ -484,13 +560,15 @@ solveBodyConstraintsWithGivens givens cts impls = do
     solveClassCt _ = pure ()
 
 annotateMatchesTc :: TcType -> [Match] -> TcM [Match]
-annotateMatchesTc _bindingTy =
-  mapM annotateMatchTc
+annotateMatchesTc bindingTy =
+  mapM (annotateMatchTc bindingTy)
 
-annotateMatchTc :: Match -> TcM Match
-annotateMatchTc match = do
+annotateMatchTc :: TcType -> Match -> TcM Match
+annotateMatchTc bindingTy match = do
   rhs <- annotateRhsTc (matchRhs match)
-  pure (match {matchRhs = rhs})
+  let argTys = functionArgTypes (length (matchPats match)) bindingTy
+      pats = zipWith annotatePatternBinding argTys (matchPats match)
+  pure (match {matchPats = pats, matchRhs = rhs})
 
 annotateRhsTc :: Rhs Expr -> TcM (Rhs Expr)
 annotateRhsTc rhs =
@@ -557,7 +635,7 @@ annotateLocalDeclTc decl =
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalDeclTc inner
     DeclValue valueDecl -> do
       (ty, valueDecl') <- annotateLocalValueDeclTc valueDecl
-      pure (annotateDecl (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
+      pure (annotateTypedDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
     _ -> pure decl
 
 annotateLocalValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
@@ -616,7 +694,8 @@ annotateCompStmtsTc (stmt : rest) =
     CompGen pat src -> do
       src' <- annotateExprTc src
       rest' <- annotateCompStmtsTc rest
-      pure (CompGen pat src' : rest')
+      let pat' = maybe pat (`annotatePatternBinding` pat) (exprListElementType src')
+      pure (CompGen pat' src' : rest')
     CompGuard guard -> do
       guard' <- annotateExprTc guard
       rest' <- annotateCompStmtsTc rest
@@ -733,7 +812,67 @@ annotateLambdaPatterns tys pats
 
 annotatePattern :: TcType -> Pattern -> Pattern
 annotatePattern ty =
-  PAnn (mkAnnotation (TcAnnotation ty [] [] []))
+  annotatePatternBinding ty . PAnn (mkAnnotation (TcAnnotation ty [] [] []))
+
+annotatePatternBinding :: TcType -> Pattern -> Pattern
+annotatePatternBinding ty pat =
+  case pat of
+    PAnn ann inner -> PAnn ann (annotatePatternBinding ty inner)
+    PVar name -> PAnn (mkAnnotation (TcBindingAnnotation (renderBinderName name) ty)) pat
+    PParen inner -> PParen (annotatePatternBinding ty inner)
+    PAs name inner -> PAnn (mkAnnotation (TcBindingAnnotation (renderBinderName name) ty)) (PAs name (annotatePatternBinding ty inner))
+    PStrict inner -> PStrict (annotatePatternBinding ty inner)
+    PIrrefutable inner -> PIrrefutable (annotatePatternBinding ty inner)
+    PList items ->
+      case listElementType ty of
+        Just elemTy -> PList (map (annotatePatternBinding elemTy) items)
+        Nothing -> pat
+    PTuple flavor items -> PTuple flavor (zipWith annotatePatternBinding (tupleElementTypes ty) items)
+    PUnboxedSum alt arity inner -> PUnboxedSum alt arity (annotatePatternBinding ty inner)
+    PInfix lhs op rhs
+      | nameText op == ":" ->
+          case listElementType ty of
+            Just elemTy -> PInfix (annotatePatternBinding elemTy lhs) op (annotatePatternBinding ty rhs)
+            Nothing -> pat
+      | otherwise -> pat
+    PView expr inner -> PView expr (annotatePatternBinding ty inner)
+    PTypeSig inner sigTy -> PTypeSig (annotatePatternBinding ty inner) sigTy
+    _ -> pat
+
+functionArgTypes :: Int -> TcType -> [TcType]
+functionArgTypes wanted ty =
+  take wanted (go (qualifiedBody ty))
+  where
+    go (TcFunTy arg rest) = arg : go rest
+    go _ = []
+
+qualifiedBody :: TcType -> TcType
+qualifiedBody ty =
+  case ty of
+    TcForAllTy _ body -> qualifiedBody body
+    TcQualTy _ body -> qualifiedBody body
+    _ -> ty
+
+listElementType :: TcType -> Maybe TcType
+listElementType ty =
+  case ty of
+    TcTyCon (TyCon "[]" 1) [elemTy] -> Just elemTy
+    _ -> Nothing
+
+exprListElementType :: Expr -> Maybe TcType
+exprListElementType expr =
+  case expr of
+    EAnn ann inner ->
+      (fromAnnotation @TcAnnotation ann >>= listElementType . tcAnnType) <|> exprListElementType inner
+    EParen inner -> exprListElementType inner
+    _ -> Nothing
+
+tupleElementTypes :: TcType -> [TcType]
+tupleElementTypes ty =
+  case ty of
+    TcTyCon (TyCon _ arity) elemTys
+      | arity == length elemTys -> elemTys
+    _ -> []
 
 bindingType :: Text -> TcM TcType
 bindingType name = do

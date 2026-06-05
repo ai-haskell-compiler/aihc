@@ -9,7 +9,7 @@ annotated:
     (==) :: a -> a -> Bool
      └─ == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
   instance Eq Bool where
-  └─ $fEqBool ∷ () ⇒ Eq Bool
+           └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
           └─ == ∷ Bool → Bool → Bool
     False == True = False
