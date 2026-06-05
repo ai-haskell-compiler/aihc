@@ -43,6 +43,7 @@ import Aihc.Tc
     TypeScheme (..),
     Unique (..),
     renderTcType,
+    tcModuleDiagnostics,
     tcmBindings,
     typecheckModuleWithEnv,
   )
@@ -168,7 +169,7 @@ evaluateExpression session input = do
     let tcResult = typecheckModuleWithEnv (replImportedTerms session) resolvedModule
     if tcmSuccess tcResult
       then pure ()
-      else Left (ReplTypeError (map show (tcmDiagnostics tcResult)))
+      else Left (ReplTypeError (map show (tcModuleDiagnostics (tcmModule tcResult))))
     inferredType <-
       case find ((== replBindingName) . tbName) (tcmBindings tcResult) of
         Just binding -> Right (tbType binding)

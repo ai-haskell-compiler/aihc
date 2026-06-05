@@ -14,6 +14,7 @@ module Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcRenderedAnnotation (..),
 
     -- * Pattern synonyms for extracting annotations
     pattern ETcAnn,
@@ -94,6 +95,11 @@ data TcInstanceAnnotation = TcInstanceAnnotation
 data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
   { tcInstanceMethodName :: !Text,
     tcInstanceMethodType :: !TcType
+  }
+  deriving (Eq, Show)
+
+newtype TcRenderedAnnotation = TcRenderedAnnotation
+  { tcRenderedAnnotationLabel :: String
   }
   deriving (Eq, Show)
 

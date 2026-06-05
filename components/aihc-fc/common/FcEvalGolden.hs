@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcModuleDiagnostics, tcmBindings, typecheckModulesWithEnv)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -236,7 +236,7 @@ evalDecl expr =
 
 renderTcErrors :: [TcModuleResult] -> String
 renderTcErrors results =
-  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcModuleDiagnostics (tcmModule result)]
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered

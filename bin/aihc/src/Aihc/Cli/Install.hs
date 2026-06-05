@@ -64,6 +64,7 @@ import Aihc.Tc
     TyVarId (..),
     Unique (..),
     renderTcType,
+    tcModuleDiagnostics,
     tcmBindings,
     typecheckModule,
   )
@@ -978,12 +979,12 @@ typecheckInterfaceModules modules = do
   completedModules <- newIORef []
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule completedModules [] modules)
   case result of
-    Just tcModules -> pure (tcModules, concatMap tcModuleDiagnostics tcModules)
+    Just tcModules -> pure (tcModules, concatMap tcModuleDiagnosticValues tcModules)
     Nothing -> do
       acc <- readIORef completedModules
       current <- readIORef currentModule
       let tcModules = reverse acc
-      pure (tcModules, concatMap tcModuleDiagnostics tcModules <> [typecheckTimeoutDiagnostic current])
+      pure (tcModules, concatMap tcModuleDiagnosticValues tcModules <> [typecheckTimeoutDiagnostic current])
   where
     go _current _completed acc [] =
       pure (reverse acc)
@@ -1213,15 +1214,15 @@ tcModuleValue modu result =
     [ "module" .= moduleDisplayName modu,
       "success" .= tcmSuccess result,
       "bindings" .= map tcBindingValue (tcmBindings result),
-      "diagnostics" .= map (tcDiagnosticValue (moduleDisplayName modu)) (tcmDiagnostics result)
+      "diagnostics" .= map (tcDiagnosticValue (moduleDisplayName modu)) (tcModuleDiagnostics (tcmModule result))
     ]
 
-tcModuleDiagnostics :: Aeson.Value -> [Aeson.Value]
-tcModuleDiagnostics (Aeson.Object obj) =
+tcModuleDiagnosticValues :: Aeson.Value -> [Aeson.Value]
+tcModuleDiagnosticValues (Aeson.Object obj) =
   case KeyMap.lookup "diagnostics" obj of
     Just (Aeson.Array arr) -> foldr (:) [] arr
     _ -> []
-tcModuleDiagnostics _ = []
+tcModuleDiagnosticValues _ = []
 
 tcBindingValue :: TcBindingResult -> Aeson.Value
 tcBindingValue binding =

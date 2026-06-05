@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Resolve (ResolveResult (..), resolve, resolveWithDeps)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcModuleDiagnostics, tcmBindings, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
 import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
@@ -356,7 +356,7 @@ tcAnnotatedActual value = do
       let results = typecheck resolvedModules
        in if all tcmSuccess results
             then Right (map trim (renderAnnotatedTcResults modules results))
-            else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
+            else Left (unlines [show d | r <- results, d <- tcModuleDiagnostics (tcmModule r)])
     ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 updateFcGoldens :: Options -> IO Summary
@@ -535,7 +535,7 @@ concatPrograms programs =
 
 renderTcErrors :: [TcModuleResult] -> String
 renderTcErrors results =
-  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcModuleDiagnostics (tcmModule result)]
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered

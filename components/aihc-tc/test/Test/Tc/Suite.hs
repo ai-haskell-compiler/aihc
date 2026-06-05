@@ -176,7 +176,7 @@ kindTests =
                 \fn :: M\n\
                 \fn = fn\n"
       assertBool "module should fail" (not (tcmSuccess result))
-      assertBool "should report a kind mismatch" (any isKindMismatch (tcmDiagnostics result)),
+      assertBool "should report a kind mismatch" (any isKindMismatch (tcModuleDiagnostics (tcmModule result))),
     testCase "accepts saturated type constructor in signature" $ do
       let result =
             typecheckModule $

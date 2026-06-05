@@ -24,7 +24,7 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck)
+import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcModuleDiagnostics, tcmBindings, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -169,7 +169,7 @@ moduleGroupBindings =
 
 renderTcErrors :: [TcModuleResult] -> String
 renderTcErrors results =
-  unlines [show d | r <- results, d <- tcmDiagnostics r]
+  unlines [show d | r <- results, d <- tcModuleDiagnostics (tcmModule r)]
 
 classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =

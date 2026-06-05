@@ -23,6 +23,7 @@ module Aihc.Tc
     TcModuleResult (..),
     TcBindingResult (..),
     tcmBindings,
+    tcModuleDiagnostics,
 
     -- * Re-exports for convenience
     TcType (..),
@@ -33,6 +34,7 @@ module Aihc.Tc
     Pred (..),
     Unique (..),
     TcAnnotation (..),
+    TcRenderedAnnotation (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
@@ -42,11 +44,12 @@ module Aihc.Tc
 where
 
 import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
-import Aihc.Tc.Annotations (TcAnnotation (..), renderTcSignature, renderTcType)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcRenderedAnnotation (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
+import Aihc.Tc.RenderedAnnotations (annotateRenderedTcLabels, tcModuleDiagnostics)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -102,8 +105,6 @@ typecheckExprM expr = do
 data TcModuleResult = TcModuleResult
   { -- | Module annotated with type-checker elaboration data.
     tcmModule :: !Module,
-    -- | Diagnostics (errors and warnings) produced.
-    tcmDiagnostics :: ![TcDiagnostic],
     -- | Whether type checking succeeded (no errors).
     tcmSuccess :: !Bool
   }
@@ -127,7 +128,6 @@ typecheckModuleWithEnv importedTerms m =
     _ ->
       TcModuleResult
         { tcmModule = m,
-          tcmDiagnostics = [],
           tcmSuccess = False
         }
 
@@ -160,7 +160,6 @@ typecheckModuleWithState st m =
     Left _abort ->
       ( TcModuleResult
           { tcmModule = m,
-            tcmDiagnostics = [],
             tcmSuccess = False
           },
         st
@@ -170,8 +169,7 @@ typecheckModuleWithState st m =
           hasErrors = any isError diags
           result =
             TcModuleResult
-              { tcmModule = annotatedModule,
-                tcmDiagnostics = diags,
+              { tcmModule = annotateRenderedTcLabels diags annotatedModule,
                 tcmSuccess = not hasErrors
               }
           nextState =

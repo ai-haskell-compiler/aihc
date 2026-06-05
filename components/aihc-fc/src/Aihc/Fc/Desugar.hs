@@ -36,7 +36,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcmBindings, typecheckModule)
+import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcModuleDiagnostics, tcmBindings, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
@@ -104,7 +104,7 @@ showBinding b = renderTcSignature (tbDisplayName b) (tbType b)
 
 showTcFailure :: TcModuleResult -> [String]
 showTcFailure tcResult =
-  case map show (tcmDiagnostics tcResult) of
+  case map show (tcModuleDiagnostics (tcmModule tcResult)) of
     [] -> map showBinding (tcmBindings tcResult)
     diagnostics -> diagnostics
 
