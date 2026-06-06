@@ -17,8 +17,8 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `114/3427` (`3.33%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
-| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `218/3427` (`6.36%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
+| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `116/3427` (`3.38%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
+| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `240/3427` (`7.00%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
@@ -34,12 +34,12 @@ Find more information here:
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   1762 |    1082 |    2844 |
+| aihc-fc            |   1833 |    1111 |    2944 |
 | aihc-parser        |  13396 |   17709 |   31105 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
-| aihc-resolve       |   2378 |    1566 |    3944 |
-| aihc-tc            |   4167 |    2371 |    6538 |
-| **Total**          |  25284 |   24254 |   49538 |
+| aihc-resolve       |   2153 |    1127 |    3280 |
+| aihc-tc            |   4277 |    2451 |    6728 |
+| **Total**          |  25240 |   23924 |   49164 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
