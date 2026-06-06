@@ -6,7 +6,7 @@ module TcAnnotatedRender
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, moduleName)
+import Aihc.Parser.Syntax (Annotation, Module, NameType (..), UnqualifiedName (..), fromAnnotation, moduleName)
 import Aihc.Tc (Kind (..), Pred (..), TcAnnotation (..), TcBindingAnnotation (..), TcDiagnostic (..), TcErrorKind (..), TcModuleResult (..), TcSeverity (..), TcType (..), TyCon (..), Unique (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
@@ -40,7 +40,14 @@ renderedTcLabelDoc annotation =
 bindingAnnotationDoc :: Annotation -> Maybe (Doc ann)
 bindingAnnotationDoc annotation = do
   TcBindingAnnotation name ty <- fromAnnotation annotation
-  pure (pretty (renderTcSignature name ty))
+  pure (pretty (renderTcSignature (renderBindingName name) ty))
+
+renderBindingName :: UnqualifiedName -> Text
+renderBindingName name =
+  case unqualifiedNameType name of
+    NameVarSym -> "(" <> unqualifiedNameText name <> ")"
+    NameConSym -> "(" <> unqualifiedNameText name <> ")"
+    _ -> unqualifiedNameText name
 
 elaborationAnnotationDoc :: Annotation -> Maybe (Doc ann)
 elaborationAnnotationDoc annotation = do

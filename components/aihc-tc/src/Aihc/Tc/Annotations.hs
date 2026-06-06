@@ -37,6 +37,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     Pattern (..),
     Type (..),
+    UnqualifiedName,
     fromAnnotation,
     mkAnnotation,
   )
@@ -99,7 +100,7 @@ data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
   deriving (Eq, Show)
 
 data TcBindingAnnotation = TcBindingAnnotation
-  { tcBindingAnnotationName :: !Text,
+  { tcBindingAnnotationName :: !UnqualifiedName,
     tcBindingAnnotationType :: !TcType
   }
   deriving (Eq, Show)
