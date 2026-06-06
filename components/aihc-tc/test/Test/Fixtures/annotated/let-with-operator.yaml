@@ -12,7 +12,7 @@ annotated:
   (+) a b = a
    │  │ └─ b ∷ b
    │  └─ a ∷ a
-   └─ (+) ∷ ∀ a b. a → b → a
+   └─ + ∷ ∀ a b. a → b → a
   one = True
   └─ one ∷ Bool
 extensions: []

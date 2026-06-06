@@ -6,8 +6,9 @@ module TcAnnotatedRender
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, NameType (..), UnqualifiedName (..), fromAnnotation, moduleName)
-import Aihc.Tc (Kind (..), Pred (..), TcAnnotation (..), TcBindingAnnotation (..), TcDiagnostic (..), TcErrorKind (..), TcModuleResult (..), TcSeverity (..), TcType (..), TyCon (..), Unique (..), renderTcSignature, renderTcType)
+import Aihc.Parser.Pretty ()
+import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, moduleName)
+import Aihc.Tc (Kind (..), Pred (..), TcAnnotation (..), TcBindingAnnotation (..), TcDiagnostic (..), TcErrorKind (..), TcModuleResult (..), TcSeverity (..), TcType (..), TyCon (..), Unique (..), renderTcType)
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -16,7 +17,7 @@ import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Prettyprinter (Doc, pretty)
+import Prettyprinter (Doc, pretty, (<+>))
 
 renderAnnotatedTcResults :: [Text] -> [TcModuleResult] -> [String]
 renderAnnotatedTcResults sources results =
@@ -40,14 +41,7 @@ renderedTcLabelDoc annotation =
 bindingAnnotationDoc :: Annotation -> Maybe (Doc ann)
 bindingAnnotationDoc annotation = do
   TcBindingAnnotation name ty <- fromAnnotation annotation
-  pure (pretty (renderTcSignature (renderBindingName name) ty))
-
-renderBindingName :: UnqualifiedName -> Text
-renderBindingName name =
-  case unqualifiedNameType name of
-    NameVarSym -> "(" <> unqualifiedNameText name <> ")"
-    NameConSym -> "(" <> unqualifiedNameText name <> ")"
-    _ -> unqualifiedNameText name
+  pure (pretty name <+> "∷" <+> pretty (renderTcType ty))
 
 elaborationAnnotationDoc :: Annotation -> Maybe (Doc ann)
 elaborationAnnotationDoc annotation = do

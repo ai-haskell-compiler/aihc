@@ -3,7 +3,7 @@ annotated:
   module Test where
   f $ x = f x
   │ │ └─ x ∷ a
-  │ └─ ($) ∷ ∀ a b. (a → b) → a → b
+  │ └─ $ ∷ ∀ a b. (a → b) → a → b
   └─ f ∷ a → b
 extensions: []
 modules:

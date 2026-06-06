@@ -7,17 +7,17 @@ annotated:
        └─ Bool ∷ *
   class Eq a where
     (==) :: a -> a -> Bool
-     └─ (==) ∷ ∀ a. (Eq a) ⇒ a → a → Bool
+     └─ == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
   instance Eq Bool where
            └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
-          └─ (==) ∷ Bool → Bool → Bool
+          └─ == ∷ Bool → Bool → Bool
     False == True = False
-          └─ (==) ∷ Bool → Bool → Bool
+          └─ == ∷ Bool → Bool → Bool
     True == False = False
-         └─ (==) ∷ Bool → Bool → Bool
+         └─ == ∷ Bool → Bool → Bool
     True == True = True
-         └─ (==) ∷ Bool → Bool → Bool
+         └─ == ∷ Bool → Bool → Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
   │         └─ type-args: Bool; evidence: $fEqBool
