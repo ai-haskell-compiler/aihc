@@ -20,7 +20,7 @@ module Aihc.Tc.Solve
 where
 
 import Aihc.Tc.Constraint
-import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDict)
@@ -102,9 +102,9 @@ processEq wl ct = do
       -- Report the error.
       case ctPred errCt of
         EqPred t1 t2 ->
-          emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
+          recordConstraintFailure errCt . diagnosticAt errCt . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
         p ->
-          emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+          recordConstraintFailure errCt (diagnosticAt errCt (UnsolvedWanted p (ctOrigin errCt)))
       pure wl
 
 -- | Solve an implication constraint.
@@ -173,10 +173,18 @@ solveWantedWithGivens givens ct = case ctPred ct of
       EqError errCt ->
         case ctPred errCt of
           EqPred et1 et2 ->
-            emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
+            recordConstraintFailure errCt . diagnosticAt errCt . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
           p ->
-            emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+            recordConstraintFailure errCt (diagnosticAt errCt (UnsolvedWanted p (ctOrigin errCt)))
   _ -> pure ()
+
+diagnosticAt :: Ct -> TcErrorKind -> TcDiagnostic
+diagnosticAt ct kind =
+  TcDiagnostic
+    { diagLoc = ctLoc ct,
+      diagSeverity = TcError,
+      diagKind = kind
+    }
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =

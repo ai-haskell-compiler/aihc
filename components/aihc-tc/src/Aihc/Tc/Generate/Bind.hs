@@ -4,6 +4,7 @@
 module Aihc.Tc.Generate.Bind
   ( InferExpr,
     inferLocalDecls,
+    inferLocalDeclsWithResult,
     inferRhsWithLocals,
     collectRawSigs,
     sigToScheme,
@@ -53,6 +54,14 @@ type InferExpr = Expr -> TcM (TcType, [Ct])
 -- | Infer local declarations, then infer a body under the resulting binders.
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (TcType, [Ct]) -> TcM (TcType, [Ct])
 inferLocalDecls inferExpr decls body = do
+  ((), bodyTy, bodyCts) <-
+    inferLocalDeclsWithResult inferExpr decls $ do
+      (bodyTy, bodyCts) <- body
+      pure ((), bodyTy, bodyCts)
+  pure (bodyTy, bodyCts)
+
+inferLocalDeclsWithResult :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM (a, TcType, [Ct])
+inferLocalDeclsWithResult inferExpr decls body = do
   let rawSigs = collectRawSigs decls
       groups = groupValueDecls decls
       binders = nub (concatMap groupBinders groups)
@@ -70,13 +79,12 @@ inferLocalDecls inferExpr decls body = do
         polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
         recordLocalBindingElaborations decls polyBinders
         withLocalBinders polyBinders $ do
-          (bodyTy, bodyCts) <- body
-          pure (bodyTy, bodyCts)
+          body
       else do
         monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
         recordLocalBindingElaborations decls monoBinders
-        (bodyTy, bodyCts) <- body
-        pure (bodyTy, bindingCts ++ bodyCts)
+        (value, bodyTy, bodyCts) <- body
+        pure (value, bodyTy, bindingCts ++ bodyCts)
 
 recordLocalBindingElaborations :: [Decl] -> [(Text, TcBinder)] -> TcM ()
 recordLocalBindingElaborations decls binders = do

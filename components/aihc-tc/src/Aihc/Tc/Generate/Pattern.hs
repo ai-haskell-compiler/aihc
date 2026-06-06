@@ -20,7 +20,6 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Constraint
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
-import Aihc.Tc.NodeId (tcNodeIdFromPattern)
 import Aihc.Tc.Types
 import Data.Text (Text)
 
@@ -61,7 +60,7 @@ checkPattern = checkPatternWith GadtAsWanted
 
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy =
-  withDiagnosticTarget (tcNodeIdFromPattern pat) $ case pat of
+  case pat of
     PVar name ->
       pure mempty {pcBindings = [(unqualifiedNameText name, scrutTy)]}
     PAnn _ann inner -> checkPatternWith gadtHandling sp inner scrutTy
@@ -106,7 +105,6 @@ constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType
 constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
   ev <- freshEvVar
   gadtCon <- isGadtCon conName
-  target <- currentDiagnosticTarget
   if gadtHandling == GadtAsGiven && gadtCon
     then
       pure
@@ -117,8 +115,7 @@ constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
                 ctEvVar = ev,
                 ctOrigin = AppOrigin sp,
                 ctProvenance = FromCtOrigin (AppOrigin sp),
-                ctLoc = sp,
-                ctDiagnosticTarget = target
+                ctLoc = sp
               }
           ]
         )

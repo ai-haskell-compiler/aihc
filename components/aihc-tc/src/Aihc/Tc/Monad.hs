@@ -53,12 +53,14 @@ module Aihc.Tc.Monad
     tcMonomorphismRestriction,
     getTcLevel,
     withTcLevel,
-    currentDiagnosticTarget,
-    withDiagnosticTarget,
+    TcSolveReport (..),
+    emptyTcSolveReport,
+    solveReportFromState,
     mkWantedCtM,
     mkWantedEqCtM,
     mkWantedCtAt,
     mkWantedEqCtAt,
+    recordConstraintFailure,
     addInstance,
     getInstances,
 
@@ -68,9 +70,8 @@ module Aihc.Tc.Monad
 
     -- * Diagnostics
     emitDiagnostic,
-    emitDiagnosticAt,
     emitError,
-    emitErrorAt,
+    emitErrorDiagnostic,
     getDiagnostics,
     withErrorTracking,
   )
@@ -81,9 +82,8 @@ import Aihc.Tc.Constraint (Ct (..), CtOrigin, TypeTrace, mkWantedCt, mkWantedEqC
 import Aihc.Tc.Env (InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
-import Aihc.Tc.NodeId (TcNodeId)
 import Aihc.Tc.Types
-import Control.Applicative ((<|>))
+import Control.Monad (void)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
@@ -124,12 +124,35 @@ data TcEnv = TcEnv
     -- | Whether the monomorphism restriction is active.
     tcEnvMonomorphismRestriction :: !Bool,
     -- | Current implication nesting level.
-    tcEnvTcLevel :: !TcLevel,
-    -- | Temporary syntax node that should receive diagnostics emitted while
-    -- checking this part of the AST.
-    tcEnvDiagnosticTarget :: !(Maybe TcNodeId)
+    tcEnvTcLevel :: !TcLevel
   }
   deriving (Show)
+
+data TcSolveReport = TcSolveReport
+  { tcSolveReportMetaSolutions :: !(Map Unique TcType),
+    tcSolveReportKindSolutions :: !(Map Unique Kind),
+    tcSolveReportEvBinds :: !(Map Unique EvTerm),
+    tcSolveReportConstraintFailures :: !(Map EvVar TcDiagnostic)
+  }
+  deriving (Show)
+
+emptyTcSolveReport :: TcSolveReport
+emptyTcSolveReport =
+  TcSolveReport
+    { tcSolveReportMetaSolutions = Map.empty,
+      tcSolveReportKindSolutions = Map.empty,
+      tcSolveReportEvBinds = Map.empty,
+      tcSolveReportConstraintFailures = Map.empty
+    }
+
+solveReportFromState :: TcState -> TcSolveReport
+solveReportFromState st =
+  TcSolveReport
+    { tcSolveReportMetaSolutions = tcsMetaSolutions st,
+      tcSolveReportKindSolutions = tcsKindSolutions st,
+      tcSolveReportEvBinds = tcsEvBinds st,
+      tcSolveReportConstraintFailures = tcsConstraintFailures st
+    }
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness
@@ -152,8 +175,7 @@ emptyTcEnv =
     { tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
-      tcEnvTcLevel = topTcLevel,
-      tcEnvDiagnosticTarget = Nothing
+      tcEnvTcLevel = topTcLevel
     }
 
 -- | The mutable state of the type checker.
@@ -166,9 +188,10 @@ data TcState = TcState
     tcsKindSolutions :: !(Map Unique Kind),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
-    -- | Diagnostics (errors and warnings) collected with their temporary
-    -- syntax targets.
-    tcsDiagnostics :: ![TargetedDiagnostic],
+    -- | Diagnostics (errors and warnings) collected during this traversal.
+    tcsDiagnostics :: ![TcDiagnostic],
+    -- | Constraint failures produced by the solver during the collect pass.
+    tcsConstraintFailures :: !(Map EvVar TcDiagnostic),
     -- | Global term bindings (accumulated by top-level declarations).
     tcsGlobalTerms :: !(Map Text TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
@@ -216,6 +239,7 @@ initTcState =
       tcsKindSolutions = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
+      tcsConstraintFailures = Map.empty,
       tcsGlobalTerms = builtinTerms,
       tcsGlobalTyCons = Map.empty,
       tcsInstances = [],
@@ -395,60 +419,53 @@ withTcLevel =
   local $ \env ->
     env {tcEnvTcLevel = pushLevel (tcEnvTcLevel env)}
 
-currentDiagnosticTarget :: TcM (Maybe TcNodeId)
-currentDiagnosticTarget = asks tcEnvDiagnosticTarget
-
-withDiagnosticTarget :: Maybe TcNodeId -> TcM a -> TcM a
-withDiagnosticTarget target =
-  local $ \env -> env {tcEnvDiagnosticTarget = target <|> tcEnvDiagnosticTarget env}
-
 mkWantedCtM :: Pred -> EvVar -> CtOrigin -> SourceSpan -> TcM Ct
-mkWantedCtM p ev orig loc = do
-  target <- currentDiagnosticTarget
-  pure (mkWantedCtAt target p ev orig loc)
+mkWantedCtM p ev orig loc =
+  pure (mkWantedCtAt p ev orig loc)
 
 mkWantedEqCtM :: TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> SourceSpan -> TcM Ct
-mkWantedEqCtM actual expected ev orig loc = do
-  target <- currentDiagnosticTarget
-  pure (mkWantedEqCtAt target actual expected ev orig loc)
+mkWantedEqCtM actual expected ev orig loc =
+  pure (mkWantedEqCtAt actual expected ev orig loc)
 
-mkWantedCtAt :: Maybe TcNodeId -> Pred -> EvVar -> CtOrigin -> SourceSpan -> Ct
-mkWantedCtAt target p ev orig loc =
-  (mkWantedCt p ev orig loc) {ctDiagnosticTarget = target}
+mkWantedCtAt :: Pred -> EvVar -> CtOrigin -> SourceSpan -> Ct
+mkWantedCtAt =
+  mkWantedCt
 
-mkWantedEqCtAt :: Maybe TcNodeId -> TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> SourceSpan -> Ct
-mkWantedEqCtAt target actual expected ev orig loc =
-  (mkWantedEqCt actual expected ev orig loc) {ctDiagnosticTarget = target}
+mkWantedEqCtAt :: TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> SourceSpan -> Ct
+mkWantedEqCtAt =
+  mkWantedEqCt
+
+recordConstraintFailure :: Ct -> TcDiagnostic -> TcM ()
+recordConstraintFailure ct diagnostic = lift $ modify' $ \s ->
+  s
+    { tcsConstraintFailures = Map.insert (ctEvVar ct) diagnostic (tcsConstraintFailures s),
+      tcsDiagnostics = diagnostic : tcsDiagnostics s
+    }
 
 -- | Emit a diagnostic (error or warning).
 emitDiagnostic :: TcDiagnostic -> TcM ()
-emitDiagnostic diagnostic = do
-  target <- currentDiagnosticTarget
-  emitDiagnosticAt target diagnostic
-
-emitDiagnosticAt :: Maybe TcNodeId -> TcDiagnostic -> TcM ()
-emitDiagnosticAt target diagnostic = lift $ modify' $ \s ->
-  s {tcsDiagnostics = TargetedDiagnostic target diagnostic : tcsDiagnostics s}
+emitDiagnostic diagnostic = lift $ modify' $ \s ->
+  s {tcsDiagnostics = diagnostic : tcsDiagnostics s}
 
 -- | Emit an error diagnostic.
 emitError :: SourceSpan -> TcErrorKind -> TcM ()
-emitError loc kind = do
-  target <- currentDiagnosticTarget
-  emitErrorAt target loc kind
+emitError loc kind =
+  void (emitErrorDiagnostic loc kind)
 
-emitErrorAt :: Maybe TcNodeId -> SourceSpan -> TcErrorKind -> TcM ()
-emitErrorAt target loc kind =
-  emitDiagnosticAt
-    target
-    TcDiagnostic
-      { diagLoc = loc,
-        diagSeverity = TcError,
-        diagKind = kind
-      }
+emitErrorDiagnostic :: SourceSpan -> TcErrorKind -> TcM TcDiagnostic
+emitErrorDiagnostic loc kind = do
+  let diagnostic =
+        TcDiagnostic
+          { diagLoc = loc,
+            diagSeverity = TcError,
+            diagKind = kind
+          }
+  emitDiagnostic diagnostic
+  pure diagnostic
 
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]
-getDiagnostics = lift $ gets (map targetedDiagnosticDiagnostic . reverse . tcsDiagnostics)
+getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
 
 -- | Run a recoverable phase and report whether it emitted any errors.
 --
@@ -465,7 +482,7 @@ withErrorTracking action = do
 
 currentErrorCount :: TcM Int
 currentErrorCount =
-  lift $ gets $ length . filter (isError . targetedDiagnosticDiagnostic) . tcsDiagnostics
+  lift $ gets $ length . filter isError . tcsDiagnostics
   where
     isError diagnostic = diagSeverity diagnostic == TcError
 

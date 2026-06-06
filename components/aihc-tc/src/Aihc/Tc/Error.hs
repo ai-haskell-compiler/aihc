@@ -1,7 +1,6 @@
 -- | Error types for the type checker.
 module Aihc.Tc.Error
-  ( TargetedDiagnostic (..),
-    TcDiagnostic (..),
+  ( TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
   )
@@ -9,14 +8,7 @@ where
 
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Constraint (CtOrigin, EqProvenance)
-import Aihc.Tc.NodeId (TcNodeId)
 import Aihc.Tc.Types
-
-data TargetedDiagnostic = TargetedDiagnostic
-  { targetedDiagnosticTarget :: !(Maybe TcNodeId),
-    targetedDiagnosticDiagnostic :: !TcDiagnostic
-  }
-  deriving (Show)
 
 -- | A diagnostic produced by the type checker.
 data TcDiagnostic = TcDiagnostic

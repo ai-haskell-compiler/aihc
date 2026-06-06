@@ -53,11 +53,10 @@ import Aihc.Parser.Syntax
     fromAnnotation,
   )
 import Aihc.Tc.Annotations (TcAnnotation (..), TcBindingAnnotation (..), renderTcSignature, renderTcType)
-import Aihc.Tc.Error (TargetedDiagnostic (..), TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
-import Aihc.Tc.NodeId (assignTcNodeIds, attachTargetedAnnotations, stripTcNodeIds)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -91,7 +90,7 @@ typecheckExpr expr =
           tcResultSuccess = False
         }
     Right (ty, st) ->
-      let diags = map targetedDiagnosticDiagnostic (reverse (tcsDiagnostics st))
+      let diags = reverse (tcsDiagnostics st)
           hasErrors = any isError diags
        in TcResult
             { tcResultType = ty,
@@ -166,26 +165,26 @@ typecheckModulesWithEnv importedTerms =
 
 typecheckModuleWithState :: TcState -> Module -> (TcModuleResult, TcState)
 typecheckModuleWithState st m =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule taggedModule) of
+  case runTcM tcEnv startState (tcModule m) of
     Left _abort ->
       ( TcModuleResult
-          { tcmModule = stripTcNodeIds taggedModule,
+          { tcmModule = m,
             tcmSuccess = False
           },
         st
       )
     Right (annotatedModule, st') ->
-      let targetedDiagnostics = reverse (tcsDiagnostics st')
-          diags = map targetedDiagnosticDiagnostic targetedDiagnostics
+      let diags = reverse (tcsDiagnostics st')
           hasErrors = any isError diags
           result =
             TcModuleResult
-              { tcmModule = attachTargetedAnnotations (map targetedDiagnosticPayload targetedDiagnostics) annotatedModule,
+              { tcmModule = annotatedModule,
                 tcmSuccess = not hasErrors
               }
           nextState =
             st'
               { tcsDiagnostics = [],
+                tcsConstraintFailures = Map.empty,
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
                 tcsEvBinds = Map.empty,
@@ -194,8 +193,11 @@ typecheckModuleWithState st m =
               }
        in (result, nextState)
   where
-    taggedModule =
-      assignTcNodeIds m
+    startState =
+      st
+        { tcsDiagnostics = [],
+          tcsConstraintFailures = Map.empty
+        }
 
     tcEnv =
       emptyTcEnv
@@ -206,9 +208,6 @@ typecheckModuleWithState st m =
       applyImpliedExtensions $
         foldr applyExtensionSetting [MonoLocalBinds, MonomorphismRestriction] (moduleLanguagePragmas m)
     isError d = diagSeverity d == TcError
-
-    targetedDiagnosticPayload diagnostic =
-      (targetedDiagnosticTarget diagnostic, targetedDiagnosticDiagnostic diagnostic)
 
 -- | Type-check a list of modules.
 typecheck :: [Module] -> [TcModuleResult]

@@ -68,22 +68,25 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
-import Aihc.Tc.Generate.Expr (inferExpr)
+import Aihc.Tc.Generate.Expr (attachRhsFailure, inferExpr, inferRhsWithReport)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey, unqualifiedNameOccurrenceKey)
-import Aihc.Tc.NodeId (tcNodeIdFromExprRhs)
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM, unless, void, zipWithM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Reader (ask)
+import Control.Monad.Trans.State.Strict (get, put)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
@@ -127,7 +130,8 @@ data UserSig = UserSig
 data CheckedSig = CheckedSig
   { checkedSigName :: !Text,
     checkedSigScheme :: !TypeScheme,
-    checkedSigSpan :: !SourceSpan
+    checkedSigSpan :: !SourceSpan,
+    checkedSigDiagnostics :: ![TcDiagnostic]
   }
   deriving (Show)
 
@@ -254,15 +258,19 @@ tcModule m = do
   schemes <- traverse checkUserSig rawSigs
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
-  valueResults <- concat <$> mapM (tcDeclGroup schemes) grouped
+  groupResults <- mapM (tcDeclGroup schemes) grouped
+  let valueResults = concatMap tcDeclGroupBindings groupResults
+      declUpdates = signatureDiagnosticUpdates schemes <> mconcat (map tcDeclGroupUpdates groupResults)
+  mWithValueDiagnostics <- applyDeclUpdates declUpdates m
   -- Phase 4: type-check instance method bodies. They are not top-level
   -- value bindings, but their occurrences still need the same instantiation
   -- and evidence records as ordinary expressions.
-  mapM_ tcInstanceDeclBodies (moduleDecls m)
+  instanceDecls <- mapM tcInstanceDeclBodies (moduleDecls mWithValueDiagnostics)
+  let mWithDiagnostics = mWithValueDiagnostics {moduleDecls = instanceDecls}
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotateModuleTc (Set.fromList (map tbName valueResults)) m
+  annotateModuleTc (Set.fromList (map tbName valueResults)) mWithDiagnostics
 
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
 annotateModuleTc checkedValueNames m = do
@@ -551,13 +559,13 @@ annotateInstancePatternMethod methodName ty pat =
       | otherwise -> pat
     Nothing -> pat
 
-tcInstanceDeclBodies :: Decl -> TcM ()
-tcInstanceDeclBodies (DeclAnn _ inner) =
-  tcInstanceDeclBodies inner
+tcInstanceDeclBodies :: Decl -> TcM Decl
+tcInstanceDeclBodies (DeclAnn ann inner) =
+  DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
-    (_, []) -> pure ()
-    (Nothing, _) -> pure ()
+    (_, []) -> pure (DeclInstance instanceDecl)
+    (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just _, headArgTypes) -> do
       let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
@@ -565,39 +573,44 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       let tvMap = Map.fromList (zip freeVars tvIds)
       headTys <- mapM (convertSurfaceType tvMap) headArgTypes
       givens <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
-      mapM_ (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
-tcInstanceDeclBodies _ =
-  pure ()
+      items <- mapM (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
+      pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
+tcInstanceDeclBodies decl =
+  pure decl
 
-tcInstanceItemBody :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM ()
+tcInstanceItemBody :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
 tcInstanceItemBody givens headTys item =
   case item of
-    InstanceItemAnn _ inner ->
-      tcInstanceItemBody givens headTys inner
+    InstanceItemAnn ann inner ->
+      InstanceItemAnn ann <$> tcInstanceItemBody givens headTys inner
     InstanceItemBind (FunctionBind name matches) -> do
       methodTy <- methodExpectedType headTys (unqualifiedNameText name)
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
-      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      solveInstanceBodyConstraints givens results
-    InstanceItemBind (PatternBind _ pat rhs) ->
+      matches' <-
+        solveCircularWith (solveBodyConstraintsWithGivens givens) $ \report -> do
+          results <- mapM (tcMatchEquationWithReport report Nothing argTys resTy) matches
+          let (matchesList, ctsList, implsList) = unzip3 results
+          pure (matchesList, concat ctsList, concat implsList)
+      pure (InstanceItemBind (FunctionBind name matches'))
+    InstanceItemBind (PatternBind multiplicity pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
           methodTy <- methodExpectedType headTys methodName
-          results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
-          solveInstanceBodyConstraints givens results
-        Nothing -> pure ()
-    _ -> pure ()
+          matches' <-
+            solveCircularWith (solveBodyConstraintsWithGivens givens) $ \report -> do
+              result <- tcMatchEquationWithReport report Nothing [] methodTy (zeroArgMatch (patternSpan pat) rhs)
+              let (match', cts, impls) = result
+              pure ([match'], cts, impls)
+          case matches' of
+            match' : _ ->
+              pure (InstanceItemBind (PatternBind multiplicity pat (matchRhs match')))
+            [] -> pure item
+        Nothing -> pure item
+    _ -> pure item
 
 matchArity :: [Match] -> Int
 matchArity (match : _) = length (matchPats match)
 matchArity [] = 0
-
-solveInstanceBodyConstraints :: [Pred] -> [([Ct], [Implication])] -> TcM ()
-solveInstanceBodyConstraints givens results = do
-  let (ctsList, implsList) = unzip results
-      cts = concat ctsList
-      impls = concat implsList
-  solveBodyConstraintsWithGivens givens cts impls
 
 solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
@@ -1046,13 +1059,23 @@ collectUserSigs decls = Map.fromList $ concatMap (extractSig NoSourceSpan) decls
 
 checkUserSig :: UserSig -> TcM CheckedSig
 checkUserSig userSig = do
-  scheme <- sigToScheme (userSigType userSig)
+  (scheme, diagnostics) <- captureDiagnostics (sigToScheme (userSigType userSig))
   pure
     CheckedSig
       { checkedSigName = userSigName userSig,
         checkedSigScheme = scheme,
-        checkedSigSpan = userSigSpan userSig
+        checkedSigSpan = userSigSpan userSig,
+        checkedSigDiagnostics = diagnostics
       }
+
+captureDiagnostics :: TcM a -> TcM (a, [TcDiagnostic])
+captureDiagnostics action = do
+  before <- lift get
+  result <- action
+  after <- lift get
+  let newCount = length (tcsDiagnostics after) - length (tcsDiagnostics before)
+      diagnostics = reverse (take newCount (tcsDiagnostics after))
+  pure (result, diagnostics)
 
 splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
@@ -1088,6 +1111,141 @@ splitFunTy ty _ = ([], ty)
 data DeclGroup
   = SingleDecl Decl
   | MergedFunctionBind SourceSpan UnqualifiedName [Match]
+
+data TcDeclGroupResult = TcDeclGroupResult
+  { tcDeclGroupBindings :: ![TcBindingResult],
+    tcDeclGroupUpdates :: !DeclUpdates
+  }
+
+data DeclUpdates = DeclUpdates
+  { declFunctionUpdates :: !(Map Text [Match]),
+    declPatternUpdates :: ![Rhs Expr],
+    declTypeSigUpdates :: !(Map Text [TcDiagnostic])
+  }
+
+instance Semigroup DeclUpdates where
+  left <> right =
+    DeclUpdates
+      { declFunctionUpdates = Map.unionWith (<>) (declFunctionUpdates left) (declFunctionUpdates right),
+        declPatternUpdates = declPatternUpdates left <> declPatternUpdates right,
+        declTypeSigUpdates = Map.unionWith (<>) (declTypeSigUpdates left) (declTypeSigUpdates right)
+      }
+
+instance Monoid DeclUpdates where
+  mempty =
+    DeclUpdates
+      { declFunctionUpdates = Map.empty,
+        declPatternUpdates = [],
+        declTypeSigUpdates = Map.empty
+      }
+
+checkedBindings :: [TcBindingResult] -> DeclUpdates -> TcDeclGroupResult
+checkedBindings bindings updates =
+  TcDeclGroupResult
+    { tcDeclGroupBindings = bindings,
+      tcDeclGroupUpdates = updates
+    }
+
+functionUpdate :: Text -> [Match] -> DeclUpdates
+functionUpdate name matches =
+  mempty {declFunctionUpdates = Map.singleton name matches}
+
+patternUpdate :: Rhs Expr -> DeclUpdates
+patternUpdate rhs =
+  mempty {declPatternUpdates = [rhs]}
+
+signatureDiagnosticUpdates :: Map Text CheckedSig -> DeclUpdates
+signatureDiagnosticUpdates sigs =
+  mempty
+    { declTypeSigUpdates =
+        Map.fromList
+          [ (checkedSigName sig, checkedSigDiagnostics sig)
+          | sig <- Map.elems sigs,
+            not (null (checkedSigDiagnostics sig))
+          ]
+    }
+
+applyDeclUpdates :: DeclUpdates -> Module -> TcM Module
+applyDeclUpdates updates modu = do
+  (updates', reversedDecls) <-
+    foldM
+      ( \(updatesAcc, declsAcc) decl -> do
+          (updatesNext, decl') <- applyDeclUpdate updatesAcc decl
+          pure (updatesNext, decl' : declsAcc)
+      )
+      (updates, [])
+      (moduleDecls modu)
+  unless (nullDeclUpdates updates') $
+    abortTc ("internal type annotation error: unapplied declaration diagnostics " <> showDeclUpdates updates')
+  pure (modu {moduleDecls = reverse reversedDecls})
+
+applyDeclUpdate :: DeclUpdates -> Decl -> TcM (DeclUpdates, Decl)
+applyDeclUpdate updates decl =
+  case decl of
+    DeclAnn ann inner ->
+      do
+        (updates', inner') <- applyDeclUpdate updates inner
+        pure (updates', DeclAnn ann inner')
+    DeclValue (FunctionBind name matches) ->
+      let key = unqualifiedNameText name
+       in do
+            maybeUpdate <- takeFunctionMatches key (length matches) updates
+            case maybeUpdate of
+              Nothing -> pure (updates, decl)
+              Just (updates', matches') -> pure (updates', DeclValue (FunctionBind name matches'))
+    DeclValue (PatternBind multiplicity pat _rhs) ->
+      case takePatternRhs updates of
+        Nothing -> pure (updates, decl)
+        Just (updates', rhs') -> pure (updates', DeclValue (PatternBind multiplicity pat rhs'))
+    DeclTypeSig names _ty -> do
+      let (updates', diagnostics) = takeTypeSigDiagnostics names updates
+      pure (updates', foldr (DeclAnn . mkAnnotation) decl diagnostics)
+    _ -> pure (updates, decl)
+
+takeFunctionMatches :: Text -> Int -> DeclUpdates -> TcM (Maybe (DeclUpdates, [Match]))
+takeFunctionMatches name count updates =
+  case Map.lookup name (declFunctionUpdates updates) of
+    Nothing -> pure Nothing
+    Just matches
+      | length matches < count ->
+          abortTc ("internal type annotation error: not enough updated matches for " <> T.unpack name)
+      | otherwise ->
+          let (here, remaining) = splitAt count matches
+              updates' =
+                updates
+                  { declFunctionUpdates =
+                      if null remaining
+                        then Map.delete name (declFunctionUpdates updates)
+                        else Map.insert name remaining (declFunctionUpdates updates)
+                  }
+           in pure (Just (updates', here))
+
+takePatternRhs :: DeclUpdates -> Maybe (DeclUpdates, Rhs Expr)
+takePatternRhs updates =
+  case declPatternUpdates updates of
+    [] -> Nothing
+    rhs : rest ->
+      Just (updates {declPatternUpdates = rest}, rhs)
+
+takeTypeSigDiagnostics :: [UnqualifiedName] -> DeclUpdates -> (DeclUpdates, [TcDiagnostic])
+takeTypeSigDiagnostics names updates =
+  let keys = map unqualifiedNameText names
+      diagnostics = concatMap (\name -> Map.findWithDefault [] name (declTypeSigUpdates updates)) keys
+      updates' = updates {declTypeSigUpdates = foldr Map.delete (declTypeSigUpdates updates) keys}
+   in (updates', diagnostics)
+
+nullDeclUpdates :: DeclUpdates -> Bool
+nullDeclUpdates updates =
+  Map.null (declFunctionUpdates updates) && null (declPatternUpdates updates) && Map.null (declTypeSigUpdates updates)
+
+showDeclUpdates :: DeclUpdates -> String
+showDeclUpdates updates =
+  "function updates="
+    <> show (Map.keys (declFunctionUpdates updates))
+    <> ", pattern updates="
+    <> show (length (declPatternUpdates updates))
+    <> ", type signature updates="
+    <> show (Map.keys (declTypeSigUpdates updates))
 
 -- | Group consecutive FunctionBind declarations with the same name.
 groupValueDecls :: [Decl] -> [DeclGroup]
@@ -1230,33 +1388,61 @@ patternBinders pat =
     _ -> []
 
 -- | Type-check a declaration group.
-tcDeclGroup :: Map Text CheckedSig -> DeclGroup -> TcM [TcBindingResult]
+tcDeclGroup :: Map Text CheckedSig -> DeclGroup -> TcM TcDeclGroupResult
 tcDeclGroup sigs (SingleDecl d) =
   case peelDeclAnn d of
+    DeclValue (FunctionBind binder matches) -> do
+      let name = unqualifiedNameText binder
+          displayName = renderBinderName binder
+      case Map.lookup name sigs of
+        Just sig -> do
+          (bindings, matches') <- tcFunctionWithSig displayName name sig matches
+          pure (checkedBindings bindings (functionUpdate name matches'))
+        Nothing -> do
+          (bindings, matches') <- tcFunctionInfer displayName name matches
+          pure (checkedBindings bindings (functionUpdate name matches'))
     DeclValue (PatternBind _ pat rhs)
       | Just (displayName, name) <- patternBinderName pat,
-        Just sig <- Map.lookup name sigs ->
-          tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
-    _ -> tcDecl d
+        Just sig <- Map.lookup name sigs -> do
+          (bindings, matches') <- tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+          let rhs' =
+                case matches' of
+                  match' : _ -> matchRhs match'
+                  [] -> rhs
+          pure (checkedBindings bindings (patternUpdate rhs'))
+    DeclValue (PatternBind _ pat rhs)
+      | Just (displayName, name) <- patternBinderName pat -> do
+          (bindings, matches') <- tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+          let rhs' =
+                case matches' of
+                  match' : _ -> matchRhs match'
+                  [] -> rhs
+          pure (checkedBindings bindings (patternUpdate rhs'))
+    DeclValue (PatternBind _ _ rhs) -> do
+      (bindings, rhs') <- tcPatternRhs rhs
+      pure (checkedBindings bindings (patternUpdate rhs'))
+    _ -> checkedBindings <$> tcDecl d <*> pure mempty
 tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   case Map.lookup name sigs of
     Just sig -> do
       -- Use the declared type signature for checking.
-      tcFunctionWithSig displayName name sig matches
+      (bindings, matches') <- tcFunctionWithSig displayName name sig matches
+      pure (checkedBindings bindings (functionUpdate name matches'))
     Nothing -> do
       -- No signature: infer the type.
-      tcFunctionInfer displayName name matches
+      (bindings, matches') <- tcFunctionInfer displayName name matches
+      pure (checkedBindings bindings (functionUpdate name matches'))
 
 -- | Type-check a function with a known type signature.
 -- The signature's type variables are opened as rigid skolems so that
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
-tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM [TcBindingResult]
+tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM ([TcBindingResult], [Match])
 tcFunctionWithSig displayName name sig matches = do
   let scheme = checkedSigScheme sig
-  ((), failed) <-
+  (matches', failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
@@ -1265,39 +1451,50 @@ tcFunctionWithSig displayName name sig matches = do
             (m : _) -> length (matchPats m)
             [] -> 0
           (argTys, resTy) = splitFunTy sigTy nArgs
-      -- Check each equation against the signature types.
-      results <- mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
-      let (ctsList, implsList) = unzip results
-          allCts = concat ctsList
-          allImpls = concat implsList
-      solveBodyConstraintsWithGivens sigPreds allCts allImpls
+      solveCircularWith (solveBodyConstraintsWithGivens sigPreds) $ \report -> do
+        results <- mapM (tcMatchEquationWithReport report (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
+        let (matchesList, ctsList, implsList) = unzip3 results
+        pure (matchesList, concat ctsList, concat implsList)
   if failed
-    then pure []
+    then pure ([], matches')
     else do
       -- Report the declared scheme as the binding's type.
       let declaredTy = schemeToType scheme
       zonkedTy <- zonkType declaredTy
-      pure [TcBindingResult name displayName zonkedTy]
+      pure ([TcBindingResult name displayName zonkedTy], matches')
 
 -- | Type-check a function without a type signature (infer).
-tcFunctionInfer :: Text -> Text -> [Match] -> TcM [TcBindingResult]
+tcFunctionInfer :: Text -> Text -> [Match] -> TcM ([TcBindingResult], [Match])
 tcFunctionInfer displayName name matches = do
   placeholderTy <- freshMetaTv
-  ((ty, _, _), failed) <-
+  ((ty, matches'), failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
-      result@(_, cts', impls') <- tcMatches matches
-      _ <- solveWithImpls cts' impls'
-      pure result
+      solveCircularWithImpls $ \report -> do
+        (ty, matches', cts', impls') <- tcMatchesWithReport report matches
+        pure ((ty, matches'), cts', impls')
   if failed
-    then pure []
+    then pure ([], matches')
     else do
       scheme <- generalizeIgnoring [name] ty []
       commitGeneralizedMetas ty scheme
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder name scheme Closed)
-      pure [TcBindingResult name displayName zonkedTy]
+      pure ([TcBindingResult name displayName zonkedTy], matches')
+
+tcPatternRhs :: Rhs Expr -> TcM ([TcBindingResult], Rhs Expr)
+tcPatternRhs rhs = do
+  ((rhs', ty), failed) <-
+    withErrorTracking $
+      solveCircularWithImpls $ \report -> do
+        (rhs', ty, cts) <- inferRhsWithReport report rhs
+        pure ((rhs', ty), cts, [])
+  if failed
+    then pure ([], rhs')
+    else do
+      zonkedTy <- zonkType ty
+      pure ([TcBindingResult "<pattern>" "<pattern>" zonkedTy], rhs')
 
 commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
 commitGeneralizedMetas ty (ForAll _ _ body) = do
@@ -1567,13 +1764,13 @@ tcValueDecl :: ValueDecl -> TcM [TcBindingResult]
 tcValueDecl (FunctionBind binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
-  tcFunctionInfer displayName name matches
+  fst <$> tcFunctionInfer displayName name matches
 tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- Bare variable pattern (e.g. @x = 5@, @(.>.) = (++)@): type-check as a
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.
   Just (displayName, name) -> do
-    tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
+    fst <$> tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
   -- Non-trivial pattern binding: infer the RHS type without generalization.
   Nothing -> do
     ty <- tcRhs rhs
@@ -1657,45 +1854,70 @@ schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 -- All equations must have the same number of patterns and produce
 -- a consistent function type. We infer the type from each equation
 -- and unify them.
-tcMatches :: [Match] -> TcM (TcType, [Ct], [Implication])
-tcMatches [] = do
+solveCircularWithImpls :: (TcSolveReport -> TcM (a, [Ct], [Implication])) -> TcM a
+solveCircularWithImpls =
+  solveCircularWith $ \cts impls -> do
+    void (solveWithImpls cts impls)
+
+solveCircularWith :: ([Ct] -> [Implication] -> TcM ()) -> (TcSolveReport -> TcM (a, [Ct], [Implication])) -> TcM a
+solveCircularWith solveGenerated generate = do
+  env <- ask
+  startState <- lift get
+  let report = solveReportFromState finalState
+      finalResult =
+        case runTcM env startState (generate report) of
+          Left _abort ->
+            Left "internal type annotation error: circular constraint generation failed"
+          Right ((value, cts, impls), generatedState) ->
+            case runTcM env generatedState (solveGenerated cts impls) of
+              Left _abort ->
+                Left "internal type annotation error: circular constraint solving failed"
+              Right ((), solvedState) ->
+                Right (value, solvedState)
+      finalState =
+        case finalResult of
+          Right (_, solvedState) -> solvedState
+          Left _ -> startState
+  case finalResult of
+    Left message -> abortTc message
+    Right (value, solvedState) -> do
+      lift (put solvedState)
+      pure value
+
+tcMatchesWithReport :: TcSolveReport -> [Match] -> TcM (TcType, [Match], [Ct], [Implication])
+tcMatchesWithReport _report [] = do
   ty <- freshMetaTv
-  pure (ty, [], [])
-tcMatches matches@(m0 : _) = do
+  pure (ty, [], [], [])
+tcMatchesWithReport report matches@(m0 : _) = do
   let nArgs = length (matchPats m0)
   if nArgs == 0
     then do
-      -- No patterns: just infer the RHS of the first match.
-      (ty0, cts0) <- inferRhsExpr (matchRhs m0)
-      restCts <- concatMapM (unifyMatchRhs ty0) (drop 1 matches)
-      pure (ty0, cts0 ++ restCts, [])
+      (rhs0', ty0, cts0) <- inferRhsWithReport report (matchRhs m0)
+      restResults <- mapM (unifyMatchRhsWithReport report ty0) (drop 1 matches)
+      let m0' = m0 {matchRhs = rhs0'}
+          restMatches = map fst restResults
+          restCts = concatMap snd restResults
+      pure (ty0, m0' : restMatches, cts0 ++ restCts, [])
     else do
-      -- Create fresh meta-variables for the argument types and result type.
       argTys <- mapM (const freshMetaTv) [1 .. nArgs]
       resTy <- freshMetaTv
-      -- Process each equation.
-      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      let (ctsList, implsList) = unzip results
+      results <- mapM (tcMatchEquationWithReport report Nothing argTys resTy) matches
+      let (matchesList, ctsList, implsList) = unzip3 results
           allCts = concat ctsList
           allImpls = concat implsList
           funTy = foldr TcFunTy resTy argTys
-      pure (funTy, allCts, allImpls)
+      pure (funTy, matchesList, allCts, allImpls)
 
--- | Type-check a single match equation against expected arg/result types.
--- Returns flat wanted constraints and implication constraints.
-tcMatchEquation :: Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM ([Ct], [Implication])
-tcMatchEquation expectedOrigin argTys resTy match = do
+tcMatchEquationWithReport :: TcSolveReport -> Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM (Match, [Ct], [Implication])
+tcMatchEquationWithReport report expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkPatternsWithGivens sp (zip pats argTys)
-  -- Infer the RHS under the extended environment.
-  (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsExpr (matchRhs match))
-  -- RHS type must match the expected result type.
+  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithReport report (matchRhs match))
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
       resCt =
         mkWantedEqCtAt
-          (tcNodeIdFromExprRhs (matchRhs match))
           TypeTrace
             { typeTraceType = rhsTy,
               typeTraceRole = ActualType,
@@ -1709,13 +1931,13 @@ tcMatchEquation expectedOrigin argTys resTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  let givenCts = pcGivenCts patCheck
+      rhs'' = attachRhsFailure report resCt rhs'
+      match' = match {matchRhs = rhs''}
+      givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts
-    then -- No GADT givens: emit everything as flat wanteds.
-      pure (bodyWanteds, [])
+    then pure (match', bodyWanteds, [])
     else do
-      -- GADT givens: wrap body wanteds in an implication.
       level <- getTcLevel
       let impl =
             Implication
@@ -1726,18 +1948,16 @@ tcMatchEquation expectedOrigin argTys resTy match = do
                 implTcLevel = level,
                 implInfo = AppOrigin sp
               }
-      pure ([], [impl])
+      pure (match', [], [impl])
 
--- | Unify an additional match equation's RHS with the expected type.
-unifyMatchRhs :: TcType -> Match -> TcM [Ct]
-unifyMatchRhs expectedTy match = do
-  (rhsTy, rhsCts) <- inferRhsExpr (matchRhs match)
+unifyMatchRhsWithReport :: TcSolveReport -> TcType -> Match -> TcM (Match, [Ct])
+unifyMatchRhsWithReport report expectedTy match = do
+  (rhs', rhsTy, rhsCts) <- inferRhsWithReport report (matchRhs match)
   ev <- freshEvVar
   let sp = sourceSpanFromAnns (matchAnns match)
       rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
       eqCt =
         mkWantedEqCtAt
-          (tcNodeIdFromExprRhs (matchRhs match))
           TypeTrace
             { typeTraceType = rhsTy,
               typeTraceRole = ActualType,
@@ -1751,11 +1971,8 @@ unifyMatchRhs expectedTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  pure (rhsCts ++ [eqCt])
-
--- | Infer the type of a right-hand side expression.
-inferRhsExpr :: Rhs Expr -> TcM (TcType, [Ct])
-inferRhsExpr = inferRhsWithLocals inferExpr
+      match' = match {matchRhs = attachRhsFailure report eqCt rhs'}
+  pure (match', rhsCts ++ [eqCt])
 
 -- | Type-check a right-hand side (solving constraints immediately).
 tcRhs :: Rhs Expr -> TcM TcType
@@ -1772,7 +1989,3 @@ renderBinderName uname =
     NameVarSym -> "(" <> unqualifiedNameText uname <> ")"
     NameConSym -> "(" <> unqualifiedNameText uname <> ")"
     _ -> unqualifiedNameText uname
-
--- | Strict 'concatMap' in a monad.
-concatMapM :: (Monad m) => (a -> m [b]) -> [a] -> m [b]
-concatMapM f xs = concat <$> mapM f xs

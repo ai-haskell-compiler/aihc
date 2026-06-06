@@ -29,7 +29,10 @@ import Aihc.Resolve (ResolutionAnnotation (..), ResolveResult (..), resolve)
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Data.Data (Data, cast, gmapM)
+import Aihc.Tc.Generate.Expr (inferExprWithReport)
+import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM, solveReportFromState)
+import Aihc.Tc.Solve (solveConstraints)
+import Data.Data (Data, cast, gmapM, gmapQ)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -487,5 +490,37 @@ errorTests =
           UnboundVariable name ->
             assertEqual "error should name 'foo'" "foo" name
           other ->
-            assertBool ("unexpected error kind: " ++ show other) False
+            assertBool ("unexpected error kind: " ++ show other) False,
+    testCase "circular report annotates list element mismatch" $ do
+      let expr = circularExpr (parseE "[1, 'x']")
+          diagnostics = tcDiagnosticsIn expr
+      assertBool "expected diagnostic annotation on rebuilt expression" (any isUnificationError diagnostics)
   ]
+  where
+    isUnificationError diagnostic =
+      case diagKind diagnostic of
+        UnificationError {} -> True
+        _ -> False
+
+circularExpr :: Expr -> Expr
+circularExpr expr =
+  expr'
+  where
+    report = solveReportFromState solveState
+    ((expr', cts, _ty), genState) =
+      runTcOrFail "circular generation" (runTcM emptyTcEnv initTcState (inferExprWithReport report expr))
+    (_solveResult, solveState) =
+      runTcOrFail "circular solve" (runTcM emptyTcEnv genState (solveConstraints cts))
+
+runTcOrFail :: String -> Either abort a -> a
+runTcOrFail _label (Right result) = result
+runTcOrFail label (Left _err) = error (label <> " failed")
+
+tcDiagnosticsIn :: (Data a) => a -> [TcDiagnostic]
+tcDiagnosticsIn node =
+  maybe [] annotationDiagnostic (cast node)
+    <> concat (gmapQ tcDiagnosticsIn node)
+  where
+    annotationDiagnostic :: Annotation -> [TcDiagnostic]
+    annotationDiagnostic annotation =
+      maybeToList (fromAnnotation annotation)
