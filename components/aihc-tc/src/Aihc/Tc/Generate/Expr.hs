@@ -35,6 +35,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey)
+import Aihc.Tc.NodeId (tcNodeIdFromAnnotations, tcNodeIdFromExpr, tcNodeIdFromExprRhs)
 import Aihc.Tc.Types
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -47,7 +48,7 @@ inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr = inferExprAt NoSourceSpan
 
 inferExprAt :: SourceSpan -> Expr -> TcM (TcType, [Ct])
-inferExprAt ambient expr = case expr of
+inferExprAt ambient expr = withDiagnosticTarget (tcNodeIdFromExpr expr) $ case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
   EVar name -> inferVar (exprSpan expr `orSourceSpan` ambient) name
   -- Boxed integer literals are monomorphic Int for the MVP. MagicHash
@@ -106,7 +107,7 @@ inferExprAt ambient expr = case expr of
 
 -- | Infer the type of a variable reference.
 inferVar :: SourceSpan -> Name -> TcM (TcType, [Ct])
-inferVar ambient nameSyntax = do
+inferVar ambient nameSyntax = withDiagnosticTarget (tcNodeIdFromAnnotations (nameAnns nameSyntax)) $ do
   let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
       name = nameToText nameSyntax
       maybeKey = nameOccurrenceKey nameSyntax
@@ -148,8 +149,7 @@ recordVarOccurrence maybeKey elaboration =
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
 predToCt sp name p = do
   ev <- freshEvVar
-  pure $
-    mkWantedCt p ev (OccurrenceOf name) sp
+  mkWantedCtM p ev (OccurrenceOf name) sp
 
 -- | Infer the type of a lambda expression.
 inferLambda :: SourceSpan -> [Pattern] -> Expr -> TcM (TcType, [Ct])
@@ -213,7 +213,8 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
   (firstBranchSp, firstRhsSp, firstRhsTy, firstCts) <- inferAlt firstAlt
   resultEv <- freshEvVar
   let resultCt =
-        mkWantedEqCt
+        mkWantedEqCtAt
+          (tcNodeIdFromExprRhs (caseAltRhs firstAlt))
           TypeTrace
             { typeTraceType = firstRhsTy,
               typeTraceRole = ActualType,
@@ -243,7 +244,8 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
       (branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
       ev <- freshEvVar
       let rhsCt =
-            mkWantedEqCt
+            mkWantedEqCtAt
+              (tcNodeIdFromExprRhs (caseAltRhs alt))
               TypeTrace
                 { typeTraceType = rhsTy,
                   typeTraceRole = ActualType,
@@ -266,7 +268,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
-  let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+  let rhsCt = mkWantedCtAt (tcNodeIdFromExprRhs rhs) (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -291,7 +293,7 @@ inferApp sp fun arg = do
   resTy <- freshMetaTv
   -- Emit equality: funTy ~ argTy -> resTy
   ev <- freshEvVar
-  let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
+  eqCt <- mkWantedCtM (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
   pure (resTy, funCts ++ argCts ++ [eqCt])
 
 -- | Infer the type of if-then-else.
@@ -302,10 +304,10 @@ inferIf sp cond thenE elseE = do
   (elseTy, elseCts) <- inferExpr elseE
   -- Condition must be Bool.
   condEv <- freshEvVar
-  let condCt = mkWantedCt (EqPred condTy boolTyCon) condEv (AppOrigin sp) sp
+  let condCt = mkWantedCtAt (tcNodeIdFromExpr cond) (EqPred condTy boolTyCon) condEv (AppOrigin sp) sp
   -- Then and else branches must have the same type.
   branchEv <- freshEvVar
-  let branchCt = mkWantedCt (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
+  branchCt <- mkWantedCtM (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
   pure (thenTy, condCts ++ thenCts ++ elseCts ++ [condCt, branchCt])
 
 -- | Infer the type of a tuple.
@@ -345,7 +347,7 @@ inferList sp elems = case elems of
     let headSp = exprSpan e `orSourceSpan` sp
     (headTy, headCts) <- inferExpr e
     results <- mapM inferElem es
-    let tailCts = concatMap (\(_, elemCts, _) -> elemCts) results
+    let tailCts = concatMap (\(_, elemCts, _, _) -> elemCts) results
     -- All elements must have the same type.
     eqCts <- mapM (mkElemEq headSp headTy) results
     let listTy = TcTyCon listTyCon' [headTy]
@@ -355,7 +357,7 @@ inferList sp elems = case elems of
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
       (elemTy, elemCts) <- inferExpr elemExpr
-      pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
+      pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp, tcNodeIdFromExpr elemExpr)
     recordListElaboration listTy elemTy =
       recordOccurrenceElaboration
         listOccurrenceKey
@@ -365,10 +367,11 @@ inferList sp elems = case elems of
             occurrenceElabEvidenceVars = [],
             occurrenceElabTermArgTypes = []
           }
-    mkElemEq headSp headTy (elemTy, _, elemSp) = do
+    mkElemEq headSp headTy (elemTy, _, elemSp, elemTarget) = do
       ev <- freshEvVar
       pure $
-        mkWantedEqCt
+        mkWantedEqCtAt
+          elemTarget
           TypeTrace
             { typeTraceType = elemTy,
               typeTraceRole = ActualType,
@@ -417,14 +420,14 @@ inferListComp sp body quals = do
           patCheck <- checkPattern ambient pat elemTy
           ev <- freshEvVar
           let srcSp = exprSpan src `orSourceSpan` ambient
-              srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
+              srcListCt = mkWantedCtAt (tcNodeIdFromExpr src) (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
           pure (bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
           let guardSp = exprSpan guard `orSourceSpan` ambient
-              guardCt = mkWantedCt (EqPred guardTy boolTyCon) ev (AppOrigin guardSp) guardSp
+              guardCt = mkWantedCtAt (tcNodeIdFromExpr guard) (EqPred guardTy boolTyCon) ev (AppOrigin guardSp) guardSp
           (bodyTy, bodyCts) <- inferCompQuals ambient rest action
           pure (bodyTy, guardCts ++ [guardCt] ++ bodyCts)
         CompLetDecls decls ->

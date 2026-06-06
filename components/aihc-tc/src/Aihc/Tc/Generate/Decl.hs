@@ -77,6 +77,7 @@ import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey, unqualifiedNameOccurrenceKey)
+import Aihc.Tc.NodeId (tcNodeIdFromExprRhs)
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
@@ -1672,7 +1673,8 @@ tcMatchEquation expectedOrigin argTys resTy match = do
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
       resCt =
-        mkWantedEqCt
+        mkWantedEqCtAt
+          (tcNodeIdFromExprRhs (matchRhs match))
           TypeTrace
             { typeTraceType = rhsTy,
               typeTraceRole = ActualType,
@@ -1713,7 +1715,8 @@ unifyMatchRhs expectedTy match = do
   let sp = sourceSpanFromAnns (matchAnns match)
       rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
       eqCt =
-        mkWantedEqCt
+        mkWantedEqCtAt
+          (tcNodeIdFromExprRhs (matchRhs match))
           TypeTrace
             { typeTraceType = rhsTy,
               typeTraceRole = ActualType,

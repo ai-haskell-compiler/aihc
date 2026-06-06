@@ -40,6 +40,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
+import Aihc.Tc.NodeId (tcNodeIdFromType)
 import Aihc.Tc.Types
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
@@ -72,13 +73,13 @@ convertSurfaceType tvMap ty = do
   checkSurfaceType tvEnv ty KType
 
 checkSurfaceType :: TvKindEnv -> Type -> Kind -> TcM TcType
-checkSurfaceType tvEnv ty expected = do
+checkSurfaceType tvEnv ty expected = withDiagnosticTarget (tcNodeIdFromType ty) $ do
   (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
   unifyKinds expected actual
   pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, Kind)
-convertSurfaceTypeWithKinds tvEnv ty =
+convertSurfaceTypeWithKinds tvEnv ty = withDiagnosticTarget (tcNodeIdFromType ty) $
   case peelTypeHead ty of
     TAnn _ inner ->
       convertSurfaceTypeWithKinds tvEnv inner

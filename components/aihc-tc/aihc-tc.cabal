@@ -36,6 +36,9 @@ library
     Aihc.Tc.Unify
     Aihc.Tc.Zonk
 
+  other-modules:
+    Aihc.Tc.NodeId
+
   hs-source-dirs: src
   build-depends:
     aihc-parser,

@@ -102,9 +102,9 @@ processEq wl ct = do
       -- Report the error.
       case ctPred errCt of
         EqPred t1 t2 ->
-          emitError (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
+          emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
         p ->
-          emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+          emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
       pure wl
 
 -- | Solve an implication constraint.
@@ -173,9 +173,9 @@ solveWantedWithGivens givens ct = case ctPred ct of
       EqError errCt ->
         case ctPred errCt of
           EqPred et1 et2 ->
-            emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
+            emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
           p ->
-            emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+            emitErrorAt (ctDiagnosticTarget errCt) (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
   _ -> pure ()
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Test.Tc.Suite
   ( tcTests,
@@ -8,7 +9,8 @@ where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Syntax
-  ( CaseAlt (..),
+  ( Annotation,
+    CaseAlt (..),
     CompStmt (..),
     Decl (..),
     Expr (..),
@@ -18,14 +20,18 @@ import Aihc.Parser.Syntax
     Module (..),
     Name (..),
     Rhs (..),
+    SourceSpan (..),
     ValueDecl (..),
     fromAnnotation,
+    mkAnnotation,
   )
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolutionAnnotation (..), ResolveResult (..), resolve)
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Data (Data, cast, gmapM)
+import Data.Functor.Identity (Identity (..), runIdentity)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import TcAnnotatedGolden qualified as TAG
 import Test.Tasty (TestTree, testGroup)
@@ -232,8 +238,34 @@ annotationTests =
       assertEqual
         "rendered signature"
         "f ∷ ∀ a. (Eq a) ⇒ a → a"
-        (renderTcSignature "f" ty)
+        (renderTcSignature "f" ty),
+    testCase "typecheck annotations do not require source span annotations" $ do
+      let result =
+            typecheckModule $
+              eraseSourceLocations $
+                parseM
+                  "module Test where\n\
+                  \id x = x\n"
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "binding annotation should be present" (not (null (tcmBindings result))),
+    testCase "type error diagnostics do not require source span annotations" $ do
+      let result =
+            typecheckModule $
+              eraseSourceLocations $
+                parseM
+                  "module Test where\n\
+                  \data Bool = True | False\n\
+                  \list = [True, ()]\n"
+          diagnostics = tcModuleDiagnostics (tcmModule result)
+      assertBool "module should fail" (not (tcmSuccess result))
+      assertBool "diagnostic should be attached to returned module" (not (null diagnostics))
+      assertBool "should report a unification error" (any isUnificationError diagnostics)
   ]
+  where
+    isUnificationError diagnostic =
+      case diagKind diagnostic of
+        UnificationError {} -> True
+        _ -> False
 
 annotationModule :: Module
 annotationModule =
@@ -272,6 +304,25 @@ parseM input =
           ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
           ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
         else error ("Parse error in test: " ++ show errs)
+
+eraseSourceLocations :: Module -> Module
+eraseSourceLocations =
+  eraseSourceLocationsData
+
+eraseSourceLocationsData :: (Data a) => a -> a
+eraseSourceLocationsData node =
+  case cast node of
+    Just (anns :: [Annotation]) ->
+      fromMaybe node (cast (mapMaybe eraseSourceAnnotation anns))
+    Nothing ->
+      runIdentity (gmapM (Identity . eraseSourceLocationsData) node)
+
+eraseSourceAnnotation :: Annotation -> Maybe Annotation
+eraseSourceAnnotation ann
+  | Just (_ :: SourceSpan) <- fromAnnotation ann = Nothing
+  | Just resolution <- fromAnnotation ann =
+      Just (mkAnnotation (resolution {resolutionSpan = NoSourceSpan}))
+  | otherwise = Just ann
 
 evidenceDictNames :: Module -> [Text]
 evidenceDictNames =

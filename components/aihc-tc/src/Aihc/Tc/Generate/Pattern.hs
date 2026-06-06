@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Constraint
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
+import Aihc.Tc.NodeId (tcNodeIdFromPattern)
 import Aihc.Tc.Types
 import Data.Text (Text)
 
@@ -60,7 +61,7 @@ checkPattern = checkPatternWith GadtAsWanted
 
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy =
-  case pat of
+  withDiagnosticTarget (tcNodeIdFromPattern pat) $ case pat of
     PVar name ->
       pure mempty {pcBindings = [(unqualifiedNameText name, scrutTy)]}
     PAnn _ann inner -> checkPatternWith gadtHandling sp inner scrutTy
@@ -105,6 +106,7 @@ constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType
 constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
   ev <- freshEvVar
   gadtCon <- isGadtCon conName
+  target <- currentDiagnosticTarget
   if gadtHandling == GadtAsGiven && gadtCon
     then
       pure
@@ -115,12 +117,13 @@ constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
                 ctEvVar = ev,
                 ctOrigin = AppOrigin sp,
                 ctProvenance = FromCtOrigin (AppOrigin sp),
-                ctLoc = sp
+                ctLoc = sp,
+                ctDiagnosticTarget = target
               }
           ]
         )
     else do
-      let wantedCt = mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp
+      wantedCt <- mkWantedCtM (EqPred scrutTy conResTy) ev (AppOrigin sp) sp
       pure ([wantedCt], [])
 
 splitConTy :: Int -> TcType -> TcM ([TcType], TcType)
@@ -135,7 +138,7 @@ splitConTy n result = do
 wantedEq :: SourceSpan -> TcType -> TcType -> TcM Ct
 wantedEq sp left right = do
   ev <- freshEvVar
-  pure (mkWantedCt (EqPred left right) ev (AppOrigin sp) sp)
+  mkWantedCtM (EqPred left right) ev (AppOrigin sp) sp
 
 withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action

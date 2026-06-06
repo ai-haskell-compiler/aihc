@@ -222,7 +222,7 @@ tiePlaceholder placeholders name ty cts =
     Nothing -> pure cts
     Just placeholderTy -> do
       ev <- freshEvVar
-      let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
+      eqCt <- mkWantedCtM (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
       pure (cts ++ [eqCt])
 
 tcMatches :: InferExpr -> [Match] -> TcM (TcType, [Ct])
@@ -248,14 +248,14 @@ tcMatchEquation inferExpr argTys resTy match = do
   patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
   (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
-  let resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  resCt <- mkWantedCtM (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
   pure (pcWantedCts patCheck ++ rhsCts ++ [resCt])
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM [Ct]
 unifyMatchRhs inferExpr expectedTy match = do
   (rhsTy, rhsCts) <- inferRhsWithLocals inferExpr (matchRhs match)
   ev <- freshEvVar
-  let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  eqCt <- mkWantedCtM (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
   pure (rhsCts ++ [eqCt])
 
 shouldGeneralizeLocal :: Set.Set Text -> [Decl] -> TcM Bool

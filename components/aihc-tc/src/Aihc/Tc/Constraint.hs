@@ -27,6 +27,7 @@ where
 
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Evidence (EvVar)
+import Aihc.Tc.NodeId (TcNodeId)
 import Aihc.Tc.Types
 import Data.Text (Text)
 
@@ -103,7 +104,8 @@ data Ct = Ct
     ctEvVar :: !EvVar,
     ctOrigin :: !CtOrigin,
     ctProvenance :: !CtProvenance,
-    ctLoc :: !SourceSpan
+    ctLoc :: !SourceSpan,
+    ctDiagnosticTarget :: !(Maybe TcNodeId)
   }
   deriving (Show)
 
@@ -116,7 +118,8 @@ mkWantedCt p ev orig loc =
       ctEvVar = ev,
       ctOrigin = orig,
       ctProvenance = FromCtOrigin orig,
-      ctLoc = loc
+      ctLoc = loc,
+      ctDiagnosticTarget = Nothing
     }
 
 -- | Create a wanted equality constraint with expected-vs-actual diagnostic
@@ -137,7 +140,8 @@ mkWantedEqCt actual expected ev orig loc =
               eqContextOrigins = [],
               eqPrimarySpan = loc
             },
-      ctLoc = loc
+      ctLoc = loc,
+      ctDiagnosticTarget = Nothing
     }
 
 ctEqProvenance :: Ct -> Maybe EqProvenance
