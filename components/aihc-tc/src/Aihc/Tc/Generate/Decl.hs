@@ -616,7 +616,7 @@ annotateRhsTc rhs =
 annotateExprTc :: Expr -> TcM Expr
 annotateExprTc expr =
   case expr of
-    EVar name -> annotateVarTc expr name
+    EVar name -> annotateVarTc name
     EAnn ann inner -> EAnn ann <$> annotateExprTc inner
     EParen inner -> EParen <$> annotateExprTc inner
     ETypeSig inner ty -> (`ETypeSig` ty) <$> annotateExprTc inner
@@ -759,14 +759,14 @@ annotateCaseAltTc (CaseAlt anns pat rhs) = do
   rhs' <- annotateRhsTc rhs
   pure (CaseAlt anns pat rhs')
 
-annotateVarTc :: Expr -> Name -> TcM Expr
-annotateVarTc _expr name = do
+annotateVarTc :: Name -> TcM Expr
+annotateVarTc name = do
   maybeOccurrenceAnn <- annotationForNameOccurrence name
   case maybeOccurrenceAnn of
     Just ann -> pure (EVar (annotateName ann name))
     Nothing -> do
       _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
-      pure _expr
+      pure (EVar name)
 
 annotateInfixOperatorTc :: Name -> TcM Name
 annotateInfixOperatorTc name = do
