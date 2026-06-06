@@ -2,8 +2,8 @@ annotated:
 - |-
   module Test where
   pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
-  │     │  │       │       └─ x ∷ a └─ y ∷ b
-  │     │  │       └─ type-args: a, b
+  │     │  │      │        └─ x ∷ a └─ y ∷ b
+  │     │  │      └─ type-args: a, b
   │     │  └─ ys ∷ [b]
   │     └─ xs ∷ [a]
   └─ pairs ∷ ∀ a b. [a] → [b] → [(a, b)]

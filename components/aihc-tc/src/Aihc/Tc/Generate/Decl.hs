@@ -490,6 +490,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
       let contextDicts = map predDictBinder context
           dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
           methodOrder = fromMaybe [] (Map.lookup classNameText classMethods)
+          annotatedHead = annotateInstanceHeadBinding dictName dictTy (instanceDeclHead instanceDecl)
           instAnn =
             TcInstanceAnnotation
               { tcInstanceDictName = dictName,
@@ -500,7 +501,27 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceMethodOrder = methodOrder
               }
       items <- mapM (annotateInstanceItemTc headTys) (instanceDeclItems instanceDecl)
-      pure (DeclAnn (mkAnnotation (syntheticBindingAnnotation dictName dictTy)) (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items}))))
+      pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclHead = annotatedHead, instanceDeclItems = items})))
+
+annotateInstanceHeadBinding :: Text -> TcType -> Type -> Type
+annotateInstanceHeadBinding dictName dictTy =
+  go
+  where
+    dictAnn = syntheticBindingAnnotation dictName dictTy
+
+    go ty =
+      case ty of
+        TAnn ann inner -> TAnn ann (go inner)
+        TApp fun arg -> TApp (go fun) arg
+        TTypeApp fun arg -> TTypeApp (go fun) arg
+        TParen inner -> TParen (go inner)
+        TCon name promoted -> TCon (annotateNameBinding dictAnn name) promoted
+        TInfix lhs name promoted rhs -> TInfix lhs (annotateNameBinding dictAnn name) promoted rhs
+        _ -> ty
+
+annotateNameBinding :: TcBindingAnnotation -> Name -> Name
+annotateNameBinding ann name =
+  name {nameAnns = nameAnns name <> [mkAnnotation ann]}
 
 annotateInstanceItemTc :: [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
 annotateInstanceItemTc headTys item =
