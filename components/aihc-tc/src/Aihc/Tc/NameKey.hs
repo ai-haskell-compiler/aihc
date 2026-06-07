@@ -2,15 +2,12 @@
 
 module Aihc.Tc.NameKey
   ( nameOccurrenceKey,
-    syntaxOccurrenceKey,
-    unqualifiedNameOccurrenceKey,
   )
 where
 
 import Aihc.Parser.Syntax
   ( Annotation,
     Name (..),
-    UnqualifiedName (..),
     fromAnnotation,
     renderName,
   )
@@ -21,19 +18,10 @@ import Aihc.Resolve.Types
   )
 import Aihc.Tc.Monad (OccurrenceKey (..), ResolvedOccurrenceKey (..))
 import Data.Maybe (listToMaybe, mapMaybe)
-import Data.Text (Text)
 
 nameOccurrenceKey :: Name -> Maybe OccurrenceKey
 nameOccurrenceKey =
   termResolution . nameAnns
-
-unqualifiedNameOccurrenceKey :: UnqualifiedName -> Maybe OccurrenceKey
-unqualifiedNameOccurrenceKey =
-  termResolution . unqualifiedNameAnns
-
-syntaxOccurrenceKey :: Text -> OccurrenceKey
-syntaxOccurrenceKey =
-  OccurrenceSyntax
 
 termResolution :: [Annotation] -> Maybe OccurrenceKey
 termResolution anns =

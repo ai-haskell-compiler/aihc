@@ -18,6 +18,7 @@ library
     Aihc.Tc.Error
     Aihc.Tc.Evidence
     Aihc.Tc.Generalize
+    Aihc.Tc.Generate.Annotate
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl
     Aihc.Tc.Generate.Expr

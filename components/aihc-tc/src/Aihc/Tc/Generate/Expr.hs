@@ -39,11 +39,18 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcDiagnostic, TcErrorKind (..))
-import Aihc.Tc.Generate.Bind (inferLocalDecls, inferLocalDeclsWithResult, inferRhsWithLocals)
+import Aihc.Tc.Generate.Annotate
+  ( annotateDeclWithTypeWithReport,
+    annotateNameElaboration,
+    annotatePatternBindingWithReport,
+    annotatePatternWithReport,
+    attachExprElaboration,
+  )
+import Aihc.Tc.Generate.Bind (LocalSyntaxHooks (..), inferLocalDecls, inferLocalDeclsWithSyntax, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Monad
-import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey)
+import Aihc.Tc.NameKey (nameOccurrenceKey)
 import Aihc.Tc.Types
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -82,7 +89,7 @@ inferExprWithReportAt report ambient expr =
       (inner', cts, ty) <- inferExprWithReportAt report (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
       pure (EAnn ann inner', cts, ty)
     EVar name ->
-      inferVarWithReport (exprSpan expr `orSourceSpan` ambient) name
+      inferVarWithReport report (exprSpan expr `orSourceSpan` ambient) name
     EInt {} ->
       pure (expr, [], numericLiteralExprType expr)
     EFloat {} ->
@@ -127,8 +134,8 @@ inferExprWithReportAt report ambient expr =
       ty <- freshMetaTv
       pure (attachDiagnosticToExpr diagnostic expr, [], ty)
 
-inferVarWithReport :: SourceSpan -> Name -> TcM (Expr, [Ct], TcType)
-inferVarWithReport ambient nameSyntax = do
+inferVarWithReport :: TcSolveReport -> SourceSpan -> Name -> TcM (Expr, [Ct], TcType)
+inferVarWithReport report ambient nameSyntax = do
   let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
       name = nameToText nameSyntax
       maybeKey = nameOccurrenceKey nameSyntax
@@ -137,27 +144,63 @@ inferVarWithReport ambient nameSyntax = do
     Just (TcIdBinder _ scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
-      recordVarOccurrence maybeKey $
-        OccurrenceElaboration
-          { occurrenceElabType = instType inst,
-            occurrenceElabTypeArgs = instTypeArgs inst,
-            occurrenceElabEvidenceVars = map ctEvVar cts,
-            occurrenceElabTermArgTypes = []
-          }
-      pure (EVar nameSyntax, cts, instType inst)
+      let elaboration =
+            OccurrenceElaboration
+              { occurrenceElabType = instType inst,
+                occurrenceElabTypeArgs = instTypeArgs inst,
+                occurrenceElabEvidenceVars = map ctEvVar cts,
+                occurrenceElabTermArgTypes = []
+              }
+          nameSyntax' = maybe nameSyntax (const (annotateNameElaboration report elaboration nameSyntax)) maybeKey
+      pure (EVar nameSyntax', cts, instType inst)
     Just (TcMonoIdBinder _ ty) -> do
-      recordVarOccurrence maybeKey $
-        OccurrenceElaboration
-          { occurrenceElabType = ty,
-            occurrenceElabTypeArgs = [],
-            occurrenceElabEvidenceVars = [],
-            occurrenceElabTermArgTypes = []
-          }
-      pure (EVar nameSyntax, [], ty)
+      let elaboration =
+            OccurrenceElaboration
+              { occurrenceElabType = ty,
+                occurrenceElabTypeArgs = [],
+                occurrenceElabEvidenceVars = [],
+                occurrenceElabTermArgTypes = []
+              }
+          nameSyntax' = maybe nameSyntax (const (annotateNameElaboration report elaboration nameSyntax)) maybeKey
+      pure (EVar nameSyntax', [], ty)
     Nothing -> do
       diagnostic <- emitErrorDiagnostic sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv
       pure (attachDiagnosticToExpr diagnostic (EVar nameSyntax), [], ty)
+
+inferNameWithReport :: TcSolveReport -> SourceSpan -> Name -> TcM (Name, [Ct], TcType)
+inferNameWithReport report ambient nameSyntax = do
+  let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
+      name = nameToText nameSyntax
+      maybeKey = nameOccurrenceKey nameSyntax
+  mBinder <- lookupTerm name
+  case mBinder of
+    Just (TcIdBinder _ scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp name) (instPreds inst)
+      let elaboration =
+            OccurrenceElaboration
+              { occurrenceElabType = instType inst,
+                occurrenceElabTypeArgs = instTypeArgs inst,
+                occurrenceElabEvidenceVars = map ctEvVar cts,
+                occurrenceElabTermArgTypes = []
+              }
+          nameSyntax' = maybe nameSyntax (const (annotateNameElaboration report elaboration nameSyntax)) maybeKey
+      pure (nameSyntax', cts, instType inst)
+    Just (TcMonoIdBinder _ ty) -> do
+      let elaboration =
+            OccurrenceElaboration
+              { occurrenceElabType = ty,
+                occurrenceElabTypeArgs = [],
+                occurrenceElabEvidenceVars = [],
+                occurrenceElabTermArgTypes = []
+              }
+          nameSyntax' = maybe nameSyntax (const (annotateNameElaboration report elaboration nameSyntax)) maybeKey
+      pure (nameSyntax', [], ty)
+    Nothing -> do
+      diagnostic <- emitErrorDiagnostic sp (UnboundVariable (T.unpack name))
+      ty <- freshMetaTv
+      pure (nameSyntax {nameAnns = nameAnns nameSyntax <> [mkAnnotation diagnostic]}, [], ty)
 
 inferLambdaWithReport :: TcSolveReport -> SourceSpan -> [Pattern] -> Expr -> TcM (Expr, [Ct], TcType)
 inferLambdaWithReport report sp pats body = do
@@ -165,15 +208,8 @@ inferLambdaWithReport report sp pats body = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyCts, bodyTy) <- withPatternBindings (pcBindings patCheck) (inferExprWithReportAt report sp body)
   let funTy = foldr TcFunTy bodyTy argTys
-  recordOccurrenceElaboration
-    lambdaOccurrenceKey
-    OccurrenceElaboration
-      { occurrenceElabType = funTy,
-        occurrenceElabTypeArgs = [],
-        occurrenceElabEvidenceVars = [],
-        occurrenceElabTermArgTypes = argTys
-      }
-  pure (ELambdaPats pats body', pcWantedCts patCheck ++ bodyCts, funTy)
+      pats' = zipWith (annotatePatternWithReport report) argTys pats
+  pure (ELambdaPats pats' body', pcWantedCts patCheck ++ bodyCts, funTy)
 
 inferLambdaCaseWithReport :: TcSolveReport -> SourceSpan -> [CaseAlt Expr] -> TcM (Expr, [Ct], TcType)
 inferLambdaCaseWithReport report sp alts = do
@@ -228,7 +264,7 @@ inferAppWithReport report sp fun arg = do
 
 inferInfixWithReport :: TcSolveReport -> SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, [Ct], TcType)
 inferInfixWithReport report sp lhs op rhs = do
-  (opTy, opCts) <- inferVar sp op
+  (op', opCts, opTy) <- inferNameWithReport report sp op
   (lhs', lhsCts, lhsTy) <- inferExprWithReportAt report sp lhs
   leftResTy <- freshMetaTv
   leftEv <- freshEvVar
@@ -237,7 +273,7 @@ inferInfixWithReport report sp lhs op rhs = do
   resTy <- freshMetaTv
   rightEv <- freshEvVar
   rightCt <- mkWantedCtM (EqPred leftResTy (TcFunTy rhsTy resTy)) rightEv (AppOrigin sp) sp
-  let rebuilt = EInfix lhs' op rhs'
+  let rebuilt = EInfix lhs' op' rhs'
   pure (attachExprFailures report [leftCt, rightCt] rebuilt, opCts ++ lhsCts ++ rhsCts ++ [leftCt, rightCt], resTy)
 
 inferIfWithReport :: TcSolveReport -> SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, [Ct], TcType)
@@ -346,10 +382,10 @@ inferCaseAltsWithReport report sp scrutTy resTy (firstAlt : restAlts) = do
 
 inferLetWithReport :: TcSolveReport -> SourceSpan -> [Decl] -> Expr -> TcM (Expr, [Ct], TcType)
 inferLetWithReport report sp decls body = do
-  (body', bodyTy, bodyCts) <-
-    inferLocalDeclsWithResult (inferExprTypeWithReport report) decls $
+  (decls', body', bodyTy, bodyCts) <-
+    inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
       inferExprSyntaxWithReportAt report sp body
-  pure (ELetDecls decls body', bodyCts, bodyTy)
+  pure (ELetDecls decls' body', bodyCts, bodyTy)
 
 inferTupleWithReport :: TcSolveReport -> SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, [Ct], TcType)
 inferTupleWithReport report sp flavor elems = do
@@ -360,15 +396,14 @@ inferTupleWithReport report sp flavor elems = do
       n = length tys
       tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
       tupleTy = TcTyCon tc tys
-  recordOccurrenceElaboration
-    tupleOccurrenceKey
-    OccurrenceElaboration
-      { occurrenceElabType = tupleTy,
-        occurrenceElabTypeArgs = tys,
-        occurrenceElabEvidenceVars = [],
-        occurrenceElabTermArgTypes = []
-      }
-  pure (ETuple flavor elems', cts, tupleTy)
+      elaboration =
+        OccurrenceElaboration
+          { occurrenceElabType = tupleTy,
+            occurrenceElabTypeArgs = tys,
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
+  pure (attachExprElaboration report elaboration (ETuple flavor elems'), cts, tupleTy)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -440,40 +475,19 @@ inferVar :: SourceSpan -> Name -> TcM (TcType, [Ct])
 inferVar ambient nameSyntax = do
   let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
       name = nameToText nameSyntax
-      maybeKey = nameOccurrenceKey nameSyntax
   mBinder <- lookupTerm name
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
-      recordVarOccurrence maybeKey $
-        OccurrenceElaboration
-          { occurrenceElabType = instType inst,
-            occurrenceElabTypeArgs = instTypeArgs inst,
-            occurrenceElabEvidenceVars = map ctEvVar cts,
-            occurrenceElabTermArgTypes = []
-          }
       let ty = instType inst
       pure (ty, cts)
-    Just (TcMonoIdBinder _ ty) -> do
-      recordVarOccurrence maybeKey $
-        OccurrenceElaboration
-          { occurrenceElabType = ty,
-            occurrenceElabTypeArgs = [],
-            occurrenceElabEvidenceVars = [],
-            occurrenceElabTermArgTypes = []
-          }
+    Just (TcMonoIdBinder _ ty) ->
       pure (ty, [])
     Nothing -> do
       emitError sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv
       pure (ty, [])
-
-recordVarOccurrence :: Maybe OccurrenceKey -> OccurrenceElaboration -> TcM ()
-recordVarOccurrence maybeKey elaboration =
-  case maybeKey of
-    Just key -> recordOccurrenceElaboration key elaboration
-    Nothing -> pure ()
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
@@ -491,14 +505,6 @@ inferLambda sp pats body = do
   -- Infer the body under the extended environment.
   (bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
-  recordOccurrenceElaboration
-    lambdaOccurrenceKey
-    OccurrenceElaboration
-      { occurrenceElabType = funTy,
-        occurrenceElabTypeArgs = [],
-        occurrenceElabEvidenceVars = [],
-        occurrenceElabTermArgTypes = argTys
-      }
   pure (funTy, pcWantedCts patCheck ++ bodyCts)
 
 -- | Infer the type of a lambda-case expression.
@@ -648,14 +654,6 @@ inferTuple _sp elems = do
   let n = length tys
   let tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
   let tupleTy = TcTyCon tc tys
-  recordOccurrenceElaboration
-    tupleOccurrenceKey
-    OccurrenceElaboration
-      { occurrenceElabType = tupleTy,
-        occurrenceElabTypeArgs = tys,
-        occurrenceElabEvidenceVars = [],
-        occurrenceElabTermArgTypes = []
-      }
   pure (tupleTy, cts)
   where
     inferElem Nothing = do
@@ -669,7 +667,6 @@ inferList sp elems = case elems of
   [] -> do
     elemTy <- freshMetaTv
     let listTy = TcTyCon listTyCon' [elemTy]
-    recordListElaboration listTy elemTy
     pure (listTy, [])
   (e : es) -> do
     let headSp = exprSpan e `orSourceSpan` sp
@@ -679,22 +676,12 @@ inferList sp elems = case elems of
     -- All elements must have the same type.
     eqCts <- mapM (mkElemEq headSp headTy) results
     let listTy = TcTyCon listTyCon' [headTy]
-    recordListElaboration listTy headTy
     pure (listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
       (elemTy, elemCts) <- inferExpr elemExpr
       pure (elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
-    recordListElaboration listTy elemTy =
-      recordOccurrenceElaboration
-        listOccurrenceKey
-        OccurrenceElaboration
-          { occurrenceElabType = listTy,
-            occurrenceElabTypeArgs = [elemTy],
-            occurrenceElabEvidenceVars = [],
-            occurrenceElabTermArgTypes = []
-          }
     mkElemEq headSp headTy (elemTy, _, elemSp) = do
       ev <- freshEvVar
       pure $
@@ -714,11 +701,17 @@ inferList sp elems = case elems of
           elemSp
 
 inferListWithReport :: TcSolveReport -> SourceSpan -> [Expr] -> TcM (Expr, [Ct], TcType)
-inferListWithReport _report _sp [] = do
+inferListWithReport report _sp [] = do
   elemTy <- freshMetaTv
   let listTy = TcTyCon listTyCon' [elemTy]
-  recordListElaborationWithReport listTy elemTy
-  pure (EList [], [], listTy)
+      elaboration =
+        OccurrenceElaboration
+          { occurrenceElabType = listTy,
+            occurrenceElabTypeArgs = [elemTy],
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
+  pure (attachExprElaboration report elaboration (EList []), [], listTy)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
 inferListWithReport report sp (headExpr : tailExprs) = do
@@ -728,8 +721,14 @@ inferListWithReport report sp (headExpr : tailExprs) = do
   let tailExprs' = zipWith attachElemFailure eqCts tailResults
       tailCts = concatMap (\(TailElem _ elemCts _ _) -> elemCts) tailResults
       listTy = TcTyCon listTyCon' [headTy]
-  recordListElaborationWithReport listTy headTy
-  pure (EList (headExpr' : tailExprs'), headCts ++ tailCts ++ eqCts, listTy)
+      elaboration =
+        OccurrenceElaboration
+          { occurrenceElabType = listTy,
+            occurrenceElabTypeArgs = [headTy],
+            occurrenceElabEvidenceVars = [],
+            occurrenceElabTermArgTypes = []
+          }
+  pure (attachExprElaboration report elaboration (EList (headExpr' : tailExprs')), headCts ++ tailCts ++ eqCts, listTy)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
 
@@ -765,23 +764,18 @@ inferRhsWithReport report rhs =
       (expr', cts, ty) <- inferExprWithReport report expr
       pure (UnguardedRhs anns expr' Nothing, ty, cts)
     UnguardedRhs anns expr (Just decls) -> do
-      (expr', ty, cts) <-
-        inferLocalDeclsWithResult (inferExprTypeWithReport report) decls $
+      (decls', expr', ty, cts) <-
+        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
           inferExprSyntaxWithReport report expr
-      pure (UnguardedRhs anns expr' (Just decls), ty, cts)
+      pure (UnguardedRhs anns expr' (Just decls'), ty, cts)
     GuardedRhss anns guardedRhss Nothing -> do
       (guardedRhss', ty, cts) <- inferGuardedRhssWithReport report (sourceSpanFromAnns anns) guardedRhss
       pure (GuardedRhss anns guardedRhss' Nothing, ty, cts)
     GuardedRhss anns guardedRhss (Just decls) -> do
-      (guardedRhss', ty, cts) <-
-        inferLocalDeclsWithResult (inferExprTypeWithReport report) decls $
+      (decls', guardedRhss', ty, cts) <-
+        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
           inferGuardedRhssWithReport report (sourceSpanFromAnns anns) guardedRhss
-      pure (GuardedRhss anns guardedRhss' (Just decls), ty, cts)
-
-inferExprTypeWithReport :: TcSolveReport -> Expr -> TcM (TcType, [Ct])
-inferExprTypeWithReport report expr = do
-  (_expr', cts, ty) <- inferExprWithReport report expr
-  pure (ty, cts)
+      pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
 
 inferExprSyntaxWithReport :: TcSolveReport -> Expr -> TcM (Expr, TcType, [Ct])
 inferExprSyntaxWithReport report expr = do
@@ -792,6 +786,15 @@ inferExprSyntaxWithReportAt :: TcSolveReport -> SourceSpan -> Expr -> TcM (Expr,
 inferExprSyntaxWithReportAt report sp expr = do
   (expr', cts, ty) <- inferExprWithReportAt report sp expr
   pure (expr', ty, cts)
+
+localSyntaxHooks :: TcSolveReport -> LocalSyntaxHooks
+localSyntaxHooks report =
+  LocalSyntaxHooks
+    { localInferRhs = inferRhsWithReport report,
+      localAttachRhsFailure = attachRhsFailure report,
+      localAnnotatePatternBinding = annotatePatternBindingWithReport report,
+      localAnnotateDeclWithType = annotateDeclWithTypeWithReport report
+    }
 
 inferGuardedRhssWithReport :: TcSolveReport -> SourceSpan -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
 inferGuardedRhssWithReport _report _sp [] = do
@@ -853,11 +856,11 @@ inferGuardQualsWithReport report sp (qual : rest) action =
           bodyTy
         )
     GuardLet decls -> do
-      ((rest', body), bodyTy, restCts) <-
-        inferLocalDeclsWithResult (inferExprTypeWithReport report) decls $ do
+      (decls', (rest', body), bodyTy, restCts) <-
+        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $ do
           (rest', body, cts, ty) <- inferGuardQualsWithReport report sp rest action
           pure ((rest', body), ty, cts)
-      pure (GuardLet decls : rest', body, restCts, bodyTy)
+      pure (GuardLet decls' : rest', body, restCts, bodyTy)
 
 inferListCompWithReport :: TcSolveReport -> SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, [Ct], TcType)
 inferListCompWithReport report sp body quals = do
@@ -890,7 +893,7 @@ inferCompQualsWithReport report ambient (qual : rest) action =
         withPatternBindings (pcBindings patCheck) $
           inferCompQualsWithReport report ambient rest action
       pure
-        ( CompGen pat (attachExprFailure report srcListCt src') : rest',
+        ( CompGen (annotatePatternBindingWithReport report elemTy pat) (attachExprFailure report srcListCt src') : rest',
           body,
           bodyTy,
           srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts
@@ -908,11 +911,11 @@ inferCompQualsWithReport report ambient (qual : rest) action =
           guardCts ++ [guardCt] ++ bodyCts
         )
     CompLetDecls decls -> do
-      ((rest', body), bodyTy, bodyCts) <-
-        inferLocalDeclsWithResult (inferExprTypeWithReport report) decls $ do
+      (decls', (rest', body), bodyTy, bodyCts) <-
+        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $ do
           (rest', body, bodyTy, cts) <- inferCompQualsWithReport report ambient rest action
           pure ((rest', body), bodyTy, cts)
-      pure (CompLetDecls decls : rest', body, bodyTy, bodyCts)
+      pure (CompLetDecls decls' : rest', body, bodyTy, bodyCts)
     CompThen expr -> unsupportedCompQual report ambient rest action qual (Just expr)
     CompThenBy expr byExpr -> unsupportedCompQual report ambient rest action qual (Just (EApp expr byExpr))
     CompGroupUsing expr -> unsupportedCompQual report ambient rest action qual (Just expr)
@@ -956,31 +959,11 @@ attachDiagnosticToExpr :: TcDiagnostic -> Expr -> Expr
 attachDiagnosticToExpr diagnostic =
   EAnn (mkAnnotation diagnostic)
 
-recordListElaborationWithReport :: TcType -> TcType -> TcM ()
-recordListElaborationWithReport listTy elemTy =
-  recordOccurrenceElaboration
-    listOccurrenceKey
-    OccurrenceElaboration
-      { occurrenceElabType = listTy,
-        occurrenceElabTypeArgs = [elemTy],
-        occurrenceElabEvidenceVars = [],
-        occurrenceElabTermArgTypes = []
-      }
-
 numericLiteralExprType :: Expr -> TcType
 numericLiteralExprType expr =
   case expr of
     EInt _ numericType _ -> numericLiteralType numericType
     _ -> intTyCon
-
-tupleOccurrenceKey :: OccurrenceKey
-tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
-
-listOccurrenceKey :: OccurrenceKey
-listOccurrenceKey = syntaxOccurrenceKey "$list"
-
-lambdaOccurrenceKey :: OccurrenceKey
-lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
 
 -- | Infer the type of a list comprehension.
 --

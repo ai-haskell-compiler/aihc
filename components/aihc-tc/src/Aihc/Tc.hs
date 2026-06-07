@@ -187,9 +187,7 @@ typecheckModuleWithState st m =
                 tcsConstraintFailures = Map.empty,
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
-                tcsEvBinds = Map.empty,
-                tcsOccurrenceElaborations = Map.empty,
-                tcsBindingElaborations = Map.empty
+                tcsEvBinds = Map.empty
               }
        in (result, nextState)
   where

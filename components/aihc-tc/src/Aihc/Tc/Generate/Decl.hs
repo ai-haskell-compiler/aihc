@@ -28,8 +28,11 @@ import Aihc.Parser.Syntax
     ForeignDecl (..),
     ForeignDirection (..),
     GadtBody (..),
+    GuardQualifier (..),
+    GuardedRhs (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    LambdaCaseAlt (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -64,25 +67,22 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     annotateDecl,
-    annotateExpr,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic)
-import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Generalize (generalizeIgnoring)
+import Aihc.Tc.Generate.Annotate (annotatePatternBindingWithReport)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (attachRhsFailure, inferExpr, inferRhsWithReport)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
-import Aihc.Tc.NameKey (nameOccurrenceKey, syntaxOccurrenceKey, unqualifiedNameOccurrenceKey)
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Applicative ((<|>))
 import Control.Monad (foldM, unless, void, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ask)
@@ -91,7 +91,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.String (fromString)
 import Data.Text (Text)
@@ -259,50 +259,32 @@ tcModule m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let grouped = sortDeclGroups (groupValueDecls (moduleDecls m))
   groupResults <- mapM (tcDeclGroup schemes) grouped
-  let valueResults = concatMap tcDeclGroupBindings groupResults
-      declUpdates = signatureDiagnosticUpdates schemes <> mconcat (map tcDeclGroupUpdates groupResults)
+  let declUpdates = signatureDiagnosticUpdates schemes <> mconcat (map tcDeclGroupUpdates groupResults)
   mWithValueDiagnostics <- applyDeclUpdates declUpdates m
   -- Phase 4: type-check instance method bodies. They are not top-level
   -- value bindings, but their occurrences still need the same instantiation
   -- and evidence records as ordinary expressions.
   instanceDecls <- mapM tcInstanceDeclBodies (moduleDecls mWithValueDiagnostics)
   let mWithDiagnostics = mWithValueDiagnostics {moduleDecls = instanceDecls}
-  -- Only bindings that checked without errors are eligible for value
-  -- annotations. Failed bindings remain in the recovery environment, but
-  -- they must not be rendered as successful inferred types.
-  annotateModuleTc (Set.fromList (map tbName valueResults)) mWithDiagnostics
+  annotateModuleTc mWithDiagnostics
 
-annotateModuleTc :: Set.Set Text -> Module -> TcM Module
-annotateModuleTc checkedValueNames m = do
+annotateModuleTc :: Module -> TcM Module
+annotateModuleTc m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
-annotateDeclTc classMethods checkedValueNames decl =
+annotateDeclTc :: Map Text [Text] -> Decl -> TcM Decl
+annotateDeclTc classMethods decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
-    DeclValue valueDecl
-      | valueDeclWasChecked checkedValueNames valueDecl -> do
-          (ty, valueDecl') <- annotateValueDeclTc valueDecl
-          pure (annotateTypedDecl (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
-      | otherwise -> pure decl
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods inner
+    DeclValue {} -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
     _ -> pure decl
-
-valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
-valueDeclWasChecked checkedValueNames valueDecl =
-  any (`Set.member` checkedValueNames) (valueDeclBinderNames valueDecl)
-
-valueDeclBinderNames :: ValueDecl -> [Text]
-valueDeclBinderNames valueDecl =
-  case valueDecl of
-    FunctionBind binder _ -> [unqualifiedNameText binder]
-    PatternBind _ pat _ -> patternBinders pat
 
 annotateClassDeclTc :: ClassDecl -> TcM Decl
 annotateClassDeclTc classDecl = do
@@ -464,23 +446,6 @@ tyConBindingType name = do
     Just info -> kindToTcType <$> defaultKindMetas (tciKind info)
     Nothing -> missingTypeInfo ("type constructor " <> T.unpack name)
 
-annotateValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
-annotateValueDeclTc valueDecl =
-  case valueDecl of
-    FunctionBind name matches -> do
-      bindingTy <- bindingType (unqualifiedNameText name)
-      valueDecl' <- FunctionBind name <$> annotateMatchesTc bindingTy matches
-      pure (bindingTy, valueDecl')
-    PatternBind anns pat rhs ->
-      case patternBinderName pat of
-        Just (_, name) -> do
-          bindingTy <- bindingType name
-          valueDecl' <- PatternBind anns pat <$> annotateRhsTc rhs
-          pure (bindingTy, valueDecl')
-        Nothing -> do
-          ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
-          pure (ty, valueDecl)
-
 annotateInstanceDeclTc :: Map Text [Text] -> InstanceDecl -> TcM Decl
 annotateInstanceDeclTc classMethods instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
@@ -538,16 +503,14 @@ annotateInstanceItemTc headTys item =
     InstanceItemBind (FunctionBind name matches) -> do
       let methodName = unqualifiedNameText name
       methodTy <- methodExpectedType headTys (unqualifiedNameText name)
-      matches' <- annotateMatchesTc methodTy matches
       let name' = annotateBindingName methodTy name
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name' matches')))
+      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name' matches)))
     InstanceItemBind (PatternBind anns pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
           methodTy <- methodExpectedType headTys methodName
-          rhs' <- annotateRhsTc rhs
           let pat' = annotateInstancePatternMethod methodName methodTy pat
-          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat' rhs')))
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat' rhs)))
         Nothing -> pure item
     _ -> pure item
 
@@ -622,255 +585,6 @@ solveBodyConstraintsWithGivens givens cts impls = do
       pure ()
     solveClassCt _ = pure ()
 
-annotateMatchesTc :: TcType -> [Match] -> TcM [Match]
-annotateMatchesTc bindingTy =
-  mapM (annotateMatchTc bindingTy)
-
-annotateMatchTc :: TcType -> Match -> TcM Match
-annotateMatchTc bindingTy match = do
-  rhs <- annotateRhsTc (matchRhs match)
-  let argTys = functionArgTypes (length (matchPats match)) bindingTy
-      pats = zipWith annotatePatternBinding argTys (matchPats match)
-  pure (match {matchPats = pats, matchRhs = rhs})
-
-annotateRhsTc :: Rhs Expr -> TcM (Rhs Expr)
-annotateRhsTc rhs =
-  case rhs of
-    UnguardedRhs sp expr Nothing -> do
-      expr' <- annotateExprTc expr
-      pure (UnguardedRhs sp expr' Nothing)
-    UnguardedRhs sp expr (Just decls) -> do
-      decls' <- annotateLocalDeclsTc decls
-      expr' <- annotateExprTc expr
-      pure (UnguardedRhs sp expr' (Just decls'))
-    GuardedRhss {} -> pure rhs
-
-annotateExprTc :: Expr -> TcM Expr
-annotateExprTc expr =
-  case expr of
-    EVar name -> annotateVarTc name
-    EAnn ann inner -> EAnn ann <$> annotateExprTc inner
-    EParen inner -> EParen <$> annotateExprTc inner
-    ETypeSig inner ty -> (`ETypeSig` ty) <$> annotateExprTc inner
-    EApp fun arg ->
-      EApp <$> annotateExprTc fun <*> annotateExprTc arg
-    EInfix lhs op rhs -> do
-      lhs' <- annotateExprTc lhs
-      op' <- annotateInfixOperatorTc op
-      rhs' <- annotateExprTc rhs
-      pure (EInfix lhs' op' rhs')
-    EList elems -> do
-      elems' <- mapM annotateExprTc elems
-      ann <- annotationForSyntaxOccurrence listOccurrenceKey "list literal"
-      pure (annotateExpr ann (EList elems'))
-    EListComp body stmts -> do
-      stmts' <- annotateCompStmtsTc stmts
-      body' <- annotateExprTc body
-      pure (EListComp body' stmts')
-    ETuple flavor elems -> do
-      elems' <- mapM (traverse annotateExprTc) elems
-      ann <- annotationForSyntaxOccurrence tupleOccurrenceKey "tuple literal"
-      pure (annotateExpr ann (ETuple flavor elems'))
-    EIf cond thenE elseE ->
-      EIf <$> annotateExprTc cond <*> annotateExprTc thenE <*> annotateExprTc elseE
-    ELambdaPats pats body -> do
-      body' <- annotateExprTc body
-      ann <- annotationForSyntaxOccurrence lambdaOccurrenceKey "lambda patterns"
-      pats' <- annotateLambdaPatterns (tcAnnTermArgTypes ann) pats
-      pure (ELambdaPats pats' body')
-    ECase scrut alts -> do
-      scrut' <- annotateExprTc scrut
-      alts' <- mapM annotateCaseAltTc alts
-      pure (ECase scrut' alts')
-    ELetDecls decls body -> do
-      decls' <- annotateLocalDeclsTc decls
-      body' <- annotateExprTc body
-      pure (ELetDecls decls' body')
-    _ -> pure expr
-
-annotateLocalDeclsTc :: [Decl] -> TcM [Decl]
-annotateLocalDeclsTc =
-  mapM annotateLocalDeclTc
-
-annotateLocalDeclTc :: Decl -> TcM Decl
-annotateLocalDeclTc decl =
-  case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalDeclTc inner
-    DeclValue valueDecl -> do
-      (ty, valueDecl') <- annotateLocalValueDeclTc valueDecl
-      pure (annotateTypedDecl (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
-    _ -> pure decl
-
-annotateLocalValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
-annotateLocalValueDeclTc valueDecl =
-  case valueDecl of
-    FunctionBind name matches -> do
-      bindingTy <- bindingTypeForLocalName name
-      valueDecl' <- FunctionBind name <$> annotateMatchesTc bindingTy matches
-      pure (bindingTy, valueDecl')
-    PatternBind anns pat rhs ->
-      case patternBinderName pat of
-        Just (_, _name) -> do
-          bindingTy <- bindingTypeForPattern pat
-          valueDecl' <- PatternBind anns pat <$> annotateRhsTc rhs
-          pure (bindingTy, valueDecl')
-        Nothing -> do
-          ty <- missingTypeInfo ("local pattern binding " <> show pat)
-          pure (ty, valueDecl)
-
-bindingTypeForLocalName :: UnqualifiedName -> TcM TcType
-bindingTypeForLocalName name =
-  case unqualifiedNameOccurrenceKey name of
-    Just key -> bindingTypeForLocalBinder (unqualifiedNameText name) key
-    Nothing -> missingTypeInfo ("resolved local binding " <> T.unpack (unqualifiedNameText name))
-
-bindingTypeForPattern :: Pattern -> TcM TcType
-bindingTypeForPattern pat =
-  case localPatternBinderKey pat of
-    Just (name, key) -> bindingTypeForLocalBinder name key
-    Nothing -> missingTypeInfo ("local pattern binding " <> show pat)
-
-bindingTypeForLocalBinder :: Text -> OccurrenceKey -> TcM TcType
-bindingTypeForLocalBinder name key = do
-  maybeTy <- takeBindingElaboration key
-  case maybeTy of
-    Just ty -> zonkType ty
-    Nothing -> missingTypeInfo ("local binding " <> T.unpack name)
-
-localPatternBinderKey :: Pattern -> Maybe (Text, OccurrenceKey)
-localPatternBinderKey pat =
-  case pat of
-    PVar name -> (unqualifiedNameText name,) <$> unqualifiedNameOccurrenceKey name
-    PParen inner -> localPatternBinderKey inner
-    PAnn _ inner -> localPatternBinderKey inner
-    _ -> Nothing
-
-annotateCompStmtsTc :: [CompStmt] -> TcM [CompStmt]
-annotateCompStmtsTc [] = pure []
-annotateCompStmtsTc (stmt : rest) =
-  case stmt of
-    CompAnn ann inner -> do
-      stmts' <- annotateCompStmtsTc (inner : rest)
-      case stmts' of
-        inner' : rest' -> pure (CompAnn ann inner' : rest')
-        [] -> pure []
-    CompGen pat src -> do
-      src' <- annotateExprTc src
-      rest' <- annotateCompStmtsTc rest
-      let pat' = maybe pat (`annotatePatternBinding` pat) (exprListElementType src')
-      pure (CompGen pat' src' : rest')
-    CompGuard guard -> do
-      guard' <- annotateExprTc guard
-      rest' <- annotateCompStmtsTc rest
-      pure (CompGuard guard' : rest')
-    CompLetDecls decls -> do
-      decls' <- annotateLocalDeclsTc decls
-      rest' <- annotateCompStmtsTc rest
-      pure (CompLetDecls decls' : rest')
-    CompThen expr -> do
-      expr' <- annotateExprTc expr
-      rest' <- annotateCompStmtsTc rest
-      pure (CompThen expr' : rest')
-    CompThenBy f byExpr -> do
-      f' <- annotateExprTc f
-      byExpr' <- annotateExprTc byExpr
-      rest' <- annotateCompStmtsTc rest
-      pure (CompThenBy f' byExpr' : rest')
-    CompGroupUsing expr -> do
-      expr' <- annotateExprTc expr
-      rest' <- annotateCompStmtsTc rest
-      pure (CompGroupUsing expr' : rest')
-    CompGroupByUsing byExpr usingExpr -> do
-      byExpr' <- annotateExprTc byExpr
-      usingExpr' <- annotateExprTc usingExpr
-      rest' <- annotateCompStmtsTc rest
-      pure (CompGroupByUsing byExpr' usingExpr' : rest')
-
-annotateCaseAltTc :: CaseAlt Expr -> TcM (CaseAlt Expr)
-annotateCaseAltTc (CaseAlt anns pat rhs) = do
-  rhs' <- annotateRhsTc rhs
-  pure (CaseAlt anns pat rhs')
-
-annotateVarTc :: Name -> TcM Expr
-annotateVarTc name = do
-  maybeOccurrenceAnn <- annotationForNameOccurrence name
-  case maybeOccurrenceAnn of
-    Just ann -> pure (EVar (annotateName ann name))
-    Nothing -> do
-      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
-      pure (EVar name)
-
-annotateInfixOperatorTc :: Name -> TcM Name
-annotateInfixOperatorTc name = do
-  maybeOccurrenceAnn <- annotationForNameOccurrence name
-  case maybeOccurrenceAnn of
-    Just ann -> pure (annotateName ann name)
-    Nothing -> do
-      _ <- missingTypeInfo ("elaboration for " <> T.unpack (nameText name))
-      pure name
-
-annotateName :: TcAnnotation -> Name -> Name
-annotateName ann name =
-  name {nameAnns = nameAnns name <> [mkAnnotation ann]}
-
-annotationForNameOccurrence :: Name -> TcM (Maybe TcAnnotation)
-annotationForNameOccurrence name = do
-  case nameOccurrenceKey name of
-    Just key -> do
-      maybeElaboration <- takeOccurrenceElaboration key
-      case maybeElaboration of
-        Just elaboration ->
-          Just <$> annotationForOccurrenceElaboration elaboration
-        Nothing -> pure Nothing
-    Nothing -> pure Nothing
-
-annotationForSyntaxOccurrence :: OccurrenceKey -> String -> TcM TcAnnotation
-annotationForSyntaxOccurrence key what = do
-  maybeElaboration <- takeOccurrenceElaboration key
-  case maybeElaboration of
-    Just elaboration ->
-      annotationForOccurrenceElaboration elaboration
-    Nothing -> do
-      ty <- missingTypeInfo ("elaboration for " <> what)
-      pure (TcAnnotation ty [] [] [])
-
-annotationForOccurrenceElaboration :: OccurrenceElaboration -> TcM TcAnnotation
-annotationForOccurrenceElaboration elaboration = do
-  ty <- zonkType (occurrenceElabType elaboration)
-  typeArgs <- mapM zonkType (occurrenceElabTypeArgs elaboration)
-  evidenceTerms <- mapM evidenceForEvVar (occurrenceElabEvidenceVars elaboration)
-  termArgTypes <- mapM zonkType (occurrenceElabTermArgTypes elaboration)
-  pure (TcAnnotation ty typeArgs evidenceTerms termArgTypes)
-
-evidenceForEvVar :: EvVar -> TcM EvTerm
-evidenceForEvVar ev = do
-  maybeEvidence <- lookupEvidence ev
-  case maybeEvidence of
-    Just evidence -> pure evidence
-    Nothing ->
-      abortTc ("internal type annotation error: missing evidence for " <> show ev)
-
-tupleOccurrenceKey :: OccurrenceKey
-tupleOccurrenceKey = syntaxOccurrenceKey "$tuple"
-
-listOccurrenceKey :: OccurrenceKey
-listOccurrenceKey = syntaxOccurrenceKey "$list"
-
-lambdaOccurrenceKey :: OccurrenceKey
-lambdaOccurrenceKey = syntaxOccurrenceKey "$lambda"
-
-annotateLambdaPatterns :: [TcType] -> [Pattern] -> TcM [Pattern]
-annotateLambdaPatterns tys pats
-  | length tys == length pats =
-      pure (zipWith annotatePattern tys pats)
-  | otherwise = do
-      _ <- missingTypeInfo ("lambda pattern types for " <> show (length pats) <> " pattern(s)")
-      pure pats
-
-annotatePattern :: TcType -> Pattern -> Pattern
-annotatePattern ty =
-  annotatePatternBinding ty . PAnn (mkAnnotation (TcAnnotation ty [] [] []))
-
 annotatePatternBinding :: TcType -> Pattern -> Pattern
 annotatePatternBinding ty pat =
   case pat of
@@ -896,39 +610,11 @@ annotatePatternBinding ty pat =
     PTypeSig inner sigTy -> PTypeSig (annotatePatternBinding ty inner) sigTy
     _ -> pat
 
-functionArgTypes :: Int -> TcType -> [TcType]
-functionArgTypes wanted ty =
-  take wanted (go (qualifiedBody ty))
-  where
-    go (TcFunTy arg rest) = arg : go rest
-    go _ = []
-
-qualifiedBody :: TcType -> TcType
-qualifiedBody ty =
-  case ty of
-    TcForAllTy _ body -> qualifiedBody body
-    TcQualTy _ body -> qualifiedBody body
-    _ -> ty
-
 listElementType :: TcType -> Maybe TcType
 listElementType ty =
   case ty of
     TcTyCon (TyCon "[]" 1) [elemTy] -> Just elemTy
     _ -> Nothing
-
-exprListElementType :: Expr -> Maybe TcType
-exprListElementType expr =
-  case expr of
-    EAnn ann inner ->
-      (fromAnnotation @TcAnnotation ann >>= listElementType . tcAnnType) <|> exprListElementType inner
-    EVar name ->
-      nameTcAnnotation name >>= listElementType . tcAnnType
-    EParen inner -> exprListElementType inner
-    _ -> Nothing
-
-nameTcAnnotation :: Name -> Maybe TcAnnotation
-nameTcAnnotation =
-  listToMaybe . mapMaybe fromAnnotation . nameAnns
 
 tupleElementTypes :: TcType -> [TcType]
 tupleElementTypes ty =
@@ -1118,16 +804,22 @@ data TcDeclGroupResult = TcDeclGroupResult
   }
 
 data DeclUpdates = DeclUpdates
-  { declFunctionUpdates :: !(Map Text [Match]),
-    declPatternUpdates :: ![Rhs Expr],
+  { declFunctionUpdates :: !(Map Text [FunctionDeclUpdate]),
+    declPatternUpdates :: !(Map Text [PatternDeclUpdate]),
+    declAnonymousPatternUpdates :: ![PatternDeclUpdate],
     declTypeSigUpdates :: !(Map Text [TcDiagnostic])
   }
+
+data FunctionDeclUpdate = FunctionDeclUpdate !(Maybe TcType) ![Match]
+
+data PatternDeclUpdate = PatternDeclUpdate !(Maybe TcType) !(Rhs Expr)
 
 instance Semigroup DeclUpdates where
   left <> right =
     DeclUpdates
       { declFunctionUpdates = Map.unionWith (<>) (declFunctionUpdates left) (declFunctionUpdates right),
-        declPatternUpdates = declPatternUpdates left <> declPatternUpdates right,
+        declPatternUpdates = Map.unionWith (<>) (declPatternUpdates left) (declPatternUpdates right),
+        declAnonymousPatternUpdates = declAnonymousPatternUpdates left <> declAnonymousPatternUpdates right,
         declTypeSigUpdates = Map.unionWith (<>) (declTypeSigUpdates left) (declTypeSigUpdates right)
       }
 
@@ -1135,7 +827,8 @@ instance Monoid DeclUpdates where
   mempty =
     DeclUpdates
       { declFunctionUpdates = Map.empty,
-        declPatternUpdates = [],
+        declPatternUpdates = Map.empty,
+        declAnonymousPatternUpdates = [],
         declTypeSigUpdates = Map.empty
       }
 
@@ -1146,13 +839,17 @@ checkedBindings bindings updates =
       tcDeclGroupUpdates = updates
     }
 
-functionUpdate :: Text -> [Match] -> DeclUpdates
-functionUpdate name matches =
-  mempty {declFunctionUpdates = Map.singleton name matches}
+functionUpdate :: Text -> Maybe TcType -> [Match] -> DeclUpdates
+functionUpdate name maybeTy matches =
+  mempty {declFunctionUpdates = Map.singleton name [FunctionDeclUpdate maybeTy matches]}
 
-patternUpdate :: Rhs Expr -> DeclUpdates
-patternUpdate rhs =
-  mempty {declPatternUpdates = [rhs]}
+patternUpdate :: Text -> Maybe TcType -> Rhs Expr -> DeclUpdates
+patternUpdate name maybeTy rhs =
+  mempty {declPatternUpdates = Map.singleton name [PatternDeclUpdate maybeTy rhs]}
+
+anonymousPatternUpdate :: Rhs Expr -> DeclUpdates
+anonymousPatternUpdate rhs =
+  mempty {declAnonymousPatternUpdates = [PatternDeclUpdate Nothing rhs]}
 
 signatureDiagnosticUpdates :: Map Text CheckedSig -> DeclUpdates
 signatureDiagnosticUpdates sigs =
@@ -1192,40 +889,68 @@ applyDeclUpdate updates decl =
             maybeUpdate <- takeFunctionMatches key (length matches) updates
             case maybeUpdate of
               Nothing -> pure (updates, decl)
-              Just (updates', matches') -> pure (updates', DeclValue (FunctionBind name matches'))
+              Just (updates', FunctionDeclUpdate maybeTy matches') ->
+                pure (updates', annotateUpdatedValueDecl maybeTy (DeclValue (FunctionBind name matches')))
     DeclValue (PatternBind multiplicity pat _rhs) ->
-      case takePatternRhs updates of
+      case takePatternRhs pat updates of
         Nothing -> pure (updates, decl)
-        Just (updates', rhs') -> pure (updates', DeclValue (PatternBind multiplicity pat rhs'))
+        Just (updates', PatternDeclUpdate maybeTy rhs') ->
+          pure (updates', annotateUpdatedValueDecl maybeTy (DeclValue (PatternBind multiplicity pat rhs')))
     DeclTypeSig names _ty -> do
       let (updates', diagnostics) = takeTypeSigDiagnostics names updates
       pure (updates', foldr (DeclAnn . mkAnnotation) decl diagnostics)
     _ -> pure (updates, decl)
 
-takeFunctionMatches :: Text -> Int -> DeclUpdates -> TcM (Maybe (DeclUpdates, [Match]))
+annotateUpdatedValueDecl :: Maybe TcType -> Decl -> Decl
+annotateUpdatedValueDecl maybeTy decl =
+  case maybeTy of
+    Nothing -> decl
+    Just ty -> annotateTypedDecl (TcAnnotation ty [] [] []) decl
+
+takeFunctionMatches :: Text -> Int -> DeclUpdates -> TcM (Maybe (DeclUpdates, FunctionDeclUpdate))
 takeFunctionMatches name count updates =
   case Map.lookup name (declFunctionUpdates updates) of
     Nothing -> pure Nothing
-    Just matches
-      | length matches < count ->
-          abortTc ("internal type annotation error: not enough updated matches for " <> T.unpack name)
-      | otherwise ->
-          let (here, remaining) = splitAt count matches
-              updates' =
-                updates
-                  { declFunctionUpdates =
-                      if null remaining
-                        then Map.delete name (declFunctionUpdates updates)
-                        else Map.insert name remaining (declFunctionUpdates updates)
-                  }
-           in pure (Just (updates', here))
+    Just functionUpdates ->
+      case functionUpdates of
+        [] -> pure Nothing
+        FunctionDeclUpdate maybeTy matches : restUpdates ->
+          if length matches < count
+            then abortTc ("internal type annotation error: not enough updated matches for " <> T.unpack name)
+            else
+              let (here, remainingMatches) = splitAt count matches
+                  remainingUpdate =
+                    [FunctionDeclUpdate maybeTy remainingMatches | not (null remainingMatches)]
+                  remaining = remainingUpdate <> restUpdates
+                  updates' =
+                    updates
+                      { declFunctionUpdates =
+                          if null remaining
+                            then Map.delete name (declFunctionUpdates updates)
+                            else Map.insert name remaining (declFunctionUpdates updates)
+                      }
+               in pure (Just (updates', FunctionDeclUpdate maybeTy here))
 
-takePatternRhs :: DeclUpdates -> Maybe (DeclUpdates, Rhs Expr)
-takePatternRhs updates =
-  case declPatternUpdates updates of
-    [] -> Nothing
-    rhs : rest ->
-      Just (updates {declPatternUpdates = rest}, rhs)
+takePatternRhs :: Pattern -> DeclUpdates -> Maybe (DeclUpdates, PatternDeclUpdate)
+takePatternRhs pat updates =
+  case patternBinderName pat of
+    Just (_, name) ->
+      case Map.lookup name (declPatternUpdates updates) of
+        Just (rhsUpdate : rest) ->
+          let updates' =
+                updates
+                  { declPatternUpdates =
+                      if null rest
+                        then Map.delete name (declPatternUpdates updates)
+                        else Map.insert name rest (declPatternUpdates updates)
+                  }
+           in Just (updates', rhsUpdate)
+        _ -> Nothing
+    Nothing ->
+      case declAnonymousPatternUpdates updates of
+        [] -> Nothing
+        rhsUpdate : rest ->
+          Just (updates {declAnonymousPatternUpdates = rest}, rhsUpdate)
 
 takeTypeSigDiagnostics :: [UnqualifiedName] -> DeclUpdates -> (DeclUpdates, [TcDiagnostic])
 takeTypeSigDiagnostics names updates =
@@ -1236,14 +961,17 @@ takeTypeSigDiagnostics names updates =
 
 nullDeclUpdates :: DeclUpdates -> Bool
 nullDeclUpdates updates =
-  Map.null (declFunctionUpdates updates) && null (declPatternUpdates updates) && Map.null (declTypeSigUpdates updates)
+  Map.null (declFunctionUpdates updates)
+    && Map.null (declPatternUpdates updates)
+    && null (declAnonymousPatternUpdates updates)
+    && Map.null (declTypeSigUpdates updates)
 
 showDeclUpdates :: DeclUpdates -> String
 showDeclUpdates updates =
   "function updates="
     <> show (Map.keys (declFunctionUpdates updates))
     <> ", pattern updates="
-    <> show (length (declPatternUpdates updates))
+    <> show (Map.keys (declPatternUpdates updates), length (declAnonymousPatternUpdates updates))
     <> ", type signature updates="
     <> show (Map.keys (declTypeSigUpdates updates))
 
@@ -1397,10 +1125,10 @@ tcDeclGroup sigs (SingleDecl d) =
       case Map.lookup name sigs of
         Just sig -> do
           (bindings, matches') <- tcFunctionWithSig displayName name sig matches
-          pure (checkedBindings bindings (functionUpdate name matches'))
+          pure (checkedBindings bindings (functionUpdate name (bindingUpdateType bindings) matches'))
         Nothing -> do
           (bindings, matches') <- tcFunctionInfer displayName name matches
-          pure (checkedBindings bindings (functionUpdate name matches'))
+          pure (checkedBindings bindings (functionUpdate name (bindingUpdateType bindings) matches'))
     DeclValue (PatternBind _ pat rhs)
       | Just (displayName, name) <- patternBinderName pat,
         Just sig <- Map.lookup name sigs -> do
@@ -1409,7 +1137,7 @@ tcDeclGroup sigs (SingleDecl d) =
                 case matches' of
                   match' : _ -> matchRhs match'
                   [] -> rhs
-          pure (checkedBindings bindings (patternUpdate rhs'))
+          pure (checkedBindings bindings (patternUpdate name (bindingUpdateType bindings) rhs'))
     DeclValue (PatternBind _ pat rhs)
       | Just (displayName, name) <- patternBinderName pat -> do
           (bindings, matches') <- tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
@@ -1417,10 +1145,10 @@ tcDeclGroup sigs (SingleDecl d) =
                 case matches' of
                   match' : _ -> matchRhs match'
                   [] -> rhs
-          pure (checkedBindings bindings (patternUpdate rhs'))
+          pure (checkedBindings bindings (patternUpdate name (bindingUpdateType bindings) rhs'))
     DeclValue (PatternBind _ _ rhs) -> do
       (bindings, rhs') <- tcPatternRhs rhs
-      pure (checkedBindings bindings (patternUpdate rhs'))
+      pure (checkedBindings bindings (anonymousPatternUpdate rhs'))
     _ -> checkedBindings <$> tcDecl d <*> pure mempty
 tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
   let name = unqualifiedNameText binder
@@ -1429,11 +1157,17 @@ tcDeclGroup sigs (MergedFunctionBind _sp binder matches) = do
     Just sig -> do
       -- Use the declared type signature for checking.
       (bindings, matches') <- tcFunctionWithSig displayName name sig matches
-      pure (checkedBindings bindings (functionUpdate name matches'))
+      pure (checkedBindings bindings (functionUpdate name (bindingUpdateType bindings) matches'))
     Nothing -> do
       -- No signature: infer the type.
       (bindings, matches') <- tcFunctionInfer displayName name matches
-      pure (checkedBindings bindings (functionUpdate name matches'))
+      pure (checkedBindings bindings (functionUpdate name (bindingUpdateType bindings) matches'))
+
+bindingUpdateType :: [TcBindingResult] -> Maybe TcType
+bindingUpdateType bindings =
+  case bindings of
+    binding : _ -> Just (tbType binding)
+    [] -> Nothing
 
 -- | Type-check a function with a known type signature.
 -- The signature's type variables are opened as rigid skolems so that
@@ -1456,7 +1190,7 @@ tcFunctionWithSig displayName name sig matches = do
         let (matchesList, ctsList, implsList) = unzip3 results
         pure (matchesList, concat ctsList, concat implsList)
   if failed
-    then pure ([], matches')
+    then pure ([], map stripSuccessfulMatchAnnotations matches')
     else do
       -- Report the declared scheme as the binding's type.
       let declaredTy = schemeToType scheme
@@ -1467,21 +1201,33 @@ tcFunctionWithSig displayName name sig matches = do
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM ([TcBindingResult], [Match])
 tcFunctionInfer displayName name matches = do
   placeholderTy <- freshMetaTv
-  ((ty, matches'), failed) <-
-    withErrorTracking $ do
-      extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
-      solveCircularWithImpls $ \report -> do
-        (ty, matches', cts', impls') <- tcMatchesWithReport report matches
-        pure ((ty, matches'), cts', impls')
+  beforeErrors <- getErrorCount
+  extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
+  (bindings, matches') <-
+    solveCircularWithPost
+      ( \cts impls -> do
+          void (solveWithImpls cts impls)
+      )
+      ( \report -> do
+          (ty, matches', cts', impls') <- tcMatchesWithReport report matches
+          pure ((ty, matches'), cts', impls')
+      )
+      ( \(ty, matches') -> do
+          failed <- (> beforeErrors) <$> getErrorCount
+          if failed
+            then pure ([], matches')
+            else do
+              scheme <- generalizeIgnoring [name] ty []
+              commitGeneralizedMetas ty scheme
+              let schemeTy = schemeToType scheme
+              zonkedTy <- zonkType schemeTy
+              extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+              pure ([TcBindingResult name displayName zonkedTy], matches')
+      )
+  failed <- (> beforeErrors) <$> getErrorCount
   if failed
-    then pure ([], matches')
-    else do
-      scheme <- generalizeIgnoring [name] ty []
-      commitGeneralizedMetas ty scheme
-      let schemeTy = schemeToType scheme
-      zonkedTy <- zonkType schemeTy
-      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
-      pure ([TcBindingResult name displayName zonkedTy], matches')
+    then pure ([], map stripSuccessfulMatchAnnotations matches')
+    else pure (bindings, matches')
 
 tcPatternRhs :: Rhs Expr -> TcM ([TcBindingResult], Rhs Expr)
 tcPatternRhs rhs = do
@@ -1491,10 +1237,158 @@ tcPatternRhs rhs = do
         (rhs', ty, cts) <- inferRhsWithReport report rhs
         pure ((rhs', ty), cts, [])
   if failed
-    then pure ([], rhs')
+    then pure ([], stripSuccessfulRhsAnnotations rhs')
     else do
       zonkedTy <- zonkType ty
       pure ([TcBindingResult "<pattern>" "<pattern>" zonkedTy], rhs')
+
+stripSuccessfulMatchAnnotations :: Match -> Match
+stripSuccessfulMatchAnnotations match =
+  match
+    { matchPats = map stripSuccessfulPatternAnnotations (matchPats match),
+      matchRhs = stripSuccessfulRhsAnnotations (matchRhs match)
+    }
+
+stripSuccessfulRhsAnnotations :: Rhs Expr -> Rhs Expr
+stripSuccessfulRhsAnnotations rhs =
+  case rhs of
+    UnguardedRhs anns expr maybeDecls ->
+      UnguardedRhs anns (stripSuccessfulExprAnnotations expr) (map stripSuccessfulDeclAnnotations <$> maybeDecls)
+    GuardedRhss anns guardedRhss maybeDecls ->
+      GuardedRhss
+        anns
+        (map stripSuccessfulGuardedRhsAnnotations guardedRhss)
+        (map stripSuccessfulDeclAnnotations <$> maybeDecls)
+
+stripSuccessfulGuardedRhsAnnotations :: GuardedRhs Expr -> GuardedRhs Expr
+stripSuccessfulGuardedRhsAnnotations guardedRhs =
+  guardedRhs
+    { guardedRhsGuards = map stripSuccessfulGuardQualifierAnnotations (guardedRhsGuards guardedRhs),
+      guardedRhsBody = stripSuccessfulExprAnnotations (guardedRhsBody guardedRhs)
+    }
+
+stripSuccessfulDeclAnnotations :: Decl -> Decl
+stripSuccessfulDeclAnnotations decl =
+  case decl of
+    DeclAnn ann inner
+      | isSuccessfulTcAnnotation ann -> stripSuccessfulDeclAnnotations inner
+      | otherwise -> DeclAnn ann (stripSuccessfulDeclAnnotations inner)
+    DeclValue valueDecl -> DeclValue (stripSuccessfulValueDeclAnnotations valueDecl)
+    _ -> decl
+
+stripSuccessfulValueDeclAnnotations :: ValueDecl -> ValueDecl
+stripSuccessfulValueDeclAnnotations valueDecl =
+  case valueDecl of
+    FunctionBind name matches ->
+      FunctionBind (stripSuccessfulUnqualifiedNameAnnotations name) (map stripSuccessfulMatchAnnotations matches)
+    PatternBind multiplicity pat rhs ->
+      PatternBind multiplicity (stripSuccessfulPatternAnnotations pat) (stripSuccessfulRhsAnnotations rhs)
+
+stripSuccessfulExprAnnotations :: Expr -> Expr
+stripSuccessfulExprAnnotations expr =
+  case expr of
+    EAnn ann inner
+      | isSuccessfulTcAnnotation ann -> stripSuccessfulExprAnnotations inner
+      | otherwise -> EAnn ann (stripSuccessfulExprAnnotations inner)
+    EVar name -> EVar (stripSuccessfulNameAnnotations name)
+    EIf cond thenE elseE ->
+      EIf
+        (stripSuccessfulExprAnnotations cond)
+        (stripSuccessfulExprAnnotations thenE)
+        (stripSuccessfulExprAnnotations elseE)
+    ELambdaPats pats body ->
+      ELambdaPats (map stripSuccessfulPatternAnnotations pats) (stripSuccessfulExprAnnotations body)
+    ELambdaCase alts ->
+      ELambdaCase (map stripSuccessfulCaseAltAnnotations alts)
+    ELambdaCases alts ->
+      ELambdaCases (map stripSuccessfulLambdaCaseAltAnnotations alts)
+    EInfix lhs op rhs ->
+      EInfix
+        (stripSuccessfulExprAnnotations lhs)
+        (stripSuccessfulNameAnnotations op)
+        (stripSuccessfulExprAnnotations rhs)
+    ENegate inner -> ENegate (stripSuccessfulExprAnnotations inner)
+    ELetDecls decls body ->
+      ELetDecls (map stripSuccessfulDeclAnnotations decls) (stripSuccessfulExprAnnotations body)
+    ECase scrut alts ->
+      ECase (stripSuccessfulExprAnnotations scrut) (map stripSuccessfulCaseAltAnnotations alts)
+    EListComp body quals ->
+      EListComp (stripSuccessfulExprAnnotations body) (map stripSuccessfulCompStmtAnnotations quals)
+    ETypeSig inner ty -> ETypeSig (stripSuccessfulExprAnnotations inner) ty
+    EParen inner -> EParen (stripSuccessfulExprAnnotations inner)
+    EList elems -> EList (map stripSuccessfulExprAnnotations elems)
+    ETuple flavor elems -> ETuple flavor (map (fmap stripSuccessfulExprAnnotations) elems)
+    EApp fun arg -> EApp (stripSuccessfulExprAnnotations fun) (stripSuccessfulExprAnnotations arg)
+    _ -> expr
+
+stripSuccessfulCaseAltAnnotations :: CaseAlt Expr -> CaseAlt Expr
+stripSuccessfulCaseAltAnnotations (CaseAlt anns pat rhs) =
+  CaseAlt anns (stripSuccessfulPatternAnnotations pat) (stripSuccessfulRhsAnnotations rhs)
+
+stripSuccessfulLambdaCaseAltAnnotations :: LambdaCaseAlt -> LambdaCaseAlt
+stripSuccessfulLambdaCaseAltAnnotations alt =
+  alt
+    { lambdaCaseAltPats = map stripSuccessfulPatternAnnotations (lambdaCaseAltPats alt),
+      lambdaCaseAltRhs = stripSuccessfulRhsAnnotations (lambdaCaseAltRhs alt)
+    }
+
+stripSuccessfulGuardQualifierAnnotations :: GuardQualifier -> GuardQualifier
+stripSuccessfulGuardQualifierAnnotations qual =
+  case qual of
+    GuardAnn ann inner -> GuardAnn ann (stripSuccessfulGuardQualifierAnnotations inner)
+    GuardExpr guard -> GuardExpr (stripSuccessfulExprAnnotations guard)
+    GuardPat pat guard -> GuardPat (stripSuccessfulPatternAnnotations pat) (stripSuccessfulExprAnnotations guard)
+    GuardLet decls -> GuardLet (map stripSuccessfulDeclAnnotations decls)
+
+stripSuccessfulCompStmtAnnotations :: CompStmt -> CompStmt
+stripSuccessfulCompStmtAnnotations stmt =
+  case stmt of
+    CompAnn ann inner -> CompAnn ann (stripSuccessfulCompStmtAnnotations inner)
+    CompGen pat src -> CompGen (stripSuccessfulPatternAnnotations pat) (stripSuccessfulExprAnnotations src)
+    CompGuard guard -> CompGuard (stripSuccessfulExprAnnotations guard)
+    CompLetDecls decls -> CompLetDecls (map stripSuccessfulDeclAnnotations decls)
+    CompThen expr -> CompThen (stripSuccessfulExprAnnotations expr)
+    CompThenBy expr byExpr -> CompThenBy (stripSuccessfulExprAnnotations expr) (stripSuccessfulExprAnnotations byExpr)
+    CompGroupUsing expr -> CompGroupUsing (stripSuccessfulExprAnnotations expr)
+    CompGroupByUsing byExpr usingExpr ->
+      CompGroupByUsing (stripSuccessfulExprAnnotations byExpr) (stripSuccessfulExprAnnotations usingExpr)
+
+stripSuccessfulPatternAnnotations :: Pattern -> Pattern
+stripSuccessfulPatternAnnotations pat =
+  case pat of
+    PAnn ann inner
+      | isSuccessfulTcAnnotation ann -> stripSuccessfulPatternAnnotations inner
+      | otherwise -> PAnn ann (stripSuccessfulPatternAnnotations inner)
+    PVar name -> PVar (stripSuccessfulUnqualifiedNameAnnotations name)
+    PTuple flavor pats -> PTuple flavor (map stripSuccessfulPatternAnnotations pats)
+    PUnboxedSum alt arity inner -> PUnboxedSum alt arity (stripSuccessfulPatternAnnotations inner)
+    PList pats -> PList (map stripSuccessfulPatternAnnotations pats)
+    PCon name typeArgs pats -> PCon (stripSuccessfulNameAnnotations name) typeArgs (map stripSuccessfulPatternAnnotations pats)
+    PInfix lhs op rhs ->
+      PInfix
+        (stripSuccessfulPatternAnnotations lhs)
+        (stripSuccessfulNameAnnotations op)
+        (stripSuccessfulPatternAnnotations rhs)
+    PView expr inner -> PView (stripSuccessfulExprAnnotations expr) (stripSuccessfulPatternAnnotations inner)
+    PAs name inner -> PAs (stripSuccessfulUnqualifiedNameAnnotations name) (stripSuccessfulPatternAnnotations inner)
+    PStrict inner -> PStrict (stripSuccessfulPatternAnnotations inner)
+    PIrrefutable inner -> PIrrefutable (stripSuccessfulPatternAnnotations inner)
+    PParen inner -> PParen (stripSuccessfulPatternAnnotations inner)
+    PTypeSig inner ty -> PTypeSig (stripSuccessfulPatternAnnotations inner) ty
+    _ -> pat
+
+stripSuccessfulNameAnnotations :: Name -> Name
+stripSuccessfulNameAnnotations name =
+  name {nameAnns = filter (not . isSuccessfulTcAnnotation) (nameAnns name)}
+
+stripSuccessfulUnqualifiedNameAnnotations :: UnqualifiedName -> UnqualifiedName
+stripSuccessfulUnqualifiedNameAnnotations name =
+  name {unqualifiedNameAnns = filter (not . isSuccessfulTcAnnotation) (unqualifiedNameAnns name)}
+
+isSuccessfulTcAnnotation :: Annotation -> Bool
+isSuccessfulTcAnnotation ann =
+  isJust (fromAnnotation @TcAnnotation ann)
+    || isJust (fromAnnotation @TcBindingAnnotation ann)
 
 commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
 commitGeneralizedMetas ty (ForAll _ _ body) = do
@@ -1860,7 +1754,11 @@ solveCircularWithImpls =
     void (solveWithImpls cts impls)
 
 solveCircularWith :: ([Ct] -> [Implication] -> TcM ()) -> (TcSolveReport -> TcM (a, [Ct], [Implication])) -> TcM a
-solveCircularWith solveGenerated generate = do
+solveCircularWith solveGenerated generate =
+  solveCircularWithPost solveGenerated generate pure
+
+solveCircularWithPost :: ([Ct] -> [Implication] -> TcM ()) -> (TcSolveReport -> TcM (a, [Ct], [Implication])) -> (a -> TcM b) -> TcM b
+solveCircularWithPost solveGenerated generate finish = do
   env <- ask
   startState <- lift get
   let report = solveReportFromState finalState
@@ -1873,15 +1771,19 @@ solveCircularWith solveGenerated generate = do
               Left _abort ->
                 Left "internal type annotation error: circular constraint solving failed"
               Right ((), solvedState) ->
-                Right (value, solvedState)
+                case runTcM env solvedState (finish value) of
+                  Left _abort ->
+                    Left "internal type annotation error: circular constraint finalization failed"
+                  Right (finishedValue, finishedState) ->
+                    Right (finishedValue, finishedState)
       finalState =
         case finalResult of
-          Right (_, solvedState) -> solvedState
+          Right (_, finishedState) -> finishedState
           Left _ -> startState
   case finalResult of
     Left message -> abortTc message
-    Right (value, solvedState) -> do
-      lift (put solvedState)
+    Right (value, finishedState) -> do
+      lift (put finishedState)
       pure value
 
 tcMatchesWithReport :: TcSolveReport -> [Match] -> TcM (TcType, [Match], [Ct], [Implication])
@@ -1932,7 +1834,8 @@ tcMatchEquationWithReport report expectedOrigin argTys resTy match = do
           (AppOrigin rhsSp)
           rhsSp
       rhs'' = attachRhsFailure report resCt rhs'
-      match' = match {matchRhs = rhs''}
+      pats' = zipWith (annotatePatternBindingWithReport report) argTys pats
+      match' = match {matchPats = pats', matchRhs = rhs''}
       givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts
