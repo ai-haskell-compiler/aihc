@@ -2,8 +2,7 @@
 
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
-  ( InferExpr,
-    LocalDeclPlan (..),
+  ( LocalDeclPlan (..),
     DeclGroup (..),
     prepareLocalDeclPlan,
     withLocalDeclPlaceholders,
@@ -12,9 +11,6 @@ module Aihc.Tc.Generate.Bind
     localBinderTypes,
     withLocalBinders,
     tiePlaceholder,
-    inferLocalDecls,
-    inferLocalDeclsWithResult,
-    inferRhsWithLocals,
     collectRawSigs,
     sigToScheme,
     skolemize,
@@ -44,7 +40,6 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeIgnoring)
-import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
@@ -58,8 +53,6 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
-
-type InferExpr = Expr -> TcM (TcType, [Ct])
 
 data LocalDeclPlan = LocalDeclPlan
   { localDeclPlanSigs :: !(Map Text TypeScheme),
@@ -108,34 +101,6 @@ monomorphicLocalDeclPlan plan =
     (monomorphicBinder (localDeclPlanSigs plan) (localDeclPlanPlaceholders plan))
     (localDeclPlanBinders plan)
 
--- | Infer local declarations, then infer a body under the resulting binders.
-inferLocalDecls :: InferExpr -> [Decl] -> TcM (TcType, [Ct]) -> TcM (TcType, [Ct])
-inferLocalDecls inferExpr decls body = do
-  ((), bodyTy, bodyCts) <-
-    inferLocalDeclsWithResult inferExpr decls $ do
-      (bodyTy, bodyCts) <- body
-      pure ((), bodyTy, bodyCts)
-  pure (bodyTy, bodyCts)
-
-inferLocalDeclsWithResult :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM (a, TcType, [Ct])
-inferLocalDeclsWithResult inferExpr decls body = do
-  plan <- prepareLocalDeclPlan decls
-  withLocalDeclPlaceholders plan $ do
-    bindingCts <-
-      concat
-        <$> mapM
-          (inferLocalGroup inferExpr (localDeclPlanSigs plan) (localDeclPlanPlaceholders plan))
-          (localDeclPlanGroups plan)
-    if localDeclPlanShouldGeneralize plan
-      then do
-        polyBinders <- generalizeLocalDeclPlan plan bindingCts
-        withLocalBinders polyBinders $ do
-          body
-      else do
-        _monoBinders <- monomorphicLocalDeclPlan plan
-        (value, bodyTy, bodyCts) <- body
-        pure (value, bodyTy, bindingCts ++ bodyCts)
-
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder _ scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder _ ty) = ty
@@ -151,18 +116,6 @@ monomorphicBinder sigs placeholders name =
     Nothing -> do
       ty <- maybe freshMetaTv zonkType (Map.lookup name placeholders)
       pure (name, TcMonoIdBinder name ty)
-
--- | Infer an RHS, processing attached @where@ declarations first.
-inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (TcType, [Ct])
-inferRhsWithLocals inferExpr rhs =
-  case rhs of
-    UnguardedRhs _sp expr maybeDecls ->
-      case maybeDecls of
-        Nothing -> inferExpr expr
-        Just decls -> inferLocalDecls inferExpr decls (inferExpr expr)
-    GuardedRhss _sp _guards _decls -> do
-      ty <- freshMetaTv
-      pure (ty, [])
 
 placeholderFor :: Map Text TypeScheme -> Text -> TcM (Text, TcType)
 placeholderFor sigs name =
@@ -235,50 +188,6 @@ metaTyVarPairsPred (EqPred left right) (EqPred targetLeft targetRight) =
   metaTyVarPairs left targetLeft <> metaTyVarPairs right targetRight
 metaTyVarPairsPred _ _ = []
 
-inferLocalGroup :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> DeclGroup -> TcM [Ct]
-inferLocalGroup inferExpr sigs placeholders group =
-  case group of
-    MergedFunctionBind name matches ->
-      inferLocalFunction inferExpr sigs placeholders name matches
-    SingleDecl decl ->
-      case peelDeclAnn decl of
-        DeclValue (PatternBind _ pat rhs) ->
-          case patternBinderName pat of
-            Just (_displayName, name) ->
-              inferLocalPatternBind inferExpr sigs placeholders name rhs
-            Nothing -> do
-              (_ty, cts) <- inferRhsWithLocals inferExpr rhs
-              pure cts
-        DeclValue (FunctionBind name matches) ->
-          inferLocalFunction inferExpr sigs placeholders (unqualifiedNameText name) matches
-        _ -> pure []
-
-inferLocalFunction :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> Text -> [Match] -> TcM [Ct]
-inferLocalFunction inferExpr sigs placeholders name matches = do
-  (ty, cts) <-
-    case Map.lookup name sigs of
-      Just scheme -> do
-        sigTy <- maybe (skolemize scheme) pure (Map.lookup name placeholders)
-        let nArgs =
-              case matches of
-                m : _ -> length (matchPats m)
-                [] -> 0
-            (argTys, resTy) = splitFunTy sigTy nArgs
-        matchCts <- concat <$> mapM (tcMatchEquation inferExpr argTys resTy) matches
-        pure (sigTy, matchCts)
-      Nothing ->
-        tcMatches inferExpr matches
-  tiePlaceholder placeholders name ty cts
-
-inferLocalPatternBind :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> Text -> Rhs Expr -> TcM [Ct]
-inferLocalPatternBind inferExpr sigs placeholders name rhs = do
-  (rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
-  ty <-
-    case Map.lookup name sigs of
-      Just scheme -> maybe (skolemize scheme) pure (Map.lookup name placeholders)
-      Nothing -> pure rhsTy
-  tiePlaceholder placeholders name ty rhsCts
-
 tiePlaceholder :: Map Text TcType -> Text -> TcType -> [Ct] -> TcM [Ct]
 tiePlaceholder placeholders name ty cts =
   case Map.lookup name placeholders of
@@ -287,39 +196,6 @@ tiePlaceholder placeholders name ty cts =
       ev <- freshEvVar
       eqCt <- mkWantedCtM (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
       pure (cts ++ [eqCt])
-
-tcMatches :: InferExpr -> [Match] -> TcM (TcType, [Ct])
-tcMatches _ [] = do
-  ty <- freshMetaTv
-  pure (ty, [])
-tcMatches inferExpr matches@(m0 : _) = do
-  let nArgs = length (matchPats m0)
-  if nArgs == 0
-    then do
-      (ty0, cts0) <- inferRhsWithLocals inferExpr (matchRhs m0)
-      restCts <- concat <$> mapM (unifyMatchRhs inferExpr ty0) (drop 1 matches)
-      pure (ty0, cts0 ++ restCts)
-    else do
-      argTys <- mapM (const freshMetaTv) [1 .. nArgs]
-      resTy <- freshMetaTv
-      allCts <- concat <$> mapM (tcMatchEquation inferExpr argTys resTy) matches
-      pure (foldr TcFunTy resTy argTys, allCts)
-
-tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM [Ct]
-tcMatchEquation inferExpr argTys resTy match = do
-  let pats = matchPats match
-  patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
-  (rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
-  ev <- freshEvVar
-  resCt <- mkWantedCtM (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (pcWantedCts patCheck ++ rhsCts ++ [resCt])
-
-unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM [Ct]
-unifyMatchRhs inferExpr expectedTy match = do
-  (rhsTy, rhsCts) <- inferRhsWithLocals inferExpr (matchRhs match)
-  ev <- freshEvVar
-  eqCt <- mkWantedCtM (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (rhsCts ++ [eqCt])
 
 shouldGeneralizeLocal :: Set.Set Text -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do

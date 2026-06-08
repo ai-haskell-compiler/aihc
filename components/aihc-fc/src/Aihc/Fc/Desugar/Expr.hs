@@ -370,6 +370,9 @@ dsAnnotatedVar tcAnn name _expr = do
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
   case inner of
+    EAnn _ inner' -> dsAnnotatedExpr tcAnn inner'
+    EParen inner' -> dsAnnotatedExpr tcAnn inner'
+    ETypeSig inner' _ -> dsAnnotatedExpr tcAnn inner'
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)

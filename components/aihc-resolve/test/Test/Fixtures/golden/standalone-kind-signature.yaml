@@ -1,8 +1,9 @@
+---
 annotated:
 - |-
   module Main where
   type Identity :: Type -> Type
-  └─ v Error unhandled syntax
+       └─ v Error unhandled syntax
   type Identity a = a
        └─ t Main
   x :: Identity Int

@@ -16,7 +16,7 @@ data TcDiagnostic = TcDiagnostic
     diagSeverity :: !TcSeverity,
     diagKind :: !TcErrorKind
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 -- | Severity of a diagnostic.
 data TcSeverity
@@ -38,4 +38,4 @@ data TcErrorKind
     UnsolvedWanted !Pred !CtOrigin
   | -- | Other error with a message.
     OtherError !String
-  deriving (Show)
+  deriving (Eq, Show)

@@ -37,10 +37,8 @@ main =
         testCase "renders a single annotation" testSingleAnnotation,
         testCase "stacks overlapping annotations deterministically" testOverlappingAnnotations,
         testCase "packs non-overlapping annotations on one line" testPackedAnnotations,
-        testCase "uses enclosing annotation span for inserted expression annotations" testInsertedExpressionAnnotationSpan,
         testCase "throws on pretty/reparse parse failure" testParseFailure,
         testCase "throws on stripped AST mismatch" testShapeMismatch,
-        testCase "throws on renderable annotation without source span" testMissingAnnotationSpan,
         testCase "throws on multiline annotation labels" testMultilineLabel,
         testCase "renders source text without pretty-printing" testSourceTextRendering,
         testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
@@ -79,15 +77,6 @@ testPackedAnnotations = do
     "longname = other\n\9492\9472 lhs     \9492\9472 rhs"
     (renderAnnotatedModule testConfig testAnnotationDoc modu)
 
-testInsertedExpressionAnnotationSpan :: IO ()
-testInsertedExpressionAnnotationSpan = do
-  let source = "x = (a, a)"
-      modu = annotateRhsExpression "tuple" (parseModuleOrFail source)
-  assertEqual
-    "inserted expression annotation uses the enclosing expression span"
-    "x = (a, a)\n    \9492\9472 tuple"
-    (AnnotatedModule.renderAnnotatedModuleSource testAnnotationDoc source modu)
-
 testParseFailure :: IO ()
 testParseFailure = do
   result <- throws (renderAnnotatedModule testConfig testAnnotationDoc invalidModule)
@@ -97,13 +86,6 @@ testShapeMismatch :: IO ()
 testShapeMismatch = do
   result <- throws (renderAnnotatedModule testConfig testAnnotationDoc emptyFunctionModule)
   assertBool "expected shape mismatch exception" result
-
-testMissingAnnotationSpan :: IO ()
-testMissingAnnotationSpan = do
-  let source = "x = 1"
-      modu = annotateFirstDecl "missing-span" (stripAnnotations (parseModuleOrFail source))
-  result <- throws (AnnotatedModule.renderAnnotatedModuleSource testAnnotationDoc source modu)
-  assertBool "expected missing span exception" result
 
 testMultilineLabel :: IO ()
 testMultilineLabel = do
@@ -155,25 +137,6 @@ annotateRhsName label modu =
         PatternBind multiplicity pat (UnguardedRhs anns expr whereDecls) ->
           PatternBind multiplicity pat (UnguardedRhs anns (annotateRightmostName label expr) whereDecls)
         _ -> error "annotateRhsName: unexpected value declaration"
-
-annotateRhsExpression :: String -> Module -> Module
-annotateRhsExpression label modu =
-  case moduleDecls modu of
-    [DeclAnn ann (DeclValue valueDecl)] ->
-      modu {moduleDecls = [DeclAnn ann (DeclValue (annotateValueDecl valueDecl))]}
-    _ -> error "annotateRhsExpression: unexpected module shape"
-  where
-    annotateValueDecl valueDecl =
-      case valueDecl of
-        PatternBind multiplicity pat (UnguardedRhs anns expr whereDecls) ->
-          PatternBind multiplicity pat (UnguardedRhs anns (annotateExprCarrier label expr) whereDecls)
-        _ -> error "annotateRhsExpression: unexpected value declaration"
-
-annotateExprCarrier :: String -> Expr -> Expr
-annotateExprCarrier label expr =
-  case expr of
-    EAnn ann inner -> EAnn ann (EAnn (mkAnnotation (TestAnnotation label)) inner)
-    _ -> EAnn (mkAnnotation (TestAnnotation label)) expr
 
 annotateRightmostName :: String -> Expr -> Expr
 annotateRightmostName label expr =

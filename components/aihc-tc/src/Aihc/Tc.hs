@@ -104,7 +104,7 @@ typecheckExpr expr =
 typecheckExprM :: Expr -> TcM TcType
 typecheckExprM expr = do
   -- 1. Generate constraints.
-  (ty, cts) <- inferExpr expr
+  (_expr', cts, ty) <- inferExpr emptyTcSolveReport expr
   -- 2. Solve constraints.
   _result <- solveConstraints cts
   -- 3. Zonk the result type.
@@ -176,9 +176,10 @@ typecheckModuleWithState st m =
     Right (annotatedModule, st') ->
       let diags = reverse (tcsDiagnostics st')
           hasErrors = any isError diags
+          checkedModule = requireAnnotatedDiagnostics annotatedModule diags
           result =
             TcModuleResult
-              { tcmModule = annotatedModule,
+              { tcmModule = checkedModule,
                 tcmSuccess = not hasErrors
               }
           nextState =
@@ -206,6 +207,18 @@ typecheckModuleWithState st m =
       applyImpliedExtensions $
         foldr applyExtensionSetting [MonoLocalBinds, MonomorphismRestriction] (moduleLanguagePragmas m)
     isError d = diagSeverity d == TcError
+
+requireAnnotatedDiagnostics :: Module -> [TcDiagnostic] -> Module
+requireAnnotatedDiagnostics modu diags =
+  case missing of
+    [] -> modu
+    _ ->
+      error $
+        "internal type annotation error: diagnostics were emitted but not attached to the returned module: "
+          <> show missing
+  where
+    annotatedDiags = tcModuleDiagnostics modu
+    missing = filter (`notElem` annotatedDiags) diags
 
 -- | Type-check a list of modules.
 typecheck :: [Module] -> [TcModuleResult]

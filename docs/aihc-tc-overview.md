@@ -36,7 +36,8 @@ The important implementation modules are:
   classes, instances, and circular solve boundaries for declaration bodies.
 - `Aihc.Tc.Generate.Expr`: expression/RHS constraint generation and annotated
   syntax rebuilding.
-- `Aihc.Tc.Generate.Bind`: expression-local `let`/`where` binding groups.
+- `Aihc.Tc.Generate.Bind`: shared planning and generalization helpers for
+  expression-local `let`/`where` binding groups.
 - `Aihc.Tc.Generate.Annotate`: lazy report-aware annotation constructors.
 - `Aihc.Tc.Generate.Pattern`: pattern checking and GADT givens.
 - `Aihc.Tc.Kind`: surface type conversion and kind checking.
@@ -145,6 +146,8 @@ resolved modules whose surface syntax has no source-span annotations.
   the syntax.
 - No temporary node IDs or annotation queues appear in returned syntax or
   `TcState`.
+- Every diagnostic that contributes to `tcmSuccess` is present as an
+  annotation in the returned module; missing attachment is an internal error.
 - Successful annotations are not emitted for failed value bindings.
 - Missing solved evidence for a successful annotation is an internal error, not
   a rendered fallback.

@@ -73,8 +73,7 @@ import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Annotate (annotatePatternBindingWithReport)
-import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
-import Aihc.Tc.Generate.Expr (attachRhsFailure, inferExpr, inferRhsWithReport)
+import Aihc.Tc.Generate.Expr (attachRhsFailure, inferRhs)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
@@ -551,7 +550,7 @@ tcInstanceItemBody givens headTys item =
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       matches' <-
         solveCircularWith (solveBodyConstraintsWithGivens givens) $ \report -> do
-          results <- mapM (tcMatchEquationWithReport report Nothing argTys resTy) matches
+          results <- mapM (tcMatchEquation report Nothing argTys resTy) matches
           let (matchesList, ctsList, implsList) = unzip3 results
           pure (matchesList, concat ctsList, concat implsList)
       pure (InstanceItemBind (FunctionBind name matches'))
@@ -561,7 +560,7 @@ tcInstanceItemBody givens headTys item =
           methodTy <- methodExpectedType headTys methodName
           matches' <-
             solveCircularWith (solveBodyConstraintsWithGivens givens) $ \report -> do
-              result <- tcMatchEquationWithReport report Nothing [] methodTy (zeroArgMatch (patternSpan pat) rhs)
+              result <- tcMatchEquation report Nothing [] methodTy (zeroArgMatch (patternSpan pat) rhs)
               let (match', cts, impls) = result
               pure ([match'], cts, impls)
           case matches' of
@@ -1186,7 +1185,7 @@ tcFunctionWithSig displayName name sig matches = do
             [] -> 0
           (argTys, resTy) = splitFunTy sigTy nArgs
       solveCircularWith (solveBodyConstraintsWithGivens sigPreds) $ \report -> do
-        results <- mapM (tcMatchEquationWithReport report (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
+        results <- mapM (tcMatchEquation report (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
         let (matchesList, ctsList, implsList) = unzip3 results
         pure (matchesList, concat ctsList, concat implsList)
   if failed
@@ -1209,7 +1208,7 @@ tcFunctionInfer displayName name matches = do
           void (solveWithImpls cts impls)
       )
       ( \report -> do
-          (ty, matches', cts', impls') <- tcMatchesWithReport report matches
+          (ty, matches', cts', impls') <- tcMatches report matches
           pure ((ty, matches'), cts', impls')
       )
       ( \(ty, matches') -> do
@@ -1234,7 +1233,7 @@ tcPatternRhs rhs = do
   ((rhs', ty), failed) <-
     withErrorTracking $
       solveCircularWithImpls $ \report -> do
-        (rhs', ty, cts) <- inferRhsWithReport report rhs
+        (rhs', ty, cts) <- inferRhs report rhs
         pure ((rhs', ty), cts, [])
   if failed
     then pure ([], stripSuccessfulRhsAnnotations rhs')
@@ -1786,16 +1785,16 @@ solveCircularWithPost solveGenerated generate finish = do
       lift (put finishedState)
       pure value
 
-tcMatchesWithReport :: TcSolveReport -> [Match] -> TcM (TcType, [Match], [Ct], [Implication])
-tcMatchesWithReport _report [] = do
+tcMatches :: TcSolveReport -> [Match] -> TcM (TcType, [Match], [Ct], [Implication])
+tcMatches _report [] = do
   ty <- freshMetaTv
   pure (ty, [], [], [])
-tcMatchesWithReport report matches@(m0 : _) = do
+tcMatches report matches@(m0 : _) = do
   let nArgs = length (matchPats m0)
   if nArgs == 0
     then do
-      (rhs0', ty0, cts0) <- inferRhsWithReport report (matchRhs m0)
-      restResults <- mapM (unifyMatchRhsWithReport report ty0) (drop 1 matches)
+      (rhs0', ty0, cts0) <- inferRhs report (matchRhs m0)
+      restResults <- mapM (unifyMatchRhs report ty0) (drop 1 matches)
       let m0' = m0 {matchRhs = rhs0'}
           restMatches = map fst restResults
           restCts = concatMap snd restResults
@@ -1803,19 +1802,19 @@ tcMatchesWithReport report matches@(m0 : _) = do
     else do
       argTys <- mapM (const freshMetaTv) [1 .. nArgs]
       resTy <- freshMetaTv
-      results <- mapM (tcMatchEquationWithReport report Nothing argTys resTy) matches
+      results <- mapM (tcMatchEquation report Nothing argTys resTy) matches
       let (matchesList, ctsList, implsList) = unzip3 results
           allCts = concat ctsList
           allImpls = concat implsList
           funTy = foldr TcFunTy resTy argTys
       pure (funTy, matchesList, allCts, allImpls)
 
-tcMatchEquationWithReport :: TcSolveReport -> Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM (Match, [Ct], [Implication])
-tcMatchEquationWithReport report expectedOrigin argTys resTy match = do
+tcMatchEquation :: TcSolveReport -> Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM (Match, [Ct], [Implication])
+tcMatchEquation report expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
   patCheck <- checkPatternsWithGivens sp (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithReport report (matchRhs match))
+  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs report (matchRhs match))
   ev <- freshEvVar
   let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
       resCt =
@@ -1853,9 +1852,9 @@ tcMatchEquationWithReport report expectedOrigin argTys resTy match = do
               }
       pure (match', [], [impl])
 
-unifyMatchRhsWithReport :: TcSolveReport -> TcType -> Match -> TcM (Match, [Ct])
-unifyMatchRhsWithReport report expectedTy match = do
-  (rhs', rhsTy, rhsCts) <- inferRhsWithReport report (matchRhs match)
+unifyMatchRhs :: TcSolveReport -> TcType -> Match -> TcM (Match, [Ct])
+unifyMatchRhs report expectedTy match = do
+  (rhs', rhsTy, rhsCts) <- inferRhs report (matchRhs match)
   ev <- freshEvVar
   let sp = sourceSpanFromAnns (matchAnns match)
       rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
@@ -1880,7 +1879,7 @@ unifyMatchRhsWithReport report expectedTy match = do
 -- | Type-check a right-hand side (solving constraints immediately).
 tcRhs :: Rhs Expr -> TcM TcType
 tcRhs rhs = do
-  (ty, cts) <- inferRhsWithLocals inferExpr rhs
+  (_rhs', ty, cts) <- inferRhs emptyTcSolveReport rhs
   _ <- solveConstraints cts
   pure ty
 

@@ -29,7 +29,7 @@ import Aihc.Resolve (ResolutionAnnotation (..), ResolveResult (..), resolve)
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generate.Expr (inferExprWithReport)
+import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM, solveReportFromState)
 import Aihc.Tc.Solve (solveConstraints)
 import Data.Data (Data, cast, gmapM, gmapQ)
@@ -508,7 +508,7 @@ circularExpr expr =
   where
     report = solveReportFromState solveState
     ((expr', cts, _ty), genState) =
-      runTcOrFail "circular generation" (runTcM emptyTcEnv initTcState (inferExprWithReport report expr))
+      runTcOrFail "circular generation" (runTcM emptyTcEnv initTcState (inferExpr report expr))
     (_solveResult, solveState) =
       runTcOrFail "circular solve" (runTcM emptyTcEnv genState (solveConstraints cts))
 
