@@ -3,16 +3,23 @@
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
   ( InferExpr,
-    InferExprSyntax,
-    InferRhsSyntax,
-    LocalSyntaxHooks (..),
+    LocalDeclPlan (..),
+    DeclGroup (..),
+    prepareLocalDeclPlan,
+    withLocalDeclPlaceholders,
+    generalizeLocalDeclPlan,
+    monomorphicLocalDeclPlan,
+    localBinderTypes,
+    withLocalBinders,
+    tiePlaceholder,
     inferLocalDecls,
     inferLocalDeclsWithResult,
-    inferLocalDeclsWithSyntax,
     inferRhsWithLocals,
     collectRawSigs,
     sigToScheme,
     skolemize,
+    patternBinderName,
+    splitFunTy,
     schemeToType,
     renderBinderName,
   )
@@ -54,16 +61,52 @@ import Data.Text (Text)
 
 type InferExpr = Expr -> TcM (TcType, [Ct])
 
-type InferExprSyntax = Expr -> TcM (Expr, TcType, [Ct])
-
-type InferRhsSyntax = Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
-
-data LocalSyntaxHooks = LocalSyntaxHooks
-  { localInferRhs :: InferRhsSyntax,
-    localAttachRhsFailure :: Ct -> Rhs Expr -> Rhs Expr,
-    localAnnotatePatternBinding :: TcType -> Pattern -> Pattern,
-    localAnnotateDeclWithType :: TcType -> Decl -> Decl
+data LocalDeclPlan = LocalDeclPlan
+  { localDeclPlanSigs :: !(Map Text TypeScheme),
+    localDeclPlanGroups :: ![DeclGroup],
+    localDeclPlanBinders :: ![Text],
+    localDeclPlanPlaceholders :: !(Map Text TcType),
+    localDeclPlanShouldGeneralize :: !Bool
   }
+
+prepareLocalDeclPlan :: [Decl] -> TcM LocalDeclPlan
+prepareLocalDeclPlan decls = do
+  let rawSigs = collectRawSigs decls
+      groups = groupValueDecls decls
+      binders = nub (concatMap groupBinders groups)
+  sigs <- traverse sigToScheme rawSigs
+  placeholders <- traverse (placeholderFor sigs) binders
+  let placeholderMap = Map.fromList placeholders
+      binderSet = Set.fromList binders
+  shouldGen <- shouldGeneralizeLocal binderSet decls
+  pure
+    LocalDeclPlan
+      { localDeclPlanSigs = sigs,
+        localDeclPlanGroups = groups,
+        localDeclPlanBinders = binders,
+        localDeclPlanPlaceholders = placeholderMap,
+        localDeclPlanShouldGeneralize = shouldGen
+      }
+
+withLocalDeclPlaceholders :: LocalDeclPlan -> TcM a -> TcM a
+withLocalDeclPlaceholders plan =
+  withLocalPlaceholders (localDeclPlanPlaceholders plan)
+
+generalizeLocalDeclPlan :: LocalDeclPlan -> [Ct] -> TcM [(Text, TcBinder)]
+generalizeLocalDeclPlan plan bindingCts = do
+  _ <- solveConstraints bindingCts
+  let sigs = localDeclPlanSigs plan
+      placeholders = localDeclPlanPlaceholders plan
+      binders = localDeclPlanBinders plan
+  polyBinders <- traverse (generalizedBinder sigs binders placeholders) binders
+  commitLocalGeneralizedMetas sigs placeholders polyBinders
+  pure polyBinders
+
+monomorphicLocalDeclPlan :: LocalDeclPlan -> TcM [(Text, TcBinder)]
+monomorphicLocalDeclPlan plan =
+  traverse
+    (monomorphicBinder (localDeclPlanSigs plan) (localDeclPlanPlaceholders plan))
+    (localDeclPlanBinders plan)
 
 -- | Infer local declarations, then infer a body under the resulting binders.
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (TcType, [Ct]) -> TcM (TcType, [Ct])
@@ -76,218 +119,30 @@ inferLocalDecls inferExpr decls body = do
 
 inferLocalDeclsWithResult :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM (a, TcType, [Ct])
 inferLocalDeclsWithResult inferExpr decls body = do
-  let rawSigs = collectRawSigs decls
-      groups = groupValueDecls decls
-      binders = nub (concatMap groupBinders groups)
-  sigs <- traverse sigToScheme rawSigs
-  placeholders <- traverse (placeholderFor sigs) binders
-  let placeholderMap = Map.fromList placeholders
-      binderSet = Set.fromList binders
-      ignored = binders
-  shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholderMap $ do
-    bindingCts <- concat <$> mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
-    if shouldGen
+  plan <- prepareLocalDeclPlan decls
+  withLocalDeclPlaceholders plan $ do
+    bindingCts <-
+      concat
+        <$> mapM
+          (inferLocalGroup inferExpr (localDeclPlanSigs plan) (localDeclPlanPlaceholders plan))
+          (localDeclPlanGroups plan)
+    if localDeclPlanShouldGeneralize plan
       then do
-        _ <- solveConstraints bindingCts
-        polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
-        commitLocalGeneralizedMetas sigs placeholderMap polyBinders
+        polyBinders <- generalizeLocalDeclPlan plan bindingCts
         withLocalBinders polyBinders $ do
           body
       else do
-        _monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
+        _monoBinders <- monomorphicLocalDeclPlan plan
         (value, bodyTy, bodyCts) <- body
         pure (value, bodyTy, bindingCts ++ bodyCts)
-
-inferLocalDeclsWithSyntax :: LocalSyntaxHooks -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
-inferLocalDeclsWithSyntax hooks decls body = do
-  let rawSigs = collectRawSigs decls
-      groups = groupValueDecls decls
-      binders = nub (concatMap groupBinders groups)
-  sigs <- traverse sigToScheme rawSigs
-  placeholders <- traverse (placeholderFor sigs) binders
-  let placeholderMap = Map.fromList placeholders
-      binderSet = Set.fromList binders
-      ignored = binders
-  shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholderMap $ do
-    groupResults <- mapM (inferLocalGroupWithSyntax hooks sigs placeholderMap) groups
-    let bindingCts = concatMap localGroupCts groupResults
-        updates = mconcat (map localGroupUpdates groupResults)
-    if shouldGen
-      then do
-        _ <- solveConstraints bindingCts
-        polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
-        commitLocalGeneralizedMetas sigs placeholderMap polyBinders
-        let decls' = applyLocalDeclUpdates hooks (localBinderTypes polyBinders) updates decls
-        withLocalBinders polyBinders $ do
-          (value, bodyTy, bodyCts) <- body
-          pure (decls', value, bodyTy, bodyCts)
-      else do
-        monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
-        let decls' = applyLocalDeclUpdates hooks (localBinderTypes monoBinders) updates decls
-        (value, bodyTy, bodyCts) <- withLocalBinders monoBinders body
-        pure (decls', value, bodyTy, bindingCts ++ bodyCts)
-
-data LocalGroupResult = LocalGroupResult
-  { localGroupCts :: ![Ct],
-    localGroupUpdates :: !LocalDeclUpdates
-  }
-
-data LocalDeclUpdates = LocalDeclUpdates
-  { localFunctionUpdates :: !(Map Text [[Match]]),
-    localPatternUpdates :: ![Rhs Expr]
-  }
-
-instance Semigroup LocalDeclUpdates where
-  left <> right =
-    LocalDeclUpdates
-      { localFunctionUpdates = Map.unionWith (<>) (localFunctionUpdates left) (localFunctionUpdates right),
-        localPatternUpdates = localPatternUpdates left <> localPatternUpdates right
-      }
-
-instance Monoid LocalDeclUpdates where
-  mempty =
-    LocalDeclUpdates
-      { localFunctionUpdates = Map.empty,
-        localPatternUpdates = []
-      }
-
-inferLocalGroupWithSyntax :: LocalSyntaxHooks -> Map Text TypeScheme -> Map Text TcType -> DeclGroup -> TcM LocalGroupResult
-inferLocalGroupWithSyntax hooks sigs placeholders group =
-  case group of
-    MergedFunctionBind name matches -> do
-      (ty, matches', cts) <- inferLocalFunctionWithSyntax hooks sigs placeholders name matches
-      cts' <- tiePlaceholder placeholders name ty cts
-      pure (LocalGroupResult cts' mempty {localFunctionUpdates = Map.singleton name [matches']})
-    SingleDecl decl ->
-      case peelDeclAnn decl of
-        DeclValue (PatternBind _ pat rhs) ->
-          case patternBinderName pat of
-            Just (_displayName, name) -> do
-              (rhs', ty, cts) <- inferLocalPatternBindWithSyntax hooks sigs placeholders name rhs
-              cts' <- tiePlaceholder placeholders name ty cts
-              pure (LocalGroupResult cts' mempty {localPatternUpdates = [rhs']})
-            Nothing -> do
-              (rhs', _ty, cts) <- localInferRhs hooks rhs
-              pure (LocalGroupResult cts mempty {localPatternUpdates = [rhs']})
-        DeclValue (FunctionBind name matches) -> do
-          (ty, matches', cts) <- inferLocalFunctionWithSyntax hooks sigs placeholders (unqualifiedNameText name) matches
-          cts' <- tiePlaceholder placeholders (unqualifiedNameText name) ty cts
-          pure (LocalGroupResult cts' mempty {localFunctionUpdates = Map.singleton (unqualifiedNameText name) [matches']})
-        _ -> pure (LocalGroupResult [] mempty)
-
-inferLocalFunctionWithSyntax :: LocalSyntaxHooks -> Map Text TypeScheme -> Map Text TcType -> Text -> [Match] -> TcM (TcType, [Match], [Ct])
-inferLocalFunctionWithSyntax hooks sigs placeholders name matches =
-  case Map.lookup name sigs of
-    Just scheme -> do
-      sigTy <- maybe (skolemize scheme) pure (Map.lookup name placeholders)
-      let nArgs =
-            case matches of
-              m : _ -> length (matchPats m)
-              [] -> 0
-          (argTys, resTy) = splitFunTy sigTy nArgs
-      results <- mapM (tcLocalMatchEquationWithSyntax hooks argTys resTy) matches
-      let matches' = map fst results
-          cts = concatMap snd results
-      pure (sigTy, matches', cts)
-    Nothing ->
-      tcLocalMatchesWithSyntax hooks matches
-
-inferLocalPatternBindWithSyntax :: LocalSyntaxHooks -> Map Text TypeScheme -> Map Text TcType -> Text -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
-inferLocalPatternBindWithSyntax hooks sigs placeholders name rhs = do
-  (rhs', rhsTy, rhsCts) <- localInferRhs hooks rhs
-  ty <-
-    case Map.lookup name sigs of
-      Just scheme -> maybe (skolemize scheme) pure (Map.lookup name placeholders)
-      Nothing -> pure rhsTy
-  pure (rhs', ty, rhsCts)
-
-tcLocalMatchesWithSyntax :: LocalSyntaxHooks -> [Match] -> TcM (TcType, [Match], [Ct])
-tcLocalMatchesWithSyntax _ [] = do
-  ty <- freshMetaTv
-  pure (ty, [], [])
-tcLocalMatchesWithSyntax hooks matches@(m0 : _) = do
-  let nArgs = length (matchPats m0)
-  if nArgs == 0
-    then do
-      (rhs0', ty0, cts0) <- localInferRhs hooks (matchRhs m0)
-      restResults <- mapM (unifyLocalMatchRhsWithSyntax hooks ty0) (drop 1 matches)
-      let m0' = m0 {matchRhs = rhs0'}
-          restMatches = map fst restResults
-          restCts = concatMap snd restResults
-      pure (ty0, m0' : restMatches, cts0 ++ restCts)
-    else do
-      argTys <- mapM (const freshMetaTv) [1 .. nArgs]
-      resTy <- freshMetaTv
-      results <- mapM (tcLocalMatchEquationWithSyntax hooks argTys resTy) matches
-      let matches' = map fst results
-          cts = concatMap snd results
-      pure (foldr TcFunTy resTy argTys, matches', cts)
-
-tcLocalMatchEquationWithSyntax :: LocalSyntaxHooks -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
-tcLocalMatchEquationWithSyntax hooks argTys resTy match = do
-  let pats = matchPats match
-  patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
-  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (localInferRhs hooks (matchRhs match))
-  ev <- freshEvVar
-  resCt <- mkWantedCtM (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  let pats' = zipWith (localAnnotatePatternBinding hooks) argTys pats
-      rhs'' = localAttachRhsFailure hooks resCt rhs'
-  pure (match {matchPats = pats', matchRhs = rhs''}, pcWantedCts patCheck ++ rhsCts ++ [resCt])
-
-unifyLocalMatchRhsWithSyntax :: LocalSyntaxHooks -> TcType -> Match -> TcM (Match, [Ct])
-unifyLocalMatchRhsWithSyntax hooks expectedTy match = do
-  (rhs', rhsTy, rhsCts) <- localInferRhs hooks (matchRhs match)
-  ev <- freshEvVar
-  eqCt <- mkWantedCtM (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (match {matchRhs = localAttachRhsFailure hooks eqCt rhs'}, rhsCts ++ [eqCt])
-
-localBinderTypes :: [(Text, TcBinder)] -> Map Text TcType
-localBinderTypes =
-  Map.fromList . map (second binderType)
-
-applyLocalDeclUpdates :: LocalSyntaxHooks -> Map Text TcType -> LocalDeclUpdates -> [Decl] -> [Decl]
-applyLocalDeclUpdates hooks binderTypes updates =
-  reverse . snd . foldl step (updates, [])
-  where
-    step (updatesAcc, declsAcc) decl =
-      let (updatesNext, decl') = applyLocalDeclUpdate hooks binderTypes updatesAcc decl
-       in (updatesNext, decl' : declsAcc)
-
-applyLocalDeclUpdate :: LocalSyntaxHooks -> Map Text TcType -> LocalDeclUpdates -> Decl -> (LocalDeclUpdates, Decl)
-applyLocalDeclUpdate hooks binderTypes updates decl =
-  case decl of
-    DeclAnn ann inner ->
-      let (updates', inner') = applyLocalDeclUpdate hooks binderTypes updates inner
-       in (updates', DeclAnn ann inner')
-    DeclValue (FunctionBind name _matches) ->
-      let key = unqualifiedNameText name
-       in case Map.lookup key (localFunctionUpdates updates) of
-            Just (matches' : rest) ->
-              let updates' =
-                    updates
-                      { localFunctionUpdates =
-                          if null rest
-                            then Map.delete key (localFunctionUpdates updates)
-                            else Map.insert key rest (localFunctionUpdates updates)
-                      }
-                  decl' = DeclValue (FunctionBind name matches')
-               in (updates', maybe decl' (\ty -> localAnnotateDeclWithType hooks ty decl') (Map.lookup key binderTypes))
-            _ -> (updates, decl)
-    DeclValue (PatternBind multiplicity pat _rhs) ->
-      case localPatternUpdates updates of
-        rhs' : rest ->
-          let updates' = updates {localPatternUpdates = rest}
-              decl' = DeclValue (PatternBind multiplicity pat rhs')
-              maybeTy = patternBinderName pat >>= (`Map.lookup` binderTypes) . snd
-           in (updates', maybe decl' (\ty -> localAnnotateDeclWithType hooks ty decl') maybeTy)
-        [] -> (updates, decl)
-    _ -> (updates, decl)
 
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder _ scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder _ ty) = ty
+
+localBinderTypes :: [(Text, TcBinder)] -> Map Text TcType
+localBinderTypes =
+  Map.fromList . map (second binderType)
 
 monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> Text -> TcM (Text, TcBinder)
 monomorphicBinder sigs placeholders name =

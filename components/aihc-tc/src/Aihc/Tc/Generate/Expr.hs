@@ -23,19 +23,23 @@ import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
     CompStmt (..),
-    Decl,
+    Decl (..),
     Expr (..),
     GuardQualifier (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
+    Match (..),
     Name (..),
     NumericType (..),
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
     TupleFlavor,
+    ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
+    peelDeclAnn,
+    unqualifiedNameText,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcDiagnostic, TcErrorKind (..))
@@ -46,12 +50,29 @@ import Aihc.Tc.Generate.Annotate
     annotatePatternWithReport,
     attachExprElaboration,
   )
-import Aihc.Tc.Generate.Bind (LocalSyntaxHooks (..), inferLocalDecls, inferLocalDeclsWithSyntax, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind
+  ( DeclGroup (..),
+    LocalDeclPlan (..),
+    generalizeLocalDeclPlan,
+    inferLocalDecls,
+    inferRhsWithLocals,
+    localBinderTypes,
+    monomorphicLocalDeclPlan,
+    patternBinderName,
+    prepareLocalDeclPlan,
+    skolemize,
+    splitFunTy,
+    tiePlaceholder,
+    withLocalBinders,
+    withLocalDeclPlaceholders,
+  )
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.NameKey (nameOccurrenceKey)
 import Aihc.Tc.Types
+import Control.Monad (foldM, unless)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -383,7 +404,7 @@ inferCaseAltsWithReport report sp scrutTy resTy (firstAlt : restAlts) = do
 inferLetWithReport :: TcSolveReport -> SourceSpan -> [Decl] -> Expr -> TcM (Expr, [Ct], TcType)
 inferLetWithReport report sp decls body = do
   (decls', body', bodyTy, bodyCts) <-
-    inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
+    inferLocalDeclsWithSyntax report decls $
       inferExprSyntaxWithReportAt report sp body
   pure (ELetDecls decls' body', bodyCts, bodyTy)
 
@@ -765,7 +786,7 @@ inferRhsWithReport report rhs =
       pure (UnguardedRhs anns expr' Nothing, ty, cts)
     UnguardedRhs anns expr (Just decls) -> do
       (decls', expr', ty, cts) <-
-        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
+        inferLocalDeclsWithSyntax report decls $
           inferExprSyntaxWithReport report expr
       pure (UnguardedRhs anns expr' (Just decls'), ty, cts)
     GuardedRhss anns guardedRhss Nothing -> do
@@ -773,7 +794,7 @@ inferRhsWithReport report rhs =
       pure (GuardedRhss anns guardedRhss' Nothing, ty, cts)
     GuardedRhss anns guardedRhss (Just decls) -> do
       (decls', guardedRhss', ty, cts) <-
-        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $
+        inferLocalDeclsWithSyntax report decls $
           inferGuardedRhssWithReport report (sourceSpanFromAnns anns) guardedRhss
       pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
 
@@ -787,14 +808,240 @@ inferExprSyntaxWithReportAt report sp expr = do
   (expr', cts, ty) <- inferExprWithReportAt report sp expr
   pure (expr', ty, cts)
 
-localSyntaxHooks :: TcSolveReport -> LocalSyntaxHooks
-localSyntaxHooks report =
-  LocalSyntaxHooks
-    { localInferRhs = inferRhsWithReport report,
-      localAttachRhsFailure = attachRhsFailure report,
-      localAnnotatePatternBinding = annotatePatternBindingWithReport report,
-      localAnnotateDeclWithType = annotateDeclWithTypeWithReport report
-    }
+inferLocalDeclsWithSyntax :: TcSolveReport -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferLocalDeclsWithSyntax report decls body = do
+  plan <- prepareLocalDeclPlan decls
+  withLocalDeclPlaceholders plan $ do
+    groupResults <-
+      mapM
+        (inferLocalGroupWithSyntax report (localDeclPlanSigs plan) (localDeclPlanPlaceholders plan))
+        (localDeclPlanGroups plan)
+    let bindingCts = concatMap localGroupCts groupResults
+        updates = mconcat (map localGroupUpdates groupResults)
+    if localDeclPlanShouldGeneralize plan
+      then do
+        polyBinders <- generalizeLocalDeclPlan plan bindingCts
+        decls' <- applyLocalDeclUpdates report (localBinderTypes polyBinders) updates decls
+        withLocalBinders polyBinders $ do
+          (value, bodyTy, bodyCts) <- body
+          pure (decls', value, bodyTy, bodyCts)
+      else do
+        monoBinders <- monomorphicLocalDeclPlan plan
+        decls' <- applyLocalDeclUpdates report (localBinderTypes monoBinders) updates decls
+        (value, bodyTy, bodyCts) <- withLocalBinders monoBinders body
+        pure (decls', value, bodyTy, bindingCts ++ bodyCts)
+
+data LocalGroupResult = LocalGroupResult
+  { localGroupCts :: ![Ct],
+    localGroupUpdates :: !LocalDeclUpdates
+  }
+
+data LocalDeclUpdates = LocalDeclUpdates
+  { localFunctionUpdates :: !(Map Text [[Match]]),
+    localPatternUpdates :: !(Map Text [Rhs Expr]),
+    localAnonymousPatternUpdates :: ![Rhs Expr]
+  }
+
+instance Semigroup LocalDeclUpdates where
+  left <> right =
+    LocalDeclUpdates
+      { localFunctionUpdates = Map.unionWith (<>) (localFunctionUpdates left) (localFunctionUpdates right),
+        localPatternUpdates = Map.unionWith (<>) (localPatternUpdates left) (localPatternUpdates right),
+        localAnonymousPatternUpdates = localAnonymousPatternUpdates left <> localAnonymousPatternUpdates right
+      }
+
+instance Monoid LocalDeclUpdates where
+  mempty =
+    LocalDeclUpdates
+      { localFunctionUpdates = Map.empty,
+        localPatternUpdates = Map.empty,
+        localAnonymousPatternUpdates = []
+      }
+
+inferLocalGroupWithSyntax :: TcSolveReport -> Map Text TypeScheme -> Map Text TcType -> DeclGroup -> TcM LocalGroupResult
+inferLocalGroupWithSyntax report sigs placeholders group =
+  case group of
+    MergedFunctionBind name matches -> do
+      (ty, matches', cts) <- inferLocalFunctionWithSyntax report sigs placeholders name matches
+      cts' <- tiePlaceholder placeholders name ty cts
+      pure (LocalGroupResult cts' mempty {localFunctionUpdates = Map.singleton name [matches']})
+    SingleDecl decl ->
+      case peelDeclAnn decl of
+        DeclValue (PatternBind _ pat rhs) ->
+          case patternBinderName pat of
+            Just (_displayName, name) -> do
+              (rhs', ty, cts) <- inferLocalPatternBindWithSyntax report sigs placeholders name rhs
+              cts' <- tiePlaceholder placeholders name ty cts
+              pure (LocalGroupResult cts' mempty {localPatternUpdates = Map.singleton name [rhs']})
+            Nothing -> do
+              (rhs', _ty, cts) <- inferRhsWithReport report rhs
+              pure (LocalGroupResult cts mempty {localAnonymousPatternUpdates = [rhs']})
+        DeclValue (FunctionBind name matches) -> do
+          (ty, matches', cts) <- inferLocalFunctionWithSyntax report sigs placeholders (unqualifiedNameText name) matches
+          cts' <- tiePlaceholder placeholders (unqualifiedNameText name) ty cts
+          pure (LocalGroupResult cts' mempty {localFunctionUpdates = Map.singleton (unqualifiedNameText name) [matches']})
+        _ -> pure (LocalGroupResult [] mempty)
+
+inferLocalFunctionWithSyntax :: TcSolveReport -> Map Text TypeScheme -> Map Text TcType -> Text -> [Match] -> TcM (TcType, [Match], [Ct])
+inferLocalFunctionWithSyntax report sigs placeholders name matches =
+  case Map.lookup name sigs of
+    Just scheme -> do
+      sigTy <- maybe (skolemize scheme) pure (Map.lookup name placeholders)
+      let nArgs =
+            case matches of
+              m : _ -> length (matchPats m)
+              [] -> 0
+          (argTys, resTy) = splitFunTy sigTy nArgs
+      results <- mapM (tcLocalMatchEquationWithSyntax report argTys resTy) matches
+      let matches' = map fst results
+          cts = concatMap snd results
+      pure (sigTy, matches', cts)
+    Nothing ->
+      tcLocalMatchesWithSyntax report matches
+
+inferLocalPatternBindWithSyntax :: TcSolveReport -> Map Text TypeScheme -> Map Text TcType -> Text -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
+inferLocalPatternBindWithSyntax report sigs placeholders name rhs = do
+  (rhs', rhsTy, rhsCts) <- inferRhsWithReport report rhs
+  ty <-
+    case Map.lookup name sigs of
+      Just scheme -> maybe (skolemize scheme) pure (Map.lookup name placeholders)
+      Nothing -> pure rhsTy
+  pure (rhs', ty, rhsCts)
+
+tcLocalMatchesWithSyntax :: TcSolveReport -> [Match] -> TcM (TcType, [Match], [Ct])
+tcLocalMatchesWithSyntax _ [] = do
+  ty <- freshMetaTv
+  pure (ty, [], [])
+tcLocalMatchesWithSyntax report matches@(m0 : _) = do
+  let nArgs = length (matchPats m0)
+  if nArgs == 0
+    then do
+      (rhs0', ty0, cts0) <- inferRhsWithReport report (matchRhs m0)
+      restResults <- mapM (unifyLocalMatchRhsWithSyntax report ty0) (drop 1 matches)
+      let m0' = m0 {matchRhs = rhs0'}
+          restMatches = map fst restResults
+          restCts = concatMap snd restResults
+      pure (ty0, m0' : restMatches, cts0 ++ restCts)
+    else do
+      argTys <- mapM (const freshMetaTv) [1 .. nArgs]
+      resTy <- freshMetaTv
+      results <- mapM (tcLocalMatchEquationWithSyntax report argTys resTy) matches
+      let matches' = map fst results
+          cts = concatMap snd results
+      pure (foldr TcFunTy resTy argTys, matches', cts)
+
+tcLocalMatchEquationWithSyntax :: TcSolveReport -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
+tcLocalMatchEquationWithSyntax report argTys resTy match = do
+  let pats = matchPats match
+  patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
+  (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithReport report (matchRhs match))
+  ev <- freshEvVar
+  resCt <- mkWantedCtM (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  let pats' = zipWith (annotatePatternBindingWithReport report) argTys pats
+      rhs'' = attachRhsFailure report resCt rhs'
+  pure (match {matchPats = pats', matchRhs = rhs''}, pcWantedCts patCheck ++ rhsCts ++ [resCt])
+
+unifyLocalMatchRhsWithSyntax :: TcSolveReport -> TcType -> Match -> TcM (Match, [Ct])
+unifyLocalMatchRhsWithSyntax report expectedTy match = do
+  (rhs', rhsTy, rhsCts) <- inferRhsWithReport report (matchRhs match)
+  ev <- freshEvVar
+  eqCt <- mkWantedCtM (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  pure (match {matchRhs = attachRhsFailure report eqCt rhs'}, rhsCts ++ [eqCt])
+
+applyLocalDeclUpdates :: TcSolveReport -> Map Text TcType -> LocalDeclUpdates -> [Decl] -> TcM [Decl]
+applyLocalDeclUpdates report binderTypes updates decls = do
+  (updates', reversedDecls) <-
+    foldM step (updates, []) decls
+  unless (nullLocalDeclUpdates updates') $
+    abortTc ("internal type annotation error: unapplied local declaration annotations " <> showLocalDeclUpdates updates')
+  pure (reverse reversedDecls)
+  where
+    step (updatesAcc, declsAcc) decl = do
+      (updatesNext, decl') <- applyLocalDeclUpdate report binderTypes updatesAcc decl
+      pure (updatesNext, decl' : declsAcc)
+
+applyLocalDeclUpdate :: TcSolveReport -> Map Text TcType -> LocalDeclUpdates -> Decl -> TcM (LocalDeclUpdates, Decl)
+applyLocalDeclUpdate report binderTypes updates decl =
+  case decl of
+    DeclAnn ann inner -> do
+      (updates', inner') <- applyLocalDeclUpdate report binderTypes updates inner
+      pure (updates', DeclAnn ann inner')
+    DeclValue (FunctionBind name matches) ->
+      let key = unqualifiedNameText name
+       in do
+            maybeUpdate <- takeLocalFunctionMatches key (length matches) updates
+            case maybeUpdate of
+              Nothing ->
+                abortTc ("internal type annotation error: missing local function update for " <> T.unpack key)
+              Just (updates', matches') -> do
+                let decl' = DeclValue (FunctionBind name matches')
+                pure (updates', maybe decl' (\ty -> annotateDeclWithTypeWithReport report ty decl') (Map.lookup key binderTypes))
+    DeclValue (PatternBind multiplicity pat _rhs) ->
+      case takeLocalPatternRhs pat updates of
+        Nothing ->
+          abortTc "internal type annotation error: missing local pattern update"
+        Just (updates', rhs') -> do
+          let decl' = DeclValue (PatternBind multiplicity pat rhs')
+              maybeTy = patternBinderName pat >>= (`Map.lookup` binderTypes) . snd
+          pure (updates', maybe decl' (\ty -> annotateDeclWithTypeWithReport report ty decl') maybeTy)
+    _ -> pure (updates, decl)
+
+takeLocalFunctionMatches :: Text -> Int -> LocalDeclUpdates -> TcM (Maybe (LocalDeclUpdates, [Match]))
+takeLocalFunctionMatches name count updates =
+  case Map.lookup name (localFunctionUpdates updates) of
+    Nothing -> pure Nothing
+    Just functionUpdates ->
+      case functionUpdates of
+        [] -> pure Nothing
+        matches : restUpdates ->
+          if length matches < count
+            then abortTc ("internal type annotation error: not enough updated local matches for " <> T.unpack name)
+            else
+              let (here, remainingMatches) = splitAt count matches
+                  remainingUpdate = [remainingMatches | not (null remainingMatches)]
+                  remaining = remainingUpdate <> restUpdates
+                  updates' =
+                    updates
+                      { localFunctionUpdates =
+                          if null remaining
+                            then Map.delete name (localFunctionUpdates updates)
+                            else Map.insert name remaining (localFunctionUpdates updates)
+                      }
+               in pure (Just (updates', here))
+
+takeLocalPatternRhs :: Pattern -> LocalDeclUpdates -> Maybe (LocalDeclUpdates, Rhs Expr)
+takeLocalPatternRhs pat updates =
+  case patternBinderName pat of
+    Just (_, name) ->
+      case Map.lookup name (localPatternUpdates updates) of
+        Just (rhs : rest) ->
+          let updates' =
+                updates
+                  { localPatternUpdates =
+                      if null rest
+                        then Map.delete name (localPatternUpdates updates)
+                        else Map.insert name rest (localPatternUpdates updates)
+                  }
+           in Just (updates', rhs)
+        _ -> Nothing
+    Nothing ->
+      case localAnonymousPatternUpdates updates of
+        [] -> Nothing
+        rhs : rest ->
+          Just (updates {localAnonymousPatternUpdates = rest}, rhs)
+
+nullLocalDeclUpdates :: LocalDeclUpdates -> Bool
+nullLocalDeclUpdates updates =
+  Map.null (localFunctionUpdates updates)
+    && Map.null (localPatternUpdates updates)
+    && null (localAnonymousPatternUpdates updates)
+
+showLocalDeclUpdates :: LocalDeclUpdates -> String
+showLocalDeclUpdates updates =
+  "function updates="
+    <> show (Map.keys (localFunctionUpdates updates))
+    <> ", pattern updates="
+    <> show (Map.keys (localPatternUpdates updates), length (localAnonymousPatternUpdates updates))
 
 inferGuardedRhssWithReport :: TcSolveReport -> SourceSpan -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
 inferGuardedRhssWithReport _report _sp [] = do
@@ -857,7 +1104,7 @@ inferGuardQualsWithReport report sp (qual : rest) action =
         )
     GuardLet decls -> do
       (decls', (rest', body), bodyTy, restCts) <-
-        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $ do
+        inferLocalDeclsWithSyntax report decls $ do
           (rest', body, cts, ty) <- inferGuardQualsWithReport report sp rest action
           pure ((rest', body), ty, cts)
       pure (GuardLet decls' : rest', body, restCts, bodyTy)
@@ -912,7 +1159,7 @@ inferCompQualsWithReport report ambient (qual : rest) action =
         )
     CompLetDecls decls -> do
       (decls', (rest', body), bodyTy, bodyCts) <-
-        inferLocalDeclsWithSyntax (localSyntaxHooks report) decls $ do
+        inferLocalDeclsWithSyntax report decls $ do
           (rest', body, bodyTy, cts) <- inferCompQualsWithReport report ambient rest action
           pure ((rest', body), bodyTy, cts)
       pure (CompLetDecls decls' : rest', body, bodyTy, bodyCts)
