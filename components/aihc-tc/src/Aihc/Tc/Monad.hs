@@ -6,6 +6,7 @@ module Aihc.Tc.Monad
     TcM,
     runTcM,
     abortTc,
+    tcAbortMessage,
 
     -- * State
     TcState (..),
@@ -59,7 +60,7 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan)
+import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Env (InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -94,6 +95,9 @@ runTcM env st m = runStateT (runReaderT m env) st
 
 abortTc :: String -> TcM a
 abortTc msg = lift (lift (Left (TcAbort msg)))
+
+tcAbortMessage :: TcAbort -> String
+tcAbortMessage (TcAbort msg) = msg
 
 -- | The local typing environment (read-only within a scope).
 data TcEnv = TcEnv
@@ -315,10 +319,14 @@ emitError :: SourceSpan -> TcErrorKind -> TcM ()
 emitError loc kind =
   emitDiagnostic
     TcDiagnostic
-      { diagLoc = loc,
+      { diagLoc = diagnosticLoc loc,
         diagSeverity = TcError,
         diagKind = kind
       }
+
+diagnosticLoc :: SourceSpan -> Maybe SourceSpan
+diagnosticLoc NoSourceSpan = Nothing
+diagnosticLoc sp = Just sp
 
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]

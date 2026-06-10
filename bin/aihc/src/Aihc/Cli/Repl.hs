@@ -36,14 +36,15 @@ import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), Resol
 import Aihc.Tc
   ( Pred (..),
     TcBindingResult (..),
-    TcModuleResult (..),
     TcType (..),
     TyCon (..),
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
     renderTcType,
-    tcmBindings,
+    tcModuleBindings,
+    tcModuleDiagnostics,
+    tcModuleSuccess,
     typecheckModuleWithEnv,
   )
 import Control.Monad.IO.Class (liftIO)
@@ -166,11 +167,11 @@ evaluateExpression session input = do
         [modu] -> Right modu
         _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
     let tcResult = typecheckModuleWithEnv (replImportedTerms session) resolvedModule
-    if tcmSuccess tcResult
+    if tcModuleSuccess tcResult
       then pure ()
-      else Left (ReplTypeError (map show (tcmDiagnostics tcResult)))
+      else Left (ReplTypeError (map show (tcModuleDiagnostics tcResult)))
     inferredType <-
-      case find ((== replBindingName) . tbName) (tcmBindings tcResult) of
+      case find ((== replBindingName) . tbName) (tcModuleBindings tcResult) of
         Just binding -> Right (tbType binding)
         Nothing -> Left (ReplTypeError ["missing inferred type for " <> T.unpack replBindingName])
     let dsResult = desugarModuleWithTcResult tcResult resolvedModule

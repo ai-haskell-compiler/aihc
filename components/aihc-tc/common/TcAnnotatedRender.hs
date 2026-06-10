@@ -38,7 +38,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcModuleResult (..), TcType (..), renderTcSignature, renderTcType)
+import Aihc.Tc (TcType (..), renderTcSignature, renderTcType, tcModuleDiagnostics)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -57,9 +57,9 @@ import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-renderAnnotatedTcResults :: [Text] -> [TcModuleResult] -> [String]
+renderAnnotatedTcResults :: [Text] -> [Module] -> [String]
 renderAnnotatedTcResults sources results =
-  map renderOne (sortOn (moduleDisplayName . tcmModule . snd) (zip sources results))
+  map renderOne (sortOn (moduleDisplayName . snd) (zip sources results))
   where
     renderOne (source, result) =
       renderAnnotatedSource source (collectTcLabels result)
@@ -76,13 +76,13 @@ data TcLabel = TcLabel
 sourceLabel :: SourceSpan -> String -> TcLabel
 sourceLabel = TcLabel
 
-collectTcLabels :: TcModuleResult -> [TcLabel]
+collectTcLabels :: Module -> [TcLabel]
 collectTcLabels result =
   sortOn labelKey $
     -- The annotated AST is the source of truth: it preserves source placement
     -- and distinct binders that a flat binding table can conflate.
-    concatMap (declLabels Nothing) (moduleDecls (tcmModule result))
-      <> diagnosticLabels (tcmDiagnostics result)
+    concatMap (declLabels Nothing) (moduleDecls result)
+      <> diagnosticLabels (tcModuleDiagnostics result)
 
 diagnosticLabels :: [TcDiagnostic] -> [TcLabel]
 diagnosticLabels =
@@ -120,11 +120,11 @@ diagnosticRelatedLabels diagnostic =
 diagnosticSpan :: TcDiagnostic -> SourceSpan
 diagnosticSpan diagnostic =
   case diagLoc diagnostic of
-    NoSourceSpan ->
+    Nothing ->
       case diagKind diagnostic of
         UnificationError _ _ _ (Just provenance) -> eqPrimarySpan provenance
         _ -> originSpan (diagnosticOrigin diagnostic)
-    sp -> sp
+    Just sp -> sp
 
 diagnosticOrigin :: TcDiagnostic -> Maybe CtOrigin
 diagnosticOrigin diagnostic =

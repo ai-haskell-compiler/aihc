@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnv)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -157,7 +157,7 @@ evaluateFcEvalCase tc =
              in case resolved of
                   ResolveResult {resolvedModules, resolveErrors = []} ->
                     let tcResults = typecheckModulesWithEnv [] resolvedModules
-                     in if all tcmSuccess tcResults
+                     in if all tcModuleSuccess tcResults
                           then
                             let allBindings = moduleGroupBindings tcResults
                                 results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
@@ -234,16 +234,16 @@ evalDecl expr =
           }
       ]
 
-renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors :: [Module] -> String
 renderTcErrors results =
-  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcModuleDiagnostics result]
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered
 
-moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
-  concatMap tcmBindings
+  concatMap tcModuleBindings
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =

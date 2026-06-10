@@ -11,8 +11,12 @@ import Aihc.Tc.Constraint (CtOrigin, EqProvenance)
 import Aihc.Tc.Types
 
 -- | A diagnostic produced by the type checker.
+--
+-- Source locations are display metadata, not the identity of the diagnostic.
+-- A diagnostic can be attached to an AST even when the input did not preserve
+-- source spans.
 data TcDiagnostic = TcDiagnostic
-  { diagLoc :: !SourceSpan,
+  { diagLoc :: !(Maybe SourceSpan),
     diagSeverity :: !TcSeverity,
     diagKind :: !TcErrorKind
   }

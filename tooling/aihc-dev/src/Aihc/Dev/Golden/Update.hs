@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (LexToken (..), LexTokenKind (..), lexModuleTokensWithExtensions, lexTokensWithExtensions)
 import Aihc.Resolve (ResolveResult (..), resolve, resolveWithDeps)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck, typecheckModulesWithEnv)
 import Control.Exception (IOException, bracket, catch)
 import Control.Monad (foldM, forM, forM_, unless)
 import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
@@ -354,9 +354,9 @@ tcAnnotatedActual value = do
   case resolve parsed of
     ResolveResult {resolvedModules, resolveErrors = []} ->
       let results = typecheck resolvedModules
-       in if all tcmSuccess results
+       in if all tcModuleSuccess results
             then Right (map trim (renderAnnotatedTcResults modules results))
-            else Left (unlines [show d | r <- results, d <- tcmDiagnostics r])
+            else Left (unlines [show d | r <- results, d <- tcModuleDiagnostics r])
     ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 updateFcGoldens :: Options -> IO Summary
@@ -376,7 +376,7 @@ fcActual value = do
   case resolve parsed of
     ResolveResult {resolvedModules, resolveErrors = []} ->
       let tcResults = typecheck resolvedModules
-       in if all tcmSuccess tcResults
+       in if all tcModuleSuccess tcResults
             then
               let allBindings = moduleGroupBindings tcResults
                   dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
@@ -413,7 +413,7 @@ fcEvalActual opts value =
         case resolveWithDeps mempty (deps <> evalModules) of
           ResolveResult {resolvedModules, resolveErrors = []} ->
             let tcResults = typecheckModulesWithEnv [] resolvedModules
-             in if all tcmSuccess tcResults
+             in if all tcModuleSuccess tcResults
                   then
                     let allBindings = moduleGroupBindings tcResults
                         dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
@@ -533,16 +533,16 @@ concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
   FcProgram (concatMap fcTopBinds programs)
 
-renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors :: [Module] -> String
 renderTcErrors results =
-  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcmDiagnostics result]
+  let rendered = unlines [show diagnostic | result <- results, diagnostic <- tcModuleDiagnostics result]
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered
 
-moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
-  concatMap tcmBindings
+  concatMap tcModuleBindings
 
 updateFormatterGoldens :: Options -> IO Summary
 updateFormatterGoldens opts =

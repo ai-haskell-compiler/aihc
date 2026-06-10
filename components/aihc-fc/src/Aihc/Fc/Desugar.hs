@@ -36,7 +36,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcSignature, tcmBindings, typecheckModule)
+import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
@@ -69,13 +69,13 @@ desugarModule m =
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
-desugarModuleWithTcResult :: TcModuleResult -> Module -> DesugarResult
+desugarModuleWithTcResult :: Module -> Module -> DesugarResult
 desugarModuleWithTcResult tcResult =
-  desugarModuleWithBindings (tcmBindings tcResult) tcResult
+  desugarModuleWithBindings (tcModuleBindings tcResult) tcResult
 
-desugarModuleWithBindings :: [TcBindingResult] -> TcModuleResult -> Module -> DesugarResult
+desugarModuleWithBindings :: [TcBindingResult] -> Module -> Module -> DesugarResult
 desugarModuleWithBindings bindings tcResult _m =
-  if not (tcmSuccess tcResult)
+  if not (tcModuleSuccess tcResult)
     then
       DesugarResult
         { dsProgram = FcProgram [],
@@ -84,7 +84,7 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule (tcmModule tcResult)) (DsState 1000 typeEnv Map.empty Map.empty) of
+       in case runStateT (dsModule tcResult) (DsState 1000 typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -102,10 +102,10 @@ desugarModuleWithBindings bindings tcResult _m =
 showBinding :: TcBindingResult -> String
 showBinding b = renderTcSignature (tbDisplayName b) (tbType b)
 
-showTcFailure :: TcModuleResult -> [String]
+showTcFailure :: Module -> [String]
 showTcFailure tcResult =
-  case map show (tcmDiagnostics tcResult) of
-    [] -> map showBinding (tcmBindings tcResult)
+  case map show (tcModuleDiagnostics tcResult) of
+    [] -> map showBinding (tcModuleBindings tcResult)
     diagnostics -> diagnostics
 
 bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
