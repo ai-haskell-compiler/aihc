@@ -92,7 +92,7 @@ typecheckExpr expr =
 typecheckExprM :: Expr -> TcM TcType
 typecheckExprM expr = do
   -- 1. Generate constraints.
-  (ty, cts) <- inferExpr expr
+  (_expr', ty, cts) <- inferExpr expr
   -- 2. Solve constraints.
   _result <- solveConstraints cts
   -- 3. Zonk the result type.
@@ -179,9 +179,7 @@ typecheckModuleWithState st m =
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
                 tcsKindSolutions = Map.empty,
-                tcsEvBinds = Map.empty,
-                tcsOccurrenceElaborations = Map.empty,
-                tcsBindingElaborations = Map.empty
+                tcsEvBinds = Map.empty
               }
        in (result, nextState)
   where

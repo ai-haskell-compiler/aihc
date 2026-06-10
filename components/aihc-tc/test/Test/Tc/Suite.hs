@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Test.Tc.Suite
   ( tcTests,
@@ -8,24 +9,33 @@ where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Syntax
-  ( CaseAlt (..),
+  ( Annotation,
+    CaseAlt (..),
     Decl (..),
     Expr (..),
+    GuardQualifier (..),
+    GuardedRhs (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Match (..),
     Module (..),
     Name (..),
+    Pattern (..),
     Rhs (..),
     ValueDecl (..),
     fromAnnotation,
+    mkAnnotation,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc
-import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
-import Data.Maybe (mapMaybe, maybeToList)
+import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
+import Data.Data (Data, gmapQ)
+import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Text (Text)
+import Data.Typeable (cast)
 import TcAnnotatedGolden qualified as TAG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -223,6 +233,22 @@ annotationTests =
       assertBool "module should typecheck" (tcmSuccess result)
       assertBool "expected polymorphic occurrence type arguments" (not (null typeArgs))
       assertBool "type arguments should not leak unsolved metas" (not (any hasMetaTcType typeArgs)),
+    testCase "module typechecking finalizes all pending annotations" $ do
+      let result = typecheckModule annotationModule
+      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "pending annotations should not escape" (not (containsPendingTcAnnotation (tcmModule result))),
+    testCase "finalization rewrites pending annotations in arbitrary syntax positions" $ do
+      let pendingModule =
+            withPendingGuardedRhsAnnotations $
+              parseM
+                "module Test where\n\
+                \f x | x = x\n"
+      case runTcM emptyTcEnv initTcState (finalizeModuleTc pendingModule) of
+        Left abort ->
+          assertFailure ("finalization aborted: " <> show abort)
+        Right (finalizedModule, _) -> do
+          assertBool "pending annotations should be finalized" (not (containsPendingTcAnnotation finalizedModule))
+          assertBool "final annotations should remain" (containsFinalTcAnnotation finalizedModule),
     testCase "type rendering uses unicode syntax" $ do
       let a = TyVarId "a" (Unique 1)
           aTy = TcTyVar a
@@ -352,6 +378,58 @@ instanceMethodAnnotations =
 exprAnnotations :: Module -> [TcAnnotation]
 exprAnnotations =
   concatMap declExprAnnotations . moduleDecls
+
+containsPendingTcAnnotation :: (Data a) => a -> Bool
+containsPendingTcAnnotation =
+  containsParserAnnotation (isJust . fromAnnotation @PendingTcAnnotation)
+
+containsFinalTcAnnotation :: (Data a) => a -> Bool
+containsFinalTcAnnotation =
+  containsParserAnnotation (isJust . fromAnnotation @TcAnnotation)
+
+containsParserAnnotation :: (Data a) => (Annotation -> Bool) -> a -> Bool
+containsParserAnnotation predicate value =
+  case cast value :: Maybe Annotation of
+    Just ann -> predicate ann
+    Nothing -> or (gmapQ (containsParserAnnotation predicate) value)
+
+withPendingGuardedRhsAnnotations :: Module -> Module
+withPendingGuardedRhsAnnotations modu =
+  modu {moduleDecls = map goDecl (moduleDecls modu)}
+  where
+    pendingAnn =
+      mkAnnotation (pendingAnnotation (TcTyCon (TyCon "Int" 0) []) [] [] [])
+
+    goDecl (DeclAnn ann inner) =
+      DeclAnn ann (goDecl inner)
+    goDecl (DeclValue (FunctionBind name matches)) =
+      DeclValue (FunctionBind name (map goMatch matches))
+    goDecl other =
+      other
+
+    goMatch match =
+      match {matchRhs = goRhs (matchRhs match)}
+
+    goRhs (GuardedRhss anns guarded maybeDecls) =
+      GuardedRhss (pendingAnn : anns) (map goGuardedRhs guarded) maybeDecls
+    goRhs other =
+      other
+
+    goGuardedRhs guarded =
+      guarded
+        { guardedRhsAnns = pendingAnn : guardedRhsAnns guarded,
+          guardedRhsGuards = map goGuardQualifier (guardedRhsGuards guarded),
+          guardedRhsBody = EAnn pendingAnn (guardedRhsBody guarded)
+        }
+
+    goGuardQualifier (GuardAnn ann inner) =
+      GuardAnn ann (goGuardQualifier inner)
+    goGuardQualifier (GuardExpr expr) =
+      GuardExpr (EAnn pendingAnn expr)
+    goGuardQualifier (GuardPat pat expr) =
+      GuardPat (PAnn pendingAnn pat) (EAnn pendingAnn expr)
+    goGuardQualifier (GuardLet decls) =
+      GuardLet (map goDecl decls)
 
 declExprAnnotations :: Decl -> [TcAnnotation]
 declExprAnnotations decl =

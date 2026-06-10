@@ -17,6 +17,7 @@ library
     Aihc.Tc.Env
     Aihc.Tc.Error
     Aihc.Tc.Evidence
+    Aihc.Tc.Finalize
     Aihc.Tc.Generalize
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl
@@ -25,7 +26,6 @@ library
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
-    Aihc.Tc.NameKey
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Dict

@@ -11,15 +11,6 @@ module Aihc.Tc.Monad
     TcState (..),
     initTcState,
 
-    -- * Occurrence elaboration
-    OccurrenceKey (..),
-    ResolvedOccurrenceKey (..),
-    OccurrenceElaboration (..),
-    recordOccurrenceElaboration,
-    takeOccurrenceElaboration,
-    recordBindingElaboration,
-    takeBindingElaboration,
-
     -- * Fresh names
     freshUnique,
     freshMetaTv,
@@ -160,34 +151,7 @@ data TcState = TcState
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
-    tcsGadtCons :: !(Set Text),
-    -- | Instantiation and evidence variables emitted for polymorphic
-    -- occurrences during constraint generation. The annotation pass consumes
-    -- these in source traversal order after solving.
-    tcsOccurrenceElaborations :: !(Map OccurrenceKey [OccurrenceElaboration]),
-    -- | Types assigned to local declaration binders during constraint
-    -- generation. The annotation pass consumes them without reconstructing
-    -- lexical scope.
-    tcsBindingElaborations :: !(Map OccurrenceKey [TcType])
-  }
-  deriving (Show)
-
-data OccurrenceKey
-  = OccurrenceResolved !ResolvedOccurrenceKey
-  | OccurrenceSyntax !Text
-  deriving (Eq, Ord, Show)
-
-data ResolvedOccurrenceKey
-  = ResolvedTopLevelKey !Text
-  | ResolvedLocalKey !Int
-  | ResolvedBuiltinKey !Text
-  deriving (Eq, Ord, Show)
-
-data OccurrenceElaboration = OccurrenceElaboration
-  { occurrenceElabType :: !TcType,
-    occurrenceElabTypeArgs :: ![TcType],
-    occurrenceElabEvidenceVars :: ![EvVar],
-    occurrenceElabTermArgTypes :: ![TcType]
+    tcsGadtCons :: !(Set Text)
   }
   deriving (Show)
 
@@ -203,9 +167,7 @@ initTcState =
       tcsGlobalTerms = builtinTerms,
       tcsGlobalTyCons = Map.empty,
       tcsInstances = [],
-      tcsGadtCons = Set.empty,
-      tcsOccurrenceElaborations = Map.empty,
-      tcsBindingElaborations = Map.empty
+      tcsGadtCons = Set.empty
     }
 
 builtinTerms :: Map Text TcBinder
@@ -272,42 +234,6 @@ bindEvidence (EvVar u) ev = lift $ modify' $ \s ->
 lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
-
-recordOccurrenceElaboration :: OccurrenceKey -> OccurrenceElaboration -> TcM ()
-recordOccurrenceElaboration key elaboration = lift $ modify' $ \s ->
-  let existing = Map.findWithDefault [] key (tcsOccurrenceElaborations s)
-   in s {tcsOccurrenceElaborations = Map.insert key (existing <> [elaboration]) (tcsOccurrenceElaborations s)}
-
-takeOccurrenceElaboration :: OccurrenceKey -> TcM (Maybe OccurrenceElaboration)
-takeOccurrenceElaboration key = lift $ do
-  st <- get
-  case Map.lookup key (tcsOccurrenceElaborations st) of
-    Just (elaboration : rest) -> do
-      let elaborations'
-            | null rest = Map.delete key (tcsOccurrenceElaborations st)
-            | otherwise = Map.insert key rest (tcsOccurrenceElaborations st)
-      modify' (\s -> s {tcsOccurrenceElaborations = elaborations'})
-      pure (Just elaboration)
-    _ ->
-      pure Nothing
-
-recordBindingElaboration :: OccurrenceKey -> TcType -> TcM ()
-recordBindingElaboration key ty = lift $ modify' $ \s ->
-  let existing = Map.findWithDefault [] key (tcsBindingElaborations s)
-   in s {tcsBindingElaborations = Map.insert key (existing <> [ty]) (tcsBindingElaborations s)}
-
-takeBindingElaboration :: OccurrenceKey -> TcM (Maybe TcType)
-takeBindingElaboration key = lift $ do
-  st <- get
-  case Map.lookup key (tcsBindingElaborations st) of
-    Just (ty : rest) -> do
-      let elaborations'
-            | null rest = Map.delete key (tcsBindingElaborations st)
-            | otherwise = Map.insert key rest (tcsBindingElaborations st)
-      modify' (\s -> s {tcsBindingElaborations = elaborations'})
-      pure (Just ty)
-    _ ->
-      pure Nothing
 
 -- | Look up a term in the environment (local first, then global state).
 lookupTerm :: Text -> TcM (Maybe TcBinder)
