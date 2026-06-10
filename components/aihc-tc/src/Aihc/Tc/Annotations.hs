@@ -9,6 +9,7 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    PendingTcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -24,6 +25,7 @@ module Aihc.Tc.Annotations
     -- * Helpers
     annotateExpr,
     annotateDecl,
+    pendingAnnotation,
 
     -- * Pretty-printing
     renderTcType,
@@ -39,7 +41,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Evidence (EvTerm)
+import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -57,6 +59,19 @@ data TcAnnotation = TcAnnotation
     tcAnnEvidenceTerms :: ![EvTerm],
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
+  }
+  deriving (Eq, Show)
+
+-- | Type-checker annotation payload before constraint solving has finished.
+--
+-- The generator attaches this directly to the syntax node that produced it.
+-- A finalization pass zonks the types and resolves evidence variables into
+-- ordinary 'TcAnnotation' values after solving.
+data PendingTcAnnotation = PendingTcAnnotation
+  { pendingTcAnnType :: !TcType,
+    pendingTcAnnTypeArgs :: ![TcType],
+    pendingTcAnnEvidenceVars :: ![EvVar],
+    pendingTcAnnTermArgTypes :: ![TcType]
   }
   deriving (Eq, Show)
 
@@ -120,6 +135,9 @@ annotateExpr ann = EAnn (mkAnnotation ann)
 -- | Wrap a declaration with a type annotation.
 annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
+
+pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
+pendingAnnotation = PendingTcAnnotation
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String
