@@ -17,6 +17,7 @@ library
     Aihc.Tc.Env
     Aihc.Tc.Error
     Aihc.Tc.Evidence
+    Aihc.Tc.Finalize
     Aihc.Tc.Generalize
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl

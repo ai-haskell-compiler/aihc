@@ -287,6 +287,8 @@ inferApp sp fun arg = do
 
 inferInfix :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferInfix sp lhs op rhs = do
+  -- Generate the same constraints as desugared binary application while
+  -- keeping the operator occurrence on the surface operator node.
   (op', opTy, opCts) <- inferOperator sp op
   (lhs', lhsTy, lhsCts) <- inferExpr lhs
   midTy <- freshMetaTv

@@ -19,7 +19,6 @@ import Aihc.Parser.Syntax
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
-    CompStmt (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -30,7 +29,6 @@ import Aihc.Parser.Syntax
     GadtBody (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
-    LambdaCaseAlt (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -56,8 +54,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
   )
 import Aihc.Tc.Annotations
-  ( PendingTcAnnotation (..),
-    TcAnnotation (..),
+  ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -67,7 +64,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
-import Aihc.Tc.Evidence (EvTerm, EvVar)
+import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (generalizeIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -281,236 +278,6 @@ data TcDeclGroupResult = TcDeclGroupResult
 renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
 renderCheckedGroup checkedGroups (groupId, group) =
   fromMaybe (renderDeclGroup group) (Map.lookup groupId checkedGroups)
-
-finalizeModuleTc :: Module -> TcM Module
-finalizeModuleTc modu = do
-  decls <- traverse finalizeDeclTc (moduleDecls modu)
-  pure (modu {moduleDecls = decls})
-
-finalizeAnnotationTc :: Annotation -> TcM Annotation
-finalizeAnnotationTc ann =
-  case fromAnnotation @PendingTcAnnotation ann of
-    Just pending -> mkAnnotation <$> annotationForPendingTc pending
-    Nothing -> pure ann
-
-annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
-annotationForPendingTc pending = do
-  ty <- zonkType (pendingTcAnnType pending)
-  typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
-  evidenceTerms <- mapM evidenceForEvVar (pendingTcAnnEvidenceVars pending)
-  termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
-  pure (TcAnnotation ty typeArgs evidenceTerms termArgTypes)
-
-finalizeDeclTc :: Decl -> TcM Decl
-finalizeDeclTc decl =
-  case decl of
-    DeclAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeDeclTc inner
-      pure (DeclAnn ann' inner')
-    DeclValue valueDecl ->
-      DeclValue <$> finalizeValueDeclTc valueDecl
-    DeclData dataDecl -> do
-      constructors <- traverse finalizeDataConDeclTc (dataDeclConstructors dataDecl)
-      pure (DeclData (dataDecl {dataDeclConstructors = constructors}))
-    DeclClass classDecl -> do
-      items <- traverse finalizeClassDeclItemTc (classDeclItems classDecl)
-      pure (DeclClass (classDecl {classDeclItems = items}))
-    DeclInstance instanceDecl -> do
-      items <- traverse finalizeInstanceDeclItemTc (instanceDeclItems instanceDecl)
-      pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
-    DeclSplice expr ->
-      DeclSplice <$> finalizeExprTc expr
-    _ -> pure decl
-
-finalizeDataConDeclTc :: DataConDecl -> TcM DataConDecl
-finalizeDataConDeclTc dataConDecl =
-  case dataConDecl of
-    DataConAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeDataConDeclTc inner
-      pure (DataConAnn ann' inner')
-    _ -> pure dataConDecl
-
-finalizeClassDeclItemTc :: ClassDeclItem -> TcM ClassDeclItem
-finalizeClassDeclItemTc item =
-  case item of
-    ClassItemAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeClassDeclItemTc inner
-      pure (ClassItemAnn ann' inner')
-    _ -> pure item
-
-finalizeInstanceDeclItemTc :: InstanceDeclItem -> TcM InstanceDeclItem
-finalizeInstanceDeclItemTc item =
-  case item of
-    InstanceItemAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeInstanceDeclItemTc inner
-      pure (InstanceItemAnn ann' inner')
-    InstanceItemBind valueDecl ->
-      InstanceItemBind <$> finalizeValueDeclTc valueDecl
-    _ -> pure item
-
-finalizeValueDeclTc :: ValueDecl -> TcM ValueDecl
-finalizeValueDeclTc valueDecl =
-  case valueDecl of
-    FunctionBind name matches ->
-      FunctionBind name <$> traverse finalizeMatchTc matches
-    PatternBind mult pat rhs ->
-      PatternBind mult <$> finalizePatternTc pat <*> finalizeRhsTc rhs
-
-finalizeMatchTc :: Match -> TcM Match
-finalizeMatchTc match = do
-  pats <- traverse finalizePatternTc (matchPats match)
-  rhs <- finalizeRhsTc (matchRhs match)
-  pure (match {matchPats = pats, matchRhs = rhs})
-
-finalizeRhsTc :: Rhs Expr -> TcM (Rhs Expr)
-finalizeRhsTc rhs =
-  case rhs of
-    UnguardedRhs anns expr maybeDecls -> do
-      anns' <- traverse finalizeAnnotationTc anns
-      expr' <- finalizeExprTc expr
-      decls' <- traverse (traverse finalizeDeclTc) maybeDecls
-      pure (UnguardedRhs anns' expr' decls')
-    GuardedRhss anns guards maybeDecls -> do
-      anns' <- traverse finalizeAnnotationTc anns
-      decls' <- traverse (traverse finalizeDeclTc) maybeDecls
-      pure (GuardedRhss anns' guards decls')
-
-finalizeExprTc :: Expr -> TcM Expr
-finalizeExprTc expr =
-  case expr of
-    EAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeExprTc inner
-      pure (EAnn ann' inner')
-    EVar name ->
-      EVar <$> finalizeNameTc name
-    EIf cond thenE elseE ->
-      EIf <$> finalizeExprTc cond <*> finalizeExprTc thenE <*> finalizeExprTc elseE
-    ELambdaPats pats body ->
-      ELambdaPats <$> traverse finalizePatternTc pats <*> finalizeExprTc body
-    ELambdaCase alts ->
-      ELambdaCase <$> traverse finalizeCaseAltTc alts
-    ELambdaCases alts ->
-      ELambdaCases <$> traverse finalizeLambdaCaseAltTc alts
-    EInfix lhs op rhs ->
-      EInfix <$> finalizeExprTc lhs <*> finalizeNameTc op <*> finalizeExprTc rhs
-    ENegate inner ->
-      ENegate <$> finalizeExprTc inner
-    ELetDecls decls body ->
-      ELetDecls <$> traverse finalizeDeclTc decls <*> finalizeExprTc body
-    ECase scrut alts ->
-      ECase <$> finalizeExprTc scrut <*> traverse finalizeCaseAltTc alts
-    EListComp body stmts ->
-      EListComp <$> finalizeExprTc body <*> traverse finalizeCompStmtTc stmts
-    ETypeSig inner ty ->
-      (`ETypeSig` ty) <$> finalizeExprTc inner
-    EParen inner ->
-      EParen <$> finalizeExprTc inner
-    EList elems ->
-      EList <$> traverse finalizeExprTc elems
-    ETuple flavor elems ->
-      ETuple flavor <$> traverse (traverse finalizeExprTc) elems
-    EUnboxedSum alt arity inner ->
-      EUnboxedSum alt arity <$> finalizeExprTc inner
-    ETypeApp inner ty ->
-      (`ETypeApp` ty) <$> finalizeExprTc inner
-    EApp fun arg ->
-      EApp <$> finalizeExprTc fun <*> finalizeExprTc arg
-    EPragma pragma inner ->
-      EPragma pragma <$> finalizeExprTc inner
-    _ -> pure expr
-
-finalizeCaseAltTc :: CaseAlt Expr -> TcM (CaseAlt Expr)
-finalizeCaseAltTc (CaseAlt anns pat rhs) = do
-  anns' <- traverse finalizeAnnotationTc anns
-  pat' <- finalizePatternTc pat
-  rhs' <- finalizeRhsTc rhs
-  pure (CaseAlt anns' pat' rhs')
-
-finalizeLambdaCaseAltTc :: LambdaCaseAlt -> TcM LambdaCaseAlt
-finalizeLambdaCaseAltTc alt = do
-  anns <- traverse finalizeAnnotationTc (lambdaCaseAltAnns alt)
-  pats <- traverse finalizePatternTc (lambdaCaseAltPats alt)
-  rhs <- finalizeRhsTc (lambdaCaseAltRhs alt)
-  pure
-    alt
-      { lambdaCaseAltAnns = anns,
-        lambdaCaseAltPats = pats,
-        lambdaCaseAltRhs = rhs
-      }
-
-finalizeCompStmtTc :: CompStmt -> TcM CompStmt
-finalizeCompStmtTc stmt =
-  case stmt of
-    CompAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizeCompStmtTc inner
-      pure (CompAnn ann' inner')
-    CompGen pat src ->
-      CompGen <$> finalizePatternTc pat <*> finalizeExprTc src
-    CompGuard guard ->
-      CompGuard <$> finalizeExprTc guard
-    CompLetDecls decls ->
-      CompLetDecls <$> traverse finalizeDeclTc decls
-    CompThen expr ->
-      CompThen <$> finalizeExprTc expr
-    CompThenBy f byExpr ->
-      CompThenBy <$> finalizeExprTc f <*> finalizeExprTc byExpr
-    CompGroupUsing expr ->
-      CompGroupUsing <$> finalizeExprTc expr
-    CompGroupByUsing byExpr usingExpr ->
-      CompGroupByUsing <$> finalizeExprTc byExpr <*> finalizeExprTc usingExpr
-
-finalizePatternTc :: Pattern -> TcM Pattern
-finalizePatternTc pat =
-  case pat of
-    PAnn ann inner -> do
-      ann' <- finalizeAnnotationTc ann
-      inner' <- finalizePatternTc inner
-      pure (PAnn ann' inner')
-    PVar name ->
-      PVar <$> finalizeUnqualifiedNameTc name
-    PTuple flavor pats ->
-      PTuple flavor <$> traverse finalizePatternTc pats
-    PUnboxedSum alt arity inner ->
-      PUnboxedSum alt arity <$> finalizePatternTc inner
-    PList pats ->
-      PList <$> traverse finalizePatternTc pats
-    PCon name tys pats ->
-      PCon <$> finalizeNameTc name <*> pure tys <*> traverse finalizePatternTc pats
-    PInfix lhs op rhs ->
-      PInfix <$> finalizePatternTc lhs <*> finalizeNameTc op <*> finalizePatternTc rhs
-    PView expr inner ->
-      PView <$> finalizeExprTc expr <*> finalizePatternTc inner
-    PAs name inner ->
-      PAs <$> finalizeUnqualifiedNameTc name <*> finalizePatternTc inner
-    PStrict inner ->
-      PStrict <$> finalizePatternTc inner
-    PIrrefutable inner ->
-      PIrrefutable <$> finalizePatternTc inner
-    PParen inner ->
-      PParen <$> finalizePatternTc inner
-    PRecord name fields wildcard ->
-      pure (PRecord name fields wildcard)
-    PTypeSig inner ty ->
-      (`PTypeSig` ty) <$> finalizePatternTc inner
-    PSplice expr ->
-      PSplice <$> finalizeExprTc expr
-    _ -> pure pat
-
-finalizeNameTc :: Name -> TcM Name
-finalizeNameTc name = do
-  anns <- traverse finalizeAnnotationTc (nameAnns name)
-  pure (name {nameAnns = anns})
-
-finalizeUnqualifiedNameTc :: UnqualifiedName -> TcM UnqualifiedName
-finalizeUnqualifiedNameTc name = do
-  anns <- traverse finalizeAnnotationTc (unqualifiedNameAnns name)
-  pure (name {unqualifiedNameAnns = anns})
 
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
 annotateModuleTc checkedValueNames m = do
@@ -737,14 +504,6 @@ solveBodyConstraintsWithGivens givens cts impls = do
       _ <- solveDictWithGivens givens ct
       pure ()
     solveClassCt _ = pure ()
-
-evidenceForEvVar :: EvVar -> TcM EvTerm
-evidenceForEvVar ev = do
-  maybeEvidence <- lookupEvidence ev
-  case maybeEvidence of
-    Just evidence -> pure evidence
-    Nothing ->
-      abortTc ("internal type annotation error: missing evidence for " <> show ev)
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
