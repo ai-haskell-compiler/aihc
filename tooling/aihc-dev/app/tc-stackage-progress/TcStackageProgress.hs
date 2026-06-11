@@ -15,8 +15,9 @@ where
 
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Parser.Syntax (Module)
 import Aihc.Resolve (ModuleExports, ResolveResult (..), extractInterface, resolveWithDeps)
-import Aihc.Tc (TcModuleResult (..), typecheck)
+import Aihc.Tc (tcModuleDiagnostics, tcModuleSuccess, typecheck)
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
@@ -186,15 +187,15 @@ typecheckOnePackageOrThrow _offline _pkg info depExports = do
 typecheckResolvedPackage :: ResolveResult -> IO RSP.PackageStatus
 typecheckResolvedPackage resolveResult = do
   let results = typecheck (resolvedModules resolveResult)
-      !diagCount = sum (map (length . tcmDiagnostics) results)
+      !diagCount = sum (map (length . tcModuleDiagnostics) results)
   _ <- evaluate diagCount
-  if all tcmSuccess results
+  if all tcModuleSuccess results
     then pure (RSP.PkgSuccess (extractInterface resolveResult))
     else pure (RSP.PkgFailed (renderTcDiagnostics results))
 
-renderTcDiagnostics :: [TcModuleResult] -> String
+renderTcDiagnostics :: [Module] -> String
 renderTcDiagnostics results =
-  unlines [show diag | result <- results, diag <- tcmDiagnostics result]
+  unlines [show diag | result <- results, diag <- tcModuleDiagnostics result]
 
 reportResults :: Int -> Map Text RSP.PackageStatus -> IO ()
 reportResults topN results = do

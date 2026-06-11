@@ -22,9 +22,11 @@ import Aihc.Parser.Syntax
     Name (..),
     Pattern (..),
     Rhs (..),
+    SourceSpan,
     ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
+    stripAnnotations,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc
@@ -185,8 +187,8 @@ kindTests =
                 \data M a = J a | N\n\
                 \fn :: M\n\
                 \fn = fn\n"
-      assertBool "module should fail" (not (tcmSuccess result))
-      assertBool "should report a kind mismatch" (any isKindMismatch (tcmDiagnostics result)),
+      assertBool "module should fail" (not (tcModuleSuccess result))
+      assertBool "should report a kind mismatch" (any isKindMismatch (tcModuleDiagnostics result)),
     testCase "accepts saturated type constructor in signature" $ do
       let result =
             typecheckModule $
@@ -196,7 +198,7 @@ kindTests =
                 \data M a = J a | N\n\
                 \fn :: M Int\n\
                 \fn = N\n"
-      assertBool "module should typecheck" (tcmSuccess result)
+      assertBool "module should typecheck" (tcModuleSuccess result)
   ]
   where
     isKindMismatch diag =
@@ -208,20 +210,20 @@ annotationTests :: [TestTree]
 annotationTests =
   [ testCase "typeclass annotations select concrete dictionaries" $ do
       let result = typecheckModule annotationModule
-      assertBool "module should typecheck" (tcmSuccess result)
-      assertBool "Eq Bool evidence" ("$fEqBool" `elem` evidenceDictNames (tcmModule result))
-      assertBool "Eq [Bool] evidence" ("$fEqList" `elem` evidenceDictNames (tcmModule result))
-      assertBool "Default Bool evidence" ("$fDefaultBool" `elem` evidenceDictNames (tcmModule result))
-      assertBool "given Eq a evidence inside list instance" (hasGivenClass "Eq" (tcmModule result)),
+      assertBool "module should typecheck" (tcModuleSuccess result)
+      assertBool "Eq Bool evidence" ("$fEqBool" `elem` evidenceDictNames result)
+      assertBool "Eq [Bool] evidence" ("$fEqList" `elem` evidenceDictNames result)
+      assertBool "Default Bool evidence" ("$fDefaultBool" `elem` evidenceDictNames result)
+      assertBool "given Eq a evidence inside list instance" (hasGivenClass "Eq" result),
     testCase "class and instance annotations carry dictionary layout" $ do
       let result = typecheckModule annotationModule
-      assertBool "module should typecheck" (tcmSuccess result)
-      assertBool "Eq class methods annotated" (hasClassMethod "==" 0 (tcmModule result))
-      assertBool "Default class method annotated" (hasClassMethod "def" 0 (tcmModule result))
-      assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" (tcmModule result))
-      assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" (tcmModule result))
-      assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" (tcmModule result))
-      assertBool "instance method types annotated" (hasInstanceMethod "==" (tcmModule result) && hasInstanceMethod "def" (tcmModule result)),
+      assertBool "module should typecheck" (tcModuleSuccess result)
+      assertBool "Eq class methods annotated" (hasClassMethod "==" 0 result)
+      assertBool "Default class method annotated" (hasClassMethod "def" 0 result)
+      assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" result)
+      assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" result)
+      assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" result)
+      assertBool "instance method types annotated" (hasInstanceMethod "==" result && hasInstanceMethod "def" result),
     testCase "polymorphic occurrence type arguments are finalized" $ do
       let result =
             typecheckModule $
@@ -229,14 +231,37 @@ annotationTests =
                 "module Test where\n\
                 \f x = x\n\
                 \g y = f (f y)\n"
-          typeArgs = concatMap tcAnnTypeArgs (exprAnnotations (tcmModule result))
-      assertBool "module should typecheck" (tcmSuccess result)
+          typeArgs = concatMap tcAnnTypeArgs (exprAnnotations result)
+      assertBool "module should typecheck" (tcModuleSuccess result)
       assertBool "expected polymorphic occurrence type arguments" (not (null typeArgs))
       assertBool "type arguments should not leak unsolved metas" (not (any hasMetaTcType typeArgs)),
     testCase "module typechecking finalizes all pending annotations" $ do
       let result = typecheckModule annotationModule
-      assertBool "module should typecheck" (tcmSuccess result)
-      assertBool "pending annotations should not escape" (not (containsPendingTcAnnotation (tcmModule result))),
+      assertBool "module should typecheck" (tcModuleSuccess result)
+      assertBool "pending annotations should not escape" (not (containsPendingTcAnnotation result)),
+    testCase "module diagnostics are carried by module annotations" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \data M a = J a | N\n\
+                \fn :: M\n\
+                \fn = fn\n"
+      assertBool "module should fail" (not (tcModuleSuccess result))
+      assertBool "diagnostics should be attached to module annotations" (any isTcDiagnosticAnnotation (moduleAnns result)),
+    testCase "module diagnostics do not require source span annotations" $ do
+      let unspannedModule =
+            stripAnnotations $
+              parseM
+                "module Test where\n\
+                \data M a = J a | N\n\
+                \fn :: M\n\
+                \fn = fn\n"
+          result = typecheckModule unspannedModule
+      assertBool "input should not carry source span annotations" (not (containsSourceSpanAnnotation unspannedModule))
+      assertBool "module should fail" (not (tcModuleSuccess result))
+      assertBool "diagnostics should be attached to module annotations" (any isTcDiagnosticAnnotation (moduleAnns result))
+      assertBool "diagnostic location should be absent" (not (any hasDiagnosticLocation (tcModuleDiagnostics result))),
     testCase "finalization rewrites pending annotations in arbitrary syntax positions" $ do
       let pendingModule =
             withPendingGuardedRhsAnnotations $
@@ -386,6 +411,18 @@ containsPendingTcAnnotation =
 containsFinalTcAnnotation :: (Data a) => a -> Bool
 containsFinalTcAnnotation =
   containsParserAnnotation (isJust . fromAnnotation @TcAnnotation)
+
+containsSourceSpanAnnotation :: (Data a) => a -> Bool
+containsSourceSpanAnnotation =
+  containsParserAnnotation (isJust . fromAnnotation @SourceSpan)
+
+isTcDiagnosticAnnotation :: Annotation -> Bool
+isTcDiagnosticAnnotation =
+  isJust . fromAnnotation @TcDiagnostic
+
+hasDiagnosticLocation :: TcDiagnostic -> Bool
+hasDiagnosticLocation =
+  isJust . diagLoc
 
 containsParserAnnotation :: (Data a) => (Annotation -> Bool) -> a -> Bool
 containsParserAnnotation predicate value =

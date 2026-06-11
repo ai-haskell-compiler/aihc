@@ -20,9 +20,12 @@ module Aihc.Tc
 
     -- * Result types
     TcResult (..),
-    TcModuleResult (..),
     TcBindingResult (..),
-    tcmBindings,
+
+    -- * Module result projections
+    tcModuleBindings,
+    tcModuleDiagnostics,
+    tcModuleSuccess,
 
     -- * Re-exports for convenience
     TcType (..),
@@ -41,7 +44,7 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions)
+import Aihc.Parser.Syntax (Expr, Extension (..), Module (..), applyExtensionSetting, applyImpliedExtensions, fromAnnotation, mkAnnotation)
 import Aihc.Tc.Annotations (TcAnnotation (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
@@ -50,8 +53,11 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Data (Data, gmapQ)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Text (Text)
+import Data.Typeable (cast)
 
 -- | Result of type checking.
 data TcResult = TcResult
@@ -98,44 +104,42 @@ typecheckExprM expr = do
   -- 3. Zonk the result type.
   zonkType ty
 
--- | Result of type-checking a module.
-data TcModuleResult = TcModuleResult
-  { -- | Module annotated with type-checker elaboration data.
-    tcmModule :: !Module,
-    -- | Diagnostics (errors and warnings) produced.
-    tcmDiagnostics :: ![TcDiagnostic],
-    -- | Whether type checking succeeded (no errors).
-    tcmSuccess :: !Bool
-  }
-  deriving (Show)
+-- | Top-level bindings recovered from a type-checked module's annotations.
+tcModuleBindings :: Module -> [TcBindingResult]
+tcModuleBindings =
+  moduleBindings
 
-tcmBindings :: TcModuleResult -> [TcBindingResult]
-tcmBindings =
-  moduleBindings . tcmModule
+-- | Diagnostics recovered from type-checker annotations in a module.
+tcModuleDiagnostics :: Module -> [TcDiagnostic]
+tcModuleDiagnostics =
+  collectTcDiagnostics
+
+-- | Whether an annotated module contains no type-checker errors.
+tcModuleSuccess :: Module -> Bool
+tcModuleSuccess =
+  not . any isError . tcModuleDiagnostics
+  where
+    isError diagnostic = diagSeverity diagnostic == TcError
 
 -- | Type-check a single module, processing data declarations and
 -- value bindings.
-typecheckModule :: Module -> TcModuleResult
+typecheckModule :: Module -> Module
 typecheckModule =
   typecheckModuleWithEnv []
 
 -- | Type-check a single module with preloaded top-level term bindings.
-typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> TcModuleResult
+typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> Module
 typecheckModuleWithEnv importedTerms m =
   case typecheckModulesWithEnv importedTerms [m] of
     [result] -> result
     _ ->
-      TcModuleResult
-        { tcmModule = m,
-          tcmDiagnostics = [],
-          tcmSuccess = False
-        }
+      annotateModuleDiagnostics [internalAbortDiagnostic "type checker returned unexpected module count"] m
 
 -- | Type-check modules in order while sharing the accumulated top-level
 -- environment. This is intentionally pragmatic: callers that have already
 -- resolved a dependency-ordered module list can feed it here so later modules
 -- see earlier data constructors and value bindings.
-typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [TcModuleResult]
+typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [Module]
 typecheckModulesWithEnv importedTerms =
   go initState
   where
@@ -154,26 +158,16 @@ typecheckModulesWithEnv importedTerms =
       let (result, st') = typecheckModuleWithState st m
        in result : go st' ms
 
-typecheckModuleWithState :: TcState -> Module -> (TcModuleResult, TcState)
+typecheckModuleWithState :: TcState -> Module -> (Module, TcState)
 typecheckModuleWithState st m =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m) of
-    Left _abort ->
-      ( TcModuleResult
-          { tcmModule = m,
-            tcmDiagnostics = [],
-            tcmSuccess = False
-          },
+    Left abort ->
+      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] m,
         st
       )
     Right (annotatedModule, st') ->
       let diags = reverse (tcsDiagnostics st')
-          hasErrors = any isError diags
-          result =
-            TcModuleResult
-              { tcmModule = annotatedModule,
-                tcmDiagnostics = diags,
-                tcmSuccess = not hasErrors
-              }
+          result = annotateModuleDiagnostics diags annotatedModule
           nextState =
             st'
               { tcsDiagnostics = [],
@@ -191,8 +185,25 @@ typecheckModuleWithState st m =
     enabledExtensions =
       applyImpliedExtensions $
         foldr applyExtensionSetting [MonoLocalBinds, MonomorphismRestriction] (moduleLanguagePragmas m)
-    isError d = diagSeverity d == TcError
 
 -- | Type-check a list of modules.
-typecheck :: [Module] -> [TcModuleResult]
+typecheck :: [Module] -> [Module]
 typecheck = typecheckModulesWithEnv []
+
+annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
+annotateModuleDiagnostics diagnostics m =
+  m {moduleAnns = moduleAnns m <> map mkAnnotation diagnostics}
+
+collectTcDiagnostics :: (Data a) => a -> [TcDiagnostic]
+collectTcDiagnostics value =
+  case cast value of
+    Just ann -> maybeToList (fromAnnotation ann)
+    Nothing -> concat (gmapQ collectTcDiagnostics value)
+
+internalAbortDiagnostic :: String -> TcDiagnostic
+internalAbortDiagnostic msg =
+  TcDiagnostic
+    { diagLoc = Nothing,
+      diagSeverity = TcError,
+      diagKind = OtherError ("internal type checker abort: " <> msg)
+    }

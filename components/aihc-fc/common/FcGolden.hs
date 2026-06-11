@@ -22,9 +22,9 @@ import Aihc.Parser
     defaultConfig,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
+import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult, TcModuleResult (..), tcmBindings, typecheck)
+import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -137,7 +137,7 @@ evaluateFcCase tc =
           case resolve modules of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let tcResults = typecheck resolvedModules
-               in if all tcmSuccess tcResults
+               in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
                           results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
@@ -163,13 +163,13 @@ evaluateFcCase tc =
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
 
-moduleGroupBindings :: [TcModuleResult] -> [TcBindingResult]
+moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
-  concatMap tcmBindings
+  concatMap tcModuleBindings
 
-renderTcErrors :: [TcModuleResult] -> String
+renderTcErrors :: [Module] -> String
 renderTcErrors results =
-  unlines [show d | r <- results, d <- tcmDiagnostics r]
+  unlines [show d | r <- results, d <- tcModuleDiagnostics r]
 
 classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =
