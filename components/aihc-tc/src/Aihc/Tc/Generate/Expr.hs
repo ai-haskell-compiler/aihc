@@ -88,7 +88,7 @@ inferExprAt ambient expr = case expr of
     (inner', ty, cts) <- inferExprAt (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
     pure (EAnn ann inner', ty, cts)
   ETuple flavor elems ->
-    inferTuple flavor elems
+    inferTuple (exprSpan expr `orSourceSpan` ambient) flavor elems
   EList elems ->
     inferList (exprSpan expr `orSourceSpan` ambient) elems
   EListComp body quals ->
@@ -311,8 +311,8 @@ inferIf sp cond thenE elseE = do
   let branchCt = mkWantedCt (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
   pure (EIf cond' thenE' elseE', thenTy, condCts ++ thenCts ++ elseCts ++ [condCt, branchCt])
 
-inferTuple :: TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
-inferTuple flavor elems = do
+inferTuple :: SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
+inferTuple sp flavor elems = do
   results <- mapM inferElem elems
   let elems' = map (\(expr, _, _) -> expr) results
       tys = map (\(_, ty, _) -> ty) results
@@ -321,7 +321,7 @@ inferTuple flavor elems = do
       tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
       tupleTy = TcTyCon tc tys
       pending = pendingAnnotation tupleTy tys [] []
-  pure (annotatePendingExpr pending (ETuple flavor elems'), tupleTy, cts)
+  pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -336,7 +336,7 @@ inferList sp elems = case elems of
     elemTy <- freshMetaTv
     let listTy = TcTyCon listTyCon' [elemTy]
         pending = pendingAnnotation listTy [elemTy] [] []
-    pure (annotatePendingExpr pending (EList []), listTy, [])
+    pure (annotatePendingExprAt sp pending (EList []), listTy, [])
   (e : es) -> do
     let headSp = exprSpan e `orSourceSpan` sp
     (headExpr, headTy, headCts) <- inferExpr e
@@ -346,7 +346,7 @@ inferList sp elems = case elems of
     eqCts <- mapM (mkElemEq headSp headTy) results
     let listTy = TcTyCon listTyCon' [headTy]
         pending = pendingAnnotation listTy [headTy] [] []
-    pure (annotatePendingExpr pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
+    pure (annotatePendingExprAt sp pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
@@ -396,7 +396,7 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen pat src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          pure (CompGen (annotatePendingPattern elemTy pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
