@@ -2,9 +2,11 @@ annotated:
 - |-
   module Test where
   f $ x = f x
-    │     │ └─ type: a
-    │     └─ type: a → b
-    └─ type: ∀ a b. (a → b) → a → b
+  │ │ │   │ └─ type: a
+  │ │ │   └─ type: a → b
+  │ │ └─ x ∷ a
+  │ └─ type: ∀ a b. (a → b) → a → b
+  └─ f ∷ a → b
 extensions: []
 modules:
 - |

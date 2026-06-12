@@ -2,7 +2,8 @@ annotated:
 - |-
   module Test where
   f ~x = x
-  │      └─ type: a
+  │  │   └─ type: a
+  │  └─ x ∷ a
   └─ type: ∀ a. a → a
 extensions: []
 modules:

@@ -6,13 +6,16 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   f x = x + one
-  │     │ │ └─ type: Bool
-  │     │ └─ type: a → Bool → a; type-args: a, Bool
-  │     └─ type: a
+  │ │   │ │ └─ type: Bool
+  │ │   │ └─ type: a → Bool → a; type-args: a, Bool
+  │ │   └─ type: a
+  │ └─ x ∷ a
   └─ type: ∀ a. a → a
     where
       (+) a b = a
-       │        └─ type: ?7
+       │  │ │   └─ type: ?7
+       │  │ └─ b ∷ ?6
+       │  └─ a ∷ ?7
        └─ type: ∀ a b. a → b → a
       one = True
       │     └─ type: Bool

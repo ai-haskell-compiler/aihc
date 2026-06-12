@@ -1364,11 +1364,12 @@ tcMatchEquation expectedOrigin argTys resTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  let givenCts = pcGivenCts patCheck
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts
     then -- No GADT givens: emit everything as flat wanteds.
-      pure (match {matchRhs = rhs'}, bodyWanteds, [])
+      pure (match {matchPats = pats', matchRhs = rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
       level <- getTcLevel
@@ -1381,7 +1382,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
                 implTcLevel = level,
                 implInfo = AppOrigin sp
               }
-      pure (match {matchRhs = rhs'}, [], [impl])
+      pure (match {matchPats = pats', matchRhs = rhs'}, [], [impl])
 
 -- | Unify an additional match equation's RHS with the expected type.
 unifyMatchRhs :: TcType -> Match -> TcM (Match, [Ct])

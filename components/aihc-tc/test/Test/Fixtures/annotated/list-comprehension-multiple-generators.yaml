@@ -2,13 +2,15 @@ annotated:
 - |-
   module Test where
   pairs xs ys = [ (x, y) | x <- xs, y <- ys ]
-  │                ││  │    │    │   │    └─ type: [b]
-  │                ││  │    │    │   └─ type: b
-  │                ││  │    │    └─ type: [a]
-  │                ││  │    └─ type: a
-  │                ││  └─ type: b
-  │                └─ type: a
-  │                └─ type: (a, b); type-args: a, b
+  │     │  │       ││  │    │    │   │    └─ type: [b]
+  │     │  │       ││  │    │    │   └─ y ∷ b
+  │     │  │       ││  │    │    └─ type: [a]
+  │     │  │       ││  │    └─ x ∷ a
+  │     │  │       ││  └─ type: b
+  │     │  │       └─ type: a
+  │     │  │       └─ type: (a, b); type-args: a, b
+  │     │  └─ ys ∷ [b]
+  │     └─ xs ∷ [a]
   └─ type: ∀ a b. [a] → [b] → [(a, b)]
 extensions: []
 modules:

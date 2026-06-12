@@ -3,6 +3,7 @@
 -- | Shared type-checking support for term patterns.
 module Aihc.Tc.Generate.Pattern
   ( PatternCheck (..),
+    annotatePatternBindings,
     checkPattern,
     checkPatterns,
     checkPatternsWithGivens,
@@ -13,10 +14,14 @@ where
 import Aihc.Parser.Syntax
   ( Name (..),
     Pattern (..),
+    RecordField (..),
     SourceSpan,
+    UnqualifiedName (..),
+    mkAnnotation,
     nameText,
     unqualifiedNameText,
   )
+import Aihc.Tc.Annotations (PendingTcBinderAnnotation (..))
 import Aihc.Tc.Constraint
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
@@ -84,6 +89,39 @@ checkPatternWith gadtHandling sp pat scrutTy =
       itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
     _ -> pure mempty
+
+annotatePatternBindings :: [(Text, TcType)] -> Pattern -> Pattern
+annotatePatternBindings bindings =
+  go
+  where
+    go pat =
+      case pat of
+        PAnn ann inner -> PAnn ann (go inner)
+        PVar name -> PVar (annotateBinderName bindings name)
+        PParen inner -> PParen (go inner)
+        PAs name inner -> PAs (annotateBinderName bindings name) (go inner)
+        PStrict inner -> PStrict (go inner)
+        PIrrefutable inner -> PIrrefutable (go inner)
+        PList items -> PList (map go items)
+        PTuple flavor items -> PTuple flavor (map go items)
+        PUnboxedSum alt arity inner -> PUnboxedSum alt arity (go inner)
+        PInfix lhs op rhs -> PInfix (go lhs) op (go rhs)
+        PView expr inner -> PView expr (go inner)
+        PCon name typeArgs subPats -> PCon name typeArgs (map go subPats)
+        PRecord name fields wildcard -> PRecord name (map annotateRecordField fields) wildcard
+        PTypeSig inner type' -> PTypeSig (go inner) type'
+        PSplice expr -> PSplice expr
+        _ -> pat
+
+    annotateRecordField :: RecordField Pattern -> RecordField Pattern
+    annotateRecordField field =
+      field {recordFieldValue = go (recordFieldValue field)}
+
+annotateBinderName :: [(Text, TcType)] -> UnqualifiedName -> UnqualifiedName
+annotateBinderName bindings name =
+  case lookup (unqualifiedNameText name) bindings of
+    Nothing -> name
+    Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (PendingTcBinderAnnotation (unqualifiedNameText name) ty)]}
 
 checkConPattern :: GadtHandling -> SourceSpan -> Text -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern gadtHandling sp conName subPats scrutTy = do

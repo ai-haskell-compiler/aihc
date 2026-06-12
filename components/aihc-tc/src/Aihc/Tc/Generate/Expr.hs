@@ -154,10 +154,6 @@ annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
 
-annotatePendingPattern :: TcType -> Pattern -> Pattern
-annotatePendingPattern ty =
-  PAnn (mkAnnotation (pendingAnnotation ty [] [] []))
-
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
 predToCt sp name p = do
@@ -172,7 +168,7 @@ inferLambda sp pats body = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
-      pats' = zipWith annotatePendingPattern argTys pats
+      pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
   pure (ELambdaPats pats' body', funTy, pcWantedCts patCheck ++ bodyCts)
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
@@ -230,7 +226,8 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
       patCheck <- checkPattern branchSp pat scrutTy
       (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
-      pure (CaseAlt altAnns pat rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
+          pat' = annotatePatternBindings (pcBindings patCheck) pat
+      pure (CaseAlt altAnns pat' rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
 
     inferAltAgainst expectedBranchSp expectedTy alt = do
       (alt', branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
@@ -256,11 +253,11 @@ inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM (
 inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
-      pats' = zipWith annotatePendingPattern argTys pats
   patCheck <- checkPatterns sp (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
-  let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -396,7 +393,7 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen (annotatePendingPattern elemTy pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar

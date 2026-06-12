@@ -30,7 +30,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc
-import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcBinderAnnotation, TcBinderAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
@@ -406,11 +406,15 @@ exprAnnotations =
 
 containsPendingTcAnnotation :: (Data a) => a -> Bool
 containsPendingTcAnnotation =
-  containsParserAnnotation (isJust . fromAnnotation @PendingTcAnnotation)
+  containsParserAnnotation $ \ann ->
+    isJust (fromAnnotation @PendingTcAnnotation ann)
+      || isJust (fromAnnotation @PendingTcBinderAnnotation ann)
 
 containsFinalTcAnnotation :: (Data a) => a -> Bool
 containsFinalTcAnnotation =
-  containsParserAnnotation (isJust . fromAnnotation @TcAnnotation)
+  containsParserAnnotation $ \ann ->
+    isJust (fromAnnotation @TcAnnotation ann)
+      || isJust (fromAnnotation @TcBinderAnnotation ann)
 
 containsSourceSpanAnnotation :: (Data a) => a -> Bool
 containsSourceSpanAnnotation =

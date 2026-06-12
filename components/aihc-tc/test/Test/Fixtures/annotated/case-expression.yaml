@@ -6,7 +6,8 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   f x = case x of
-  │          └─ type: Bool
+  │ │        └─ type: Bool
+  │ └─ x ∷ Bool
   └─ type: Bool → Bool
     True -> True
             └─ type: Bool
