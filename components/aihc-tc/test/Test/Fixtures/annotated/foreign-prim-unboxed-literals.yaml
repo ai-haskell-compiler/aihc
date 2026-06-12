@@ -2,11 +2,11 @@ annotated:
 - |-
   module Test where
   foreign import prim (+#) :: Int# -> Int# -> Int#
-                       └─ (+#) ∷ Int# → Int# → Int#
+                       └─ type: Int# → Int# → Int#
   int# = 10#
-  └─ int# ∷ Int#
+  └─ type: Int#
   word# = 10##
-  └─ word# ∷ Word#
+  └─ type: Word#
 extensions:
 - MagicHash
 modules:

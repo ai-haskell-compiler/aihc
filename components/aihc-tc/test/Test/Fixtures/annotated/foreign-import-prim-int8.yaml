@@ -1,17 +1,18 @@
-extensions:
-  - GHCForeignImportPrim
-  - MagicHash
-modules:
-  - |
-    module Test where
-    foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
-    test = i8_addition
 annotated:
 - |-
   module Test where
   foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
-                                    └─ i8_addition ∷ Int8# → Int8# → Int8#
+                                    └─ type: Int8# → Int8# → Int8#
   test = i8_addition
-  └─ test ∷ Int8# → Int8# → Int8#
+  │      └─ type: Int8# → Int8# → Int8#
+  └─ type: Int8# → Int8# → Int8#
+extensions:
+- GHCForeignImportPrim
+- MagicHash
+modules:
+- |
+  module Test where
+  foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
+  test = i8_addition
+reason: annotated output includes a prim import with unboxed argument and result types
 status: pass
-reason: "annotated output includes a prim import with unboxed argument and result types"

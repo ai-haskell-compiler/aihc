@@ -77,7 +77,6 @@ test-suite spec
     tasty-hunit,
     tasty-quickcheck,
     text,
-    transformers,
     yaml,
 
   ghc-options:

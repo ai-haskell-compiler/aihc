@@ -1,15 +1,12 @@
+annotated:
+- |-
+  module Test where
+  asPattern xs@(x:rest) = xs
+  └─ type: ∀ a. [a] → [a] └─ type: [a]
 extensions: []
 modules:
-  - |
-    module Test where
-    asPattern xs@(x:rest) = xs
-annotated:
-  - |-
-    module Test where
-    asPattern xs@(x:rest) = xs
-    │         │   │ └─ rest ∷ [a]
-    │         │   └─ x ∷ a
-    │         └─ xs ∷ [a]
-    └─ asPattern ∷ ∀ a. [a] → [a]
+- |
+  module Test where
+  asPattern xs@(x:rest) = xs
+reason: ''
 status: pass
-reason: ""

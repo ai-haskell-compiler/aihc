@@ -1,16 +1,16 @@
+annotated:
+- |-
+  module Test where
+  fn a@b@c = (a,b,c)
+  │           ││ │ └─ type: a
+  │           ││ └─ type: a
+  │           └─ type: (a, a, a); type-args: a, a, a
+  │           └─ type: a
+  └─ type: ∀ a. a → (a, a, a)
 extensions: []
 modules:
-  - |
-    module Test where
-    fn a@b@c = (a,b,c)
-annotated:
-  - |-
-    module Test where
-    fn a@b@c = (a,b,c)
-    │  │ │ │   └─ type-args: a, a, a
-    │  │ │ └─ c ∷ a
-    │  │ └─ b ∷ a
-    │  └─ a ∷ a
-    └─ fn ∷ ∀ a. a → (a, a, a)
+- |
+  module Test where
+  fn a@b@c = (a,b,c)
+reason: ''
 status: pass
-reason: ""

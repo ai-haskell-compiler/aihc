@@ -2,12 +2,14 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   not = \case True -> False
-  └─ not ∷ Bool → Bool
+  │                   └─ type: Bool
+  └─ type: Bool → Bool
               False -> True
+                       └─ type: Bool
 extensions:
 - LambdaCase
 modules:

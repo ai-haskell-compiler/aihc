@@ -2,13 +2,14 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   f x = case x of
-  │ └─ x ∷ a
-  └─ f ∷ ∀ a. a → a
+  │          └─ type: a
+  └─ type: ∀ a. a → a
     y -> y
+         └─ type: a
 extensions: []
 modules:
 - |
