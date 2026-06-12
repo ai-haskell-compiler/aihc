@@ -9,9 +9,7 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
-    TcBinderAnnotation (..),
     PendingTcAnnotation (..),
-    PendingTcBinderAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -74,18 +72,6 @@ data PendingTcAnnotation = PendingTcAnnotation
     pendingTcAnnTypeArgs :: ![TcType],
     pendingTcAnnEvidenceVars :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
-  }
-  deriving (Eq, Show)
-
-data PendingTcBinderAnnotation = PendingTcBinderAnnotation
-  { pendingTcBinderName :: !Text,
-    pendingTcBinderType :: !TcType
-  }
-  deriving (Eq, Show)
-
-data TcBinderAnnotation = TcBinderAnnotation
-  { tcBinderName :: !Text,
-    tcBinderType :: !TcType
   }
   deriving (Eq, Show)
 

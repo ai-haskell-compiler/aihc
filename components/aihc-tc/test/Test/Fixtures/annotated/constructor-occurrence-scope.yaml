@@ -5,7 +5,7 @@ annotated:
        │       └─ type: Truth
        └─ type: *
   id x = x
-  │  └─ x ∷ a
+  │  └─ type: a
   └─ type: ∀ a. a → a
   truth = id True
   │       └─ type: Truth → Truth; type-args: Truth

@@ -16,7 +16,7 @@ annotated:
 
   fn :: a -> GADT a -> a
   fn x IsBool = not x
-  │  └─ x ∷ a
+  │  └─ type: a
   └─ type: ∀ a. a → GADT a → a
 extensions: []
 modules:

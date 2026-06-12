@@ -37,7 +37,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), TcBinderAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
@@ -705,18 +705,18 @@ lambdaPatternTypeRequired pat =
 patternBinderAnnotationType :: Pattern -> Maybe TcType
 patternBinderAnnotationType pat =
   case pat of
-    PVar name -> tcBinderType <$> unqualifiedNameBinderAnnotation name
+    PVar name -> unqualifiedNameAnnotationType name
     PAnn _ inner -> patternBinderAnnotationType inner
     PParen inner -> patternBinderAnnotationType inner
     PStrict inner -> patternBinderAnnotationType inner
     PIrrefutable inner -> patternBinderAnnotationType inner
-    PAs name _ -> tcBinderType <$> unqualifiedNameBinderAnnotation name
+    PAs name _ -> unqualifiedNameAnnotationType name
     PTypeSig inner _ -> patternBinderAnnotationType inner
     _ -> Nothing
 
-unqualifiedNameBinderAnnotation :: UnqualifiedName -> Maybe TcBinderAnnotation
-unqualifiedNameBinderAnnotation =
-  listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+unqualifiedNameAnnotationType :: UnqualifiedName -> Maybe TcType
+unqualifiedNameAnnotationType =
+  fmap tcAnnType . listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 patternAnnotationType :: Pattern -> Maybe TcType
 patternAnnotationType pat =

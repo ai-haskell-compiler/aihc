@@ -9,7 +9,7 @@ module Aihc.Tc.Finalize
 where
 
 import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), PendingTcBinderAnnotation (..), TcAnnotation (..), TcBinderAnnotation (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Monad
 import Aihc.Tc.Zonk (zonkType)
@@ -43,10 +43,7 @@ finalizeAnnotationTc :: Annotation -> TcM Annotation
 finalizeAnnotationTc ann =
   case fromAnnotation @PendingTcAnnotation ann of
     Just pending -> mkAnnotation <$> annotationForPendingTc pending
-    Nothing ->
-      case fromAnnotation @PendingTcBinderAnnotation ann of
-        Just pending -> mkAnnotation <$> annotationForPendingBinder pending
-        Nothing -> pure ann
+    Nothing -> pure ann
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do
@@ -55,11 +52,6 @@ annotationForPendingTc pending = do
   evidenceTerms <- mapM evidenceForEvVar (pendingTcAnnEvidenceVars pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
   pure (TcAnnotation ty typeArgs evidenceTerms termArgTypes)
-
-annotationForPendingBinder :: PendingTcBinderAnnotation -> TcM TcBinderAnnotation
-annotationForPendingBinder pending = do
-  ty <- zonkType (pendingTcBinderType pending)
-  pure (TcBinderAnnotation (pendingTcBinderName pending) ty)
 
 evidenceForEvVar :: EvVar -> TcM EvTerm
 evidenceForEvVar ev = do

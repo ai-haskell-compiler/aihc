@@ -2,9 +2,10 @@ annotated:
 - |-
   module Test where
   f x = let g y = y in g x
-  │ └─ x ∷ a│ │        └─ type: a → a; type-args: a
-  │         │ └─ y ∷ ?5
-  │         └─ type: ∀ a. a → a
+  │ │       │ │        └─ type: a → a; type-args: a
+  │ │       │ └─ type: ?5
+  │ │       └─ type: ∀ a. a → a
+  │ └─ type: a
   └─ type: ∀ a. a → a
 extensions: []
 modules:

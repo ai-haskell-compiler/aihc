@@ -2,8 +2,7 @@ annotated:
 - |-
   module Test where
   withLet list = [ y | x <- list, let y = x ]
-  │       │            └─ x ∷ a       └─ type: a
-  │       └─ list ∷ [a]
+  │       └─ type: [a] └─ type: a     └─ type: a
   └─ type: ∀ a. [a] → [a]
 extensions: []
 modules:

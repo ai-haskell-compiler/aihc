@@ -21,7 +21,7 @@ import Aihc.Parser.Syntax
     nameText,
     unqualifiedNameText,
   )
-import Aihc.Tc.Annotations (PendingTcBinderAnnotation (..))
+import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
@@ -121,7 +121,7 @@ annotateBinderName :: [(Text, TcType)] -> UnqualifiedName -> UnqualifiedName
 annotateBinderName bindings name =
   case lookup (unqualifiedNameText name) bindings of
     Nothing -> name
-    Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (PendingTcBinderAnnotation (unqualifiedNameText name) ty)]}
+    Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
 checkConPattern :: GadtHandling -> SourceSpan -> Text -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern gadtHandling sp conName subPats scrutTy = do

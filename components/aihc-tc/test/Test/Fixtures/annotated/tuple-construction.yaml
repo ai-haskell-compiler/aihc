@@ -7,7 +7,7 @@ annotated:
        └─ type: *
   f x = (x, x)
   │ │    └─ type: (a, a); type-args: a, a
-  │ └─ x ∷ a
+  │ └─ type: a
   └─ type: ∀ a. a → (a, a)
 extensions: []
 modules:

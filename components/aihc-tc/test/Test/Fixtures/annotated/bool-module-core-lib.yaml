@@ -10,7 +10,7 @@ annotated:
   False && _ = False
         └─ type: Bool → Bool → Bool
   True && x = x
-       │  └─ x ∷ Bool
+       │  └─ type: Bool
        └─ type: Bool → Bool → Bool
   not :: Bool -> Bool
   not False = True
@@ -23,7 +23,7 @@ annotated:
   infixr 2 ||
   (||) :: Bool -> Bool -> Bool
   False || x = x
-        │  └─ x ∷ Bool
+        │  └─ type: Bool
         └─ type: Bool → Bool → Bool
   True || _ = True
        └─ type: Bool → Bool → Bool

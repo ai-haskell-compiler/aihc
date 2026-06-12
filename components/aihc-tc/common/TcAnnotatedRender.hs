@@ -16,7 +16,6 @@ import Aihc.Parser.Syntax
 import Aihc.Tc (TcType (..), renderTcSignature, renderTcType)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
-    TcBinderAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcInstanceAnnotation (..),
@@ -50,7 +49,6 @@ renderTcAnnotation :: Annotation -> Maybe (Doc ann)
 renderTcAnnotation annotation =
   pretty
     <$> ( renderTypeAnnotation <$> fromAnnotation @TcAnnotation annotation
-            <|> renderBinderAnnotation <$> fromAnnotation @TcBinderAnnotation annotation
             <|> renderClassAnnotation <$> fromAnnotation @TcClassAnnotation annotation
             <|> renderInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation annotation
             <|> renderInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation annotation
@@ -60,10 +58,6 @@ renderTcAnnotation annotation =
 renderTypeAnnotation :: TcAnnotation -> String
 renderTypeAnnotation ann =
   intercalate "; " ("type: " <> renderTcType (tcAnnType ann) : renderElaboration ann)
-
-renderBinderAnnotation :: TcBinderAnnotation -> String
-renderBinderAnnotation ann =
-  renderTcSignature (tcBinderName ann) (tcBinderType ann)
 
 renderClassAnnotation :: TcClassAnnotation -> String
 renderClassAnnotation (TcClassAnnotation methods) =

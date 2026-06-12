@@ -2,9 +2,9 @@ annotated:
 - |-
   module Test where
   asPattern xs@(x:rest) = xs
-  │         │   │ └─ rest ∷ [a]
-  │         │   └─ x ∷ a
-  │         └─ xs ∷ [a]
+  │         │   │ └─ type: [a]
+  │         │   └─ type: a
+  │         └─ type: [a]
   └─ type: ∀ a. [a] → [a]
 extensions: []
 modules:
