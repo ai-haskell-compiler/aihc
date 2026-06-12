@@ -38,8 +38,8 @@ Find more information here:
 | aihc-parser        |  13396 |   17709 |   31105 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2153 |    1127 |    3280 |
-| aihc-tc            |   4277 |    2451 |    6728 |
-| **Total**          |  25240 |   23924 |   49164 |
+| aihc-tc            |   4177 |    2553 |    6730 |
+| **Total**          |  25140 |   24026 |   49166 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
