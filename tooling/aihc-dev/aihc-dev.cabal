@@ -133,6 +133,7 @@ library golden-tools
     process >=1.6 && <1.8,
     scientific,
     text >=1.2.3 && <2.2,
+    transformers,
     yaml >=0.11 && <0.12,
 
   default-extensions: OverloadedStrings
