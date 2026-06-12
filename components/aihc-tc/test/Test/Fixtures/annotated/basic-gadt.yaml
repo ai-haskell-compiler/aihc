@@ -10,16 +10,13 @@ annotated:
     IsBool :: GADT Bool
     └─ type: GADT Bool
   not True = False
-  │          └─ type: Bool
   └─ type: Bool → Bool
   not False = True
-  │           └─ type: Bool
   └─ type: Bool → Bool
 
   fn :: a -> GADT a -> a
   fn x IsBool = not x
-  │  └─ x ∷ a   │   └─ type: a
-  │             └─ type: Bool → Bool
+  │  └─ x ∷ a
   └─ type: ∀ a. a → GADT a → a
 extensions: []
 modules:

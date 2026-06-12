@@ -4,7 +4,6 @@ annotated:
   foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
                             └─ type: () → (# Int#, Int# #)
   test = tuple
-  │      └─ type: () → (# Int#, Int# #)
   └─ type: () → (# Int#, Int# #)
 extensions:
 - GHCForeignImportPrim

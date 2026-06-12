@@ -6,7 +6,6 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   x = True
-  │   └─ type: Bool
   └─ type: Bool
 extensions: []
 modules:

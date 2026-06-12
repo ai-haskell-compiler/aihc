@@ -11,16 +11,12 @@ annotated:
   instance Eq Bool where
            └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
-          │          └─ type: Bool
           └─ == ∷ Bool → Bool → Bool
     False == True = False
-          │         └─ type: Bool
           └─ == ∷ Bool → Bool → Bool
     True == False = False
-         │          └─ type: Bool
          └─ == ∷ Bool → Bool → Bool
     True == True = True
-         │         └─ type: Bool
          └─ == ∷ Bool → Bool → Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)

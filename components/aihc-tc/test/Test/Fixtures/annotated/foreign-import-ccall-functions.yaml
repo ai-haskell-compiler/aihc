@@ -10,10 +10,8 @@ annotated:
   foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt
                                                    └─ type: CInt → CInt → IO CInt
   test1 = plus1
-  │       └─ type: CInt → IO CInt
   └─ type: CInt → IO CInt
   test2 = plus2
-  │       └─ type: CInt → CInt → IO CInt
   └─ type: CInt → CInt → IO CInt
 extensions:
 - ForeignFunctionInterface

@@ -4,7 +4,6 @@ annotated:
   foreign import prim "i8_addition" i8_addition :: Int8# -> Int8# -> Int8#
                                     └─ type: Int8# → Int8# → Int8#
   test = i8_addition
-  │      └─ type: Int8# → Int8# → Int8#
   └─ type: Int8# → Int8# → Int8#
 extensions:
 - GHCForeignImportPrim

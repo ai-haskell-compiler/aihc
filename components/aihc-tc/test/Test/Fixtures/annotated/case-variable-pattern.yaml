@@ -6,10 +6,9 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   f x = case x of
-  │ └─ x ∷ a └─ type: a
+  │ └─ x ∷ a
   └─ type: ∀ a. a → a
     y -> y
-    │    └─ type: a
     └─ y ∷ a
 extensions: []
 modules:

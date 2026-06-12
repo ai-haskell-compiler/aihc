@@ -6,10 +6,8 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   not True = False
-  │          └─ type: Bool
   └─ type: Bool → Bool
   not False = True
-  │           └─ type: Bool
   └─ type: Bool → Bool
 extensions: []
 modules:

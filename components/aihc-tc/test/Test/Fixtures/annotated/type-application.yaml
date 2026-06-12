@@ -6,11 +6,9 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   id x = x
-  │  │   └─ type: a
   │  └─ x ∷ a
   └─ type: ∀ a. a → a
   false = id False
-  │       │  └─ type: Bool
   │       └─ type: Bool → Bool; type-args: Bool
   └─ type: Bool
 extensions: []

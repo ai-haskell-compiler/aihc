@@ -6,10 +6,8 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   not = \case True -> False
-  │                   └─ type: Bool
   └─ type: Bool → Bool
               False -> True
-                       └─ type: Bool
 extensions:
 - LambdaCase
 modules:

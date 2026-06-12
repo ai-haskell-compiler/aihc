@@ -6,11 +6,9 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   id x = x
-  │  │   └─ type: a
   │  └─ x ∷ a
   └─ type: ∀ a. a → a
   const x y = x
-  │     │ │   └─ type: a
   │     │ └─ y ∷ b
   │     └─ x ∷ a
   └─ type: ∀ a b. a → b → a

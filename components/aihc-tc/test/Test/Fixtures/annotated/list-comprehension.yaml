@@ -2,11 +2,7 @@ annotated:
 - |-
   module Test where
   map f list = [ f x | x <- list ]
-  │   │ │        │ │   │    └─ type: [a]
-  │   │ │        │ │   └─ x ∷ a
-  │   │ │        │ └─ type: a
-  │   │ │        └─ type: a → b
-  │   │ └─ list ∷ [a]
+  │   │ └─ list ∷ [a]  └─ x ∷ a
   │   └─ f ∷ a → b
   └─ type: ∀ a b. (a → b) → [a] → [b]
 extensions: []

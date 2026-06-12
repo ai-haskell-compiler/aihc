@@ -2,11 +2,9 @@ annotated:
 - |-
   module Test where
   f x = x
-  │ │   └─ type: a
   │ └─ x ∷ a
   └─ type: ∀ a. a → a
   g y = f (f y)
-  │ │   │  │ └─ type: a
   │ │   │  └─ type: a → a; type-args: a
   │ │   └─ type: a → a; type-args: a
   │ └─ y ∷ a

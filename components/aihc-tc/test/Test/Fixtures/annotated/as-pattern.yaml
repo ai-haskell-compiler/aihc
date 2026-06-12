@@ -2,7 +2,6 @@ annotated:
 - |-
   module Test where
   asPattern xs@(x:rest) = xs
-  │         │   │ │       └─ type: [a]
   │         │   │ └─ rest ∷ [a]
   │         │   └─ x ∷ a
   │         └─ xs ∷ [a]

@@ -8,31 +8,24 @@ annotated:
   infixr 3 &&
   (&&) :: Bool -> Bool -> Bool
   False && _ = False
-        │      └─ type: Bool
         └─ type: Bool → Bool → Bool
   True && x = x
-       │  │   └─ type: Bool
        │  └─ x ∷ Bool
        └─ type: Bool → Bool → Bool
   not :: Bool -> Bool
   not False = True
-  │           └─ type: Bool
   └─ type: Bool → Bool
   not True = False
-  │          └─ type: Bool
   └─ type: Bool → Bool
   otherwise :: Bool
   otherwise = True
-  │           └─ type: Bool
   └─ type: Bool
   infixr 2 ||
   (||) :: Bool -> Bool -> Bool
   False || x = x
-        │  │   └─ type: Bool
         │  └─ x ∷ Bool
         └─ type: Bool → Bool → Bool
   True || _ = True
-       │      └─ type: Bool
        └─ type: Bool → Bool → Bool
 extensions: []
 modules:
