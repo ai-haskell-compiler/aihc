@@ -22,7 +22,7 @@ runs:
       uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
 
     - name: Configure Cloudflare R2 cache
-      uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1.0.2
+      uses: lemmih/nix-s3-cache-action@1f2ffc8b285edc2e86487dc37679220ba33dbff3 # v1.0.3
       with:
         s3-endpoint: ${{ inputs.r2-account-id }}.r2.cloudflarestorage.com
         bucket: nix-cache
