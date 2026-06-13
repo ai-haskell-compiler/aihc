@@ -1,18 +1,18 @@
-extensions:
-  - GHCForeignImportPrim
-  - MagicHash
-  - UnboxedTuples
-modules:
-  - |
-    module Test where
-    foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
-    test = tuple
 annotated:
 - |-
   module Test where
   foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
-                            └─ tuple ∷ () → (# Int#, Int# #)
+                            └─ type: () → (# Int#, Int# #)
   test = tuple
-  └─ test ∷ () → (# Int#, Int# #)
+  └─ type: () → (# Int#, Int# #)
+extensions:
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+  foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
+  test = tuple
+reason: annotated output includes a prim import whose result is an unboxed tuple
 status: pass
-reason: "annotated output includes a prim import whose result is an unboxed tuple"

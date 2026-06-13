@@ -2,18 +2,18 @@ annotated:
 - |-
   module Test where
   data Bool = False | True
-       │      │       └─ True ∷ Bool
-       │      └─ False ∷ Bool
-       └─ Bool ∷ *
-  
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
+
   same :: Bool -> Bool -> Bool
   same x _ = x
-  │    └─ x ∷ Bool
-  └─ same ∷ Bool → Bool → Bool
-  
+  │    └─ type: Bool
+  └─ type: Bool → Bool → Bool
+
   eqBool :: Bool -> Bool -> Bool
   eqBool = same
-  └─ eqBool ∷ Bool → Bool → Bool
+  └─ type: Bool → Bool → Bool
 extensions: []
 modules:
 - |

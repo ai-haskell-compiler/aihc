@@ -2,11 +2,11 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   x = True
-  └─ x ∷ Bool
+  └─ type: Bool
 extensions: []
 modules:
 - |

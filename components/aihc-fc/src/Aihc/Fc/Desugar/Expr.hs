@@ -698,9 +698,25 @@ listElemTyM ty =
 
 lambdaPatternTypeRequired :: Pattern -> DsM TcType
 lambdaPatternTypeRequired pat =
-  case patternAnnotationType pat of
+  case patternBinderAnnotationType pat <|> patternAnnotationType pat of
     Just ty -> pure ty
     Nothing -> desugarBug ("missing type-checker annotation for lambda pattern: " <> take 80 (show pat))
+
+patternBinderAnnotationType :: Pattern -> Maybe TcType
+patternBinderAnnotationType pat =
+  case pat of
+    PVar name -> unqualifiedNameAnnotationType name
+    PAnn _ inner -> patternBinderAnnotationType inner
+    PParen inner -> patternBinderAnnotationType inner
+    PStrict inner -> patternBinderAnnotationType inner
+    PIrrefutable inner -> patternBinderAnnotationType inner
+    PAs name _ -> unqualifiedNameAnnotationType name
+    PTypeSig inner _ -> patternBinderAnnotationType inner
+    _ -> Nothing
+
+unqualifiedNameAnnotationType :: UnqualifiedName -> Maybe TcType
+unqualifiedNameAnnotationType =
+  fmap tcAnnType . listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 patternAnnotationType :: Pattern -> Maybe TcType
 patternAnnotationType pat =

@@ -2,16 +2,16 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   id x = x
-  │  └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
+  │  └─ type: a
+  └─ type: ∀ a. a → a
   const x y = x
-  │     │ └─ y ∷ b
-  │     └─ x ∷ a
-  └─ const ∷ ∀ a b. a → b → a
+  │     │ └─ type: b
+  │     └─ type: a
+  └─ type: ∀ a b. a → b → a
 extensions: []
 modules:
 - |

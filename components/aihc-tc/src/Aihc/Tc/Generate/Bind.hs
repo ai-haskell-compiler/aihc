@@ -265,8 +265,9 @@ tcMatchEquation inferExpr argTys resTy match = do
   patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
-  let resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (match {matchRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [resCt])
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  pure (match {matchPats = pats', matchRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [resCt])
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do

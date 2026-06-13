@@ -1,20 +1,19 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = True | False
-    filter f list = [ x | x <- list, f x ]
 annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   filter f list = [ x | x <- list, f x ]
-  │      │ │            └─ x ∷ a
-  │      │ └─ list ∷ [a]
-  │      └─ f ∷ a → Bool
-  └─ filter ∷ ∀ a. (a → Bool) → [a] → [a]
-status: pass
+  │      │ └─ type: [a] └─ type: a
+  │      └─ type: a → Bool
+  └─ type: ∀ a. (a → Bool) → [a] → [a]
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  filter f list = [ x | x <- list, f x ]
 reason: list comprehension guards must typecheck as Bool
+status: pass

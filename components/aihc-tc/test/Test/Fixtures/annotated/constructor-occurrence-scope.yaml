@@ -2,14 +2,14 @@ annotated:
 - |-
   module Test where
   data Truth = True
-       │       └─ True ∷ Truth
-       └─ Truth ∷ *
+       │       └─ type: Truth
+       └─ type: *
   id x = x
-  │  └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
+  │  └─ type: a
+  └─ type: ∀ a. a → a
   truth = id True
-  │       └─ type-args: Truth
-  └─ truth ∷ Truth
+  │       └─ type: Truth → Truth; type-args: Truth
+  └─ type: Truth
 extensions: []
 modules:
 - |

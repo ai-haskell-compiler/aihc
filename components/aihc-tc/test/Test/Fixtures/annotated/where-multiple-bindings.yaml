@@ -2,21 +2,21 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   f x y = x + y
-  │ │ │     └─ type-args: a, b
-  │ │ └─ y ∷ b
-  │ └─ x ∷ a
-  └─ f ∷ ∀ a b. a → b → a
+  │ │ │     └─ type: a → b → a; type-args: a, b
+  │ │ └─ type: b
+  │ └─ type: a
+  └─ type: ∀ a b. a → b → a
     where
       (+) a b = a
-       │  │ └─ b ∷ b
-       │  └─ a ∷ a
-       └─ (+) ∷ ∀ a b. a → b → a
+       │  │ └─ type: ?7
+       │  └─ type: ?8
+       └─ type: ∀ a b. a → b → a
       zero = True
-      └─ zero ∷ Bool
+      └─ type: Bool
 extensions: []
 modules:
 - |

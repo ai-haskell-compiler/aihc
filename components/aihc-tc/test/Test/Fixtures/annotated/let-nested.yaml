@@ -2,9 +2,10 @@ annotated:
 - |-
   module Test where
   f x = let y = let z = x in z in y
-  │ └─ x ∷ a│       └─ z ∷ a
-  │         └─ y ∷ a
-  └─ f ∷ ∀ a. a → a
+  │ │       │       └─ type: a
+  │ │       └─ type: a
+  │ └─ type: a
+  └─ type: ∀ a. a → a
 extensions: []
 modules:
 - |

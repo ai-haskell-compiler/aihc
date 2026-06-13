@@ -27,7 +27,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
@@ -88,7 +88,7 @@ inferExprAt ambient expr = case expr of
     (inner', ty, cts) <- inferExprAt (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
     pure (EAnn ann inner', ty, cts)
   ETuple flavor elems ->
-    inferTuple flavor elems
+    inferTuple (exprSpan expr `orSourceSpan` ambient) flavor elems
   EList elems ->
     inferList (exprSpan expr `orSourceSpan` ambient) elems
   EListComp body quals ->
@@ -132,9 +132,9 @@ inferNameOccurrence ambient nameSyntax = do
               (instTypeArgs inst)
               (map ctEvVar cts)
               []
-      pure (Just pending, instType inst, cts)
+      pure (elaborationAnnotation pending, instType inst, cts)
     Just (TcMonoIdBinder _ ty) ->
-      pure (Just (pendingAnnotation ty [] [] []), ty, [])
+      pure (Nothing, ty, [])
     Nothing -> do
       emitError sp (UnboundVariable (T.unpack name))
       ty <- freshMetaTv
@@ -154,9 +154,15 @@ annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
 
-annotatePendingPattern :: TcType -> Pattern -> Pattern
-annotatePendingPattern ty =
-  PAnn (mkAnnotation (pendingAnnotation ty [] [] []))
+-- | Occurrence annotations are for elaboration facts consumed by FC, not for
+-- restating the occurrence type. Binder types live on binder annotations.
+elaborationAnnotation :: PendingTcAnnotation -> Maybe PendingTcAnnotation
+elaborationAnnotation pending
+  | null (pendingTcAnnTypeArgs pending)
+      && null (pendingTcAnnEvidenceVars pending)
+      && null (pendingTcAnnTermArgTypes pending) =
+      Nothing
+  | otherwise = Just pending
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
@@ -172,7 +178,7 @@ inferLambda sp pats body = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
-      pats' = zipWith annotatePendingPattern argTys pats
+      pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
   pure (ELambdaPats pats' body', funTy, pcWantedCts patCheck ++ bodyCts)
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
@@ -230,7 +236,8 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
       patCheck <- checkPattern branchSp pat scrutTy
       (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
-      pure (CaseAlt altAnns pat rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
+          pat' = annotatePatternBindings (pcBindings patCheck) pat
+      pure (CaseAlt altAnns pat' rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
 
     inferAltAgainst expectedBranchSp expectedTy alt = do
       (alt', branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
@@ -256,11 +263,11 @@ inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM (
 inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
-      pats' = zipWith annotatePendingPattern argTys pats
   patCheck <- checkPatterns sp (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
-  let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -311,8 +318,8 @@ inferIf sp cond thenE elseE = do
   let branchCt = mkWantedCt (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
   pure (EIf cond' thenE' elseE', thenTy, condCts ++ thenCts ++ elseCts ++ [condCt, branchCt])
 
-inferTuple :: TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
-inferTuple flavor elems = do
+inferTuple :: SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
+inferTuple sp flavor elems = do
   results <- mapM inferElem elems
   let elems' = map (\(expr, _, _) -> expr) results
       tys = map (\(_, ty, _) -> ty) results
@@ -321,7 +328,7 @@ inferTuple flavor elems = do
       tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
       tupleTy = TcTyCon tc tys
       pending = pendingAnnotation tupleTy tys [] []
-  pure (annotatePendingExpr pending (ETuple flavor elems'), tupleTy, cts)
+  pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -336,7 +343,7 @@ inferList sp elems = case elems of
     elemTy <- freshMetaTv
     let listTy = TcTyCon listTyCon' [elemTy]
         pending = pendingAnnotation listTy [elemTy] [] []
-    pure (annotatePendingExpr pending (EList []), listTy, [])
+    pure (annotatePendingExprAt sp pending (EList []), listTy, [])
   (e : es) -> do
     let headSp = exprSpan e `orSourceSpan` sp
     (headExpr, headTy, headCts) <- inferExpr e
@@ -346,7 +353,7 @@ inferList sp elems = case elems of
     eqCts <- mapM (mkElemEq headSp headTy) results
     let listTy = TcTyCon listTyCon' [headTy]
         pending = pendingAnnotation listTy [headTy] [] []
-    pure (annotatePendingExpr pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
+    pure (annotatePendingExprAt sp pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
   where
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
@@ -396,7 +403,7 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen pat src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar

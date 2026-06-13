@@ -2,13 +2,13 @@ annotated:
 - |-
   module Test where
   f x = x
-  │ └─ x ∷ a
-  └─ f ∷ ∀ a. a → a
+  │ └─ type: a
+  └─ type: ∀ a. a → a
   g y = f (f y)
-  │ │   │  └─ type-args: a
-  │ │   └─ type-args: a
-  │ └─ y ∷ a
-  └─ g ∷ ∀ a. a → a
+  │ │   │  └─ type: a → a; type-args: a
+  │ │   └─ type: a → a; type-args: a
+  │ └─ type: a
+  └─ type: ∀ a. a → a
 extensions: []
 modules:
 - |

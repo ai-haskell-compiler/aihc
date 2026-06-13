@@ -2,15 +2,15 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ False ∷ Bool
-       │      └─ True ∷ Bool
-       └─ Bool ∷ *
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   id x = x
-  │  └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
+  │  └─ type: a
+  └─ type: ∀ a. a → a
   false = id False
-  │       └─ type-args: Bool
-  └─ false ∷ Bool
+  │       └─ type: Bool → Bool; type-args: Bool
+  └─ type: Bool
 extensions: []
 modules:
 - |
