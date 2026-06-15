@@ -29,7 +29,7 @@ import Aihc.Tc.Types
 import Data.Text (Text)
 
 data PatternCheck = PatternCheck
-  { pcBindings :: ![(Text, TcType)],
+  { pcBindings :: ![(UnqualifiedName, TcType)],
     pcWantedCts :: ![Ct],
     pcGivenCts :: ![Ct]
   }
@@ -67,7 +67,7 @@ checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM Patte
 checkPatternWith gadtHandling sp pat scrutTy =
   case pat of
     PVar name ->
-      pure mempty {pcBindings = [(unqualifiedNameText name, scrutTy)]}
+      pure mempty {pcBindings = [(name, scrutTy)]}
     PAnn _ann inner -> checkPatternWith gadtHandling sp inner scrutTy
     PParen inner -> checkPatternWith gadtHandling sp inner scrutTy
     PWildcard {} -> pure mempty
@@ -75,7 +75,7 @@ checkPatternWith gadtHandling sp pat scrutTy =
     PNegLit {} -> pure mempty
     PAs name inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
-      pure innerCheck {pcBindings = (unqualifiedNameText name, scrutTy) : pcBindings innerCheck}
+      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck}
     PStrict inner -> checkPatternWith gadtHandling sp inner scrutTy
     PIrrefutable inner -> checkPatternWith gadtHandling sp inner scrutTy
     PCon name _typeArgs subPats ->
@@ -90,7 +90,7 @@ checkPatternWith gadtHandling sp pat scrutTy =
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
     _ -> pure mempty
 
-annotatePatternBindings :: [(Text, TcType)] -> Pattern -> Pattern
+annotatePatternBindings :: [(UnqualifiedName, TcType)] -> Pattern -> Pattern
 annotatePatternBindings bindings =
   go
   where
@@ -117,9 +117,9 @@ annotatePatternBindings bindings =
     annotateRecordField field =
       field {recordFieldValue = go (recordFieldValue field)}
 
-annotateBinderName :: [(Text, TcType)] -> UnqualifiedName -> UnqualifiedName
+annotateBinderName :: [(UnqualifiedName, TcType)] -> UnqualifiedName -> UnqualifiedName
 annotateBinderName bindings name =
-  case lookup (unqualifiedNameText name) bindings of
+  case lookup name bindings of
     Nothing -> name
     Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
@@ -175,10 +175,11 @@ wantedEq sp left right = do
   ev <- freshEvVar
   pure (mkWantedCt (EqPred left right) ev (AppOrigin sp) sp)
 
-withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
+withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
-  extendTermEnv name (TcMonoIdBinder name ty) (withPatternBindings rest action)
+  let bindingName = unqualifiedNameText name
+   in extendTermEnv bindingName (TcMonoIdBinder bindingName ty) (withPatternBindings rest action)
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
