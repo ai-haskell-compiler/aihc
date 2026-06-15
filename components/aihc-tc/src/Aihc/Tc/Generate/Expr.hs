@@ -124,7 +124,7 @@ inferNameOccurrence ambient nameSyntax = do
   target <- resolvedTermTarget nameSyntax
   mBinder <- lookupResolvedTerm name target
   case mBinder of
-    Just (TcIdBinder _ scheme _) -> do
+    Just (TcIdBinder scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
       let pending =
@@ -134,7 +134,7 @@ inferNameOccurrence ambient nameSyntax = do
               (map ctEvVar cts)
               []
       pure (elaborationAnnotation pending, instType inst, cts)
-    Just (TcMonoIdBinder _ ty) ->
+    Just (TcMonoIdBinder ty) ->
       pure (Nothing, ty, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)

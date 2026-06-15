@@ -135,9 +135,9 @@ data Closedness
 -- | A binding in the term environment.
 data TcBinder
   = -- | Polymorphic binding (top-level or let with signature).
-    TcIdBinder !Text !TypeScheme !Closedness
+    TcIdBinder !TypeScheme !Closedness
   | -- | Monomorphic binding (lambda-bound, pattern-bound, local let).
-    TcMonoIdBinder !Text !TcType
+    TcMonoIdBinder !TcType
   deriving (Show)
 
 data TcTermKey
@@ -202,8 +202,8 @@ initTcState =
 builtinTerms :: Map Text TcBinder
 builtinTerms =
   Map.fromList
-    [ (":", TcIdBinder ":" consScheme Closed),
-      ("[]", TcIdBinder "[]" nilScheme Closed)
+    [ (":", TcIdBinder consScheme Closed),
+      ("[]", TcIdBinder nilScheme Closed)
     ]
   where
     aVar = TyVarId "a" (Unique (-1000))

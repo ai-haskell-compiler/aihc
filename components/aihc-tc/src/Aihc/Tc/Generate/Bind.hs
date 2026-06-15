@@ -101,8 +101,8 @@ annotateLocalBindingDecl binderTypes decl =
     _ -> pure decl
 
 binderType :: TcBinder -> TcType
-binderType (TcIdBinder _ scheme _) = schemeToType scheme
-binderType (TcMonoIdBinder _ ty) = ty
+binderType (TcIdBinder scheme _) = schemeToType scheme
+binderType (TcMonoIdBinder ty) = ty
 
 valueDeclBinderKeys :: ValueDecl -> TcM [TcTermKey]
 valueDeclBinderKeys valueDecl =
@@ -114,12 +114,11 @@ monomorphicBinder :: Map TcTermKey TypeScheme -> Map TcTermKey TcType -> Unquali
 monomorphicBinder sigs placeholders name =
   do
     key <- resolvedLocalTermKey name
-    let binderName = unqualifiedNameText name
     case Map.lookup key sigs of
-      Just scheme -> pure (name, TcIdBinder binderName scheme Closed)
+      Just scheme -> pure (name, TcIdBinder scheme Closed)
       Nothing -> do
         ty <- maybe freshMetaTv zonkType (Map.lookup key placeholders)
-        pure (name, TcMonoIdBinder binderName ty)
+        pure (name, TcMonoIdBinder ty)
 
 -- | Infer an RHS, processing attached @where@ declarations first.
 inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
@@ -146,7 +145,7 @@ placeholderFor sigs name = do
 withLocalPlaceholders :: [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
 withLocalPlaceholders placeholders =
   withLocalBinders
-    [ (name, TcMonoIdBinder (unqualifiedNameText name) ty)
+    [ (name, TcMonoIdBinder ty)
     | (name, _, ty) <- placeholders
     ]
 
@@ -159,18 +158,17 @@ generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTerm
 generalizedBinder sigs ignored placeholders name =
   do
     key <- resolvedLocalTermKey name
-    let binderName = unqualifiedNameText name
     case Map.lookup key sigs of
       Just scheme ->
-        pure (name, TcIdBinder binderName scheme Closed)
+        pure (name, TcIdBinder scheme Closed)
       Nothing ->
         case Map.lookup key placeholders of
           Nothing -> do
             ty <- freshMetaTv
-            pure (name, TcMonoIdBinder binderName ty)
+            pure (name, TcMonoIdBinder ty)
           Just ty -> do
             scheme <- generalizeIgnoring ignored ty []
-            pure (name, TcIdBinder binderName scheme Closed)
+            pure (name, TcIdBinder scheme Closed)
 
 inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
 inferLocalGroup inferExpr sigs placeholders group =
@@ -302,7 +300,7 @@ isClosedVar key = do
   env <- getTermEnv
   pure $
     case Map.lookup key env of
-      Just (TcIdBinder _ _ Closed) -> True
+      Just (TcIdBinder _ Closed) -> True
       _ -> False
 
 allM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool

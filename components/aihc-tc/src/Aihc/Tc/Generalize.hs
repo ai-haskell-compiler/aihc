@@ -101,12 +101,12 @@ zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
 
 binderMetaVars :: TcBinder -> TcM [Unique]
-binderMetaVars (TcIdBinder _ (ForAll _ preds ty) _) =
+binderMetaVars (TcIdBinder (ForAll _ preds ty) _) =
   do
     ty' <- zonkType ty
     preds' <- mapM zonkPred preds
     pure (collectMetaVars ty' ++ concatMap predMetaVars preds')
-binderMetaVars (TcMonoIdBinder _ ty) =
+binderMetaVars (TcMonoIdBinder ty) =
   collectMetaVars <$> zonkType ty
 
 -- | Remove duplicates from an ordered list.

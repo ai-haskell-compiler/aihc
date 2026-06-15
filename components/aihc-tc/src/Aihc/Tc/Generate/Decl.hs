@@ -348,8 +348,8 @@ dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
   mBinder <- lookupTerm name
   case mBinder of
-    Just (TcIdBinder _ (ForAll _ _ body) _) -> zonkType body
-    Just (TcMonoIdBinder _ ty) -> zonkType ty
+    Just (TcIdBinder (ForAll _ _ body) _) -> zonkType body
+    Just (TcMonoIdBinder ty) -> zonkType ty
     Nothing -> missingTypeInfo ("data constructor " <> T.unpack name)
 
 annotateForeignDeclTc :: ForeignDecl -> TcM Decl
@@ -512,18 +512,18 @@ bindingType name = do
     Nothing -> missingTypeInfo ("binding " <> T.unpack name)
 
 binderType :: TcBinder -> TcType
-binderType (TcIdBinder _ scheme _) = schemeToType scheme
-binderType (TcMonoIdBinder _ ty) = ty
+binderType (TcIdBinder scheme _) = schemeToType scheme
+binderType (TcMonoIdBinder ty) = ty
 
 methodExpectedType :: [TcType] -> Text -> TcM TcType
 methodExpectedType headTys methodName = do
   mBinder <- lookupTerm methodName
   case mBinder of
-    Just (TcIdBinder _ (ForAll _ preds body) _) ->
+    Just (TcIdBinder (ForAll _ preds body) _) ->
       case firstClassPredSubst preds headTys of
         Just subst -> pure (substType subst body)
         Nothing -> missingTypeInfo ("class method receiver for " <> T.unpack methodName)
-    Just (TcMonoIdBinder _ ty) -> pure ty
+    Just (TcMonoIdBinder ty) -> pure ty
     Nothing -> missingTypeInfo ("class method " <> T.unpack methodName)
 
 firstClassPredSubst :: [Pred] -> [TcType] -> Maybe (Map Unique TcType)
@@ -975,7 +975,7 @@ tcFunctionWithSig displayName name sig matches = do
   let scheme = checkedSigScheme sig
   (matches', failed) <-
     withErrorTracking $ do
-      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+      extendTermEnvPermanent name (TcIdBinder scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
       (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
@@ -1003,7 +1003,7 @@ tcFunctionInfer displayName name matches = do
   placeholderTy <- freshMetaTv
   ((matches', ty, _, _), failed) <-
     withErrorTracking $ do
-      extendTermEnvPermanent name (TcMonoIdBinder name placeholderTy)
+      extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
       result@(_, _, cts', impls') <- tcMatches matches
       _ <- solveWithImpls cts' impls'
       pure result
@@ -1014,7 +1014,7 @@ tcFunctionInfer displayName name matches = do
       commitGeneralizedMetas ty scheme
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
-      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+      extendTermEnvPermanent name (TcIdBinder scheme Closed)
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
@@ -1069,7 +1069,7 @@ registerForeignImport foreignDecl = do
   let name = unqualifiedNameText (foreignName foreignDecl)
       displayName = renderBinderName (foreignName foreignDecl)
       declaredTy = schemeToType scheme
-  extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+  extendTermEnvPermanent name (TcIdBinder scheme Closed)
   zonkedTy <- zonkType declaredTy
   pure [TcBindingResult name displayName zonkedTy]
 
@@ -1113,7 +1113,7 @@ registerClassItem classPred superPreds classTvEnv classTyVars item =
         ( \methodName -> do
             let name = unqualifiedNameText methodName
                 displayName = renderBinderName methodName
-            extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+            extendTermEnvPermanent name (TcIdBinder scheme Closed)
             zonkedTy <- zonkType declaredTy
             pure (TcBindingResult name displayName zonkedTy)
         )
@@ -1221,7 +1221,7 @@ registerDataCon tc paramInfos con = case con of
       mapM_
         ( \n -> do
             let nm = unqualifiedNameText n
-            extendTermEnvPermanent nm (TcIdBinder nm gadtScheme Closed)
+            extendTermEnvPermanent nm (TcIdBinder gadtScheme Closed)
             markGadtCon nm
         )
         names
@@ -1246,7 +1246,7 @@ registerDataCon tc paramInfos con = case con of
     registerNamedDataCon name argTys = do
       let conTy = foldr TcFunTy resTy argTys
           scheme = conScheme argTys
-      extendTermEnvPermanent name (TcIdBinder name scheme Closed)
+      extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType conTy
       pure (TcBindingResult name name zonkedTy)
 

@@ -19,7 +19,6 @@ import Aihc.Parser.Syntax
     UnqualifiedName (..),
     mkAnnotation,
     nameText,
-    unqualifiedNameText,
   )
 import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
@@ -129,7 +128,7 @@ checkConPattern gadtHandling sp conSyntax subPats scrutTy = do
   target <- resolvedTermTarget conSyntax
   mBinder <- lookupResolvedTerm conName target
   case mBinder of
-    Just (TcIdBinder _ scheme _) -> do
+    Just (TcIdBinder scheme _) -> do
       (conTy, _preds) <- instantiate scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
@@ -183,8 +182,7 @@ wantedEq sp left right = do
 withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
-  let bindingName = unqualifiedNameText name
-   in extendResolvedTermEnv name (TcMonoIdBinder bindingName ty) (withPatternBindings rest action)
+  extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]

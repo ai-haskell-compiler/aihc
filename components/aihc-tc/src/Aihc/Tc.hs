@@ -147,7 +147,7 @@ typecheckModulesWithEnv importedTerms =
       initTcState
         { tcsGlobalTerms =
             Map.fromList
-              [ (name, TcIdBinder name scheme Closed)
+              [ (name, TcIdBinder scheme Closed)
               | (name, scheme) <- importedTerms
               ]
               <> tcsGlobalTerms initTcState
