@@ -9,10 +9,11 @@ module Aihc.Tc.Generalize
   )
 where
 
-import Aihc.Tc.Monad (TcBinder (..), TcM, freshSkolemTv, getTermEnv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 
 -- | Generalize a monotype into a type scheme.
@@ -21,21 +22,21 @@ import Data.Text qualified as T
 -- promotes them to universally quantified type variables, and wraps
 -- any residual predicates.
 generalize :: TcType -> [Pred] -> TcM TypeScheme
-generalize = generalizeIgnoring []
+generalize = generalizeIgnoring Set.empty
 
--- | Generalize a monotype while ignoring the named environment binders.
+-- | Generalize a monotype while ignoring the selected environment binders.
 --
 -- This is used for recursive local binding groups: the group's placeholder
 -- binders are in scope while the group is checked, but they are not part of
 -- the outer environment that should block generalization.
-generalizeIgnoring :: [T.Text] -> TcType -> [Pred] -> TcM TypeScheme
-generalizeIgnoring ignoredNames ty preds = do
+generalizeIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
+generalizeIgnoring ignoredKeys ty preds = do
   env <- getTermEnv
   envMetaVars <-
     concat
       <$> mapM
         binderMetaVars
-        (filter (not . ignoredBinder) (Map.elems env))
+        [binder | (key, binder) <- Map.toList env, key `Set.notMember` ignoredKeys]
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
@@ -47,13 +48,6 @@ generalizeIgnoring ignoredNames ty preds = do
   let ty'' = substMetas subst ty'
   let preds'' = map (substMetasPred subst) preds'
   pure (ForAll tvs preds'' ty'')
-  where
-    ignoredBinder binder =
-      binderName binder `elem` ignoredNames
-
-binderName :: TcBinder -> T.Text
-binderName (TcIdBinder name _ _) = name
-binderName (TcMonoIdBinder name _) = name
 
 -- | Collect free meta-variable uniques from a type.
 collectMetaVars :: TcType -> [Unique]

@@ -54,12 +54,10 @@ inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], 
 inferLocalDecls inferExpr decls body = do
   let groups = groupValueDecls decls
       binders = nub (concatMap groupBinders groups)
-      binderNames = map unqualifiedNameText binders
   rawSigs <- collectRawSigs decls
   sigs <- traverse sigToScheme rawSigs
   placeholders <- traverse (placeholderFor sigs) binders
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
-      ignored = binderNames
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
   withLocalPlaceholders placeholders $ do
@@ -68,7 +66,7 @@ inferLocalDecls inferExpr decls body = do
     if shouldGen
       then do
         _ <- solveConstraints bindingCts
-        polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
+        polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap) binders
         decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
         withLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
@@ -157,7 +155,7 @@ withLocalBinders [] action = action
 withLocalBinders ((name, binder) : rest) action =
   extendResolvedTermEnv name binder (withLocalBinders rest action)
 
-generalizedBinder :: Map TcTermKey TypeScheme -> [Text] -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
+generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 generalizedBinder sigs ignored placeholders name =
   do
     key <- resolvedLocalTermKey name

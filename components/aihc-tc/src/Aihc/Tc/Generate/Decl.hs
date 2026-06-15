@@ -945,7 +945,7 @@ tcFunctionInfer displayName name matches = do
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeIgnoring [name] ty []
+      scheme <- generalizeIgnoring (Set.singleton (TcTermGlobal name)) ty []
       commitGeneralizedMetas ty scheme
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
