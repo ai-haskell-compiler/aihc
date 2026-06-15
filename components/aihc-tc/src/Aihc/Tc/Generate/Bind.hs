@@ -43,6 +43,7 @@ import Control.Monad (foldM)
 import Data.List (mapAccumL, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -51,13 +52,13 @@ type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 -- | Infer local declarations, then infer a body under the resulting binders.
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
 inferLocalDecls inferExpr decls body = do
-  let rawSigs = collectRawSigs decls
-      groups = groupValueDecls decls
+  let groups = groupValueDecls decls
       binders = nub (concatMap groupBinders groups)
       binderNames = map unqualifiedNameText binders
+  rawSigs <- collectRawSigs decls
   sigs <- traverse sigToScheme rawSigs
   placeholders <- traverse (placeholderFor sigs) binders
-  let placeholderMap = Map.fromList [(unqualifiedNameText name, ty) | (name, ty) <- placeholders]
+  let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
       ignored = binderNames
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
@@ -68,52 +69,59 @@ inferLocalDecls inferExpr decls body = do
       then do
         _ <- solveConstraints bindingCts
         polyBinders <- traverse (generalizedBinder sigs ignored placeholderMap) binders
-        let decls' = annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
+        decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
         withLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, bodyCts)
       else do
         monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
-        let decls' = annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
+        decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
         (bodyResult, bodyTy, bodyCts) <- body
         pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
 
-annotateLocalBindingDecls :: [(UnqualifiedName, TcBinder)] -> [Decl] -> [Decl]
-annotateLocalBindingDecls binders =
-  map (annotateLocalBindingDecl binderTypes)
+annotateLocalBindingDecls :: [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
+annotateLocalBindingDecls binders decls = do
+  binderTypes <- Map.fromList <$> mapM binderTypeEntry binders
+  mapM (annotateLocalBindingDecl binderTypes) decls
   where
-    binderTypes = Map.fromList [(unqualifiedNameText name, binderType binder) | (name, binder) <- binders]
+    binderTypeEntry (name, binder) = do
+      key <- resolvedLocalTermKey name
+      pure (key, binderType binder)
 
-annotateLocalBindingDecl :: Map Text TcType -> Decl -> Decl
+annotateLocalBindingDecl :: Map TcTermKey TcType -> Decl -> TcM Decl
 annotateLocalBindingDecl binderTypes decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann (annotateLocalBindingDecl binderTypes inner)
+    DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl binderTypes inner
     DeclValue valueDecl ->
-      case valueDeclBinderNames valueDecl of
-        name : _
-          | Just ty <- Map.lookup name binderTypes ->
-              DeclAnn (mkAnnotation (pendingAnnotation ty [] [] [])) decl
-        _ -> decl
-    _ -> decl
+      do
+        keys <- valueDeclBinderKeys valueDecl
+        case keys of
+          key : _
+            | Just ty <- Map.lookup key binderTypes ->
+                pure (DeclAnn (mkAnnotation (pendingAnnotation ty [] [] [])) decl)
+          _ -> pure decl
+    _ -> pure decl
 
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder _ scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder _ ty) = ty
 
-valueDeclBinderNames :: ValueDecl -> [Text]
-valueDeclBinderNames valueDecl =
+valueDeclBinderKeys :: ValueDecl -> TcM [TcTermKey]
+valueDeclBinderKeys valueDecl =
   case valueDecl of
-    FunctionBind name _ -> [unqualifiedNameText name]
-    PatternBind _ pat _ -> patternBinderTexts pat
+    FunctionBind name _ -> (: []) <$> resolvedLocalTermKey name
+    PatternBind _ pat _ -> patternBinderKeyList pat
 
-monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
+monomorphicBinder :: Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 monomorphicBinder sigs placeholders name =
-  let binderName = unqualifiedNameText name
-   in case Map.lookup binderName sigs of
-        Just scheme -> pure (name, TcIdBinder binderName scheme Closed)
-        Nothing -> do
-          ty <- maybe freshMetaTv zonkType (Map.lookup binderName placeholders)
-          pure (name, TcMonoIdBinder binderName ty)
+  do
+    key <- resolvedLocalTermKey name
+    let binderName = unqualifiedNameText name
+    case Map.lookup key sigs of
+      Just scheme -> pure (name, TcIdBinder binderName scheme Closed)
+      Nothing -> do
+        ty <- maybe freshMetaTv zonkType (Map.lookup key placeholders)
+        pure (name, TcMonoIdBinder binderName ty)
 
 -- | Infer an RHS, processing attached @where@ declarations first.
 inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
@@ -131,17 +139,17 @@ inferRhsWithLocals inferExpr rhs =
       ty <- freshMetaTv
       pure (rhs, ty, [])
 
-placeholderFor :: Map Text TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcType)
-placeholderFor sigs name =
-  case Map.lookup (unqualifiedNameText name) sigs of
-    Just scheme -> (name,) <$> skolemize scheme
-    Nothing -> (name,) <$> freshMetaTv
+placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
+placeholderFor sigs name = do
+  key <- resolvedLocalTermKey name
+  ty <- maybe freshMetaTv skolemize (Map.lookup key sigs)
+  pure (name, key, ty)
 
-withLocalPlaceholders :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
+withLocalPlaceholders :: [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
 withLocalPlaceholders placeholders =
   withLocalBinders
     [ (name, TcMonoIdBinder (unqualifiedNameText name) ty)
-    | (name, ty) <- placeholders
+    | (name, _, ty) <- placeholders
     ]
 
 withLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a
@@ -149,32 +157,34 @@ withLocalBinders [] action = action
 withLocalBinders ((name, binder) : rest) action =
   extendResolvedTermEnv name binder (withLocalBinders rest action)
 
-generalizedBinder :: Map Text TypeScheme -> [Text] -> Map Text TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
+generalizedBinder :: Map TcTermKey TypeScheme -> [Text] -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 generalizedBinder sigs ignored placeholders name =
-  let binderName = unqualifiedNameText name
-   in case Map.lookup binderName sigs of
-        Just scheme ->
-          pure (name, TcIdBinder binderName scheme Closed)
-        Nothing ->
-          case Map.lookup binderName placeholders of
-            Nothing -> do
-              ty <- freshMetaTv
-              pure (name, TcMonoIdBinder binderName ty)
-            Just ty -> do
-              scheme <- generalizeIgnoring ignored ty []
-              pure (name, TcIdBinder binderName scheme Closed)
+  do
+    key <- resolvedLocalTermKey name
+    let binderName = unqualifiedNameText name
+    case Map.lookup key sigs of
+      Just scheme ->
+        pure (name, TcIdBinder binderName scheme Closed)
+      Nothing ->
+        case Map.lookup key placeholders of
+          Nothing -> do
+            ty <- freshMetaTv
+            pure (name, TcMonoIdBinder binderName ty)
+          Just ty -> do
+            scheme <- generalizeIgnoring ignored ty []
+            pure (name, TcIdBinder binderName scheme Closed)
 
-inferLocalGroup :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
+inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
 inferLocalGroup inferExpr sigs placeholders group =
   case group of
     MergedFunctionBind name decls matches -> do
-      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders (unqualifiedNameText name) matches
+      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
       pure (MergedFunctionBind name (replaceFunctionDeclMatches matches' decls) matches', cts)
     SingleDecl decl -> do
       (decl', cts) <- inferLocalSingleDecl inferExpr sigs placeholders decl
       pure (SingleDecl decl', cts)
 
-inferLocalSingleDecl :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> Decl -> TcM (Decl, [Ct])
+inferLocalSingleDecl :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> Decl -> TcM (Decl, [Ct])
 inferLocalSingleDecl inferExpr sigs placeholders decl =
   case decl of
     DeclAnn ann inner -> do
@@ -184,23 +194,24 @@ inferLocalSingleDecl inferExpr sigs placeholders decl =
       case valueDecl of
         PatternBind mult pat rhs ->
           case patternBinderName pat of
-            Just (_displayName, name) -> do
+            Just name -> do
               (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs placeholders name rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
               (rhs', _ty, cts) <- inferRhsWithLocals inferExpr rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
         FunctionBind name matches -> do
-          (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders (unqualifiedNameText name) matches
+          (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
     _ -> pure (decl, [])
 
-inferLocalFunction :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> Text -> [Match] -> TcM ([Match], TcType, [Ct])
+inferLocalFunction :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
 inferLocalFunction inferExpr sigs placeholders name matches = do
+  key <- resolvedLocalTermKey name
   (matches', ty, cts) <-
-    case Map.lookup name sigs of
+    case Map.lookup key sigs of
       Just scheme -> do
-        sigTy <- maybe (skolemize scheme) pure (Map.lookup name placeholders)
+        sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
         let nArgs =
               case matches of
                 m : _ -> length (matchPats m)
@@ -212,22 +223,23 @@ inferLocalFunction inferExpr sigs placeholders name matches = do
         pure (matches', sigTy, matchCts)
       Nothing ->
         tcMatches inferExpr matches
-  cts' <- tiePlaceholder placeholders name ty cts
+  cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
 
-inferLocalPatternBind :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> Text -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
+inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferLocalPatternBind inferExpr sigs placeholders name rhs = do
+  key <- resolvedLocalTermKey name
   (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
   ty <-
-    case Map.lookup name sigs of
-      Just scheme -> maybe (skolemize scheme) pure (Map.lookup name placeholders)
+    case Map.lookup key sigs of
+      Just scheme -> maybe (skolemize scheme) pure (Map.lookup key placeholders)
       Nothing -> pure rhsTy
-  cts <- tiePlaceholder placeholders name ty rhsCts
+  cts <- tiePlaceholder placeholders key ty rhsCts
   pure (rhs', ty, cts)
 
-tiePlaceholder :: Map Text TcType -> Text -> TcType -> [Ct] -> TcM [Ct]
-tiePlaceholder placeholders name ty cts =
-  case Map.lookup name placeholders of
+tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]
+tiePlaceholder placeholders key ty cts =
+  case Map.lookup key placeholders of
     Nothing -> pure cts
     Just placeholderTy -> do
       ev <- freshEvVar
@@ -329,7 +341,7 @@ groupBinders group =
     SingleDecl decl ->
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]
-        DeclValue (PatternBind _ pat _) -> maybe [] ((: []) . fst) (patternBinderName pat)
+        DeclValue (PatternBind _ pat _) -> maybeToList (patternBinderName pat)
         _ -> []
 
 extractFunctionBind :: Decl -> Maybe (UnqualifiedName, [Match])
@@ -366,13 +378,13 @@ replaceDeclFunctionMatches matches decl =
     DeclValue (FunctionBind name _) -> DeclValue (FunctionBind name matches)
     _ -> decl
 
-collectRawSigs :: [Decl] -> Map Text Type
-collectRawSigs decls = Map.fromList $ concatMap extractSig decls
+collectRawSigs :: [Decl] -> TcM (Map TcTermKey Type)
+collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
   where
     extractSig (DeclTypeSig names ty) =
-      [(unqualifiedNameText n, ty) | n <- names]
+      mapM (fmap (,ty) . resolvedLocalTermKey) names
     extractSig (DeclAnn _ inner) = extractSig inner
-    extractSig _ = []
+    extractSig _ = pure []
 
 skolemize :: TypeScheme -> TcM TcType
 skolemize (ForAll tvs _preds body) = do
@@ -396,8 +408,8 @@ schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
 schemeToType (ForAll [] preds ty) = TcQualTy preds ty
 schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 
-patternBinderName :: Pattern -> Maybe (UnqualifiedName, Text)
-patternBinderName (PVar n) = Just (n, unqualifiedNameText n)
+patternBinderName :: Pattern -> Maybe UnqualifiedName
+patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
@@ -521,18 +533,20 @@ patternBinderKeys pat =
       pure (lhsKeys <> rhsKeys)
     _ -> pure Set.empty
 
-patternBinderTexts :: Pattern -> [Text]
-patternBinderTexts pat =
+patternBinderKeyList :: Pattern -> TcM [TcTermKey]
+patternBinderKeyList pat =
   case pat of
-    PVar name -> [unqualifiedNameText name]
-    PAnn _ inner -> patternBinderTexts inner
-    PParen inner -> patternBinderTexts inner
-    PAs name inner -> unqualifiedNameText name : patternBinderTexts inner
-    PStrict inner -> patternBinderTexts inner
-    PIrrefutable inner -> patternBinderTexts inner
-    PCon _ _ pats -> concatMap patternBinderTexts pats
-    PInfix lhs _ rhs -> patternBinderTexts lhs ++ patternBinderTexts rhs
-    _ -> []
+    PVar name -> (: []) <$> resolvedLocalTermKey name
+    PAnn _ inner -> patternBinderKeyList inner
+    PParen inner -> patternBinderKeyList inner
+    PAs name inner -> do
+      key <- resolvedLocalTermKey name
+      (key :) <$> patternBinderKeyList inner
+    PStrict inner -> patternBinderKeyList inner
+    PIrrefutable inner -> patternBinderKeyList inner
+    PCon _ _ pats -> concat <$> mapM patternBinderKeyList pats
+    PInfix lhs _ rhs -> (++) <$> patternBinderKeyList lhs <*> patternBinderKeyList rhs
+    _ -> pure []
 
 hasPartialTypeSig :: Decl -> Bool
 hasPartialTypeSig decl =
