@@ -147,20 +147,16 @@ spanStartNameSpan span' name =
     NoSourceSpan -> NoSourceSpan
 
 annotateDecl :: ResolutionAnnotation -> Decl -> Decl
-annotateDecl annotation =
-  DeclAnn (mkAnnotation annotation) . DeclAnn (mkAnnotation (resolutionSpan annotation))
+annotateDecl annotation = DeclAnn (mkAnnotation annotation)
 
 annotateExpr :: ResolutionAnnotation -> Expr -> Expr
-annotateExpr annotation =
-  EAnn (mkAnnotation annotation) . EAnn (mkAnnotation (resolutionSpan annotation))
+annotateExpr annotation = EAnn (mkAnnotation annotation)
 
 annotatePattern :: ResolutionAnnotation -> Pattern -> Pattern
-annotatePattern annotation =
-  PAnn (mkAnnotation annotation) . PAnn (mkAnnotation (resolutionSpan annotation))
+annotatePattern annotation = PAnn (mkAnnotation annotation)
 
 annotateType :: ResolutionAnnotation -> Type -> Type
-annotateType annotation =
-  TAnn (mkAnnotation annotation) . TAnn (mkAnnotation (resolutionSpan annotation))
+annotateType annotation = TAnn (mkAnnotation annotation)
 
 annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =

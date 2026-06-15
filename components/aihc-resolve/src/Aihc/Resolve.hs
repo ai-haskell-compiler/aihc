@@ -24,7 +24,8 @@ module Aihc.Resolve
 where
 
 import Aihc.Parser.Syntax
-  ( ArithSeq (..),
+  ( Annotation,
+    ArithSeq (..),
     ArrowKind (..),
     BangType (..),
     BinderHead (..),
@@ -1197,7 +1198,8 @@ resolveTermUseAtName name = do
   pure (resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name)
 
 data ResolvedInfixOp = ResolvedInfixOp
-  { resolvedInfixName :: !Name,
+  { resolvedInfixIndex :: !Int,
+    resolvedInfixName :: !Name,
     resolvedInfixFixity :: !OperatorFixity
   }
 
@@ -1213,20 +1215,39 @@ reassociateResolvedInfixExpr :: [Expr] -> [Name] -> Expr -> ResolveM Expr
 reassociateResolvedInfixExpr operands names fallbackExpr = do
   scope <- currentScope
   sp <- currentSpan
-  let ops = [ResolvedInfixOp name (resolveFixityName scope name) | name <- names]
+  let ops =
+        [ ResolvedInfixOp index name (resolveFixityName scope name)
+        | (index, name) <- zip [0 :: Int ..] names
+        ]
   case ambiguousInfixOp ops of
     Just op ->
-      pure $
-        annotateExpr
+      pure (buildLeftInfixExpr fallbackExpr operands (replaceAt (resolvedInfixIndex op) (ambiguousFixityName sp op) names))
+    Nothing ->
+      pure (rebuildInfixExpr fallbackExpr operands ops)
+
+ambiguousFixityName :: SourceSpan -> ResolvedInfixOp -> Name
+ambiguousFixityName ambient op =
+  name
+    { nameAnns =
+        mkAnnotation
           ( ResolutionAnnotation
-              (spanStartNameSpan sp (nameText (resolvedInfixName op)))
-              (nameText (resolvedInfixName op))
+              (effectiveResolutionSpan (spanStartNameSpan ambient (nameText name)) (sourceSpanFromAnns (nameAnns name)))
+              (nameText name)
               ResolutionNamespaceTerm
               (ResolvedError "ambiguous fixity")
           )
-          fallbackExpr
-    Nothing ->
-      pure (rebuildInfixExpr fallbackExpr operands ops)
+          : filter (not . isResolutionAnnotation) (nameAnns name)
+    }
+  where
+    name = resolvedInfixName op
+
+isResolutionAnnotation :: Annotation -> Bool
+isResolutionAnnotation ann =
+  not (null (maybeToList (fromAnnotation ann :: Maybe ResolutionAnnotation)))
+
+replaceAt :: Int -> a -> [a] -> [a]
+replaceAt index replacement =
+  zipWith (\i value -> if i == index then replacement else value) [0 :: Int ..]
 
 buildLeftInfixExpr :: Expr -> [Expr] -> [Name] -> Expr
 buildLeftInfixExpr fallbackExpr [] _ = fallbackExpr

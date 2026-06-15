@@ -121,7 +121,7 @@ collectAnnotationList :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -
 collectAnnotationList renderAnnotation original reparsed = do
   originalAnns <- cast original
   reparsedAnns <- cast reparsed
-  pure (labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) originalAnns)
+  pure (labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) (nonSpanAnnotations originalAnns))
 
 collectAnnotation :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectAnnotation renderAnnotation original reparsed = do
@@ -137,7 +137,7 @@ collectWrapped ::
   node ->
   [PlacedLabel]
 collectWrapped renderAnnotation peel original reparsed =
-  labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) originalAnns
+  labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) (nonSpanAnnotations originalAnns)
     <> collectGeneric renderAnnotation originalBase reparsedBase
   where
     (originalAnns, originalBase) = peelLeading peel original
@@ -357,6 +357,10 @@ spanFromAnnotations =
 spanFromAnnotation :: Annotation -> SourceSpan
 spanFromAnnotation =
   fromMaybe NoSourceSpan . fromAnnotation @SourceSpan
+
+nonSpanAnnotations :: [Annotation] -> [Annotation]
+nonSpanAnnotations =
+  filter ((== NoSourceSpan) . spanFromAnnotation)
 
 firstConcreteSpan :: [SourceSpan] -> Maybe SourceSpan
 firstConcreteSpan =

@@ -35,6 +35,7 @@ main =
       "aihc-testing"
       [ testCase "reconstructs spans for generated modules" testGeneratedModuleSpans,
         testCase "renders a single annotation" testSingleAnnotation,
+        testCase "renders wrapper annotations independent of order" testWrapperAnnotationOrder,
         testCase "stacks overlapping annotations deterministically" testOverlappingAnnotations,
         testCase "packs non-overlapping annotations on one line" testPackedAnnotations,
         testCase "throws on pretty/reparse parse failure" testParseFailure,
@@ -61,6 +62,19 @@ testSingleAnnotation = do
     "rendered annotation"
     "x = 1\n\9492\9472 decl"
     (renderAnnotatedModule testConfig testAnnotationDoc modu)
+
+testWrapperAnnotationOrder :: IO ()
+testWrapperAnnotationOrder = do
+  let parsed = parseModuleOrFail "x = 1"
+      expected = "x = 1\n\9492\9472 decl"
+  assertEqual
+    "annotation outside source span"
+    expected
+    (renderAnnotatedModule testConfig testAnnotationDoc (annotateFirstDecl "decl" parsed))
+  assertEqual
+    "annotation inside source span"
+    expected
+    (renderAnnotatedModule testConfig testAnnotationDoc (annotateFirstDeclInsideSpan "decl" parsed))
 
 testOverlappingAnnotations :: IO ()
 testOverlappingAnnotations = do
@@ -129,6 +143,13 @@ annotateFirstDecl label modu =
   case moduleDecls modu of
     decl : rest -> modu {moduleDecls = DeclAnn (mkAnnotation (TestAnnotation label)) decl : rest}
     [] -> error "annotateFirstDecl: module has no declarations"
+
+annotateFirstDeclInsideSpan :: String -> Module -> Module
+annotateFirstDeclInsideSpan label modu =
+  case moduleDecls modu of
+    DeclAnn ann inner : rest -> modu {moduleDecls = DeclAnn ann (DeclAnn (mkAnnotation (TestAnnotation label)) inner) : rest}
+    decl : rest -> modu {moduleDecls = DeclAnn (mkAnnotation (TestAnnotation label)) decl : rest}
+    [] -> error "annotateFirstDeclInsideSpan: module has no declarations"
 
 annotateRhsName :: String -> Module -> Module
 annotateRhsName label modu =
