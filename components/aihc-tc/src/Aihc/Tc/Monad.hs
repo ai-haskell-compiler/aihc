@@ -38,6 +38,7 @@ module Aihc.Tc.Monad
     lookupResolvedTerm,
     resolvedTermKey,
     resolvedTermTarget,
+    resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
     extendTermEnv,
     extendResolvedTermEnv,
@@ -283,6 +284,14 @@ lookupTermKey key =
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
   resolvedNameTermKey (nameText name) =<< resolvedTermTarget name
+
+resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM TcTermKey
+resolvedUnqualifiedTermKey name =
+  case termResolution (unqualifiedNameAnns name) of
+    Just resolution ->
+      resolvedNameTermKey (unqualifiedNameText name) (resolutionTarget resolution)
+    Nothing ->
+      abortTc ("missing resolver annotation for binder " <> show (unqualifiedNameText name))
 
 resolvedNameTermKey :: Text -> ResolvedName -> TcM TcTermKey
 resolvedNameTermKey displayName resolved =

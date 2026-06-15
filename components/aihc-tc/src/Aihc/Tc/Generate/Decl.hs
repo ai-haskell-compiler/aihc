@@ -83,7 +83,6 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
-import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -243,11 +242,11 @@ tcModule m = do
   --          and report their types.
   mapM_ registerDecl (moduleDecls m)
   -- Phase 2: collect type signatures and convert them to schemes.
-  let rawSigs = collectUserSigs (moduleDecls m)
+  rawSigs <- collectUserSigs (moduleDecls m)
   schemes <- traverse checkUserSig rawSigs
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
-      grouped = sortDeclGroups sourceGroups
+  grouped <- sortDeclGroups sourceGroups
   groupResults <- mapM (tcDeclGroup schemes) grouped
   let valueResults = concatMap tcGroupBindingResults groupResults
       checkedGroups =
@@ -607,23 +606,28 @@ substType :: Map Unique TcType -> TcType -> TcType
 substType = Aihc.Tc.Instantiate.applySubst
 
 -- | Collect type signatures from a list of declarations.
-collectUserSigs :: [Decl] -> Map Text UserSig
-collectUserSigs decls = Map.fromList $ concatMap (extractSig NoSourceSpan) decls
+collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
+collectUserSigs decls = Map.fromList . concat <$> mapM (extractSig NoSourceSpan) decls
   where
     extractSig ambient (DeclTypeSig names ty) =
-      [ (name, UserSig name ty sigSp)
-      | n <- names,
-        let name = unqualifiedNameText n,
-        let sigSp = ambient `orSourceSpan` unqualifiedNameSpan n `orSourceSpan` typeSpan ty
-      ]
+      mapM
+        ( \n -> do
+            key <- resolvedUnqualifiedTermKey n
+            let name = unqualifiedNameText n
+                sigSp = ambient `orSourceSpan` unqualifiedNameSpan n `orSourceSpan` typeSpan ty
+            pure (key, UserSig name ty sigSp)
+        )
+        names
     extractSig ambient (DeclForeign foreignDecl)
       | isForeignImport foreignDecl =
-          let name = unqualifiedNameText (foreignName foreignDecl)
-              sigSp = ambient `orSourceSpan` unqualifiedNameSpan (foreignName foreignDecl) `orSourceSpan` typeSpan (foreignType foreignDecl)
-           in [(name, UserSig name (foreignType foreignDecl) sigSp)]
+          do
+            key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
+            let name = unqualifiedNameText (foreignName foreignDecl)
+                sigSp = ambient `orSourceSpan` unqualifiedNameSpan (foreignName foreignDecl) `orSourceSpan` typeSpan (foreignType foreignDecl)
+            pure [(key, UserSig name (foreignType foreignDecl) sigSp)]
     extractSig ambient (DeclAnn ann inner) =
       extractSig (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
-    extractSig _ _ = []
+    extractSig _ _ = pure []
 
 checkUserSig :: UserSig -> TcM CheckedSig
 checkUserSig userSig = do
@@ -670,6 +674,11 @@ data DeclGroup
   = SingleDecl Decl
   | MergedFunctionBind SourceSpan UnqualifiedName [Decl] [Match]
 
+data DeclGraphKey
+  = DeclGraphBinder !TcTermKey
+  | DeclGraphSynthetic !Int
+  deriving (Eq, Ord, Show)
+
 -- | Group consecutive FunctionBind declarations with the same name.
 groupValueDecls :: [Decl] -> [DeclGroup]
 groupValueDecls [] = []
@@ -698,39 +707,46 @@ hasSameName name d = case extractFunctionBind d of
 
 -- | Sort top-level groups so acyclic forward references are checked after
 -- their dependencies have been generalized into the global environment.
-sortDeclGroups :: [(Int, DeclGroup)] -> [(Int, DeclGroup)]
-sortDeclGroups groups =
-  concatMap flattenScc (stronglyConnComp nodes)
+sortDeclGroups :: [(Int, DeclGroup)] -> TcM [(Int, DeclGroup)]
+sortDeclGroups groups = do
+  allBinders <- Set.unions <$> mapM (fmap Set.fromList . declGroupBinderKeys . snd) groups
+  nodes <- mapM (declGraphNode allBinders) groups
+  pure (concatMap flattenScc (stronglyConnComp nodes))
   where
-    allBinders = Set.fromList (concatMap (declGroupBinders . snd) groups)
-    nodes =
-      [ (numberedGroup, groupKey groupId group, Set.toList (Set.intersection allBinders (Set.fromList (freeVarsGroup group))))
-      | numberedGroup@(groupId, group) <- groups
-      ]
     flattenScc (AcyclicSCC group) = [group]
     flattenScc (CyclicSCC cyclicGroups) = cyclicGroups
 
-groupKey :: Int -> DeclGroup -> Text
-groupKey ix group =
-  case declGroupBinders group of
-    name : _ -> name
-    [] -> "<decl-" <> fromString (show ix) <> ">"
+declGraphNode :: Set.Set TcTermKey -> (Int, DeclGroup) -> TcM ((Int, DeclGroup), DeclGraphKey, [DeclGraphKey])
+declGraphNode allBinders numberedGroup@(groupId, group) = do
+  key <- groupKey groupId group
+  freeVars <- freeVarsGroup group
+  let deps = map DeclGraphBinder (Set.toList (Set.intersection allBinders freeVars))
+  pure (numberedGroup, key, deps)
 
-declGroupBinders :: DeclGroup -> [Text]
-declGroupBinders group =
+groupKey :: Int -> DeclGroup -> TcM DeclGraphKey
+groupKey ix group = do
+  keys <- declGroupBinderKeys group
+  case keys of
+    key : _ -> pure (DeclGraphBinder key)
+    [] -> pure (DeclGraphSynthetic ix)
+
+declGroupBinderKeys :: DeclGroup -> TcM [TcTermKey]
+declGroupBinderKeys group =
   case group of
-    MergedFunctionBind _sp binder _decls _matches -> [unqualifiedNameText binder]
+    MergedFunctionBind _sp binder _decls _matches -> (: []) <$> resolvedUnqualifiedTermKey binder
     SingleDecl decl ->
       case peelDeclAnn decl of
-        DeclValue (FunctionBind binder _) -> [unqualifiedNameText binder]
-        DeclValue (PatternBind _ pat _) -> maybe [] ((: []) . snd) (patternBinderName pat)
-        _ -> []
+        DeclValue (FunctionBind binder _) -> (: []) <$> resolvedUnqualifiedTermKey binder
+        DeclValue (PatternBind _ pat _) -> maybe (pure []) (fmap (: []) . resolvedUnqualifiedTermKey) (patternBinderSyntaxName pat)
+        _ -> pure []
 
-freeVarsGroup :: DeclGroup -> [Text]
+freeVarsGroup :: DeclGroup -> TcM (Set.Set TcTermKey)
 freeVarsGroup group =
   case group of
-    MergedFunctionBind _sp binder _decls matches ->
-      concatMap freeVarsMatch matches \\ [unqualifiedNameText binder]
+    MergedFunctionBind _sp binder _decls matches -> do
+      vars <- Set.unions <$> mapM freeVarsMatch matches
+      binderKey <- resolvedUnqualifiedTermKey binder
+      pure (Set.delete binderKey vars)
     SingleDecl decl -> freeVarsDecl decl
 
 renderDeclGroup :: DeclGroup -> [Decl]
@@ -775,70 +791,116 @@ replaceInstancePatternBindRhs rhs item =
     InstanceItemBind (PatternBind mult pat _) -> InstanceItemBind (PatternBind mult pat rhs)
     _ -> item
 
-freeVarsDecl :: Decl -> [Text]
+freeVarsDecl :: Decl -> TcM (Set.Set TcTermKey)
 freeVarsDecl decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind binder matches) ->
-      concatMap freeVarsMatch matches \\ [unqualifiedNameText binder]
-    DeclValue (PatternBind _ pat rhs) ->
-      freeVarsRhs rhs \\ patternBinders pat
-    _ -> []
+    DeclValue (FunctionBind binder matches) -> do
+      vars <- Set.unions <$> mapM freeVarsMatch matches
+      binderKey <- resolvedUnqualifiedTermKey binder
+      pure (Set.delete binderKey vars)
+    DeclValue (PatternBind _ pat rhs) -> do
+      vars <- freeVarsRhs rhs
+      binders <- patternBinderKeys pat
+      pure (Set.difference vars binders)
+    _ -> pure Set.empty
 
-freeVarsMatch :: Match -> [Text]
-freeVarsMatch match =
-  freeVarsRhs (matchRhs match) \\ concatMap patternBinders (matchPats match)
+freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
+freeVarsMatch match = do
+  vars <- freeVarsRhs (matchRhs match)
+  binders <- Set.unions <$> mapM patternBinderKeys (matchPats match)
+  pure (Set.difference vars binders)
 
-freeVarsRhs :: Rhs Expr -> [Text]
+freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsRhs rhs =
   case rhs of
-    UnguardedRhs _ expr maybeDecls ->
-      freeVarsExpr expr ++ maybe [] (concatMap freeVarsDecl) maybeDecls
+    UnguardedRhs _ expr maybeDecls -> do
+      exprVars <- freeVarsExpr expr
+      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
+      pure (exprVars <> declVars)
     GuardedRhss _ _ maybeDecls ->
-      maybe [] (concatMap freeVarsDecl) maybeDecls
+      maybe (pure Set.empty) freeVarsDecls maybeDecls
 
-freeVarsExpr :: Expr -> [Text]
+freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
+freeVarsDecls decls =
+  Set.unions <$> mapM freeVarsDecl decls
+
+freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
 freeVarsExpr expr =
   case expr of
-    EVar name -> [nameToText name]
+    EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
-    EIf cond trueBranch falseBranch ->
-      freeVarsExpr cond ++ freeVarsExpr trueBranch ++ freeVarsExpr falseBranch
-    ELambdaPats pats body ->
-      freeVarsExpr body \\ concatMap patternBinders pats
-    EInfix lhs op rhs ->
-      nameToText op : freeVarsExpr lhs ++ freeVarsExpr rhs
+    EIf cond trueBranch falseBranch -> Set.unions <$> mapM freeVarsExpr [cond, trueBranch, falseBranch]
+    ELambdaPats pats body -> do
+      bodyVars <- freeVarsExpr body
+      binders <- Set.unions <$> mapM patternBinderKeys pats
+      pure (Set.difference bodyVars binders)
+    EInfix lhs op rhs -> do
+      lhsVars <- freeVarsExpr lhs
+      rhsVars <- freeVarsExpr rhs
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey (lhsVars <> rhsVars))
     ENegate inner -> freeVarsExpr inner
-    ESectionL inner op -> nameToText op : freeVarsExpr inner
-    ESectionR op inner -> nameToText op : freeVarsExpr inner
-    ELetDecls decls body ->
-      let localBinders = concatMap declBinders decls
-       in (concatMap freeVarsDecl decls ++ freeVarsExpr body) \\ localBinders
-    ECase scrut alts ->
-      freeVarsExpr scrut ++ concatMap freeVarsAlt alts
+    ESectionL inner op -> do
+      innerVars <- freeVarsExpr inner
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey innerVars)
+    ESectionR op inner -> do
+      innerVars <- freeVarsExpr inner
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey innerVars)
+    ELetDecls decls body -> do
+      declVars <- freeVarsDecls decls
+      bodyVars <- freeVarsExpr body
+      localBinders <- declBinderKeys decls
+      pure (Set.difference (declVars <> bodyVars) localBinders)
+    ECase scrut alts -> do
+      scrutVars <- freeVarsExpr scrut
+      altVars <- Set.unions <$> mapM freeVarsAlt alts
+      pure (scrutVars <> altVars)
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
-    EList items -> concatMap freeVarsExpr items
-    ETuple _ items -> concatMap (maybe [] freeVarsExpr) items
-    EApp fun arg -> freeVarsExpr fun ++ freeVarsExpr arg
-    _ -> []
+    EList items -> Set.unions <$> mapM freeVarsExpr items
+    ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EApp fun arg -> do
+      funVars <- freeVarsExpr fun
+      argVars <- freeVarsExpr arg
+      pure (funVars <> argVars)
+    _ -> pure Set.empty
 
-nameToText :: Name -> Text
-nameToText name =
-  case nameQualifier name of
-    Nothing -> nameText name
-    Just qualifier -> qualifier <> "." <> nameText name
+freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
+freeVarsAlt (CaseAlt _ pat rhs) = do
+  vars <- freeVarsRhs rhs
+  binders <- patternBinderKeys pat
+  pure (Set.difference vars binders)
 
-freeVarsAlt :: CaseAlt Expr -> [Text]
-freeVarsAlt (CaseAlt _ pat rhs) =
-  freeVarsRhs rhs \\ patternBinders pat
+declBinderKeys :: [Decl] -> TcM (Set.Set TcTermKey)
+declBinderKeys decls =
+  Set.unions <$> mapM declBinderKeySet decls
 
-declBinders :: Decl -> [Text]
-declBinders decl =
+declBinderKeySet :: Decl -> TcM (Set.Set TcTermKey)
+declBinderKeySet decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind binder _) -> [unqualifiedNameText binder]
-    DeclValue (PatternBind _ pat _) -> patternBinders pat
-    DeclTypeSig names _ -> map unqualifiedNameText names
-    _ -> []
+    DeclValue (FunctionBind binder _) -> Set.singleton <$> resolvedUnqualifiedTermKey binder
+    DeclValue (PatternBind _ pat _) -> patternBinderKeys pat
+    _ -> pure Set.empty
+
+patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
+patternBinderKeys pat =
+  case pat of
+    PVar name -> Set.singleton <$> resolvedUnqualifiedTermKey name
+    PAnn _ inner -> patternBinderKeys inner
+    PParen inner -> patternBinderKeys inner
+    PAs name inner -> do
+      key <- resolvedUnqualifiedTermKey name
+      Set.insert key <$> patternBinderKeys inner
+    PStrict inner -> patternBinderKeys inner
+    PIrrefutable inner -> patternBinderKeys inner
+    PCon _ _ pats -> Set.unions <$> mapM patternBinderKeys pats
+    PInfix lhs _ rhs -> do
+      lhsKeys <- patternBinderKeys lhs
+      rhsKeys <- patternBinderKeys rhs
+      pure (lhsKeys <> rhsKeys)
+    _ -> pure Set.empty
 
 patternBinders :: Pattern -> [Text]
 patternBinders pat =
@@ -854,28 +916,30 @@ patternBinders pat =
     _ -> []
 
 -- | Type-check a declaration group.
-tcDeclGroup :: Map Text CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult
+tcDeclGroup :: Map TcTermKey CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult
 tcDeclGroup sigs (groupId, group) =
   case group of
     SingleDecl d -> tcSingleDeclGroup sigs groupId d
     MergedFunctionBind _sp binder decls matches -> tcMergedFunctionGroup sigs groupId binder decls matches
 
-tcSingleDeclGroup :: Map Text CheckedSig -> Int -> Decl -> TcM TcDeclGroupResult
+tcSingleDeclGroup :: Map TcTermKey CheckedSig -> Int -> Decl -> TcM TcDeclGroupResult
 tcSingleDeclGroup sigs groupId d =
   case peelDeclAnn d of
-    DeclValue (PatternBind _ pat rhs)
-      | Just (displayName, name) <- patternBinderName pat,
-        Just sig <- Map.lookup name sigs ->
-          do
-            (maybeMatches, bindings) <- tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
-            let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
-            pure (TcDeclGroupResult groupId bindings annotatedDecls)
-    DeclValue (PatternBind _ pat rhs)
-      | Just (displayName, name) <- patternBinderName pat -> do
-          (maybeMatches, bindings) <- tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
+    DeclValue (PatternBind _ pat rhs) ->
+      case patternBinderSyntaxName pat of
+        Just binder -> do
+          key <- resolvedUnqualifiedTermKey binder
+          let displayName = renderBinderName binder
+              name = unqualifiedNameText binder
+          (maybeMatches, bindings) <-
+            case Map.lookup key sigs of
+              Just sig ->
+                tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+              Nothing ->
+                tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
           pure (TcDeclGroupResult groupId bindings annotatedDecls)
-      | otherwise -> do
+        Nothing -> do
           ((rhs', ty), failed) <- withErrorTracking (tcRhs rhs)
           if failed
             then pure (TcDeclGroupResult groupId [] Nothing)
@@ -887,11 +951,12 @@ tcSingleDeclGroup sigs groupId d =
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
 
-tcMergedFunctionGroup :: Map Text CheckedSig -> Int -> UnqualifiedName -> [Decl] -> [Match] -> TcM TcDeclGroupResult
+tcMergedFunctionGroup :: Map TcTermKey CheckedSig -> Int -> UnqualifiedName -> [Decl] -> [Match] -> TcM TcDeclGroupResult
 tcMergedFunctionGroup sigs groupId binder decls matches = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
-  (maybeMatches, bindings) <- case Map.lookup name sigs of
+  key <- resolvedUnqualifiedTermKey binder
+  (maybeMatches, bindings) <- case Map.lookup key sigs of
     Just sig -> do
       -- Use the declared type signature for checking.
       tcFunctionWithSig displayName name sig matches
@@ -1237,11 +1302,15 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
 -- variable pattern.  Returns @(displayName, envName)@ for simple variable
 -- patterns (possibly wrapped in parens or annotations), 'Nothing' for
 -- non-trivial patterns like tuples or constructors.
+patternBinderSyntaxName :: Pattern -> Maybe UnqualifiedName
+patternBinderSyntaxName (PVar n) = Just n
+patternBinderSyntaxName (PParen inner) = patternBinderSyntaxName inner
+patternBinderSyntaxName (PAnn _ inner) = patternBinderSyntaxName inner
+patternBinderSyntaxName _ = Nothing
+
 patternBinderName :: Pattern -> Maybe (Text, Text)
-patternBinderName (PVar n) = Just (renderBinderName n, unqualifiedNameText n)
-patternBinderName (PParen inner) = patternBinderName inner
-patternBinderName (PAnn _ inner) = patternBinderName inner
-patternBinderName _ = Nothing
+patternBinderName pat =
+  (\n -> (renderBinderName n, unqualifiedNameText n)) <$> patternBinderSyntaxName pat
 
 zeroArgMatch :: SourceSpan -> Rhs Expr -> Match
 zeroArgMatch sp rhs =
