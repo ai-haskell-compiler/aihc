@@ -2,8 +2,9 @@ annotated:
 - |-
   module Test where
   data List a = [] | a : [a]
-  └─ type: * → *│    └─ type: a → [a] → [a]
-                └─ type: [a]
+       │        │    └─ type: a → [a] → [a]
+       │        └─ type: [a]
+       └─ type: * → *
   infixr 5 :
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys

@@ -2,8 +2,9 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-  └─ type: *  │      └─ type: Bool
-              └─ type: Bool
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   filter f list = [ x | x <- list, f x ]
   │      │ └─ type: [a] └─ type: a
   │      └─ type: a → Bool

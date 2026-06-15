@@ -2,7 +2,8 @@ annotated:
 - |-
   module Test where
   data Truth = True
-  └─ type: *   └─ type: Truth
+       │       └─ type: Truth
+       └─ type: *
   id x = x
   │  └─ type: a
   └─ type: ∀ a. a → a

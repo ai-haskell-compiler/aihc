@@ -2,8 +2,9 @@ annotated:
 - |-
   module Test where
   data Bool = False | True
-  └─ type: *  │       └─ type: Bool
-              └─ type: Bool
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   class Eq a where
   └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
     (==) :: a -> a -> Bool

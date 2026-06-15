@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   data Word64
-  └─ type: *
+       └─ type: *
   foreign import ccall unsafe "rdtsc.h" rdtsc :: Word64
   └─ type: Word64
   test = rdtsc

@@ -2,8 +2,9 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-  └─ type: *  │      └─ type: Bool
-              └─ type: Bool
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   not True = False
   └─ type: Bool → Bool
   not False = True

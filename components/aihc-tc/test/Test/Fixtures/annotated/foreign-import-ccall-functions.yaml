@@ -2,9 +2,9 @@ annotated:
 - |-
   module Test where
   data CInt
-  └─ type: *
+       └─ type: *
   data IO a
-  └─ type: * → *
+       └─ type: * → *
   foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
   └─ type: CInt → IO CInt
   foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt

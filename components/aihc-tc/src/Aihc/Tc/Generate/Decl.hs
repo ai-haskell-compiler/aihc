@@ -16,6 +16,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
+    BinderHead (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -334,7 +335,20 @@ annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
-  pure (annotateDeclAt (unqualifiedNameSpan (binderHeadName (dataDeclHead dataDecl))) (TcAnnotation ty [] [] []) (DeclData (dataDecl {dataDeclConstructors = constructors})))
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
+  pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
+
+annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
+annotateBinderHeadName tcAnn head' =
+  case head' of
+    PrefixBinderHead name params ->
+      PrefixBinderHead (annotateUnqualifiedName tcAnn name) params
+    InfixBinderHead lhs name rhs params ->
+      InfixBinderHead lhs (annotateUnqualifiedName tcAnn name) rhs params
+
+annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
+annotateUnqualifiedName tcAnn name =
+  name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation tcAnn]}
 
 annotateDataConDeclTc :: DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc dataConDecl = do
