@@ -2,18 +2,17 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: *
+  └─ type: *  │      └─ type: Bool
+              └─ type: Bool
   f x = let y = x + one in y
   │ │       │     └─ type: a → Bool → a; type-args: a, Bool
   │ │       └─ type: a
   │ └─ type: a
   └─ type: ∀ a. a → a
   (+) a b = a
-   │  │ └─ type: b
-   │  └─ type: a
-   └─ type: ∀ a b. a → b → a
+  │   │ └─ type: b
+  │   └─ type: a
+  └─ type: ∀ a b. a → b → a
   one = True
   └─ type: Bool
 extensions: []

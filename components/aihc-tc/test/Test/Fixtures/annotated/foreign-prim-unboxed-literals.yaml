@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   foreign import prim (+#) :: Int# -> Int# -> Int#
-                       └─ type: Int# → Int# → Int#
+  └─ type: Int# → Int# → Int#
   int# = 10#
   └─ type: Int#
   word# = 10##

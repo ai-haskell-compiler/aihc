@@ -2,11 +2,10 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: *
+  └─ type: *  │      └─ type: Bool
+              └─ type: Bool
   data GADT a where
-       └─ type: * → *
+  └─ type: * → *
     IsBool :: GADT Bool
     └─ type: GADT Bool
   not True = False

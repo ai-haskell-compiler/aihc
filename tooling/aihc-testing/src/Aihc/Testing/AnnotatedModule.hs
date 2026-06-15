@@ -129,117 +129,91 @@ collectAnnotation renderAnnotation original reparsed = do
   reparsedAnn <- cast reparsed
   pure (labelsAt renderAnnotation (spanFromAnnotation reparsedAnn) [originalAnn])
 
+collectWrapped ::
+  (Data node) =>
+  (Annotation -> Maybe (Doc ann)) ->
+  (node -> Maybe (Annotation, node)) ->
+  node ->
+  node ->
+  [PlacedLabel]
+collectWrapped renderAnnotation peel original reparsed =
+  labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) originalAnns
+    <> collectGeneric renderAnnotation originalBase reparsedBase
+  where
+    (originalAnns, originalBase) = peelLeading peel original
+    (reparsedAnns, reparsedBase) = peelLeading peel reparsed
+
+peelLeading :: (node -> Maybe (Annotation, node)) -> node -> ([Annotation], node)
+peelLeading peel =
+  go []
+  where
+    go anns node =
+      case peel node of
+        Just (ann, inner) -> go (ann : anns) inner
+        Nothing -> (reverse anns, node)
+
 collectExpr :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectExpr renderAnnotation original reparsed = do
   originalExpr <- cast original
   reparsedExpr <- cast reparsed
-  pure $
-    case (originalExpr, reparsedExpr) of
-      (EAnn originalAnn originalInner, EAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (EAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedExpr) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedExpr
-      (_, EAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalExpr reparsedInner
-      _ -> collectGeneric renderAnnotation originalExpr reparsedExpr
+  pure (collectWrapped renderAnnotation peelExprAnn originalExpr reparsedExpr)
+  where
+    peelExprAnn (EAnn ann inner) = Just (ann, inner)
+    peelExprAnn _ = Nothing
 
 collectType :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectType renderAnnotation original reparsed = do
   originalType <- cast original
   reparsedType <- cast reparsed
-  pure $
-    case (originalType, reparsedType) of
-      (TAnn originalAnn originalInner, TAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (TAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedType) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedType
-      (_, TAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalType reparsedInner
-      _ -> collectGeneric renderAnnotation originalType reparsedType
+  pure (collectWrapped renderAnnotation peelTypeAnn originalType reparsedType)
+  where
+    peelTypeAnn (TAnn ann inner) = Just (ann, inner)
+    peelTypeAnn _ = Nothing
 
 collectPattern :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectPattern renderAnnotation original reparsed = do
   originalPattern <- cast original
   reparsedPattern <- cast reparsed
-  pure $
-    case (originalPattern, reparsedPattern) of
-      (PAnn originalAnn originalInner, PAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (PAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedPattern) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedPattern
-      (_, PAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalPattern reparsedInner
-      _ -> collectGeneric renderAnnotation originalPattern reparsedPattern
+  pure (collectWrapped renderAnnotation peelPatternAnn originalPattern reparsedPattern)
+  where
+    peelPatternAnn (PAnn ann inner) = Just (ann, inner)
+    peelPatternAnn _ = Nothing
 
 collectDecl :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectDecl renderAnnotation original reparsed = do
   originalDecl <- cast original
   reparsedDecl <- cast reparsed
-  pure $
-    case (originalDecl, reparsedDecl) of
-      (DeclAnn originalAnn originalInner, DeclAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (DeclAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedDecl) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedDecl
-      (_, DeclAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalDecl reparsedInner
-      _ -> collectGeneric renderAnnotation originalDecl reparsedDecl
+  pure (collectWrapped renderAnnotation peelDeclAnn originalDecl reparsedDecl)
+  where
+    peelDeclAnn (DeclAnn ann inner) = Just (ann, inner)
+    peelDeclAnn _ = Nothing
 
 collectDataConDecl :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectDataConDecl renderAnnotation original reparsed = do
   originalDecl <- cast original
   reparsedDecl <- cast reparsed
-  pure $
-    case (originalDecl, reparsedDecl) of
-      (DataConAnn originalAnn originalInner, DataConAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (DataConAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedDecl) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedDecl
-      (_, DataConAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalDecl reparsedInner
-      _ -> collectGeneric renderAnnotation originalDecl reparsedDecl
+  pure (collectWrapped renderAnnotation peelDataConAnn originalDecl reparsedDecl)
+  where
+    peelDataConAnn (DataConAnn ann inner) = Just (ann, inner)
+    peelDataConAnn _ = Nothing
 
 collectLiteral :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectLiteral renderAnnotation original reparsed = do
   originalLiteral <- cast original
   reparsedLiteral <- cast reparsed
-  pure $
-    case (originalLiteral, reparsedLiteral) of
-      (LitAnn originalAnn originalInner, LitAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (LitAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedLiteral) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedLiteral
-      (_, LitAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalLiteral reparsedInner
-      _ -> collectGeneric renderAnnotation originalLiteral reparsedLiteral
+  pure (collectWrapped renderAnnotation peelLiteralAnn originalLiteral reparsedLiteral)
+  where
+    peelLiteralAnn (LitAnn ann inner) = Just (ann, inner)
+    peelLiteralAnn _ = Nothing
 
 collectGuardQualifier :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectGuardQualifier renderAnnotation original reparsed = do
   originalQualifier <- cast original
   reparsedQualifier <- cast reparsed
-  pure $
-    case (originalQualifier, reparsedQualifier) of
-      (GuardAnn originalAnn originalInner, GuardAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (GuardAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedQualifier) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedQualifier
-      (_, GuardAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalQualifier reparsedInner
-      _ -> collectGeneric renderAnnotation originalQualifier reparsedQualifier
+  pure (collectWrapped renderAnnotation peelGuardAnn originalQualifier reparsedQualifier)
+  where
+    peelGuardAnn (GuardAnn ann inner) = Just (ann, inner)
+    peelGuardAnn _ = Nothing
 
 collectDoStmtExpr :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectDoStmtExpr renderAnnotation original reparsed = do
@@ -254,129 +228,74 @@ collectDoStmtCmd renderAnnotation original reparsed = do
   pure (collectDoStmtPair renderAnnotation originalStmt reparsedStmt)
 
 collectDoStmtPair :: (Data body) => (Annotation -> Maybe (Doc ann)) -> DoStmt body -> DoStmt body -> [PlacedLabel]
-collectDoStmtPair renderAnnotation originalStmt reparsedStmt =
-  case (originalStmt, reparsedStmt) of
-    (DoAnn originalAnn originalInner, DoAnn reparsedAnn reparsedInner) ->
-      labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-        <> collectPair renderAnnotation originalInner reparsedInner
-    (DoAnn originalAnn originalInner, _) ->
-      labelsAt renderAnnotation (firstSourceSpan reparsedStmt) [originalAnn]
-        <> collectPair renderAnnotation originalInner reparsedStmt
-    (_, DoAnn _ reparsedInner) ->
-      collectPair renderAnnotation originalStmt reparsedInner
-    _ -> collectGeneric renderAnnotation originalStmt reparsedStmt
+collectDoStmtPair renderAnnotation =
+  collectWrapped renderAnnotation peelDoAnn
+  where
+    peelDoAnn (DoAnn ann inner) = Just (ann, inner)
+    peelDoAnn _ = Nothing
 
 collectCompStmt :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectCompStmt renderAnnotation original reparsed = do
   originalStmt <- cast original
   reparsedStmt <- cast reparsed
-  pure $
-    case (originalStmt, reparsedStmt) of
-      (CompAnn originalAnn originalInner, CompAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (CompAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedStmt) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedStmt
-      (_, CompAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalStmt reparsedInner
-      _ -> collectGeneric renderAnnotation originalStmt reparsedStmt
+  pure (collectWrapped renderAnnotation peelCompAnn originalStmt reparsedStmt)
+  where
+    peelCompAnn (CompAnn ann inner) = Just (ann, inner)
+    peelCompAnn _ = Nothing
 
 collectArithSeq :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectArithSeq renderAnnotation original reparsed = do
   originalSeq <- cast original
   reparsedSeq <- cast reparsed
-  pure $
-    case (originalSeq, reparsedSeq) of
-      (ArithSeqAnn originalAnn originalInner, ArithSeqAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (ArithSeqAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedSeq) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedSeq
-      (_, ArithSeqAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalSeq reparsedInner
-      _ -> collectGeneric renderAnnotation originalSeq reparsedSeq
+  pure (collectWrapped renderAnnotation peelArithSeqAnn originalSeq reparsedSeq)
+  where
+    peelArithSeqAnn (ArithSeqAnn ann inner) = Just (ann, inner)
+    peelArithSeqAnn _ = Nothing
 
 collectClassDeclItem :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectClassDeclItem renderAnnotation original reparsed = do
   originalItem <- cast original
   reparsedItem <- cast reparsed
-  pure $
-    case (originalItem, reparsedItem) of
-      (ClassItemAnn originalAnn originalInner, ClassItemAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (ClassItemAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedItem
-      (_, ClassItemAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalItem reparsedInner
-      _ -> collectGeneric renderAnnotation originalItem reparsedItem
+  pure (collectWrapped renderAnnotation peelClassItemAnn originalItem reparsedItem)
+  where
+    peelClassItemAnn (ClassItemAnn ann inner) = Just (ann, inner)
+    peelClassItemAnn _ = Nothing
 
 collectInstanceDeclItem :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectInstanceDeclItem renderAnnotation original reparsed = do
   originalItem <- cast original
   reparsedItem <- cast reparsed
-  pure $
-    case (originalItem, reparsedItem) of
-      (InstanceItemAnn originalAnn originalInner, InstanceItemAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (InstanceItemAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedItem
-      (_, InstanceItemAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalItem reparsedInner
-      _ -> collectGeneric renderAnnotation originalItem reparsedItem
+  pure (collectWrapped renderAnnotation peelInstanceItemAnn originalItem reparsedItem)
+  where
+    peelInstanceItemAnn (InstanceItemAnn ann inner) = Just (ann, inner)
+    peelInstanceItemAnn _ = Nothing
 
 collectCmd :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectCmd renderAnnotation original reparsed = do
   originalCmd <- cast original
   reparsedCmd <- cast reparsed
-  pure $
-    case (originalCmd, reparsedCmd) of
-      (CmdAnn originalAnn originalInner, CmdAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (CmdAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedCmd) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedCmd
-      (_, CmdAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalCmd reparsedInner
-      _ -> collectGeneric renderAnnotation originalCmd reparsedCmd
+  pure (collectWrapped renderAnnotation peelCmdAnn originalCmd reparsedCmd)
+  where
+    peelCmdAnn (CmdAnn ann inner) = Just (ann, inner)
+    peelCmdAnn _ = Nothing
 
 collectExportSpec :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectExportSpec renderAnnotation original reparsed = do
   originalSpec <- cast original
   reparsedSpec <- cast reparsed
-  pure $
-    case (originalSpec, reparsedSpec) of
-      (ExportAnn originalAnn originalInner, ExportAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (ExportAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedSpec) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedSpec
-      (_, ExportAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalSpec reparsedInner
-      _ -> collectGeneric renderAnnotation originalSpec reparsedSpec
+  pure (collectWrapped renderAnnotation peelExportAnn originalSpec reparsedSpec)
+  where
+    peelExportAnn (ExportAnn ann inner) = Just (ann, inner)
+    peelExportAnn _ = Nothing
 
 collectImportItem :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> Maybe [PlacedLabel]
 collectImportItem renderAnnotation original reparsed = do
   originalItem <- cast original
   reparsedItem <- cast reparsed
-  pure $
-    case (originalItem, reparsedItem) of
-      (ImportAnn originalAnn originalInner, ImportAnn reparsedAnn reparsedInner) ->
-        labelsAt renderAnnotation (annotationCarrierSpan reparsedAnn reparsedInner) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedInner
-      (ImportAnn originalAnn originalInner, _) ->
-        labelsAt renderAnnotation (firstSourceSpan reparsedItem) [originalAnn]
-          <> collectPair renderAnnotation originalInner reparsedItem
-      (_, ImportAnn _ reparsedInner) ->
-        collectPair renderAnnotation originalItem reparsedInner
-      _ -> collectGeneric renderAnnotation originalItem reparsedItem
+  pure (collectWrapped renderAnnotation peelImportAnn originalItem reparsedItem)
+  where
+    peelImportAnn (ImportAnn ann inner) = Just (ann, inner)
+    peelImportAnn _ = Nothing
 
 collectGeneric :: (Data a) => (Annotation -> Maybe (Doc ann)) -> a -> a -> [PlacedLabel]
 collectGeneric renderAnnotation original reparsed
@@ -407,13 +326,18 @@ collectGeneric renderAnnotation original reparsed
             )
 
 labelsAt :: (Annotation -> Maybe (Doc ann)) -> SourceSpan -> [Annotation] -> [PlacedLabel]
-labelsAt renderAnnotation span' annotations =
-  [ PlacedLabel span' label
-  | span' /= NoSourceSpan,
-    annotation <- annotations,
-    Just doc <- [renderAnnotation annotation],
-    let label = renderLabelDoc doc
-  ]
+labelsAt renderAnnotation span' =
+  concatMap labelAt
+  where
+    labelAt annotation =
+      case renderAnnotation annotation of
+        Nothing -> []
+        Just doc ->
+          let label = renderLabelDoc doc
+           in case span' of
+                NoSourceSpan ->
+                  error ("renderAnnotatedModule: renderable annotation has no source span: " <> show label)
+                _ -> [PlacedLabel span' label]
 
 renderLabelDoc :: Doc ann -> String
 renderLabelDoc doc =
@@ -433,23 +357,6 @@ spanFromAnnotations =
 spanFromAnnotation :: Annotation -> SourceSpan
 spanFromAnnotation =
   fromMaybe NoSourceSpan . fromAnnotation @SourceSpan
-
-annotationCarrierSpan :: (Data a) => Annotation -> a -> SourceSpan
-annotationCarrierSpan annotation inner =
-  case spanFromAnnotation annotation of
-    NoSourceSpan -> firstSourceSpan inner
-    span' -> span'
-
-firstSourceSpan :: (Data a) => a -> SourceSpan
-firstSourceSpan node =
-  fromMaybe NoSourceSpan $
-    concreteSpan ownSpan
-      <|> firstConcreteSpan (gmapQ firstSourceSpan node)
-  where
-    ownSpan =
-      fromMaybe NoSourceSpan $
-        (spanFromAnnotation <$> cast node)
-          <|> (spanFromAnnotations <$> cast node)
 
 firstConcreteSpan :: [SourceSpan] -> Maybe SourceSpan
 firstConcreteSpan =

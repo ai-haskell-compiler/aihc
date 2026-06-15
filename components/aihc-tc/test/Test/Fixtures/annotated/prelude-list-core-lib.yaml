@@ -2,21 +2,20 @@ annotated:
 - |-
   module Test where
   data List a = [] | a : [a]
-       │        │    └─ type: a → [a] → [a]
-       │        └─ type: [a]
-       └─ type: * → *
+  └─ type: * → *│    └─ type: a → [a] → [a]
+                └─ type: [a]
   infixr 5 :
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys
-   │      └─ type: [a]
-   └─ type: ∀ a. [a] → [a] → [a]
+  │       └─ type: [a]
+  └─ type: ∀ a. [a] → [a] → [a]
   (++) (x : xs) ys = x : (xs ++ ys)
-   │    │   │   │      │     └─ type: [a] → [a] → [a]; type-args: a
-   │    │   │   │      └─ type: a → [a] → [a]; type-args: a
-   │    │   │   └─ type: [a]
-   │    │   └─ type: [a]
-   │    └─ type: a
-   └─ type: ∀ a. [a] → [a] → [a]
+  │     │   │   │      │     └─ type: [a] → [a] → [a]; type-args: a
+  │     │   │   │      └─ type: a → [a] → [a]; type-args: a
+  │     │   │   └─ type: [a]
+  │     │   └─ type: [a]
+  │     └─ type: a
+  └─ type: ∀ a. [a] → [a] → [a]
 extensions: []
 modules:
 - |

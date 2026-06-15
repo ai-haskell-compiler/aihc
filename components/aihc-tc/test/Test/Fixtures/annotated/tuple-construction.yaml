@@ -2,11 +2,10 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: *
+  └─ type: *  │      └─ type: Bool
+              └─ type: Bool
   f x = (x, x)
-  │ │    └─ type: (a, a); type-args: a, a
+  │ │   └─ type: (a, a); type-args: a, a
   │ └─ type: a
   └─ type: ∀ a. a → (a, a)
 extensions: []

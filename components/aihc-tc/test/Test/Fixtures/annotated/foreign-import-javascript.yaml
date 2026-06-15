@@ -2,11 +2,11 @@ annotated:
 - |-
   module Test where
   data Double
-       └─ type: *
+  └─ type: *
   data IO a
-       └─ type: * → *
+  └─ type: * → *
   foreign import javascript unsafe "performance.now" js_now :: IO Double
-                                                     └─ type: IO Double
+  └─ type: IO Double
   test = js_now
   └─ type: IO Double
 extensions:

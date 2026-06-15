@@ -2,14 +2,13 @@ annotated:
 - |-
   module Test where
   data Int = I
-       │     └─ type: Int
-       └─ type: *
+  └─ type: * └─ type: Int
   data Foo a = Foo
-       │       └─ type: Foo a
-       └─ type: * → *
+  │            └─ type: Foo a
+  └─ type: * → *
   data Chan a = Chan (Foo Int)
-       │        └─ type: Foo Int → Chan a
-       └─ type: * → *
+  │             └─ type: Foo Int → Chan a
+  └─ type: * → *
 extensions: []
 modules:
 - |

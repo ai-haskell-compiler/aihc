@@ -2,25 +2,24 @@ annotated:
 - |-
   module Test where
   data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: *
+  └─ type: *  │       └─ type: Bool
+              └─ type: Bool
   class Eq a where
-        └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
+  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
     (==) :: a -> a -> Bool
   instance Eq Bool where
-           └─ $fEqBool ∷ () ⇒ Eq Bool
+  └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
-          └─ == ∷ Bool → Bool → Bool
+    └─ == ∷ Bool → Bool → Bool
     False == True = False
-          └─ == ∷ Bool → Bool → Bool
+    └─ == ∷ Bool → Bool → Bool
     True == False = False
-         └─ == ∷ Bool → Bool → Bool
+    └─ == ∷ Bool → Bool → Bool
     True == True = True
-         └─ == ∷ Bool → Bool → Bool
+    └─ == ∷ Bool → Bool → Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
-  │         └─ type: Bool → Bool → Bool; type-args: Bool; evidence: $fEqBool
+  │        └─ type: Bool → Bool → Bool; type-args: Bool; evidence: $fEqBool
   └─ type: Bool → Bool → Bool
 extensions: []
 modules:

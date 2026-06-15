@@ -9,9 +9,8 @@ annotated:
     module Test where
     └─ error: expression has type (), but expected Bool from an earlier list element
     data Bool = True | False
-         │      │      └─ type: Bool
-         │      └─ type: Bool
-         └─ type: *
+    └─ type: *  │      └─ type: Bool
+                └─ type: Bool
     list = [True, ()]
 status: pass
 reason: list element mismatches should explain where the expected element type came from

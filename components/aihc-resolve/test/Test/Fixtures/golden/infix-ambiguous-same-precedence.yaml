@@ -8,9 +8,9 @@ annotated:
    │    └─ v 0
    └─ v Main
   bad = 'a' +++ 'b' +++ 'c'
-  │     │   │       └─ v Main
-  │     │   └─ v Main
-  │     └─ v Error ambiguous fixity
+  │   │     │       └─ v Main
+  │   │     └─ v Main
+  │   └─ v Error ambiguous fixity
   └─ v Main
 extensions: []
 modules:

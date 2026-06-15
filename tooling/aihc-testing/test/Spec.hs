@@ -40,6 +40,7 @@ main =
         testCase "throws on pretty/reparse parse failure" testParseFailure,
         testCase "throws on stripped AST mismatch" testShapeMismatch,
         testCase "throws on multiline annotation labels" testMultilineLabel,
+        testCase "throws on renderable annotation without span" testMissingSpan,
         testCase "renders source text without pretty-printing" testSourceTextRendering,
         testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
         testProperty "accepts repository QuickCheck options" True
@@ -92,6 +93,12 @@ testMultilineLabel = do
   let modu = annotateFirstDecl "unused" (parseModuleOrFail "x = 1")
   result <- throws (renderAnnotatedModule testConfig multilineAnnotationDoc modu)
   assertBool "expected multiline label exception" result
+
+testMissingSpan :: IO ()
+testMissingSpan = do
+  let modu = annotateFirstDecl "missing-span" (stripAnnotations (parseModuleOrFail "x = 1"))
+  result <- throws (AnnotatedModule.renderAnnotatedModuleSource testAnnotationDoc "x = 1" modu)
+  assertBool "expected missing span exception" result
 
 testSourceTextRendering :: IO ()
 testSourceTextRendering = do

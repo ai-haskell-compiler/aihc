@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   fn a@b@c = (a,b,c)
-  │  │ │ │    └─ type: (a, a, a); type-args: a, a, a
+  │  │ │ │   └─ type: (a, a, a); type-args: a, a, a
   │  │ │ └─ type: a
   │  │ └─ type: a
   │  └─ type: a

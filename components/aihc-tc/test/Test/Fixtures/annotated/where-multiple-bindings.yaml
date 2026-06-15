@@ -2,9 +2,8 @@ annotated:
 - |-
   module Test where
   data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: *
+  └─ type: *  │      └─ type: Bool
+              └─ type: Bool
   f x y = x + y
   │ │ │     └─ type: a → b → a; type-args: a, b
   │ │ └─ type: b
@@ -12,9 +11,9 @@ annotated:
   └─ type: ∀ a b. a → b → a
     where
       (+) a b = a
-       │  │ └─ type: ?7
-       │  └─ type: ?8
-       └─ type: ∀ a b. a → b → a
+      │   │ └─ type: ?7
+      │   └─ type: ?8
+      └─ type: ∀ a b. a → b → a
       zero = True
       └─ type: Bool
 extensions: []
