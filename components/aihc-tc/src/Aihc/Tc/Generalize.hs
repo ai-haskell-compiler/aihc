@@ -35,7 +35,7 @@ generalizeIgnoring ignoredNames ty preds = do
     concat
       <$> mapM
         binderMetaVars
-        (Map.elems (foldr Map.delete env ignoredNames))
+        (filter (not . ignoredBinder) (Map.elems env))
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
@@ -47,6 +47,13 @@ generalizeIgnoring ignoredNames ty preds = do
   let ty'' = substMetas subst ty'
   let preds'' = map (substMetasPred subst) preds'
   pure (ForAll tvs preds'' ty'')
+  where
+    ignoredBinder binder =
+      binderName binder `elem` ignoredNames
+
+binderName :: TcBinder -> T.Text
+binderName (TcIdBinder name _ _) = name
+binderName (TcMonoIdBinder name _) = name
 
 -- | Collect free meta-variable uniques from a type.
 collectMetaVars :: TcType -> [Unique]

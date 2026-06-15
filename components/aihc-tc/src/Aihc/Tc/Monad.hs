@@ -31,10 +31,16 @@ module Aihc.Tc.Monad
     -- * Environment
     TcEnv (..),
     TcBinder (..),
+    TcTermKey (..),
     Closedness (..),
     emptyTcEnv,
     lookupTerm,
+    lookupResolvedTerm,
+    resolvedTermKey,
+    resolvedTermTarget,
+    resolvedLocalTermKey,
     extendTermEnv,
+    extendResolvedTermEnv,
     extendTermEnvPermanent,
     getTermEnv,
     lookupTyCon,
@@ -60,7 +66,8 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Env (InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -68,8 +75,10 @@ import Aihc.Tc.Types
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -101,8 +110,12 @@ tcAbortMessage (TcAbort msg) = msg
 
 -- | The local typing environment (read-only within a scope).
 data TcEnv = TcEnv
-  { -- | Term bindings in scope (variables -> types).
-    tcEnvTerms :: !(Map Text TcBinder),
+  { -- | Local term bindings in scope.
+    --
+    -- The keys come from @aihc-resolve@'s 'ResolvedLocal' identifiers, not
+    -- from source text. This lets TC preserve lexical identity without doing
+    -- name resolution or conflating duplicate textual names.
+    tcEnvTerms :: !(Map TcTermKey TcBinder),
     -- | Whether local binding groups follow GHC's MonoLocalBinds rule.
     tcEnvMonoLocalBinds :: !Bool,
     -- | Whether the monomorphism restriction is active.
@@ -126,6 +139,11 @@ data TcBinder
     TcMonoIdBinder !Text !TcType
   deriving (Show)
 
+data TcTermKey
+  = TcTermLocal !Int
+  | TcTermGlobal !Text
+  deriving (Eq, Ord, Show)
+
 -- | An empty environment at the top level.
 emptyTcEnv :: TcEnv
 emptyTcEnv =
@@ -148,7 +166,13 @@ data TcState = TcState
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
     tcsDiagnostics :: ![TcDiagnostic],
-    -- | Global term bindings (accumulated by top-level declarations).
+    -- | Global term bindings accumulated from declarations and imported
+    -- interfaces.
+    --
+    -- This map remains text-keyed because it is not used to decide lexical
+    -- scope. Occurrences reach it only after @aihc-resolve@ has attached a
+    -- 'ResolvedTopLevel' or 'ResolvedBuiltin' target; TC then uses the target's
+    -- selected global name to retrieve the type.
     tcsGlobalTerms :: !(Map Text TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map Text TyConInfo),
@@ -239,33 +263,86 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
--- | Look up a term in the environment (local first, then global state).
+-- | Look up a global term by its selected global name.
 lookupTerm :: Text -> TcM (Maybe TcBinder)
-lookupTerm name = do
-  localResult <- asks $ \env -> Map.lookup name (tcEnvTerms env)
-  case localResult of
-    Just _ -> pure localResult
-    Nothing -> lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+lookupTerm name =
+  lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
 
--- | Snapshot all visible term bindings, with local bindings shadowing globals.
-getTermEnv :: TcM (Map Text TcBinder)
+lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
+lookupResolvedTerm displayName resolved =
+  resolvedNameTermKey displayName resolved >>= lookupTermKey
+
+lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
+lookupTermKey key =
+  case key of
+    TcTermLocal _ ->
+      asks $ \env -> Map.lookup key (tcEnvTerms env)
+    TcTermGlobal name ->
+      lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+
+resolvedTermKey :: Name -> TcM TcTermKey
+resolvedTermKey name =
+  resolvedNameTermKey (nameText name) =<< resolvedTermTarget name
+
+resolvedNameTermKey :: Text -> ResolvedName -> TcM TcTermKey
+resolvedNameTermKey displayName resolved =
+  case resolved of
+    ResolvedLocal unique _ ->
+      pure (TcTermLocal unique)
+    ResolvedTopLevel name ->
+      pure (TcTermGlobal (nameText name))
+    ResolvedBuiltin name ->
+      pure (TcTermGlobal name)
+    ResolvedError msg ->
+      abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
+
+-- | Snapshot all visible term bindings keyed by resolver-selected identity.
+getTermEnv :: TcM (Map TcTermKey TcBinder)
 getTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
-  pure (locals <> globals)
+  pure (locals <> Map.mapKeys TcTermGlobal globals)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
-extendTermEnv :: Text -> TcBinder -> TcM a -> TcM a
-extendTermEnv name binder =
+extendTermEnv :: TcTermKey -> TcBinder -> TcM a -> TcM a
+extendTermEnv key binder =
   local $ \env ->
-    env {tcEnvTerms = Map.insert name binder (tcEnvTerms env)}
+    env {tcEnvTerms = Map.insert key binder (tcEnvTerms env)}
+
+extendResolvedTermEnv :: UnqualifiedName -> TcBinder -> TcM a -> TcM a
+extendResolvedTermEnv name binder action = do
+  key <- resolvedLocalTermKey name
+  extendTermEnv key binder action
 
 -- | Permanently extend the global term environment (for top-level
 -- declarations like data constructors and top-level bindings).
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+
+resolvedTermTarget :: Name -> TcM ResolvedName
+resolvedTermTarget name =
+  case termResolution (nameAnns name) of
+    Just resolution -> pure (resolutionTarget resolution)
+    Nothing ->
+      abortTc ("missing resolver annotation for term occurrence " <> show (nameText name))
+
+resolvedLocalTermKey :: UnqualifiedName -> TcM TcTermKey
+resolvedLocalTermKey name =
+  case termResolution (unqualifiedNameAnns name) of
+    Just resolution ->
+      case resolutionTarget resolution of
+        ResolvedLocal unique _ -> pure (TcTermLocal unique)
+        target ->
+          abortTc ("expected local resolver annotation for binder " <> show (unqualifiedNameText name) <> ", got " <> show target)
+    Nothing ->
+      abortTc ("missing resolver annotation for binder " <> show (unqualifiedNameText name))
+
+termResolution :: [Annotation] -> Maybe ResolutionAnnotation
+termResolution =
+  find ((== ResolutionNamespaceTerm) . resolutionNamespace)
+    . mapMaybe fromAnnotation
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
 lookupTyCon name = lift $ gets $ \s -> Map.lookup name (tcsGlobalTyCons s)

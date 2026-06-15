@@ -795,13 +795,15 @@ bindPattern pat =
       (scope, pats') <- bindPatterns pats
       pure (scope, PList pats')
     PCon name typeArgs pats -> do
+      name' <- resolveTermUseAtName name
       typeArgs' <- mapM resolveType typeArgs
       (scope, pats') <- bindPatterns pats
-      pure (scope, PCon name typeArgs' pats')
+      pure (scope, PCon name' typeArgs' pats')
     PInfix left name right -> do
+      name' <- resolveTermUseAtName name
       (leftScope, left') <- bindPattern left
       (rightScope, right') <- bindPattern right
-      pure (unionScope rightScope leftScope, PInfix left' name right')
+      pure (unionScope rightScope leftScope, PInfix left' name' right')
     PView expr inner -> do
       expr' <- resolveExpr expr
       (scope, inner') <- bindPattern inner
@@ -824,6 +826,7 @@ bindPattern pat =
       (scope, inner') <- bindPattern inner
       pure (scope, PParen inner')
     PRecord name fields wildcard -> do
+      name' <- resolveTermUseAtName name
       (fieldScopes, fields') <-
         mapAndUnzipM
           ( \field -> do
@@ -833,7 +836,7 @@ bindPattern pat =
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
       let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
-      pure (foldr unionScope wildcardScope fieldScopes, PRecord name fields' wildcard)
+      pure (foldr unionScope wildcardScope fieldScopes, PRecord name' fields' wildcard)
     PTypeSig inner ty -> do
       (scope, inner') <- bindPattern inner
       ty' <- resolveType ty
@@ -877,9 +880,9 @@ resolvePatternDefinition termDefinition pat =
     PList pats ->
       PList <$> mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
-      PCon name <$> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
+      PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PInfix left name right ->
-      PInfix <$> resolvePatternDefinition termDefinition left <*> pure name <*> resolvePatternDefinition termDefinition right
+      PInfix <$> resolvePatternDefinition termDefinition left <*> resolveTermUseAtName name <*> resolvePatternDefinition termDefinition right
     PView expr inner ->
       PView <$> withLocalSupply 0 (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
@@ -893,8 +896,9 @@ resolvePatternDefinition termDefinition pat =
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard ->
-      PRecord name
-        <$> mapM
+      PRecord
+        <$> resolveTermUseAtName name
+        <*> mapM
           ( \field -> do
               value' <- resolvePatternDefinition termDefinition (recordFieldValue field)
               pure field {recordFieldValue = value'}

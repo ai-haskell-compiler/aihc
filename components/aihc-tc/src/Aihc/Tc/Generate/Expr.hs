@@ -121,7 +121,8 @@ inferNameOccurrence :: SourceSpan -> Name -> TcM (Maybe PendingTcAnnotation, TcT
 inferNameOccurrence ambient nameSyntax = do
   let sp = sourceSpanFromAnns (nameAnns nameSyntax) `orSourceSpan` ambient
       name = nameToText nameSyntax
-  mBinder <- lookupTerm name
+  target <- resolvedTermTarget nameSyntax
+  mBinder <- lookupResolvedTerm name target
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
       inst <- instantiateWithArgs scheme
@@ -135,10 +136,8 @@ inferNameOccurrence ambient nameSyntax = do
       pure (elaborationAnnotation pending, instType inst, cts)
     Just (TcMonoIdBinder _ ty) ->
       pure (Nothing, ty, [])
-    Nothing -> do
-      emitError sp (UnboundVariable (T.unpack name))
-      ty <- freshMetaTv
-      pure (Nothing, ty, [])
+    Nothing ->
+      abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =

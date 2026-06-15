@@ -79,9 +79,9 @@ checkPatternWith gadtHandling sp pat scrutTy =
     PStrict inner -> checkPatternWith gadtHandling sp inner scrutTy
     PIrrefutable inner -> checkPatternWith gadtHandling sp inner scrutTy
     PCon name _typeArgs subPats ->
-      checkConPattern gadtHandling sp (patternNameText name) subPats scrutTy
+      checkConPattern gadtHandling sp name subPats scrutTy
     PInfix lhs op rhs ->
-      checkConPattern gadtHandling sp (patternNameText op) [lhs, rhs] scrutTy
+      checkConPattern gadtHandling sp op [lhs, rhs] scrutTy
     PList items -> do
       elemTy <- freshMetaTv
       let listTy = listType elemTy
@@ -123,9 +123,11 @@ annotateBinderName bindings name =
     Nothing -> name
     Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
-checkConPattern :: GadtHandling -> SourceSpan -> Text -> [Pattern] -> TcType -> TcM PatternCheck
-checkConPattern gadtHandling sp conName subPats scrutTy = do
-  mBinder <- lookupTerm conName
+checkConPattern :: GadtHandling -> SourceSpan -> Name -> [Pattern] -> TcType -> TcM PatternCheck
+checkConPattern gadtHandling sp conSyntax subPats scrutTy = do
+  let conName = patternNameText conSyntax
+  target <- resolvedTermTarget conSyntax
+  mBinder <- lookupResolvedTerm conName target
   case mBinder of
     Just (TcIdBinder _ scheme _) -> do
       (conTy, _preds) <- instantiate scheme
@@ -137,7 +139,10 @@ checkConPattern gadtHandling sp conName subPats scrutTy = do
           { pcWantedCts = fst scrutCt <> pcWantedCts subCheck,
             pcGivenCts = snd scrutCt <> pcGivenCts subCheck
           }
-    _ -> pure mempty
+    Just other ->
+      abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
+    Nothing ->
+      abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
 
 constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType -> TcM ([Ct], [Ct])
 constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
@@ -179,7 +184,7 @@ withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
   let bindingName = unqualifiedNameText name
-   in extendTermEnv bindingName (TcMonoIdBinder bindingName ty) (withPatternBindings rest action)
+   in extendResolvedTermEnv name (TcMonoIdBinder bindingName ty) (withPatternBindings rest action)
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]

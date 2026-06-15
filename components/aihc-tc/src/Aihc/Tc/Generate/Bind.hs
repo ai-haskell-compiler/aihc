@@ -18,7 +18,6 @@ import Aihc.Parser.Syntax
     Decl (..),
     Expr (..),
     Match (..),
-    Name (..),
     NameType (..),
     Pattern (..),
     Rhs (..),
@@ -27,7 +26,6 @@ import Aihc.Parser.Syntax
     UnqualifiedName (..),
     ValueDecl (..),
     mkAnnotation,
-    nameText,
     peelDeclAnn,
     unqualifiedNameText,
   )
@@ -42,7 +40,7 @@ import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
-import Data.List (mapAccumL, nub, (\\))
+import Data.List (mapAccumL, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -56,13 +54,14 @@ inferLocalDecls inferExpr decls body = do
   let rawSigs = collectRawSigs decls
       groups = groupValueDecls decls
       binders = nub (concatMap groupBinders groups)
+      binderNames = map unqualifiedNameText binders
   sigs <- traverse sigToScheme rawSigs
   placeholders <- traverse (placeholderFor sigs) binders
-  let placeholderMap = Map.fromList placeholders
-      binderSet = Set.fromList binders
-      ignored = binders
+  let placeholderMap = Map.fromList [(unqualifiedNameText name, ty) | (name, ty) <- placeholders]
+      ignored = binderNames
+  binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholderMap $ do
+  withLocalPlaceholders placeholders $ do
     groupResults <- mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
     let bindingCts = concatMap snd groupResults
     if shouldGen
@@ -79,11 +78,11 @@ inferLocalDecls inferExpr decls body = do
         (bodyResult, bodyTy, bodyCts) <- body
         pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
 
-annotateLocalBindingDecls :: [(Text, TcBinder)] -> [Decl] -> [Decl]
+annotateLocalBindingDecls :: [(UnqualifiedName, TcBinder)] -> [Decl] -> [Decl]
 annotateLocalBindingDecls binders =
   map (annotateLocalBindingDecl binderTypes)
   where
-    binderTypes = Map.fromList [(name, binderType binder) | (name, binder) <- binders]
+    binderTypes = Map.fromList [(unqualifiedNameText name, binderType binder) | (name, binder) <- binders]
 
 annotateLocalBindingDecl :: Map Text TcType -> Decl -> Decl
 annotateLocalBindingDecl binderTypes decl =
@@ -105,15 +104,16 @@ valueDeclBinderNames :: ValueDecl -> [Text]
 valueDeclBinderNames valueDecl =
   case valueDecl of
     FunctionBind name _ -> [unqualifiedNameText name]
-    PatternBind _ pat _ -> patternBinders pat
+    PatternBind _ pat _ -> patternBinderTexts pat
 
-monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> Text -> TcM (Text, TcBinder)
+monomorphicBinder :: Map Text TypeScheme -> Map Text TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 monomorphicBinder sigs placeholders name =
-  case Map.lookup name sigs of
-    Just scheme -> pure (name, TcIdBinder name scheme Closed)
-    Nothing -> do
-      ty <- maybe freshMetaTv zonkType (Map.lookup name placeholders)
-      pure (name, TcMonoIdBinder name ty)
+  let binderName = unqualifiedNameText name
+   in case Map.lookup binderName sigs of
+        Just scheme -> pure (name, TcIdBinder binderName scheme Closed)
+        Nothing -> do
+          ty <- maybe freshMetaTv zonkType (Map.lookup binderName placeholders)
+          pure (name, TcMonoIdBinder binderName ty)
 
 -- | Infer an RHS, processing attached @where@ declarations first.
 inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
@@ -131,43 +131,44 @@ inferRhsWithLocals inferExpr rhs =
       ty <- freshMetaTv
       pure (rhs, ty, [])
 
-placeholderFor :: Map Text TypeScheme -> Text -> TcM (Text, TcType)
+placeholderFor :: Map Text TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcType)
 placeholderFor sigs name =
-  case Map.lookup name sigs of
+  case Map.lookup (unqualifiedNameText name) sigs of
     Just scheme -> (name,) <$> skolemize scheme
     Nothing -> (name,) <$> freshMetaTv
 
-withLocalPlaceholders :: Map Text TcType -> TcM a -> TcM a
+withLocalPlaceholders :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withLocalPlaceholders placeholders =
   withLocalBinders
-    [ (name, TcMonoIdBinder name ty)
-    | (name, ty) <- Map.toList placeholders
+    [ (name, TcMonoIdBinder (unqualifiedNameText name) ty)
+    | (name, ty) <- placeholders
     ]
 
-withLocalBinders :: [(Text, TcBinder)] -> TcM a -> TcM a
+withLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a
 withLocalBinders [] action = action
 withLocalBinders ((name, binder) : rest) action =
-  extendTermEnv name binder (withLocalBinders rest action)
+  extendResolvedTermEnv name binder (withLocalBinders rest action)
 
-generalizedBinder :: Map Text TypeScheme -> [Text] -> Map Text TcType -> Text -> TcM (Text, TcBinder)
+generalizedBinder :: Map Text TypeScheme -> [Text] -> Map Text TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 generalizedBinder sigs ignored placeholders name =
-  case Map.lookup name sigs of
-    Just scheme ->
-      pure (name, TcIdBinder name scheme Closed)
-    Nothing ->
-      case Map.lookup name placeholders of
-        Nothing -> do
-          ty <- freshMetaTv
-          pure (name, TcMonoIdBinder name ty)
-        Just ty -> do
-          scheme <- generalizeIgnoring ignored ty []
-          pure (name, TcIdBinder name scheme Closed)
+  let binderName = unqualifiedNameText name
+   in case Map.lookup binderName sigs of
+        Just scheme ->
+          pure (name, TcIdBinder binderName scheme Closed)
+        Nothing ->
+          case Map.lookup binderName placeholders of
+            Nothing -> do
+              ty <- freshMetaTv
+              pure (name, TcMonoIdBinder binderName ty)
+            Just ty -> do
+              scheme <- generalizeIgnoring ignored ty []
+              pure (name, TcIdBinder binderName scheme Closed)
 
 inferLocalGroup :: InferExpr -> Map Text TypeScheme -> Map Text TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
 inferLocalGroup inferExpr sigs placeholders group =
   case group of
     MergedFunctionBind name decls matches -> do
-      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
+      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders (unqualifiedNameText name) matches
       pure (MergedFunctionBind name (replaceFunctionDeclMatches matches' decls) matches', cts)
     SingleDecl decl -> do
       (decl', cts) <- inferLocalSingleDecl inferExpr sigs placeholders decl
@@ -276,24 +277,21 @@ unifyMatchRhs inferExpr expectedTy match = do
   let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
   pure (match {matchRhs = rhs'}, rhsCts ++ [eqCt])
 
-shouldGeneralizeLocal :: Set.Set Text -> [Decl] -> TcM Bool
+shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
   monoLocal <- tcMonoLocalBinds
   if not monoLocal || any hasPartialTypeSig decls
     then pure True
     else do
-      let freeVars =
-            Set.toList $
-              Set.difference
-                (Set.fromList (concatMap freeVarsDecl decls))
-                binderSet
-      allM isClosedVar freeVars
+      freeVars <- freeVarsDecls decls
+      let externalVars = Set.toList (Set.difference freeVars binderSet)
+      allM isClosedVar externalVars
 
-isClosedVar :: Text -> TcM Bool
-isClosedVar name = do
-  mBinder <- lookupTerm name
+isClosedVar :: TcTermKey -> TcM Bool
+isClosedVar key = do
+  env <- getTermEnv
   pure $
-    case mBinder of
+    case Map.lookup key env of
       Just (TcIdBinder _ _ Closed) -> True
       _ -> False
 
@@ -305,7 +303,7 @@ allM p = foldM step True
 
 data DeclGroup
   = SingleDecl Decl
-  | MergedFunctionBind Text [Decl] [Match]
+  | MergedFunctionBind UnqualifiedName [Decl] [Match]
 
 renderGroup :: DeclGroup -> [Decl]
 renderGroup group =
@@ -324,26 +322,26 @@ groupValueDecls (d : ds) =
        in MergedFunctionBind name groupDecls allMatches : groupValueDecls rest
     Nothing -> SingleDecl d : groupValueDecls ds
 
-groupBinders :: DeclGroup -> [Text]
+groupBinders :: DeclGroup -> [UnqualifiedName]
 groupBinders group =
   case group of
     MergedFunctionBind name _ _ -> [name]
     SingleDecl decl ->
       case peelDeclAnn decl of
-        DeclValue (FunctionBind name _) -> [unqualifiedNameText name]
-        DeclValue (PatternBind _ pat _) -> maybe [] ((: []) . snd) (patternBinderName pat)
+        DeclValue (FunctionBind name _) -> [name]
+        DeclValue (PatternBind _ pat _) -> maybe [] ((: []) . fst) (patternBinderName pat)
         _ -> []
 
-extractFunctionBind :: Decl -> Maybe (Text, [Match])
+extractFunctionBind :: Decl -> Maybe (UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind name matches) -> Just (unqualifiedNameText name, matches)
+    DeclValue (FunctionBind name matches) -> Just (name, matches)
     _ -> Nothing
 
-hasSameName :: Text -> Decl -> Bool
+hasSameName :: UnqualifiedName -> Decl -> Bool
 hasSameName name decl =
   case extractFunctionBind decl of
-    Just (declName, _) -> declName == name
+    Just (declName, _) -> unqualifiedNameText declName == unqualifiedNameText name
     Nothing -> False
 
 replaceFunctionDeclMatches :: [Match] -> [Decl] -> [Decl]
@@ -398,8 +396,8 @@ schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
 schemeToType (ForAll [] preds ty) = TcQualTy preds ty
 schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 
-patternBinderName :: Pattern -> Maybe (Text, Text)
-patternBinderName (PVar n) = Just (renderBinderName n, unqualifiedNameText n)
+patternBinderName :: Pattern -> Maybe (UnqualifiedName, Text)
+patternBinderName (PVar n) = Just (n, unqualifiedNameText n)
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
@@ -411,79 +409,129 @@ renderBinderName uname =
     NameConSym -> "(" <> unqualifiedNameText uname <> ")"
     _ -> unqualifiedNameText uname
 
-nameToText :: Name -> Text
-nameToText n =
-  case nameQualifier n of
-    Nothing -> nameText n
-    Just q -> q <> "." <> nameText n
+freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
+freeVarsDecls decls =
+  Set.unions <$> mapM freeVarsDecl decls
 
-freeVarsDecl :: Decl -> [Text]
+freeVarsDecl :: Decl -> TcM (Set.Set TcTermKey)
 freeVarsDecl decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind name matches) ->
-      concatMap freeVarsMatch matches \\ [unqualifiedNameText name]
-    DeclValue (PatternBind _ pat rhs) ->
-      freeVarsRhs rhs \\ patternBinders pat
-    DeclTypeSig {} -> []
-    _ -> []
+    DeclValue (FunctionBind name matches) -> do
+      vars <- Set.unions <$> mapM freeVarsMatch matches
+      binder <- resolvedLocalTermKey name
+      pure (Set.delete binder vars)
+    DeclValue (PatternBind _ pat rhs) -> do
+      vars <- freeVarsRhs rhs
+      binders <- patternBinderKeys pat
+      pure (Set.difference vars binders)
+    DeclTypeSig {} -> pure Set.empty
+    _ -> pure Set.empty
 
-freeVarsMatch :: Match -> [Text]
-freeVarsMatch match =
-  freeVarsRhs (matchRhs match) \\ concatMap patternBinders (matchPats match)
+freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
+freeVarsMatch match = do
+  vars <- freeVarsRhs (matchRhs match)
+  binders <- Set.unions <$> mapM patternBinderKeys (matchPats match)
+  pure (Set.difference vars binders)
 
-freeVarsRhs :: Rhs Expr -> [Text]
+freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsRhs rhs =
   case rhs of
-    UnguardedRhs _ expr maybeDecls ->
-      freeVarsExpr expr ++ maybe [] (concatMap freeVarsDecl) maybeDecls
+    UnguardedRhs _ expr maybeDecls -> do
+      exprVars <- freeVarsExpr expr
+      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
+      pure (exprVars <> declVars)
     GuardedRhss _ _ maybeDecls ->
-      maybe [] (concatMap freeVarsDecl) maybeDecls
+      maybe (pure Set.empty) freeVarsDecls maybeDecls
 
-freeVarsExpr :: Expr -> [Text]
+freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
 freeVarsExpr expr =
   case expr of
-    EVar name -> [nameToText name]
+    EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
-    EIf a b c -> freeVarsExpr a ++ freeVarsExpr b ++ freeVarsExpr c
-    ELambdaPats pats body -> freeVarsExpr body \\ concatMap patternBinders pats
-    EInfix lhs op rhs -> nameToText op : freeVarsExpr lhs ++ freeVarsExpr rhs
+    EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    ELambdaPats pats body -> do
+      bodyVars <- freeVarsExpr body
+      binders <- Set.unions <$> mapM patternBinderKeys pats
+      pure (Set.difference bodyVars binders)
+    EInfix lhs op rhs -> do
+      lhsVars <- freeVarsExpr lhs
+      rhsVars <- freeVarsExpr rhs
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey (lhsVars <> rhsVars))
     ENegate inner -> freeVarsExpr inner
-    ESectionL inner op -> nameToText op : freeVarsExpr inner
-    ESectionR op inner -> nameToText op : freeVarsExpr inner
-    ELetDecls decls body ->
-      let localBinders = concatMap declBinders decls
-       in (concatMap freeVarsDecl decls ++ freeVarsExpr body) \\ localBinders
-    ECase scrut alts -> freeVarsExpr scrut ++ concatMap freeVarsAlt alts
+    ESectionL inner op -> do
+      innerVars <- freeVarsExpr inner
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey innerVars)
+    ESectionR op inner -> do
+      innerVars <- freeVarsExpr inner
+      opKey <- resolvedTermKey op
+      pure (Set.insert opKey innerVars)
+    ELetDecls decls body -> do
+      declVars <- freeVarsDecls decls
+      bodyVars <- freeVarsExpr body
+      localBinders <- declBinderKeys decls
+      pure (Set.difference (declVars <> bodyVars) localBinders)
+    ECase scrut alts -> do
+      scrutVars <- freeVarsExpr scrut
+      altVars <- Set.unions <$> mapM freeVarsAlt alts
+      pure (scrutVars <> altVars)
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
-    EList items -> concatMap freeVarsExpr items
-    ETuple _ items -> concatMap (maybe [] freeVarsExpr) items
-    EApp f a -> freeVarsExpr f ++ freeVarsExpr a
-    _ -> []
+    EList items -> Set.unions <$> mapM freeVarsExpr items
+    ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EApp f a -> do
+      fVars <- freeVarsExpr f
+      aVars <- freeVarsExpr a
+      pure (fVars <> aVars)
+    _ -> pure Set.empty
 
-freeVarsAlt :: CaseAlt Expr -> [Text]
-freeVarsAlt (CaseAlt _ pat rhs) =
-  freeVarsRhs rhs \\ patternBinders pat
+freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
+freeVarsAlt (CaseAlt _ pat rhs) = do
+  vars <- freeVarsRhs rhs
+  binders <- patternBinderKeys pat
+  pure (Set.difference vars binders)
 
-declBinders :: Decl -> [Text]
-declBinders decl =
+declBinderKeys :: [Decl] -> TcM (Set.Set TcTermKey)
+declBinderKeys decls =
+  Set.unions <$> mapM declBinderKeySet decls
+
+declBinderKeySet :: Decl -> TcM (Set.Set TcTermKey)
+declBinderKeySet decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind name _) -> [unqualifiedNameText name]
-    DeclValue (PatternBind _ pat _) -> patternBinders pat
-    DeclTypeSig names _ -> map unqualifiedNameText names
-    _ -> []
+    DeclValue (FunctionBind name _) -> Set.singleton <$> resolvedLocalTermKey name
+    DeclValue (PatternBind _ pat _) -> patternBinderKeys pat
+    _ -> pure Set.empty
 
-patternBinders :: Pattern -> [Text]
-patternBinders pat =
+patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
+patternBinderKeys pat =
+  case pat of
+    PVar name -> Set.singleton <$> resolvedLocalTermKey name
+    PAnn _ inner -> patternBinderKeys inner
+    PParen inner -> patternBinderKeys inner
+    PAs name inner -> do
+      key <- resolvedLocalTermKey name
+      Set.insert key <$> patternBinderKeys inner
+    PStrict inner -> patternBinderKeys inner
+    PIrrefutable inner -> patternBinderKeys inner
+    PCon _ _ pats -> Set.unions <$> mapM patternBinderKeys pats
+    PInfix lhs _ rhs -> do
+      lhsKeys <- patternBinderKeys lhs
+      rhsKeys <- patternBinderKeys rhs
+      pure (lhsKeys <> rhsKeys)
+    _ -> pure Set.empty
+
+patternBinderTexts :: Pattern -> [Text]
+patternBinderTexts pat =
   case pat of
     PVar name -> [unqualifiedNameText name]
-    PAnn _ inner -> patternBinders inner
-    PParen inner -> patternBinders inner
-    PAs name inner -> unqualifiedNameText name : patternBinders inner
-    PStrict inner -> patternBinders inner
-    PIrrefutable inner -> patternBinders inner
-    PCon _ _ pats -> concatMap patternBinders pats
-    PInfix lhs _ rhs -> patternBinders lhs ++ patternBinders rhs
+    PAnn _ inner -> patternBinderTexts inner
+    PParen inner -> patternBinderTexts inner
+    PAs name inner -> unqualifiedNameText name : patternBinderTexts inner
+    PStrict inner -> patternBinderTexts inner
+    PIrrefutable inner -> patternBinderTexts inner
+    PCon _ _ pats -> concatMap patternBinderTexts pats
+    PInfix lhs _ rhs -> patternBinderTexts lhs ++ patternBinderTexts rhs
     _ -> []
 
 hasPartialTypeSig :: Decl -> Bool
