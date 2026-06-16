@@ -66,7 +66,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
-import Aihc.Tc.Generalize (generalizeIgnoring)
+import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -1024,42 +1024,11 @@ tcFunctionInfer displayName name matches = do
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeIgnoring (Set.singleton (TcTermGlobal name)) ty []
-      commitGeneralizedMetas ty scheme
+      scheme <- generalizeAndCommitIgnoring (Set.singleton (TcTermGlobal name)) ty []
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
-
-commitGeneralizedMetas :: TcType -> TypeScheme -> TcM ()
-commitGeneralizedMetas ty (ForAll _ _ body) = do
-  ty' <- zonkType ty
-  mapM_ commit (metaTyVarPairs ty' body)
-  where
-    commit (meta, tv) = writeMetaTv meta (TcTyVar tv)
-
-metaTyVarPairs :: TcType -> TcType -> [(Unique, TyVarId)]
-metaTyVarPairs (TcMetaTv u) (TcTyVar tv) = [(u, tv)]
-metaTyVarPairs (TcTyCon tc args) (TcTyCon targetTc targetArgs)
-  | tc == targetTc,
-    length args == length targetArgs =
-      concat (zipWith metaTyVarPairs args targetArgs)
-metaTyVarPairs (TcFunTy a b) (TcFunTy targetA targetB) =
-  metaTyVarPairs a targetA <> metaTyVarPairs b targetB
-metaTyVarPairs (TcAppTy f a) (TcAppTy targetF targetA) =
-  metaTyVarPairs f targetF <> metaTyVarPairs a targetA
-metaTyVarPairs (TcQualTy preds body) (TcQualTy targetPreds targetBody) =
-  concat (zipWith metaTyVarPairsPred preds targetPreds) <> metaTyVarPairs body targetBody
-metaTyVarPairs _ _ = []
-
-metaTyVarPairsPred :: Pred -> Pred -> [(Unique, TyVarId)]
-metaTyVarPairsPred (ClassPred className args) (ClassPred targetClass targetArgs)
-  | className == targetClass,
-    length args == length targetArgs =
-      concat (zipWith metaTyVarPairs args targetArgs)
-metaTyVarPairsPred (EqPred left right) (EqPred targetLeft targetRight) =
-  metaTyVarPairs left targetLeft <> metaTyVarPairs right targetRight
-metaTyVarPairsPred _ _ = []
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.

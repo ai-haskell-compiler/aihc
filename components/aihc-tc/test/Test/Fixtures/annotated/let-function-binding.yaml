@@ -3,7 +3,7 @@ annotated:
   module Test where
   f x = let g y = y in g x
   │ │       │ │        └─ type: a → a; type-args: a
-  │ │       │ └─ type: ?5
+  │ │       │ └─ type: a
   │ │       └─ type: ∀ a. a → a
   │ └─ type: a
   └─ type: ∀ a. a → a

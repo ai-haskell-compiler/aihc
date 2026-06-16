@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   f x = let loop y = loop y in x
-  │ │       │    └─ type: ?4
+  │ │       │    └─ type: a
   │ │       └─ type: ∀ a b. a → b
   │ └─ type: a
   └─ type: ∀ a. a → a

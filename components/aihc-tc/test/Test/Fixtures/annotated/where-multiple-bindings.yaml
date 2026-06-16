@@ -12,8 +12,8 @@ annotated:
   └─ type: ∀ a b. a → b → a
     where
       (+) a b = a
-      │   │ └─ type: ?7
-      │   └─ type: ?8
+      │   │ └─ type: b
+      │   └─ type: a
       └─ type: ∀ a b. a → b → a
       zero = True
       └─ type: Bool

@@ -31,7 +31,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Generalize (generalizeIgnoring)
+import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
@@ -167,7 +167,7 @@ generalizedBinder sigs ignored placeholders name =
             ty <- freshMetaTv
             pure (name, TcMonoIdBinder ty)
           Just ty -> do
-            scheme <- generalizeIgnoring ignored ty []
+            scheme <- generalizeAndCommitIgnoring ignored ty []
             pure (name, TcIdBinder scheme Closed)
 
 inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])

@@ -3,9 +3,9 @@ annotated:
   module Test where
   f x = let g y = h y; h z = z in g x
   │ │       │ │        │ │        └─ type: a → a; type-args: a
-  │ │       │ │        │ └─ type: ?12
-  │ │       │ │        └─ type: ∀ a. a → a
-  │ │       │ └─ type: ?12
+  │ │       │ │        │ └─ type: a
+  │ │       │ │        └─ type: a → a
+  │ │       │ └─ type: a
   │ │       └─ type: ∀ a. a → a
   │ └─ type: a
   └─ type: ∀ a. a → a

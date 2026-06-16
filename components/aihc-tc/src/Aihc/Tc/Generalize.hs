@@ -6,12 +6,15 @@
 module Aihc.Tc.Generalize
   ( generalize,
     generalizeIgnoring,
+    generalizeAndCommit,
+    generalizeAndCommitIgnoring,
   )
 where
 
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (forM_)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -24,13 +27,33 @@ import Data.Text qualified as T
 generalize :: TcType -> [Pred] -> TcM TypeScheme
 generalize = generalizeIgnoring Set.empty
 
+-- | Generalize a monotype and commit generalized meta-variables.
+--
+-- Pending annotations may still point at the original meta-variables. Once
+-- those metas become quantified type variables, the meta store must know that
+-- replacement so later zonking cannot expose raw type-checking metavariables.
+generalizeAndCommit :: TcType -> [Pred] -> TcM TypeScheme
+generalizeAndCommit = generalizeAndCommitIgnoring Set.empty
+
 -- | Generalize a monotype while ignoring the selected environment binders.
 --
 -- This is used for recursive local binding groups: the group's placeholder
 -- binders are in scope while the group is checked, but they are not part of
 -- the outer environment that should block generalization.
 generalizeIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
-generalizeIgnoring ignoredKeys ty preds = do
+generalizeIgnoring ignoredKeys ty preds =
+  fst <$> generalizeIgnoringWithSubst ignoredKeys ty preds
+
+-- | Generalize while ignoring selected binders, then write the generalized
+-- substitutions back to the meta store.
+generalizeAndCommitIgnoring :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM TypeScheme
+generalizeAndCommitIgnoring ignoredKeys ty preds = do
+  (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys ty preds
+  forM_ subst (uncurry writeMetaTv)
+  pure scheme
+
+generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
+generalizeIgnoringWithSubst ignoredKeys ty preds = do
   env <- getTermEnv
   envMetaVars <-
     concat
@@ -47,7 +70,7 @@ generalizeIgnoring ignoredKeys ty preds = do
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   let ty'' = substMetas subst ty'
   let preds'' = map (substMetasPred subst) preds'
-  pure (ForAll tvs preds'' ty'')
+  pure (ForAll tvs preds'' ty'', subst)
 
 -- | Collect free meta-variable uniques from a type.
 collectMetaVars :: TcType -> [Unique]
