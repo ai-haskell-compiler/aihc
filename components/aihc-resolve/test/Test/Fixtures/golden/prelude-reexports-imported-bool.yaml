@@ -12,18 +12,22 @@ annotated:
        │      └─ v Data.Bool
        └─ t Data.Bool
   not False = True
-  │           └─ v Data.Bool
+  │   │       └─ v Data.Bool
+  │   └─ v Data.Bool
   └─ v Data.Bool
   not True = False
-  │          └─ v Data.Bool
+  │   │      └─ v Data.Bool
+  │   └─ v Data.Bool
   └─ v Data.Bool
   False && _ = False
-        │      └─ v Data.Bool
-        └─ v Data.Bool
+  │     │      └─ v Data.Bool
+  │     └─ v Data.Bool
+  └─ v Data.Bool
   True && x = x
-       │  │   └─ v 0
-       │  └─ v 0
-       └─ v Data.Bool
+  │    │  │   └─ v 0
+  │    │  └─ v 0
+  │    └─ v Data.Bool
+  └─ v Data.Bool
 - |-
   module Main where
   x = (not False, True && False)

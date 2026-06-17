@@ -1,13 +1,5 @@
----
-extensions: []
-modules:
-- |
-  module Main where
-  newtype Age = MkAge Int
-  getAge :: Age -> Int
-  getAge (MkAge a) = a
 annotated:
-- |
+- |-
   module Main where
   newtype Age = MkAge Int
           │     │     └─ t Error unbound
@@ -17,7 +9,16 @@ annotated:
   └─ v Main │      └─ t Error unbound
             └─ t Main
   getAge (MkAge a) = a
-  └─ v Main     │    └─ v 0
-                └─ v 0
-status: pass
+  │       │     │    └─ v 0
+  │       │     └─ v 0
+  │       └─ v Main
+  └─ v Main
+extensions: []
+modules:
+- |
+  module Main where
+  newtype Age = MkAge Int
+  getAge :: Age -> Int
+  getAge (MkAge a) = a
 reason: ''
+status: pass

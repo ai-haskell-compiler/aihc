@@ -2,8 +2,8 @@ annotated:
 - |-
   module Test where
   id = \x -> x
-  │     └─ x ∷ a
-  └─ id ∷ ∀ a. a → a
+  │     └─ type: a
+  └─ type: ∀ a. a → a
 extensions: []
 modules:
 - |

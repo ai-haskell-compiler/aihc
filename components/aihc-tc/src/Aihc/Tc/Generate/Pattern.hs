@@ -3,6 +3,7 @@
 -- | Shared type-checking support for term patterns.
 module Aihc.Tc.Generate.Pattern
   ( PatternCheck (..),
+    annotatePatternBindings,
     checkPattern,
     checkPatterns,
     checkPatternsWithGivens,
@@ -13,10 +14,13 @@ where
 import Aihc.Parser.Syntax
   ( Name (..),
     Pattern (..),
+    RecordField (..),
     SourceSpan,
+    UnqualifiedName (..),
+    mkAnnotation,
     nameText,
-    unqualifiedNameText,
   )
+import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
@@ -24,7 +28,7 @@ import Aihc.Tc.Types
 import Data.Text (Text)
 
 data PatternCheck = PatternCheck
-  { pcBindings :: ![(Text, TcType)],
+  { pcBindings :: ![(UnqualifiedName, TcType)],
     pcWantedCts :: ![Ct],
     pcGivenCts :: ![Ct]
   }
@@ -62,7 +66,7 @@ checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM Patte
 checkPatternWith gadtHandling sp pat scrutTy =
   case pat of
     PVar name ->
-      pure mempty {pcBindings = [(unqualifiedNameText name, scrutTy)]}
+      pure mempty {pcBindings = [(name, scrutTy)]}
     PAnn _ann inner -> checkPatternWith gadtHandling sp inner scrutTy
     PParen inner -> checkPatternWith gadtHandling sp inner scrutTy
     PWildcard {} -> pure mempty
@@ -70,13 +74,13 @@ checkPatternWith gadtHandling sp pat scrutTy =
     PNegLit {} -> pure mempty
     PAs name inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
-      pure innerCheck {pcBindings = (unqualifiedNameText name, scrutTy) : pcBindings innerCheck}
+      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck}
     PStrict inner -> checkPatternWith gadtHandling sp inner scrutTy
     PIrrefutable inner -> checkPatternWith gadtHandling sp inner scrutTy
     PCon name _typeArgs subPats ->
-      checkConPattern gadtHandling sp (patternNameText name) subPats scrutTy
+      checkConPattern gadtHandling sp name subPats scrutTy
     PInfix lhs op rhs ->
-      checkConPattern gadtHandling sp (patternNameText op) [lhs, rhs] scrutTy
+      checkConPattern gadtHandling sp op [lhs, rhs] scrutTy
     PList items -> do
       elemTy <- freshMetaTv
       let listTy = listType elemTy
@@ -85,11 +89,46 @@ checkPatternWith gadtHandling sp pat scrutTy =
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
     _ -> pure mempty
 
-checkConPattern :: GadtHandling -> SourceSpan -> Text -> [Pattern] -> TcType -> TcM PatternCheck
-checkConPattern gadtHandling sp conName subPats scrutTy = do
-  mBinder <- lookupTerm conName
+annotatePatternBindings :: [(UnqualifiedName, TcType)] -> Pattern -> Pattern
+annotatePatternBindings bindings =
+  go
+  where
+    go pat =
+      case pat of
+        PAnn ann inner -> PAnn ann (go inner)
+        PVar name -> PVar (annotateBinderName bindings name)
+        PParen inner -> PParen (go inner)
+        PAs name inner -> PAs (annotateBinderName bindings name) (go inner)
+        PStrict inner -> PStrict (go inner)
+        PIrrefutable inner -> PIrrefutable (go inner)
+        PList items -> PList (map go items)
+        PTuple flavor items -> PTuple flavor (map go items)
+        PUnboxedSum alt arity inner -> PUnboxedSum alt arity (go inner)
+        PInfix lhs op rhs -> PInfix (go lhs) op (go rhs)
+        PView expr inner -> PView expr (go inner)
+        PCon name typeArgs subPats -> PCon name typeArgs (map go subPats)
+        PRecord name fields wildcard -> PRecord name (map annotateRecordField fields) wildcard
+        PTypeSig inner type' -> PTypeSig (go inner) type'
+        PSplice expr -> PSplice expr
+        _ -> pat
+
+    annotateRecordField :: RecordField Pattern -> RecordField Pattern
+    annotateRecordField field =
+      field {recordFieldValue = go (recordFieldValue field)}
+
+annotateBinderName :: [(UnqualifiedName, TcType)] -> UnqualifiedName -> UnqualifiedName
+annotateBinderName bindings name =
+  case lookup name bindings of
+    Nothing -> name
+    Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
+
+checkConPattern :: GadtHandling -> SourceSpan -> Name -> [Pattern] -> TcType -> TcM PatternCheck
+checkConPattern gadtHandling sp conSyntax subPats scrutTy = do
+  let conName = patternNameText conSyntax
+  target <- resolvedTermTarget conSyntax
+  mBinder <- lookupResolvedTerm conName target
   case mBinder of
-    Just (TcIdBinder _ scheme _) -> do
+    Just (TcIdBinder scheme _) -> do
       (conTy, _preds) <- instantiate scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
@@ -99,7 +138,10 @@ checkConPattern gadtHandling sp conName subPats scrutTy = do
           { pcWantedCts = fst scrutCt <> pcWantedCts subCheck,
             pcGivenCts = snd scrutCt <> pcGivenCts subCheck
           }
-    _ -> pure mempty
+    Just other ->
+      abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
+    Nothing ->
+      abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
 
 constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType -> TcM ([Ct], [Ct])
 constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
@@ -137,10 +179,10 @@ wantedEq sp left right = do
   ev <- freshEvVar
   pure (mkWantedCt (EqPred left right) ev (AppOrigin sp) sp)
 
-withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
+withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
-  extendTermEnv name (TcMonoIdBinder name ty) (withPatternBindings rest action)
+  extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]

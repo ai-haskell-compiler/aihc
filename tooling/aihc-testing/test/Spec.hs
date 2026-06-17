@@ -35,11 +35,13 @@ main =
       "aihc-testing"
       [ testCase "reconstructs spans for generated modules" testGeneratedModuleSpans,
         testCase "renders a single annotation" testSingleAnnotation,
+        testCase "renders wrapper annotations independent of order" testWrapperAnnotationOrder,
         testCase "stacks overlapping annotations deterministically" testOverlappingAnnotations,
         testCase "packs non-overlapping annotations on one line" testPackedAnnotations,
         testCase "throws on pretty/reparse parse failure" testParseFailure,
         testCase "throws on stripped AST mismatch" testShapeMismatch,
         testCase "throws on multiline annotation labels" testMultilineLabel,
+        testCase "throws on renderable annotation without span" testMissingSpan,
         testCase "renders source text without pretty-printing" testSourceTextRendering,
         testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
         testProperty "accepts repository QuickCheck options" True
@@ -60,6 +62,19 @@ testSingleAnnotation = do
     "rendered annotation"
     "x = 1\n\9492\9472 decl"
     (renderAnnotatedModule testConfig testAnnotationDoc modu)
+
+testWrapperAnnotationOrder :: IO ()
+testWrapperAnnotationOrder = do
+  let parsed = parseModuleOrFail "x = 1"
+      expected = "x = 1\n\9492\9472 decl"
+  assertEqual
+    "annotation outside source span"
+    expected
+    (renderAnnotatedModule testConfig testAnnotationDoc (annotateFirstDecl "decl" parsed))
+  assertEqual
+    "annotation inside source span"
+    expected
+    (renderAnnotatedModule testConfig testAnnotationDoc (annotateFirstDeclInsideSpan "decl" parsed))
 
 testOverlappingAnnotations :: IO ()
 testOverlappingAnnotations = do
@@ -93,6 +108,12 @@ testMultilineLabel = do
   result <- throws (renderAnnotatedModule testConfig multilineAnnotationDoc modu)
   assertBool "expected multiline label exception" result
 
+testMissingSpan :: IO ()
+testMissingSpan = do
+  let modu = annotateFirstDecl "missing-span" (stripAnnotations (parseModuleOrFail "x = 1"))
+  result <- throws (AnnotatedModule.renderAnnotatedModuleSource testAnnotationDoc "x = 1" modu)
+  assertBool "expected missing span exception" result
+
 testSourceTextRendering :: IO ()
 testSourceTextRendering = do
   let source = "x = f y z"
@@ -122,6 +143,13 @@ annotateFirstDecl label modu =
   case moduleDecls modu of
     decl : rest -> modu {moduleDecls = DeclAnn (mkAnnotation (TestAnnotation label)) decl : rest}
     [] -> error "annotateFirstDecl: module has no declarations"
+
+annotateFirstDeclInsideSpan :: String -> Module -> Module
+annotateFirstDeclInsideSpan label modu =
+  case moduleDecls modu of
+    DeclAnn ann inner : rest -> modu {moduleDecls = DeclAnn ann (DeclAnn (mkAnnotation (TestAnnotation label)) inner) : rest}
+    decl : rest -> modu {moduleDecls = DeclAnn (mkAnnotation (TestAnnotation label)) decl : rest}
+    [] -> error "annotateFirstDeclInsideSpan: module has no declarations"
 
 annotateRhsName :: String -> Module -> Module
 annotateRhsName label modu =

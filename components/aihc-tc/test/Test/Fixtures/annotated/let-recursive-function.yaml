@@ -2,9 +2,10 @@ annotated:
 - |-
   module Test where
   f x = let loop y = loop y in x
-  │ └─ x ∷ a│    └─ y ∷ a
-  │         └─ loop ∷ ∀ a b. a → b
-  └─ f ∷ ∀ a. a → a
+  │ │       │    └─ type: a
+  │ │       └─ type: ∀ a b. a → b
+  │ └─ type: a
+  └─ type: ∀ a. a → a
 extensions: []
 modules:
 - |

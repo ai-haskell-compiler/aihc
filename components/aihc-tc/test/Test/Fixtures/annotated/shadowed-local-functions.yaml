@@ -2,11 +2,13 @@ annotated:
 - |-
   module Test where
   x x = let x x = x in x where x x = x
-  │ └─ x ∷ a│ └─ x ∷ a │       │ └─ x ∷ a
-  │         │          │       └─ x ∷ ∀ a. a → a
-  │         │          └─ type-args: b
-  │         └─ x ∷ ∀ a. a → a
-  └─ x ∷ ∀ a b. a → b → b
+  │ │       │ │        │       │ └─ type: a
+  │ │       │ │        │       └─ type: ∀ a. a → a
+  │ │       │ │        └─ type: b → b; type-args: b
+  │ │       │ └─ type: a
+  │ │       └─ type: ∀ a. a → a
+  │ └─ type: a
+  └─ type: ∀ a b. a → b → b
 extensions: []
 modules:
 - |

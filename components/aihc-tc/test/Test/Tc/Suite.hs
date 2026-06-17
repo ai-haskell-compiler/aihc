@@ -7,7 +7,7 @@ module Test.Tc.Suite
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
@@ -85,17 +85,40 @@ mkAnnotatedGoldenTest tcase = testCase (TAG.caseId tcase) $ do
             <> details
         )
 
--- | Parse an expression from text.
-parseE :: Text -> Expr
-parseE input =
-  let config = defaultConfig {parserSourceName = "<test>"}
-   in case parseExpr config input of
-        ParseOk result -> result
-        ParseErr err -> error ("Parse error in test: " ++ show err)
-
 -- | Typecheck an expression and return the result.
 tc :: Text -> TcResult
-tc = typecheckExpr . parseE
+tc = tcWithDecls ""
+
+tcWithDecls :: Text -> Text -> TcResult
+tcWithDecls decls expr =
+  let modu =
+        typecheckModule $
+          parseM
+            ( "module Test where\n\
+              \data Bool = False | True\n"
+                <> decls
+                <> "\n__result = "
+                <> expr
+                <> "\n"
+            )
+      diags = tcModuleDiagnostics modu
+      resultTy =
+        case [tbType binding | binding <- tcModuleBindings modu, tbName binding == "__result"] of
+          ty : _ -> ty
+          [] -> TcMetaTv (Unique (-1))
+   in TcResult
+        { tcResultType = resultTy,
+          tcResultDiagnostics = diags,
+          tcResultSuccess = null [diag | diag <- diags, diagSeverity diag == TcError]
+        }
+
+hasResolveErrors :: Text -> Bool
+hasResolveErrors input =
+  let config = defaultConfig {parserSourceName = "<test>"}
+      (errs, modu) = parseModule config input
+   in null errs
+        && case resolve [modu] of
+          ResolveResult {resolveErrors} -> not (null resolveErrors)
 
 -- Helper to check that a type is a specific TyCon
 isTyCon :: Text -> TcType -> Bool
@@ -110,6 +133,8 @@ isListOf _ _ = False
 -- Helper to check function type
 isFunTy :: TcType -> Bool
 isFunTy (TcFunTy _ _) = True
+isFunTy (TcForAllTy _ body) = isFunTy body
+isFunTy (TcQualTy _ body) = isFunTy body
 isFunTy _ = False
 
 -- | Tests for literal expressions.
@@ -137,8 +162,8 @@ literalTests =
 applicationTests :: [TestTree]
 applicationTests =
   [ testCase "application infers result type" $ do
-      let result = tc "f x"
-      assertBool "should have errors (unbound)" (not (tcResultSuccess result))
+      let result = tcWithDecls "f x = x\narg = 1\n" "f arg"
+      assertBool "should succeed" (tcResultSuccess result)
   ]
 
 -- | Tests for if-then-else.
@@ -171,10 +196,8 @@ lambdaTests =
 -- | Tests for variable expressions.
 variableTests :: [TestTree]
 variableTests =
-  [ testCase "unbound variable produces error" $ do
-      let result = tc "undefined_var"
-      assertBool "should fail" (not (tcResultSuccess result))
-      assertBool "should have diagnostics" (not (null (tcResultDiagnostics result)))
+  [ testCase "unbound variable is rejected by resolver before TC" $ do
+      assertBool "resolver should reject unbound variable" (hasResolveErrors "module Test where\nx = undefined_var\n")
   ]
 
 kindTests :: [TestTree]
@@ -239,16 +262,15 @@ annotationTests =
       let result = typecheckModule annotationModule
       assertBool "module should typecheck" (tcModuleSuccess result)
       assertBool "pending annotations should not escape" (not (containsPendingTcAnnotation result)),
-    testCase "module diagnostics are carried by module annotations" $ do
+    testCase "located module diagnostics are attached to syntax nodes" $ do
       let result =
             typecheckModule $
               parseM
                 "module Test where\n\
-                \data M a = J a | N\n\
-                \fn :: M\n\
-                \fn = fn\n"
+                \bad xs = [ x | x <- xs, 1 ]\n"
       assertBool "module should fail" (not (tcModuleSuccess result))
-      assertBool "diagnostics should be attached to module annotations" (any isTcDiagnosticAnnotation (moduleAnns result)),
+      assertBool "diagnostics should be attached to the annotated syntax tree" (containsParserAnnotation isTcDiagnosticAnnotation result)
+      assertBool "located diagnostics should not be attached to module annotations" (not (any isTcDiagnosticAnnotation (moduleAnns result))),
     testCase "module diagnostics do not require source span annotations" $ do
       let unspannedModule =
             stripAnnotations $
@@ -527,14 +549,6 @@ caseAltExprAnnotations (CaseAlt _ _ rhs) = rhsExprAnnotations rhs
 -- | Tests for error cases.
 errorTests :: [TestTree]
 errorTests =
-  [ testCase "unbound variable reports error" $ do
-      let result = tc "foo"
-      assertBool "should not succeed" (not (tcResultSuccess result))
-      case tcResultDiagnostics result of
-        [] -> assertBool "expected diagnostics" False
-        (d : _) -> case diagKind d of
-          UnboundVariable name ->
-            assertEqual "error should name 'foo'" "foo" name
-          other ->
-            assertBool ("unexpected error kind: " ++ show other) False
+  [ testCase "unbound variable is not a TC error" $ do
+      assertBool "resolver should reject unbound variable" (hasResolveErrors "module Test where\nx = foo\n")
   ]

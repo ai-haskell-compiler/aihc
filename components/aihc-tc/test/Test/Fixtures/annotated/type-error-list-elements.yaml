@@ -8,9 +8,9 @@ annotated:
   - |-
     module Test where
     data Bool = True | False
-         │      │      └─ False ∷ Bool
-         │      └─ True ∷ Bool
-         └─ Bool ∷ *
+         │      │      └─ type: Bool
+         │      └─ type: Bool
+         └─ type: *
     list = [True, ()]
                   └─ error: expression has type (), but expected Bool from an earlier list element
 status: pass

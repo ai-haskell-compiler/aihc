@@ -14,7 +14,8 @@ annotated:
   getAge :: Person -> Int
   └─ v Main └─ t Main └─ t Error unbound
   getAge (Person { name = n, .. }) = age
-  └─ v Main               └─ v 0     └─ v 1
+  │       └─ v Main       └─ v 0     └─ v 1
+  └─ v Main
 extensions:
 - RecordWildCards
 modules:

@@ -1,22 +1,22 @@
-extensions:
-  - ForeignFunctionInterface
-modules:
-  - |
-    module Test where
-    data Double
-    data IO a
-    foreign import javascript unsafe "performance.now" js_now :: IO Double
-    test = js_now
 annotated:
 - |-
   module Test where
   data Double
-       └─ Double ∷ *
+       └─ type: *
   data IO a
-       └─ IO ∷ * → *
+       └─ type: * → *
   foreign import javascript unsafe "performance.now" js_now :: IO Double
-                                                     └─ js_now ∷ IO Double
+  └─ type: IO Double
   test = js_now
-  └─ test ∷ IO Double
+  └─ type: IO Double
+extensions:
+- ForeignFunctionInterface
+modules:
+- |
+  module Test where
+  data Double
+  data IO a
+  foreign import javascript unsafe "performance.now" js_now :: IO Double
+  test = js_now
+reason: annotated output includes a javascript foreign import and a later use
 status: pass
-reason: "annotated output includes a javascript foreign import and a later use"

@@ -10,16 +10,18 @@ annotated:
              │    └─ t Error unbound
              └─ t Main
   sumTree (Leaf x) = x
-  └─ v Main     │    └─ v 0
-                └─ v 0
+  └─ v Main│    │    └─ v 0
+           │    └─ v 0
+           └─ v Main
   sumTree (Node l r) = sumTree l + sumTree r
-  └─ v Main     │ │    │       │ │ │       └─ v 2
-                │ │    │       │ │ └─ v Main
-                │ │    │       │ └─ v Error unbound
-                │ │    │       └─ v 1
-                │ │    └─ v Main
-                │ └─ v 2
-                └─ v 1
+  └─ v Main│    │ │    │       │ │ │       └─ v 2
+           │    │ │    │       │ │ └─ v Main
+           │    │ │    │       │ └─ v Error unbound
+           │    │ │    │       └─ v 1
+           │    │ │    └─ v Main
+           │    │ └─ v 2
+           │    └─ v 1
+           └─ v Main
 extensions: []
 modules:
 - |

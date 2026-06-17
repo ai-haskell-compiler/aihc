@@ -9,7 +9,8 @@ annotated:
   - |-
     module Test where
     y = ()
-    └─ y ∷ ()
+    │   └─ type: ()
+    └─ type: ()
     x :: ()
     x = []
         └─ error: expression has type [?1], but expected () from the type signature for x

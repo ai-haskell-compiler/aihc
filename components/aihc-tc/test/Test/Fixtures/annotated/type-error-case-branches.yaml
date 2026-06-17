@@ -10,9 +10,9 @@ annotated:
   - |-
     module Test where
     data Bool = True | False
-         │      │      └─ False ∷ Bool
-         │      └─ True ∷ Bool
-         └─ Bool ∷ *
+         │      │      └─ type: Bool
+         │      └─ type: Bool
+         └─ type: *
     val = case () of
       () -> True
       () -> ()
