@@ -9,7 +9,6 @@ modules:
 annotated:
   - |-
     module Test where
-    └─ error: expression has type (), but expected Bool from a case branch
     data Bool = True | False
          │      │      └─ type: Bool
          │      └─ type: Bool
@@ -17,5 +16,6 @@ annotated:
     val = case () of
       () -> True
       () -> ()
+            └─ error: expression has type (), but expected Bool from a case branch
 status: pass
 reason: case branch result mismatches should explain where the expected type came from

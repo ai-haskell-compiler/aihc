@@ -6,7 +6,7 @@ modules:
 annotated:
   - |-
     module Test where
-    └─ error: couldn't match Int with Bool
     bad xs = [ x | x <- xs, 1 ]
+                            └─ error: couldn't match Int with Bool
 status: pass
 reason: list comprehension guards must be Bool, not Int

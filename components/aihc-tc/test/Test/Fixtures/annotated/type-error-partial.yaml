@@ -8,11 +8,11 @@ modules:
 annotated:
   - |-
     module Test where
-    └─ error: expression has type [?1], but expected () from the type signature for x
     y = ()
     │   └─ type: ()
     └─ type: ()
     x :: ()
     x = []
+        └─ error: expression has type [?1], but expected () from the type signature for x
 status: pass
 reason: type errors should render alongside successful annotations

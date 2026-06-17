@@ -262,16 +262,15 @@ annotationTests =
       let result = typecheckModule annotationModule
       assertBool "module should typecheck" (tcModuleSuccess result)
       assertBool "pending annotations should not escape" (not (containsPendingTcAnnotation result)),
-    testCase "module diagnostics are carried by module annotations" $ do
+    testCase "located module diagnostics are attached to syntax nodes" $ do
       let result =
             typecheckModule $
               parseM
                 "module Test where\n\
-                \data M a = J a | N\n\
-                \fn :: M\n\
-                \fn = fn\n"
+                \bad xs = [ x | x <- xs, 1 ]\n"
       assertBool "module should fail" (not (tcModuleSuccess result))
-      assertBool "diagnostics should be attached to module annotations" (any isTcDiagnosticAnnotation (moduleAnns result)),
+      assertBool "diagnostics should be attached to the annotated syntax tree" (containsParserAnnotation isTcDiagnosticAnnotation result)
+      assertBool "located diagnostics should not be attached to module annotations" (not (any isTcDiagnosticAnnotation (moduleAnns result))),
     testCase "module diagnostics do not require source span annotations" $ do
       let unspannedModule =
             stripAnnotations $
