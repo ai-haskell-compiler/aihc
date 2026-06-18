@@ -34,12 +34,12 @@ Find more information here:
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   1833 |    1111 |    2944 |
+| aihc-fc            |   1955 |    1209 |    3164 |
 | aihc-parser        |  13396 |   17709 |   31105 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
-| aihc-resolve       |   2153 |    1127 |    3280 |
-| aihc-tc            |   4177 |    2553 |    6730 |
-| **Total**          |  25140 |   24026 |   49166 |
+| aihc-resolve       |   2175 |    1133 |    3308 |
+| aihc-tc            |   4767 |    2067 |    6834 |
+| **Total**          |  25874 |   23644 |   49518 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
