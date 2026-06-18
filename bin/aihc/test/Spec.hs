@@ -19,6 +19,7 @@ import Aihc.Cli.Install
   )
 import Aihc.Cli.Options (Command (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession)
+import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
@@ -144,6 +145,10 @@ main =
                 assertBool ("expected system-fc output, got:\n" <> T.unpack output) ("system-fc:\n__aihc_repl_it : [Char] =" `T.isInfixOf` output)
                 assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
               Left err -> assertFailure ("expected success, got " <> show err),
+          testCase "loads bundled aihc-base Prelude by default" $ do
+            session <- loadReplSession Nothing
+            result <- evaluateExpression session "otherwise"
+            assertEqual "result" (Right "True") result,
           testCase "loads installed base interface for Prelude MVP scope" test_loadsInstalledBaseInterfaceForRepl
         ],
       testGroup
@@ -190,6 +195,7 @@ testReplSession = do
     ReplSession
       { replModuleExports = Map.empty,
         replImportedTerms = [],
+        replDependencyProgram = FcProgram [],
         replSettings = settingsRef
       }
 
@@ -205,7 +211,7 @@ test_loadsInstalledBaseInterfaceForRepl =
       manifestPath
       ( Aeson.encode
           ( object
-              [ "package" .= object ["name" .= ("base" :: String), "version" .= ("4.22.0.0" :: String)],
+              [ "package" .= object ["name" .= ("aihc-base" :: String), "version" .= ("4.21.2.0" :: String)],
                 "interfacePath" .= interfacePath
               ]
           )

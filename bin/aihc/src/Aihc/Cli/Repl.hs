@@ -13,14 +13,13 @@ module Aihc.Cli.Repl
   )
 where
 
-import Aihc.Cli.Install (defaultStoreRoot)
-import Aihc.Fc (DesugarResult (..), evalProgramBinding, renderProgram, renderValue)
-import Aihc.Fc.Desugar (desugarModuleWithTcResult)
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderProgram, renderValue)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr,
+    ImportDecl (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -32,7 +31,7 @@ import Aihc.Parser.Syntax
     qualifyName,
     unqualifiedNameFromText,
   )
-import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( Pred (..),
     TcBindingResult (..),
@@ -46,6 +45,7 @@ import Aihc.Tc
     tcModuleDiagnostics,
     tcModuleSuccess,
     typecheckModuleWithEnv,
+    typecheckModulesWithEnv,
   )
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -56,17 +56,21 @@ import Data.Char (isSpace)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (find, stripPrefix)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Prettyprinter (defaultLayoutOptions, layoutPretty, pretty)
 import Prettyprinter.Render.String (renderString)
 import System.Console.Haskeline qualified as Haskeline
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
 import System.FilePath ((</>))
+import System.FilePath qualified as FilePath
 
 data ReplSession = ReplSession
   { replModuleExports :: !ModuleExports,
     replImportedTerms :: ![(Text, TypeScheme)],
+    replDependencyProgram :: !FcProgram,
     replSettings :: !(IORef ReplSettings)
   }
 
@@ -122,14 +126,16 @@ runRepl maybeStoreRoot = do
 
 loadReplSession :: Maybe FilePath -> IO ReplSession
 loadReplSession maybeStoreRoot = do
-  storeRoot <- maybe defaultStoreRoot pure maybeStoreRoot
-  interfacePath <- findInstalledBaseInterface storeRoot
-  interface <- loadInterface interfacePath
+  baseContext <- loadAihcBaseContext
+  installedInterface <- loadExplicitStoreInterface maybeStoreRoot
   settingsRef <- newIORef defaultReplSettings
+  let installedExports = maybe Map.empty interfaceExports installedInterface
+      installedTerms = maybe [] interfaceImportedTerms installedInterface
   pure
     ReplSession
-      { replModuleExports = ensurePreludeMvpScope (interfaceExports interface),
-        replImportedTerms = ensurePreludeMvpTerms (interfaceImportedTerms interface),
+      { replModuleExports = replBaseExports baseContext `Map.union` ensurePreludeMvpScope installedExports,
+        replImportedTerms = mergeImportedTerms (replBaseImportedTerms baseContext) (ensurePreludeMvpTerms installedTerms),
+        replDependencyProgram = replBaseProgram baseContext,
         replSettings = settingsRef
       }
 
@@ -174,11 +180,12 @@ evaluateExpression session input = do
       case find ((== replBindingName) . tbName) (tcModuleBindings tcResult) of
         Just binding -> Right (tbType binding)
         Nothing -> Left (ReplTypeError ["missing inferred type for " <> T.unpack replBindingName])
-    let dsResult = desugarModuleWithTcResult tcResult resolvedModule
+    let allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
+        dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
     if dsSuccess dsResult
       then pure ()
       else Left (ReplDesugarError (dsErrors dsResult))
-    value <- mapLeft (ReplEvalError . show) (evalProgramBinding replBindingName (dsProgram dsResult))
+    value <- mapLeft (ReplEvalError . show) (evalProgramBinding replBindingName (concatPrograms [replDependencyProgram session, dsProgram dsResult]))
     renderedValue <- mapLeft (ReplEvalError . show) (renderValue value)
     Right (renderEvaluation settings expr inferredType dsResult renderedValue)
 
@@ -315,6 +322,145 @@ data Interface = Interface
   { interfaceExports :: ModuleExports,
     interfaceImportedTerms :: [(Text, TypeScheme)]
   }
+
+data ReplBaseContext = ReplBaseContext
+  { replBaseExports :: !ModuleExports,
+    replBaseImportedTerms :: ![(Text, TypeScheme)],
+    replBaseProgram :: !FcProgram
+  }
+
+loadAihcBaseContext :: IO ReplBaseContext
+loadAihcBaseContext = do
+  root <- defaultAihcBaseRoot
+  modulesResult <- loadTransitiveModules [("aihc-base", root)] (Set.singleton "Prelude")
+  case modulesResult of
+    Left err -> ioError (userError ("repl error: could not load bundled aihc-base Prelude: " <> err))
+    Right modules -> buildBaseContext modules
+
+buildBaseContext :: [Module] -> IO ReplBaseContext
+buildBaseContext modules =
+  case resolveWithDeps Map.empty modules of
+    resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
+      let tcResults = typecheckModulesWithEnv [] resolvedModules
+      if all tcModuleSuccess tcResults
+        then do
+          let allBindings = concatMap tcModuleBindings tcResults
+              dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+          if all dsSuccess dsResults
+            then
+              pure
+                ReplBaseContext
+                  { replBaseExports = extractInterface resolved,
+                    replBaseImportedTerms = map bindingImportedTerm allBindings,
+                    replBaseProgram = concatPrograms (map dsProgram dsResults)
+                  }
+            else ioError (userError ("repl error: could not desugar bundled aihc-base Prelude: " <> unwords (concatMap dsErrors dsResults)))
+        else ioError (userError ("repl error: could not type-check bundled aihc-base Prelude: " <> unwords (concatMap (map show . tcModuleDiagnostics) tcResults)))
+    ResolveResult {resolveErrors} ->
+      ioError (userError ("repl error: could not resolve bundled aihc-base Prelude: " <> show resolveErrors))
+
+bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
+bindingImportedTerm binding =
+  (tbName binding, tcTypeScheme (tbType binding))
+
+mergeImportedTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)] -> [(Text, TypeScheme)]
+mergeImportedTerms preferred fallback =
+  Map.toList (Map.fromList fallback <> Map.fromList preferred)
+
+importedTermBindings :: [(Text, TypeScheme)] -> [TcBindingResult]
+importedTermBindings terms =
+  [ TcBindingResult
+      { tbName = name,
+        tbDisplayName = name,
+        tbType = instantiateSchemeBody scheme
+      }
+  | (name, scheme) <- terms
+  ]
+
+instantiateSchemeBody :: TypeScheme -> TcType
+instantiateSchemeBody (ForAll tvs preds body) =
+  foldr TcForAllTy (qualify preds body) tvs
+  where
+    qualify [] ty = ty
+    qualify constraints ty = TcQualTy constraints ty
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs =
+  FcProgram (concatMap fcTopBinds programs)
+
+loadExplicitStoreInterface :: Maybe FilePath -> IO (Maybe Interface)
+loadExplicitStoreInterface Nothing = pure Nothing
+loadExplicitStoreInterface (Just storeRoot) = do
+  interfacePath <- findInstalledBaseInterface storeRoot
+  Just <$> loadInterface interfacePath
+
+defaultAihcBaseRoot :: IO FilePath
+defaultAihcBaseRoot = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "core-libs" </> "aihc-base"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = FilePath.takeDirectory dir
+          if parent == dir
+            then pure candidate
+            else findUp parent
+
+loadTransitiveModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
+loadTransitiveModules packageRoots initialModules =
+  go Set.empty [] (Set.toAscList initialModules)
+  where
+    go _ loaded [] =
+      pure (Right loaded)
+    go seen loaded (moduleName : pending)
+      | moduleName `Set.member` seen =
+          go seen loaded pending
+      | otherwise = do
+          maybePath <- findModulePathInDependencies packageRoots moduleName
+          case maybePath of
+            Nothing -> do
+              let dependencyNames = T.intercalate ", " (map fst packageRoots)
+              pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
+            Just path -> do
+              source <- TIO.readFile path
+              case parseOneModule path source of
+                Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
+                Right modu -> do
+                  let seen' = Set.insert moduleName seen
+                      newImports = Set.toAscList (importedModuleNames [modu] `Set.difference` seen')
+                  go seen' (modu : loaded) (pending <> newImports)
+
+findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
+findModulePathInDependencies [] _ = pure Nothing
+findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
+  let path = root </> "src" </> moduleNamePath moduleName
+  exists <- doesFileExist path
+  if exists
+    then pure (Just path)
+    else findModulePathInDependencies rest moduleName
+
+moduleNamePath :: Text -> FilePath
+moduleNamePath moduleName =
+  FilePath.joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
+
+parseOneModule :: FilePath -> Text -> Either String Module
+parseOneModule sourceName input =
+  let cfg =
+        defaultConfig
+          { parserSourceName = sourceName
+          }
+      (errs, ast) = parseModule cfg input
+   in if null errs
+        then Right ast
+        else Left ("parse module error: " <> show errs)
+
+importedModuleNames :: [Module] -> Set.Set Text
+importedModuleNames modules =
+  Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
 
 data InterfaceModule = InterfaceModule
   { interfaceModuleName :: !Text,
@@ -453,7 +599,7 @@ instance Aeson.FromJSON StoreCandidate where
 
 isBaseManifest :: StoreCandidate -> Bool
 isBaseManifest candidate =
-  candidatePackageName candidate == "base"
+  candidatePackageName candidate `elem` ["aihc-base", "base"]
 
 ensurePreludeMvpScope :: ModuleExports -> ModuleExports
 ensurePreludeMvpScope exports =
