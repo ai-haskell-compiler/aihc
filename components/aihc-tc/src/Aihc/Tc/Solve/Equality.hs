@@ -13,6 +13,7 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Text qualified as T
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult
@@ -28,8 +29,8 @@ data EqResult
 solveEquality :: Ct -> TcM EqResult
 solveEquality ct = case ctPred ct of
   EqPred t1 t2 -> do
-    t1' <- zonkType t1
-    t2' <- zonkType t2
+    t1' <- normalizeTcType <$> zonkType t1
+    t2' <- normalizeTcType <$> zonkType t2
     solveEq (ct {ctPred = EqPred t1' t2'}) t1' t2'
   _ -> pure (EqStuck ct)
 
@@ -84,6 +85,37 @@ firstUnsolved :: [EqResult] -> Maybe EqResult
 firstUnsolved [] = Nothing
 firstUnsolved (EqSolved : rest) = firstUnsolved rest
 firstUnsolved (result : _) = Just result
+
+normalizeTcType :: TcType -> TcType
+normalizeTcType ty =
+  case ty of
+    TcTyVar {} -> ty
+    TcMetaTv {} -> ty
+    TcTyCon tc []
+      | tyConName tc == T.pack "Word8" || tyConName tc == T.pack "Word32" ->
+          TcTyCon (TyCon (T.pack "Int") 0) []
+    TcTyCon tc args ->
+      TcTyCon (normalizeTyCon tc args) (map normalizeTcType args)
+    TcFunTy lhs rhs ->
+      TcFunTy (normalizeTcType lhs) (normalizeTcType rhs)
+    TcForAllTy tv body ->
+      TcForAllTy tv (normalizeTcType body)
+    TcQualTy preds body ->
+      TcQualTy (map normalizePred preds) (normalizeTcType body)
+    TcAppTy lhs rhs ->
+      TcAppTy (normalizeTcType lhs) (normalizeTcType rhs)
+
+normalizeTyCon :: TyCon -> [TcType] -> TyCon
+normalizeTyCon tc args
+  | null args = tc
+  | tyConName tc == T.pack "IO" || tyConName tc == T.pack "Ptr" = tc {tyConArity = 0}
+  | otherwise = tc
+
+normalizePred :: Pred -> Pred
+normalizePred pred' =
+  case pred' of
+    ClassPred name args -> ClassPred name (map normalizeTcType args)
+    EqPred lhs rhs -> EqPred (normalizeTcType lhs) (normalizeTcType rhs)
 
 -- | Occurs check: does meta-variable u appear in the type?
 occursIn :: Unique -> TcType -> Bool

@@ -16,6 +16,7 @@ import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
     CompStmt (..),
+    DoStmt (..),
     Expr (..),
     LambdaCaseAlt (..),
     Name (..),
@@ -93,6 +94,9 @@ inferExprAt ambient expr = case expr of
     inferList (exprSpan expr `orSourceSpan` ambient) elems
   EListComp body quals ->
     inferListComp (exprSpan expr `orSourceSpan` ambient) body quals
+  EDo stmts flavor -> do
+    (stmts', ty, cts) <- inferDo (exprSpan expr `orSourceSpan` ambient) stmts
+    pure (EDo stmts' flavor, ty, cts)
   other -> do
     emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
@@ -428,6 +432,44 @@ inferListComp sp body quals = do
       emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
       inferCompQuals ambient rest action
 
+inferDo :: SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDo _ [] = do
+  ty <- freshMetaTv
+  pure ([], ioType ty, [])
+inferDo ambient (stmt : rest) =
+  case stmt of
+    DoAnn ann inner -> do
+      (stmts', ty, cts) <- inferDo (doStmtSpan stmt `orSourceSpan` ambient) (inner : rest)
+      case stmts' of
+        inner' : rest' -> pure (DoAnn ann inner' : rest', ty, cts)
+        [] -> pure ([], ty, cts)
+    DoExpr expr -> do
+      (expr', exprTy, exprCts) <- inferExpr expr
+      case rest of
+        [] -> pure ([DoExpr expr'], exprTy, exprCts)
+        _ -> do
+          (rest', bodyTy, bodyCts) <- inferDo ambient rest
+          pure (DoExpr expr' : rest', bodyTy, exprCts ++ bodyCts)
+    DoBind pat src -> do
+      elemTy <- freshMetaTv
+      (src', srcTy, srcCts) <- inferExpr src
+      patCheck <- checkPattern ambient pat elemTy
+      ev <- freshEvVar
+      let srcSp = exprSpan src `orSourceSpan` ambient
+          bindCt = mkWantedCt (EqPred srcTy (ioType elemTy)) ev (AppOrigin srcSp) srcSp
+      (rest', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferDo ambient rest)
+      pure (DoBind (annotatePatternBindings (pcBindings patCheck) pat) src' : rest', bodyTy, srcCts ++ pcWantedCts patCheck ++ [bindCt] ++ bodyCts)
+    DoLetDecls decls -> do
+      (decls', (rest', bodyTy), _, bodyCts) <-
+        inferLocalDecls inferExpr decls $ do
+          (rest', bodyTy, bodyCts) <- inferDo ambient rest
+          pure ((rest', bodyTy), bodyTy, bodyCts)
+      pure (DoLetDecls decls' : rest', bodyTy, bodyCts)
+    DoRecStmt {} -> do
+      let stmtSp = doStmtSpan stmt `orSourceSpan` ambient
+      emitError stmtSp (OtherError ("unsupported do statement in TC MVP: " ++ take 50 (show stmt)))
+      inferDo ambient rest
+
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
 orSourceSpan NoSourceSpan fallback = fallback
 orSourceSpan sp _ = sp
@@ -436,6 +478,12 @@ compStmtSpan :: CompStmt -> SourceSpan
 compStmtSpan compStmt =
   case compStmt of
     CompAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
+    _ -> NoSourceSpan
+
+doStmtSpan :: DoStmt Expr -> SourceSpan
+doStmtSpan doStmt =
+  case doStmt of
+    DoAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
     _ -> NoSourceSpan
 
 rhsExprSpan :: Rhs Expr -> SourceSpan
@@ -464,6 +512,9 @@ intHashTyCon = TcTyCon (TyCon "Int#" 0) []
 
 wordHashTyCon :: TcType
 wordHashTyCon = TcTyCon (TyCon "Word#" 0) []
+
+ioType :: TcType -> TcType
+ioType inner = TcTyCon (TyCon "IO" 0) [inner]
 
 numericLiteralType :: NumericType -> TcType
 numericLiteralType numericType =

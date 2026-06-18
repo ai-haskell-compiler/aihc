@@ -1,1 +1,7 @@
-module System.IO.Unsafe () where
+module System.IO.Unsafe
+  ( unsafePerformIO,
+  )
+where
+
+unsafePerformIO :: IO a -> a
+unsafePerformIO = unsafePerformIO

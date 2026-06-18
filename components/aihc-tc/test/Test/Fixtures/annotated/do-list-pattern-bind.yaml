@@ -1,0 +1,30 @@
+annotated:
+- |-
+  module Test where
+  data IO a
+       └─ type: * → *
+  foreign import ccall "return" return :: a -> IO a
+  └─ type: ∀ a. a → IO a
+  foreign import ccall "getList" getList :: () -> IO [a]
+  └─ type: ∀ a. () → IO [a]
+  use = do
+  └─ type: ∀ a. IO a
+    [x, y] <- getList ()
+     │  │     │       └─ type: ()
+     │  │     └─ type: () → IO [a]; type-args: a
+     │  └─ type: a
+     └─ type: a
+    return x
+    └─ type: a → IO a; type-args: a
+extensions: []
+modules:
+- |
+  module Test where
+  data IO a
+  foreign import ccall "return" return :: a -> IO a
+  foreign import ccall "getList" getList :: () -> IO [a]
+  use = do
+    [x, y] <- getList ()
+    return x
+reason: ''
+status: pass

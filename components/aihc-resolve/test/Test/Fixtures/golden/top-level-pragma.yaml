@@ -1,0 +1,19 @@
+annotated:
+- |-
+  module Main where
+  f :: a -> a
+  └─ v Main
+  f x = x
+  │ │   └─ v 0
+  │ └─ v 0
+  └─ v Main
+  {-# NOINLINE f #-}
+extensions: []
+modules:
+- |
+  module Main where
+  f :: a -> a
+  f x = x
+  {-# NOINLINE f #-}
+reason: ''
+status: pass

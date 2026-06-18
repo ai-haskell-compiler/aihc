@@ -157,7 +157,8 @@ main =
           testCase "limits rendered install errors to first module" test_limitsRenderedInstallErrorsToFirstModule,
           testCase "renders human install errors" test_rendersHumanInstallErrors,
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
-          testCase "resolves base dependencies through resolver" test_resolvesBaseDependenciesThroughResolver,
+          testCase "type-checks references to dependency bindings" test_typeChecksReferencesToDependencyBindings,
+          testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
           testCase "uses local provider for ghc-internal dependencies" test_usesLocalProviderForGhcInternal,
           testCase "manifest records core provider dependency names" test_manifestRecordsCoreProviderDependencyNames,
@@ -440,6 +441,24 @@ test_failedRootDoesNotInstallDependencies =
     assertFileDoesNotExist (planStorePath plan </> "manifest.json")
     assertFileDoesNotExist (planStorePath dependencyPlan </> "manifest.json")
 
+test_typeChecksReferencesToDependencyBindings :: Assertion
+test_typeChecksReferencesToDependencyBindings =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        depRoot = root </> "dep"
+        storeRoot = root </> "store"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" ["dep >=1 && <2"] "module Demo where\nimport Dep\ny = depId ()\n"
+    createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\ndepId :: a -> a\ndepId x = x\n"
+    createDirectoryIfMissing True storeRoot
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+
+    _ <- expectInstallSuccess (writeInstallScaffold plan)
+    assertFileExists (planStorePath plan </> "manifest.json")
+
 test_usesLocalProviderForGhcPrim :: Assertion
 test_usesLocalProviderForGhcPrim =
   withCoreDependencyFixture "ghc-prim" $ \sourceRoot storeRoot -> do
@@ -450,15 +469,15 @@ test_usesLocalProviderForGhcPrim =
         (PackageSpec "demo" "0.1.0.0")
     assertDependencySpec plan (PackageSpec "aihc-prim" "0.13.0")
 
-test_resolvesBaseDependenciesThroughResolver :: Assertion
-test_resolvesBaseDependenciesThroughResolver =
-  withBaseDependencyFixture $ \sourceRoot baseRoot storeRoot -> do
+test_usesLocalProviderForBase :: Assertion
+test_usesLocalProviderForBase =
+  withCoreDependencyFixture "base" $ \sourceRoot storeRoot -> do
     plan <-
       buildPackagePlanWithResolver
-        (fixtureDependencyResolver sourceRoot [("base", "4.22.0.0", baseRoot)])
+        (fixtureDependencyResolver sourceRoot [])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
-    assertDependencySpec plan (PackageSpec "base" "4.22.0.0")
+    assertDependencySpec plan (PackageSpec "aihc-base" "4.21.2.0")
 
 test_usesLocalProviderForGhcInternal :: Assertion
 test_usesLocalProviderForGhcInternal =
@@ -486,16 +505,16 @@ test_manifestRecordsCoreProviderDependencyNames =
 
 test_installsResolvedBaseDependencyClosure :: Assertion
 test_installsResolvedBaseDependencyClosure =
-  withBaseDependencyFixture $ \sourceRoot baseRoot storeRoot -> do
+  withCoreDependencyFixture "base" $ \sourceRoot storeRoot -> do
     plan <-
       buildPackagePlanWithResolver
-        (fixtureDependencyResolver sourceRoot [("base", "4.22.0.0", baseRoot)])
+        (fixtureDependencyResolver sourceRoot [])
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
     _ <- expectInstallSuccess (writeInstallScaffold plan)
     let plans = flattenPackagePlans plan
         installedNames = sort [pkgName (packageKeySpec (planPackageKey item)) | item <- plans]
-    assertEqual "installed packages" ["base", "demo"] installedNames
+    assertEqual "installed packages" ["aihc-base", "demo"] installedNames
     mapM_ (assertFileExists . (</> "manifest.json") . planStorePath) plans
 
 test_dryRunWritesNoScaffoldArtifacts :: Assertion
@@ -593,17 +612,6 @@ withCoreDependencyFixture dependencyName action =
     createCoreProviderFixtures coreLibsRoot
     createDirectoryIfMissing True storeRoot
     withCoreLibsRoot coreLibsRoot (action sourceRoot storeRoot)
-
-withBaseDependencyFixture :: (FilePath -> FilePath -> FilePath -> IO a) -> IO a
-withBaseDependencyFixture action =
-  withTempDir "aihc-cli" $ \root -> do
-    let sourceRoot = root </> "source"
-        baseRoot = root </> "base"
-        storeRoot = root </> "store"
-    createFixturePackage sourceRoot "demo" "0.1.0.0" "Demo" ["base"]
-    createFixturePackage baseRoot "base" "4.22.0.0" "Base" []
-    createDirectoryIfMissing True storeRoot
-    action sourceRoot baseRoot storeRoot
 
 withCoreLibsRoot :: FilePath -> IO a -> IO a
 withCoreLibsRoot root action =
