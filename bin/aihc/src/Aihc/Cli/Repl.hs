@@ -64,6 +64,7 @@ import Prettyprinter (defaultLayoutOptions, layoutPretty, pretty)
 import Prettyprinter.Render.String (renderString)
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import System.FilePath qualified as FilePath
 
@@ -396,8 +397,16 @@ loadExplicitStoreInterface (Just storeRoot) = do
 
 defaultAihcBaseRoot :: IO FilePath
 defaultAihcBaseRoot = do
-  cwd <- getCurrentDirectory
-  findUp cwd
+  baseOverride <- lookupEnv "AIHC_BASE_SRC"
+  case baseOverride of
+    Just root -> pure root
+    Nothing -> do
+      coreLibsOverride <- lookupEnv "AIHC_CORE_LIBS_ROOT"
+      case coreLibsOverride of
+        Just root -> pure (root </> "core-libs" </> "aihc-base")
+        Nothing -> do
+          cwd <- getCurrentDirectory
+          findUp cwd
   where
     findUp dir = do
       let candidate = dir </> "core-libs" </> "aihc-base"

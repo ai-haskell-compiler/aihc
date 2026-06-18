@@ -32,6 +32,23 @@
       )
     );
 
+  mkAihcPackageTest = drv:
+    pkgs.haskell.lib.doCheck (
+      pkgs.haskell.lib.dontHaddock (
+        pkgs.haskell.lib.overrideCabal drv (
+          old:
+            addHiddenSuccesses old
+            // {
+              preCheck =
+                (old.preCheck or "")
+                + ''
+                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+                '';
+            }
+        )
+      )
+    );
+
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
       inherit src nativeBuildInputs;
@@ -56,7 +73,7 @@
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   testingTests = mkPackageTest hsPkgs.aihc-testing;
   devTests = mkPackageTest hsPkgs.aihc-dev;
-  aihcTests = mkPackageTest hsPkgs.aihc;
+  aihcTests = mkAihcPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
