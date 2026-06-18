@@ -24,6 +24,7 @@ import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
+    CompStmt (..),
     Decl (..),
     Expr (..),
     Match (..),
@@ -34,6 +35,7 @@ import Aihc.Parser.Syntax
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
+    peelCompStmtAnn,
     peelDeclAnn,
     unqualifiedNameText,
   )
@@ -84,6 +86,11 @@ freshVar :: Text -> TcType -> DsM Var
 freshVar name ty = do
   u <- freshUnique
   pure (Var name u ty)
+
+freshInternalVar :: Text -> TcType -> DsM Var
+freshInternalVar prefix ty = do
+  u@(Unique unique) <- freshUnique
+  pure (Var (prefix <> T.pack (show unique)) u ty)
 
 desugarBug :: String -> DsM a
 desugarBug = lift . Left
@@ -335,6 +342,8 @@ dsExpr (EInfix lhs op rhs) =
   dsInfix lhs op rhs
 dsExpr EList {} =
   desugarBug "missing type-checker annotation for list literal"
+dsExpr EListComp {} =
+  desugarBug "missing type-checker annotation for list comprehension"
 dsExpr ETuple {} =
   desugarBug "missing type-checker annotation for tuple literal"
 dsExpr (EParen inner) = dsExpr inner
@@ -371,6 +380,7 @@ dsAnnotatedExpr tcAnn inner =
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     EList elems -> dsList tcAnn elems
+    EListComp body quals -> dsListComp tcAnn body quals
     ETuple Boxed elems -> dsTuple tcAnn elems
     ELambdaPats pats body -> dsLambda pats body
     EIf cond thenE elseE -> dsIf cond thenE elseE
@@ -544,6 +554,111 @@ dsList tcAnn elems =
     elemTys ->
       desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
 
+dsListComp :: TcAnnotation -> Expr -> [CompStmt] -> DsM FcExpr
+dsListComp tcAnn body quals = do
+  elemTy <- listCompElemTy tcAnn
+  dsCompQuals elemTy body quals (nilList elemTy)
+
+listCompElemTy :: TcAnnotation -> DsM TcType
+listCompElemTy tcAnn =
+  case tcAnnTypeArgs tcAnn of
+    [elemTy] -> pure elemTy
+    [] -> listElemTyM (tcAnnType tcAnn)
+    elemTys ->
+      desugarBug ("list comprehension annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
+
+dsCompQuals :: TcType -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
+dsCompQuals elemTy body quals tailExpr =
+  case quals of
+    [] -> do
+      body' <- dsExpr body
+      pure (consList elemTy body' tailExpr)
+    qual : rest ->
+      case peelCompStmtAnn qual of
+        CompGen pat src -> dsCompGen elemTy body pat src rest tailExpr
+        CompGuard guard -> dsCompGuard elemTy body guard rest tailExpr
+        CompLetDecls decls -> dsLetDecls decls (dsCompQuals elemTy body rest tailExpr)
+        CompThen {} -> unsupportedCompQual qual
+        CompThenBy {} -> unsupportedCompQual qual
+        CompGroupUsing {} -> unsupportedCompQual qual
+        CompGroupByUsing {} -> unsupportedCompQual qual
+        CompAnn {} -> desugarBug "unreachable annotated list comprehension qualifier"
+
+unsupportedCompQual :: CompStmt -> DsM a
+unsupportedCompQual qual =
+  desugarBug ("unsupported list comprehension qualifier after type checking: " <> take 80 (show qual))
+
+dsCompGuard :: TcType -> Expr -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
+dsCompGuard elemTy body guard rest tailExpr = do
+  guard' <- dsExpr guard
+  trueBranch <- dsCompQuals elemTy body rest tailExpr
+  binder <- freshInternalVar "_lc_guard" boolTy
+  pure
+    ( FcCase
+        guard'
+        binder
+        [ FcAlt (DataAlt "True") [] trueBranch,
+          FcAlt (DataAlt "False") [] tailExpr
+        ]
+    )
+
+dsCompGen :: TcType -> Expr -> Pattern -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
+dsCompGen elemTy body pat src rest tailExpr = do
+  src' <- dsExpr src
+  srcListTy <- fcExprTypeM src'
+  srcElemTy <- listElemTyM srcListTy
+  worker <- freshInternalVar "$lc" (TcFunTy srcListTy (listType elemTy))
+  listVar <- freshInternalVar "_lc_list" srcListTy
+  headVar <- freshInternalVar "_lc_head" srcElemTy
+  restVar <- freshInternalVar "_lc_tail" srcListTy
+  caseBinder <- freshInternalVar "_lc_scrut" srcListTy
+  let recurTail = FcApp (FcVar worker) (FcVar restVar)
+  consRhs <- dsCompGenMatch elemTy body pat rest headVar recurTail
+  let workerBody =
+        FcLam listVar $
+          FcCase
+            (FcVar listVar)
+            caseBinder
+            [ FcAlt (DataAlt "[]") [] tailExpr,
+              FcAlt (DataAlt ":") [headVar, restVar] consRhs
+            ]
+  pure (FcLet (FcRec [(worker, workerBody)]) (FcApp (FcVar worker) src'))
+
+dsCompGenMatch :: TcType -> Expr -> Pattern -> [CompStmt] -> Var -> FcExpr -> DsM FcExpr
+dsCompGenMatch elemTy body pat rest headVar skipExpr =
+  case directPatternBindings pat headVar of
+    Just bindings ->
+      withLocals bindings (dsCompQuals elemTy body rest skipExpr)
+    Nothing -> do
+      let (con, binderNames) = dsPatternPure pat
+      case con of
+        DefaultAlt ->
+          desugarBug ("unsupported list comprehension generator pattern: " <> take 80 (show pat))
+        _ -> do
+          binderTys <- patternBinderTypesM pat (varType headVar)
+          binders <- zipWithM freshVar binderNames binderTys
+          matched <- withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr)
+          caseBinder <- freshInternalVar "_lc_match" (varType headVar)
+          pure
+            ( FcCase
+                (FcVar headVar)
+                caseBinder
+                [ FcAlt con binders matched,
+                  FcAlt DefaultAlt [] skipExpr
+                ]
+            )
+
+directPatternBindings :: Pattern -> Var -> Maybe [(Text, Var)]
+directPatternBindings pat var =
+  case pat of
+    PVar name -> Just [(unqualifiedNameText name, var)]
+    PWildcard -> Just []
+    PAnn _ inner -> directPatternBindings inner var
+    PParen inner -> directPatternBindings inner var
+    PAs name inner -> ((unqualifiedNameText name, var) :) <$> directPatternBindings inner var
+    PStrict inner -> directPatternBindings inner var
+    _ -> Nothing
+
 dsLambda :: [Pattern] -> Expr -> DsM FcExpr
 dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
@@ -680,7 +795,7 @@ patternBinderTypesM pat scrutTy =
       | nameText op == ":" ->
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []
-    PCon {} -> missingPatternTypes
+    PCon _ _ subPats -> mapM patternFieldTypeM subPats
     PVar {} -> pure [scrutTy]
     PAnn _ inner -> patternBinderTypesM inner scrutTy
     PParen inner -> patternBinderTypesM inner scrutTy
@@ -690,6 +805,9 @@ patternBinderTypesM pat scrutTy =
   where
     missingPatternTypes =
       desugarBug ("missing pattern binder type information while desugaring: " <> take 80 (show pat))
+
+    patternFieldTypeM subPat =
+      maybe missingPatternTypes pure (patternBinderAnnotationType subPat <|> patternAnnotationType subPat)
 
 listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy

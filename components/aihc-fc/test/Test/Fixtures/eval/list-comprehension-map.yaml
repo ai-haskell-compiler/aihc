@@ -1,0 +1,16 @@
+dependencies: []
+expression: |
+  [not x | x <- xs]
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+
+  not False = True
+  not True = False
+
+  xs = [False, True]
+output: ': True (: False [])'
+reason: evaluates a baseline list comprehension with one generator and mapped body
+status: pass

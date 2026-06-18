@@ -1,0 +1,17 @@
+dependencies: []
+expression: |
+  [y | x <- xs, let y = not x]
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+
+  not False = True
+  not True = False
+
+  xs = [False, True]
+output: ': True (: False [])'
+reason: evaluates a list comprehension let qualifier scoped over later qualifiers
+  and the body
+status: pass

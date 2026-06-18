@@ -379,7 +379,9 @@ inferList sp elems = case elems of
 inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, TcType, [Ct])
 inferListComp sp body quals = do
   (quals', body', bodyTy, cts) <- inferCompQuals sp quals (inferExpr body)
-  pure (EListComp body' quals', listType bodyTy, cts)
+  let resultTy = listType bodyTy
+      pending = pendingAnnotation resultTy [bodyTy] [] []
+  pure (annotatePendingExprAt sp pending (EListComp body' quals'), resultTy, cts)
   where
     listType elemTy = TcTyCon listTyCon' [elemTy]
     listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
