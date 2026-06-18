@@ -1,0 +1,14 @@
+dependencies: []
+expression: |
+  [(x, y) | x <- xs, y <- ys]
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+
+  xs = [False, True]
+  ys = [True, False]
+output: ': (False,True) (: (False,False) (: (True,True) (: (True,False) [])))'
+reason: evaluates multiple list comprehension generators in nested-loop order
+status: pass

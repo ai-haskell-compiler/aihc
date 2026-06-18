@@ -1,0 +1,33 @@
+expected: |-
+  data Bool
+   = False
+   | True
+
+  select : ∀ a. (a → Bool) → [a] → [a] =
+    Λa.
+      λx : a → Bool.
+        λy : [a].
+          let
+            rec
+              $lc1003 : [a] → [a] =
+                λ_lc_list1004 : [a].
+                  case _lc_list1004 as _lc_scrut1007 : [a] of
+                    [] →
+                      [] @a
+                    : _lc_head1005 _lc_tail1006 →
+                      case x _lc_head1005 as _lc_guard1008 : Bool of
+                        True →
+                          : @a _lc_head1005 ($lc1003 _lc_tail1006)
+                        False →
+                          $lc1003 _lc_tail1006
+          in
+            $lc1003 y
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+
+  select fn list = [x | x <- list, fn x]
+reason: desugars list comprehensions directly to recursive Core without Prelude helpers
+status: pass

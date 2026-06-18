@@ -1,0 +1,14 @@
+dependencies: []
+expression: |
+  [x | Just x <- xs]
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+  data Maybe a = Nothing | Just a
+
+  xs = [Nothing, Just False, Just True, Nothing]
+output: ': False (: True [])'
+reason: evaluates refutable generator patterns by skipping non-matching elements
+status: pass

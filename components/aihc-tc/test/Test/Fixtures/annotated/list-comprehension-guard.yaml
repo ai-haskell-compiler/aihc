@@ -6,7 +6,9 @@ annotated:
        │      └─ type: Bool
        └─ type: *
   filter f list = [ x | x <- list, f x ]
-  │      │ └─ type: [a] └─ type: a
+  │      │ │      │     └─ type: a
+  │      │ │      └─ type: [a]; type-args: a
+  │      │ └─ type: [a]
   │      └─ type: a → Bool
   └─ type: ∀ a. (a → Bool) → [a] → [a]
 extensions: []
