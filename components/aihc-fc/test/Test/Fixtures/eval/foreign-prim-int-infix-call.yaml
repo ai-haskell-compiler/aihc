@@ -1,0 +1,12 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim add :: Int# -> Int# -> Int#
+output: |
+  30
+expression: |
+  10# `add` 20#
+status: pass
+reason: "evaluates a foreign prim Int# function used as an infix call"

@@ -64,6 +64,7 @@ primitiveEnv =
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
+      ("add", VPrim "add" 2 []),
       ("+#", VPrim "+#" 2 []),
       ("-#", VPrim "-#" 2 []),
       ("*#", VPrim "*#" 2 [])
@@ -139,6 +140,8 @@ applyPrimitive name arity args
 evalPrimitive :: Text -> [Value] -> Either EvalError Value
 evalPrimitive "+#" [left, right] =
   evalIntPrim "+#" (+) left right
+evalPrimitive "add" [left, right] =
+  evalIntPrim "add" (+) left right
 evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
