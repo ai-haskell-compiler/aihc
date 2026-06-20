@@ -2,7 +2,9 @@ module Prelude
   ( Bool (..),
     Char,
     Eq (..),
+    Integer,
     List (..),
+    Num (..),
     String,
     (&&),
     (++),
@@ -15,6 +17,8 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
+import GHC.Integer (Integer)
+import GHC.Num (Num (..))
 
 data Char
 
