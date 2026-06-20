@@ -14,6 +14,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
+import Data.Text qualified as T
 
 -- | Unify two types, recording the solution and emitting an error if
 -- they are incompatible.
@@ -30,6 +31,11 @@ unify loc origin t1 t2 = do
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())
+unifyTypes t1 t2
+  | t1' /= t1 || t2' /= t2 = unifyTypes t1' t2'
+  where
+    t1' = normalizeWordAlias t1
+    t2' = normalizeWordAlias t2
 unifyTypes (TcMetaTv u1) (TcMetaTv u2)
   | u1 == u2 = pure (Right ())
 unifyTypes (TcMetaTv u) ty = unifyMetaTv u ty
@@ -51,6 +57,17 @@ unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
   pure $ r1 >> r2
 unifyTypes t1 t2 =
   pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing
+
+normalizeWordAlias :: TcType -> TcType
+normalizeWordAlias ty =
+  case ty of
+    TcTyCon tc []
+      | tyConName tc == T.pack "Word8" || tyConName tc == T.pack "Word32" ->
+          TcTyCon (TyCon (T.pack "Int") 0) []
+    TcTyCon tc args
+      | tyConName tc == T.pack "IO" || tyConName tc == T.pack "Ptr" ->
+          TcTyCon (tc {tyConArity = 0}) args
+    _ -> ty
 
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: Unique -> TcType -> TcM (Either TcErrorKind ())

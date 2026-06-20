@@ -87,6 +87,12 @@ checkPatternWith gadtHandling sp pat scrutTy =
       eqCt <- wantedEq sp scrutTy listTy
       itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
+    PTuple _flavor items -> do
+      itemTys <- mapM (const freshMetaTv) items
+      let tupleTy = tupleType itemTys
+      eqCt <- wantedEq sp scrutTy tupleTy
+      itemChecks <- checkPatternsWith gadtHandling sp (zip items itemTys)
+      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
     _ -> pure mempty
 
 annotatePatternBindings :: [(UnqualifiedName, TcType)] -> Pattern -> Pattern
@@ -186,6 +192,15 @@ withPatternBindings ((name, ty) : rest) action =
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
+
+tupleType :: [TcType] -> TcType
+tupleType itemTys =
+  TcTyCon
+    TyCon {tyConName = "(" <> replicateCommas (length itemTys - 1) <> ")", tyConArity = length itemTys}
+    itemTys
+
+replicateCommas :: Int -> Text
+replicateCommas n = mconcat (replicate n ",")
 
 patternNameText :: Name -> Text
 patternNameText name =

@@ -371,7 +371,7 @@ resolveDeclCore termDefinition decl =
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPragma {} -> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance instanceDecl ->
