@@ -6,6 +6,9 @@ license: NONE
 synopsis: Empty API-compatible standin for a GHC boot library
 
 library
+  build-depends:
+    ghc-prim
+
   exposed-modules:
     GHC.CString
     GHC.Classes

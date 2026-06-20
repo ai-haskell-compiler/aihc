@@ -136,11 +136,44 @@ extractSingleModule readIface cacheRef importDir modName = do
     then do
       iface <- liftIO $ readIface hiPath
       liftIO $ ifaceToModule readIface cacheRef modName iface
-    else pure emptyModule
+    else pure (missingModuleInterface modName)
   where
-    emptyModule =
+    missingModuleInterface "GHC.Prim" =
       ModuleInterface
-        { miModule = T.pack modName,
+        { miModule = T.pack "GHC.Prim",
+          miTypes =
+            [ ExportedType
+                { etName = T.pack "RealWorld",
+                  etKind = T.pack "Type",
+                  etConstructors = []
+                },
+              ExportedType
+                { etName = T.pack "State#",
+                  etKind = T.pack "Type -> ZeroBitType",
+                  etConstructors = []
+                },
+              ExportedType
+                { etName = T.pack "TYPE",
+                  etKind = T.pack "RuntimeRep -> Type",
+                  etConstructors = []
+                }
+            ],
+          miValues =
+            [ ExportedValue
+                { evName = T.pack "catch#",
+                  evType = T.pack "(State# RealWorld -> (# State# RealWorld, a #))\n-> (b -> State# RealWorld -> (# State# RealWorld, a #))\n-> State# RealWorld\n-> (# State# RealWorld, a #)"
+                },
+              ExportedValue
+                { evName = T.pack "raise#",
+                  evType = T.pack "a -> b"
+                }
+            ],
+          miClasses = [],
+          miFixities = []
+        }
+    missingModuleInterface missingModName =
+      ModuleInterface
+        { miModule = T.pack missingModName,
           miTypes = [],
           miValues = [],
           miClasses = [],
@@ -425,12 +458,12 @@ readGhcPkg args = do
     Nothing -> do
       mPackageDb <- findLocalPackageDb
       case mPackageDb of
-        Nothing -> readProcess "ghc-pkg" args ""
+        Nothing -> missingPackage
         Just packageDb -> do
           fallbackResult <- tryReadGhcPkgRaw ("--package-db" : packageDb : args)
-          case fallbackResult of
-            Just output -> pure output
-            Nothing -> readProcess "ghc-pkg" args ""
+          maybe missingPackage pure fallbackResult
+  where
+    missingPackage = ioError (userError ("ghc-pkg failed: " <> unwords args))
 
 tryReadGhcPkg :: [String] -> IO (Maybe String)
 tryReadGhcPkg args =
