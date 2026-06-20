@@ -250,13 +250,19 @@ test_loadsInstalledBaseInterfaceForRepl =
       Left err -> assertFailure ("expected typed string success, got " <> show err)
 
 assertBundledPreludeNumericScope :: ReplSession -> Assertion
-assertBundledPreludeNumericScope session =
+assertBundledPreludeNumericScope session = do
   case Map.lookup "Prelude" (replModuleExports session) of
     Nothing -> assertFailure "Prelude scope not loaded"
     Just preludeScope -> do
       assertBool "Prelude exposes Integer" (Map.member "Integer" (scopeTypes preludeScope))
       assertBool "Prelude exposes Num" (Map.member "Num" (scopeTypes preludeScope))
+      assertBool "Prelude hides the Integer constructor" (not (Map.member "IS" (scopeTerms preludeScope)))
       assertEqual "Prelude exposes Num methods" (Just ["+", "-", "*", "negate", "abs", "signum", "fromInteger"]) (Map.lookup "Num" (scopeMethods preludeScope))
+  case Map.lookup "GHC.Integer" (replModuleExports session) of
+    Nothing -> assertFailure "GHC.Integer scope not loaded"
+    Just integerScope -> do
+      assertBool "GHC.Integer exposes Integer" (Map.member "Integer" (scopeTypes integerScope))
+      assertBool "GHC.Integer hides the Integer constructor" (not (Map.member "IS" (scopeTerms integerScope)))
 
 test_stableStorePath :: Assertion
 test_stableStorePath =
