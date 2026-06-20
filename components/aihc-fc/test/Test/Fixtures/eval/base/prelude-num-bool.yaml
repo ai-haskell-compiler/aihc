@@ -1,0 +1,26 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    instance Num Bool where
+      False + y = y
+      True + _ = True
+      False - _ = False
+      True - y = not y
+      False * _ = False
+      True * y = y
+      negate x = x
+      abs x = x
+      signum x = x
+      fromInteger _ = True
+
+    answer :: Num a => a -> a
+    answer x = x
+output: |
+  True
+expression: |
+  answer True
+status: pass
+reason: evaluates a value through an imported Prelude Num constraint and user-defined Bool dictionary
