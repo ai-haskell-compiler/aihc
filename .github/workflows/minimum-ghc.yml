@@ -24,7 +24,7 @@ jobs:
           - 9.14.1
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Haskell
         id: setup-haskell
