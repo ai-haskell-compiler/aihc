@@ -149,12 +149,12 @@ extractSingleModule readIface cacheRef importDir modName = do
                 },
               ExportedType
                 { etName = T.pack "State#",
-                  etKind = T.pack "Type -> ZeroBitType",
+                  etKind = T.pack "Type",
                   etConstructors = []
                 },
               ExportedType
                 { etName = T.pack "TYPE",
-                  etKind = T.pack "RuntimeRep -> Type",
+                  etKind = T.pack "<unresolved>",
                   etConstructors = []
                 }
             ],

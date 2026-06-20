@@ -1,0 +1,21 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+    import GHC.Prim (raise#)
+
+    foreign import prim catch# :: (() -> Int#) -> (Int# -> () -> Int#) -> () -> Int#
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    throwing _ = raise# 10#
+    handler e _ = (+#) e 32#
+output: |
+  42
+expression: |
+  catch# throwing handler ()
+status: pass
+reason: evaluates catch# by passing a raised primitive exception to the handler

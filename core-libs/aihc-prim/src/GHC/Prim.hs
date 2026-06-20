@@ -1,5 +1,4 @@
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE PackageImports #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
@@ -11,20 +10,18 @@ module GHC.Prim
   )
 where
 
-import "ghc-prim" GHC.Prim qualified as Prim
+import GHC.Types (TYPE)
 
-type State# = Prim.State#
+data State# s
 
-type RealWorld = Prim.RealWorld
-
-type TYPE = Prim.TYPE
+data RealWorld
 
 raise# :: a -> b
-raise# = Prim.raise#
+raise# = raise#
 
 catch# ::
   (State# RealWorld -> (# State# RealWorld, a #)) ->
   (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
   State# RealWorld ->
   (# State# RealWorld, a #)
-catch# = Prim.catch#
+catch# = catch#

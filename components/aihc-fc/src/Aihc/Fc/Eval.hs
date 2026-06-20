@@ -26,6 +26,7 @@ data EvalError
   | EvalPrimitiveArity Text Int
   | EvalPrimitiveTypeError Text Value
   | EvalInvalidDictSelect Value Int
+  | EvalRaisedException Value
   deriving (Eq, Show)
 
 data Value
@@ -45,7 +46,7 @@ evalProgramBinding name program =
     Just value -> forceValue value
     Nothing -> Left (EvalMissingBinding name)
   where
-    env = topEnv `Map.union` primitiveEnv
+    env = primitiveEnv `Map.union` topEnv
     topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
     topBindingValues (FcTopBind (FcNonRec var expr)) =
       [(varName var, VThunk env expr)]
@@ -66,7 +67,9 @@ primitiveEnv =
       ("(,)", VConstructor "(,)" []),
       ("+#", VPrim "+#" 2 []),
       ("-#", VPrim "-#" 2 []),
-      ("*#", VPrim "*#" 2 [])
+      ("*#", VPrim "*#" 2 []),
+      ("raise#", VPrim "raise#" 1 []),
+      ("catch#", VPrim "catch#" 3 [])
     ]
 
 evalWithEnv :: Env -> FcExpr -> Either EvalError Value
@@ -143,6 +146,14 @@ evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
   evalIntPrim "*#" (*) left right
+evalPrimitive "raise#" [exception] =
+  Left . EvalRaisedException =<< forceValue exception
+evalPrimitive "catch#" [action, handler, state] =
+  case applyValue action state of
+    Left (EvalRaisedException exception) -> do
+      handlerWithException <- applyValue handler exception
+      applyValue handlerWithException state
+    result -> result
 evalPrimitive name args =
   Left (EvalPrimitiveArity name (length args))
 
