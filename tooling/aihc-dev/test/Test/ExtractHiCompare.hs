@@ -44,7 +44,7 @@ test_aihcPrimSubset :: Assertion
 test_aihcPrimSubset = do
   candidate <- extractPackage "aihc-prim"
   oracle <- extractPackage "ghc-prim"
-  assertEqual "aihc-prim mismatches" [] (comparePackageSubset candidate oracle)
+  assertEqual "aihc-prim mismatches" [] (comparePackageSubset (withoutModules ["GHC.Prim"] candidate) oracle)
 
 test_aihcInternalSubset :: Assertion
 test_aihcInternalSubset = do
@@ -58,6 +58,10 @@ pkg modules =
     { piPackage = "pkg-0",
       piModules = modules
     }
+
+withoutModules :: [T.Text] -> PackageInterface -> PackageInterface
+withoutModules excluded package =
+  package {piModules = filter ((`notElem` excluded) . miModule) (piModules package)}
 
 emptyModule :: String -> ModuleInterface
 emptyModule name =

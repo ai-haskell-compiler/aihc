@@ -15,12 +15,16 @@ where
 
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
-  ( DataConDecl,
+  ( CallConv (..),
+    DataConDecl,
     DataDecl (..),
     Decl (..),
     Expr,
+    ForeignDecl (..),
+    ForeignDirection (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Match (..),
@@ -37,7 +41,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
-import Aihc.Tc.Annotations (TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
@@ -138,6 +142,8 @@ dsModule m = do
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
 dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
+dsDecl (DeclAnn ann (DeclForeign foreignDecl))
+  | Just tcAnn <- fromAnnotation ann = (: []) <$> dsForeignPrim tcAnn foreignDecl
 dsDecl (DeclAnn ann (DeclClass _classDecl))
   | Just classAnn <- fromAnnotation ann = dsClassDeclM classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
@@ -150,6 +156,100 @@ dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
   cons <- mapM dsDataConM (dataDeclConstructors dd)
   pure (FcData tyName [] cons)
+
+dsForeignPrim :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
+dsForeignPrim tcAnn foreignDecl
+  | foreignDirection foreignDecl /= ForeignImport || foreignCallConv foreignDecl /= CPrim =
+      desugarBug "unsupported non-prim foreign declaration after type checking"
+  | otherwise = do
+      let name = unqualifiedNameText (foreignName foreignDecl)
+          ty = tcAnnType tcAnn
+      arity <- validatePrimitiveImport name ty
+      unique <- freshUnique
+      pure (FcPrimitive (Var name unique ty) arity)
+
+validatePrimitiveImport :: Text -> TcType -> DsM Int
+validatePrimitiveImport name ty =
+  case Map.lookup name primitiveImportSpecs of
+    Nothing ->
+      desugarBug ("unknown foreign import prim: " <> T.unpack name)
+    Just spec
+      | primitiveSpecAccepts spec ty -> pure (primitiveSpecArity spec)
+      | otherwise ->
+          desugarBug ("incorrect type for foreign import prim " <> T.unpack name)
+
+data PrimitiveSpec = PrimitiveSpec
+  { primitiveSpecArity :: !Int,
+    primitiveSpecAccepts :: TcType -> Bool
+  }
+
+primitiveImportSpecs :: Map.Map Text PrimitiveSpec
+primitiveImportSpecs =
+  Map.fromList
+    [ ("+#", intBinaryPrim),
+      ("-#", intBinaryPrim),
+      ("*#", intBinaryPrim),
+      ("raise#", PrimitiveSpec 1 isRaisePrimType),
+      ("catch#", PrimitiveSpec 3 isCatchPrimType)
+    ]
+
+intBinaryPrim :: PrimitiveSpec
+intBinaryPrim =
+  PrimitiveSpec 2 (typesEqual intHashBinaryTy)
+
+intHashBinaryTy :: TcType
+intHashBinaryTy = TcFunTy intHashTy (TcFunTy intHashTy intHashTy)
+
+intHashTy :: TcType
+intHashTy = TcTyCon (TyCon "Int#" 0) []
+
+isRaisePrimType :: TcType -> Bool
+isRaisePrimType ty =
+  case collectForAlls ty of
+    ([arg, result], TcFunTy (TcTyVar arg') (TcTyVar result')) ->
+      arg == arg' && result == result'
+    _ -> False
+
+isCatchPrimType :: TcType -> Bool
+isCatchPrimType ty =
+  case ty of
+    TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)) ->
+      case (actionTy, handlerTy) of
+        (TcFunTy actionState actionResult, TcFunTy _exceptionTy (TcFunTy handlerState handlerResult)) ->
+          typesEqual stateTy actionState
+            && typesEqual stateTy handlerState
+            && typesEqual resultTy actionResult
+            && typesEqual resultTy handlerResult
+        _ -> False
+    _ -> False
+
+collectForAlls :: TcType -> ([TyVarId], TcType)
+collectForAlls (TcForAllTy tv body) =
+  let (tvs, inner) = collectForAlls body
+   in (tv : tvs, inner)
+collectForAlls ty = ([], ty)
+
+typesEqual :: TcType -> TcType -> Bool
+typesEqual (TcTyVar a) (TcTyVar b) = a == b
+typesEqual (TcMetaTv a) (TcMetaTv b) = a == b
+typesEqual (TcTyCon tc1 args1) (TcTyCon tc2 args2) =
+  tc1 == tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
+typesEqual (TcFunTy a1 b1) (TcFunTy a2 b2) =
+  typesEqual a1 a2 && typesEqual b1 b2
+typesEqual (TcForAllTy tv1 body1) (TcForAllTy tv2 body2) =
+  typesEqual body1 (substType (Map.singleton tv2 (TcTyVar tv1)) body2)
+typesEqual (TcQualTy p1 b1) (TcQualTy p2 b2) =
+  length p1 == length p2 && all (uncurry predsEqual) (zip p1 p2) && typesEqual b1 b2
+typesEqual (TcAppTy f1 a1) (TcAppTy f2 a2) =
+  typesEqual f1 f2 && typesEqual a1 a2
+typesEqual _ _ = False
+
+predsEqual :: Pred -> Pred -> Bool
+predsEqual (ClassPred c1 a1) (ClassPred c2 a2) =
+  c1 == c2 && length a1 == length a2 && all (uncurry typesEqual) (zip a1 a2)
+predsEqual (EqPred t1a t1b) (EqPred t2a t2b) =
+  typesEqual t1a t2a && typesEqual t1b t2b
+predsEqual _ _ = False
 
 dsDataConM :: DataConDecl -> DsM (Text, [TcType])
 dsDataConM con = do

@@ -57,22 +57,7 @@ fcEvalTests =
         assertEqual
           "raw result"
           (Right ": 'x' []")
-          (renderRawValue (VConstructor ":" [VLit (LitChar 'x'), VConstructor "[]" []])),
-      testCase "raises primitive exceptions" $
-        assertEqual
-          "result"
-          (Left (EvalRaisedException (VLit (LitInt 7))))
-          (evalExpr (FcApp (prim "raise#" 1) (FcLit (LitInt 7)))),
-      testCase "catches primitive exceptions" $
-        assertEvalExpr
-          "42"
-          ( FcApp
-              ( FcApp
-                  (FcApp (prim "catch#" 3) throwingAction)
-                  exceptionHandler
-              )
-              (FcVar (var "state" unitTy))
-          )
+          (renderRawValue (VConstructor ":" [VLit (LitChar 'x'), VConstructor "[]" []]))
     ]
 
 fcEvalFixtureTests :: IO TestTree
@@ -97,35 +82,5 @@ assertEvalExpr expected expr =
 var :: Text -> TcType -> Var
 var name = Var name (Unique 0)
 
-prim :: Text -> Int -> FcExpr
-prim name arity = FcVar (Var name (Unique 0) (primitiveTy arity))
-
-primitiveTy :: Int -> TcType
-primitiveTy _arity = TcTyCon (TyCon "<prim>" 0) []
-
-throwingAction :: FcExpr
-throwingAction =
-  FcLam
-    (var "s" unitTy)
-    (FcApp (prim "raise#" 1) (FcLit (LitInt 10)))
-
-exceptionHandler :: FcExpr
-exceptionHandler =
-  FcLam
-    (var "e" intTy)
-    ( FcLam
-        (var "s" unitTy)
-        ( FcApp
-            (FcApp (prim "+#" 2) (FcVar (var "e" intTy)))
-            (FcLit (LitInt 32))
-        )
-    )
-
 stringTy :: TcType
 stringTy = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
-
-intTy :: TcType
-intTy = TcTyCon (TyCon "Int#" 0) []
-
-unitTy :: TcType
-unitTy = TcTyCon (TyCon "()" 0) []

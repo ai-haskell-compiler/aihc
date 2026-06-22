@@ -47,6 +47,8 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
+  | -- | A primitive imported by @foreign import prim@.
+    FcPrimitive !Var !Int
   | -- | Value binding.
     FcTopBind !FcBind
   deriving (Eq, Show)

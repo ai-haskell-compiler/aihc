@@ -136,49 +136,15 @@ extractSingleModule readIface cacheRef importDir modName = do
     then do
       iface <- liftIO $ readIface hiPath
       liftIO $ ifaceToModule readIface cacheRef modName iface
-    else pure (missingModuleInterface modName)
-  where
-    missingModuleInterface "GHC.Prim" =
-      ModuleInterface
-        { miModule = T.pack "GHC.Prim",
-          miTypes =
-            [ ExportedType
-                { etName = T.pack "RealWorld",
-                  etKind = T.pack "Type",
-                  etConstructors = []
-                },
-              ExportedType
-                { etName = T.pack "State#",
-                  etKind = T.pack "Type",
-                  etConstructors = []
-                },
-              ExportedType
-                { etName = T.pack "TYPE",
-                  etKind = T.pack "<unresolved>",
-                  etConstructors = []
-                }
-            ],
-          miValues =
-            [ ExportedValue
-                { evName = T.pack "catch#",
-                  evType = T.pack "(State# RealWorld -> (# State# RealWorld, a #))\n-> (b -> State# RealWorld -> (# State# RealWorld, a #))\n-> State# RealWorld\n-> (# State# RealWorld, a #)"
-                },
-              ExportedValue
-                { evName = T.pack "raise#",
-                  evType = T.pack "a -> b"
-                }
-            ],
-          miClasses = [],
-          miFixities = []
-        }
-    missingModuleInterface missingModName =
-      ModuleInterface
-        { miModule = T.pack missingModName,
-          miTypes = [],
-          miValues = [],
-          miClasses = [],
-          miFixities = []
-        }
+    else
+      pure
+        ModuleInterface
+          { miModule = T.pack modName,
+            miTypes = [],
+            miValues = [],
+            miClasses = [],
+            miFixities = []
+          }
 
 -- | Convert a 'ModIface' to our output representation.
 ifaceToModule ::

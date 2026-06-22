@@ -1,13 +1,9 @@
 extensions:
   - MagicHash
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     module Test where
-    import GHC.Prim (raise#)
-
+    foreign import prim raise# :: a -> b
     foreign import prim catch# :: (() -> Int#) -> (Int# -> () -> Int#) -> () -> Int#
     foreign import prim (+#) :: Int# -> Int# -> Int#
 

@@ -46,30 +46,32 @@ evalProgramBinding name program =
     Just value -> forceValue value
     Nothing -> Left (EvalMissingBinding name)
   where
-    env = primitiveEnv `Map.union` topEnv
+    env = primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
+    primitiveTopEnv = Map.fromList (concatMap primitiveTopBindingValues (fcTopBinds program))
     topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
+    primitiveTopBindingValues (FcPrimitive var arity) =
+      [(varName var, VPrim (varName var) arity [])]
+    primitiveTopBindingValues _ =
+      []
     topBindingValues (FcTopBind (FcNonRec var expr)) =
       [(varName var, VThunk env expr)]
     topBindingValues (FcTopBind (FcRec bindings)) =
       [(varName var, VThunk env expr) | (var, expr) <- bindings]
     topBindingValues (FcData _ _ constructors) =
       [(conName, VConstructor conName []) | (conName, _) <- constructors]
+    topBindingValues FcPrimitive {} =
+      []
 
 evalExpr :: FcExpr -> Either EvalError Value
-evalExpr = evalWithEnv primitiveEnv
+evalExpr = evalWithEnv builtinConstructorEnv
 
-primitiveEnv :: Env
-primitiveEnv =
+builtinConstructorEnv :: Env
+builtinConstructorEnv =
   Map.fromList
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
-      ("(,)", VConstructor "(,)" []),
-      ("+#", VPrim "+#" 2 []),
-      ("-#", VPrim "-#" 2 []),
-      ("*#", VPrim "*#" 2 []),
-      ("raise#", VPrim "raise#" 1 []),
-      ("catch#", VPrim "catch#" 3 [])
+      ("(,)", VConstructor "(,)" [])
     ]
 
 evalWithEnv :: Env -> FcExpr -> Either EvalError Value
