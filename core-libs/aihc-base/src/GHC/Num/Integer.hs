@@ -3,4 +3,4 @@ module GHC.Num.Integer
   )
 where
 
-import GHC.Integer (Integer)
+import GHC.Internal.Integer (Integer)
