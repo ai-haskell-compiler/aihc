@@ -1,0 +1,14 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim (raise#)
+output: ""
+expression: |
+  raise# 10#
+status: fail
+reason: uncaught raise# imported from aihc-prim fails evaluation

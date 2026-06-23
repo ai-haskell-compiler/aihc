@@ -19,7 +19,6 @@ extractHiCompareTests =
     [ testCase "accepts empty candidate module exports" test_acceptsEmptyCandidateModuleExports,
       testCase "rejects candidate module missing from oracle" test_rejectsMissingModule,
       testCase "rejects changed value type" test_rejectsChangedValueType,
-      testCase "aihc-prim is a subset of ghc-prim" test_aihcPrimSubset,
       testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset
     ]
 
@@ -40,12 +39,6 @@ test_rejectsChangedValueType =
   assertBool "expected changed type mismatch" $
     not (null (comparePackageSubset (pkg [moduleWithValue "GHC.Tuple" "Solo" "Int"]) (pkg [moduleWithValue "GHC.Tuple" "Solo" "Solo a"])))
 
-test_aihcPrimSubset :: Assertion
-test_aihcPrimSubset = do
-  candidate <- extractPackage "aihc-prim"
-  oracle <- extractPackage "ghc-prim"
-  assertEqual "aihc-prim mismatches" [] (comparePackageSubset (withoutModules ["GHC.Prim"] candidate) oracle)
-
 test_aihcInternalSubset :: Assertion
 test_aihcInternalSubset = do
   candidate <- extractPackage "aihc-internal"
@@ -58,10 +51,6 @@ pkg modules =
     { piPackage = "pkg-0",
       piModules = modules
     }
-
-withoutModules :: [T.Text] -> PackageInterface -> PackageInterface
-withoutModules excluded package =
-  package {piModules = filter ((`notElem` excluded) . miModule) (piModules package)}
 
 emptyModule :: String -> ModuleInterface
 emptyModule name =

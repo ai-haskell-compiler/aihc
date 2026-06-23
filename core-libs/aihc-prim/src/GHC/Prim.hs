@@ -1,3 +1,4 @@
+{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -16,12 +17,11 @@ data State# s
 
 data RealWorld
 
-raise# :: a -> b
-raise# = raise#
+foreign import prim raise# :: a -> b
 
-catch# ::
-  (State# RealWorld -> (# State# RealWorld, a #)) ->
-  (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
-  State# RealWorld ->
-  (# State# RealWorld, a #)
-catch# = catch#
+foreign import prim
+  catch# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
