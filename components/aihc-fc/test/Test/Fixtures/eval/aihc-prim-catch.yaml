@@ -1,0 +1,24 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (RealWorld, State#, catch#, raise#)
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    throwing _ = raise# 10#
+    handler e s = (# s, (+#) e 32# #)
+    state :: State# RealWorld
+    state = state
+output: |
+  42
+expression: |
+  case catch# throwing handler state of
+    (# _, x #) -> x
+status: pass
+reason: evaluates raise# and catch# imported from aihc-prim

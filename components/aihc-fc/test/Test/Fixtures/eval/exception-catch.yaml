@@ -1,0 +1,29 @@
+extensions:
+  - EmptyDataDecls
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    data State# s
+    data RealWorld
+
+    foreign import prim raise# :: a -> b
+    foreign import prim catch# ::
+      (State# RealWorld -> (# State# RealWorld, a #)) ->
+      (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
+      State# RealWorld ->
+      (# State# RealWorld, a #)
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    throwing _ = raise# 10#
+    handler e s = (# s, (+#) e 32# #)
+    state :: State# RealWorld
+    state = state
+output: |
+  42
+expression: |
+  case catch# throwing handler state of
+    (# _, x #) -> x
+status: pass
+reason: evaluates catch# by passing a raised primitive exception to the handler

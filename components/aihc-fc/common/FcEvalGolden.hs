@@ -267,6 +267,10 @@ resolveDependencyRoot dependency =
       envRoot <- lookupEnv "AIHC_BASE_SRC"
       root <- maybe defaultAihcBaseRoot pure envRoot
       pure (Right (dependency, root))
+    "aihc-prim" -> do
+      envRoot <- lookupEnv "AIHC_PRIM_SRC"
+      root <- maybe defaultAihcPrimRoot pure envRoot
+      pure (Right (dependency, root))
     _ ->
       pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
 
@@ -277,6 +281,22 @@ defaultAihcBaseRoot = do
   where
     findUp dir = do
       let candidate = dir </> "core-libs" </> "aihc-base"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then pure candidate
+            else findUp parent
+
+defaultAihcPrimRoot :: IO FilePath
+defaultAihcPrimRoot = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "core-libs" </> "aihc-prim"
       exists <- doesDirectoryExist candidate
       if exists
         then pure candidate

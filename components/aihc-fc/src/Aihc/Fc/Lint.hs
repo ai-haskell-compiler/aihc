@@ -78,6 +78,8 @@ lintProgram env0 prog = go env0 (fcTopBinds prog)
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
       go env rest
+    go env (FcPrimitive var _arity : rest) =
+      go (extendTermEnv var env) rest
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest

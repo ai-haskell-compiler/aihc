@@ -1,0 +1,11 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim catch# :: (() -> Int#) -> (Int# -> () -> Int#) -> () -> Int#
+output: ""
+expression: |
+  catch#
+status: fail
+reason: catch# must use the exact GHC State# RealWorld and unboxed tuple type
