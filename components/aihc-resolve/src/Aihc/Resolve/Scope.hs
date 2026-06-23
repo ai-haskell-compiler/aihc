@@ -92,7 +92,7 @@ type ModuleExports = Map.Map Text Scope
 collectModuleExports :: [Module] -> ModuleExports
 collectModuleExports modules =
   Map.fromList
-    [ (moduleKey modu, topLevelScope modu `unionScope` reExportedScope rawExports modu)
+    [ (moduleKey modu, exportedScope rawExports modu)
     | modu <- modules
     ]
   where
@@ -102,13 +102,13 @@ collectModuleExports modules =
         | modu <- modules
         ]
 
-reExportedScope :: ModuleExports -> Module -> Scope
-reExportedScope rawExports modu =
+exportedScope :: ModuleExports -> Module -> Scope
+exportedScope rawExports modu =
   case moduleExports modu of
-    Nothing -> emptyScope
+    Nothing -> topLevelScope modu
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    availableScope = importedScope rawExports modu
+    availableScope = topLevelScope modu `unionScope` importedScope rawExports modu
 
     exportSpecScope spec =
       case spec of
@@ -314,7 +314,7 @@ moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
   ownScope `unionScope` importedScope exports modu `unionScope` implicitPrelude `unionScope` builtinScope
   where
-    ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
+    ownScope = topLevelScope modu
     preludeScope = Map.findWithDefault emptyScope "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}

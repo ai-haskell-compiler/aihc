@@ -248,6 +248,9 @@ library
     Type.Reflection.Unsafe
     Unsafe.Coerce
 
+  other-modules:
+    GHC.Internal.Integer
+
   hs-source-dirs: src
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall

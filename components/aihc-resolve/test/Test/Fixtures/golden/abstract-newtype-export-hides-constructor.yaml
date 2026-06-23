@@ -1,0 +1,32 @@
+annotated:
+- |-
+  module Lib (Age) where
+  data Payload = Payload
+       └─ t Lib  └─ v Lib
+  newtype Age = MkAge Payload
+          │     │     └─ t Lib
+          │     └─ v Lib
+          └─ t Lib
+  unwrap (MkAge payload) = payload
+  └─ v Lib│     └─ v 0     └─ v 0
+          └─ v Lib
+- |-
+  module Main where
+  import Lib (Age(MkAge))
+                  └─ v Error not exported
+  x = MkAge
+  │   └─ v Error unbound
+  └─ v Main
+extensions: []
+modules:
+- |
+  module Lib (Age) where
+  data Payload = Payload
+  newtype Age = MkAge Payload
+  unwrap (MkAge payload) = payload
+- |
+  module Main where
+  import Lib (Age(MkAge))
+  x = MkAge
+reason: abstract newtype exports expose the type without its representation constructor
+status: pass
