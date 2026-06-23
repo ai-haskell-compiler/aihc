@@ -212,16 +212,39 @@ isRaisePrimType ty =
 
 isCatchPrimType :: TcType -> Bool
 isCatchPrimType ty =
+  case collectForAlls ty of
+    ([resultVar, exceptionVar], body) ->
+      isCatchPrimBody resultVar exceptionVar body
+    _ -> False
+
+isCatchPrimBody :: TyVarId -> TyVarId -> TcType -> Bool
+isCatchPrimBody resultVar exceptionVar ty =
   case ty of
     TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)) ->
       case (actionTy, handlerTy) of
-        (TcFunTy actionState actionResult, TcFunTy _exceptionTy (TcFunTy handlerState handlerResult)) ->
-          typesEqual stateTy actionState
-            && typesEqual stateTy handlerState
-            && typesEqual resultTy actionResult
-            && typesEqual resultTy handlerResult
+        (TcFunTy actionState actionResult, TcFunTy exceptionTy (TcFunTy handlerState handlerResult)) ->
+          typesEqual statePrimRealWorldTy actionState
+            && typesEqual statePrimRealWorldTy stateTy
+            && typesEqual statePrimRealWorldTy handlerState
+            && typesEqual (TcTyVar exceptionVar) exceptionTy
+            && typesEqual resultTupleTy actionResult
+            && typesEqual resultTupleTy handlerResult
+            && typesEqual resultTupleTy resultTy
         _ -> False
     _ -> False
+  where
+    resultTupleTy =
+      unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]
+
+statePrimRealWorldTy :: TcType
+statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]
+
+realWorldTy :: TcType
+realWorldTy = TcTyCon (TyCon "RealWorld" 0) []
+
+unboxedTupleTy :: [TcType] -> TcType
+unboxedTupleTy tys =
+  TcTyCon (TyCon ("(#" <> T.replicate (max 0 (length tys - 1)) "," <> "#)") (length tys)) tys
 
 collectForAlls :: TcType -> ([TyVarId], TcType)
 collectForAlls (TcForAllTy tv body) =

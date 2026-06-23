@@ -23,7 +23,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
-    TupleFlavor,
+    TupleFlavor (..),
     fromAnnotation,
     mkAnnotation,
   )
@@ -324,7 +324,7 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
-      tc = TyCon {tyConName = "(" <> T.replicate (n - 1) "," <> ")", tyConArity = n}
+      tc = TyCon {tyConName = tupleConText flavor n, tyConArity = n}
       tupleTy = TcTyCon tc tys
       pending = pendingAnnotation tupleTy tys [] []
   pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
@@ -335,6 +335,12 @@ inferTuple sp flavor elems = do
     inferElem (Just e) = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
+
+tupleConText :: TupleFlavor -> Int -> Text
+tupleConText flavor arity =
+  case flavor of
+    Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = case elems of

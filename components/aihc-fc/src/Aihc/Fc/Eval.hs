@@ -71,7 +71,8 @@ builtinConstructorEnv =
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
-      ("(,)", VConstructor "(,)" [])
+      ("(,)", VConstructor "(,)" []),
+      ("(#,#)", VConstructor "(#,#)" [])
     ]
 
 evalWithEnv :: Env -> FcExpr -> Either EvalError Value
@@ -289,4 +290,7 @@ renderRawArg value = do
 
 isTupleConstructor :: Text -> Int -> Bool
 isTupleConstructor name arity =
-  arity >= 2 && name == "(" <> T.replicate (arity - 1) "," <> ")"
+  arity >= 2
+    && ( name == "(" <> T.replicate (arity - 1) "," <> ")"
+           || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
+       )
