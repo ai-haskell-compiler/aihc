@@ -136,16 +136,15 @@ extractSingleModule readIface cacheRef importDir modName = do
     then do
       iface <- liftIO $ readIface hiPath
       liftIO $ ifaceToModule readIface cacheRef modName iface
-    else pure emptyModule
-  where
-    emptyModule =
-      ModuleInterface
-        { miModule = T.pack modName,
-          miTypes = [],
-          miValues = [],
-          miClasses = [],
-          miFixities = []
-        }
+    else
+      pure
+        ModuleInterface
+          { miModule = T.pack modName,
+            miTypes = [],
+            miValues = [],
+            miClasses = [],
+            miFixities = []
+          }
 
 -- | Convert a 'ModIface' to our output representation.
 ifaceToModule ::
@@ -425,12 +424,12 @@ readGhcPkg args = do
     Nothing -> do
       mPackageDb <- findLocalPackageDb
       case mPackageDb of
-        Nothing -> readProcess "ghc-pkg" args ""
+        Nothing -> missingPackage
         Just packageDb -> do
           fallbackResult <- tryReadGhcPkgRaw ("--package-db" : packageDb : args)
-          case fallbackResult of
-            Just output -> pure output
-            Nothing -> readProcess "ghc-pkg" args ""
+          maybe missingPackage pure fallbackResult
+  where
+    missingPackage = ioError (userError ("ghc-pkg failed: " <> unwords args))
 
 tryReadGhcPkg :: [String] -> IO (Maybe String)
 tryReadGhcPkg args =

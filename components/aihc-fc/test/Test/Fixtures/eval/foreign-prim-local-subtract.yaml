@@ -1,0 +1,12 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    (-#) a b = (a, b)
+output: |
+  ('x','y')
+expression: |
+  (-#) 'x' 'y'
+status: pass
+reason: local functions named like primitives are evaluated as ordinary bindings unless declared with foreign import prim
