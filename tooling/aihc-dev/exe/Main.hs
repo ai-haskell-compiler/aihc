@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Aihc.Dev.ExtractHi (extractPackage)
-import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderInterfaceMismatch)
+import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Golden.Update qualified as GoldenUpdate
 import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
@@ -44,6 +44,7 @@ main = do
 data Command
   = ExtractHi ExtractHiOpts
   | CompareHiSubset CompareHiSubsetOpts
+  | CoreLibsProgress
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Snippet SnippetOpts
   | Parser ParserRun.Options
@@ -88,6 +89,12 @@ commandParser =
           ( info
               (CompareHiSubset <$> compareHiSubsetParser <**> helper)
               (progDesc "Check that a candidate .hi interface is a subset of an oracle package")
+          )
+        <> command
+          "core-libs-progress"
+          ( info
+              (pure CoreLibsProgress <**> helper)
+              (progDesc "Report ghc-prim/base API coverage for aihc-prim/aihc-base")
           )
         <> command
           "extract-resolve-iface"
@@ -236,6 +243,8 @@ runCommand (CompareHiSubset opts) = do
     else do
       mapM_ (putStrLn . renderInterfaceMismatch) mismatches
       exitFailure
+runCommand CoreLibsProgress =
+  putStr . renderCoreLibProgressReports =<< runCoreLibProgressReports
 runCommand (ExtractResolveIface opts) = do
   pkg <- extractPackage (eriPackage opts)
   let resolveIface = toResolveIface pkg

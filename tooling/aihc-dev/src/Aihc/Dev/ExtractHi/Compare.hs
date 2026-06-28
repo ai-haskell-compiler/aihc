@@ -3,22 +3,107 @@
 -- | Subset compatibility checks for interfaces extracted from @.hi@ files.
 module Aihc.Dev.ExtractHi.Compare
   ( InterfaceMismatch (..),
+    CompatibilityReport (..),
+    CoreLibProgressReport (..),
+    comparePackageCompatibility,
     comparePackageSubset,
+    compatibilityPercent,
+    coreLibProgressReports,
     renderInterfaceMismatch,
+    renderCoreLibProgressReport,
+    renderCoreLibProgressReports,
+    runCoreLibProgressReports,
   )
 where
 
+import Aihc.Dev.ExtractHi (extractPackage, extractSourcePackage)
 import Aihc.Dev.ExtractHi.Types
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import System.FilePath ((</>))
+import Text.Printf (printf)
 
 data InterfaceMismatch = InterfaceMismatch
   { mismatchPath :: !Text,
     mismatchMessage :: !Text
   }
   deriving (Eq, Show)
+
+data CompatibilityReport = CompatibilityReport
+  { crMatched :: !Int,
+    crTotal :: !Int,
+    crExtra :: !Int,
+    crMismatches :: ![InterfaceMismatch]
+  }
+  deriving (Eq, Show)
+
+data CoreLibProgressReport = CoreLibProgressReport
+  { clprProgressKey :: !String,
+    clprExtraKey :: !String,
+    clprReport :: !CompatibilityReport
+  }
+  deriving (Eq, Show)
+
+comparePackageCompatibility :: PackageInterface -> PackageInterface -> CompatibilityReport
+comparePackageCompatibility candidate oracle =
+  CompatibilityReport
+    { crMatched = matched,
+      crTotal = total,
+      crExtra = countExtraPackageItems candidate oracle,
+      crMismatches = mismatches
+    }
+  where
+    oracleItems = packageItems oracle
+    candidateItems = packageItems candidate
+    candidateMap = keyed itemKey candidateItems
+    results = map (compareCompatibilityItem candidateMap) oracleItems
+    matched = length (filter id (map fst results))
+    total = length oracleItems
+    mismatches = concatMap snd results
+
+compatibilityPercent :: CompatibilityReport -> Double
+compatibilityPercent report
+  | crTotal report <= 0 = 100
+  | otherwise = fromIntegral (crMatched report) * 100.0 / fromIntegral (crTotal report)
+
+coreLibProgressReports :: PackageInterface -> PackageInterface -> PackageInterface -> PackageInterface -> [CoreLibProgressReport]
+coreLibProgressReports aihcPrim ghcPrim aihcBase base =
+  [ CoreLibProgressReport
+      { clprProgressKey = "GHC_PRIM",
+        clprExtraKey = "ghc-prim",
+        clprReport = comparePackageCompatibility aihcPrim ghcPrim
+      },
+    CoreLibProgressReport
+      { clprProgressKey = "BASE",
+        clprExtraKey = "base",
+        clprReport = comparePackageCompatibility aihcBase base
+      }
+  ]
+
+runCoreLibProgressReports :: IO [CoreLibProgressReport]
+runCoreLibProgressReports = do
+  ghcPrim <- extractPackage "ghc-prim"
+  aihcPrim <- extractSourcePackage ("core-libs" </> "aihc-prim") "aihc-prim"
+  base <- extractPackage "base"
+  aihcBase <- extractSourcePackage ("core-libs" </> "aihc-base") "aihc-base"
+  pure (coreLibProgressReports aihcPrim ghcPrim aihcBase base)
+
+renderCoreLibProgressReports :: [CoreLibProgressReport] -> String
+renderCoreLibProgressReports reports =
+  unlines (map renderCoreLibProgressReport reports <> map renderExtraLine reports)
+
+renderCoreLibProgressReport :: CoreLibProgressReport -> String
+renderCoreLibProgressReport report =
+  printf
+    "%s %d %d %.2f"
+    (clprProgressKey report)
+    (crMatched stats)
+    (crTotal stats)
+    (compatibilityPercent stats)
+  where
+    stats = clprReport report
 
 comparePackageSubset :: PackageInterface -> PackageInterface -> [InterfaceMismatch]
 comparePackageSubset candidate oracle =
@@ -119,3 +204,98 @@ mismatch = InterfaceMismatch
 renderInterfaceMismatch :: InterfaceMismatch -> String
 renderInterfaceMismatch item =
   T.unpack (mismatchPath item <> ": " <> mismatchMessage item)
+
+renderExtraLine :: CoreLibProgressReport -> String
+renderExtraLine report =
+  printf "EXTRA %s %d" (clprExtraKey report) (crExtra (clprReport report))
+
+data InterfaceItem = InterfaceItem
+  { itemKey :: !Text,
+    itemPath :: !Text,
+    itemSignature :: !Text
+  }
+  deriving (Eq, Show)
+
+compareCompatibilityItem :: Map Text InterfaceItem -> InterfaceItem -> (Bool, [InterfaceMismatch])
+compareCompatibilityItem candidateItems oracleItem =
+  case Map.lookup (itemKey oracleItem) candidateItems of
+    Nothing -> (False, [mismatch (itemPath oracleItem) "export is missing from candidate"])
+    Just candidateItem
+      | itemSignature candidateItem /= itemSignature oracleItem ->
+          (False, [mismatch (itemPath oracleItem) "export signature differs from candidate"])
+      | otherwise -> (True, [])
+
+countExtraPackageItems :: PackageInterface -> PackageInterface -> Int
+countExtraPackageItems candidate oracle =
+  length
+    [ ()
+    | candidateItem <- packageItems candidate,
+      Map.notMember (itemKey candidateItem) oracleItems
+    ]
+  where
+    oracleItems = keyed itemKey (packageItems oracle)
+
+packageItems :: PackageInterface -> [InterfaceItem]
+packageItems pkg =
+  concatMap moduleItems (piModules pkg)
+
+moduleItems :: ModuleInterface -> [InterfaceItem]
+moduleItems iface =
+  concat
+    [ map (valueItem moduleName) (miValues iface),
+      concatMap (typeItems moduleName) (miTypes iface),
+      concatMap (classItems moduleName) (miClasses iface),
+      map (fixityItem moduleName) (miFixities iface)
+    ]
+  where
+    moduleName = miModule iface
+
+valueItem :: Text -> ExportedValue -> InterfaceItem
+valueItem moduleName value =
+  InterfaceItem
+    { itemKey = moduleName <> ".value:" <> evName value,
+      itemPath = moduleName <> ".value:" <> evName value,
+      itemSignature = evType value
+    }
+
+typeItems :: Text -> ExportedType -> [InterfaceItem]
+typeItems moduleName typ =
+  InterfaceItem
+    { itemKey = typeKey,
+      itemPath = typeKey,
+      itemSignature = etKind typ
+    }
+    : [ InterfaceItem
+          { itemKey = typeKey <> ".constructor:" <> ctor,
+            itemPath = typeKey <> ".constructor:" <> ctor,
+            itemSignature = ctor
+          }
+      | ctor <- etConstructors typ
+      ]
+  where
+    typeKey = moduleName <> ".type:" <> etName typ
+
+classItems :: Text -> ExportedClass -> [InterfaceItem]
+classItems moduleName klass =
+  InterfaceItem
+    { itemKey = classKey,
+      itemPath = classKey,
+      itemSignature = ecName klass
+    }
+    : [ InterfaceItem
+          { itemKey = classKey <> ".method:" <> cmName method,
+            itemPath = classKey <> ".method:" <> cmName method,
+            itemSignature = cmType method
+          }
+      | method <- ecMethods klass
+      ]
+  where
+    classKey = moduleName <> ".class:" <> ecName klass
+
+fixityItem :: Text -> FixityInfo -> InterfaceItem
+fixityItem moduleName fixity =
+  InterfaceItem
+    { itemKey = moduleName <> ".fixity:" <> fiName fixity,
+      itemPath = moduleName <> ".fixity:" <> fiName fixity,
+      itemSignature = T.pack (show fixity)
+    }
