@@ -47,6 +47,7 @@ resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#reso
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- parser-stackage-progress --snapshot lts-24.33 --jobs 1}"
 resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
 tc_stackage_cmd="${TC_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- tc-stackage-progress --snapshot lts-24.33}"
+core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"
@@ -65,6 +66,7 @@ resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 stackage_out="$tmpdir/stackage-progress.txt"
 resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
 tc_stackage_out="$tmpdir/tc-stackage-progress.txt"
+core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$parser_cmd" >"$parser_out"
@@ -77,6 +79,7 @@ run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension 
 run_cmd "$stackage_cmd" >"$stackage_out" || true
 run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
 run_cmd "$tc_stackage_cmd" >"$tc_stackage_out" || true
+run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
 parse_progress() {
@@ -211,6 +214,24 @@ parse_tc_stackage_progress() {
   ' "$infile"
 }
 
+parse_core_libs_progress() {
+	local infile="$1"
+	local key="$2"
+	awk -v key="$key" '
+    $1 == key {
+      implemented = $2 + 0
+      total = $3 + 0
+      complete = $4 + 0
+    }
+    END {
+      if (total == "" || total <= 0) {
+        exit 2
+      }
+      printf "%d\n%d\n%.2f\n", implemented, total, complete
+    }
+  ' "$infile"
+}
+
 progress_circles() {
 	local complete="$1"
 	awk -v complete="$complete" '
@@ -311,6 +332,22 @@ tc_stackage_implemented="${tc_stackage_vals[0]}"
 tc_stackage_total="${tc_stackage_vals[1]}"
 tc_stackage_complete="${tc_stackage_vals[2]}"
 
+ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
+	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
+	exit 2
+}
+ghc_prim_implemented="${ghc_prim_vals[0]}"
+ghc_prim_total="${ghc_prim_vals[1]}"
+ghc_prim_complete="${ghc_prim_vals[2]}"
+
+base_vals=($(parse_core_libs_progress "$core_libs_progress_out" "BASE")) || {
+	echo "update-generated-content.sh: could not parse core-libs-progress output for BASE (expected 'BASE N M PCT' line on stdout)." >&2
+	exit 2
+}
+base_implemented="${base_vals[0]}"
+base_total="${base_vals[1]}"
+base_complete="${base_vals[2]}"
+
 parser_total_tests=$((parser_total + ext_test_total))
 parser_passing_tests=$((parser_implemented + ext_implemented))
 parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
@@ -321,6 +358,8 @@ resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
 tc_stackage_circles="$(progress_circles "$tc_stackage_complete")"
 lexer_circles="$(progress_circles "$lexer_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
+ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
+base_circles="$(progress_circles "$base_complete")"
 
 cat >"$tmpdir/readme-root-parser.txt" <<EOF2
 \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) ${parser_total_circles}
@@ -348,6 +387,14 @@ EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
 \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
+EOF2
+
+cat >"$tmpdir/readme-root-ghc-prim.txt" <<EOF2
+\`${ghc_prim_implemented}/${ghc_prim_total}\` (\`${ghc_prim_complete}%\`) ${ghc_prim_circles}
+EOF2
+
+cat >"$tmpdir/readme-root-base.txt" <<EOF2
+\`${base_implemented}/${base_total}\` (\`${base_complete}%\`) ${base_circles}
 EOF2
 
 cat >"$tmpdir/readme-cpp.txt" <<EOF2
@@ -474,6 +521,8 @@ replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root
 replace_marker_inline README.md "tc-stackage-progress" "$tmpdir/readme-root-tc-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
+replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
+replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
 replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 

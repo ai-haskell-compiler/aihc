@@ -8,18 +8,59 @@
 -- by following exported names to their defining modules.
 module Aihc.Dev.ExtractHi
   ( extractPackage,
+    extractPackageMaybe,
+    extractSourcePackage,
   )
 where
 
 import Aihc.Dev.ExtractHi.GhcSession (withReadIface)
 import Aihc.Dev.ExtractHi.Types
+import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser.Pretty (prettyType)
+import Aihc.Parser.Syntax
+  ( BinderHead (..),
+    ClassDecl (..),
+    ClassDeclItem (..),
+    DataConDecl (..),
+    DataDecl (..),
+    Decl (..),
+    ExportSpec (..),
+    FieldDecl (..),
+    FixityAssoc,
+    GadtBody (..),
+    IEBundledMember (..),
+    IEEntityNamespace (..),
+    Module (..),
+    NewtypeDecl (..),
+    Pattern (..),
+    Type (..),
+    TypeFamilyDecl (..),
+    TypeFamilyResultSig (..),
+    TypeSynDecl (..),
+    UnqualifiedName,
+    ValueDecl (..),
+    moduleExports,
+    peelClassDeclItemAnn,
+    peelDataConAnn,
+    peelDeclAnn,
+    renderName,
+    renderUnqualifiedName,
+  )
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (IOException, catch)
 import Control.Monad.IO.Class (liftIO)
+import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Distribution.ModuleName qualified as CabalModuleName
+import Distribution.PackageDescription (GenericPackageDescription, condLibrary, exposedModules)
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Types.CondTree (CondTree (condTreeData))
 import GHC (Ghc)
 import GHC.Iface.Syntax
   ( IfaceClassBody (..),
@@ -37,9 +78,11 @@ import GHC.Unit.Module.ModIface (ModIface, mi_decls, mi_exports, mi_fixities)
 import GHC.Unit.Types (moduleName, moduleUnit, unitString)
 import GHC.Utils.Outputable (showSDocUnsafe)
 import Language.Haskell.Syntax.Basic qualified as GHC
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory)
+import Prettyprinter (defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.String (renderString)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, (<.>), (</>))
+import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
 import System.Process (readProcess, readProcessWithExitCode)
 
 -- | Cached module data: declarations and fixities from a single .hi file.
@@ -52,6 +95,27 @@ data CachedModule = CachedModule
 extractPackage :: String -> IO PackageInterface
 extractPackage pkgName = do
   (pkgId, importDir, exposedMods) <- queryPackage pkgName
+  extractPackageFromQuery pkgId importDir exposedMods
+
+extractPackageMaybe :: String -> IO (Maybe PackageInterface)
+extractPackageMaybe pkgName = do
+  mPackage <- queryPackageMaybe pkgName
+  case mPackage of
+    Nothing -> pure Nothing
+    Just (pkgId, importDir, exposedMods) -> Just <$> extractPackageFromQuery pkgId importDir exposedMods
+
+extractSourcePackage :: FilePath -> String -> IO PackageInterface
+extractSourcePackage root pkgName = do
+  exposedMods <- exposedSourceModules root
+  modules <- mapM (extractSourceModule (root </> "src")) exposedMods
+  pure
+    PackageInterface
+      { piPackage = T.pack pkgName,
+        piModules = modules
+      }
+
+extractPackageFromQuery :: String -> FilePath -> [String] -> IO PackageInterface
+extractPackageFromQuery pkgId importDir exposedMods =
   withReadIface $ \readIface -> do
     cacheRef <- liftIO $ newIORef (Map.empty :: Map (String, String) CachedModule)
     modules <- mapM (extractSingleModule readIface cacheRef importDir) exposedMods
@@ -397,6 +461,292 @@ renderKind :: [IfaceTyConBinder] -> IfaceType -> Text
 renderKind _binders resKind =
   T.pack (showSDocUnsafe (pprIfaceType resKind))
 
+exposedSourceModules :: FilePath -> IO [String]
+exposedSourceModules root = do
+  cabalFiles <- filter ((".cabal" ==) . takeExtension) <$> listDirectory root
+  case cabalFiles of
+    cabalFile : _ -> do
+      contents <- BS.readFile (root </> cabalFile)
+      case runParseResult (parseGenericPackageDescription contents) of
+        (_, Right gpd) -> pure (genericPackageExposedModules gpd)
+        (_, Left (_, errors)) -> ioError (userError ("could not parse " <> cabalFile <> ": " <> show errors))
+    [] -> ioError (userError ("no Cabal file found under " <> root))
+
+genericPackageExposedModules :: GenericPackageDescription -> [String]
+genericPackageExposedModules gpd =
+  [ CabalModuleName.toFilePath modName
+  | libTree <- maybe [] pure (condLibrary gpd),
+    modName <- exposedModules (condTreeData libTree)
+  ]
+
+extractSourceModule :: FilePath -> String -> IO ModuleInterface
+extractSourceModule srcRoot modPath = do
+  let sourcePath = srcRoot </> modPath <.> "hs"
+      modName = T.pack (map pathSepToDot modPath)
+  exists <- doesFileExist sourcePath
+  if not exists
+    then pure (emptySourceModule modName)
+    else do
+      source <- TE.decodeUtf8 <$> BS.readFile sourcePath
+      let (errs, parsed) =
+            parseModule
+              (defaultConfig {parserSourceName = sourcePath})
+              source
+      if null errs
+        then pure (sourceModuleInterface modName parsed)
+        else pure (emptySourceModule modName)
+
+emptySourceModule :: Text -> ModuleInterface
+emptySourceModule modName =
+  ModuleInterface
+    { miModule = modName,
+      miTypes = [],
+      miValues = [],
+      miClasses = [],
+      miFixities = []
+    }
+
+sourceModuleInterface :: Text -> Module -> ModuleInterface
+sourceModuleInterface fallbackName modu =
+  applySourceExports modu $
+    ModuleInterface
+      { miModule = fromMaybe fallbackName (Syntax.moduleName modu),
+        miTypes = sourceTypes kindSigs decls,
+        miValues = sourceValues decls,
+        miClasses = sourceClasses decls,
+        miFixities = sourceFixities decls
+      }
+  where
+    decls = map peelDeclAnn (moduleDecls modu)
+    kindSigs = Map.fromList [(renderUnqualifiedName name, renderSourceType kind) | DeclStandaloneKindSig name kind <- decls]
+
+sourceValues :: [Decl] -> [ExportedValue]
+sourceValues decls =
+  Map.elems $
+    Map.unionsWith
+      preferTypedValue
+      [ Map.fromList [(renderUnqualifiedName name, ExportedValue (renderUnqualifiedName name) (renderSourceType ty)) | DeclTypeSig names ty <- decls, name <- names],
+        Map.fromList [(name, ExportedValue name "<missing-source-signature>") | DeclValue valueDecl <- decls, name <- valueDeclNames valueDecl]
+      ]
+
+preferTypedValue :: ExportedValue -> ExportedValue -> ExportedValue
+preferTypedValue left right
+  | evType left == "<missing-source-signature>" = right
+  | otherwise = left
+
+valueDeclNames :: ValueDecl -> [Text]
+valueDeclNames valueDecl =
+  case valueDecl of
+    FunctionBind name _ -> [renderUnqualifiedName name]
+    PatternBind _ pat _ -> patternBinderNames pat
+
+patternBinderNames :: Pattern -> [Text]
+patternBinderNames pat =
+  case pat of
+    PAnn _ inner -> patternBinderNames inner
+    PVar name -> [renderUnqualifiedName name]
+    _ -> []
+
+sourceTypes :: Map Text Text -> [Decl] -> [ExportedType]
+sourceTypes kindSigs =
+  mapMaybe go
+  where
+    go decl =
+      case decl of
+        DeclTypeSyn syn ->
+          let name = binderHeadName (typeSynHead syn)
+           in Just (ExportedType name (sourceTypeKind kindSigs name Nothing) [])
+        DeclTypeData dataDecl -> Just (sourceDataType kindSigs dataDecl)
+        DeclData dataDecl -> Just (sourceDataType kindSigs dataDecl)
+        DeclNewtype newtypeDecl -> Just (sourceNewtype kindSigs newtypeDecl)
+        DeclTypeFamilyDecl familyDecl ->
+          let name = sourceTypeFamilyName familyDecl
+              kind = case typeFamilyDeclResultSig familyDecl of
+                Just (TypeFamilyKindSig ty) -> Just ty
+                _ -> Nothing
+           in Just (ExportedType name (sourceTypeKind kindSigs name kind) [])
+        _ -> Nothing
+
+sourceDataType :: Map Text Text -> DataDecl -> ExportedType
+sourceDataType kindSigs dataDecl =
+  ExportedType
+    { etName = name,
+      etKind = sourceTypeKind kindSigs name (dataDeclKind dataDecl),
+      etConstructors = concatMap dataConNames (dataDeclConstructors dataDecl)
+    }
+  where
+    name = binderHeadName (dataDeclHead dataDecl)
+
+sourceNewtype :: Map Text Text -> NewtypeDecl -> ExportedType
+sourceNewtype kindSigs newtypeDecl =
+  ExportedType
+    { etName = name,
+      etKind = sourceTypeKind kindSigs name (newtypeDeclKind newtypeDecl),
+      etConstructors = maybe [] dataConNames (newtypeDeclConstructor newtypeDecl)
+    }
+  where
+    name = binderHeadName (newtypeDeclHead newtypeDecl)
+
+sourceTypeKind :: Map Text Text -> Text -> Maybe Type -> Text
+sourceTypeKind kindSigs name inlineKind =
+  case inlineKind of
+    Just kind -> renderSourceType kind
+    Nothing -> Map.findWithDefault "<unspecified-source-kind>" name kindSigs
+
+sourceClasses :: [Decl] -> [ExportedClass]
+sourceClasses decls =
+  [ ExportedClass
+      { ecName = binderHeadName (classDeclHead classDecl),
+        ecMethods = sourceClassMethods classDecl
+      }
+  | DeclClass classDecl <- decls
+  ]
+
+sourceClassMethods :: ClassDecl -> [ClassMethod]
+sourceClassMethods classDecl =
+  [ ClassMethod (renderUnqualifiedName name) (renderSourceType ty)
+  | item <- map peelClassDeclItemAnn (classDeclItems classDecl),
+    ClassItemTypeSig names ty <- [item],
+    name <- names
+  ]
+
+sourceFixities :: [Decl] -> [FixityInfo]
+sourceFixities decls =
+  [ FixityInfo
+      { fiName = renderUnqualifiedName op,
+        fiDirection = sourceFixityDirection assoc,
+        fiPrecedence = fromMaybe 9 mPrec
+      }
+  | DeclFixity assoc _ mPrec ops <- decls,
+    op <- ops
+  ]
+
+sourceFixityDirection :: FixityAssoc -> FixityDirection
+sourceFixityDirection assoc =
+  case assoc of
+    Syntax.InfixL -> Aihc.Dev.ExtractHi.Types.InfixL
+    Syntax.InfixR -> Aihc.Dev.ExtractHi.Types.InfixR
+    Syntax.Infix -> Aihc.Dev.ExtractHi.Types.InfixN
+
+applySourceExports :: Module -> ModuleInterface -> ModuleInterface
+applySourceExports modu iface =
+  case moduleExports modu of
+    Nothing -> iface
+    Just specs ->
+      iface
+        { miValues = filter (exportedValue allowedValues) (miValues iface),
+          miTypes = mapMaybe (filterExportedType allowedTypes allowedConstructors) (miTypes iface),
+          miClasses = mapMaybe (filterExportedClass allowedTypes allowedMethods) (miClasses iface),
+          miFixities = filter (exportedFixity allowedValues allowedTypes) (miFixities iface)
+        }
+      where
+        allowedValues = Map.fromList [(name, ()) | name <- concatMap exportValueNames specs]
+        allowedTypes = Map.fromList [(name, exportMembers spec) | spec <- specs, name <- exportTypeNames spec]
+        allowedConstructors = Map.unionsWith (<>) [Map.singleton parent members | spec <- specs, (parent, members) <- exportTypeMemberNames spec]
+        allowedMethods = Map.unionsWith (<>) [Map.singleton parent members | spec <- specs, (parent, members) <- exportTypeMemberNames spec]
+
+exportedValue :: Map Text () -> ExportedValue -> Bool
+exportedValue allowed value =
+  Map.member (evName value) allowed
+
+filterExportedType :: Map Text (Maybe [Text]) -> Map Text [Text] -> ExportedType -> Maybe ExportedType
+filterExportedType allowedTypes allowedConstructors typ =
+  case Map.lookup (etName typ) allowedTypes of
+    Nothing -> Nothing
+    Just Nothing -> Just (typ {etConstructors = []})
+    Just (Just []) -> Just typ
+    Just (Just names) -> Just (typ {etConstructors = filter (`elem` names) (etConstructors typ)})
+  where
+    _ = allowedConstructors
+
+filterExportedClass :: Map Text (Maybe [Text]) -> Map Text [Text] -> ExportedClass -> Maybe ExportedClass
+filterExportedClass allowedTypes allowedMethods klass =
+  case Map.lookup (ecName klass) allowedTypes of
+    Nothing -> Nothing
+    Just Nothing -> Just (klass {ecMethods = []})
+    Just (Just []) -> Just klass
+    Just (Just names) -> Just (klass {ecMethods = filter ((`elem` names) . cmName) (ecMethods klass)})
+  where
+    _ = allowedMethods
+
+exportedFixity :: Map Text () -> Map Text (Maybe [Text]) -> FixityInfo -> Bool
+exportedFixity allowedValues allowedTypes fixity =
+  Map.member (fiName fixity) allowedValues || Map.member (fiName fixity) allowedTypes
+
+exportValueNames :: ExportSpec -> [Text]
+exportValueNames spec =
+  case spec of
+    ExportAnn _ inner -> exportValueNames inner
+    ExportVar _ namespace name | namespace /= Just IEEntityNamespaceType -> [renderName name]
+    _ -> []
+
+exportTypeNames :: ExportSpec -> [Text]
+exportTypeNames spec =
+  case spec of
+    ExportAnn _ inner -> exportTypeNames inner
+    ExportVar _ (Just IEEntityNamespaceType) name -> [renderName name]
+    ExportAbs _ _ name -> [renderName name]
+    ExportAll _ _ name -> [renderName name]
+    ExportWith _ _ name _ -> [renderName name]
+    ExportWithAll _ _ name _ _ -> [renderName name]
+    _ -> []
+
+exportTypeMemberNames :: ExportSpec -> [(Text, [Text])]
+exportTypeMemberNames spec =
+  case spec of
+    ExportAnn _ inner -> exportTypeMemberNames inner
+    ExportWith _ _ name members -> [(renderName name, map (renderName . ieBundledMemberName) members)]
+    ExportWithAll _ _ name _ members -> [(renderName name, map (renderName . ieBundledMemberName) members)]
+    _ -> []
+
+exportMembers :: ExportSpec -> Maybe [Text]
+exportMembers spec =
+  case spec of
+    ExportAnn _ inner -> exportMembers inner
+    ExportAbs {} -> Nothing
+    ExportAll {} -> Just []
+    ExportWith _ _ _ members -> Just (map (renderName . ieBundledMemberName) members)
+    ExportWithAll _ _ _ _ members -> Just (map (renderName . ieBundledMemberName) members)
+    _ -> Nothing
+
+binderHeadName :: BinderHead UnqualifiedName -> Text
+binderHeadName head' =
+  case head' of
+    PrefixBinderHead name _ -> renderUnqualifiedName name
+    InfixBinderHead _ name _ _ -> renderUnqualifiedName name
+
+sourceTypeFamilyName :: TypeFamilyDecl -> Text
+sourceTypeFamilyName familyDecl =
+  case typeFamilyDeclHead familyDecl of
+    TCon name _ -> renderName name
+    _ -> renderSourceType (typeFamilyDeclHead familyDecl)
+
+dataConNames :: DataConDecl -> [Text]
+dataConNames con =
+  case peelDataConAnn con of
+    PrefixCon _ _ name _ -> [renderUnqualifiedName name]
+    InfixCon _ _ _ name _ -> [renderUnqualifiedName name]
+    RecordCon _ _ name fields -> renderUnqualifiedName name : concatMap fieldDeclNames fields
+    GadtCon _ _ names body -> map renderUnqualifiedName names <> gadtBodyFieldNames body
+    TupleCon {} -> []
+    UnboxedSumCon {} -> []
+    ListCon {} -> ["[]"]
+    DataConAnn {} -> []
+
+gadtBodyFieldNames :: GadtBody -> [Text]
+gadtBodyFieldNames body =
+  case body of
+    GadtPrefixBody {} -> []
+    GadtRecordBody fields _ -> concatMap fieldDeclNames fields
+
+fieldDeclNames :: FieldDecl -> [Text]
+fieldDeclNames field =
+  map renderUnqualifiedName (fieldNames field)
+
+renderSourceType :: Type -> Text
+renderSourceType =
+  T.pack . renderString . layoutPretty defaultLayoutOptions . prettyType
+
 -- | Query @ghc-pkg@ for package information.
 --
 -- Returns (package-id, import-dir, [exposed-module-names]).
@@ -408,10 +758,22 @@ queryPackage pkgName = do
   let exposedMods = map stripComma (words exposedModsRaw)
   pure (pkgId, importDir, exposedMods)
 
+queryPackageMaybe :: String -> IO (Maybe (String, FilePath, [String]))
+queryPackageMaybe pkgName = do
+  mPkgId <- fmap trim <$> tryReadGhcPkg ["field", pkgName, "id", "--simple-output"]
+  mImportDir <- fmap trim <$> tryReadGhcPkg ["field", pkgName, "import-dirs", "--simple-output"]
+  mExposedModsRaw <- tryReadGhcPkg ["field", pkgName, "exposed-modules", "--simple-output"]
+  pure $ do
+    pkgId <- mPkgId
+    importDir <- mImportDir
+    exposedModsRaw <- mExposedModsRaw
+    let exposedMods = map stripComma (words exposedModsRaw)
+    pure (pkgId, importDir, exposedMods)
+
 -- | Query @ghc-pkg@ for a package's import directory by unit id.
 queryImportDir :: String -> IO (Maybe FilePath)
 queryImportDir unitId = do
-  result <- tryReadGhcPkg ["field", unitId, "import-dirs", "--simple-output"]
+  result <- tryReadGhcPkg ["--ipid", "field", unitId, "import-dirs", "--simple-output"]
   case result of
     Just dir -> pure (Just (trim dir))
     Nothing -> pure Nothing
@@ -475,3 +837,7 @@ trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 dotToSlash :: Char -> Char
 dotToSlash '.' = '/'
 dotToSlash c = c
+
+pathSepToDot :: Char -> Char
+pathSepToDot '/' = '.'
+pathSepToDot c = c
