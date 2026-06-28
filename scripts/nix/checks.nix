@@ -26,6 +26,7 @@
                 (old.preCheck or "")
                 + ''
                   export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
                 '';
             }
         )
@@ -43,6 +44,7 @@
                 (old.preCheck or "")
                 + ''
                   export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
                 '';
             }
         )
