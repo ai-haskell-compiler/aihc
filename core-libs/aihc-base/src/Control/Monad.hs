@@ -1,1 +1,6 @@
-module Control.Monad () where
+module Control.Monad
+  ( Monad (..),
+  )
+where
+
+import Prelude (Monad (..))

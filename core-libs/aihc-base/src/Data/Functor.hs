@@ -1,1 +1,6 @@
-module Data.Functor () where
+module Data.Functor
+  ( Functor (..),
+  )
+where
+
+import Prelude (Functor (..))

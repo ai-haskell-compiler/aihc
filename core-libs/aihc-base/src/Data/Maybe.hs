@@ -1,1 +1,6 @@
-module Data.Maybe () where
+module Data.Maybe
+  ( Maybe (..),
+  )
+where
+
+import Prelude (Maybe (..))

@@ -1,1 +1,6 @@
-module GHC.Maybe () where
+module GHC.Maybe
+  ( Maybe (..),
+  )
+where
+
+import Prelude (Maybe (..))

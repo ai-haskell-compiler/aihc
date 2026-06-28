@@ -56,6 +56,13 @@ solveEq ct t1 t2 = case (t1, t2) of
   -- Same function type shape: decompose.
   (TcFunTy a1 b1, TcFunTy a2 b2) ->
     solveDecomposed ct t1 [(a1, a2), (b1, b2)]
+  -- Applied type constructor variable against a saturated tycon.
+  (TcAppTy f a, TcTyCon tc args)
+    | not (null args) ->
+        solveDecomposed ct t1 [(f, TcTyCon tc (init args)), (a, last args)]
+  (TcTyCon tc args, TcAppTy f a)
+    | not (null args) ->
+        solveDecomposed ct t1 [(TcTyCon tc (init args), f), (last args, a)]
   -- Incompatible types.
   _ -> pure (EqError ct)
 

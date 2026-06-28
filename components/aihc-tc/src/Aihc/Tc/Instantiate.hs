@@ -67,7 +67,10 @@ applySubst subst = go
        in TcForAllTy tv (applySubst subst' body)
     go (TcQualTy preds body) =
       TcQualTy (map (substPred subst) preds) (go body)
-    go (TcAppTy f a) = TcAppTy (go f) (go a)
+    go (TcAppTy f a) = applyType (go f) (go a)
+
+    applyType (TcTyCon tc args) arg = TcTyCon tc (args <> [arg])
+    applyType f arg = TcAppTy f arg
 
 -- | Apply a substitution to a predicate.
 substPred :: Map.Map Unique TcType -> Pred -> Pred

@@ -1,1 +1,6 @@
-module Control.Applicative () where
+module Control.Applicative
+  ( Applicative (..),
+  )
+where
+
+import Prelude (Applicative (..))

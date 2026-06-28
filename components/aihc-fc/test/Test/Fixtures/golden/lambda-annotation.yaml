@@ -1,18 +1,18 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = True | False
-
-    idBool :: Bool -> Bool
-    idBool = \x -> x
-expected: |
+expected: |-
   data Bool
    = True
    | False
 
   idBool : Bool → Bool =
-    λx : Bool.
-      x
-status: pass
+    λx1001 : Bool.
+      x1001
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+
+  idBool :: Bool -> Bool
+  idBool = \x -> x
 reason: desugars lambda binder types from type-checker annotations
+status: pass

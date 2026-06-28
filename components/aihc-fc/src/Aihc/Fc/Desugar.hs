@@ -295,10 +295,34 @@ dsClassDeclM classAnn =
 dsClassSelector :: TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector methodAnn = do
   methodUnique <- freshUnique
-  dictVar <- freshVar "$d" (tcClassMethodDictType methodAnn)
+  dictVars <- zipWithM mkSelectorDict [0 :: Int ..] dictPreds
+  classDictVar <-
+    case dictVars of
+      dictVar : _ -> pure dictVar
+      [] -> freshVar "$d" (tcClassMethodDictType methodAnn)
   let methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
-      body = foldr FcTyLam (FcDictLam dictVar (FcDictSelect (FcVar dictVar) (tcClassMethodIndex methodAnn))) (tcClassMethodTyVars methodAnn)
+      selected = FcDictSelect (FcVar classDictVar) (tcClassMethodIndex methodAnn)
+      body = foldr FcTyLam (foldr FcDictLam selected dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
+  where
+    (_tyVars, afterForAlls) = peelForAlls (tcClassMethodType methodAnn)
+    (dictPreds, _bodyTy) = peelQuals afterForAlls
+    mkSelectorDict ix pred' =
+      freshVar ("$d" <> T.pack (show ix)) (predType pred')
+
+peelForAlls :: TcType -> ([TyVarId], TcType)
+peelForAlls (TcForAllTy tv rest) =
+  let (tvs, inner) = peelForAlls rest
+   in (tv : tvs, inner)
+peelForAlls ty = ([], ty)
+
+peelQuals :: TcType -> ([Pred], TcType)
+peelQuals (TcQualTy preds body) = (preds, body)
+peelQuals ty = ([], ty)
+
+predType :: Pred -> TcType
+predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 dsInstanceDecl :: Decl -> DsM [FcTopBind]
 dsInstanceDecl decl =

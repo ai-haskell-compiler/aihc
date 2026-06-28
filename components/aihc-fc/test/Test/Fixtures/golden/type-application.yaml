@@ -1,24 +1,24 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = True | False
-
-    id x = x
-
-    true :: Bool
-    true = id True
-expected: |
+expected: |-
   data Bool
    = True
    | False
 
   id : ∀ a. a → a =
     Λa.
-      λx : a.
-        x
+      λx1001 : a.
+        x1001
 
   true : Bool =
     id @Bool True
-status: pass
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+
+  id x = x
+
+  true :: Bool
+  true = id True
 reason: reifies type arguments when desugaring polymorphic variable occurrences
+status: pass
