@@ -1,0 +1,11 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim mystery# :: Int# -> Int#
+output: ""
+expression: |
+  mystery# 1#
+status: fail
+reason: unknown foreign import prim declarations are rejected before evaluation

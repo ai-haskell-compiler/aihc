@@ -381,7 +381,7 @@ dsAnnotatedExpr tcAnn inner =
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     EList elems -> dsList tcAnn elems
     EListComp body quals -> dsListComp tcAnn body quals
-    ETuple Boxed elems -> dsTuple tcAnn elems
+    ETuple flavor elems -> dsTuple flavor tcAnn elems
     ELambdaPats pats body -> dsLambda pats body
     EIf cond thenE elseE -> dsIf cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
@@ -684,13 +684,13 @@ lambdaPatternBindings pat var =
     PAs name inner -> (unqualifiedNameText name, var) : lambdaPatternBindings inner var
     _ -> []
 
-dsTuple :: TcAnnotation -> [Maybe Expr] -> DsM FcExpr
-dsTuple tcAnn elems = do
+dsTuple :: TupleFlavor -> TcAnnotation -> [Maybe Expr] -> DsM FcExpr
+dsTuple flavor tcAnn elems = do
   let elemTys = tcAnnTypeArgs tcAnn
   if length elemTys == length elems
     then do
       elems' <- zipWithM dsMaybeTupleElem elemTys elems
-      pure (List.foldl' FcApp (tupleConExpr elemTys) elems')
+      pure (List.foldl' FcApp (tupleConExpr flavor elemTys) elems')
     else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
@@ -699,21 +699,24 @@ dsMaybeTupleElem ty Nothing = do
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
 
-tupleConExpr :: [TcType] -> FcExpr
-tupleConExpr elemTys =
+tupleConExpr :: TupleFlavor -> [TcType] -> FcExpr
+tupleConExpr flavor elemTys =
   let arity = length elemTys
-   in List.foldl' FcTyApp (FcVar (Var (tupleConName arity) (Unique (-20 - arity)) (tupleConType elemTys))) elemTys
+   in List.foldl' FcTyApp (FcVar (Var (tupleConName flavor arity) (Unique (-20 - arity)) (tupleConType flavor elemTys))) elemTys
 
-tupleConType :: [TcType] -> TcType
-tupleConType elemTys =
+tupleConType :: TupleFlavor -> [TcType] -> TcType
+tupleConType flavor elemTys =
   foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultTy tyVars) tyVars
   where
     arity = length elemTys
     tyVars = [TyVarId ("t" <> T.pack (show i)) (Unique (-2100 - i)) | i <- [0 .. arity - 1]]
-    resultTy = TcTyCon (TyCon (tupleConName arity) arity) (map TcTyVar tyVars)
+    resultTy = TcTyCon (TyCon (tupleConName flavor arity) arity) (map TcTyVar tyVars)
 
-tupleConName :: Int -> Text
-tupleConName arity = "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+tupleConName :: TupleFlavor -> Int -> Text
+tupleConName flavor arity =
+  case flavor of
+    Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 consChar :: Char -> FcExpr -> FcExpr
 consChar char =
@@ -796,6 +799,7 @@ patternBinderTypesM pat scrutTy =
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []
     PCon _ _ subPats -> mapM patternFieldTypeM subPats
+    PTuple _ subPats -> tupleFieldTypesM (length subPats) scrutTy
     PVar {} -> pure [scrutTy]
     PAnn _ inner -> patternBinderTypesM inner scrutTy
     PParen inner -> patternBinderTypesM inner scrutTy
@@ -813,6 +817,14 @@ listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
 listElemTyM ty =
   desugarBug ("missing list element type information while desugaring: " <> show ty)
+
+tupleFieldTypesM :: Int -> TcType -> DsM [TcType]
+tupleFieldTypesM arity (TcTyCon (TyCon _ arity') fieldTys)
+  | arity == arity',
+    length fieldTys == arity =
+      pure fieldTys
+tupleFieldTypesM arity ty =
+  desugarBug ("missing tuple field type information while desugaring: expected " <> show arity <> " field(s) in " <> show ty)
 
 lambdaPatternTypeRequired :: Pattern -> DsM TcType
 lambdaPatternTypeRequired pat =
@@ -916,7 +928,7 @@ dsCaseAlt scrutTy (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
   binderTys <- patternBinderTypesM pat scrutTy
   binders <- zipWithM freshVar binderNames binderTys
-  body <- dsRhs rhs
+  body <- withLocals (zip binderNames binders) (dsRhs rhs)
   pure (FcAlt con binders body)
 
 -- | Convert a Name to Text.

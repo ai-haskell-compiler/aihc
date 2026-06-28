@@ -1,0 +1,17 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import GHC.Internal.Integer (Integer(IS))
+
+    answer :: Integer
+    answer = (IS 10# + IS 35#) - (IS 1# * fromInteger (IS 3#))
+output: |
+  IS 42
+expression: |
+  answer
+status: pass
+reason: evaluates the aihc-base Num Integer instance over the temporary Int# representation

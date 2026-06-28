@@ -47,6 +47,7 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
+import Control.Exception (IOException, catch)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
@@ -199,16 +200,15 @@ extractSingleModule readIface cacheRef importDir modName = do
     then do
       iface <- liftIO $ readIface hiPath
       liftIO $ ifaceToModule readIface cacheRef modName iface
-    else pure emptyModule
-  where
-    emptyModule =
-      ModuleInterface
-        { miModule = T.pack modName,
-          miTypes = [],
-          miValues = [],
-          miClasses = [],
-          miFixities = []
-        }
+    else
+      pure
+        ModuleInterface
+          { miModule = T.pack modName,
+            miTypes = [],
+            miValues = [],
+            miClasses = [],
+            miFixities = []
+          }
 
 -- | Convert a 'ModIface' to our output representation.
 ifaceToModule ::
@@ -780,21 +780,23 @@ queryImportDir unitId = do
 
 readGhcPkg :: [String] -> IO String
 readGhcPkg args = do
-  result <- tryReadGhcPkg args
-  case result of
-    Just output -> pure output
-    Nothing -> readProcess "ghc-pkg" args ""
-
-tryReadGhcPkg :: [String] -> IO (Maybe String)
-tryReadGhcPkg args = do
   result <- tryReadGhcPkgRaw args
   case result of
-    Just output -> pure (Just output)
+    Just output -> pure output
     Nothing -> do
       mPackageDb <- findLocalPackageDb
       case mPackageDb of
-        Nothing -> pure Nothing
-        Just packageDb -> tryReadGhcPkgRaw ("--package-db" : packageDb : args)
+        Nothing -> missingPackage
+        Just packageDb -> do
+          fallbackResult <- tryReadGhcPkgRaw ("--package-db" : packageDb : args)
+          maybe missingPackage pure fallbackResult
+  where
+    missingPackage = ioError (userError ("ghc-pkg failed: " <> unwords args))
+
+tryReadGhcPkg :: [String] -> IO (Maybe String)
+tryReadGhcPkg args =
+  (Just <$> readGhcPkg args)
+    `catch` (\(_ :: IOException) -> pure Nothing)
 
 tryReadGhcPkgRaw :: [String] -> IO (Maybe String)
 tryReadGhcPkgRaw args = do

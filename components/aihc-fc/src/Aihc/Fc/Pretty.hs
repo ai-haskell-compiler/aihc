@@ -45,6 +45,13 @@ renderTopBind (FcData tyName tyVars cons) =
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
     ++ renderDataCons cons
+renderTopBind (FcPrimitive var arity) =
+  "foreign prim "
+    ++ renderVar var
+    ++ "/"
+    ++ show arity
+    ++ " : "
+    ++ renderType (varType var)
 renderTopBind (FcTopBind bind) = renderBind 0 bind
 
 -- | Render data constructors.

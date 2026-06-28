@@ -20,7 +20,7 @@ Find more information here:
 | TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `116/3427` (`3.38%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `240/3427` (`7.00%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| ghc-prim / aihc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `0/1276` (`0.00%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| ghc-prim / aihc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `35/1276` (`2.74%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
 | base / aihc-base   | <!-- AUTO-GENERATED: START base-progress --> `2/9355` (`0.02%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |

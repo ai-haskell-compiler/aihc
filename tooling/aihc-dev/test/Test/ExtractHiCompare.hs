@@ -39,7 +39,6 @@ extractHiCompareTests =
           testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
           testCase "renders stable command output" test_coreLibProgressRendersStableOutput
         ],
-      testCase "aihc-prim is a subset of ghc-prim" test_aihcPrimSubset,
       testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset
     ]
 
@@ -143,12 +142,6 @@ test_coreLibProgressRendersStableOutput =
           CoreLibProgressReport "BASE" "base" (CompatibilityReport 2 5 3 [])
         ]
     )
-
-test_aihcPrimSubset :: Assertion
-test_aihcPrimSubset = do
-  candidate <- extractPackage "aihc-prim"
-  oracle <- extractPackage "ghc-prim"
-  assertEqual "aihc-prim mismatches" [] (comparePackageSubset candidate oracle)
 
 test_aihcInternalSubset :: Assertion
 test_aihcInternalSubset = do

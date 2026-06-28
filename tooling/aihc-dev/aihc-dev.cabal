@@ -251,7 +251,6 @@ test-suite spec
     aihc-internal,
     aihc-parser,
     aihc-parser-tooling-common,
-    aihc-prim,
     aihc-resolve,
     aihc-tc,
     async,

@@ -267,6 +267,10 @@ resolveDependencyRoot dependency =
       envRoot <- lookupEnv "AIHC_BASE_SRC"
       root <- maybe defaultAihcBaseRoot pure envRoot
       pure (Right (dependency, root))
+    "aihc-prim" -> do
+      envRoot <- lookupEnv "AIHC_PRIM_SRC"
+      root <- maybe defaultAihcPrimRoot pure envRoot
+      pure (Right (dependency, root))
     _ ->
       pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
 
@@ -286,6 +290,22 @@ defaultAihcBaseRoot = do
             then pure candidate
             else findUp parent
 
+defaultAihcPrimRoot :: IO FilePath
+defaultAihcPrimRoot = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "core-libs" </> "aihc-prim"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then pure candidate
+            else findUp parent
+
 initialDependencyModules :: [Module] -> Set.Set Text
 initialDependencyModules modules =
   Set.insert "Prelude" (importedModuleNames modules)
@@ -296,10 +316,10 @@ importedModuleNames modules =
 
 loadTransitiveModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
 loadTransitiveModules packageRoots initialModules =
-  go Set.empty [] (Set.toAscList initialModules)
+  fmap snd <$> go Set.empty [] (Set.toAscList initialModules)
   where
-    go _ loaded [] =
-      pure (Right loaded)
+    go seen loaded [] =
+      pure (Right (seen, loaded))
     go seen loaded (moduleName : pending)
       | moduleName `Set.member` seen =
           go seen loaded pending
@@ -316,7 +336,11 @@ loadTransitiveModules packageRoots initialModules =
                 Right modu -> do
                   let seen' = Set.insert moduleName seen
                       newImports = Set.toAscList (importedModuleNames [modu] `Set.difference` seen')
-                  go seen' (modu : loaded) (pending <> newImports)
+                  depResult <- go seen' loaded newImports
+                  case depResult of
+                    Left errMsg -> pure (Left errMsg)
+                    Right (seenWithDeps, loadedWithDeps) ->
+                      go seenWithDeps (loadedWithDeps <> [modu]) pending
 
 findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
 findModulePathInDependencies [] _ = pure Nothing

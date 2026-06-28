@@ -1,0 +1,14 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import GHC.Integer (Integer(IS))
+    useConstructor = IS
+output: |
+  <hidden>
+expression: |
+  useConstructor
+status: fail
+reason: GHC.Integer exports Integer abstractly, so the representation constructor is unavailable
