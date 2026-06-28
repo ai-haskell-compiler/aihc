@@ -38,6 +38,8 @@ dsPatternPure (PList []) =
 dsPatternPure (PInfix lhs op rhs)
   | nameText op == ":" =
       (DataAlt ":", [subPatName lhs, subPatName rhs])
+dsPatternPure (PTuple flavor subPats) =
+  (DataAlt (tupleConText flavor (length subPats)), map subPatName subPats)
 dsPatternPure (PVar uname) =
   (DefaultAlt, [unqualifiedNameText uname])
 dsPatternPure PWildcard =

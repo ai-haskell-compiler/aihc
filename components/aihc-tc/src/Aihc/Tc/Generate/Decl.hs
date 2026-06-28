@@ -35,6 +35,7 @@ import Aihc.Parser.Syntax
     Module (..),
     Name (..),
     NameType (..),
+    NewtypeDecl (..),
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
@@ -135,6 +136,8 @@ declBindings decl =
       annotationBindings ann inner <> declBindings inner
     DeclData dataDecl ->
       concatMap dataConBindings (dataDeclConstructors dataDecl)
+    DeclNewtype newtypeDecl ->
+      maybe [] dataConBindings (newtypeDeclConstructor newtypeDecl)
     _ -> []
 
 annotationBindings :: Annotation -> Decl -> [TcBindingResult]
@@ -155,6 +158,9 @@ tcAnnotationBindings ann decl =
           ]
         DeclData dataDecl ->
           let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+           in [TcBindingResult name name (tcAnnType tcAnn)]
+        DeclNewtype newtypeDecl ->
+          let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
            in [TcBindingResult name name (tcAnnType tcAnn)]
         DeclForeign foreignDecl ->
           let name = unqualifiedNameText (foreignName foreignDecl)
@@ -295,6 +301,7 @@ annotateDeclTc classMethods checkedValueNames decl =
           pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
+    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
@@ -337,6 +344,14 @@ annotateDataDeclTc dataDecl = do
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
+
+annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
+annotateNewtypeDeclTc newtypeDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
+  ty <- tyConBindingType tyName
+  constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
+  pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1039,6 +1054,7 @@ tcFunctionInfer displayName name matches = do
 -- Returns binding results for the declared names.
 registerDecl :: Decl -> TcM [TcBindingResult]
 registerDecl (DeclData dd) = registerDataDecl dd
+registerDecl (DeclNewtype nd) = registerNewtypeDecl nd
 registerDecl (DeclClass classDecl) = registerClassDecl classDecl
 registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
 registerDecl (DeclForeign foreignDecl)
@@ -1176,6 +1192,30 @@ registerDataDecl dd = do
   zonkedKind <- defaultKindMetas tyConKind
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure (tyConResult : conResults)
+
+-- | Register a newtype declaration's type constructor and representation
+-- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
+-- this stage the type checker only needs the source-level names and types.
+registerNewtypeDecl :: NewtypeDecl -> TcM [TcBindingResult]
+registerNewtypeDecl nd = do
+  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
+      params = binderHeadParams (newtypeDeclHead nd)
+      arity = length params
+      tc = TyCon tyName arity
+  paramInfos <- makeParamEnv params
+  tyConKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  extendTyConEnvPermanent
+    tyName
+    TyConInfo
+      { tciName = tyName,
+        tciArity = arity,
+        tciTyCon = tc,
+        tciKind = tyConKind
+      }
+  conResults <- mapM (registerDataCon tc paramInfos) (newtypeDeclConstructor nd)
+  zonkedKind <- defaultKindMetas tyConKind
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
+  pure (tyConResult : maybeToList conResults)
 
 dataDeclTyCon :: Text -> Int -> TyCon
 dataDeclTyCon "List" 1 = TyCon "[]" 1

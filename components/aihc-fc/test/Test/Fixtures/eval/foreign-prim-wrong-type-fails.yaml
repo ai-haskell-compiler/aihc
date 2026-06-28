@@ -1,0 +1,11 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim (+#) :: Int# -> Int#
+output: ""
+expression: |
+  (+#) 1#
+status: fail
+reason: known foreign import prim declarations with incorrect types are rejected before evaluation

@@ -16,6 +16,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     RecordField (..),
     SourceSpan,
+    TupleFlavor (..),
     UnqualifiedName (..),
     mkAnnotation,
     nameText,
@@ -26,6 +27,7 @@ import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Text (Text)
+import Data.Text qualified as T
 
 data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
@@ -86,6 +88,12 @@ checkPatternWith gadtHandling sp pat scrutTy =
       let listTy = listType elemTy
       eqCt <- wantedEq sp scrutTy listTy
       itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
+      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
+    PTuple flavor items -> do
+      elemTys <- mapM (const freshMetaTv) items
+      let tupleTy = TcTyCon (TyCon (tupleConText flavor (length items)) (length items)) elemTys
+      eqCt <- wantedEq sp scrutTy tupleTy
+      itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
     _ -> pure mempty
 
@@ -186,6 +194,17 @@ withPatternBindings ((name, ty) : rest) action =
 
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
+
+tupleConText :: TupleFlavor -> Int -> Text
+tupleConText flavor arity =
+  case flavor of
+    Boxed -> "(" <> commas arity <> ")"
+    Unboxed -> "(#" <> commas arity <> "#)"
+
+commas :: Int -> Text
+commas n
+  | n <= 1 = ""
+  | otherwise = T.replicate (n - 1) ","
 
 patternNameText :: Name -> Text
 patternNameText name =

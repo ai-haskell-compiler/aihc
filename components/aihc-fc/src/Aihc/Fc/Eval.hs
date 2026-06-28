@@ -26,6 +26,7 @@ data EvalError
   | EvalPrimitiveArity Text Int
   | EvalPrimitiveTypeError Text Value
   | EvalInvalidDictSelect Value Int
+  | EvalRaisedException Value
   deriving (Eq, Show)
 
 data Value
@@ -45,28 +46,33 @@ evalProgramBinding name program =
     Just value -> forceValue value
     Nothing -> Left (EvalMissingBinding name)
   where
-    env = topEnv `Map.union` primitiveEnv
+    env = primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
+    primitiveTopEnv = Map.fromList (concatMap primitiveTopBindingValues (fcTopBinds program))
     topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
+    primitiveTopBindingValues (FcPrimitive var arity) =
+      [(varName var, VPrim (varName var) arity [])]
+    primitiveTopBindingValues _ =
+      []
     topBindingValues (FcTopBind (FcNonRec var expr)) =
       [(varName var, VThunk env expr)]
     topBindingValues (FcTopBind (FcRec bindings)) =
       [(varName var, VThunk env expr) | (var, expr) <- bindings]
     topBindingValues (FcData _ _ constructors) =
       [(conName, VConstructor conName []) | (conName, _) <- constructors]
+    topBindingValues FcPrimitive {} =
+      []
 
 evalExpr :: FcExpr -> Either EvalError Value
-evalExpr = evalWithEnv primitiveEnv
+evalExpr = evalWithEnv builtinConstructorEnv
 
-primitiveEnv :: Env
-primitiveEnv =
+builtinConstructorEnv :: Env
+builtinConstructorEnv =
   Map.fromList
     [ ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
-      ("+#", VPrim "+#" 2 []),
-      ("-#", VPrim "-#" 2 []),
-      ("*#", VPrim "*#" 2 [])
+      ("(#,#)", VConstructor "(#,#)" [])
     ]
 
 evalWithEnv :: Env -> FcExpr -> Either EvalError Value
@@ -143,6 +149,14 @@ evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
   evalIntPrim "*#" (*) left right
+evalPrimitive "raise#" [exception] =
+  Left . EvalRaisedException =<< forceValue exception
+evalPrimitive "catch#" [action, handler, state] =
+  case applyValue action state of
+    Left (EvalRaisedException exception) -> do
+      handlerWithException <- applyValue handler exception
+      applyValue handlerWithException state
+    result -> result
 evalPrimitive name args =
   Left (EvalPrimitiveArity name (length args))
 
@@ -276,4 +290,7 @@ renderRawArg value = do
 
 isTupleConstructor :: Text -> Int -> Bool
 isTupleConstructor name arity =
-  arity >= 2 && name == "(" <> T.replicate (arity - 1) "," <> ")"
+  arity >= 2
+    && ( name == "(" <> T.replicate (arity - 1) "," <> ")"
+           || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
+       )
