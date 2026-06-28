@@ -5,8 +5,8 @@ expected: |-
 
   select : ∀ a. (a → Bool) → [a] → [a] =
     Λa.
-      λx : a → Bool.
-        λy : [a].
+      λx1001 : a → Bool.
+        λy1002 : [a].
           let
             rec
               $lc1003 : [a] → [a] =
@@ -15,13 +15,13 @@ expected: |-
                     [] →
                       [] @a
                     : _lc_head1005 _lc_tail1006 →
-                      case x _lc_head1005 as _lc_guard1008 : Bool of
+                      case x1001 _lc_head1005 as _lc_guard1008 : Bool of
                         True →
                           : @a _lc_head1005 ($lc1003 _lc_tail1006)
                         False →
                           $lc1003 _lc_tail1006
           in
-            $lc1003 y
+            $lc1003 y1002
 extensions: []
 modules:
 - |

@@ -1,8 +1,15 @@
+{-# LANGUAGE KindSignatures #-}
+
 module Prelude
-  ( Bool (..),
+  ( Applicative (..),
+    Bool (..),
     Char,
+    Either (..),
     Eq (..),
+    Functor (..),
     List (..),
+    Maybe (..),
+    Monad (..),
     String,
     (&&),
     (++),
@@ -15,6 +22,7 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
+import Data.Kind (Type)
 
 data Char
 
@@ -23,6 +31,10 @@ data List a = [] | a : [a]
 infixr 5 :
 
 type String = [Char]
+
+data Maybe a = Nothing | Just a
+
+data Either a b = Left a | Right b
 
 class Eq a where
   (==) :: a -> a -> Bool
@@ -49,3 +61,108 @@ instance (Eq a) => Eq [a] where
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys
 (++) (x : xs) ys = x : (xs ++ ys)
+
+class Functor (f :: Type -> Type) where
+  fmap :: (a -> b) -> f a -> f b
+
+instance Functor List where
+  fmap = fmapList
+
+instance Functor Maybe where
+  fmap f mx =
+    case mx of
+      Nothing -> Nothing
+      Just x -> Just (f x)
+
+instance Functor (Either e) where
+  fmap f mx =
+    case mx of
+      Left e -> Left e
+      Right x -> Right (f x)
+
+class (Functor f) => Applicative (f :: Type -> Type) where
+  pure :: a -> f a
+  (<*>) :: f (a -> b) -> f a -> f b
+
+infixl 4 <*>
+
+instance Applicative List where
+  pure x = [x]
+
+  fs <*> xs = applyList fs xs
+
+instance Applicative Maybe where
+  pure = Just
+
+  mf <*> mx =
+    case mf of
+      Nothing -> Nothing
+      Just f ->
+        case mx of
+          Nothing -> Nothing
+          Just x -> Just (f x)
+
+instance Applicative (Either e) where
+  pure = Right
+
+  mf <*> mx =
+    case mf of
+      Left e -> Left e
+      Right f ->
+        case mx of
+          Left e -> Left e
+          Right x -> Right (f x)
+
+class (Applicative m) => Monad (m :: Type -> Type) where
+  (>>=) :: m a -> (a -> m b) -> m b
+  (>>) :: m a -> m b -> m b
+  return :: a -> m a
+
+infixl 1 >>=, >>
+
+instance Monad List where
+  xs >>= k = bindList xs k
+
+  xs >> ys = thenList xs ys
+  return x = [x]
+
+instance Monad Maybe where
+  mx >>= k = bindMaybe mx k
+
+  mx >> my =
+    case mx of
+      Nothing -> Nothing
+      Just _ -> my
+  return = Just
+
+instance Monad (Either e) where
+  mx >>= k =
+    case mx of
+      Left e -> Left e
+      Right x -> k x
+
+  mx >> my =
+    case mx of
+      Left e -> Left e
+      Right _ -> my
+  return = Right
+
+fmapList :: (a -> b) -> [a] -> [b]
+fmapList _ [] = []
+fmapList f (x : xs) = f x : fmapList f xs
+
+applyList :: [a -> b] -> [a] -> [b]
+applyList [] _ = []
+applyList (f : fs) xs = fmapList f xs ++ applyList fs xs
+
+bindList :: [a] -> (a -> [b]) -> [b]
+bindList [] _ = []
+bindList (x : xs) k = k x ++ bindList xs k
+
+bindMaybe :: Maybe a -> (a -> Maybe b) -> Maybe b
+bindMaybe Nothing _ = Nothing
+bindMaybe (Just x) k = k x
+
+thenList :: [a] -> [b] -> [b]
+thenList [] _ = []
+thenList (_ : xs) ys = ys ++ thenList xs ys

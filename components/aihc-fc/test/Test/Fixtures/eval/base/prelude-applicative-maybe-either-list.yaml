@@ -1,0 +1,41 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Control.Applicative
+    import Data.Either
+    import Data.Maybe
+
+    flipBool :: Bool -> Bool
+    flipBool False = True
+    flipBool True = False
+
+    maybePure :: Maybe Bool
+    maybePure = pure True
+
+    maybeApply :: Maybe Bool
+    maybeApply = Just flipBool <*> Just False
+
+    maybeEmpty :: Maybe Bool
+    maybeEmpty = Nothing <*> Just False
+
+    eitherPure :: Either Bool Bool
+    eitherPure = pure True
+
+    eitherApply :: Either Bool Bool
+    eitherApply = Right flipBool <*> Right False
+
+    eitherLeftFunction :: Either Bool Bool
+    eitherLeftFunction = Left False <*> Right True
+
+    listApply :: [Bool]
+    listApply = [flipBool] <*> [False, True]
+
+output: |
+  ((((Just True),(Just True)),Nothing),((((Right True),(Right True)),(Left False)),(: True (: False []))))
+expression: |
+  (((maybePure, maybeApply), maybeEmpty), (((eitherPure, eitherApply), eitherLeftFunction), listApply))
+status: pass
+reason: evaluates Prelude Applicative instances for Maybe, Either, and lists from aihc-base

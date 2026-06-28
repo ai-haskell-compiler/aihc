@@ -45,6 +45,16 @@ unifyTypes (TcFunTy a1 b1) (TcFunTy a2 b2) = do
   r1 <- unifyTypes a1 a2
   r2 <- unifyTypes b1 b2
   pure $ r1 >> r2
+unifyTypes (TcAppTy f a) (TcTyCon tc args)
+  | not (null args) = do
+      r1 <- unifyTypes f (TcTyCon tc (init args))
+      r2 <- unifyTypes a (last args)
+      pure $ r1 >> r2
+unifyTypes (TcTyCon tc args) (TcAppTy f a)
+  | not (null args) = do
+      r1 <- unifyTypes (TcTyCon tc (init args)) f
+      r2 <- unifyTypes (last args) a
+      pure $ r1 >> r2
 unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
   r1 <- unifyTypes f1 f2
   r2 <- unifyTypes a1 a2

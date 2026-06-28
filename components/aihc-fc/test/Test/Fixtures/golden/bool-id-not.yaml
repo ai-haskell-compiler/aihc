@@ -1,27 +1,27 @@
-extensions: []
-modules:
-  - |
-    module Test where
-    data Bool = True | False
-    id x = x
-    not True = False
-    not False = True
-expected: |
+expected: |-
   data Bool
    = True
    | False
 
   id : ∀ a. a → a =
     Λa.
-      λx : a.
-        x
+      λx1001 : a.
+        x1001
 
   not : Bool → Bool =
-    λx : Bool.
-      case x as _scrut : Bool of
+    λx1003 : Bool.
+      case x1003 as _scrut : Bool of
         True →
           False
         False →
           True
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  id x = x
+  not True = False
+  not False = True
+reason: 'MVP: data Bool + id + not desugared to System FC'
 status: pass
-reason: "MVP: data Bool + id + not desugared to System FC"

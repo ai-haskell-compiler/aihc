@@ -1,0 +1,52 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Control.Monad
+    import Data.Either
+    import Data.Maybe
+
+    keepTrue :: Bool -> Maybe Bool
+    keepTrue True = Just True
+    keepTrue False = Nothing
+
+    maybeBindJust :: Maybe Bool
+    maybeBindJust = Just True >>= keepTrue
+
+    maybeBindNothing :: Maybe Bool
+    maybeBindNothing = Nothing >>= keepTrue
+
+    maybeReturn :: Maybe Bool
+    maybeReturn = return False
+
+    maybeThen :: Maybe Bool
+    maybeThen = Just True >> Just False
+
+    eitherStep :: Bool -> Either Bool Bool
+    eitherStep True = Right False
+    eitherStep False = Left True
+
+    eitherBindRight :: Either Bool Bool
+    eitherBindRight = Right True >>= eitherStep
+
+    eitherBindLeft :: Either Bool Bool
+    eitherBindLeft = Left False >>= eitherStep
+
+    eitherThen :: Either Bool Bool
+    eitherThen = Right True >> Right False
+
+    expand :: Bool -> [Bool]
+    expand False = [False]
+    expand True = [True, False]
+
+    listBind :: [Bool]
+    listBind = [False, True] >>= expand
+
+output: |
+  ((((Just True),Nothing),((Just False),(Just False))),(((Right False),(Left False)),((Right False),(: False (: True (: False []))))))
+expression: |
+  (((maybeBindJust, maybeBindNothing), (maybeReturn, maybeThen)), ((eitherBindRight, eitherBindLeft), (eitherThen, listBind)))
+status: pass
+reason: evaluates Prelude Monad instances for Maybe, Either, and lists from aihc-base

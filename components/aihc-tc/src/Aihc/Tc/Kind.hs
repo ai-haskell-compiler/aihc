@@ -11,6 +11,7 @@ module Aihc.Tc.Kind
     freeTypeVars,
     freshKindMeta,
     kindToTcType,
+    classPredicateArgKinds,
     makeParamEnv,
     sigToScheme,
     surfacePredToPred,
@@ -41,6 +42,7 @@ import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Control.Monad (zipWithM)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -327,11 +329,29 @@ surfacePredToPred :: TvKindEnv -> Type -> TcM Pred
 surfacePredToPred tvEnv ty =
   case instanceHeadName ty of
     Just className -> do
-      args <- mapM (\arg -> checkSurfaceType tvEnv arg KType) (instanceHeadTypes ty)
+      let classNameText = nameText className
+          headArgs = instanceHeadTypes ty
+      argKinds <- classPredicateArgKinds classNameText (length headArgs)
+      args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
       pure (ClassPred (nameText className) args)
     Nothing -> do
       emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
       pure (ClassPred "<invalid-predicate>" [])
+
+classPredicateArgKinds :: Text -> Int -> TcM [Kind]
+classPredicateArgKinds className argCount = do
+  mInfo <- lookupTyCon className
+  case mInfo of
+    Just info -> takeClassArgKinds argCount <$> defaultKindMetas (tciKind info)
+    Nothing -> pure (replicate argCount KType)
+
+takeClassArgKinds :: Int -> Kind -> [Kind]
+takeClassArgKinds n kind
+  | n <= 0 = []
+  | otherwise =
+      case kind of
+        KFun arg rest -> arg : takeClassArgKinds (n - 1) rest
+        _ -> replicate n KType
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =

@@ -71,7 +71,7 @@ import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, convertSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
@@ -420,7 +420,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
           classNameText = nameText className
-      headTys <- mapM (convertSurfaceType tvMap) headArgTypes
+      headTys <- checkInstanceHeadTypes classNameText tvMap headArgTypes
       let dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       let contextDicts = map predDictBinder context
@@ -461,12 +461,12 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
-    (Just _, headArgTypes) -> do
+    (Just className, headArgTypes) -> do
       let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
           freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
-      headTys <- mapM (convertSurfaceType tvMap) headArgTypes
+      headTys <- checkInstanceHeadTypes (nameText className) tvMap headArgTypes
       givens <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       items <- mapM (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
@@ -660,6 +660,11 @@ splitContext ty = ([], ty)
 
 simpleTvKindEnv :: Map Text TyVarId -> TvKindEnv
 simpleTvKindEnv = Map.map (,KType)
+
+checkInstanceHeadTypes :: Text -> Map Text TyVarId -> [Type] -> TcM [TcType]
+checkInstanceHeadTypes className tvMap headArgTypes = do
+  argKinds <- classPredicateArgKinds className (length headArgTypes)
+  zipWithM (checkSurfaceType (simpleTvKindEnv tvMap)) headArgTypes argKinds
 
 -- | Instantiate a type scheme with fresh skolems for type-checking while
 -- preserving the scheme predicates as scoped givens for the checked body.
@@ -1114,7 +1119,7 @@ registerInstanceDecl instanceDecl =
       tvIds <- mapM freshSkolemTv freeVars
       let tvMap = Map.fromList (zip freeVars tvIds)
           classNameText = nameText className
-      headTys <- mapM (convertSurfaceType tvMap) headArgs
+      headTys <- checkInstanceHeadTypes classNameText tvMap headArgs
       let dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds

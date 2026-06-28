@@ -184,7 +184,7 @@ matchAlt :: Value -> FcAlt -> Maybe Env
 matchAlt value alt =
   case (altCon alt, value) of
     (DefaultAlt, _) ->
-      Just Map.empty
+      Just (Map.fromList [(varName var, value) | var <- altBinders alt])
     (LitAlt expected, VLit actual)
       | expected == actual ->
           Just Map.empty

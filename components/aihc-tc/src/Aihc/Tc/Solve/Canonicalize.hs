@@ -52,6 +52,19 @@ canonEq ct t1 t2 = case (t1, t2) of
       [ ct {ctPred = EqPred a1 a2},
         ct {ctPred = EqPred b1 b2}
       ]
+  -- Decompose an applied type constructor variable against a saturated tycon.
+  (TcAppTy f a, TcTyCon tc args)
+    | not (null args) ->
+        CanonEqs
+          [ ct {ctPred = EqPred f (TcTyCon tc (init args))},
+            ct {ctPred = EqPred a (last args)}
+          ]
+  (TcTyCon tc args, TcAppTy f a)
+    | not (null args) ->
+        CanonEqs
+          [ ct {ctPred = EqPred (TcTyCon tc (init args)) f},
+            ct {ctPred = EqPred (last args) a}
+          ]
   -- Decompose type application.
   (TcAppTy f1 a1, TcAppTy f2 a2) ->
     CanonEqs

@@ -49,7 +49,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, modify')
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -163,7 +163,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
                 (dictPreds, innerTy) = peelQuals afterForAlls
                 (argTys, resTy) = peelFunTys nArgs innerTy
             dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
-            argVars <- mapM (\(i, argTy) -> freshVar (argName i) argTy) (zip [0 :: Int ..] argTys)
+            argVars <- mapM (\(i, argTy) -> freshInternalVar (argName i) argTy) (zip [0 :: Int ..] argTys)
             body <- withDicts dicts (buildCaseChain argVars resTy matches)
             let lamExpr = foldr FcLam body argVars
                 dictLamExpr
@@ -662,7 +662,7 @@ directPatternBindings pat var =
 dsLambda :: [Pattern] -> Expr -> DsM FcExpr
 dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
-  vars <- zipWithM freshVar (map lambdaArgName pats) argTys
+  vars <- zipWithM freshInternalVar (map lambdaArgName pats) argTys
   body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
   pure (foldr FcLam body' vars)
 
@@ -795,7 +795,9 @@ patternBinderTypesM pat scrutTy =
       | nameText op == ":" ->
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []
-    PCon _ _ subPats -> mapM patternFieldTypeM subPats
+    PCon name _ subPats -> do
+      fallbackTys <- constructorFieldTypesM name (length subPats)
+      zipWithM patternFieldTypeM subPats fallbackTys
     PVar {} -> pure [scrutTy]
     PAnn _ inner -> patternBinderTypesM inner scrutTy
     PParen inner -> patternBinderTypesM inner scrutTy
@@ -806,8 +808,24 @@ patternBinderTypesM pat scrutTy =
     missingPatternTypes =
       desugarBug ("missing pattern binder type information while desugaring: " <> take 80 (show pat))
 
-    patternFieldTypeM subPat =
-      maybe missingPatternTypes pure (patternBinderAnnotationType subPat <|> patternAnnotationType subPat)
+    patternFieldTypeM subPat fallbackTy =
+      pure (fromMaybe fallbackTy (patternBinderAnnotationType subPat <|> patternAnnotationType subPat))
+
+constructorFieldTypesM :: Name -> Int -> DsM [TcType]
+constructorFieldTypesM name arity = do
+  ty <- lookupTypeName name
+  takeConstructorFields (nameToText name) arity (dropForAlls ty)
+
+takeConstructorFields :: Text -> Int -> TcType -> DsM [TcType]
+takeConstructorFields _ 0 _ = pure []
+takeConstructorFields name arity (TcFunTy arg rest) =
+  (arg :) <$> takeConstructorFields name (arity - 1) rest
+takeConstructorFields name arity ty =
+  desugarBug ("missing field type information for constructor pattern " <> T.unpack name <> ": expected " <> show arity <> " more field(s) in " <> show ty)
+
+dropForAlls :: TcType -> TcType
+dropForAlls (TcForAllTy _ body) = dropForAlls body
+dropForAlls ty = ty
 
 listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
@@ -916,7 +934,7 @@ dsCaseAlt scrutTy (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
   binderTys <- patternBinderTypesM pat scrutTy
   binders <- zipWithM freshVar binderNames binderTys
-  body <- dsRhs rhs
+  body <- withLocals (zip binderNames binders) (dsRhs rhs)
   pure (FcAlt con binders body)
 
 -- | Convert a Name to Text.

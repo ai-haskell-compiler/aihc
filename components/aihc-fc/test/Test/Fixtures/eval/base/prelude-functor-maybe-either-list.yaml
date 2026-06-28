@@ -1,0 +1,34 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.Either
+    import Data.Functor
+    import Data.Maybe
+
+    flipBool :: Bool -> Bool
+    flipBool False = True
+    flipBool True = False
+
+    mapMaybeJust :: Maybe Bool
+    mapMaybeJust = fmap flipBool (Just True)
+
+    mapMaybeNothing :: Maybe Bool
+    mapMaybeNothing = fmap flipBool Nothing
+
+    mapListBool :: [Bool]
+    mapListBool = fmap flipBool [False, True]
+
+    mapEitherLeft :: Either Bool Bool
+    mapEitherLeft = fmap flipBool (Left True)
+
+    mapEitherRight :: Either Bool Bool
+    mapEitherRight = fmap flipBool (Right True)
+output: |
+  ((((Just False),Nothing),(: True (: False []))),((Left True),(Right False)))
+expression: |
+  (((mapMaybeJust, mapMaybeNothing), mapListBool), (mapEitherLeft, mapEitherRight))
+status: pass
+reason: evaluates Prelude Functor instances for Maybe, Either, and lists from aihc-base
