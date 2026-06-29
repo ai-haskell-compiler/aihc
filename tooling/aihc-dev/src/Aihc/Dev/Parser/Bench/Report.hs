@@ -32,7 +32,7 @@ import Control.DeepSeq (deepseq)
 import Control.Exception (SomeException, bracket, evaluate, try)
 import Control.Monad (forM_, replicateM_, unless, void)
 import Data.ByteString qualified as BS
-import Data.List (nub)
+import Data.List (nub, stripPrefix)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -40,14 +40,14 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumCapabilities)
-import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
+import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, parseOptions, runCpphs)
 import System.Directory
   ( createDirectoryIfMissing,
     getTemporaryDirectory,
     removePathForcibly,
   )
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (isRelative, splitDirectories, takeDirectory, (</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, stderr, withFile)
 import System.Process (StdStream (..), createProcess, proc, readProcessWithExitCode, std_err, std_out, waitForProcess)
 import Text.Printf (printf)
@@ -93,7 +93,9 @@ runReport opts@ReportOptions {reportOutput} = do
       benchmarkClang root (corpusCppEntries corpus)
 
   hPutStrLn stderr "Benchmarking cpphs..."
-  cpphsResult <- benchmarkCpphs (corpusCppEntries corpus)
+  cpphsResult <-
+    withStagedCorpus (corpusEntries corpus) $ \root ->
+      benchmarkCpphs root (corpusCppEntries corpus)
 
   hPutStrLn stderr "Benchmarking aihc-cpp..."
   aihcCpp <- benchmarkAihcCpp corpus
@@ -227,15 +229,17 @@ benchmarkAihcCpp Corpus {corpusCppEntries, corpusIncludeMap} = do
         evaluate (output `deepseq` ())
   pure ToolResult {toolName = "aihc-cpp", toolNanos = timedNanos timed}
 
-benchmarkCpphs :: [TarballEntry] -> IO ToolResult
-benchmarkCpphs entries = do
+benchmarkCpphs :: FilePath -> [TarballEntry] -> IO ToolResult
+benchmarkCpphs root entries = do
   timed <-
     timeAction $
       runConcurrently_ entries $ \entry -> do
         result <-
           try
             ( do
-                out <- runCpphs cpphsOptions (entryFilePath entry) (T.unpack (entryContents entry))
+                let stagedPath = root </> entryFilePath entry
+                    options = cpphsOptionsFor root entry
+                out <- runCpphs options stagedPath (T.unpack (entryContents entry))
                 evaluate (length out)
             ) ::
             IO (Either SomeException Int)
@@ -244,35 +248,63 @@ benchmarkCpphs entries = do
           Right n -> void (evaluate n)
   pure ToolResult {toolName = "cpphs", toolNanos = timedNanos timed}
 
-cpphsOptions :: CpphsOptions
-cpphsOptions =
-  defaultCpphsOptions
-    { boolopts =
-        (boolopts defaultCpphsOptions)
-          { stripC89 = True,
-            warnings = False
-          }
-    }
+cpphsOptionsFor :: FilePath -> TarballEntry -> CpphsOptions
+cpphsOptionsFor root entry =
+  case parseOptions (stagedCppOptions root entry) of
+    Left _ -> baseOptions
+    Right options ->
+      options
+        { boolopts =
+            (boolopts options)
+              { stripC89 = True,
+                warnings = False
+              }
+        }
+  where
+    baseOptions =
+      defaultCpphsOptions
+        { boolopts =
+            (boolopts defaultCpphsOptions)
+              { stripC89 = True,
+                warnings = False
+              }
+        }
 
 benchmarkClang :: FilePath -> [TarballEntry] -> IO ToolResult
 benchmarkClang root entries = do
-  let groups = Map.elems (Map.fromListWith (<>) [(entryCppOptions entry, [entry]) | entry <- entries])
+  let groups = Map.toList (Map.fromListWith (<>) [(stagedCppOptions root entry, [entry]) | entry <- entries])
       chunks =
         concat
-          [ let cppOptions =
-                  case group of
-                    entry : _ -> entryCppOptions entry
-                    [] -> []
-                baseArgs = ["-E", "-P", "-x", "assembler-with-cpp"] ++ cppOptions
+          [ let baseArgs = ["-E", "-P", "-x", "assembler-with-cpp"] ++ cppOptions
                 paths = map ((root </>) . entryFilePath) group
              in [(baseArgs, chunk) | chunk <- chunkArgs baseArgs paths]
-          | group <- groups
+          | (cppOptions, group) <- groups
           ]
   timed <-
     timeAction $
       runConcurrently_ chunks $ \(baseArgs, chunk) ->
         runExternal "clang" (baseArgs ++ chunk)
   pure ToolResult {toolName = "clang -E", toolNanos = timedNanos timed}
+
+stagedCppOptions :: FilePath -> TarballEntry -> [String]
+stagedCppOptions root entry =
+  rewrite (entryCppOptions entry)
+  where
+    packageRoot = root </> entryPackageRoot entry
+    rewrite ("-I" : path : rest) = "-I" : stageIncludePath path : rewrite rest
+    rewrite (opt : rest)
+      | Just path <- stripPrefix "-I" opt = ("-I" ++ stageIncludePath path) : rewrite rest
+      | otherwise = opt : rewrite rest
+    rewrite [] = []
+    stageIncludePath path
+      | isRelative path = packageRoot </> path
+      | otherwise = path
+
+entryPackageRoot :: TarballEntry -> FilePath
+entryPackageRoot entry =
+  case splitDirectories (entryFilePath entry) of
+    packageDir : _ -> packageDir
+    [] -> "."
 
 chunkArgs :: [String] -> [FilePath] -> [[FilePath]]
 chunkArgs baseArgs = go [] baseSize
