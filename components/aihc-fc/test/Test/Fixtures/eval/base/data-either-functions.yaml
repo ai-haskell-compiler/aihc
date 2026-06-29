@@ -1,0 +1,52 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.Either
+
+    leftValue :: Either Bool Bool
+    leftValue = Left True
+
+    rightValue :: Either Bool Bool
+    rightValue = Right True
+
+    chooseLeft :: Bool
+    chooseLeft = either not not (Left False)
+
+    chooseRight :: Bool
+    chooseRight = either not not (Right True)
+
+    defaultLeft :: Bool
+    defaultLeft = fromLeft False rightValue
+
+    presentLeft :: Bool
+    presentLeft = fromLeft False leftValue
+
+    defaultRight :: Bool
+    defaultRight = fromRight False leftValue
+
+    presentRight :: Bool
+    presentRight = fromRight False rightValue
+
+    leftFlags :: (Bool, Bool)
+    leftFlags = (isLeft leftValue, isLeft rightValue)
+
+    rightFlags :: (Bool, Bool)
+    rightFlags = (isRight leftValue, isRight rightValue)
+
+    leftValues :: [Bool]
+    leftValues = lefts [Left True, Right False, Left False]
+
+    rightValues :: [Bool]
+    rightValues = rights [Left True, Right False, Right True]
+
+    partitioned :: ([Bool], [Bool])
+    partitioned = partitionEithers [Left True, Right False, Left False, Right True]
+output: |
+  ((((True,False),(False,True)),((False,True),((True,False),(False,True)))),(((: True (: False [])),(: False (: True []))),((: True (: False [])),(: False (: True [])))))
+expression: |
+  ((((chooseLeft, chooseRight), (defaultLeft, presentLeft)), ((defaultRight, presentRight), (leftFlags, rightFlags))), ((leftValues, rightValues), partitioned))
+status: pass
+reason: evaluates Data.Either helpers from aihc-base with Left, Right, and list order cases
