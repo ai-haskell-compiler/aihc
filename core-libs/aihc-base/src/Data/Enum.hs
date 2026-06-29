@@ -1,1 +1,7 @@
-module Data.Enum () where
+module Data.Enum
+  ( Enum (..),
+    Bounded (..),
+  )
+where
+
+import GHC.Enum (Bounded (..), Enum (..))

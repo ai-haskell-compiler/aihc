@@ -1,1 +1,6 @@
-module Data.Int () where
+module Data.Int
+  ( Int,
+  )
+where
+
+import GHC.Int (Int)

@@ -21,6 +21,7 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     UnqualifiedName (..),
   )
+import Aihc.Parser.Syntax qualified as Surface
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -46,9 +47,17 @@ dsPatternPure PWildcard =
   (DefaultAlt, [])
 dsPatternPure (PAnn _ann inner) = dsPatternPure inner
 dsPatternPure (PParen inner) = dsPatternPure inner
-dsPatternPure (PLit _lit) =
-  (DefaultAlt, [])
+dsPatternPure (PLit lit) =
+  (dsLiteralAlt lit, [])
 dsPatternPure _ = (DefaultAlt, [])
+
+dsLiteralAlt :: Surface.Literal -> FcAltCon
+dsLiteralAlt lit =
+  case lit of
+    Surface.LitInt n _ _ -> LitAlt (LitInt n)
+    Surface.LitChar c _ -> LitAlt (LitChar c)
+    Surface.LitAnn _ inner -> dsLiteralAlt inner
+    _ -> DefaultAlt
 
 -- | Extract a name from a sub-pattern.
 subPatName :: Pattern -> Text
