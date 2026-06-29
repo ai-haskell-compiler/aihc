@@ -200,6 +200,12 @@ in {
     bash ./scripts/update-generated-content.sh --update
   '';
 
+  generate-benchmarks = mkAppWithInputs "generate-benchmarks" [pkgs.bash pkgs.git pkgs.llvmPackages.clang hsPkgs.cpphs] ''
+    set -euo pipefail
+    ${repoRootGuard}
+    exec ${aihcDevExe} parser-bench report "$@"
+  '';
+
   check-reports = mkReportsApp "check-reports" ''
     set -euo pipefail
     ${repoRootGuard}

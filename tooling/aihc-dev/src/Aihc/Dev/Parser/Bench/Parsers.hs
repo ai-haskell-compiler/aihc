@@ -20,6 +20,8 @@ module Aihc.Dev.Parser.Bench.Parsers
     parseWithGhcExtsWithCpp,
     lexWithAihcExts,
     lexWithAihcExtsWithCpp,
+    prepareSourceAndExtensionsWithCpp,
+    runCppWithIncludes,
   )
 where
 
