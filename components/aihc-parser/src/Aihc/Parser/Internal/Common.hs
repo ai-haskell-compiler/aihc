@@ -14,6 +14,7 @@ module Aihc.Parser.Internal.Common
     nameToUnqualified,
     mkUnqualifiedNameAt,
     mkNameAt,
+    identifierNameWithTokenParser,
     identifierNameParser,
     identifierUnqualifiedNameParser,
     identifierTextParser,
@@ -30,6 +31,7 @@ module Aihc.Parser.Internal.Common
     operatorTextParser,
     constructorInfixOperatorNameParser,
     stringTextParser,
+    inputStartSpan,
     withSpan,
     withSpanAnn,
     optionalSuffix,
@@ -270,15 +272,19 @@ moduleNameParser =
         TkQConId modName name | isModuleName (modName <> "." <> name) -> Just (modName <> "." <> name)
         _ -> Nothing
 
-identifierNameParser :: TokParser Name
-identifierNameParser =
+identifierNameWithTokenParser :: TokParser (LexToken, Name)
+identifierNameWithTokenParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkVarId ident -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId ident))
-      TkConId ident -> Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConId ident))
-      TkQVarId modName ident -> Just (mkNameAt tok (Just modName) NameVarId ident)
-      TkQConId modName ident -> Just (mkNameAt tok (Just modName) NameConId ident)
+      TkVarId ident -> Just (tok, qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId ident))
+      TkConId ident -> Just (tok, qualifyName Nothing (mkUnqualifiedNameAt tok NameConId ident))
+      TkQVarId modName ident -> Just (tok, mkNameAt tok (Just modName) NameVarId ident)
+      TkQConId modName ident -> Just (tok, mkNameAt tok (Just modName) NameConId ident)
       _ -> Nothing
+
+identifierNameParser :: TokParser Name
+identifierNameParser =
+  snd <$> identifierNameWithTokenParser
 
 identifierUnqualifiedNameParser :: TokParser UnqualifiedName
 identifierUnqualifiedNameParser =
@@ -449,32 +455,31 @@ stringTextParser =
 
 withSpanAnn :: (SourceSpan -> a -> a) -> TokParser a -> TokParser a
 withSpanAnn f parser = do
-  ts <- fmap MP.stateInput MP.getParserState
-  let startSpan
-        | tokStreamEOFEmitted ts = noSourceSpan
-        | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
-        | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
-        | otherwise = noSourceSpan
+  startInput <- MP.getInput
   out <- parser
-  lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
-  let endSpan = maybe noSourceSpan lexTokenSpan lastToken
+  endInput <- MP.getInput
+  let startSpan = inputStartSpan startInput
+      endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
       parserSpan = mergeSourceSpans startSpan endSpan
   pure $ f parserSpan out
 
 -- FIXME: Remove.
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
-  ts <- fmap MP.stateInput MP.getParserState
-  let startSpan
-        | tokStreamEOFEmitted ts = noSourceSpan
-        | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
-        | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
-        | otherwise = noSourceSpan
+  startInput <- MP.getInput
   out <- parser
-  lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
-  let endSpan = maybe noSourceSpan lexTokenSpan lastToken
+  endInput <- MP.getInput
+  let startSpan = inputStartSpan startInput
+      endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
       parserSpan = mergeSourceSpans startSpan endSpan
   pure (out parserSpan)
+
+inputStartSpan :: TokStream -> SourceSpan
+inputStartSpan ts
+  | tokStreamEOFEmitted ts = noSourceSpan
+  | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
+  | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
+  | otherwise = noSourceSpan
 
 optionalSuffix :: TokParser b -> (a -> b -> a) -> TokParser a -> TokParser a
 optionalSuffix suffixParser attach parser = do
@@ -809,9 +814,8 @@ isConstructorIdentifier txt =
     Nothing -> False
 
 isExtensionEnabled :: Extension -> TokParser Bool
-isExtensionEnabled ext = do
-  pst <- MP.getParserState
-  pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
+isExtensionEnabled ext =
+  memberExtension ext . tokStreamExtensionSet . MP.stateInput <$> MP.getParserState
 
 -- | Check whether any Template Haskell extension is enabled (quotes or full TH).
 thAnyEnabled :: TokParser Bool

@@ -368,25 +368,40 @@ applyTypeAppArg fn (Right ty) = TApp fn ty
 -- This parser also admits extension atoms such as promoted types,
 -- quasi-quotes, splices, wildcards, and implicit-parameter types.
 typeAtomParser :: TokParser Type
-typeAtomParser = do
-  thAny <- thAnyEnabled
-  ipEnabled <- isExtensionEnabled ImplicitParams
-  MP.try promotedTypeParser
-    <|> typeLiteralTypeParser
-    <|> typeQuasiQuoteParser
-    <|> (if thAny then thSpliceTypeParser else MP.empty)
-    <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
-    <|> typeListParser
-    <|> MP.try typeParenOperatorParser
-    <|> typeParenOrTupleParser
-    <|> typeStarParser
-    <|> typeWildcardParser
-    <|> typeIdentifierParser
+typeAtomParser = typeAtomParserByToken
 
 typeSignatureAtomParser :: TokParser Type
-typeSignatureAtomParser = do
-  thAny <- thAnyEnabled
-  ipEnabled <- isExtensionEnabled ImplicitParams
+typeSignatureAtomParser = typeAtomParserByToken
+
+typeAtomParserByToken :: TokParser Type
+typeAtomParserByToken = do
+  tok <- MP.lookAhead MP.anySingle
+  case lexTokenKind tok of
+    TkInteger {} -> typeLiteralTypeParser
+    TkString {} -> typeLiteralTypeParser
+    TkChar {} -> typeLiteralTypeParser
+    TkQuasiQuote {} -> typeQuasiQuoteParser
+    TkTHSplice -> do
+      thAny <- thAnyEnabled
+      if thAny then thSpliceTypeParser else typeAtomParserAlternatives False False
+    TkImplicitParam {} -> do
+      ipEnabled <- isExtensionEnabled ImplicitParams
+      if ipEnabled then typeImplicitParamParser else typeAtomParserAlternatives False False
+    TkSpecialLBracket -> typeListParser
+    TkSpecialLParen -> MP.try typeParenOperatorParser <|> typeParenOrTupleParser
+    TkSpecialUnboxedLParen -> typeParenOrTupleParser
+    TkKeywordUnderscore -> typeWildcardParser
+    TkVarId {} -> typeIdentifierParser
+    TkConId {} -> typeIdentifierParser
+    TkQVarId {} -> typeIdentifierParser
+    TkQConId {} -> typeIdentifierParser
+    _ -> do
+      thAny <- thAnyEnabled
+      ipEnabled <- isExtensionEnabled ImplicitParams
+      typeAtomParserAlternatives thAny ipEnabled
+
+typeAtomParserAlternatives :: Bool -> Bool -> TokParser Type
+typeAtomParserAlternatives thAny ipEnabled =
   MP.try promotedTypeParser
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser
@@ -412,19 +427,20 @@ typeImplicitParamParser = withSpanAnn (TAnn . mkAnnotation) $ do
   TImplicitParam name <$> typeSignatureParser
 
 typeWildcardParser :: TokParser Type
-typeWildcardParser = withSpanAnn (TAnn . mkAnnotation) $ do
-  expectedTok TkKeywordUnderscore
-  pure TWildcard
+typeWildcardParser =
+  tokenSatisfy "wildcard" $ \tok ->
+    case lexTokenKind tok of
+      TkKeywordUnderscore -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) TWildcard)
+      _ -> Nothing
 
 typeLiteralTypeParser :: TokParser Type
-typeLiteralTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
-  lit <- tokenSatisfy "type literal" $ \tok ->
+typeLiteralTypeParser =
+  tokenSatisfy "type literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger n _ -> Just (TypeLitInteger n (lexTokenText tok))
-      TkString s -> Just (TypeLitSymbol s (lexTokenText tok))
-      TkChar c -> Just (TypeLitChar c (lexTokenText tok))
+      TkInteger n _ -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitInteger n (lexTokenText tok))))
+      TkString s -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitSymbol s (lexTokenText tok))))
+      TkChar c -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitChar c (lexTokenText tok))))
       _ -> Nothing
-  pure (TTypeLit lit)
 
 promotedTypeParser :: TokParser Type
 promotedTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
@@ -465,27 +481,26 @@ typeQuasiQuoteParser =
       _ -> Nothing
 
 typeIdentifierParser :: TokParser Type
-typeIdentifierParser = withSpanAnn (TAnn . mkAnnotation) $ do
-  name <- identifierNameParser
+typeIdentifierParser = do
+  (tok, name) <- identifierNameWithTokenParser
   pure $
-    case (nameQualifier name, nameType name, T.uncons (nameText name)) of
-      (Nothing, NameVarId, Just (c, _))
-        | isLower c || c == '_' ->
-            TVar (nameToUnqualified name)
-      _ -> TCon name Unpromoted
+    TAnn (mkAnnotation (lexTokenSpan tok)) $
+      case (nameQualifier name, nameType name, T.uncons (nameText name)) of
+        (Nothing, NameVarId, Just (c, _))
+          | isLower c || c == '_' ->
+              TVar (nameToUnqualified name)
+        _ -> TCon name Unpromoted
 
 typeStarParser :: TokParser Type
-typeStarParser = withSpanAnn (TAnn . mkAnnotation) $ do
+typeStarParser = do
   starIsType <- isExtensionEnabled StarIsType
   unicodeSyntax <- isExtensionEnabled UnicodeSyntax
   if starIsType
-    then do
-      spelling <- tokenSatisfy "star kind" $ \tok ->
-        case lexTokenKind tok of
-          TkVarSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (lexTokenText tok)
-          TkConSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (lexTokenText tok)
-          _ -> Nothing
-      pure (TStar spelling)
+    then tokenSatisfy "star kind" $ \tok ->
+      case lexTokenKind tok of
+        TkVarSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TStar (lexTokenText tok)))
+        TkConSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -> Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TStar (lexTokenText tok)))
+        _ -> Nothing
     else MP.empty
 
 isStarTypeSymbol :: Bool -> Bool -> T.Text -> Bool

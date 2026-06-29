@@ -15,9 +15,9 @@ import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
 import Aihc.Parser.Internal.Type (typeParser)
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenText)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
@@ -185,60 +185,82 @@ numericLiteralParser :: TokParser Literal
 numericLiteralParser = intLiteralParser <|> floatLiteralParser
 
 wildcardPatternParser :: TokParser Pattern
-wildcardPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  expectedTok TkKeywordUnderscore
-  pure PWildcard
+wildcardPatternParser =
+  tokenSatisfy "wildcard" $ \tok ->
+    case lexTokenKind tok of
+      TkKeywordUnderscore -> Just (PAnn (mkAnnotation (lexTokenSpan tok)) PWildcard)
+      _ -> Nothing
 
 literalPatternParser :: TokParser Pattern
-literalPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  PLit <$> literalParser
+literalPatternParser =
+  tokenSatisfy "literal" $ \tok -> do
+    lit <- literalFromToken tok
+    let ann = mkAnnotation (lexTokenSpan tok)
+    pure (PAnn ann (PLit (LitAnn ann lit)))
 
 quasiQuotePatternParser :: TokParser Pattern
-quasiQuotePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  (quoter, body) <- tokenSatisfy "quasi quote" $ \tok ->
+quasiQuotePatternParser =
+  tokenSatisfy "quasi quote" $ \tok ->
     case lexTokenKind tok of
-      TkQuasiQuote q b -> Just (q, b)
+      TkQuasiQuote quoter body -> Just (PAnn (mkAnnotation (lexTokenSpan tok)) (PQuasiQuote quoter body))
       _ -> Nothing
-  pure (PQuasiQuote quoter body)
 
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
 
 tokenLiteralParser :: String -> (LexToken -> Maybe Literal) -> TokParser Literal
 tokenLiteralParser expected matchToken =
-  withSpanAnn (LitAnn . mkAnnotation) (tokenSatisfy expected matchToken)
+  tokenSatisfy expected $ \tok ->
+    LitAnn (mkAnnotation (lexTokenSpan tok)) <$> matchToken tok
+
+literalFromToken :: LexToken -> Maybe Literal
+literalFromToken tok =
+  intLiteralFromToken tok
+    <|> floatLiteralFromToken tok
+    <|> charLiteralFromToken tok
+    <|> stringLiteralFromToken tok
 
 intLiteralParser :: TokParser Literal
 intLiteralParser =
-  tokenLiteralParser "integer literal" $ \tok ->
-    case lexTokenKind tok of
-      TkInteger i nt -> Just (LitInt i nt (lexTokenText tok))
-      _ -> Nothing
+  tokenLiteralParser "integer literal" intLiteralFromToken
+
+intLiteralFromToken :: LexToken -> Maybe Literal
+intLiteralFromToken tok =
+  case lexTokenKind tok of
+    TkInteger i nt -> Just (LitInt i nt (lexTokenText tok))
+    _ -> Nothing
 
 floatLiteralParser :: TokParser Literal
 floatLiteralParser =
-  tokenLiteralParser "floating literal" $ \tok ->
-    case lexTokenKind tok of
-      TkFloat x ft -> Just (LitFloat x ft (lexTokenText tok))
-      _ -> Nothing
+  tokenLiteralParser "floating literal" floatLiteralFromToken
+
+floatLiteralFromToken :: LexToken -> Maybe Literal
+floatLiteralFromToken tok =
+  case lexTokenKind tok of
+    TkFloat x ft -> Just (LitFloat x ft (lexTokenText tok))
+    _ -> Nothing
 
 charLiteralParser :: TokParser Literal
-charLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, c, repr) <- tokenSatisfy "character literal" $ \tok ->
-    case lexTokenKind tok of
-      TkChar x -> Just (LitChar, x, lexTokenText tok)
-      TkCharHash x txt -> Just (LitCharHash, x, txt)
-      _ -> Nothing
-  pure (ctor c repr)
+charLiteralParser =
+  tokenLiteralParser "character literal" charLiteralFromToken
+
+charLiteralFromToken :: LexToken -> Maybe Literal
+charLiteralFromToken tok =
+  case lexTokenKind tok of
+    TkChar x -> Just (LitChar x (lexTokenText tok))
+    TkCharHash x txt -> Just (LitCharHash x txt)
+    _ -> Nothing
 
 stringLiteralParser :: TokParser Literal
-stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
-  (ctor, s, repr) <- tokenSatisfy "string literal" $ \tok ->
-    case lexTokenKind tok of
-      TkString x -> Just (LitString, x, lexTokenText tok)
-      TkStringHash x txt -> Just (LitStringHash, x, txt)
-      _ -> Nothing
-  pure (ctor s repr)
+stringLiteralParser =
+  tokenLiteralParser "string literal" stringLiteralFromToken
+
+stringLiteralFromToken :: LexToken -> Maybe Literal
+stringLiteralFromToken tok =
+  case lexTokenKind tok of
+    TkString x -> Just (LitString x (lexTokenText tok))
+    TkStringHash x txt -> Just (LitStringHash x txt)
+    _ -> Nothing
 
 -- | Parse Template Haskell pattern splice: $pat or $(pat)
 thSplicePatternParser :: TokParser Pattern
@@ -266,19 +288,24 @@ visibleTypeBinderCoreParser =
           )
 
 varOrConPatternParser :: TokParser Pattern
-varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
-  name <- identifierNameParser
+varOrConPatternParser = do
+  (tok, name) <- identifierNameWithTokenParser
   mNextTok <- MP.optional (lookAhead anySingle)
+  let ann = mkAnnotation (lexTokenSpan tok)
   case mNextTok of
     Just nextTok
       | isConLikeName name && lexTokenKind nextTok == TkSpecialLBrace -> do
           (fields, hasWildcard) <- braces recordPatternFieldListParser
-          pure (PRecord name fields hasWildcard)
+          endInput <- MP.getInput
+          let endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
+              recordSpan = mergeSourceSpans (lexTokenSpan tok) endSpan
+          pure (PAnn (mkAnnotation recordSpan) (PRecord name fields hasWildcard))
     _ ->
       pure $
-        if isConLikeName name
-          then PCon name [] []
-          else PVar (nameToUnqualified name)
+        PAnn ann $
+          if isConLikeName name
+            then PCon name [] []
+            else PVar (nameToUnqualified name)
 
 recordFieldPatternParser :: TokParser (RecordField Pattern)
 recordFieldPatternParser = do
@@ -443,14 +470,15 @@ parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
 
         -- Parse an operator token as a variable or constructor pattern.
         operatorPatternParser :: TokParser Pattern
-        operatorPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
+        operatorPatternParser = do
           tok' <- anySingle
+          let ann = mkAnnotation (lexTokenSpan tok')
           case lexTokenKind tok' of
-            TkVarSym op -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym op))
-            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym op)) [] [])
-            TkQConSym modName op -> pure (PCon (mkNameAt tok' (Just modName) NameConSym op) [] [])
-            TkReservedColon -> pure (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym ":")) [] [])
-            TkReservedAt -> pure (PVar (mkUnqualifiedNameAt tok' NameVarSym "@"))
+            TkVarSym op -> pure (PAnn ann (PVar (mkUnqualifiedNameAt tok' NameVarSym op)))
+            TkConSym op -> pure (PAnn ann (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym op)) [] []))
+            TkQConSym modName op -> pure (PAnn ann (PCon (mkNameAt tok' (Just modName) NameConSym op) [] []))
+            TkReservedColon -> pure (PAnn ann (PCon (qualifyName Nothing (mkUnqualifiedNameAt tok' NameConSym ":")) [] []))
+            TkReservedAt -> pure (PAnn ann (PVar (mkUnqualifiedNameAt tok' NameVarSym "@")))
             _ ->
               MP.customFailure
                 UnexpectedTokenExpecting

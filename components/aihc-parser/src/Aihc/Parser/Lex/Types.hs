@@ -51,8 +51,6 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace, ord)
 import Data.Data (Data)
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -215,12 +213,12 @@ data LexToken = LexToken
   deriving (Eq, Ord, Show, Generic, NFData)
 
 newtype LexerEnv = LexerEnv
-  { lexerExtensions :: Set Extension
+  { lexerExtensions :: ExtensionSet
   }
   deriving (Eq, Show)
 
 hasExt :: Extension -> LexerEnv -> Bool
-hasExt ext env = Set.member ext (lexerExtensions env)
+hasExt ext env = memberExtension ext (lexerExtensions env)
 
 data LexerState = LexerState
   { lexerInput :: !Text,
@@ -316,7 +314,7 @@ data HashLineTrivia
   deriving (Eq, Show)
 
 mkLexerEnv :: [Extension] -> LexerEnv
-mkLexerEnv exts = LexerEnv {lexerExtensions = Set.fromList exts}
+mkLexerEnv exts = LexerEnv {lexerExtensions = mkExtensionSet exts}
 
 mkInitialLexerState :: FilePath -> [Extension] -> Text -> (LexerEnv, LexerState)
 mkInitialLexerState sourceName exts input =
