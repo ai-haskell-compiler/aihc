@@ -37,7 +37,7 @@ import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModule
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, nub, sort)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -306,17 +306,21 @@ defaultAihcPrimRoot = do
             then pure candidate
             else findUp parent
 
-initialDependencyModules :: [Module] -> Set.Set Text
+initialDependencyModules :: [Module] -> [Text]
 initialDependencyModules modules =
-  Set.insert "Prelude" (importedModuleNames modules)
+  nub ("Prelude" : importedModuleNameList modules)
 
 importedModuleNames :: [Module] -> Set.Set Text
 importedModuleNames modules =
-  Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+  Set.fromList (importedModuleNameList modules)
 
-loadTransitiveModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
+importedModuleNameList :: [Module] -> [Text]
+importedModuleNameList modules =
+  [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+
+loadTransitiveModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [Module])
 loadTransitiveModules packageRoots initialModules =
-  fmap snd <$> go Set.empty [] (Set.toAscList initialModules)
+  fmap snd <$> go Set.empty [] initialModules
   where
     go seen loaded [] =
       pure (Right (seen, loaded))

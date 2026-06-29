@@ -2,11 +2,11 @@ extensions: []
 modules:
   - |
     module Test where
-    bad xs = [ x | x <- xs, 1 ]
+    bad xs = [ x | x <- xs, () ]
 annotated:
   - |-
     module Test where
-    bad xs = [ x | x <- xs, 1 ]
-                            └─ error: couldn't match Int with Bool
+    bad xs = [ x | x <- xs, () ]
+                            └─ error: couldn't match () with Bool
 status: pass
 reason: list comprehension guards must be Bool, not Int

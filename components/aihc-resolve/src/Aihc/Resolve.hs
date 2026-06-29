@@ -38,6 +38,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     DoStmt (..),
     Expr (..),
+    Extension (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForallTelescope (..),
@@ -52,11 +53,13 @@ import Aihc.Parser.Syntax
     InstanceDecl (..),
     InstanceDeclItem (..),
     LambdaCaseAlt (..),
+    Literal (..),
     Match (..),
     Module (..),
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    NumericType (..),
     Pattern (..),
     RecordField (..),
     Rhs (..),
@@ -66,10 +69,13 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
+    applyExtensionSetting,
+    applyImpliedExtensions,
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
     peelGuardQualifierAnn,
+    peelLiteralAnn,
     peelPatternAnn,
     recordFieldName,
     recordFieldValue,
@@ -199,8 +205,18 @@ resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      (nextLocal', decls') = runResolveM scope (moduleInfo modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
+
+moduleInfo :: Module -> ModuleInfo
+moduleInfo modu =
+  ModuleInfo
+    { moduleInfoExtensions =
+        applyImpliedExtensions $
+          foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
+      moduleInfoExplicitPreludeImport =
+        any ((== "Prelude") . importDeclModule) (moduleImports modu)
+    }
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports exports =
@@ -544,6 +560,7 @@ resolveExpr expr =
     EVar name ->
       EVar <$> resolveTermUse name
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
+    EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt {} -> pure expr
     EFloat {} -> pure expr
     EChar {} -> pure expr
@@ -624,6 +641,81 @@ resolveExpr expr =
     ETHNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+
+resolveIntegerLiteral :: Expr -> ResolveM Expr
+resolveIntegerLiteral expr = do
+  sp <- currentSpan
+  scope <- currentScope
+  info <- currentModuleInfo
+  let resolved =
+        if RebindableSyntax `elem` moduleInfoExtensions info
+          then rebindableFromInteger info scope
+          else preludeFromInteger scope
+      annotation =
+        ResolutionAnnotation
+          sp
+          "fromInteger"
+          ResolutionNamespaceTerm
+          resolved
+  pure (EAnn (mkAnnotation annotation) expr)
+
+preludeFromInteger :: Scope -> ResolvedName
+preludeFromInteger scope =
+  case Map.lookup "Prelude" (scopeQualifiedModules scope) of
+    Just preludeScope -> lookupTerm "fromInteger" preludeScope
+    Nothing -> ResolvedError "unbound"
+
+rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
+rebindableFromInteger info scope =
+  case lookupTerm "fromInteger" scope of
+    ResolvedTopLevel name
+      | nameQualifier name == Just "Prelude",
+        not (moduleInfoExplicitPreludeImport info) ->
+          ResolvedError "unbound"
+    resolved -> resolved
+
+annotateIntegerPatternLiteral :: Pattern -> Literal -> ResolveM Pattern
+annotateIntegerPatternLiteral pat lit =
+  case peelLiteralAnn lit of
+    LitInt _ TInteger _ -> do
+      sp <- literalSpan <$> currentSpan <*> pure lit
+      fromIntegerAnn <- syntaxTermAnnotation sp "fromInteger"
+      eqAnn <- syntaxTermAnnotation sp "=="
+      pure (PAnn (mkAnnotation fromIntegerAnn) (PAnn (mkAnnotation eqAnn) pat))
+    _ -> pure pat
+
+literalSpan :: SourceSpan -> Literal -> SourceSpan
+literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
+literalSpan ambient _ = ambient
+
+syntaxTermAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
+syntaxTermAnnotation sp name = do
+  resolved <- resolveSyntaxTerm name
+  pure (ResolutionAnnotation sp name ResolutionNamespaceTerm resolved)
+
+resolveSyntaxTerm :: Text -> ResolveM ResolvedName
+resolveSyntaxTerm name = do
+  scope <- currentScope
+  info <- currentModuleInfo
+  pure $
+    if RebindableSyntax `elem` moduleInfoExtensions info
+      then rebindableSyntaxTerm info scope name
+      else preludeSyntaxTerm scope name
+
+preludeSyntaxTerm :: Scope -> Text -> ResolvedName
+preludeSyntaxTerm scope name =
+  case Map.lookup "Prelude" (scopeQualifiedModules scope) of
+    Just preludeScope -> lookupTerm name preludeScope
+    Nothing -> ResolvedError "unbound"
+
+rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
+rebindableSyntaxTerm info scope name =
+  case lookupTerm name scope of
+    ResolvedTopLevel resolved
+      | nameQualifier resolved == Just "Prelude",
+        not (moduleInfoExplicitPreludeImport info) ->
+          ResolvedError "unbound"
+    resolved -> resolved
 
 resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe Expr)
 resolveMaybeExpr = traverse resolveExpr
@@ -768,7 +860,9 @@ bindPattern :: Pattern -> ResolveM (Scope, Pattern)
 bindPattern pat =
   case pat of
     PAnn ann inner ->
-      withPushedSpan ann (bindPattern inner)
+      withPushedSpan ann $ do
+        (scope, inner') <- bindPattern inner
+        pure (scope, PAnn ann inner')
     PVar name -> do
       sp <- currentSpan
       resolvedName <- freshLocal name
@@ -785,7 +879,9 @@ bindPattern pat =
       ty' <- resolveType ty
       pure (emptyScope, PTypeSyntax form ty')
     PWildcard -> pure (emptyScope, pat)
-    PLit {} -> pure (emptyScope, pat)
+    PLit lit -> do
+      pat' <- annotateIntegerPatternLiteral (PLit lit) lit
+      pure (emptyScope, pat')
     PTuple flavor pats -> do
       (scope, pats') <- bindPatterns pats
       pure (scope, PTuple flavor pats')
@@ -842,7 +938,9 @@ bindPattern pat =
       (scope, inner') <- bindPattern inner
       ty' <- resolveType ty
       pure (scope, PTypeSig inner' ty')
-    PNegLit {} -> pure (emptyScope, pat)
+    PNegLit lit -> do
+      pat' <- annotateIntegerPatternLiteral (PNegLit lit) lit
+      pure (emptyScope, pat')
     PSplice expr -> do
       expr' <- resolveExpr expr
       pure (emptyScope, PSplice expr')
@@ -862,7 +960,7 @@ resolvePatternDefinition :: TermDefinition -> Pattern -> ResolveM Pattern
 resolvePatternDefinition termDefinition pat =
   case pat of
     PAnn ann inner ->
-      withPushedSpan ann (resolvePatternDefinition termDefinition inner)
+      PAnn ann <$> withPushedSpan ann (resolvePatternDefinition termDefinition inner)
     PVar name -> do
       sp <- currentSpan
       pure (PVar (resolveTermDefinitionAt sp termDefinition name))
@@ -872,7 +970,7 @@ resolvePatternDefinition termDefinition pat =
     PTypeSyntax form ty ->
       PTypeSyntax form <$> resolveType ty
     PWildcard -> pure pat
-    PLit {} -> pure pat
+    PLit lit -> annotateIntegerPatternLiteral (PLit lit) lit
     PQuasiQuote {} -> annotateUnhandledPattern <$> currentSpan <*> pure pat
     PTuple flavor pats ->
       PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
@@ -893,7 +991,7 @@ resolvePatternDefinition termDefinition pat =
       PStrict <$> resolvePatternDefinition termDefinition inner
     PIrrefutable inner ->
       PIrrefutable <$> resolvePatternDefinition termDefinition inner
-    PNegLit {} -> pure pat
+    PNegLit lit -> annotateIntegerPatternLiteral (PNegLit lit) lit
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard ->

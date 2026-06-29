@@ -66,6 +66,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
@@ -74,11 +75,12 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM, forM_, zipWithM)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (mapAccumL, nub, (\\))
 import Data.Map.Strict (Map)
@@ -1035,20 +1037,28 @@ tcFunctionWithSig displayName name sig matches = do
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionInfer displayName name matches = do
   placeholderTy <- freshMetaTv
-  ((matches', ty, _, _), failed) <-
+  ((matches', ty, residualPreds), failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
-      result@(_, _, cts', impls') <- tcMatches matches
-      _ <- solveWithImpls cts' impls'
-      pure result
+      (matches', ty, cts', impls') <- tcMatches matches
+      solveResult <- solveWithImpls cts' impls'
+      residualPreds <- generalizableResidualPreds solveResult
+      pure (matches', ty, residualPreds)
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeAndCommitIgnoring (Set.singleton (TcTermGlobal name)) ty []
+      scheme <- generalizeAndCommitIgnoring (Set.singleton (TcTermGlobal name)) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
+
+generalizableResidualPreds :: SolveResult -> TcM [Pred]
+generalizableResidualPreds solveResult = do
+  let residualCts = srResidual solveResult <> inertDicts (srInerts solveResult)
+  forM_ residualCts $ \ct ->
+    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  pure (map ctPred residualCts)
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
@@ -1461,7 +1471,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts

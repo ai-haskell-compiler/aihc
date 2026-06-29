@@ -1,4 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MagicHash #-}
 
 module Prelude
   ( Applicative (..),
@@ -26,9 +27,11 @@ where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Kind (Type)
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Num (Num (..))
+
+foreign import prim (==#) :: Int# -> Int# -> Int#
 
 data Char
 
@@ -53,6 +56,14 @@ instance Eq Bool where
   False == True = False
   True == False = False
   True == True = True
+
+  x /= y = not (x == y)
+
+instance Eq Int where
+  I# x == I# y =
+    case (==#) x y of
+      0# -> False
+      _ -> True
 
   x /= y = not (x == y)
 

@@ -8,6 +8,7 @@ annotated:
 - |
   module Main where
   x = 1
+  │   └─ v Error unbound
   └─ v Main
 status: pass
 reason: ''

@@ -1,3 +1,5 @@
+{-# LANGUAGE MagicHash #-}
+
 module GHC.Enum
   ( Bounded (..),
     Enum (..),
@@ -11,7 +13,7 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 
 class Bounded a where
   minBound :: a
@@ -56,12 +58,14 @@ instance Enum Bool where
   pred True = False
   pred False = predError "Prelude.Enum.Bool.pred"
 
-  toEnum 0 = False
-  toEnum 1 = True
-  toEnum n = toEnumError "Bool" n (False, True)
+  toEnum (I# n) =
+    case n of
+      0# -> False
+      1# -> True
+      _ -> toEnumError "Bool" (I# n) (False, True)
 
-  fromEnum False = 0
-  fromEnum True = 1
+  fromEnum False = I# 0#
+  fromEnum True = I# 1#
 
   enumFrom False = [False, True]
   enumFrom True = [True]

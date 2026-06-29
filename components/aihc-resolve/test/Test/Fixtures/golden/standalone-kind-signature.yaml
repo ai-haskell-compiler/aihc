@@ -10,6 +10,7 @@ annotated:
   │    └─ t Main
   └─ v Main
   x = 42
+  │   └─ v Error unbound
   └─ v Main
 extensions:
 - StandaloneKindSignatures

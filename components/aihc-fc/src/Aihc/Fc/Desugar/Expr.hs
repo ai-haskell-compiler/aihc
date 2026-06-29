@@ -29,16 +29,24 @@ import Aihc.Parser.Syntax
     Expr (..),
     Match (..),
     Name (..),
+    NameType (..),
+    NumericType (..),
     Pattern (..),
     Rhs (..),
     TupleFlavor (..),
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
+    mkName,
     peelCompStmtAnn,
     peelDeclAnn,
+    peelLiteralAnn,
+    peelPatternAnn,
+    qualifyName,
     unqualifiedNameText,
   )
+import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -376,6 +384,10 @@ dsAnnotatedVar tcAnn name _expr = do
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
   case inner of
+    EAnn ann (EInt value TInteger _)
+      | Just resolution <- fromAnnotation ann,
+        isFromIntegerResolution resolution ->
+          dsOverloadedIntegerLiteral tcAnn resolution value
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
@@ -387,6 +399,31 @@ dsAnnotatedExpr tcAnn inner =
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+
+dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
+dsOverloadedIntegerLiteral tcAnn resolution value = do
+  fromIntegerExpr <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EInt value TInteger (T.pack (show value)))
+  integerExpr <- dsIntegerLiteral value
+  pure (FcApp fromIntegerExpr integerExpr)
+
+dsIntegerLiteral :: Integer -> DsM FcExpr
+dsIntegerLiteral value = do
+  conTy <- lookupType "IS"
+  con <- freshVar "IS" conTy
+  pure (FcApp (FcVar con) (FcLit (LitInt value)))
+
+resolvedAnnotationName :: ResolutionAnnotation -> Name
+resolvedAnnotationName resolution =
+  case resolutionTarget resolution of
+    ResolvedTopLevel name -> mkName Nothing (nameType name) (nameText name)
+    ResolvedLocal _ name -> qualifyName Nothing name
+    ResolvedBuiltin name -> mkName Nothing NameVarId name
+    ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
+
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == "fromInteger"
 
 dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
 dsInfix lhs op rhs =
@@ -421,8 +458,121 @@ dsCase scrut alts = do
       Just ty -> pure ty
       Nothing -> fcExprTypeM scrut'
   binder <- freshVar "_case" scrutTy
-  alts' <- mapM (dsCaseAlt scrutTy) alts
-  pure (FcCase scrut' binder alts')
+  if any isOverloadedIntegerCaseAlt alts
+    then do
+      scrutValue <- freshVar "_case_value" scrutTy
+      body <- dsCaseAltChain scrutTy (FcVar scrutValue) alts
+      pure (FcCase scrut' binder [FcAlt DefaultAlt [scrutValue] body])
+    else do
+      alts' <- mapM (dsCaseAlt scrutTy) alts
+      pure (FcCase scrut' binder alts')
+
+isOverloadedIntegerCaseAlt :: CaseAlt Expr -> Bool
+isOverloadedIntegerCaseAlt =
+  isOverloadedIntegerPattern . caseAltPattern
+
+isOverloadedIntegerPattern :: Pattern -> Bool
+isOverloadedIntegerPattern pat =
+  case peelPatternAnn pat of
+    PLit lit -> isOverloadedIntegerLiteral lit
+    PParen inner -> isOverloadedIntegerPattern inner
+    PStrict inner -> isOverloadedIntegerPattern inner
+    PIrrefutable inner -> isOverloadedIntegerPattern inner
+    PAs _ inner -> isOverloadedIntegerPattern inner
+    PTypeSig inner _ -> isOverloadedIntegerPattern inner
+    _ -> False
+
+isOverloadedIntegerLiteral :: Surface.Literal -> Bool
+isOverloadedIntegerLiteral lit =
+  case peelLiteralAnn lit of
+    Surface.LitInt _ TInteger _ -> True
+    _ -> False
+
+dsCaseAltChain :: TcType -> FcExpr -> [CaseAlt Expr] -> DsM FcExpr
+dsCaseAltChain scrutTy scrutValue alts =
+  case alts of
+    [] -> do
+      binder <- freshVar "_case_nomatch" scrutTy
+      pure (FcCase scrutValue binder [])
+    alt : rest
+      | isOverloadedIntegerCaseAlt alt ->
+          dsOverloadedIntegerCaseAlt scrutTy scrutValue alt =<< dsCaseAltChain scrutTy scrutValue rest
+      | otherwise -> do
+          alt' <- dsCaseAlt scrutTy alt
+          case altCon alt' of
+            DefaultAlt -> pure (altRhs alt')
+            _ -> do
+              rest' <- dsCaseAltChain scrutTy scrutValue rest
+              binder <- freshVar "_case_fallthrough" scrutTy
+              pure (FcCase scrutValue binder [alt', FcAlt DefaultAlt [] rest'])
+
+dsOverloadedIntegerCaseAlt :: TcType -> FcExpr -> CaseAlt Expr -> FcExpr -> DsM FcExpr
+dsOverloadedIntegerCaseAlt _scrutTy scrutValue alt falseBranch = do
+  test <- dsOverloadedIntegerPatternTest scrutValue (caseAltPattern alt)
+  trueBranch <- dsRhs (caseAltRhs alt)
+  binder <- freshVar "_case_guard" boolTy
+  pure
+    ( FcCase
+        test
+        binder
+        [ FcAlt (DataAlt "True") [] trueBranch,
+          FcAlt (DataAlt "False") [] falseBranch
+        ]
+    )
+
+dsOverloadedIntegerPatternTest :: FcExpr -> Pattern -> DsM FcExpr
+dsOverloadedIntegerPatternTest scrutValue pat =
+  case peelPatternAnn pat of
+    PLit lit -> do
+      value <- integerPatternValue lit
+      (fromIntegerTc, fromIntegerResolution) <- requiredPatternOccurrence "fromInteger" pat
+      (eqTc, eqResolution) <- requiredPatternOccurrence "==" pat
+      fromIntegerExpr <- dsAnnotatedVar fromIntegerTc (resolvedAnnotationName fromIntegerResolution) (EInt value TInteger (T.pack (show value)))
+      integerExpr <- dsIntegerLiteral value
+      eqExpr <- dsAnnotatedVar eqTc (resolvedAnnotationName eqResolution) (EVar (resolvedAnnotationName eqResolution))
+      pure (FcApp (FcApp eqExpr scrutValue) (FcApp fromIntegerExpr integerExpr))
+    PParen inner -> dsOverloadedIntegerPatternTest scrutValue inner
+    PStrict inner -> dsOverloadedIntegerPatternTest scrutValue inner
+    PIrrefutable inner -> dsOverloadedIntegerPatternTest scrutValue inner
+    PAs _ inner -> dsOverloadedIntegerPatternTest scrutValue inner
+    PTypeSig inner _ -> dsOverloadedIntegerPatternTest scrutValue inner
+    _ ->
+      desugarBug ("expected overloaded integer pattern while desugaring: " <> take 80 (show pat))
+
+integerPatternValue :: Surface.Literal -> DsM Integer
+integerPatternValue lit =
+  case peelLiteralAnn lit of
+    Surface.LitInt value TInteger _ -> pure value
+    _ -> desugarBug ("expected overloaded integer literal pattern while desugaring: " <> take 80 (show lit))
+
+requiredPatternOccurrence :: Text -> Pattern -> DsM (TcAnnotation, ResolutionAnnotation)
+requiredPatternOccurrence name pat =
+  case patternOccurrence name pat of
+    Just occurrence -> pure occurrence
+    Nothing -> desugarBug ("missing " <> T.unpack name <> " annotation for overloaded integer pattern")
+
+patternOccurrence :: Text -> Pattern -> Maybe (TcAnnotation, ResolutionAnnotation)
+patternOccurrence target =
+  go Nothing
+  where
+    go currentTc pat =
+      case pat of
+        PAnn ann inner ->
+          case (fromAnnotation ann :: Maybe TcAnnotation, fromAnnotation ann :: Maybe ResolutionAnnotation) of
+            (Just tcAnn, _) -> go (Just tcAnn) inner
+            (_, Just resolution)
+              | resolutionName resolution == target,
+                resolutionNamespace resolution == ResolutionNamespaceTerm ->
+                  case currentTc of
+                    Just tcAnn -> Just (tcAnn, resolution)
+                    Nothing -> Nothing
+            _ -> go currentTc inner
+        PParen inner -> go currentTc inner
+        PStrict inner -> go currentTc inner
+        PIrrefutable inner -> go currentTc inner
+        PAs _ inner -> go currentTc inner
+        PTypeSig inner _ -> go currentTc inner
+        _ -> Nothing
 
 -- | Desugar local let/where declarations as a recursive Core let.
 --

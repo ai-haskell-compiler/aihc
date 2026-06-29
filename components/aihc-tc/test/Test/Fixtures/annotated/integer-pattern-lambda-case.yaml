@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module Main where
+  match = \case
+  └─ type: ∀ a. (Eq a Num a) ⇒ a → ()
+    1 -> ()
+    ││    └─ type: ()
+    └─ type: a; type-args: a; evidence: given Num a
+    └─ type: a → a → Bool; type-args: a; evidence: given Eq a
+- |-
+  module Prelude where
+  data Bool = False | True
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: *
+  class Eq a where
+  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
+    (==) :: a -> a -> Bool
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+extensions:
+- LambdaCase
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Bool = False | True
+  data Integer = IS Int#
+  class Eq a where
+    (==) :: a -> a -> Bool
+  class Num a where
+    fromInteger :: Integer -> a
+- |
+  module Main where
+  match = \case
+    1 -> ()
+reason: overloaded integer patterns infer Eq and Num constraints like GHC
+status: pass

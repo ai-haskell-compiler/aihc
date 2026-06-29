@@ -1,0 +1,54 @@
+annotated:
+- |-
+  module Main where
+  asInt :: Int
+  asInt = 1 :: Int
+  │       └─ type: Int; type-args: Int; evidence: $fNumInt
+  └─ type: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+  │           └─ type: Integer; type-args: Integer; evidence: $fNumInteger
+  └─ type: Integer
+- |-
+  module Prelude where
+  data Int = I Int#
+       │     └─ type: Int# → Int
+       └─ type: *
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: *
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+  instance Num Int where
+  └─ $fNumInt ∷ () ⇒ Num Int
+    fromInteger (IS x) = I x
+    │               └─ type: Int#
+    └─ fromInteger ∷ Integer → Int
+  instance Num Integer where
+  └─ $fNumInteger ∷ () ⇒ Num Integer
+    fromInteger x = x
+    │           └─ type: Integer
+    └─ fromInteger ∷ Integer → Integer
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Int = I Int#
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Int where
+    fromInteger (IS x) = I x
+  instance Num Integer where
+    fromInteger x = x
+- |
+  module Main where
+  asInt :: Int
+  asInt = 1 :: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+reason: expression signatures constrain overloaded integer literals to concrete
+  Prelude Num instances
+status: pass
