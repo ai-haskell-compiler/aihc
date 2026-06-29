@@ -1,0 +1,25 @@
+expected: |-
+  data Integer
+   = IS Int#
+
+  fromInteger : ∀ a. (Num a) ⇒ Integer → a =
+    Λa.
+      \$d0 : dict.
+        $d0.0
+
+  one : ∀ a. (Num a) ⇒ a =
+    Λa.
+      \$d0 : dict.
+        fromInteger @a $$d0 (IS 1)
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  one = 1
+reason: desugars integer literals through the resolved fromInteger applied to an Integer
+  constructor value
+status: pass

@@ -57,6 +57,7 @@ import Aihc.Parser.Syntax
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    NumericType (..),
     Pattern (..),
     RecordField (..),
     Rhs (..),
@@ -199,7 +200,7 @@ resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', decls') = runResolveM scope nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      (nextLocal', decls') = runResolveM scope (moduleKey modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
@@ -544,6 +545,7 @@ resolveExpr expr =
     EVar name ->
       EVar <$> resolveTermUse name
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
+    EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt {} -> pure expr
     EFloat {} -> pure expr
     EChar {} -> pure expr
@@ -624,6 +626,31 @@ resolveExpr expr =
     ETHNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+
+resolveIntegerLiteral :: Expr -> ResolveM Expr
+resolveIntegerLiteral expr = do
+  sp <- currentSpan
+  scope <- currentScope
+  owner <- currentModuleKey
+  case lookupTerm "fromInteger" scope of
+    resolved
+      | shouldAnnotateIntegerLiteral owner resolved ->
+          let annotation =
+                ResolutionAnnotation
+                  sp
+                  "fromInteger"
+                  ResolutionNamespaceTerm
+                  resolved
+           in pure (EAnn (mkAnnotation annotation) expr)
+    _ ->
+      pure expr
+
+shouldAnnotateIntegerLiteral :: Text -> ResolvedName -> Bool
+shouldAnnotateIntegerLiteral owner resolved =
+  case resolved of
+    ResolvedLocal {} -> True
+    ResolvedTopLevel name -> nameQualifier name == Just owner
+    _ -> False
 
 resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe Expr)
 resolveMaybeExpr = traverse resolveExpr

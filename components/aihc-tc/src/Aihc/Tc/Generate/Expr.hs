@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -48,6 +49,11 @@ inferExpr = inferExprAt NoSourceSpan
 
 inferExprAt :: SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
 inferExprAt ambient expr = case expr of
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isFromIntegerResolution resolution,
+      EInt _ TInteger _ <- inner ->
+        inferOverloadedIntegerLiteral ambient ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
   EInt _ numericType _ ->
@@ -138,6 +144,55 @@ inferNameOccurrence ambient nameSyntax = do
       pure (Nothing, ty, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+inferOverloadedIntegerLiteral :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
+  let sp = resolutionSpan resolution `orSourceSpan` ambient
+  (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
+  resultTy <- freshMetaTv
+  ev <- freshEvVar
+  let integerArgTy = TcTyCon (TyCon "Integer" 0) []
+      expectedMethodTy = TcFunTy integerArgTy resultTy
+      methodEq =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = methodTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ConstraintTypeOrigin (OccurrenceOf "fromInteger")
+            }
+          TypeTrace
+            { typeTraceType = expectedMethodTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ConstraintTypeOrigin (LitOrigin sp)
+            }
+          ev
+          (LitOrigin sp)
+          sp
+      pending =
+        pendingAnnotation
+          resultTy
+          typeArgs
+          (map ctEvVar methodCts)
+          []
+  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq])
+
+inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedFromInteger sp resolution = do
+  mBinder <- lookupResolvedTerm "fromInteger" (resolutionTarget resolution)
+  case mBinder of
+    Just (TcIdBinder scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp "fromInteger") (instPreds inst)
+      pure (instType inst, instTypeArgs inst, cts)
+    Just (TcMonoIdBinder ty) ->
+      pure (ty, [], [])
+    Nothing ->
+      abortTc ("resolved fromInteger missing from type environment: " <> show (resolutionTarget resolution))
+
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == "fromInteger"
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =

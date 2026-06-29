@@ -29,16 +29,21 @@ import Aihc.Parser.Syntax
     Expr (..),
     Match (..),
     Name (..),
+    NameType (..),
+    NumericType (..),
     Pattern (..),
     Rhs (..),
     TupleFlavor (..),
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
+    mkName,
     peelCompStmtAnn,
     peelDeclAnn,
+    qualifyName,
     unqualifiedNameText,
   )
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -376,6 +381,10 @@ dsAnnotatedVar tcAnn name _expr = do
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
   case inner of
+    EAnn ann (EInt value TInteger _)
+      | Just resolution <- fromAnnotation ann,
+        isFromIntegerResolution resolution ->
+          dsOverloadedIntegerLiteral tcAnn resolution value
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
@@ -387,6 +396,31 @@ dsAnnotatedExpr tcAnn inner =
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+
+dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
+dsOverloadedIntegerLiteral tcAnn resolution value = do
+  fromIntegerExpr <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EInt value TInteger (T.pack (show value)))
+  integerExpr <- dsIntegerLiteral value
+  pure (FcApp fromIntegerExpr integerExpr)
+
+dsIntegerLiteral :: Integer -> DsM FcExpr
+dsIntegerLiteral value = do
+  conTy <- lookupType "IS"
+  con <- freshVar "IS" conTy
+  pure (FcApp (FcVar con) (FcLit (LitInt value)))
+
+resolvedAnnotationName :: ResolutionAnnotation -> Name
+resolvedAnnotationName resolution =
+  case resolutionTarget resolution of
+    ResolvedTopLevel name -> mkName Nothing (nameType name) (nameText name)
+    ResolvedLocal _ name -> qualifyName Nothing name
+    ResolvedBuiltin name -> mkName Nothing NameVarId name
+    ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
+
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == "fromInteger"
 
 dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
 dsInfix lhs op rhs =
