@@ -7,14 +7,17 @@ module TcStackageProgress
     PackageCounts (..),
     optionsParser,
     processLayers,
+    smallestFailingPackages,
     summarizePackageStatuses,
     typecheckOnePackage,
     run,
   )
 where
 
+import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Hackage.Util (readTextFileLenient)
 import Aihc.Parser.Syntax (Module)
 import Aihc.Resolve (ModuleExports, ResolveResult (..), extractInterface, resolveWithDeps)
 import Aihc.Tc (tcModuleDiagnostics, tcModuleSuccess, typecheck)
@@ -33,6 +36,7 @@ import Data.Text qualified as T
 import GHC.Conc (getNumProcessors)
 import Options.Applicative qualified as OA
 import ResolveStackageProgress qualified as RSP
+import System.Directory (doesFileExist)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hIsTerminalDevice, hPutStrLn, stderr, stdout)
 
@@ -197,11 +201,34 @@ renderTcDiagnostics :: [Module] -> String
 renderTcDiagnostics results =
   unlines [show diag | result <- results, diag <- tcModuleDiagnostics result]
 
-reportResults :: Int -> Map Text RSP.PackageStatus -> IO ()
-reportResults topN results = do
+smallestFailingPackages ::
+  Int ->
+  Map Text RSP.PackageInfo ->
+  Map Text RSP.PackageStatus ->
+  IO [(Text, Int, String)]
+smallestFailingPackages topN infos results = do
+  sizes <- traverse packageLineCount infos
+  let failed =
+        [ (pkg, Map.findWithDefault 0 pkg sizes, msg)
+        | (pkg, RSP.PkgFailed msg) <- Map.toList results
+        ]
+  pure (take topN (sortOn (\(pkg, lineCount, msg) -> (lineCount, pkg, msg)) failed))
+
+packageLineCount :: RSP.PackageInfo -> IO Int
+packageLineCount info =
+  sum <$> mapM fileLineCount (RSP.piFiles info)
+
+fileLineCount :: HC.FileInfo -> IO Int
+fileLineCount fileInfo = do
+  let path = HC.fileInfoPath fileInfo
+  exists <- doesFileExist path
+  if exists
+    then length . T.lines <$> readTextFileLenient path
+    else pure 0
+
+reportResults :: Int -> Map Text RSP.PackageInfo -> Map Text RSP.PackageStatus -> IO ()
+reportResults topN infos results = do
   let counts = summarizePackageStatuses results
-      allList = Map.toList results
-      failed = [(pkg, msg) | (pkg, RSP.PkgFailed msg) <- allList]
   putStrLn ""
   putStrLn "Type checker results:"
   putStrLn $ "  Typechecked: " ++ show (countTypechecked counts) ++ " / " ++ show (countTotal counts) ++ " (" ++ show (pct (countTypechecked counts) (countTotal counts)) ++ "%)"
@@ -210,13 +237,13 @@ reportResults topN results = do
   let n = min topN (countFailed counts)
   Control.Monad.when (n > 0) $ do
     putStrLn ""
-    putStrLn $ "Top " ++ show n ++ " failing packages:"
-    let sorted = take n (sortOn (length . snd) failed)
+    putStrLn $ "Smallest " ++ show n ++ " failing packages:"
+    sorted <- smallestFailingPackages n infos results
     mapM_ printFailure sorted
   if countTypechecked counts == countTotal counts then exitSuccess else exitFailure
   where
-    printFailure (pkg, msg) = do
-      putStrLn $ "  " ++ T.unpack pkg ++ ":"
+    printFailure (pkg, lineCount, msg) = do
+      putStrLn $ "  " ++ T.unpack pkg ++ " (" ++ show lineCount ++ " lines):"
       mapM_ (\l -> putStrLn ("    " ++ l)) (take 5 (lines msg))
 
 pct :: Int -> Int -> Int
@@ -275,7 +302,7 @@ run opts0 = do
 
   results <- processLayers opts bootExports layers infos depGraph bootResults
 
-  reportResults (optTopFailures opts) results
+  reportResults (optTopFailures opts) infos results
 
 partitionEithers :: [Either a b] -> ([a], [b])
 partitionEithers [] = ([], [])
