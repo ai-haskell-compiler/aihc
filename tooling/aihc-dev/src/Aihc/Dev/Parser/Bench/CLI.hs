@@ -6,6 +6,7 @@ module Aihc.Dev.Parser.Bench.CLI
     Command (..),
     GenerateOptions (..),
     BenchOptions (..),
+    ReportOptions (..),
     ParserChoice (..),
     OutputFormat (..),
     FilterOptions (..),
@@ -65,10 +66,19 @@ data BenchOptions = BenchOptions
   }
   deriving (Eq, Show)
 
+-- | Options for the report subcommand.
+data ReportOptions = ReportOptions
+  { reportSnapshot :: !String,
+    reportOutput :: !FilePath,
+    reportOffline :: !Bool
+  }
+  deriving (Eq, Show)
+
 -- | Top-level command.
 data Command
   = CmdGenerate !GenerateOptions
   | CmdBench !BenchOptions
+  | CmdReport !ReportOptions
   deriving (Show)
 
 -- | Top-level options.
@@ -107,6 +117,12 @@ commandParser =
           ( info
               (CmdBench <$> benchOptionsParser)
               (progDesc "Benchmark parsing performance on a tarball")
+          )
+        <> command
+          "report"
+          ( info
+              (CmdReport <$> reportOptionsParser)
+              (progDesc "Generate BENCHMARKS.md with relative Stackage benchmark ratios")
           )
     )
 
@@ -243,3 +259,26 @@ parseOutputFormat = eitherReader $ \s ->
     "json" -> Right FormatJson
     "csv" -> Right FormatCsv
     _ -> Left $ "Unknown format: " ++ s ++ ". Expected: human, json, or csv"
+
+reportOptionsParser :: Parser ReportOptions
+reportOptionsParser =
+  ReportOptions
+    <$> strOption
+      ( long "snapshot"
+          <> metavar "NAME"
+          <> value "lts-24.36"
+          <> showDefault
+          <> help "Stackage snapshot name"
+      )
+    <*> strOption
+      ( long "output"
+          <> short 'o'
+          <> metavar "FILE"
+          <> value "BENCHMARKS.md"
+          <> showDefault
+          <> help "Markdown output path"
+      )
+    <*> switch
+      ( long "offline"
+          <> help "Only use cached packages"
+      )

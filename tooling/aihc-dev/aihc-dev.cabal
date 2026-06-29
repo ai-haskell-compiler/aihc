@@ -69,6 +69,7 @@ library parser-tools
     Aihc.Dev.Parser.Bench.CLI
     Aihc.Dev.Parser.Bench.Metrics
     Aihc.Dev.Parser.Bench.Parsers
+    Aihc.Dev.Parser.Bench.Report
     Aihc.Dev.Parser.Bench.Run
     Aihc.Dev.Parser.Bench.Tarball
     Aihc.Dev.Parser.CLI
@@ -80,9 +81,11 @@ library parser-tools
     aihc-cpp,
     aihc-hackage,
     aihc-parser,
+    async,
     base >=4.16 && <5,
     bytestring,
     containers,
+    cpphs >=1.20 && <1.21,
     deepseq,
     directory,
     filepath,
@@ -92,6 +95,7 @@ library parser-tools
     http-client-tls,
     optparse-applicative,
     prettyprinter,
+    process,
     tar,
     text >=1.2,
     time,

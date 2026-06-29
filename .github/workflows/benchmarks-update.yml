@@ -1,0 +1,84 @@
+name: Benchmarks Update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  select-runner:
+    runs-on: ubuntu-24.04
+    outputs:
+      runs_on: ${{ steps.select.outputs.runs_on }}
+      selected_runner: ${{ steps.select.outputs.selected_runner }}
+      use_self_hosted: ${{ steps.select.outputs.use_self_hosted }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - id: select
+        uses: ./.github/actions/select-ci-runner
+        with:
+          repository: ${{ github.repository }}
+          runner-label: ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
+          fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'ubuntu-24.04' }}
+          runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN != '' && secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN || secrets.AUTOMATION_PR_TOKEN }}
+          allow-self-hosted: true
+
+      - name: Summarize runner selection
+        run: |
+          {
+            echo "### Runner selection"
+            echo
+            echo "- Selected runner: \`${{ steps.select.outputs.selected_runner }}\`"
+            echo "- Self-hosted enabled: \`${{ steps.select.outputs.use_self_hosted }}\`"
+            echo "- Reason: ${{ steps.select.outputs.reason }}"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  update-benchmarks:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.runs_on) }}
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Cache Stackage and package downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/aihc/stackage
+            .cache/aihc/hackage
+          key: benchmarks-aihc-downloads-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            benchmarks-aihc-downloads-${{ runner.os }}-
+
+      - name: Generate benchmarks
+        run: nix run .#generate-benchmarks
+
+      - name: Open pull request for benchmark updates
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          commit-message: "chore(benchmarks): update relative benchmarks"
+          add-paths: |
+            BENCHMARKS.md
+          branch: "automation/benchmarks-update"
+          title: "chore(benchmarks): update relative benchmarks"
+          body: |
+            This PR was created automatically by the manual benchmarks workflow.
+
+            It updates `BENCHMARKS.md` with relative Stackage parser and CPP benchmark ratios.
