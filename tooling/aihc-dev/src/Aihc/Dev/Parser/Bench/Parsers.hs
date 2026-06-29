@@ -100,7 +100,7 @@ parseWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
       (errs, m) = Aihc.parseModule config preprocessedSource
    in if null errs
-        then m `deepseq` ParseSuccess
+        then m `seq` ParseSuccess
         else ParseFailure (Aihc.formatParseErrors "<bench>" (Just preprocessedSource) errs)
 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).

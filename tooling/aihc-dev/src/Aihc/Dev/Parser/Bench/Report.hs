@@ -25,6 +25,7 @@ import Aihc.Dev.Parser.Bench.Tarball
     isHaskellEntry,
     isIncludeEntry,
   )
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.DeepSeq (deepseq)
@@ -54,9 +55,11 @@ import Text.Printf (printf)
 data Corpus = Corpus
   { corpusEntries :: ![TarballEntry],
     corpusHaskellEntries :: ![TarballEntry],
+    corpusCppEntries :: ![TarballEntry],
     corpusIncludeMap :: !(Map.Map FilePath Text),
     corpusPackageCount :: !Int,
     corpusFileCount :: !Int,
+    corpusCppFileCount :: !Int,
     corpusByteCount :: !Integer
   }
 
@@ -87,10 +90,10 @@ runReport opts@ReportOptions {reportOutput} = do
   clangResult <-
     withStagedCorpus (corpusEntries corpus) $ \root -> do
       hPutStrLn stderr "Benchmarking clang -E..."
-      benchmarkClang root (corpusHaskellEntries corpus)
+      benchmarkClang root (corpusCppEntries corpus)
 
   hPutStrLn stderr "Benchmarking cpphs..."
-  cpphsResult <- benchmarkCpphs (corpusHaskellEntries corpus)
+  cpphsResult <- benchmarkCpphs (corpusCppEntries corpus)
 
   hPutStrLn stderr "Benchmarking aihc-cpp..."
   aihcCpp <- benchmarkAihcCpp corpus
@@ -130,16 +133,34 @@ loadCorpus ReportOptions {reportSnapshot, reportOffline} = do
     Right (entries, _summary) -> do
       let hsEntries = filter isHaskellEntry entries
           includeMap = Map.fromList [(entryFilePath e, entryContents e) | e <- filter isIncludeEntry entries]
+          cppEntries = filter sourceUsesCpp hsEntries
           packages = nub [entryPackage e | e <- hsEntries]
       pure
         Corpus
           { corpusEntries = entries,
             corpusHaskellEntries = hsEntries,
+            corpusCppEntries = cppEntries,
             corpusIncludeMap = includeMap,
             corpusPackageCount = length packages,
             corpusFileCount = length hsEntries,
+            corpusCppFileCount = length cppEntries,
             corpusByteCount = sum (map (fromIntegral . entryByteSize) hsEntries)
           }
+
+sourceUsesCpp :: TarballEntry -> Bool
+sourceUsesCpp entry =
+  Syntax.CPP `elem` extensions
+  where
+    (_, extensions) =
+      prepareSourceAndExtensionsWithCpp
+        True
+        Map.empty
+        (entryFilePath entry)
+        (entryExtensions entry)
+        (entryCppOptions entry)
+        (entryLanguage entry)
+        (entryDependencies entry)
+        (entryContents entry)
 
 preprocessCorpus :: Corpus -> IO [TarballEntry]
 preprocessCorpus Corpus {corpusHaskellEntries, corpusIncludeMap} =
@@ -192,10 +213,10 @@ parseGhc entry =
     (entryContents entry)
 
 benchmarkAihcCpp :: Corpus -> IO ToolResult
-benchmarkAihcCpp Corpus {corpusHaskellEntries, corpusIncludeMap} = do
+benchmarkAihcCpp Corpus {corpusCppEntries, corpusIncludeMap} = do
   timed <-
     timeAction $
-      runConcurrently_ corpusHaskellEntries $ \entry -> do
+      runConcurrently_ corpusCppEntries $ \entry -> do
         let output =
               runCppWithIncludes
                 corpusIncludeMap
@@ -333,7 +354,7 @@ currentCommit = do
     _ -> "unknown"
 
 renderReport :: ReportOptions -> Corpus -> String -> [ToolResult] -> [ToolResult] -> Text
-renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFileCount, corpusByteCount} commit parserResults cppResults =
+renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFileCount, corpusCppFileCount, corpusByteCount} commit parserResults cppResults =
   T.pack $
     unlines $
       [ "# AIHC Benchmarks",
@@ -348,13 +369,14 @@ renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFi
         "| Commit | `" ++ commit ++ "` |",
         "| Packages | `" ++ formatInt corpusPackageCount ++ "` |",
         "| Haskell files | `" ++ formatInt corpusFileCount ++ "` |",
+        "| CPP-enabled Haskell files | `" ++ formatInt corpusCppFileCount ++ "` |",
         "| Corpus size | `" ++ formatBytes corpusByteCount ++ "` |",
         "",
         "## Parser Performance",
         "",
         "Parser input is preprocessed with `aihc-cpp` before measurement. GHC is the baseline.",
         "",
-        "| Parser | Relative Performance |",
+        "| Parser | Relative Speed |",
         "| --- | ---: |"
       ]
         ++ map (renderRatioRow (baseline "GHC (`ghc-lib-parser`)" parserResults)) parserResults
@@ -363,7 +385,7 @@ renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFi
              "",
              "`clang -E` is the baseline.",
              "",
-             "| Preprocessor | Relative Performance |",
+             "| Preprocessor | Relative Speed |",
              "| --- | ---: |"
            ]
         ++ map (renderRatioRow (baseline "clang -E" cppResults)) cppResults
