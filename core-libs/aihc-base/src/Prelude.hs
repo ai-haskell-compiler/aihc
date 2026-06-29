@@ -7,6 +7,7 @@ module Prelude
     Either (..),
     Eq (..),
     Functor (..),
+    Int,
     Integer,
     List (..),
     Maybe (..),
@@ -25,6 +26,7 @@ where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Kind (Type)
+import GHC.Int (Int)
 import GHC.Integer (Integer)
 import GHC.Num (Num (..))
 

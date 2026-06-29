@@ -1,0 +1,31 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Enum (Bounded (..), Enum (..))
+
+    bounded :: (Bool, Bool)
+    bounded = (minBound, maxBound)
+
+    conversions :: ((Bool, Bool), (Int, Int))
+    conversions = ((toEnum 0, toEnum 1), (fromEnum False, fromEnum True))
+
+    successors :: (Bool, Bool)
+    successors = (succ False, pred True)
+
+    ranges :: (([Bool], [Bool]), (([Bool], [Bool]), [Bool]))
+    ranges =
+      ( (enumFrom False, enumFrom True),
+        ( (enumFromTo False True, enumFromThenTo False True True),
+          enumFromThenTo True False False
+        )
+      )
+output: |
+  (((False,True),((False,True),(0,1))),((True,False),(((: False (: True [])),(: True [])),(((: False (: True [])),(: False (: True []))),(: True (: False []))))))
+expression: |
+  ((bounded, conversions), (successors, ranges))
+status: pass
+reason: evaluates Data.Enum and Data.Bounded Bool behavior from aihc-base
