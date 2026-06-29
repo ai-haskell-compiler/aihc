@@ -25,9 +25,11 @@ import Aihc.Dev.Parser.Bench.Tarball
     isHaskellEntry,
     isIncludeEntry,
   )
+import Control.Concurrent.Async (replicateConcurrently_)
+import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.DeepSeq (deepseq)
 import Control.Exception (SomeException, bracket, evaluate, try)
-import Control.Monad (forM_, unless, void)
+import Control.Monad (forM_, replicateM_, unless, void)
 import Data.ByteString qualified as BS
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
@@ -36,6 +38,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import GHC.Clock (getMonotonicTimeNSec)
+import GHC.Conc (getNumCapabilities)
+import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
 import System.Directory
   ( createDirectoryIfMissing,
     getTemporaryDirectory,
@@ -43,8 +47,8 @@ import System.Directory
   )
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO (hPutStrLn, stderr)
-import System.Process (readProcessWithExitCode)
+import System.IO (IOMode (WriteMode), hPutStrLn, stderr, withFile)
+import System.Process (StdStream (..), createProcess, proc, readProcessWithExitCode, std_err, std_out, waitForProcess)
 import Text.Printf (printf)
 
 data Corpus = Corpus
@@ -80,13 +84,13 @@ runReport opts@ReportOptions {reportOutput} = do
   aihcParser <- benchmarkParser "AIHC" parseAihc preprocessed
 
   hPutStrLn stderr "Staging corpus for external preprocessors..."
-  (cpphsResult, clangResult) <-
+  clangResult <-
     withStagedCorpus (corpusEntries corpus) $ \root -> do
-      hPutStrLn stderr "Benchmarking cpphs..."
-      cpphsResult <- benchmarkExternalCpp "cpphs" (runCpphs root) (corpusHaskellEntries corpus)
       hPutStrLn stderr "Benchmarking clang -E..."
-      clangResult <- benchmarkExternalCpp "clang -E" (runClang root) (corpusHaskellEntries corpus)
-      pure (cpphsResult, clangResult)
+      benchmarkClang root (corpusHaskellEntries corpus)
+
+  hPutStrLn stderr "Benchmarking cpphs..."
+  cpphsResult <- benchmarkCpphs (corpusHaskellEntries corpus)
 
   hPutStrLn stderr "Benchmarking aihc-cpp..."
   aihcCpp <- benchmarkAihcCpp corpus
@@ -191,7 +195,7 @@ benchmarkAihcCpp :: Corpus -> IO ToolResult
 benchmarkAihcCpp Corpus {corpusHaskellEntries, corpusIncludeMap} = do
   timed <-
     timeAction $
-      forM_ corpusHaskellEntries $ \entry -> do
+      runConcurrently_ corpusHaskellEntries $ \entry -> do
         let output =
               runCppWithIncludes
                 corpusIncludeMap
@@ -202,32 +206,102 @@ benchmarkAihcCpp Corpus {corpusHaskellEntries, corpusIncludeMap} = do
         evaluate (output `deepseq` ())
   pure ToolResult {toolName = "aihc-cpp", toolNanos = timedNanos timed}
 
-benchmarkExternalCpp :: String -> (TarballEntry -> IO ()) -> [TarballEntry] -> IO ToolResult
-benchmarkExternalCpp name runOne entries = do
-  timed <- timeAction (mapM_ runOne entries)
-  pure ToolResult {toolName = name, toolNanos = timedNanos timed}
+benchmarkCpphs :: [TarballEntry] -> IO ToolResult
+benchmarkCpphs entries = do
+  timed <-
+    timeAction $
+      runConcurrently_ entries $ \entry -> do
+        result <-
+          try
+            ( do
+                out <- runCpphs cpphsOptions (entryFilePath entry) (T.unpack (entryContents entry))
+                evaluate (length out)
+            ) ::
+            IO (Either SomeException Int)
+        case result of
+          Left _ -> pure ()
+          Right n -> void (evaluate n)
+  pure ToolResult {toolName = "cpphs", toolNanos = timedNanos timed}
 
-runCpphs :: FilePath -> TarballEntry -> IO ()
-runCpphs root entry = do
-  let path = root </> entryFilePath entry
-      args = ["--noline", "--strip", "--nowarn"] ++ entryCppOptions entry ++ [path]
-  runExternal "cpphs" args
+cpphsOptions :: CpphsOptions
+cpphsOptions =
+  defaultCpphsOptions
+    { boolopts =
+        (boolopts defaultCpphsOptions)
+          { stripC89 = True,
+            warnings = False
+          }
+    }
 
-runClang :: FilePath -> TarballEntry -> IO ()
-runClang root entry = do
-  let path = root </> entryFilePath entry
-      args = ["-E", "-P", "-x", "assembler-with-cpp"] ++ entryCppOptions entry ++ [path]
-  runExternal "clang" args
+benchmarkClang :: FilePath -> [TarballEntry] -> IO ToolResult
+benchmarkClang root entries = do
+  let groups = Map.elems (Map.fromListWith (<>) [(entryCppOptions entry, [entry]) | entry <- entries])
+      chunks =
+        concat
+          [ let cppOptions =
+                  case group of
+                    entry : _ -> entryCppOptions entry
+                    [] -> []
+                baseArgs = ["-E", "-P", "-x", "assembler-with-cpp"] ++ cppOptions
+                paths = map ((root </>) . entryFilePath) group
+             in [(baseArgs, chunk) | chunk <- chunkArgs baseArgs paths]
+          | group <- groups
+          ]
+  timed <-
+    timeAction $
+      runConcurrently_ chunks $ \(baseArgs, chunk) ->
+        runExternal "clang" (baseArgs ++ chunk)
+  pure ToolResult {toolName = "clang -E", toolNanos = timedNanos timed}
+
+chunkArgs :: [String] -> [FilePath] -> [[FilePath]]
+chunkArgs baseArgs = go [] baseSize
+  where
+    maxChars = 20000
+    baseSize = sum (map length baseArgs) + length baseArgs
+    go [] _ [] = []
+    go current _ [] = [reverse current]
+    go current currentSize (path : paths)
+      | not (null current) && currentSize + pathSize > maxChars =
+          reverse current : go [path] (baseSize + pathSize) paths
+      | otherwise =
+          go (path : current) (currentSize + pathSize) paths
+      where
+        pathSize = length path + 1
+
+runConcurrently_ :: [a] -> (a -> IO ()) -> IO ()
+runConcurrently_ items action = do
+  jobs <- max 1 <$> getNumCapabilities
+  queue <- newChan
+  forM_ items (writeChan queue . Just)
+  replicateM_ jobs (writeChan queue Nothing)
+  replicateConcurrently_ jobs (worker queue)
+  where
+    worker queue = do
+      item <- readChan queue
+      case item of
+        Nothing -> pure ()
+        Just x -> action x >> worker queue
 
 runExternal :: FilePath -> [String] -> IO ()
 runExternal exe args = do
-  result <- try (readProcessWithExitCode exe args "") :: IO (Either SomeException (ExitCode, String, String))
+  result <-
+    try
+      ( withFile "/dev/null" WriteMode $ \devNull -> do
+          (_, _, _, handle) <-
+            createProcess
+              (proc exe args)
+                { std_out = UseHandle devNull,
+                  std_err = UseHandle devNull
+                }
+          waitForProcess handle
+      ) ::
+      IO (Either SomeException ExitCode)
   case result of
     Left err -> fail (exe ++ " failed to start: " ++ show err)
-    Right (ExitSuccess, out, err) ->
-      void (evaluate (length out + length err))
-    Right (ExitFailure code, _, err) ->
-      fail (exe ++ " failed with exit code " ++ show code ++ ": " ++ take 500 err)
+    Right ExitSuccess ->
+      pure ()
+    Right (ExitFailure code) ->
+      void (evaluate code)
 
 withStagedCorpus :: [TarballEntry] -> (FilePath -> IO a) -> IO a
 withStagedCorpus entries action = do
