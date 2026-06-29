@@ -1471,7 +1471,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
           ev
           (AppOrigin rhsSp)
           rhsSp
-  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
   if null givenCts

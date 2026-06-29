@@ -256,7 +256,7 @@ inferLambda sp pats body = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
-      pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
   pure (ELambdaPats pats' body', funTy, pcWantedCts patCheck ++ bodyCts)
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
@@ -314,7 +314,7 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
       patCheck <- checkPattern branchSp pat scrutTy
       (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
-          pat' = annotatePatternBindings (pcBindings patCheck) pat
+          pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
       pure (CaseAlt altAnns pat' rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
 
     inferAltAgainst expectedBranchSp expectedTy alt = do
@@ -344,7 +344,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
-  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
@@ -489,7 +489,7 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen (annotatePatternBindings (pcBindings patCheck) pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar

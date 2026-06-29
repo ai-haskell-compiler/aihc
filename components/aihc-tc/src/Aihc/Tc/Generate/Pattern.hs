@@ -7,32 +7,42 @@ module Aihc.Tc.Generate.Pattern
     checkPattern,
     checkPatterns,
     checkPatternsWithGivens,
+    checkedPattern,
     withPatternBindings,
   )
 where
 
 import Aihc.Parser.Syntax
-  ( Name (..),
+  ( Literal (..),
+    Name (..),
+    NumericType (..),
     Pattern (..),
     RecordField (..),
-    SourceSpan,
+    SourceSpan (..),
     TupleFlavor (..),
     UnqualifiedName (..),
+    fromAnnotation,
     mkAnnotation,
     nameText,
+    peelLiteralAnn,
+    peelPatternAnn,
   )
-import Aihc.Tc.Annotations (pendingAnnotation)
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Instantiate (instantiate)
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
 data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
     pcWantedCts :: ![Ct],
-    pcGivenCts :: ![Ct]
+    pcGivenCts :: ![Ct],
+    pcPatterns :: ![Pattern]
   }
   deriving (Show)
 
@@ -41,11 +51,12 @@ instance Semigroup PatternCheck where
     PatternCheck
       { pcBindings = pcBindings left <> pcBindings right,
         pcWantedCts = pcWantedCts left <> pcWantedCts right,
-        pcGivenCts = pcGivenCts left <> pcGivenCts right
+        pcGivenCts = pcGivenCts left <> pcGivenCts right,
+        pcPatterns = pcPatterns left <> pcPatterns right
       }
 
 instance Monoid PatternCheck where
-  mempty = PatternCheck [] [] []
+  mempty = PatternCheck [] [] [] []
 
 data GadtHandling
   = GadtAsWanted
@@ -66,36 +77,180 @@ checkPattern = checkPatternWith GadtAsWanted
 
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy =
+  case overloadedIntegerPatternLiteral pat of
+    Just lit -> checkOverloadedIntegerPattern sp pat lit scrutTy
+    Nothing -> checkPatternCore gadtHandling sp pat scrutTy
+
+checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternCore gadtHandling sp pat scrutTy =
   case pat of
     PVar name ->
-      pure mempty {pcBindings = [(name, scrutTy)]}
-    PAnn _ann inner -> checkPatternWith gadtHandling sp inner scrutTy
-    PParen inner -> checkPatternWith gadtHandling sp inner scrutTy
-    PWildcard {} -> pure mempty
-    PLit {} -> pure mempty
-    PNegLit {} -> pure mempty
+      pure (checkedOnly pat) {pcBindings = [(name, scrutTy)]}
+    PAnn ann inner -> do
+      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+    PParen inner -> do
+      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
+    PWildcard {} -> pure (checkedOnly pat)
+    PLit {} -> pure (checkedOnly pat)
+    PNegLit {} -> pure (checkedOnly pat)
     PAs name inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
-      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck}
-    PStrict inner -> checkPatternWith gadtHandling sp inner scrutTy
-    PIrrefutable inner -> checkPatternWith gadtHandling sp inner scrutTy
+      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
+    PStrict inner -> do
+      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
+    PIrrefutable inner -> do
+      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
     PCon name _typeArgs subPats ->
-      checkConPattern gadtHandling sp name subPats scrutTy
+      checkConPattern gadtHandling sp pat name subPats scrutTy
     PInfix lhs op rhs ->
-      checkConPattern gadtHandling sp op [lhs, rhs] scrutTy
+      checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
     PList items -> do
       elemTy <- freshMetaTv
       let listTy = listType elemTy
       eqCt <- wantedEq sp scrutTy listTy
       itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
-      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
+      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PList (pcPatterns itemChecks)]}
     PTuple flavor items -> do
       elemTys <- mapM (const freshMetaTv) items
       let tupleTy = TcTyCon (TyCon (tupleConText flavor (length items)) (length items)) elemTys
       eqCt <- wantedEq sp scrutTy tupleTy
       itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
-      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks}
-    _ -> pure mempty
+      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
+    _ -> pure (checkedOnly pat)
+
+checkedOnly :: Pattern -> PatternCheck
+checkedOnly pat = mempty {pcPatterns = [pat]}
+
+checkedPattern :: PatternCheck -> Pattern
+checkedPattern check =
+  case pcPatterns check of
+    [pat] -> pat
+    _ -> error "checkedPattern: expected exactly one checked pattern"
+
+overloadedIntegerPatternLiteral :: Pattern -> Maybe Literal
+overloadedIntegerPatternLiteral pat =
+  case peelPatternAnn pat of
+    PLit lit
+      | isOverloadedIntegerLiteral lit -> Just lit
+    _ -> Nothing
+
+isOverloadedIntegerLiteral :: Literal -> Bool
+isOverloadedIntegerLiteral lit =
+  case peelLiteralAnn lit of
+    LitInt _ TInteger _ -> True
+    _ -> False
+
+checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Literal -> TcType -> TcM PatternCheck
+checkOverloadedIntegerPattern sp pat _lit scrutTy = do
+  fromIntegerResolution <- requiredPatternResolution "fromInteger" pat
+  eqResolution <- requiredPatternResolution "==" pat
+  (fromIntegerTy, fromIntegerTypeArgs, fromIntegerCts) <- inferResolvedPatternMethod sp "fromInteger" fromIntegerResolution
+  (eqTy, eqTypeArgs, eqCts) <- inferResolvedPatternMethod sp "==" eqResolution
+  fromIntegerEq <- wantedMethodEq sp "fromInteger" fromIntegerTy (TcFunTy integerTy scrutTy)
+  eqMethodEq <- wantedMethodEq sp "==" eqTy (TcFunTy scrutTy (TcFunTy scrutTy boolTy))
+  let fromIntegerPending =
+        pendingAnnotation
+          scrutTy
+          fromIntegerTypeArgs
+          (map ctEvVar fromIntegerCts)
+          []
+      eqPending =
+        pendingAnnotation
+          (TcFunTy scrutTy (TcFunTy scrutTy boolTy))
+          eqTypeArgs
+          (map ctEvVar eqCts)
+          []
+      pat' = attachPendingPatternAnnotation "fromInteger" fromIntegerPending (attachPendingPatternAnnotation "==" eqPending pat)
+  pure
+    PatternCheck
+      { pcBindings = [],
+        pcWantedCts = fromIntegerCts <> eqCts <> [fromIntegerEq, eqMethodEq],
+        pcGivenCts = [],
+        pcPatterns = [pat']
+      }
+
+integerTy :: TcType
+integerTy = TcTyCon (TyCon "Integer" 0) []
+
+boolTy :: TcType
+boolTy = TcTyCon (TyCon "Bool" 0) []
+
+wantedMethodEq :: SourceSpan -> Text -> TcType -> TcType -> TcM Ct
+wantedMethodEq sp method actual expected = do
+  ev <- freshEvVar
+  pure $
+    mkWantedEqCt
+      TypeTrace
+        { typeTraceType = actual,
+          typeTraceRole = ActualType,
+          typeTraceOrigin = ConstraintTypeOrigin (OccurrenceOf method)
+        }
+      TypeTrace
+        { typeTraceType = expected,
+          typeTraceRole = ExpectedType,
+          typeTraceOrigin = ConstraintTypeOrigin (LitOrigin sp)
+        }
+      ev
+      (LitOrigin sp)
+      sp
+
+inferResolvedPatternMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedPatternMethod sp displayName resolution = do
+  mBinder <- lookupResolvedTerm displayName (resolutionTarget resolution)
+  case mBinder of
+    Just (TcIdBinder scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp displayName) (instPreds inst)
+      pure (instType inst, instTypeArgs inst, cts)
+    Just (TcMonoIdBinder ty) ->
+      pure (ty, [], [])
+    Nothing ->
+      abortTc ("resolved " <> T.unpack displayName <> " missing from type environment: " <> show (resolutionTarget resolution))
+
+predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
+predToCt sp name pred' = do
+  ev <- freshEvVar
+  pure (mkWantedCt pred' ev (OccurrenceOf name) sp)
+
+requiredPatternResolution :: Text -> Pattern -> TcM ResolutionAnnotation
+requiredPatternResolution name pat =
+  case [resolution | resolution <- patternResolutions pat, resolutionName resolution == name, resolutionNamespace resolution == ResolutionNamespaceTerm] of
+    resolution : _ -> pure resolution
+    [] -> do
+      emitError NoSourceSpan (OtherError ("missing resolver annotation for overloaded pattern method " <> T.unpack name))
+      abortTc ("missing resolver annotation for overloaded pattern method " <> T.unpack name)
+
+patternResolutions :: Pattern -> [ResolutionAnnotation]
+patternResolutions pat =
+  case pat of
+    PAnn ann inner -> mapMaybe fromAnnotation [ann] <> patternResolutions inner
+    PParen inner -> patternResolutions inner
+    PStrict inner -> patternResolutions inner
+    PIrrefutable inner -> patternResolutions inner
+    PAs _ inner -> patternResolutions inner
+    PTypeSig inner _ -> patternResolutions inner
+    _ -> []
+
+attachPendingPatternAnnotation :: Text -> PendingTcAnnotation -> Pattern -> Pattern
+attachPendingPatternAnnotation target pending pat =
+  case pat of
+    PAnn ann inner ->
+      case fromAnnotation ann of
+        Just resolution
+          | resolutionName resolution == target,
+            resolutionNamespace resolution == ResolutionNamespaceTerm ->
+              PAnn (mkAnnotation pending) (PAnn ann inner)
+        _ -> PAnn ann (attachPendingPatternAnnotation target pending inner)
+    PParen inner -> PParen (attachPendingPatternAnnotation target pending inner)
+    PStrict inner -> PStrict (attachPendingPatternAnnotation target pending inner)
+    PIrrefutable inner -> PIrrefutable (attachPendingPatternAnnotation target pending inner)
+    PAs name inner -> PAs name (attachPendingPatternAnnotation target pending inner)
+    PTypeSig inner ty -> PTypeSig (attachPendingPatternAnnotation target pending inner) ty
+    _ -> pat
 
 annotatePatternBindings :: [(UnqualifiedName, TcType)] -> Pattern -> Pattern
 annotatePatternBindings bindings =
@@ -130,8 +285,8 @@ annotateBinderName bindings name =
     Nothing -> name
     Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
-checkConPattern :: GadtHandling -> SourceSpan -> Name -> [Pattern] -> TcType -> TcM PatternCheck
-checkConPattern gadtHandling sp conSyntax subPats scrutTy = do
+checkConPattern :: GadtHandling -> SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
+checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
   mBinder <- lookupResolvedTerm conName target
@@ -144,12 +299,23 @@ checkConPattern gadtHandling sp conSyntax subPats scrutTy = do
       pure
         subCheck
           { pcWantedCts = fst scrutCt <> pcWantedCts subCheck,
-            pcGivenCts = snd scrutCt <> pcGivenCts subCheck
+            pcGivenCts = snd scrutCt <> pcGivenCts subCheck,
+            pcPatterns = [replaceConstructorSubpatterns originalPat (pcPatterns subCheck)]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
     Nothing ->
       abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
+
+replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
+replaceConstructorSubpatterns pat subPats =
+  case pat of
+    PCon name typeArgs _ -> PCon name typeArgs subPats
+    PInfix _ op _ ->
+      case subPats of
+        [lhs, rhs] -> PInfix lhs op rhs
+        _ -> pat
+    _ -> pat
 
 constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType -> TcM ([Ct], [Ct])
 constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do

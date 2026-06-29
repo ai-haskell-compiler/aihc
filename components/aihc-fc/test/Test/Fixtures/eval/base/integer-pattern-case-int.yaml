@@ -1,0 +1,16 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    caseInt :: ()
+    caseInt = case (1 :: Int) of
+      1 -> ()
+output: |
+  ()
+expression: |
+  caseInt
+status: pass
+reason: evaluates overloaded integer patterns against boxed Int values via Eq
