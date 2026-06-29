@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
+    Type,
     fromAnnotation,
     mkAnnotation,
   )
@@ -34,8 +35,10 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -85,8 +88,7 @@ inferExprAt ambient expr = case expr of
     (inner', ty, cts) <- inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
     pure (EParen inner', ty, cts)
   ETypeSig inner tyAnn -> do
-    (inner', ty, cts) <- inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
-    pure (ETypeSig inner' tyAnn, ty, cts)
+    inferTypeSig (exprSpan expr `orSourceSpan` ambient) inner tyAnn
   ENegate inner -> do
     (inner', innerTy, cs) <- inferExpr inner
     pure (ENegate inner', innerTy, cs)
@@ -144,6 +146,28 @@ inferNameOccurrence ambient nameSyntax = do
       pure (Nothing, ty, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
+inferTypeSig sp inner tyAnn = do
+  (inner', innerTy, cts) <- inferExprAt sp inner
+  sigTy <- checkSurfaceType Map.empty tyAnn KType
+  ev <- freshEvVar
+  let sigCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = innerTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin sp
+            }
+          TypeTrace
+            { typeTraceType = sigTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = TypeSignatureOrigin "<expression>" sp
+            }
+          ev
+          (SigOrigin sp)
+          sp
+  pure (ETypeSig inner' tyAnn, sigTy, cts <> [sigCt])
 
 inferOverloadedIntegerLiteral :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
 inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do

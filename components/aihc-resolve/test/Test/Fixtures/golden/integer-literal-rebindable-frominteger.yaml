@@ -1,0 +1,26 @@
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data Integer = IS Int#
+       └─ t Main │  └─ t Builtin Int#
+                 └─ v Main
+  class Num a where
+        └─ t Main
+    fromInteger :: Integer -> a
+                   └─ t Main
+  one = 1
+  │     └─ v Main
+  └─ v Main
+extensions:
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  one = 1
+reason: RebindableSyntax integer literals resolve the ordinary in-scope fromInteger
+status: pass

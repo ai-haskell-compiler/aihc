@@ -1,0 +1,56 @@
+expected: |-
+  data Int
+   = I Int#
+
+  data Integer
+   = IS Int#
+
+  fromInteger : ∀ a. (Num a) ⇒ Integer → a =
+    Λa.
+      \$d0 : dict.
+        $d0.0
+
+  $fNumInt : () ⇒ Num Int =
+    {λx1002 : Integer.
+      case x1002 as _scrut : Integer of
+        IS x →
+          I x}
+
+  $fNumInteger : () ⇒ Num Integer =
+    {λx1007 : Integer.
+      x1007}
+  asInt : Int =
+    fromInteger @Int $$fNumInt (IS 1)
+
+  asInteger : Integer =
+    fromInteger @Integer $$fNumInteger (IS 1)
+
+  caseInt : () =
+    case fromInteger @Int $$fNumInt (IS 1) as _case : Int of
+      1 →
+        ()
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Int = I Int#
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Int where
+    fromInteger (IS x) = I x
+  instance Num Integer where
+    fromInteger x = x
+- |
+  module Main where
+  asInt :: Int
+  asInt = 1 :: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+  caseInt :: ()
+  caseInt = case (1 :: Int) of
+    1 -> ()
+reason: desugars concrete integer literals and integer case scrutinees through
+  Prelude.fromInteger
+status: pass

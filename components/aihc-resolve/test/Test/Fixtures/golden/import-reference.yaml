@@ -12,7 +12,7 @@ annotated:
 - |
   module Lib where
   helper = 42
-  └─ v Lib
+  └─ v Lib └─ v Error unbound
 - |
   module Main where
   import Lib

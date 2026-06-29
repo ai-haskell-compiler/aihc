@@ -1,0 +1,34 @@
+annotated:
+- |-
+  module Main where
+  fromInteger x = x
+  └─ v Main   │   └─ v 0
+              └─ v 0
+  one = 1
+  │     └─ v Prelude
+  └─ v Main
+- |-
+  module Prelude where
+  data Integer = IS Int#
+       │         │  └─ t Builtin Int#
+       │         └─ v Prelude
+       └─ t Prelude
+  class Num a where
+        └─ t Prelude
+    fromInteger :: Integer -> a
+                   └─ t Prelude
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+- |
+  module Main where
+  fromInteger x = x
+  one = 1
+reason: integer literals resolve Prelude.fromInteger by default, even when a local
+  fromInteger is in scope
+status: pass

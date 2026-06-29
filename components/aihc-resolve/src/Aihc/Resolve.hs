@@ -38,6 +38,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     DoStmt (..),
     Expr (..),
+    Extension (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForallTelescope (..),
@@ -67,6 +68,8 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
+    applyExtensionSetting,
+    applyImpliedExtensions,
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
@@ -200,8 +203,18 @@ resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', decls') = runResolveM scope (moduleKey modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      (nextLocal', decls') = runResolveM scope (moduleInfo modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
+
+moduleInfo :: Module -> ModuleInfo
+moduleInfo modu =
+  ModuleInfo
+    { moduleInfoExtensions =
+        applyImpliedExtensions $
+          foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
+      moduleInfoExplicitPreludeImport =
+        any ((== "Prelude") . importDeclModule) (moduleImports modu)
+    }
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports exports =
@@ -631,26 +644,33 @@ resolveIntegerLiteral :: Expr -> ResolveM Expr
 resolveIntegerLiteral expr = do
   sp <- currentSpan
   scope <- currentScope
-  owner <- currentModuleKey
-  case lookupTerm "fromInteger" scope of
-    resolved
-      | shouldAnnotateIntegerLiteral owner resolved ->
-          let annotation =
-                ResolutionAnnotation
-                  sp
-                  "fromInteger"
-                  ResolutionNamespaceTerm
-                  resolved
-           in pure (EAnn (mkAnnotation annotation) expr)
-    _ ->
-      pure expr
+  info <- currentModuleInfo
+  let resolved =
+        if RebindableSyntax `elem` moduleInfoExtensions info
+          then rebindableFromInteger info scope
+          else preludeFromInteger scope
+      annotation =
+        ResolutionAnnotation
+          sp
+          "fromInteger"
+          ResolutionNamespaceTerm
+          resolved
+  pure (EAnn (mkAnnotation annotation) expr)
 
-shouldAnnotateIntegerLiteral :: Text -> ResolvedName -> Bool
-shouldAnnotateIntegerLiteral owner resolved =
-  case resolved of
-    ResolvedLocal {} -> True
-    ResolvedTopLevel name -> nameQualifier name == Just owner
-    _ -> False
+preludeFromInteger :: Scope -> ResolvedName
+preludeFromInteger scope =
+  case Map.lookup "Prelude" (scopeQualifiedModules scope) of
+    Just preludeScope -> lookupTerm "fromInteger" preludeScope
+    Nothing -> ResolvedError "unbound"
+
+rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
+rebindableFromInteger info scope =
+  case lookupTerm "fromInteger" scope of
+    ResolvedTopLevel name
+      | nameQualifier name == Just "Prelude",
+        not (moduleInfoExplicitPreludeImport info) ->
+          ResolvedError "unbound"
+    resolved -> resolved
 
 resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe Expr)
 resolveMaybeExpr = traverse resolveExpr

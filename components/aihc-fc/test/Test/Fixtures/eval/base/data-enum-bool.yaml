@@ -24,7 +24,7 @@ modules:
         )
       )
 output: |
-  (((False,True),((False,True),(0,1))),((True,False),(((: False (: True [])),(: True [])),(((: False (: True [])),(: False (: True []))),(: True (: False []))))))
+  (((False,True),((False,True),((I# 0),(I# 1)))),((True,False),(((: False (: True [])),(: True [])),(((: False (: True [])),(: False (: True []))),(: True (: False []))))))
 expression: |
   ((bounded, conversions), (successors, ranges))
 status: pass

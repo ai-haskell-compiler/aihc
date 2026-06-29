@@ -55,7 +55,7 @@ import Data.Aeson.Types (parseEither, withArray)
 import Data.Bifunctor (first)
 import Data.ByteString qualified as BS
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort, sortOn)
+import Data.List (dropWhileEnd, nub, sort, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (catMaybes, fromMaybe)
@@ -461,17 +461,21 @@ resolveFcEvalDependencyRoot opts dependency =
     "aihc-base" -> pure (Right (dependency, optRoot opts </> "core-libs" </> "aihc-base"))
     _ -> pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
 
-initialFcEvalDependencyModules :: [Module] -> Set.Set Text
+initialFcEvalDependencyModules :: [Module] -> [Text]
 initialFcEvalDependencyModules modules =
-  Set.insert "Prelude" (importedFcEvalModuleNames modules)
+  nub ("Prelude" : importedFcEvalModuleNameList modules)
 
 importedFcEvalModuleNames :: [Module] -> Set.Set Text
 importedFcEvalModuleNames modules =
-  Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+  Set.fromList (importedFcEvalModuleNameList modules)
 
-loadTransitiveFcEvalModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
-loadTransitiveFcEvalModules packageRoots initialModules =
-  go Set.empty [] (Set.toAscList initialModules)
+importedFcEvalModuleNameList :: [Module] -> [Text]
+importedFcEvalModuleNameList modules =
+  [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
+
+loadTransitiveFcEvalModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [Module])
+loadTransitiveFcEvalModules packageRoots =
+  go Set.empty []
   where
     go _ loaded [] =
       pure (Right (reverse loaded))

@@ -12,6 +12,7 @@ annotated:
   │           └─ t Error unbound
   └─ v ValidModule
   valid_fn = 1
+  │          └─ v Error unbound
   └─ v ValidModule
 extensions: []
 modules:

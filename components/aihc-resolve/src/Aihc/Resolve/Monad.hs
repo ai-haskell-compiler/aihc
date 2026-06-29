@@ -1,7 +1,8 @@
 module Aihc.Resolve.Monad
   ( ResolveM,
     runResolveM,
-    currentModuleKey,
+    ModuleInfo (..),
+    currentModuleInfo,
     currentScope,
     currentSpan,
     withScope,
@@ -16,18 +17,23 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    Extension,
     SourceSpan (..),
     UnqualifiedName,
   )
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types
-import Data.Text (Text)
 
 data ResolveEnv = ResolveEnv
   { envScope :: !Scope,
-    envModuleKey :: !Text,
+    envModuleInfo :: !ModuleInfo,
     envSpan :: !SourceSpan
+  }
+
+data ModuleInfo = ModuleInfo
+  { moduleInfoExtensions :: ![Extension],
+    moduleInfoExplicitPreludeImport :: !Bool
   }
 
 newtype ResolveState = ResolveState
@@ -59,9 +65,9 @@ instance Monad ResolveM where
       let (result, state') = unResolveM action env state
        in unResolveM (next result) env state'
 
-runResolveM :: Scope -> Text -> Int -> ResolveM a -> (Int, a)
-runResolveM scope moduleKey' nextLocal action =
-  let initialEnv = ResolveEnv {envScope = scope, envModuleKey = moduleKey', envSpan = NoSourceSpan}
+runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, a)
+runResolveM scope moduleInfo nextLocal action =
+  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = NoSourceSpan}
       initialState = ResolveState {stateNextLocal = nextLocal}
       (result, finalState) = unResolveM action initialEnv initialState
    in (stateNextLocal finalState, result)
@@ -85,8 +91,8 @@ local f action =
 currentScope :: ResolveM Scope
 currentScope = asks envScope
 
-currentModuleKey :: ResolveM Text
-currentModuleKey = asks envModuleKey
+currentModuleInfo :: ResolveM ModuleInfo
+currentModuleInfo = asks envModuleInfo
 
 currentSpan :: ResolveM SourceSpan
 currentSpan = asks envSpan
