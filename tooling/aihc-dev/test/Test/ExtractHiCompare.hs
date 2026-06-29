@@ -14,7 +14,8 @@ import Aihc.Dev.ExtractHi.Compare
     renderCoreLibProgressReports,
   )
 import Aihc.Dev.ExtractHi.Types
-import Control.Exception (bracket)
+import Control.Exception (IOException, bracket, try)
+import Data.List qualified as List
 import Data.Text qualified as T
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
@@ -33,6 +34,8 @@ extractHiCompareTests =
         "core-libs-progress"
         [ testCase "counts matching exported interface facts" test_coreLibProgressCountsMatches,
           testCase "extracts source package exports" test_coreLibProgressExtractsSourcePackage,
+          testCase "rejects exported source values without signatures" test_coreLibProgressRejectsMissingSourceSignature,
+          testCase "resolves base re-exported value types" test_coreLibProgressResolvesReexportedTypes,
           testCase "counts missing candidate exports as failures" test_coreLibProgressCountsMissingExports,
           testCase "rejects changed value types and type kinds" test_coreLibProgressRejectsChangedSignatures,
           testCase "requires exports to come from the same module" test_coreLibProgressRequiresSameModule,
@@ -81,6 +84,37 @@ test_coreLibProgressExtractsSourcePackage =
         assertEqual "types" [ExportedType "Bool" "<unspecified-source-kind>" ["False", "True"]] (miTypes modIface)
         assertEqual "fixities" [FixityInfo "&&" InfixR 3] (miFixities modIface)
       _ -> assertFailure ("expected one source module, got " <> show (piModules iface))
+
+test_coreLibProgressRejectsMissingSourceSignature :: Assertion
+test_coreLibProgressRejectsMissingSourceSignature =
+  withTempDir "core-libs-progress-source-missing-signature" $ \root -> do
+    let srcDir = root </> "src" </> "Data"
+    createDirectoryIfMissing True srcDir
+    writeFile (root </> "demo-base.cabal") demoBaseCabal
+    writeFile (srcDir </> "Bool.hs") demoBoolMissingSignatureSource
+    result <- try (extractSourcePackage root "demo-base") :: IO (Either IOException PackageInterface)
+    case result of
+      Left err ->
+        assertBool "mentions missing type signature" ("without type signatures: not" `List.isInfixOf` show err)
+      Right iface ->
+        assertFailure ("expected missing source signature failure, got " <> show iface)
+
+test_coreLibProgressResolvesReexportedTypes :: Assertion
+test_coreLibProgressResolvesReexportedTypes = do
+  baseIface <- extractPackage "base"
+  dataEither <- findModule "Data.Either" baseIface
+  assertEqual
+    "Data.Either value types"
+    [ ExportedValue "either" "(a -> c) -> (b -> c) -> Either a b -> c",
+      ExportedValue "fromLeft" "a -> Either a b -> a",
+      ExportedValue "fromRight" "b -> Either a b -> b",
+      ExportedValue "isLeft" "Either a b -> Bool",
+      ExportedValue "isRight" "Either a b -> Bool",
+      ExportedValue "lefts" "[Either a b] -> [a]",
+      ExportedValue "partitionEithers" "[Either a b] -> ([a], [b])",
+      ExportedValue "rights" "[Either a b] -> [b]"
+    ]
+    (miValues dataEither)
 
 test_coreLibProgressCountsMissingExports :: Assertion
 test_coreLibProgressCountsMissingExports = do
@@ -186,6 +220,12 @@ fullModule name =
       miFixities = [FixityInfo "+" InfixL 6]
     }
 
+findModule :: T.Text -> PackageInterface -> IO ModuleInterface
+findModule name iface =
+  case List.find ((== name) . miModule) (piModules iface) of
+    Just modu -> pure modu
+    Nothing -> assertFailure ("module not found: " <> T.unpack name)
+
 demoBaseCabal :: String
 demoBaseCabal =
   unlines
@@ -216,6 +256,19 @@ demoBoolSource =
       "(&&) :: Bool -> Bool -> Bool",
       "False && _ = False",
       "True && x = x"
+    ]
+
+demoBoolMissingSignatureSource :: String
+demoBoolMissingSignatureSource =
+  unlines
+    [ "module Data.Bool",
+      "  ( Bool(False, True),",
+      "    not,",
+      "  )",
+      "where",
+      "data Bool = False | True",
+      "not False = True",
+      "not True = False"
     ]
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a

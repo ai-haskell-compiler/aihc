@@ -148,8 +148,7 @@ compareTypes candidate oracle =
         Nothing -> [mismatch (basePath <> ":" <> etName typ) "type is not exported by oracle"]
         Just oracleType ->
           [ mismatch (basePath <> ":" <> etName typ <> ".kind") "type kind differs from oracle"
-          | etKind oracleType /= "<unresolved>",
-            etKind typ /= etKind oracleType
+          | etKind typ /= etKind oracleType
           ]
             <> [ mismatch (basePath <> ":" <> etName typ <> ".constructors") "constructors differ from oracle"
                | etConstructors typ /= etConstructors oracleType
