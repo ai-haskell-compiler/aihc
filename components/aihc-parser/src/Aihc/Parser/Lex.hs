@@ -73,8 +73,6 @@ import Aihc.Parser.Syntax
 import Control.Applicative ((<|>))
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Maybe (fromMaybe, isJust)
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
 
@@ -735,27 +733,31 @@ unicodeOpTokenKind hasArrows txt firstChar
 
 lexSymbol :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexSymbol env st =
-  firstTextKind st symbols
+  case lexerInput st of
+    '(' :< ('#' :< _)
+      | hasUnboxed -> Just (emitToken st "(#" TkSpecialUnboxedLParen)
+    '#' :< (')' :< _)
+      | hasUnboxed -> Just (emitToken st "#)" TkSpecialUnboxedRParen)
+    '(' :< ('|' :< rest)
+      | hasArrows,
+        bananaOpenAllowed rest ->
+          Just (emitToken st "(|" TkBananaOpen)
+    '(' :< _ -> Just (emitToken st "(" TkSpecialLParen)
+    ')' :< _ -> Just (emitToken st ")" TkSpecialRParen)
+    '[' :< _ -> Just (emitToken st "[" TkSpecialLBracket)
+    ']' :< _ -> Just (emitToken st "]" TkSpecialRBracket)
+    '{' :< _ -> Just (emitToken st "{" TkSpecialLBrace)
+    '}' :< _ -> Just (emitToken st "}" TkSpecialRBrace)
+    ',' :< _ -> Just (emitToken st "," TkSpecialComma)
+    ';' :< _ -> Just (emitToken st ";" TkSpecialSemicolon)
+    '`' :< _ -> Just (emitToken st "`" TkSpecialBacktick)
+    _ -> Nothing
   where
-    symbols =
-      ( if hasExt UnboxedTuples env || hasExt UnboxedSums env
-          then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
-          else []
-      )
-        <> [("(|", TkBananaOpen) | hasExt Arrows env, bananaOpenAllowed]
-        <> [ ("(", TkSpecialLParen),
-             (")", TkSpecialRParen),
-             ("[", TkSpecialLBracket),
-             ("]", TkSpecialRBracket),
-             ("{", TkSpecialLBrace),
-             ("}", TkSpecialRBrace),
-             (",", TkSpecialComma),
-             (";", TkSpecialSemicolon),
-             ("`", TkSpecialBacktick)
-           ]
+    hasUnboxed = hasExt UnboxedTuples env || hasExt UnboxedSums env
+    hasArrows = hasExt Arrows env
 
-    bananaOpenAllowed =
-      case T.drop 2 (lexerInput st) of
+    bananaOpenAllowed rest =
+      case rest of
         c :< _ -> not (isSymbolicOpChar c)
         _ -> True
 
@@ -1024,7 +1026,7 @@ startsWithSymOp t =
     c :< _ -> isSymbolicOpChar c
     _ -> False
 
-keywordTokenKind :: Set Extension -> Text -> Maybe LexTokenKind
+keywordTokenKind :: ExtensionSet -> Text -> Maybe LexTokenKind
 keywordTokenKind exts txt =
   case txt of
     "case" -> Just TkKeywordCase
@@ -1051,12 +1053,12 @@ keywordTokenKind exts txt =
     "type" -> Just TkKeywordType
     "where" -> Just TkKeywordWhere
     "_" -> Just TkKeywordUnderscore
-    "proc" | Set.member Arrows exts -> Just TkKeywordProc
-    "rec" | Set.member Arrows exts || Set.member RecursiveDo exts -> Just TkKeywordRec
-    "mdo" | Set.member RecursiveDo exts -> Just TkKeywordMdo
-    "pattern" | Set.member PatternSynonyms exts -> Just TkKeywordPattern
-    "by" | Set.member TransformListComp exts -> Just TkKeywordBy
-    "using" | Set.member TransformListComp exts -> Just TkKeywordUsing
+    "proc" | memberExtension Arrows exts -> Just TkKeywordProc
+    "rec" | memberExtension Arrows exts || memberExtension RecursiveDo exts -> Just TkKeywordRec
+    "mdo" | memberExtension RecursiveDo exts -> Just TkKeywordMdo
+    "pattern" | memberExtension PatternSynonyms exts -> Just TkKeywordPattern
+    "by" | memberExtension TransformListComp exts -> Just TkKeywordBy
+    "using" | memberExtension TransformListComp exts -> Just TkKeywordUsing
     _ -> Nothing
 
 reservedOpTokenKind :: Text -> Maybe LexTokenKind

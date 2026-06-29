@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -34,6 +35,7 @@ module Aihc.Parser.Syntax
     DoStmt (..),
     Expr (..),
     Extension (..),
+    ExtensionSet,
     ExtensionSetting (..),
     ExportSpec (..),
     IEEntityNamespace (..),
@@ -112,6 +114,8 @@ module Aihc.Parser.Syntax
     binderHeadParams,
     effectiveExtensions,
     extensionName,
+    memberExtension,
+    mkExtensionSet,
     extensionSettingName,
     gadtBodyResultType,
     languageEditionExtensions,
@@ -159,6 +163,8 @@ import Control.DeepSeq (NFData (..))
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (sort)
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -331,6 +337,18 @@ data Extension
   | ViewPatterns
   | XmlSyntax
   deriving (Data, Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
+
+newtype ExtensionSet = ExtensionSet IntSet
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NFData)
+
+mkExtensionSet :: [Extension] -> ExtensionSet
+mkExtensionSet =
+  ExtensionSet . IntSet.fromList . map fromEnum
+
+memberExtension :: Extension -> ExtensionSet -> Bool
+memberExtension ext (ExtensionSet exts) =
+  IntSet.member (fromEnum ext) exts
 
 -- | A single @LANGUAGE@ pragma entry.
 -- Examples: @EnableExtension LambdaCase@ for @{-# LANGUAGE LambdaCase #-}@ and
@@ -1910,19 +1928,30 @@ data ForeignSafety
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Opaque metadata attached to syntax nodes.
--- Example: a stored 'SourceSpan' created with 'mkAnnotation'.
-newtype Annotation = Annotation Dynamic
+--
+-- Parsed syntax overwhelmingly attaches 'SourceSpan' annotations, so spans get
+-- a direct representation. Later compiler stages can still attach arbitrary
+-- typed metadata through the dynamic fallback.
+data Annotation
+  = SourceSpanAnnotation !SourceSpan
+  | DynamicAnnotation Dynamic
   deriving (Show, Generic)
 
 mkAnnotation :: (Typeable a) => a -> Annotation
-mkAnnotation = Annotation . toDyn
+mkAnnotation value =
+  case cast value of
+    Just span' -> SourceSpanAnnotation span'
+    Nothing -> DynamicAnnotation (toDyn value)
+{-# INLINE mkAnnotation #-}
 
 fromAnnotation :: (Typeable a) => Annotation -> Maybe a
-fromAnnotation (Annotation value) = fromDynamic value
+fromAnnotation (SourceSpanAnnotation span') = cast span'
+fromAnnotation (DynamicAnnotation value) = fromDynamic value
+{-# INLINE fromAnnotation #-}
 
 instance Data Annotation where
   gfoldl _ z = z
-  gunfold _ z _ = z (Annotation (toDyn ()))
+  gunfold _ z _ = z (SourceSpanAnnotation NoSourceSpan)
   toConstr _ = annotationConstr
   dataTypeOf _ = annotationDataType
 
@@ -1936,7 +1965,8 @@ instance Eq Annotation where
   _ == _ = True
 
 instance NFData Annotation where
-  rnf (Annotation _) = ()
+  rnf (SourceSpanAnnotation span') = rnf span'
+  rnf (DynamicAnnotation _) = ()
 
 -- | An expression.
 data Expr

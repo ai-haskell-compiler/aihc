@@ -45,16 +45,25 @@ declParser = pragmaDeclParser <|> ordinaryDeclParser
 ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
-  exprFallback <- exprDeclEnabled
-  typeSigPrefix <- startsWithTypeSig
   let tokKind = lexTokenKind tok
       nextTokKind = lexTokenKind nextTok
-      valueDecl
-        | exprFallback = MP.try valueDeclParser <|> exprDeclParser
-        | otherwise = valueDeclParser
-      sigOrValueDecl
-        | typeSigPrefix = typeSigOrPatternTypeSigDeclParser
-        | otherwise = valueDecl
+      valueDecl = do
+        exprFallback <- exprDeclEnabled
+        if exprFallback
+          then MP.try valueDeclParser <|> exprDeclParser
+          else valueDeclParser
+      sigOrValueDecl = do
+        typeSigPrefix <- startsWithTypeSig
+        if typeSigPrefix
+          then typeSigOrPatternTypeSigDeclParser
+          else valueDecl
+      fallbackDecl = do
+        typeSigPrefix <- startsWithTypeSig
+        exprFallback <- exprDeclEnabled
+        (if typeSigPrefix then typeSigOrPatternTypeSigDeclParser else MP.empty)
+          <|> MP.try valueDeclParser
+          <|> patternBindDeclParser
+          <|> (if exprFallback then exprDeclParser else MP.empty)
   case tokKind of
     TkKeywordData ->
       case nextTokKind of
@@ -86,11 +95,7 @@ ordinaryDeclParser = do
         TkSpecialComma -> sigOrValueDecl
         TkReservedEquals -> valueDecl
         _ -> nonBareVarPatternBindDeclParser <|> valueDecl
-    _ ->
-      (if typeSigPrefix then typeSigOrPatternTypeSigDeclParser else MP.empty)
-        <|> MP.try valueDeclParser
-        <|> patternBindDeclParser
-        <|> (if exprFallback then exprDeclParser else MP.empty)
+    _ -> fallbackDecl
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.
 -- When the leading token is a variable identifier, a bare @x = 5@ must be

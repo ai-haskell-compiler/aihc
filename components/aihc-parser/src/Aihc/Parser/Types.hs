@@ -29,7 +29,7 @@ import Aihc.Parser.Lex
     readModuleHeaderExtensions,
     scanAllTokens,
   )
-import Aihc.Parser.Syntax (Extension, SourceSpan, applyExtensionSetting, applyImpliedExtensions)
+import Aihc.Parser.Syntax (Extension, ExtensionSet, SourceSpan, applyExtensionSetting, applyImpliedExtensions, mkExtensionSet)
 import Control.DeepSeq (NFData (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -89,6 +89,7 @@ data TokStream = TokStream
     tokStreamPendingPragmas :: [Pragma],
     tokStreamPrevToken :: Maybe LexToken,
     tokStreamExtensions :: [Extension],
+    tokStreamExtensionSet :: ExtensionSet,
     -- | Whether this stream has already emitted TkEOF.
     -- After EOF is emitted, 'take1_' returns Nothing.
     tokStreamEOFEmitted :: !Bool
@@ -128,7 +129,8 @@ instance NFData TokStream where
     rnf (tokStreamPendingPragmas ts) `seq`
       rnf (tokStreamPrevToken ts) `seq`
         rnf (tokStreamExtensions ts) `seq`
-          rnf (tokStreamEOFEmitted ts)
+          rnf (tokStreamExtensionSet ts) `seq`
+            rnf (tokStreamEOFEmitted ts)
 
 -- | Create a TokStream for parsing expressions/declarations (no module layout).
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
@@ -141,6 +143,7 @@ mkTokStream sourceName exts input =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = exts,
+            tokStreamExtensionSet = mkExtensionSet exts,
             tokStreamEOFEmitted = False
           }
 
@@ -156,6 +159,7 @@ mkTokStreamModule sourceName baseExts input =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = effectiveExts,
+            tokStreamExtensionSet = mkExtensionSet effectiveExts,
             tokStreamEOFEmitted = False
           }
   where
@@ -177,6 +181,7 @@ mkTokStreamFromTokens toks =
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = [],
+            tokStreamExtensionSet = mkExtensionSet [],
             tokStreamEOFEmitted = False
           }
 
@@ -277,16 +282,15 @@ instance Stream TokStream where
 
   takeN_ n ts
     | n <= 0 = Just ([], ts)
-    | otherwise =
-        case stepOne ts of
-          Nothing -> Nothing
-          Just (tok, ts') ->
-            let go 1 acc s = Just (reverse (tok : acc), s)
-                go k acc s =
-                  case stepOne s of
-                    Nothing -> Just (reverse (tok : acc), s)
-                    Just (t, s') -> go (k - 1) (t : acc) s'
-             in go n [] ts'
+    | otherwise = go n [] ts
+    where
+      go 0 acc s = Just (reverse acc, s)
+      go k acc s =
+        case stepOne s of
+          Nothing
+            | null acc -> Nothing
+            | otherwise -> Just (reverse acc, s)
+          Just (tok, s') -> go (k - 1) (tok : acc) s'
 
   takeWhile_ f =
     go []

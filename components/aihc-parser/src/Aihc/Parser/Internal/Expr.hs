@@ -21,7 +21,7 @@ import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patParser
 import Aihc.Parser.Internal.Type (typeAtomParser, typeParser, typeSignatureParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
 import Data.Functor (($>))
 import Data.Text (Text)
@@ -360,7 +360,8 @@ floatExprParser =
 
 tokenExprParser :: String -> (LexToken -> Maybe Expr) -> TokParser Expr
 tokenExprParser expected matchToken =
-  withSpanAnn (EAnn . mkAnnotation) (tokenSatisfy expected matchToken)
+  tokenSatisfy expected $ \tok ->
+    EAnn (mkAnnotation (lexTokenSpan tok)) <$> matchToken tok
 
 charExprParser :: TokParser Expr
 charExprParser =
@@ -394,11 +395,18 @@ appExprParser = appExprParserWith atomOrRecordExprParser
 -- | Shared application parser used by the report core and contextual
 -- variants.  The caller chooses the @aexp@-like atom parser.
 appExprParserWith :: TokParser Expr -> TokParser Expr
-appExprParserWith atomParser = withSpanAnn (EAnn . mkAnnotation) $ do
+appExprParserWith atomParser = do
+  startInput <- MP.getInput
   first <- atomParser
   rest <- MP.many appArg
-  pure $
-    foldl applyArg first rest
+  case rest of
+    [] -> pure first
+    _ -> do
+      endInput <- MP.getInput
+      let startSpan = inputStartSpan startInput
+          endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
+          appSpan = mergeSourceSpans startSpan endSpan
+      pure (EAnn (mkAnnotation appSpan) (foldl applyArg first rest))
   where
     appArg :: TokParser (Either Type Expr)
     appArg = (Left <$> typeAppArg) <|> (Right <$> appExprArgParser)
@@ -516,27 +524,10 @@ recordFieldBindingParser = withSpan $ do
 -- >      | aexp<qcon> '{' fbind_1 ',' ... ',' fbind_n '}'
 recordBaseAtomExprParserWith :: AtomContext -> TokParser Expr
 recordBaseAtomExprParserWith atomContext = do
-  thAny <- thAnyEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
-    _ ->
-      MP.try (prefixNegateAtomExprParserWith atomContext)
-        <|> MP.try parenOperatorExprParser
-        <|> (if thAny then thQuoteExprParser else MP.empty)
-        <|> (if thAny then thNameQuoteExprParser else MP.empty)
-        <|> (if thAny then thTypedSpliceParser else MP.empty)
-        <|> (if thAny then thUntypedSpliceParser else MP.empty)
-        <|> quasiQuoteExprParser
-        <|> parenExprParser
-        <|> listExprParser
-        <|> intExprParser
-        <|> floatExprParser
-        <|> charExprParser
-        <|> stringExprParser
-        <|> overloadedLabelExprParser
-        <|> wildcardExprParser
-        <|> varExprParser
+    _ -> simpleAtomExprParserWith atomContext
 
 -- | Parse an atom without record construction/update syntax.
 --
@@ -549,41 +540,68 @@ atomExprParser = atomExprParserWith NormalExprAtom
 
 atomExprParserWith :: AtomContext -> TokParser Expr
 atomExprParserWith atomContext = do
-  blockArgsEnabled <- isExtensionEnabled BlockArguments
-  thAny <- thAnyEnabled
-  explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
-  requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkImplicitParam {} -> implicitParamExprParser
-    TkKeywordType
-      | explicitNamespacesEnabled || requiredTypeArgumentsEnabled -> explicitTypeExprParser
+    TkKeywordType -> do
+      explicitNamespacesEnabled <- isExtensionEnabled ExplicitNamespaces
+      requiredTypeArgumentsEnabled <- isExtensionEnabled RequiredTypeArguments
+      if explicitNamespacesEnabled || requiredTypeArgumentsEnabled
+        then explicitTypeExprParser
+        else simpleAtomExprParserWith atomContext
     TkReservedBackslash -> lambdaExprParser
-    TkKeywordLet -> letExprParser
-    TkKeywordDo | blockArgsEnabled -> doExprParser
-    TkKeywordMdo | blockArgsEnabled -> mdoExprParser
-    TkQualifiedDo {} | blockArgsEnabled -> qualifiedDoExprParser
-    TkQualifiedMdo {} | blockArgsEnabled -> qualifiedMdoExprParser
-    TkKeywordCase | blockArgsEnabled -> caseExprParser
-    TkKeywordIf | blockArgsEnabled -> ifExprParser
-    TkKeywordProc | blockArgsEnabled && atomContext == NormalExprAtom -> procExprParser
-    _ ->
-      MP.try (prefixNegateAtomExprParserWith atomContext)
-        <|> MP.try parenOperatorExprParser
-        <|> (if thAny then thQuoteExprParser else MP.empty)
-        <|> (if thAny then thNameQuoteExprParser else MP.empty)
-        <|> (if thAny then thTypedSpliceParser else MP.empty)
-        <|> (if thAny then thUntypedSpliceParser else MP.empty)
-        <|> quasiQuoteExprParser
-        <|> parenExprParser
-        <|> listExprParser
-        <|> intExprParser
-        <|> floatExprParser
-        <|> charExprParser
-        <|> stringExprParser
-        <|> overloadedLabelExprParser
-        <|> wildcardExprParser
-        <|> varExprParser
+    TkKeywordLet -> blockAtom letExprParser
+    TkKeywordDo -> blockAtom doExprParser
+    TkKeywordMdo -> blockAtom mdoExprParser
+    TkQualifiedDo {} -> blockAtom qualifiedDoExprParser
+    TkQualifiedMdo {} -> blockAtom qualifiedMdoExprParser
+    TkKeywordCase -> blockAtom caseExprParser
+    TkKeywordIf -> blockAtom ifExprParser
+    TkKeywordProc
+      | atomContext == NormalExprAtom -> blockAtom procExprParser
+    _ -> simpleAtomExprParserWith atomContext
+  where
+    blockAtom parser = do
+      blockArgsEnabled <- isExtensionEnabled BlockArguments
+      if blockArgsEnabled
+        then parser
+        else simpleAtomExprParserWith atomContext
+
+simpleAtomExprParserWith :: AtomContext -> TokParser Expr
+simpleAtomExprParserWith atomContext = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkPrefixMinus -> prefixNegateAtomExprParserWith atomContext
+    TkSpecialLParen -> MP.try parenOperatorExprParser <|> parenExprParser
+    TkSpecialUnboxedLParen -> parenExprParser
+    TkSpecialLBracket -> listExprParser
+    TkInteger {} -> intExprParser
+    TkFloat {} -> floatExprParser
+    TkChar {} -> charExprParser
+    TkCharHash {} -> charExprParser
+    TkString {} -> stringExprParser
+    TkStringHash {} -> stringExprParser
+    TkOverloadedLabel {} -> overloadedLabelExprParser
+    TkKeywordUnderscore -> wildcardExprParser
+    TkVarId {} -> varExprParser
+    TkConId {} -> varExprParser
+    TkQVarId {} -> varExprParser
+    TkQConId {} -> varExprParser
+    TkQuasiQuote {} -> quasiQuoteExprParser
+    TkTHExpQuoteOpen -> thAtom thQuoteExprParser
+    TkTHTypedQuoteOpen -> thAtom thQuoteExprParser
+    TkTHDeclQuoteOpen -> thAtom thQuoteExprParser
+    TkTHTypeQuoteOpen -> thAtom thQuoteExprParser
+    TkTHPatQuoteOpen -> thAtom thQuoteExprParser
+    TkTHQuoteTick -> thAtom thNameQuoteExprParser
+    TkTHTypeQuoteTick -> thAtom thNameQuoteExprParser
+    TkTHTypedSplice -> thAtom thTypedSpliceParser
+    TkTHSplice -> thAtom thUntypedSpliceParser
+    _ -> varExprParser
+  where
+    thAtom parser = do
+      thAny <- thAnyEnabled
+      if thAny then parser else varExprParser
 
 explicitTypeExprParser :: TokParser Expr
 explicitTypeExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
@@ -1297,17 +1315,31 @@ implicitParamDeclParser = withSpanAnn (DeclAnn . mkAnnotation) $ do
       )
 
 varExprParser :: TokParser Expr
-varExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  EVar <$> identifierNameParser
+varExprParser = do
+  (tok, name) <- identifierNameWithTokenParser
+  pure (EAnn (mkAnnotation (lexTokenSpan tok)) (EVar name))
 
 implicitParamExprParser :: TokParser Expr
-implicitParamExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  EVar . qualifyName Nothing . mkUnqualifiedName NameVarId <$> implicitParamNameParser
+implicitParamExprParser =
+  tokenSatisfy "implicit parameter" $ \tok ->
+    case lexTokenKind tok of
+      TkImplicitParam name ->
+        Just $
+          EAnn
+            (mkAnnotation (lexTokenSpan tok))
+            (EVar (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId name)))
+      _ -> Nothing
 
 wildcardExprParser :: TokParser Expr
-wildcardExprParser = withSpanAnn (EAnn . mkAnnotation) $ do
-  expectedTok TkKeywordUnderscore
-  pure (EVar (qualifyName Nothing (mkUnqualifiedName NameVarId "_")))
+wildcardExprParser =
+  tokenSatisfy "wildcard" $ \tok ->
+    case lexTokenKind tok of
+      TkKeywordUnderscore ->
+        Just $
+          EAnn
+            (mkAnnotation (lexTokenSpan tok))
+            (EVar (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId "_")))
+      _ -> Nothing
 
 -- | Parse Template Haskell quote brackets
 thQuoteExprParser :: TokParser Expr
