@@ -104,8 +104,16 @@ main =
             assertEqual "step" (ReplContinue Nothing) step,
           testCase "reports unknown commands" $ do
             session <- testReplSession
-            step <- handleReplInput session ":type"
-            assertEqual "step" (ReplContinue (Just "unknown command: :type")) step,
+            step <- handleReplInput session ":unknown"
+            assertEqual "step" (ReplContinue (Just "unknown command: :unknown")) step,
+          testCase "reports expression types with long and short commands" $ do
+            session <- loadReplSession Nothing
+            longStep <- handleReplInput session ":type True"
+            assertEqual "long command" (ReplContinue (Just "True :: Bool")) longStep
+            shortStep <- handleReplInput session ":t not"
+            assertEqual "short command" (ReplContinue (Just "not :: Bool -> Bool")) shortStep
+            polymorphicStep <- handleReplInput session ":t \\x -> x"
+            assertEqual "polymorphic expression" (ReplContinue (Just "\\x -> x :: a -> a")) polymorphicStep,
           testCase "evaluates string expressions through the pipeline" $ do
             session <- testReplSession
             step <- handleReplInput session "\"hello world\""
