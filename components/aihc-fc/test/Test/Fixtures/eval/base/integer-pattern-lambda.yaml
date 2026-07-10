@@ -1,0 +1,15 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    isOne :: Int -> Bool
+    isOne = \1 -> True
+output: |
+  True
+expression: |
+  isOne 1
+status: pass
+reason: refutable lambda patterns use overloaded integer matching

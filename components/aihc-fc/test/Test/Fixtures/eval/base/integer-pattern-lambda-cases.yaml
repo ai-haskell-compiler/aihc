@@ -1,0 +1,18 @@
+extensions:
+  - LambdaCase
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    bothOne :: Int -> Int -> Bool
+    bothOne = \cases
+      1 1 -> True
+      _ _ -> False
+output: |
+  (True,False)
+expression: |
+  (bothOne 1 1, bothOne 1 2)
+status: pass
+reason: multi-argument lambda-case uses the shared overloaded integer matcher

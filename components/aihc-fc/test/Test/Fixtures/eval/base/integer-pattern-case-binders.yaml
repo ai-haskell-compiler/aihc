@@ -1,0 +1,22 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    asValue :: Int -> Int
+    asValue value = case value of
+      bound@1 -> bound
+      _ -> 0
+
+    fallbackValue :: Int -> Int
+    fallbackValue value = case value of
+      1 -> 0
+      bound -> bound
+output: |
+  ((I# 1),(I# 2))
+expression: |
+  (asValue 1, fallbackValue 2)
+status: pass
+reason: overloaded case matching preserves as-pattern and fallthrough binders

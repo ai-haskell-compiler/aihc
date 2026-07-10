@@ -78,7 +78,7 @@ checkPattern = checkPatternWith GadtAsWanted
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy =
   case overloadedIntegerPatternLiteral pat of
-    Just lit -> checkOverloadedIntegerPattern sp pat lit scrutTy
+    Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
 
 checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
@@ -131,11 +131,13 @@ checkedPattern check =
     [pat] -> pat
     _ -> error "checkedPattern: expected exactly one checked pattern"
 
-overloadedIntegerPatternLiteral :: Pattern -> Maybe Literal
+overloadedIntegerPatternLiteral :: Pattern -> Maybe Bool
 overloadedIntegerPatternLiteral pat =
   case peelPatternAnn pat of
     PLit lit
-      | isOverloadedIntegerLiteral lit -> Just lit
+      | isOverloadedIntegerLiteral lit -> Just False
+    PNegLit lit
+      | isOverloadedIntegerLiteral lit -> Just True
     _ -> Nothing
 
 isOverloadedIntegerLiteral :: Literal -> Bool
@@ -144,34 +146,42 @@ isOverloadedIntegerLiteral lit =
     LitInt _ TInteger _ -> True
     _ -> False
 
-checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Literal -> TcType -> TcM PatternCheck
-checkOverloadedIntegerPattern sp pat _lit scrutTy = do
-  fromIntegerResolution <- requiredPatternResolution "fromInteger" pat
-  eqResolution <- requiredPatternResolution "==" pat
-  (fromIntegerTy, fromIntegerTypeArgs, fromIntegerCts) <- inferResolvedPatternMethod sp "fromInteger" fromIntegerResolution
-  (eqTy, eqTypeArgs, eqCts) <- inferResolvedPatternMethod sp "==" eqResolution
-  fromIntegerEq <- wantedMethodEq sp "fromInteger" fromIntegerTy (TcFunTy integerTy scrutTy)
-  eqMethodEq <- wantedMethodEq sp "==" eqTy (TcFunTy scrutTy (TcFunTy scrutTy boolTy))
-  let fromIntegerPending =
-        pendingAnnotation
-          scrutTy
-          fromIntegerTypeArgs
-          (map ctEvVar fromIntegerCts)
-          []
-      eqPending =
-        pendingAnnotation
-          (TcFunTy scrutTy (TcFunTy scrutTy boolTy))
-          eqTypeArgs
-          (map ctEvVar eqCts)
-          []
-      pat' = attachPendingPatternAnnotation "fromInteger" fromIntegerPending (attachPendingPatternAnnotation "==" eqPending pat)
+checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
+checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
+  (fromIntegerPending, fromIntegerCts) <- checkPatternMethod sp pat "fromInteger" scrutTy (TcFunTy integerTy scrutTy)
+  negateCheck <-
+    if isNegative
+      then Just <$> checkPatternMethod sp pat "negate" scrutTy (TcFunTy scrutTy scrutTy)
+      else pure Nothing
+  let eqTy = TcFunTy scrutTy (TcFunTy scrutTy boolTy)
+  (eqPending, eqCts) <- checkPatternMethod sp pat "==" eqTy eqTy
+  let methodAnnotations =
+        [("fromInteger", fromIntegerPending)]
+          <> maybe [] (\(pending, _) -> [("negate", pending)]) negateCheck
+          <> [("==", eqPending)]
+      pat' = foldr (uncurry attachPendingPatternAnnotation) pat methodAnnotations
+      negateCts = maybe [] snd negateCheck
   pure
     PatternCheck
       { pcBindings = [],
-        pcWantedCts = fromIntegerCts <> eqCts <> [fromIntegerEq, eqMethodEq],
+        pcWantedCts = fromIntegerCts <> negateCts <> eqCts,
         pcGivenCts = [],
         pcPatterns = [pat']
       }
+
+checkPatternMethod :: SourceSpan -> Pattern -> Text -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
+checkPatternMethod sp pat name annotationTy expectedTy = do
+  resolution <- requiredPatternResolution name pat
+  (actualTy, typeArgs, methodCts) <- inferResolvedPatternMethod sp name resolution
+  methodEq <- wantedMethodEq sp name actualTy expectedTy
+  pure
+    ( pendingAnnotation
+        annotationTy
+        typeArgs
+        (map ctEvVar methodCts)
+        [],
+      methodCts <> [methodEq]
+    )
 
 integerTy :: TcType
 integerTy = TcTyCon (TyCon "Integer" 0) []

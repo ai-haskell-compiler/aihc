@@ -1,0 +1,43 @@
+extensions:
+  - MagicHash
+  - RebindableSyntax
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE MagicHash, RebindableSyntax #-}
+    module Test where
+
+    data Bool = False | True
+    data Tag = Positive | Negative
+    data Integer = IS Int#
+
+    class Num a where
+      fromInteger :: Integer -> a
+
+    instance Num Tag where
+      fromInteger _ = Positive
+
+    class Neg a where
+      negate :: a -> a
+
+    instance Neg Tag where
+      negate Positive = Negative
+      negate Negative = Positive
+
+    class Eq a where
+      (==) :: a -> a -> Bool
+
+    instance Eq Tag where
+      Positive == Positive = True
+      Negative == Negative = True
+      _ == _ = False
+
+    matches :: Tag -> Bool
+    matches (-1) = True
+    matches _ = False
+output: |
+  True
+expression: |
+  matches Negative
+status: pass
+reason: RebindableSyntax resolves fromInteger, negate, and equality for negative patterns

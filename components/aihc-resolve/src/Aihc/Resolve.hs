@@ -679,9 +679,12 @@ annotateIntegerPatternLiteral pat lit =
   case peelLiteralAnn lit of
     LitInt _ TInteger _ -> do
       sp <- literalSpan <$> currentSpan <*> pure lit
-      fromIntegerAnn <- syntaxTermAnnotation sp "fromInteger"
-      eqAnn <- syntaxTermAnnotation sp "=="
-      pure (PAnn (mkAnnotation fromIntegerAnn) (PAnn (mkAnnotation eqAnn) pat))
+      let methodNames =
+            case peelPatternAnn pat of
+              PNegLit {} -> ["fromInteger", "negate", "=="]
+              _ -> ["fromInteger", "=="]
+      methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
+      pure (foldr (PAnn . mkAnnotation) pat methodAnns)
     _ -> pure pat
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan

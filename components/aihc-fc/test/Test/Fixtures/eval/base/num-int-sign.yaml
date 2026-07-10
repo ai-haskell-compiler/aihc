@@ -1,0 +1,15 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    values :: ((Int, Int), Int)
+    values = ((abs (negate 1), signum 0), signum (negate 1))
+output: |
+  (((I# 1),(I# 0)),(I# -1))
+expression: |
+  values
+status: pass
+reason: Num Int implements abs and signum for negative and zero values

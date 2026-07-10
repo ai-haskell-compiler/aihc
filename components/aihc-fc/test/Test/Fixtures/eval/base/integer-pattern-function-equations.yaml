@@ -1,0 +1,16 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    isOne :: Int -> Bool
+    isOne 1 = True
+    isOne _ = False
+output: |
+  (True,False)
+expression: |
+  (isOne 1, isOne 2)
+status: pass
+reason: function equations match boxed overloaded integer patterns in source order

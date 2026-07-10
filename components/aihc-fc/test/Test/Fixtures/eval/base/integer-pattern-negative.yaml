@@ -1,0 +1,16 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    isNegativeOne :: Int -> Bool
+    isNegativeOne (-1) = True
+    isNegativeOne _ = False
+output: |
+  (True,False)
+expression: |
+  (isNegativeOne (negate 1), isNegativeOne 1)
+status: pass
+reason: negative integer patterns compare against negate applied to fromInteger
