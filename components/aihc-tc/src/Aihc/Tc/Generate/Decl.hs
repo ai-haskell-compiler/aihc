@@ -1105,11 +1105,10 @@ registerClassDecl classDecl = do
         tciTyCon = TyCon className (length params),
         tciKind = classKind
       }
-  superPreds <- concat <$> traverse (mapM (surfacePredToPred paramTvEnv)) (maybeToList (classDeclContext classDecl))
-  concat <$> mapM (registerClassItem classPred superPreds paramTvEnv paramTyVars) (classDeclItems classDecl)
+  concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
 
-registerClassItem :: Pred -> [Pred] -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
-registerClassItem classPred superPreds classTvEnv classTyVars item =
+registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
+registerClassItem classPred classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemTypeSig names ty -> do
       let (context, body) = splitContext ty
@@ -1120,7 +1119,7 @@ registerClassItem classPred superPreds classTvEnv classTyVars item =
       let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
       methodBody <- checkSurfaceType tvEnv body KType
       contextPreds <- mapM (surfacePredToPred tvEnv) context
-      let preds = classPred : superPreds <> contextPreds
+      let preds = classPred : contextPreds
           scheme = ForAll (classTyVars <> extraTyVars) preds methodBody
           declaredTy = schemeToType scheme
       mapM

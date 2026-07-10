@@ -1,0 +1,59 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  data Type
+       └─ type: *
+  data Bool = False | True
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
+
+  class Applicative (m :: Type -> Type) where
+  └─ class methods: pure ∷ ∀ m a. (Applicative m) ⇒ a → m a
+    pure :: a -> m a
+
+  class Applicative m => Monad (m :: Type -> Type) where
+  └─ class methods: =<< ∷ ∀ m a b. (Monad m) ⇒ (a → m b) → m a → m b, return ∷ ∀ m a. (Monad m) ⇒ a → m a
+    (=<<) :: (a -> m b) -> m a -> m b
+    return :: a -> m a
+
+  almostFixM :: Monad m => m Bool -> (a -> m a) -> a -> m a
+  almostFixM p f x = do
+  │          │ │ │   └─ type: m a
+  │          │ │ └─ type: a
+  │          │ └─ type: a → m a
+  │          └─ type: m Bool
+  └─ type: ∀ m a. (Monad m) ⇒ m Bool → (a → m a) → a → m a
+    p' <- p
+    └─ type: Bool
+    if p' then almostFixM p f =<< f x
+               │              └─ type: (a → m a) → m a → m a; type-args: m, a, a; evidence: given Monad m
+               └─ type: m Bool → (a → m a) → a → m a; type-args: m, a; evidence: given Monad m
+          else return x
+               └─ type: a → m a; type-args: m, a; evidence: given Monad m
+extensions:
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+
+  data Type
+  data Bool = False | True
+
+  class Applicative (m :: Type -> Type) where
+    pure :: a -> m a
+
+  class Applicative m => Monad (m :: Type -> Type) where
+    (=<<) :: (a -> m b) -> m a -> m b
+    return :: a -> m a
+
+  almostFixM :: Monad m => m Bool -> (a -> m a) -> a -> m a
+  almostFixM p f x = do
+    p' <- p
+    if p' then almostFixM p f =<< f x
+          else return x
+reason: ordinary do notation preserves the monad constructor across bind statements
+status: pass

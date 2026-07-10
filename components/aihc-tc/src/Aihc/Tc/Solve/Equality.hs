@@ -63,6 +63,11 @@ solveEq ct t1 t2 = case (t1, t2) of
   (TcTyCon tc args, TcAppTy f a)
     | not (null args) ->
         solveDecomposed ct t1 [(TcTyCon tc (init args), f), (last args, a)]
+  -- Same type-application shape. This is also needed when solving wanted
+  -- equalities inside an implication, where canonicalization does not first
+  -- decompose the application for us.
+  (TcAppTy f1 a1, TcAppTy f2 a2) ->
+    solveDecomposed ct t1 [(f1, f2), (a1, a2)]
   -- Incompatible types.
   _ -> pure (EqError ct)
 
