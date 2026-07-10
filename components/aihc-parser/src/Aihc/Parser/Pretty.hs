@@ -1142,7 +1142,7 @@ prettyConstructorUName name
 -- nodes in the correct positions (inserted by 'addExprParens').
 --
 -- >>> let expr = EApp (EVar "f") (EParen (EInfix (EVar "x") "+" (EVar "y"))) in (renderDoc (prettyExpr expr), show (shorthand expr))
--- ("f\n  (x\n  + y)","EApp (EVar \"f\") (EParen (EInfix (EVar \"x\") \"+\" (EVar \"y\")))")
+-- ("f\n  (x\n   + y)","EApp (EVar \"f\") (EParen (EInfix (EVar \"x\") \"+\" (EVar \"y\")))")
 prettyExpr :: Expr -> Doc ann
 prettyExpr expr =
   case expr of
