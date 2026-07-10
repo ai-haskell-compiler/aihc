@@ -40,6 +40,7 @@ import Aihc.Tc
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    renderTcSignature,
     renderTcType,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -107,6 +108,13 @@ data ReplStep
   | ReplExit !(Maybe String)
   deriving (Eq, Show)
 
+data CheckedExpression = CheckedExpression
+  { checkedExpr :: !Expr,
+    checkedResolvedModule :: !Module,
+    checkedTcModule :: !Module,
+    checkedType :: !TcType
+  }
+
 runRepl :: Maybe FilePath -> IO ()
 runRepl maybeStoreRoot = do
   session <- loadReplSession maybeStoreRoot
@@ -151,6 +159,8 @@ handleReplInput session input =
         ":?" -> pure (ReplContinue (Just helpText))
         ":set" -> ReplContinue . Just . renderReplSettings <$> readIORef (replSettings session)
         _ | Just command <- stripPrefix ":set " trimmedInput -> handleSetCommand session command
+        _ | Just expression <- replCommandArgument ":type" trimmedInput -> handleTypeCommand session expression
+        _ | Just expression <- replCommandArgument ":t" trimmedInput -> handleTypeCommand session expression
         command@(':' : _) -> pure (ReplContinue (Just ("unknown command: " <> command)))
         _ -> do
           result <- evaluateExpression session (T.pack trimmedInput)
@@ -160,28 +170,12 @@ evaluateExpression :: ReplSession -> Text -> IO (Either ReplError Text)
 evaluateExpression session input = do
   settings <- readIORef (replSettings session)
   pure $ do
-    expr <-
-      case parseExpr defaultConfig {parserSourceName = "<repl>"} input of
-        ParseOk parsed -> Right parsed
-        ParseErr _ -> Left ReplParseError
-    let parsedModule = replModule expr
-        resolved = resolveWithDeps (replModuleExports session) [parsedModule]
-    case resolveErrors resolved of
-      [] -> pure ()
-      errors -> Left (ReplResolveError errors)
-    resolvedModule <-
-      case resolvedModules resolved of
-        [modu] -> Right modu
-        _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
-    let tcResult = typecheckModuleWithEnv (replImportedTerms session) resolvedModule
-    if tcModuleSuccess tcResult
-      then pure ()
-      else Left (ReplTypeError (map show (tcModuleDiagnostics tcResult)))
-    inferredType <-
-      case find ((== replBindingName) . tbName) (tcModuleBindings tcResult) of
-        Just binding -> Right (tbType binding)
-        Nothing -> Left (ReplTypeError ["missing inferred type for " <> T.unpack replBindingName])
-    let allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
+    checked <- typecheckExpression session input
+    let expr = checkedExpr checked
+        resolvedModule = checkedResolvedModule checked
+        tcResult = checkedTcModule checked
+        inferredType = checkedType checked
+        allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
         dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
     if dsSuccess dsResult
       then pure ()
@@ -189,6 +183,52 @@ evaluateExpression session input = do
     value <- mapLeft (ReplEvalError . show) (evalProgramBinding replBindingName (concatPrograms [replDependencyProgram session, dsProgram dsResult]))
     renderedValue <- mapLeft (ReplEvalError . show) (renderValue value)
     Right (renderEvaluation settings expr inferredType dsResult renderedValue)
+
+typecheckExpression :: ReplSession -> Text -> Either ReplError CheckedExpression
+typecheckExpression session input = do
+  expr <-
+    case parseExpr defaultConfig {parserSourceName = "<repl>"} input of
+      ParseOk parsed -> Right parsed
+      ParseErr _ -> Left ReplParseError
+  let parsedModule = replModule expr
+      resolved = resolveWithDeps (replModuleExports session) [parsedModule]
+  case resolveErrors resolved of
+    [] -> pure ()
+    errors -> Left (ReplResolveError errors)
+  resolvedModule <-
+    case resolvedModules resolved of
+      [modu] -> Right modu
+      _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
+  let tcResult = typecheckModuleWithEnv (replImportedTerms session) resolvedModule
+  if tcModuleSuccess tcResult
+    then pure ()
+    else Left (ReplTypeError (map show (tcModuleDiagnostics tcResult)))
+  inferredType <-
+    case find ((== replBindingName) . tbName) (tcModuleBindings tcResult) of
+      Just binding -> Right (tbType binding)
+      Nothing -> Left (ReplTypeError ["missing inferred type for " <> T.unpack replBindingName])
+  Right
+    CheckedExpression
+      { checkedExpr = expr,
+        checkedResolvedModule = resolvedModule,
+        checkedTcModule = tcResult,
+        checkedType = inferredType
+      }
+
+handleTypeCommand :: ReplSession -> String -> IO ReplStep
+handleTypeCommand session expression =
+  pure . ReplContinue . Just $
+    case typecheckExpression session (T.pack expression) of
+      Left err -> renderReplError err
+      Right checked -> renderTcSignature (T.pack expression) (checkedType checked)
+
+replCommandArgument :: String -> String -> Maybe String
+replCommandArgument command input =
+  case stripPrefix command input of
+    Just "" -> Just ""
+    Just rest@(first : _)
+      | isSpace first -> Just (trim rest)
+    _ -> Nothing
 
 handleSetCommand :: ReplSession -> String -> IO ReplStep
 handleSetCommand session rawCommand =
@@ -310,7 +350,8 @@ helpText =
   unlines
     [ "Commands:",
       "  :quit, :q  Exit the REPL",
-      "  :help, :?  Show this help"
+      "  :help, :?  Show this help",
+      "  :type, :t  Show an expression's type"
     ]
 
 trim :: String -> String
