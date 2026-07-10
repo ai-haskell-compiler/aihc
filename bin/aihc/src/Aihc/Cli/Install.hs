@@ -21,7 +21,7 @@ module Aihc.Cli.Install
     defaultStoreRoot,
     dryRunInstallScaffold,
     installFailureIsForPackage,
-    lookupPackagePlanSourceFileCount,
+    lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,
     packagePlanFailureShouldBeReportedForPackage,
@@ -204,6 +204,7 @@ data SourceAnalysis = SourceAnalysis
     sourceSetupFile :: !(Maybe FilePath),
     sourceSetupBytes :: !BS.ByteString,
     sourceFileCount :: !Int,
+    sourceLineCount :: !Int,
     sourceFlagAssignments :: ![(String, Bool)],
     sourceDependencyNames :: ![String]
   }
@@ -266,7 +267,7 @@ newtype PackageCheckCache
 -- | Concurrent plan cache. A cache belongs to one resolver and store root.
 data PackagePlanCache = PackagePlanCache
   { packagePlanEntries :: !(MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan))))),
-    packagePlanSourceFileCounts :: !(MVar (Map.Map (Bool, String, String) Int))
+    packagePlanSourceLineCounts :: !(MVar (Map.Map (Bool, String, String) Int))
   }
 
 instance ToJSON ArtifactManifest where
@@ -379,9 +380,9 @@ buildPackagePlanWithResolver resolver storeRoot spec = do
 newPackagePlanCache :: IO PackagePlanCache
 newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty <*> newMVar Map.empty
 
-lookupPackagePlanSourceFileCount :: PackagePlanCache -> PackageSpec -> IO (Maybe Int)
-lookupPackagePlanSourceFileCount cache rawSpec = do
-  counts <- readMVar (packagePlanSourceFileCounts cache)
+lookupPackagePlanSourceLineCount :: PackagePlanCache -> PackageSpec -> IO (Maybe Int)
+lookupPackagePlanSourceLineCount cache rawSpec = do
+  counts <- readMVar (packagePlanSourceLineCounts cache)
   pure (Map.lookup (False, pkgName spec, pkgVersion spec) counts)
   where
     spec = canonicalPackageSpec rawSpec
@@ -409,7 +410,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
       withPackagePlanFailure spec $ do
         sourcePath <- sourcePathForSpec resolver spec
         analysis <- analyzeSourceWith mode sourcePath
-        recordPackagePlanSourceFileCount cache mode spec (sourceFileCount analysis)
+        recordPackagePlanSourceLineCount cache mode spec (sourceLineCount analysis)
         dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
         dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
         let plan =
@@ -453,9 +454,9 @@ buildPackagePlanCached cache mode spec action = mask $ \restore -> do
     entries = packagePlanEntries cache
     cacheKey = (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec)
 
-recordPackagePlanSourceFileCount :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> Int -> IO ()
-recordPackagePlanSourceFileCount cache mode spec count =
-  modifyMVar_ (packagePlanSourceFileCounts cache) $ \counts ->
+recordPackagePlanSourceLineCount :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> Int -> IO ()
+recordPackagePlanSourceLineCount cache mode spec count =
+  modifyMVar_ (packagePlanSourceLineCounts cache) $ \counts ->
     pure (Map.insert (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec) count counts)
 
 withPackagePlanFailure :: PackageSpec -> IO a -> IO a
@@ -626,7 +627,7 @@ analyzeSourceWith mode sourcePath = do
     case runParseResult (parseGenericPackageDescription cabalBytes) of
       (_, Right parsed) -> pure parsed
       (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-  sourceFileCount <- analyzeSourceFileCount mode gpd sourcePath
+  (sourceFileCount, sourceLineCount) <- analyzeSourceMetrics mode gpd sourcePath
   setupFile <- findSetupFile sourcePath
   setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
   pure
@@ -636,15 +637,22 @@ analyzeSourceWith mode sourcePath = do
         sourceSetupFile = setupFile,
         sourceSetupBytes = setupBytes,
         sourceFileCount = sourceFileCount,
+        sourceLineCount = sourceLineCount,
         sourceFlagAssignments = packageFlagAssignments gpd,
         sourceDependencyNames = packageDependencyNames gpd
       }
 
-analyzeSourceFileCount :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO Int
-analyzeSourceFileCount mode gpd sourcePath =
+analyzeSourceMetrics :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO (Int, Int)
+analyzeSourceMetrics mode gpd sourcePath =
   case mode of
-    AllowSourceWrites -> length <$> HackageCabal.collectLibraryFiles gpd sourcePath
-    AvoidSourceWrites -> pure 0
+    AllowSourceWrites -> do
+      files <- HackageCabal.collectLibraryFiles gpd sourcePath
+      lineCount <- sum <$> mapM fileLineCount files
+      pure (length files, lineCount)
+    AvoidSourceWrites -> pure (0, 0)
+  where
+    fileLineCount fileInfo =
+      length . T.lines <$> HackageUtil.readTextFileLenient (HackageCabal.fileInfoPath fileInfo)
 
 writeInstallScaffold :: PackagePlan -> IO (Either InstallFailure InstallResult)
 writeInstallScaffold plan = do

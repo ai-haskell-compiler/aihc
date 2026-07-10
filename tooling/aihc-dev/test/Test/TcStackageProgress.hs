@@ -89,9 +89,9 @@ test_skipsSourceDownloadFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, sourceFileCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, lineCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
 
-    assertEqual "source file count" 0 sourceFileCount
+    assertEqual "source line count" 0 lineCount
     assertSkipped status
 
 test_skipsDependencyPlanningFailure :: IO ()
@@ -112,9 +112,9 @@ test_skipsDependencyPlanningFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, sourceFileCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, lineCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
 
-    assertEqual "source file count" 1 sourceFileCount
+    assertEqual "source line count" 2 lineCount
     assertSkipped status
 
 test_skipsDependencyCheckFailure :: IO ()

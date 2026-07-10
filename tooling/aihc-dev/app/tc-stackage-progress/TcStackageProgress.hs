@@ -22,7 +22,7 @@ import Aihc.Cli.Install
     checkPackagePlanWithCache,
     defaultStoreRoot,
     installFailureIsForPackage,
-    lookupPackagePlanSourceFileCount,
+    lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,
     packagePlanFailureShouldBeReportedForPackage,
@@ -200,22 +200,22 @@ checkOnePackage planCache checkCache resolver storeRoot spec = do
     plan <- buildPackagePlanWithResolverCached planCache resolver storeRoot spec
     checkResult <- checkPackagePlanWithCache checkCache plan
     pure (plan, checkResult)
+  lineCount <- fromMaybe 0 <$> lookupPackagePlanSourceLineCount planCache spec
   case result of
     Left (err :: SomeException) -> do
-      sourceFileCount <- fromMaybe 0 <$> lookupPackagePlanSourceFileCount planCache spec
       let status =
             if packagePlanFailureShouldBeReportedForPackage spec err
               then RSP.PkgFailed (displayException err)
               else RSP.PkgSkipped
-      pure (status, sourceFileCount)
+      pure (status, lineCount)
     Right (plan, Left failure) ->
       let rootSpec = packageKeySpec (planPackageKey plan)
           status =
             if installFailureIsForPackage rootSpec failure
               then RSP.PkgFailed (renderInstallFailure failure)
               else RSP.PkgSkipped
-       in pure (status, planSourceFileCount plan)
-    Right (plan, Right _) -> pure (RSP.PkgSuccess Map.empty, planSourceFileCount plan)
+       in pure (status, lineCount)
+    Right (_, Right _) -> pure (RSP.PkgSuccess Map.empty, lineCount)
 
 reportResults :: Int -> Map Text (RSP.PackageStatus, Int) -> IO ()
 reportResults topN resultsWithSizes = do
@@ -238,7 +238,7 @@ reportResults topN resultsWithSizes = do
   if countTypechecked counts == countTotal counts then exitSuccess else exitFailure
   where
     printFailure (pkg, lineCount, msg) = do
-      putStrLn $ "  " ++ T.unpack pkg ++ " (" ++ show lineCount ++ " files):"
+      putStrLn $ "  " ++ T.unpack pkg ++ " (" ++ show lineCount ++ " lines):"
       mapM_ (\line -> putStrLn ("    " ++ line)) (take 5 (lines msg))
 
 pct :: Int -> Int -> Int
