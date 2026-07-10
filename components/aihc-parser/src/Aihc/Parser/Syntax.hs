@@ -160,18 +160,19 @@ module Aihc.Parser.Syntax
 where
 
 import Control.DeepSeq (NFData (..))
+import Data.Bits (setBit, testBit)
 import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
-import Data.IntSet (IntSet)
-import Data.IntSet qualified as IntSet
 import Data.List (sort)
+import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (cast)
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 
 -- | A @LANGUAGE@ pragma name.
@@ -338,17 +339,28 @@ data Extension
   | XmlSyntax
   deriving (Data, Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
 
-newtype ExtensionSet = ExtensionSet IntSet
+data ExtensionSet = ExtensionSet !Word64 !Word64 !Word64
   deriving stock (Eq, Show, Generic)
   deriving anyclass (NFData)
 
 mkExtensionSet :: [Extension] -> ExtensionSet
-mkExtensionSet =
-  ExtensionSet . IntSet.fromList . map fromEnum
+mkExtensionSet = List.foldl' insertExtension (ExtensionSet 0 0 0)
+  where
+    insertExtension (ExtensionSet low middle high) ext =
+      case fromEnum ext `quotRem` 64 of
+        (0, bit) -> ExtensionSet (setBit low bit) middle high
+        (1, bit) -> ExtensionSet low (setBit middle bit) high
+        (2, bit) -> ExtensionSet low middle (setBit high bit)
+        _ -> error "mkExtensionSet: extension enum exceeds bitset capacity"
 
 memberExtension :: Extension -> ExtensionSet -> Bool
-memberExtension ext (ExtensionSet exts) =
-  IntSet.member (fromEnum ext) exts
+memberExtension ext (ExtensionSet low middle high) =
+  case fromEnum ext `quotRem` 64 of
+    (0, bit) -> testBit low bit
+    (1, bit) -> testBit middle bit
+    (2, bit) -> testBit high bit
+    _ -> False
+{-# INLINE memberExtension #-}
 
 -- | A single @LANGUAGE@ pragma entry.
 -- Examples: @EnableExtension LambdaCase@ for @{-# LANGUAGE LambdaCase #-}@ and

@@ -219,6 +219,7 @@ newtype LexerEnv = LexerEnv
 
 hasExt :: Extension -> LexerEnv -> Bool
 hasExt ext env = memberExtension ext (lexerExtensions env)
+{-# INLINE hasExt #-}
 
 data LexerState = LexerState
   { lexerInput :: !Text,
