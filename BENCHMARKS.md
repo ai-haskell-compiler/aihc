@@ -20,7 +20,7 @@ Parser input is preprocessed with `aihc-cpp` before measurement. GHC is the base
 | Parser | Relative Speed |
 | --- | ---: |
 | GHC (`ghc-lib-parser`) | `1.00x` |
-| AIHC | `0.84x` |
+| AIHC | `1.01x` |
 
 ## CPP Performance
 

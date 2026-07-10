@@ -81,14 +81,15 @@ mkFoundToken tok =
 data TokStream = TokStream
   { -- | Shared lazy list of raw tokens (never re-scanned on backtrack).
     tokStreamRawTokens :: [LexToken],
-    -- | Layout engine state (context stack, pending layout, buffer).
+    -- | Layout engine state (context stack and pending layout).
     tokStreamLayoutState :: LayoutState,
+    -- | Tokens ready for the parser, including virtual layout tokens.
+    tokStreamBuffer :: [LexToken],
     -- | Hidden pragmas that appeared before the next source token.
     -- Parsers may inspect these explicitly, but they never participate in the
     -- ordinary token stream.
     tokStreamPendingPragmas :: [Pragma],
     tokStreamPrevToken :: Maybe LexToken,
-    tokStreamExtensions :: [Extension],
     tokStreamExtensionSet :: ExtensionSet,
     -- | Whether this stream has already emitted TkEOF.
     -- After EOF is emitted, 'take1_' returns Nothing.
@@ -119,8 +120,8 @@ instance Show TokStream where
       <> show (length (tokStreamPendingPragmas ts))
       <> ", prevToken = "
       <> show (tokStreamPrevToken ts)
-      <> ", extensions = "
-      <> show (tokStreamExtensions ts)
+      <> ", extensionSet = "
+      <> show (tokStreamExtensionSet ts)
       <> " }"
 
 -- Manual NFData instance — don't force the lazy raw token list.
@@ -128,9 +129,8 @@ instance NFData TokStream where
   rnf ts =
     rnf (tokStreamPendingPragmas ts) `seq`
       rnf (tokStreamPrevToken ts) `seq`
-        rnf (tokStreamExtensions ts) `seq`
-          rnf (tokStreamExtensionSet ts) `seq`
-            rnf (tokStreamEOFEmitted ts)
+        rnf (tokStreamExtensionSet ts) `seq`
+          rnf (tokStreamEOFEmitted ts)
 
 -- | Create a TokStream for parsing expressions/declarations (no module layout).
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
@@ -140,9 +140,9 @@ mkTokStream sourceName exts input =
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
             tokStreamLayoutState = mkInitialLayoutState False exts,
+            tokStreamBuffer = [],
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
-            tokStreamExtensions = exts,
             tokStreamExtensionSet = mkExtensionSet exts,
             tokStreamEOFEmitted = False
           }
@@ -156,9 +156,9 @@ mkTokStreamModule sourceName baseExts input =
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
             tokStreamLayoutState = mkInitialLayoutState True effectiveExts,
+            tokStreamBuffer = [],
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
-            tokStreamExtensions = effectiveExts,
             tokStreamExtensionSet = mkExtensionSet effectiveExts,
             tokStreamEOFEmitted = False
           }
@@ -174,58 +174,62 @@ mkTokStreamFromTokens toks =
    in normalizeTokStream
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
-            tokStreamLayoutState =
-              (mkInitialLayoutState False [])
-                { layoutBuffer = toks
-                },
+            tokStreamLayoutState = mkInitialLayoutState False [],
+            tokStreamBuffer = toks,
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
-            tokStreamExtensions = [],
             tokStreamExtensionSet = mkExtensionSet [],
             tokStreamEOFEmitted = False
           }
 
-pragmaFromToken :: LexToken -> Maybe Pragma
-pragmaFromToken tok =
-  case lexTokenKind tok of
-    TkPragma pragma' -> Just pragma'
-    _ -> Nothing
-
-isHiddenToken :: LexToken -> Bool
-isHiddenToken tok =
-  case lexTokenKind tok of
-    TkPragma _ -> True
-    TkLineComment -> True
-    TkBlockComment -> True
-    _ -> False
-
 normalizeTokStream :: TokStream -> TokStream
 normalizeTokStream ts0
   | tokStreamEOFEmitted ts0 = ts0
-  | otherwise = go ts0
+  | otherwise =
+      normalizeTokStreamParts
+        (tokStreamRawTokens ts0)
+        (tokStreamLayoutState ts0)
+        (tokStreamBuffer ts0)
+        (tokStreamPendingPragmas ts0)
+        (tokStreamPrevToken ts0)
+        (tokStreamExtensionSet ts0)
+        False
+
+-- | Advance through layout and hidden tokens until the stream is ready for
+-- 'stepOne'. Keeping the stream fields separate lets a token step normalize
+-- its successor without first allocating an intermediate 'TokStream'.
+normalizeTokStreamParts :: [LexToken] -> LayoutState -> [LexToken] -> [Pragma] -> Maybe LexToken -> ExtensionSet -> Bool -> TokStream
+normalizeTokStreamParts rawTokens layoutState buffer pendingPragmas prevToken extensionSet eofEmitted
+  | eofEmitted = finish rawTokens layoutState buffer pendingPragmas
+  | otherwise = go rawTokens layoutState buffer pendingPragmas
   where
-    go ts =
-      case layoutBuffer (tokStreamLayoutState ts) of
-        tok : rest
-          | Just pragma' <- pragmaFromToken tok ->
-              go
-                ts
-                  { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest},
-                    tokStreamPendingPragmas = tokStreamPendingPragmas ts <> [pragma']
-                  }
-          | isHiddenToken tok ->
-              go
-                ts
-                  { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest}
-                  }
-          | otherwise -> ts
+    finish rawTokens' layoutState' buffer' pendingPragmas' =
+      TokStream
+        { tokStreamRawTokens = rawTokens',
+          tokStreamLayoutState = layoutState',
+          tokStreamBuffer = buffer',
+          tokStreamPendingPragmas = pendingPragmas',
+          tokStreamPrevToken = prevToken,
+          tokStreamExtensionSet = extensionSet,
+          tokStreamEOFEmitted = eofEmitted
+        }
+
+    go rawTokens' layoutState' buffer' pendingPragmas' =
+      case buffer' of
+        tok : rest ->
+          case lexTokenKind tok of
+            TkPragma pragma' ->
+              go rawTokens' layoutState' rest (pendingPragmas' <> [pragma'])
+            TkLineComment -> go rawTokens' layoutState' rest pendingPragmas'
+            TkBlockComment -> go rawTokens' layoutState' rest pendingPragmas'
+            _ -> finish rawTokens' layoutState' buffer' pendingPragmas'
         [] ->
-          case tokStreamRawTokens ts of
-            [] -> ts
+          case rawTokens' of
+            [] -> finish [] layoutState' [] pendingPragmas'
             rawTok : rawRest ->
-              let (allToks, laySt') = layoutTransition (tokStreamLayoutState ts) rawTok
-                  laySt'' = laySt' {layoutBuffer = allToks}
-               in go ts {tokStreamRawTokens = rawRest, tokStreamLayoutState = laySt''}
+              let (allToks, laySt') = layoutTransition layoutState' rawTok
+               in go rawRest laySt' allToks pendingPragmas'
+{-# INLINE normalizeTokStreamParts #-}
 
 -- | Step one token from the stream. This is the core primitive used by all
 -- Stream methods.
@@ -244,29 +248,33 @@ stepOne :: TokStream -> Maybe (LexToken, TokStream)
 stepOne ts
   | tokStreamEOFEmitted ts = Nothing
   | otherwise =
-      let ts0 = normalizeTokStream ts
-          laySt = tokStreamLayoutState ts0
-       in case layoutBuffer laySt of
-            -- Drain buffered tokens first (virtual braces/semicolons)
-            tok : rest ->
-              let isEOF = lexTokenKind tok == TkEOF
-                  pendingPragmas =
-                    case lexTokenOrigin tok of
-                      InsertedLayout -> tokStreamPendingPragmas ts0
-                      FromSource
-                        | lexTokenKind tok == TkSpecialSemicolon -> tokStreamPendingPragmas ts0
-                        | otherwise -> []
-                  ts' =
-                    ts0
-                      { tokStreamLayoutState = laySt {layoutBuffer = rest},
-                        tokStreamPendingPragmas = pendingPragmas,
-                        tokStreamPrevToken = Just tok,
-                        tokStreamEOFEmitted = isEOF
-                      }
-               in Just
-                    (tok, normalizeTokStream ts')
-            [] ->
-              Nothing
+      case tokStreamBuffer ts of
+        -- Drain buffered tokens first (virtual braces/semicolons)
+        tok : rest ->
+          let kind = lexTokenKind tok
+              isEOF = case kind of
+                TkEOF -> True
+                _ -> False
+              pendingPragmas =
+                case lexTokenOrigin tok of
+                  InsertedLayout -> tokStreamPendingPragmas ts
+                  FromSource
+                    | TkSpecialSemicolon <- kind -> tokStreamPendingPragmas ts
+                    | otherwise -> []
+           in Just
+                ( tok,
+                  normalizeTokStreamParts
+                    (tokStreamRawTokens ts)
+                    (tokStreamLayoutState ts)
+                    rest
+                    pendingPragmas
+                    (Just tok)
+                    (tokStreamExtensionSet ts)
+                    isEOF
+                )
+        [] ->
+          Nothing
+{-# INLINE stepOne #-}
 
 instance Stream TokStream where
   type Token TokStream = LexToken

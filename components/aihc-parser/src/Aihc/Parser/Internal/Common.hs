@@ -76,7 +76,7 @@ where
 
 import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken, tokStreamExtensionSet)
 import Control.Monad (guard)
 import Data.Char (isUpper)
 import Data.Functor (($>))
@@ -481,7 +481,7 @@ withSpan parser = do
 inputStartSpan :: TokStream -> SourceSpan
 inputStartSpan ts
   | tokStreamEOFEmitted ts = noSourceSpan
-  | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
+  | tok : _ <- tokStreamBuffer ts = lexTokenSpan tok
   | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
   | otherwise = noSourceSpan
 {-# INLINE inputStartSpan #-}
@@ -855,7 +855,8 @@ isConstructorIdentifier txt =
 
 isExtensionEnabled :: Extension -> TokParser Bool
 isExtensionEnabled ext =
-  memberExtension ext . tokStreamExtensionSet . MP.stateInput <$> MP.getParserState
+  memberExtension ext . tokStreamExtensionSet <$> MP.getInput
+{-# INLINE isExtensionEnabled #-}
 
 -- | Check whether any Template Haskell extension is enabled (quotes or full TH).
 thAnyEnabled :: TokParser Bool
@@ -902,7 +903,19 @@ closeImplicitLayout = do
   case closeImplicitLayoutContext (tokStreamLayoutState ts) of
     Nothing -> pure False
     Just laySt' -> do
-      MP.updateParserState (\s -> s {MP.stateInput = (MP.stateInput s) {tokStreamLayoutState = laySt'}})
+      let inserted = layoutBuffer laySt'
+          laySt'' = laySt' {layoutBuffer = []}
+      MP.updateParserState
+        ( \s ->
+            let input = MP.stateInput s
+             in s
+                  { MP.stateInput =
+                      input
+                        { tokStreamLayoutState = laySt'',
+                          tokStreamBuffer = inserted <> tokStreamBuffer input
+                        }
+                  }
+        )
       pure True
 
 -- | Like Megaparsec's 'MP.sepEndBy' but implements the parse-error rule for
