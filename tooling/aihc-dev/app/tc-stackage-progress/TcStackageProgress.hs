@@ -5,6 +5,7 @@ module TcStackageProgress
   ( Options (..),
     PackageCounts (..),
     optionsParser,
+    checkOnePackage,
     smallestFailingPackages,
     summarizePackageStatuses,
     run,
@@ -16,11 +17,15 @@ import Aihc.Cli.Install
     PackageCheckCache,
     PackagePlan (..),
     PackagePlanCache,
+    PackageVariantKey (..),
     buildPackagePlanWithResolverCached,
     checkPackagePlanWithCache,
     defaultStoreRoot,
+    installFailureIsForPackage,
+    lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,
+    packagePlanFailureShouldBeReportedForPackage,
     renderInstallFailure,
   )
 import Aihc.Hackage.Cabal qualified as HC
@@ -37,6 +42,7 @@ import Control.Monad qualified
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Conc (getNumProcessors)
@@ -194,10 +200,22 @@ checkOnePackage planCache checkCache resolver storeRoot spec = do
     plan <- buildPackagePlanWithResolverCached planCache resolver storeRoot spec
     checkResult <- checkPackagePlanWithCache checkCache plan
     pure (plan, checkResult)
-  pure $ case result of
-    Left (err :: SomeException) -> (RSP.PkgFailed (displayException err), 0)
-    Right (plan, Left failure) -> (RSP.PkgFailed (renderInstallFailure failure), planSourceFileCount plan)
-    Right (plan, Right _) -> (RSP.PkgSuccess Map.empty, planSourceFileCount plan)
+  lineCount <- fromMaybe 0 <$> lookupPackagePlanSourceLineCount planCache spec
+  case result of
+    Left (err :: SomeException) -> do
+      let status =
+            if packagePlanFailureShouldBeReportedForPackage spec err
+              then RSP.PkgFailed (displayException err)
+              else RSP.PkgSkipped
+      pure (status, lineCount)
+    Right (plan, Left failure) ->
+      let rootSpec = packageKeySpec (planPackageKey plan)
+          status =
+            if installFailureIsForPackage rootSpec failure
+              then RSP.PkgFailed (renderInstallFailure failure)
+              else RSP.PkgSkipped
+       in pure (status, lineCount)
+    Right (_, Right _) -> pure (RSP.PkgSuccess Map.empty, lineCount)
 
 reportResults :: Int -> Map Text (RSP.PackageStatus, Int) -> IO ()
 reportResults topN resultsWithSizes = do
@@ -207,7 +225,7 @@ reportResults topN resultsWithSizes = do
   putStrLn "Type checker results:"
   putStrLn $ "  Typechecked: " ++ show (countTypechecked counts) ++ " / " ++ show (countTotal counts) ++ " (" ++ show (pct (countTypechecked counts) (countTotal counts)) ++ "%)"
   putStrLn $ "  Failed:      " ++ show (countFailed counts) ++ " (parse, scope, type-check, or desugar errors)"
-  putStrLn $ "  Skipped:     " ++ show (countSkipped counts)
+  putStrLn $ "  Skipped:     " ++ show (countSkipped counts) ++ " (dependency failed)"
   let failures =
         take topN . sortOn (\(pkg, lineCount, msg) -> (lineCount, pkg, msg)) $
           [ (pkg, lineCount, msg)
@@ -220,7 +238,7 @@ reportResults topN resultsWithSizes = do
   if countTypechecked counts == countTotal counts then exitSuccess else exitFailure
   where
     printFailure (pkg, lineCount, msg) = do
-      putStrLn $ "  " ++ T.unpack pkg ++ " (" ++ show lineCount ++ " files):"
+      putStrLn $ "  " ++ T.unpack pkg ++ " (" ++ show lineCount ++ " lines):"
       mapM_ (\line -> putStrLn ("    " ++ line)) (take 5 (lines msg))
 
 pct :: Int -> Int -> Int

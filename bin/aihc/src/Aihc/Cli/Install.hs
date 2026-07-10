@@ -20,8 +20,11 @@ module Aihc.Cli.Install
     checkPackagePlanWithCache,
     defaultStoreRoot,
     dryRunInstallScaffold,
+    installFailureIsForPackage,
+    lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,
+    packagePlanFailureShouldBeReportedForPackage,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -80,8 +83,8 @@ import Aihc.Tc
     typecheckModulesWithEnv,
   )
 import Control.Applicative ((<|>))
-import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar)
-import Control.Exception (SomeException, evaluate, mask, throwIO, try)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
+import Control.Exception (AsyncException, Exception (..), SomeException, evaluate, fromException, mask, throwIO, try)
 import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.:), (.=))
 import Data.Aeson qualified as Aeson
@@ -102,7 +105,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
-import Distribution.PackageDescription (buildInfo, buildable, condExecutables, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo)
+import Distribution.Package qualified as CabalPackage
+import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
@@ -200,6 +204,7 @@ data SourceAnalysis = SourceAnalysis
     sourceSetupFile :: !(Maybe FilePath),
     sourceSetupBytes :: !BS.ByteString,
     sourceFileCount :: !Int,
+    sourceLineCount :: !Int,
     sourceFlagAssignments :: ![(String, Bool)],
     sourceDependencyNames :: ![String]
   }
@@ -208,6 +213,19 @@ data SourceAnalysisMode
   = AllowSourceWrites
   | AvoidSourceWrites
   deriving (Eq)
+
+data PackagePlanFailureDisposition
+  = ReportPackagePlanFailure
+  | SkipPackagePlanFailure
+  deriving (Eq)
+
+data PackagePlanFailure = PackagePlanFailure !PackagePlanFailureDisposition !PackageSpec !SomeException
+
+instance Show PackagePlanFailure where
+  show (PackagePlanFailure _ _ cause) = displayException cause
+
+instance Exception PackagePlanFailure where
+  displayException (PackagePlanFailure _ _ cause) = displayException cause
 
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
@@ -247,9 +265,10 @@ newtype PackageCheckCache
       (MVar (Map.Map String (MVar (Either SomeException (Either InstallFailure PreparedInstall)))))
 
 -- | Concurrent plan cache. A cache belongs to one resolver and store root.
-newtype PackagePlanCache
-  = PackagePlanCache
-      (MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan)))))
+data PackagePlanCache = PackagePlanCache
+  { packagePlanEntries :: !(MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan))))),
+    packagePlanSourceLineCounts :: !(MVar (Map.Map (Bool, String, String) Int))
+  }
 
 instance ToJSON ArtifactManifest where
   toJSON manifest =
@@ -359,7 +378,14 @@ buildPackagePlanWithResolver resolver storeRoot spec = do
   buildPackagePlanWithResolverCached cache resolver storeRoot spec
 
 newPackagePlanCache :: IO PackagePlanCache
-newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty
+newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty <*> newMVar Map.empty
+
+lookupPackagePlanSourceLineCount :: PackagePlanCache -> PackageSpec -> IO (Maybe Int)
+lookupPackagePlanSourceLineCount cache rawSpec = do
+  counts <- readMVar (packagePlanSourceLineCounts cache)
+  pure (Map.lookup (False, pkgName spec, pkgVersion spec) counts)
+  where
+    spec = canonicalPackageSpec rawSpec
 
 -- | Build a package plan while sharing dependency work with other roots.
 buildPackagePlanWithResolverCached :: PackagePlanCache -> DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
@@ -374,28 +400,34 @@ buildDryRunPackagePlanWithResolver resolver storeRoot spec = do
 buildPackagePlanRecursive :: PackagePlanCache -> SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
 buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
-      ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
+      withSkippedPackagePlanFailure cycleSpec $
+        ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = buildPackagePlanCached cache mode spec build
   where
     spec = canonicalPackageSpec rawSpec
-    build = do
-      sourcePath <- sourcePathForSpec resolver spec
-      analysis <- analyzeSourceWith mode sourcePath
-      dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
-      dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
-      let plan =
-            buildPackagePlanFromAnalysis
-              storeRoot
-              spec
-              sourcePath
-              (map fst dependencyPlans)
-              (map snd dependencyPlans)
-              analysis
-      pure (resolvedDependencyFromPlan plan, plan)
+    cycleSpec = spec {pkgVersion = "cyclic-dependency"}
+    build =
+      withPackagePlanFailure spec $ do
+        sourcePath <- sourcePathForSpec resolver spec
+        analysis <- analyzeSourceWith mode sourcePath
+        recordPackagePlanSourceLineCount cache mode spec (sourceLineCount analysis)
+        dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
+        dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
+        let plan =
+              buildPackagePlanFromAnalysis
+                storeRoot
+                spec
+                sourcePath
+                (map fst dependencyPlans)
+                (map snd dependencyPlans)
+                analysis
+        pure (resolvedDependencyFromPlan plan, plan)
 
     resolveDependencySpec dependencyName = do
-      version <- resolveVersionForDependency dependencyName
+      version <- withSkippedPackagePlanFailure unresolvedSpec (resolveVersionForDependency dependencyName)
       pure (canonicalPackageSpec (PackageSpec dependencyName version))
+      where
+        unresolvedSpec = PackageSpec dependencyName "unresolved"
 
     resolveVersionForDependency dependencyName =
       case lookupCoreProvider dependencyName of
@@ -403,7 +435,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
         Nothing -> resolverResolveVersion resolver dependencyName
 
 buildPackagePlanCached :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> IO (ResolvedDependency, PackagePlan) -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanCached (PackagePlanCache entries) mode spec action = mask $ \restore -> do
+buildPackagePlanCached cache mode spec action = mask $ \restore -> do
   resultVar <- newEmptyMVar
   (isOwner, sharedResult) <-
     modifyMVar entries $ \current ->
@@ -419,13 +451,50 @@ buildPackagePlanCached (PackagePlanCache entries) mode spec action = mask $ \res
       result <- readMVar sharedResult
       either throwIO pure result
   where
+    entries = packagePlanEntries cache
     cacheKey = (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec)
+
+recordPackagePlanSourceLineCount :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> Int -> IO ()
+recordPackagePlanSourceLineCount cache mode spec count =
+  modifyMVar_ (packagePlanSourceLineCounts cache) $ \counts ->
+    pure (Map.insert (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec) count counts)
+
+withPackagePlanFailure :: PackageSpec -> IO a -> IO a
+withPackagePlanFailure = withPackagePlanFailureDisposition ReportPackagePlanFailure
+
+withSkippedPackagePlanFailure :: PackageSpec -> IO a -> IO a
+withSkippedPackagePlanFailure = withPackagePlanFailureDisposition SkipPackagePlanFailure
+
+withPackagePlanFailureDisposition :: PackagePlanFailureDisposition -> PackageSpec -> IO a -> IO a
+withPackagePlanFailureDisposition disposition spec action = do
+  result <- try action
+  case result of
+    Right value -> pure value
+    Left (err :: SomeException) ->
+      case fromException err of
+        Just (_ :: PackagePlanFailure) -> throwIO err
+        Nothing ->
+          case fromException err of
+            Just (_ :: AsyncException) -> throwIO err
+            Nothing -> throwIO (PackagePlanFailure disposition spec err)
+
+packagePlanFailureShouldBeReportedForPackage :: PackageSpec -> SomeException -> Bool
+packagePlanFailureShouldBeReportedForPackage rawSpec err =
+  case fromException err of
+    Just (PackagePlanFailure disposition failedSpec _) ->
+      disposition == ReportPackagePlanFailure
+        && packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
+    Nothing -> True
+
+installFailureIsForPackage :: PackageSpec -> InstallFailure -> Bool
+installFailureIsForPackage rawSpec (InstallInterfaceFailure failedSpec _) =
+  packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
 
 sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
   case lookupCoreProvider (pkgName spec) of
     Just provider -> coreProviderSourcePath provider
-    Nothing -> resolverSourcePath resolver spec
+    Nothing -> withSkippedPackagePlanFailure spec (resolverSourcePath resolver spec)
 
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
@@ -436,6 +505,7 @@ lookupCoreProvider name =
     "aihc-prim" -> Just aihcPrimProvider
     "ghc-internal" -> Just aihcInternalProvider
     "aihc-internal" -> Just aihcInternalProvider
+    "system-cxx-std-lib" -> Just systemCxxStdLibProvider
     _ -> Nothing
 
 canonicalPackageSpec :: PackageSpec -> PackageSpec
@@ -466,6 +536,14 @@ aihcInternalProvider =
     { coreProviderName = "aihc-internal",
       coreProviderVersion = "9.1204.0",
       coreProviderSourceRel = "core-libs" </> "aihc-internal"
+    }
+
+systemCxxStdLibProvider :: CoreProvider
+systemCxxStdLibProvider =
+  CoreProvider
+    { coreProviderName = "system-cxx-std-lib",
+      coreProviderVersion = "1.0",
+      coreProviderSourceRel = "core-libs" </> "system-cxx-std-lib"
     }
 
 coreProviderSourcePath :: CoreProvider -> IO FilePath
@@ -549,7 +627,7 @@ analyzeSourceWith mode sourcePath = do
     case runParseResult (parseGenericPackageDescription cabalBytes) of
       (_, Right parsed) -> pure parsed
       (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-  sourceFileCount <- analyzeSourceFileCount mode gpd sourcePath
+  (sourceFileCount, sourceLineCount) <- analyzeSourceMetrics mode gpd sourcePath
   setupFile <- findSetupFile sourcePath
   setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
   pure
@@ -559,15 +637,22 @@ analyzeSourceWith mode sourcePath = do
         sourceSetupFile = setupFile,
         sourceSetupBytes = setupBytes,
         sourceFileCount = sourceFileCount,
+        sourceLineCount = sourceLineCount,
         sourceFlagAssignments = packageFlagAssignments gpd,
         sourceDependencyNames = packageDependencyNames gpd
       }
 
-analyzeSourceFileCount :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO Int
-analyzeSourceFileCount mode gpd sourcePath =
+analyzeSourceMetrics :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO (Int, Int)
+analyzeSourceMetrics mode gpd sourcePath =
   case mode of
-    AllowSourceWrites -> length <$> HackageCabal.collectComponentFiles gpd sourcePath
-    AvoidSourceWrites -> pure 0
+    AllowSourceWrites -> do
+      files <- HackageCabal.collectLibraryFiles gpd sourcePath
+      lineCount <- sum <$> mapM fileLineCount files
+      pure (length files, lineCount)
+    AvoidSourceWrites -> pure (0, 0)
+  where
+    fileLineCount fileInfo =
+      length . T.lines <$> HackageUtil.readTextFileLenient (HackageCabal.fileInfoPath fileInfo)
 
 writeInstallScaffold :: PackagePlan -> IO (Either InstallFailure InstallResult)
 writeInstallScaffold plan = do
@@ -1192,7 +1277,7 @@ collectPlanFiles plan = do
     case runParseResult (parseGenericPackageDescription cabalBytes) of
       (_, Right parsed) -> pure parsed
       (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> planCabalFile plan <> ": " <> show errs))
-  HackageCabal.collectComponentFiles gpd (planSourcePath plan)
+  HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
 
 parseInterfaceFile :: FilePath -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot fileInfo = do
@@ -1609,23 +1694,20 @@ packageFlagAssignments gpd =
 
 packageDependencyNames :: GenericPackageDescription -> [String]
 packageDependencyNames gpd =
-  sort . nub . map T.unpack $
-    concatMap libraryDependencies libraryTrees
-      <> concatMap (executableDependencies . snd) (condExecutables gpd)
+  (sort . nub . map T.unpack)
+    ( concatMap
+        (filter (/= currentPackageName) . libraryDependencies)
+        libraryTrees
+    )
   where
     evalCond = HackageCabal.conditionEvaluator gpd
+    currentPackageName = T.pack . CabalPackage.unPackageName . CabalPackage.packageName . package $ packageDescription gpd
     libraryTrees =
       maybe [] pure (condLibrary gpd)
         <> map snd (condSubLibraries gpd)
 
     libraryDependencies tree =
       let build = HackageCabal.collectMergedBuildInfo evalCond libBuildInfo tree
-       in if buildable build
-            then HackageCabal.extractDependencies build
-            else []
-
-    executableDependencies tree =
-      let build = HackageCabal.collectMergedBuildInfo evalCond buildInfo tree
        in if buildable build
             then HackageCabal.extractDependencies build
             else []

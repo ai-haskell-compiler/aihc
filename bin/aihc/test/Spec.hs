@@ -156,6 +156,7 @@ main =
         "install"
         [ testCase "builds stable store paths" test_stableStorePath,
           testCase "recursive dependencies affect store paths" test_recursiveDependenciesAffectStorePaths,
+          testCase "plans library components without executables" test_plansLibraryComponentsWithoutExecutables,
           testCase "writes scaffold artifacts" test_writeInstallScaffold,
           testCase "writes dependency scaffold artifacts first" test_writeInstallScaffoldWritesDependencies,
           testCase "reports parse errors and writes no artifacts" test_reportsParseErrorsAndWritesNoArtifacts,
@@ -171,6 +172,7 @@ main =
           testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
           testCase "uses local provider for ghc-internal dependencies" test_usesLocalProviderForGhcInternal,
+          testCase "uses virtual provider for system-cxx-std-lib dependencies" test_usesVirtualProviderForSystemCxxStdLib,
           testCase "manifest records core provider dependency names" test_manifestRecordsCoreProviderDependencyNames,
           testCase "installs resolved base dependency closure" test_installsResolvedBaseDependencyClosure,
           testCase "dry run writes no scaffold artifacts" test_dryRunWritesNoScaffoldArtifacts,
@@ -277,6 +279,33 @@ test_recursiveDependenciesAffectStorePaths =
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
     assertBool "dependency variant should change store path" (planStorePath plan1 /= planStorePath plan2)
+
+test_plansLibraryComponentsWithoutExecutables :: Assertion
+test_plansLibraryComponentsWithoutExecutables =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        depRoot = root </> "dep"
+        storeRoot = root </> "store"
+    createDirectoryIfMissing True (sourceRoot </> "src")
+    createDirectoryIfMissing True (sourceRoot </> "internal" </> "Demo")
+    createDirectoryIfMissing True (sourceRoot </> "app")
+    createDirectoryIfMissing True storeRoot
+    writeFile (sourceRoot </> "demo.cabal") libraryOnlyInstallCabal
+    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Demo.Internal\nimport Dep\nx = depId internalValue\n"
+    writeFile (sourceRoot </> "internal" </> "Demo" </> "Internal.hs") "module Demo.Internal where\ninternalValue = ()\n"
+    writeFile (sourceRoot </> "app" </> "Main.hs") "module Main where\nthis executable is intentionally invalid\n"
+    createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\ndepId x = x\n"
+
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+
+    assertEqual "library source file count" 2 (planSourceFileCount plan)
+    assertEqual "external library dependencies" ["dep"] [pkgName (packageKeySpec (planPackageKey dependencyPlan)) | dependencyPlan <- planDependencyPlans plan]
+    _ <- expectInstallSuccess (checkPackagePlan plan)
+    pure ()
 
 test_writeInstallScaffold :: Assertion
 test_writeInstallScaffold =
@@ -577,6 +606,20 @@ test_usesLocalProviderForGhcInternal =
         (PackageSpec "demo" "0.1.0.0")
     assertDependencySpec plan (PackageSpec "aihc-internal" "9.1204.0")
 
+test_usesVirtualProviderForSystemCxxStdLib :: Assertion
+test_usesVirtualProviderForSystemCxxStdLib =
+  withCoreDependencyFixture "system-cxx-std-lib" $ \sourceRoot storeRoot -> do
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+    assertDependencySpec plan (PackageSpec "system-cxx-std-lib" "1.0")
+    dependencyPlan <- findPlanByName "system-cxx-std-lib" (planDependencyPlans plan)
+    assertEqual "virtual package source file count" 0 (planSourceFileCount dependencyPlan)
+    _ <- expectInstallSuccess (checkPackagePlan plan)
+    pure ()
+
 test_manifestRecordsCoreProviderDependencyNames :: Assertion
 test_manifestRecordsCoreProviderDependencyNames =
   withCoreDependencyFixture "ghc-prim" $ \sourceRoot storeRoot -> do
@@ -779,6 +822,10 @@ createCoreProviderFixtures root = do
     "aihc-internal"
     "9.1204.0"
     "GHC.Internal.Base"
+  createVirtualCoreProviderPackage
+    (root </> "core-libs" </> "system-cxx-std-lib")
+    "system-cxx-std-lib"
+    "1.0"
 
 createCoreProviderPackage :: FilePath -> String -> String -> String -> IO ()
 createCoreProviderPackage sourceRoot name version moduleName = do
@@ -790,6 +837,23 @@ createCoreProviderPackage sourceRoot name version moduleName = do
   where
     dotToSlash '.' = '/'
     dotToSlash c = c
+
+createVirtualCoreProviderPackage :: FilePath -> String -> String -> IO ()
+createVirtualCoreProviderPackage sourceRoot name version = do
+  createDirectoryIfMissing True sourceRoot
+  writeFile
+    (sourceRoot </> name <> ".cabal")
+    ( unlines
+        [ "cabal-version: 3.8",
+          "name: " <> name,
+          "version: " <> version,
+          "build-type: Simple",
+          "license: NONE",
+          "",
+          "library",
+          "  default-language: GHC2021"
+        ]
+    )
 
 fixtureCabal :: String -> String -> String -> [String] -> [String] -> String
 fixtureCabal name version moduleName otherModules dependencies =
@@ -817,6 +881,31 @@ demoCabal =
       "  exposed-modules: Demo",
       "  hs-source-dirs: src",
       "  build-depends: base >=4 && <5",
+      "  default-language: Haskell2010"
+    ]
+
+libraryOnlyInstallCabal :: String
+libraryOnlyInstallCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: demo",
+      "version: 0.1.0.0",
+      "",
+      "library demo-internal",
+      "  exposed-modules: Demo.Internal",
+      "  hs-source-dirs: internal",
+      "  default-language: Haskell2010",
+      "",
+      "library",
+      "  exposed-modules: Demo",
+      "  hs-source-dirs: src",
+      "  build-depends: demo-internal, dep",
+      "  default-language: Haskell2010",
+      "",
+      "executable demo-cli",
+      "  main-is: Main.hs",
+      "  hs-source-dirs: app",
+      "  build-depends: demo, executable-only-dependency",
       "  default-language: Haskell2010"
     ]
 

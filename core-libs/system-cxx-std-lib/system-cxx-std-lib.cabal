@@ -1,0 +1,9 @@
+cabal-version: 3.8
+name: system-cxx-std-lib
+version: 1.0
+build-type: Simple
+license: NONE
+synopsis: Virtual package representing the C++ standard library
+
+library
+  default-language: GHC2021
