@@ -74,12 +74,9 @@ scanMultilineString input = go 0 input
 -- We intentionally recognize string gaps here so a gap-closing backslash does
 -- not incorrectly escape the following quote.
 consumedEscapeTail :: Text -> Maybe Int
-consumedEscapeTail rest =
-  if T.null rest
-    then Nothing
-    else do
-      (_, rest') <- parseEscape rest
-      pure (T.length rest - T.length rest')
+consumedEscapeTail rest = do
+  (_, _, consumed) <- parseEscapeWithLength rest
+  pure consumed
 
 -- | Decode the body of a Haskell string literal (content between the quotes,
 -- without the surrounding @\"@ characters) natively on 'Text', avoiding the
@@ -107,60 +104,66 @@ isOctDigit :: Char -> Bool
 isOctDigit c = c >= '0' && c <= '7'
 
 parseEscape :: Text -> Maybe (Maybe Char, Text)
-parseEscape t = case T.uncons t of
+parseEscape = fmap (\(decoded, rest, _) -> (decoded, rest)) . parseEscapeWithLength
+
+parseEscapeWithLength :: Text -> Maybe (Maybe Char, Text, Int)
+parseEscapeWithLength t = case T.uncons t of
   Nothing -> Nothing
   Just (c, rest) -> case c of
-    'a' -> Just (Just '\a', rest)
-    'b' -> Just (Just '\b', rest)
-    'f' -> Just (Just '\f', rest)
-    'n' -> Just (Just '\n', rest)
-    'r' -> Just (Just '\r', rest)
-    't' -> Just (Just '\t', rest)
-    'v' -> Just (Just '\v', rest)
-    '\\' -> Just (Just '\\', rest)
-    '"' -> Just (Just '"', rest)
-    '\'' -> Just (Just '\'', rest)
-    '&' -> Just (Nothing, rest) -- empty escape
+    'a' -> consumedOne (Just '\a') rest
+    'b' -> consumedOne (Just '\b') rest
+    'f' -> consumedOne (Just '\f') rest
+    'n' -> consumedOne (Just '\n') rest
+    'r' -> consumedOne (Just '\r') rest
+    't' -> consumedOne (Just '\t') rest
+    'v' -> consumedOne (Just '\v') rest
+    '\\' -> consumedOne (Just '\\') rest
+    '"' -> consumedOne (Just '"') rest
+    '\'' -> consumedOne (Just '\'') rest
+    '&' -> consumedOne Nothing rest -- empty escape
     '^' -> case T.uncons rest of -- control character \^X
       Just (cc, rest')
         | cc >= '@' && cc <= '_' ->
-            Just (Just (chr (ord cc - 64)), rest')
+            Just (Just (chr (ord cc - 64)), rest', 2)
       _ -> Nothing
     'x' ->
       -- hex escape \xNN  (use Integer to prevent Int overflow on long inputs)
       let (digits, rest') = T.span isHexDigit rest
        in if T.null digits
             then Nothing
-            else decodeNumericEscape 16 digits rest'
+            else decodeNumericEscape 16 1 digits rest'
     'o' ->
       -- octal escape \oNN  (use Integer to prevent Int overflow on long inputs)
       let (digits, rest') = T.span isOctDigit rest
        in if T.null digits
             then Nothing
-            else decodeNumericEscape 8 digits rest'
+            else decodeNumericEscape 8 1 digits rest'
     _
       | isDigit c -> -- decimal escape \NNN  (use Integer to prevent Int overflow on long inputs)
           let (moreDigits, rest') = T.span isDigit rest
               digits = T.cons c moreDigits
-           in decodeNumericEscape 10 digits rest'
+           in decodeNumericEscape 10 0 digits rest'
       | isSpace c -> -- gap escape \ whitespace \
-          let rest' = T.dropWhile isSpace rest
+          let (spaces, rest') = T.span isSpace rest
            in case T.uncons rest' of
-                Just ('\\', rest'') -> Just (Nothing, rest'')
+                Just ('\\', rest'') -> Just (Nothing, rest'', 2 + T.length spaces)
                 _ -> Nothing
-      | otherwise -> parseNamedEscape t
+      | otherwise -> parseNamedEscapeWithLength t
   where
-    decodeNumericEscape :: Integer -> Text -> Text -> Maybe (Maybe Char, Text)
-    decodeNumericEscape !base digits rest' =
-      let n = T.foldl' (\a d -> a * base + toInteger (digitToInt d)) (0 :: Integer) digits
-       in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest')
+    consumedOne decoded rest' = Just (decoded, rest', 1)
 
-parseNamedEscape :: Text -> Maybe (Maybe Char, Text)
-parseNamedEscape t = foldr tryMatch Nothing namedEscapeTable
+    decodeNumericEscape :: Integer -> Int -> Text -> Text -> Maybe (Maybe Char, Text, Int)
+    decodeNumericEscape !base prefixLength digits rest' =
+      let n = T.foldl' (\a d -> a * base + toInteger (digitToInt d)) (0 :: Integer) digits
+          consumed = prefixLength + T.length digits
+       in if n > 0x10FFFF then Nothing else Just (Just (chr (fromIntegral n)), rest', consumed)
+
+parseNamedEscapeWithLength :: Text -> Maybe (Maybe Char, Text, Int)
+parseNamedEscapeWithLength t = foldr tryMatch Nothing namedEscapeTable
   where
     tryMatch (name, ch) fallback =
       case T.stripPrefix name t of
-        Just rest -> Just (Just ch, rest)
+        Just rest -> Just (Just ch, rest, T.length name)
         Nothing -> fallback
 
 -- Named ASCII escape sequences per the Haskell 2010 report.

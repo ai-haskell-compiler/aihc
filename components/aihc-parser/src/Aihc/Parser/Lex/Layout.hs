@@ -451,6 +451,7 @@ layoutTransition st tok =
                 layoutBuffer = []
               }
        in (preInserted <> pendingInserted <> bolInserted <> [tok], stNext)
+{-# INLINE layoutTransition #-}
 
 closeImplicitLayoutContext :: LayoutState -> Maybe LayoutState
 closeImplicitLayoutContext st =

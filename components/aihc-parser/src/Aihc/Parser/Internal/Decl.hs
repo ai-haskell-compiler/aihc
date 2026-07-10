@@ -94,7 +94,8 @@ ordinaryDeclParser = do
         TkReservedDoubleColon -> sigOrValueDecl
         TkSpecialComma -> sigOrValueDecl
         TkReservedEquals -> valueDecl
-        _ -> nonBareVarPatternBindDeclParser <|> valueDecl
+        TkReservedAt -> nonBareVarPatternBindDeclParser
+        _ -> valueDecl
     _ -> fallbackDecl
 
 -- | Like 'patternBindDeclParser' but rejects bare variable patterns.

@@ -18,15 +18,18 @@ import Aihc.Dev.Parser.Bench.Parsers
     parseWithAihcExtsWithCpp,
     parseWithGhcExtsWithCpp,
     parseWithHseExtsWithCpp,
+    prepareSourceAndExtensionsWithCpp,
   )
 import Aihc.Dev.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, isIncludeEntry, streamTarball)
-import Control.DeepSeq (rnf)
+import Control.DeepSeq (deepseq, rnf)
 import Control.Exception (evaluate)
 import Control.Monad (replicateM)
+import Data.ByteString qualified as BS
 import Data.List (isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
+import Data.Text.Encoding qualified as TE
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Stats qualified as Stats
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr)
@@ -83,14 +86,30 @@ runBenchmark opts = do
   let !forcedEntries = forceEntries enrichedEntries
   hPutStrLn stderr " done"
 
-  let parser = selectParser includeMap opts
+  benchmarkEntries <-
+    if benchPreprocessOnce opts
+      then do
+        hPutStr stderr "Preprocessing files once..."
+        hFlush stderr
+        let entries = preprocessEntries includeMap forcedEntries
+        _ <- evaluate (forceEntryContents entries)
+        hPutStrLn stderr " done"
+        pure entries
+      else pure forcedEntries
+
+  let parser =
+        selectParser
+          includeMap
+          opts
+            { benchNoCpp = benchNoCpp opts || benchPreprocessOnce opts
+            }
       numWarmup = benchWarmup opts
       numMain = benchIterations opts
 
   -- Warmup iterations
   hPutStrLn stderr $ "Running " ++ show numWarmup ++ " warmup iteration(s)..."
   warmupResults <- replicateM numWarmup $ do
-    result <- runSingleIteration parser forcedEntries
+    result <- runSingleIteration parser benchmarkEntries
     hPutStrLn stderr $
       "  Warmup: "
         ++ show (iterFilesRead result)
@@ -114,7 +133,7 @@ runBenchmark opts = do
   -- Main iterations
   hPutStrLn stderr $ "Running " ++ show numMain ++ " benchmark iteration(s)..."
   mainResults <- replicateM numMain $ do
-    result <- runSingleIteration parser forcedEntries
+    result <- runSingleIteration parser benchmarkEntries
     hPutStrLn stderr $
       "  Iteration: "
         ++ show (iterFilesRead result)
@@ -239,3 +258,30 @@ forceEntries = foldr forceAndCons []
     forceAndCons e !acc =
       let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryCppOptions e `seq` entryLanguage e `seq` entryDependencies e
        in e : acc
+
+preprocessEntries :: Map.Map FilePath Text -> [TarballEntry] -> [TarballEntry]
+preprocessEntries includeMap = map preprocessEntry
+  where
+    preprocessEntry entry =
+      let (source, _) =
+            prepareSourceAndExtensionsWithCpp
+              False
+              includeMap
+              (entryFilePath entry)
+              (entryExtensions entry)
+              (entryCppOptions entry)
+              (entryLanguage entry)
+              (entryDependencies entry)
+              (entryContents entry)
+          preprocessed =
+            entry
+              { entryContents = source,
+                entryByteSize = BS.length (TE.encodeUtf8 source),
+                entryCppOptions = []
+              }
+       in source `deepseq` preprocessed
+
+forceEntryContents :: [TarballEntry] -> ()
+forceEntryContents = foldr forceContents ()
+  where
+    forceContents entry rest = entryContents entry `deepseq` rest
