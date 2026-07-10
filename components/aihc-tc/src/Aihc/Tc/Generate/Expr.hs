@@ -222,6 +222,11 @@ isFromIntegerResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionName resolution == "fromInteger"
 
+isDoBindResolution :: ResolutionAnnotation -> Bool
+isDoBindResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == ">>="
+
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
   EAnn (mkAnnotation ann)
@@ -558,6 +563,10 @@ inferLastDoStmt ambient stmt =
 inferDoStmt :: SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferDoStmt ambient stmt rest =
   case stmt of
+    DoAnn ann inner
+      | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+        isDoBindResolution resolution ->
+          inferResolvedDoStmt ambient ann resolution inner rest
     DoAnn ann inner -> do
       (stmts', resultTy, cts) <- inferDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner rest
       case stmts' of
@@ -604,6 +613,50 @@ inferDoStmt ambient stmt rest =
       emitError ambient (OtherError "recursive do statements are unsupported in TC MVP")
       (rest', resultTy, cts) <- inferDoStmts ambient rest
       pure (stmt : rest', resultTy, cts)
+
+inferResolvedDoStmt :: SourceSpan -> Annotation -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoStmt ambient resolutionAnn resolution stmt rest =
+  case stmt of
+    DoBind pat action -> do
+      itemTy <- freshMetaTv
+      (action', actionTy, actionCts) <- inferExprAt ambient action
+      patCheck <- checkPattern ambient pat itemTy
+      (rest', resultTy, restCts) <-
+        withPatternBindings (pcBindings patCheck) (inferDoStmts ambient rest)
+      (pending, methodCts) <- inferDoBindMethod ambient resolution actionTy itemTy resultTy
+      let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+          stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
+      pure (stmt' : rest', resultTy, actionCts <> pcWantedCts patCheck <> restCts <> methodCts)
+    DoExpr action -> do
+      itemTy <- freshMetaTv
+      (action', actionTy, actionCts) <- inferExprAt ambient action
+      (rest', resultTy, restCts) <- inferDoStmts ambient rest
+      (pending, methodCts) <- inferDoBindMethod ambient resolution actionTy itemTy resultTy
+      let stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action'))
+      pure (stmt' : rest', resultTy, actionCts <> restCts <> methodCts)
+    _ -> do
+      emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
+      inferDoStmt ambient stmt rest
+
+inferDoBindMethod :: SourceSpan -> ResolutionAnnotation -> TcType -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
+inferDoBindMethod sp resolution actionTy itemTy resultTy = do
+  mBinder <- lookupResolvedTerm ">>=" (resolutionTarget resolution)
+  case mBinder of
+    Just (TcIdBinder scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      methodCts <- mapM (predToCt sp ">>=") (instPreds inst)
+      ev <- freshEvVar
+      let expectedTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy resultTy) resultTy)
+          methodEq = mkWantedCt (EqPred (instType inst) expectedTy) ev (OccurrenceOf ">>=") sp
+          pending = pendingAnnotation (instType inst) (instTypeArgs inst) (map ctEvVar methodCts) []
+      pure (pending, methodCts <> [methodEq])
+    Just (TcMonoIdBinder ty) -> do
+      ev <- freshEvVar
+      let expectedTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy resultTy) resultTy)
+          methodEq = mkWantedCt (EqPred ty expectedTy) ev (OccurrenceOf ">>=") sp
+      pure (pendingAnnotation ty [] [] [], [methodEq])
+    Nothing ->
+      abortTc ("resolved >>= missing from type environment: " <> show (resolutionTarget resolution))
 
 wantedDoEq :: SourceSpan -> TcType -> TcType -> TcM Ct
 wantedDoEq sp actual expected = do

@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
   ( CaseAlt (..),
     CompStmt (..),
     Decl (..),
+    DoStmt (..),
     Expr (..),
     LambdaCaseAlt (..),
     Match (..),
@@ -42,6 +43,7 @@ import Aihc.Parser.Syntax
     mkName,
     peelCompStmtAnn,
     peelDeclAnn,
+    peelDoStmtAnn,
     peelLiteralAnn,
     peelPatternAnn,
     qualifyName,
@@ -471,6 +473,7 @@ dsAnnotatedExpr tcAnn inner =
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     EList elems -> dsList tcAnn elems
     EListComp body quals -> dsListComp tcAnn body quals
+    EDo stmts Surface.DoPlain -> dsDo stmts
     ETuple flavor elems -> dsTuple flavor tcAnn elems
     ELambdaPats pats body -> dsLambda pats body
     ELambdaCase alts -> dsLambdaCase alts
@@ -479,6 +482,70 @@ dsAnnotatedExpr tcAnn inner =
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+
+dsDo :: [DoStmt Expr] -> DsM FcExpr
+dsDo stmts =
+  case stmts of
+    [] -> desugarBug "cannot desugar an empty do block"
+    [stmt] ->
+      case peelDoStmtAnn stmt of
+        DoExpr body -> dsExpr body
+        other -> desugarBug ("unsupported final do statement after type checking: " <> take 80 (show other))
+    stmt : rest ->
+      case peelDoStmtAnn stmt of
+        DoLetDecls decls -> dsLetDecls decls (dsDo rest)
+        DoBind pat action -> dsDoBind stmt action (dsDoPatternContinuation pat rest)
+        DoExpr action -> dsDoBind stmt action (dsDoDiscardContinuation stmt rest)
+        other -> desugarBug ("unsupported do statement after type checking: " <> take 80 (show other))
+
+dsDoBind :: DoStmt Expr -> Expr -> DsM FcExpr -> DsM FcExpr
+dsDoBind stmt action continuation = do
+  (tcAnn, resolution) <- requiredDoBindOccurrence stmt
+  bind <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EVar (resolvedAnnotationName resolution))
+  action' <- dsExpr action
+  FcApp (FcApp bind action') <$> continuation
+
+dsDoPatternContinuation :: Pattern -> [DoStmt Expr] -> DsM FcExpr
+dsDoPatternContinuation pat rest = do
+  argTy <- lambdaPatternTypeRequired pat
+  arg <- freshInternalVar "_do" argTy
+  body <-
+    case directPatternBindings pat arg of
+      Just bindings -> withLocals bindings (dsDo rest)
+      Nothing -> do
+        failure <- noPatternMatch [arg]
+        dsMatchPattern arg pat (dsDo rest) failure
+  pure (FcLam arg body)
+
+dsDoDiscardContinuation :: DoStmt Expr -> [DoStmt Expr] -> DsM FcExpr
+dsDoDiscardContinuation stmt rest = do
+  (tcAnn, _) <- requiredDoBindOccurrence stmt
+  argTy <- doBindArgumentType tcAnn
+  arg <- freshInternalVar "_do" argTy
+  FcLam arg <$> dsDo rest
+
+doBindArgumentType :: TcAnnotation -> DsM TcType
+doBindArgumentType tcAnn =
+  case tcAnnType tcAnn of
+    TcFunTy _ (TcFunTy (TcFunTy argTy _) _) -> pure argTy
+    ty -> desugarBug ("unexpected >>= type while desugaring do notation: " <> show ty)
+
+requiredDoBindOccurrence :: DoStmt Expr -> DsM (TcAnnotation, ResolutionAnnotation)
+requiredDoBindOccurrence stmt =
+  case doBindOccurrence stmt of
+    Just occurrence -> pure occurrence
+    Nothing -> desugarBug ("missing >>= occurrence annotation while desugaring do notation: " <> take 80 (show stmt))
+
+doBindOccurrence :: DoStmt Expr -> Maybe (TcAnnotation, ResolutionAnnotation)
+doBindOccurrence = go Nothing Nothing
+  where
+    go maybeTc maybeResolution stmt =
+      case stmt of
+        DoAnn ann inner ->
+          let maybeTc' = (fromAnnotation ann :: Maybe TcAnnotation) <|> maybeTc
+              maybeResolution' = (fromAnnotation ann :: Maybe ResolutionAnnotation) <|> maybeResolution
+           in go maybeTc' maybeResolution' inner
+        _ -> (,) <$> maybeTc <*> maybeResolution
 
 dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
 dsOverloadedIntegerLiteral tcAnn resolution value = do
