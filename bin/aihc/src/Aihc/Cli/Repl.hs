@@ -33,19 +33,24 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
-  ( Pred (..),
+  ( InstanceInfo,
+    Pred (..),
     TcBindingResult (..),
+    TcDiagnostic (..),
+    TcErrorKind (..),
     TcType (..),
     TyCon (..),
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    renderPred,
     renderTcSignature,
     renderTcType,
     tcModuleBindings,
     tcModuleDiagnostics,
+    tcModuleInstances,
     tcModuleSuccess,
-    typecheckModuleWithEnv,
+    typecheckModuleWithEnvAndInstances,
     typecheckModulesWithEnv,
   )
 import Control.Monad.IO.Class (liftIO)
@@ -72,6 +77,7 @@ import System.FilePath qualified as FilePath
 data ReplSession = ReplSession
   { replModuleExports :: !ModuleExports,
     replImportedTerms :: ![(Text, TypeScheme)],
+    replImportedInstances :: ![InstanceInfo],
     replDependencyProgram :: !FcProgram,
     replSettings :: !(IORef ReplSettings)
   }
@@ -144,6 +150,7 @@ loadReplSession maybeStoreRoot = do
     ReplSession
       { replModuleExports = replBaseExports baseContext `Map.union` ensurePreludeMvpScope installedExports,
         replImportedTerms = mergeImportedTerms (replBaseImportedTerms baseContext) (ensurePreludeMvpTerms installedTerms),
+        replImportedInstances = replBaseImportedInstances baseContext,
         replDependencyProgram = replBaseProgram baseContext,
         replSettings = settingsRef
       }
@@ -199,10 +206,10 @@ typecheckExpression session input = do
     case resolvedModules resolved of
       [modu] -> Right modu
       _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
-  let tcResult = typecheckModuleWithEnv (replImportedTerms session) resolvedModule
+  let tcResult = typecheckModuleWithEnvAndInstances (replImportedTerms session) (replImportedInstances session) resolvedModule
   if tcModuleSuccess tcResult
     then pure ()
-    else Left (ReplTypeError (map show (tcModuleDiagnostics tcResult)))
+    else Left (ReplTypeError (map renderReplTcDiagnostic (tcModuleDiagnostics tcResult)))
   inferredType <-
     case find ((== replBindingName) . tbName) (tcModuleBindings tcResult) of
       Just binding -> Right (tbType binding)
@@ -345,6 +352,13 @@ renderReplError err =
     ReplEvalError message ->
       "eval error: " <> message
 
+renderReplTcDiagnostic :: TcDiagnostic -> String
+renderReplTcDiagnostic diagnostic =
+  case diagKind diagnostic of
+    UnsolvedWanted pred' _ ->
+      "no instance for " <> renderPred pred'
+    other -> show other
+
 helpText :: String
 helpText =
   unlines
@@ -368,6 +382,7 @@ data Interface = Interface
 data ReplBaseContext = ReplBaseContext
   { replBaseExports :: !ModuleExports,
     replBaseImportedTerms :: ![(Text, TypeScheme)],
+    replBaseImportedInstances :: ![InstanceInfo],
     replBaseProgram :: !FcProgram
   }
 
@@ -394,6 +409,7 @@ buildBaseContext modules =
                 ReplBaseContext
                   { replBaseExports = extractInterface resolved,
                     replBaseImportedTerms = map bindingImportedTerm allBindings,
+                    replBaseImportedInstances = concatMap tcModuleInstances tcResults,
                     replBaseProgram = concatPrograms (map dsProgram dsResults)
                   }
             else ioError (userError ("repl error: could not desugar bundled aihc-base Prelude: " <> unwords (concatMap dsErrors dsResults)))

@@ -18,7 +18,9 @@ module Aihc.Tc
     typecheckExpr,
     typecheckModule,
     typecheckModuleWithEnv,
+    typecheckModuleWithEnvAndInstances,
     typecheckModulesWithEnv,
+    typecheckModulesWithEnvAndInstances,
 
     -- * Result types
     TcResult (..),
@@ -27,6 +29,7 @@ module Aihc.Tc
     -- * Module result projections
     tcModuleBindings,
     tcModuleDiagnostics,
+    tcModuleInstances,
     tcModuleSuccess,
 
     -- * Re-exports for convenience
@@ -36,13 +39,15 @@ module Aihc.Tc
     TyVarId (..),
     TypeScheme (..),
     Pred (..),
+    InstanceInfo (..),
     Unique (..),
     TcAnnotation (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
-    renderTcType,
+    renderPred,
     renderTcSignature,
+    renderTcType,
   )
 where
 
@@ -71,9 +76,10 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), renderTcSignature, renderTcType)
+import Aihc.Tc.Annotations (TcAnnotation (..), renderPred, renderTcSignature, renderTcType)
+import Aihc.Tc.Env (InstanceInfo (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, tcModule)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -138,6 +144,11 @@ tcModuleBindings :: Module -> [TcBindingResult]
 tcModuleBindings =
   moduleBindings
 
+-- | Class instances recovered from a type-checked module's annotations.
+tcModuleInstances :: Module -> [InstanceInfo]
+tcModuleInstances =
+  moduleInstances
+
 -- | Diagnostics recovered from type-checker annotations in a module.
 tcModuleDiagnostics :: Module -> [TcDiagnostic]
 tcModuleDiagnostics =
@@ -158,8 +169,13 @@ typecheckModule =
 
 -- | Type-check a single module with preloaded top-level term bindings.
 typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> Module
-typecheckModuleWithEnv importedTerms m =
-  case typecheckModulesWithEnv importedTerms [m] of
+typecheckModuleWithEnv importedTerms =
+  typecheckModuleWithEnvAndInstances importedTerms []
+
+-- | Type-check a single module with preloaded terms and class instances.
+typecheckModuleWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> Module -> Module
+typecheckModuleWithEnvAndInstances importedTerms importedInstances m =
+  case typecheckModulesWithEnvAndInstances importedTerms importedInstances [m] of
     [result] -> result
     _ ->
       annotateModuleDiagnostics [internalAbortDiagnostic "type checker returned unexpected module count"] m
@@ -170,6 +186,11 @@ typecheckModuleWithEnv importedTerms m =
 -- see earlier data constructors and value bindings.
 typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [Module]
 typecheckModulesWithEnv importedTerms =
+  typecheckModulesWithEnvAndInstances importedTerms []
+
+-- | Type-check modules in order with preloaded terms and class instances.
+typecheckModulesWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
+typecheckModulesWithEnvAndInstances importedTerms importedInstances =
   go initState
   where
     initState =
@@ -179,7 +200,8 @@ typecheckModulesWithEnv importedTerms =
               [ (name, TcIdBinder scheme Closed)
               | (name, scheme) <- importedTerms
               ]
-              <> tcsGlobalTerms initTcState
+              <> tcsGlobalTerms initTcState,
+          tcsInstances = importedInstances
         }
 
     go _ [] = []
