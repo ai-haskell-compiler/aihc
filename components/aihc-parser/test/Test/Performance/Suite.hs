@@ -218,7 +218,7 @@ generatedPerfCases =
     mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
-    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100))),
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 500))),
     mkGeneratedPerfCase "nested-application" (mkExprModule (nestedAppExpr generatedCaseSize)),
     mkGeneratedPerfCaseWithStatus "xfail-invalid-module" "module Generated where\nvalue = { x = 1, }\n" StatusXFail "regression coverage"
   ]
@@ -315,7 +315,7 @@ typeWithParameters n =
 
 escapedStringExpr :: Int -> Text
 escapedStringExpr desiredLength =
-  T.concat ["\"", takeEscapedText desiredLength escapedStringFragments, "\""]
+  T.concat ["\"", takeEscapedText desiredLength (cycle escapedStringFragments), "\""]
 
 escapedStringFragments :: [Text]
 escapedStringFragments =

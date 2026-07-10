@@ -137,6 +137,7 @@ expectedTok :: LexTokenKind -> TokParser ()
 expectedTok expected =
   tokenSatisfy (renderTokenKind expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
+{-# INLINE expectedTok #-}
 
 -- | Match the end-of-file token.
 --
@@ -229,6 +230,7 @@ tokenSatisfy expectedLabel f =
         if null expectedLabel
           then MPE.EndOfInput
           else MPE.Label (NE.fromList expectedLabel)
+{-# INLINE tokenSatisfy #-}
 
 hiddenPragma :: String -> (Pragma -> Maybe a) -> TokParser a
 hiddenPragma expectedLabel f = do
@@ -462,6 +464,7 @@ withSpanAnn f parser = do
       endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
       parserSpan = mergeSourceSpans startSpan endSpan
   pure $ f parserSpan out
+{-# INLINE withSpanAnn #-}
 
 -- FIXME: Remove.
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
@@ -473,6 +476,7 @@ withSpan parser = do
       endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)
       parserSpan = mergeSourceSpans startSpan endSpan
   pure (out parserSpan)
+{-# INLINE withSpan #-}
 
 inputStartSpan :: TokStream -> SourceSpan
 inputStartSpan ts
@@ -480,6 +484,7 @@ inputStartSpan ts
   | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
   | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
   | otherwise = noSourceSpan
+{-# INLINE inputStartSpan #-}
 
 optionalSuffix :: TokParser b -> (a -> b -> a) -> TokParser a -> TokParser a
 optionalSuffix suffixParser attach parser = do
@@ -739,11 +744,46 @@ functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (M
 functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser infixOperatorNameParser
 
 functionHeadParserWithBinder :: TokParser UnqualifiedName -> TokParser UnqualifiedName -> TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
-functionHeadParserWithBinder binderParser infixOpParser infixPatternParser prefixPatternParser =
-  MP.try parenthesizedInfixHeadParser
-    <|> MP.try infixHeadParser
-    <|> prefixHeadParser
+functionHeadParserWithBinder binderParser infixOpParser infixPatternParser prefixPatternParser = do
+  (firstKind, secondKind) <-
+    lookAhead $ do
+      first <- lexTokenKind <$> anySingle
+      second <- lexTokenKind <$> anySingle
+      pure (first, second)
+  case firstKind of
+    TkVarId {}
+      | startsPrefixHead secondKind -> prefixHeadParser
+      | otherwise -> MP.try infixHeadParser <|> prefixHeadParser
+    TkSpecialLParen ->
+      MP.try parenthesizedInfixHeadParser
+        <|> MP.try infixHeadParser
+        <|> prefixHeadParser
+    _ -> infixHeadParser
   where
+    startsPrefixHead kind =
+      case kind of
+        TkVarId {} -> True
+        TkConId {} -> True
+        TkQConId {} -> True
+        TkInteger {} -> True
+        TkFloat {} -> True
+        TkChar {} -> True
+        TkCharHash {} -> True
+        TkString {} -> True
+        TkStringHash {} -> True
+        TkSpecialLParen -> True
+        TkSpecialUnboxedLParen -> True
+        TkSpecialLBracket -> True
+        TkKeywordUnderscore -> True
+        TkPrefixBang -> True
+        TkPrefixTilde -> True
+        TkPrefixMinus -> True
+        TkQuasiQuote {} -> True
+        TkTypeApp -> True
+        TkReservedEquals -> True
+        TkReservedPipe -> True
+        _ -> False
+
     prefixHeadParser = do
       name <- binderParser
       pats <- MP.many prefixPatternParser

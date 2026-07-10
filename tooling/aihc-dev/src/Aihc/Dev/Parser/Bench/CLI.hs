@@ -62,6 +62,7 @@ data BenchOptions = BenchOptions
     benchIterations :: !Int,
     benchOutput :: !OutputFormat,
     benchGcStats :: !Bool,
+    benchPreprocessOnce :: !Bool,
     benchNoCpp :: !Bool
   }
   deriving (Eq, Show)
@@ -238,6 +239,10 @@ benchOptionsParser =
     <*> switch
       ( long "gc-stats"
           <> help "Include GC statistics (requires +RTS -T)"
+      )
+    <*> switch
+      ( long "preprocess-once"
+          <> help "Preprocess the corpus once before timed benchmark iterations"
       )
     <*> switch
       ( long "no-cpp"
