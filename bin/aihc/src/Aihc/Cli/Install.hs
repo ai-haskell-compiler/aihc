@@ -102,7 +102,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
-import Distribution.PackageDescription (buildInfo, buildable, condExecutables, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo)
+import Distribution.Package qualified as CabalPackage
+import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
@@ -566,7 +567,7 @@ analyzeSourceWith mode sourcePath = do
 analyzeSourceFileCount :: SourceAnalysisMode -> GenericPackageDescription -> FilePath -> IO Int
 analyzeSourceFileCount mode gpd sourcePath =
   case mode of
-    AllowSourceWrites -> length <$> HackageCabal.collectComponentFiles gpd sourcePath
+    AllowSourceWrites -> length <$> HackageCabal.collectLibraryFiles gpd sourcePath
     AvoidSourceWrites -> pure 0
 
 writeInstallScaffold :: PackagePlan -> IO (Either InstallFailure InstallResult)
@@ -1192,7 +1193,7 @@ collectPlanFiles plan = do
     case runParseResult (parseGenericPackageDescription cabalBytes) of
       (_, Right parsed) -> pure parsed
       (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> planCabalFile plan <> ": " <> show errs))
-  HackageCabal.collectComponentFiles gpd (planSourcePath plan)
+  HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
 
 parseInterfaceFile :: FilePath -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot fileInfo = do
@@ -1609,23 +1610,20 @@ packageFlagAssignments gpd =
 
 packageDependencyNames :: GenericPackageDescription -> [String]
 packageDependencyNames gpd =
-  sort . nub . map T.unpack $
-    concatMap libraryDependencies libraryTrees
-      <> concatMap (executableDependencies . snd) (condExecutables gpd)
+  (sort . nub . map T.unpack)
+    ( concatMap
+        (filter (/= currentPackageName) . libraryDependencies)
+        libraryTrees
+    )
   where
     evalCond = HackageCabal.conditionEvaluator gpd
+    currentPackageName = T.pack . CabalPackage.unPackageName . CabalPackage.packageName . package $ packageDescription gpd
     libraryTrees =
       maybe [] pure (condLibrary gpd)
         <> map snd (condSubLibraries gpd)
 
     libraryDependencies tree =
       let build = HackageCabal.collectMergedBuildInfo evalCond libBuildInfo tree
-       in if buildable build
-            then HackageCabal.extractDependencies build
-            else []
-
-    executableDependencies tree =
-      let build = HackageCabal.collectMergedBuildInfo evalCond buildInfo tree
        in if buildable build
             then HackageCabal.extractDependencies build
             else []

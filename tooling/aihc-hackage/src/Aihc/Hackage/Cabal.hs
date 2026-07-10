@@ -7,6 +7,7 @@ module Aihc.Hackage.Cabal
 
     -- * Component file discovery
     collectComponentFiles,
+    collectLibraryFiles,
 
     -- * Condition evaluation
     conditionEvaluator,
@@ -135,16 +136,28 @@ data FileInfo = FileInfo
 -- component whose @buildable@ flag is true.
 collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
 collectComponentFiles gpd packageRoot = do
+  libraryFiles <- collectLibraryFiles gpd packageRoot
+  executableFiles <- collectExecutableFiles gpd packageRoot
+  pure (dedupeFiles (libraryFiles <> executableFiles))
+
+-- | Collect source files from buildable library components only.
+collectLibraryFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFiles gpd packageRoot = do
   let evalCond = conditionEvaluator gpd
       pkgDescr = packageDescription gpd
       libraryTrees = maybe [] (pure . (LMainLibName,)) (condLibrary gpd) <> map (first LSubLibName) (condSubLibraries gpd)
-      executableTrees = condExecutables gpd
 
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor pkgDescr evalCond packageRoot)) libraryTrees)
-  executableFiles <- fmap concat (mapM (uncurry (executableFilesFor pkgDescr evalCond packageRoot)) executableTrees)
+  pure (dedupeFiles libraryFiles)
 
-  let allFiles = libraryFiles <> executableFiles
-  pure (dedupeFiles allFiles)
+collectExecutableFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectExecutableFiles gpd packageRoot = do
+  let evalCond = conditionEvaluator gpd
+      pkgDescr = packageDescription gpd
+      executableTrees = condExecutables gpd
+
+  executableFiles <- fmap concat (mapM (uncurry (executableFilesFor pkgDescr evalCond packageRoot)) executableTrees)
+  pure (dedupeFiles executableFiles)
 
 first :: (a -> c) -> (a, b) -> (c, b)
 first f (a, b) = (f a, b)
