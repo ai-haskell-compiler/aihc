@@ -9,6 +9,7 @@ annotated:
 - |
   module Main where
   x = 1
+  │   └─ v Error unbound
   └─ v Main
   y = x
   │   └─ v Main

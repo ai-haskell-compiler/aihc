@@ -1,0 +1,18 @@
+extensions:
+  - LambdaCase
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    isOne :: Int -> Bool
+    isOne = \case
+      1 -> True
+      _ -> False
+output: |
+  (True,False)
+expression: |
+  (isOne 1, isOne 2)
+status: pass
+reason: lambda-case alternatives share overloaded integer matching with ordinary cases

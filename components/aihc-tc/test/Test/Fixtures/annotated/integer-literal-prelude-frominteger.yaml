@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Main where
+  one = 1
+  │     └─ type: a; type-args: a; evidence: given Num a
+  └─ type: ∀ a. (Num a) ⇒ a
+- |-
+  module Prelude where
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: *
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+- |
+  module Main where
+  one = 1
+reason: integer literals use Prelude.fromInteger and infer a Num-constrained result
+  type
+status: pass

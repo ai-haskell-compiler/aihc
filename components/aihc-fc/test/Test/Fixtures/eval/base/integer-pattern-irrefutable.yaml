@@ -1,0 +1,16 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    always :: Int -> Bool
+    always value = case value of
+      ~1 -> True
+output: |
+  True
+expression: |
+  always 2
+status: pass
+reason: irrefutable integer patterns do not perform an equality test

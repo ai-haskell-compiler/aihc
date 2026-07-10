@@ -149,6 +149,10 @@ evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
   evalIntPrim "*#" (*) left right
+evalPrimitive "<#" [left, right] =
+  evalIntPrim "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
+evalPrimitive "==#" [left, right] =
+  evalIntPrim "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
 evalPrimitive "raise#" [exception] =
   Left . EvalRaisedException =<< forceValue exception
 evalPrimitive "catch#" [action, handler, state] =

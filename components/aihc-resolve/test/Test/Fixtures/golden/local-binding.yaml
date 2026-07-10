@@ -2,7 +2,9 @@ annotated:
 - |-
   module Main where
   f = let y = 10 in y
-  │       └─ v 0    └─ v 0
+  │       │   │     └─ v 0
+  │       │   └─ v Error unbound
+  │       └─ v 0
   └─ v Main
 extensions: []
 modules:

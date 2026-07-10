@@ -24,17 +24,21 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
+    Type,
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -48,6 +52,11 @@ inferExpr = inferExprAt NoSourceSpan
 
 inferExprAt :: SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
 inferExprAt ambient expr = case expr of
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isFromIntegerResolution resolution,
+      EInt _ TInteger _ <- inner ->
+        inferOverloadedIntegerLiteral ambient ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
   EInt _ numericType _ ->
@@ -79,8 +88,7 @@ inferExprAt ambient expr = case expr of
     (inner', ty, cts) <- inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
     pure (EParen inner', ty, cts)
   ETypeSig inner tyAnn -> do
-    (inner', ty, cts) <- inferExprAt (exprSpan expr `orSourceSpan` ambient) inner
-    pure (ETypeSig inner' tyAnn, ty, cts)
+    inferTypeSig (exprSpan expr `orSourceSpan` ambient) inner tyAnn
   ENegate inner -> do
     (inner', innerTy, cs) <- inferExpr inner
     pure (ENegate inner', innerTy, cs)
@@ -139,6 +147,77 @@ inferNameOccurrence ambient nameSyntax = do
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
+inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
+inferTypeSig sp inner tyAnn = do
+  (inner', innerTy, cts) <- inferExprAt sp inner
+  sigTy <- checkSurfaceType Map.empty tyAnn KType
+  ev <- freshEvVar
+  let sigCt =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = innerTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ExpressionTypeOrigin sp
+            }
+          TypeTrace
+            { typeTraceType = sigTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = TypeSignatureOrigin "<expression>" sp
+            }
+          ev
+          (SigOrigin sp)
+          sp
+  pure (ETypeSig inner' tyAnn, sigTy, cts <> [sigCt])
+
+inferOverloadedIntegerLiteral :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
+  let sp = resolutionSpan resolution `orSourceSpan` ambient
+  (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
+  resultTy <- freshMetaTv
+  ev <- freshEvVar
+  let integerArgTy = TcTyCon (TyCon "Integer" 0) []
+      expectedMethodTy = TcFunTy integerArgTy resultTy
+      methodEq =
+        mkWantedEqCt
+          TypeTrace
+            { typeTraceType = methodTy,
+              typeTraceRole = ActualType,
+              typeTraceOrigin = ConstraintTypeOrigin (OccurrenceOf "fromInteger")
+            }
+          TypeTrace
+            { typeTraceType = expectedMethodTy,
+              typeTraceRole = ExpectedType,
+              typeTraceOrigin = ConstraintTypeOrigin (LitOrigin sp)
+            }
+          ev
+          (LitOrigin sp)
+          sp
+      pending =
+        pendingAnnotation
+          resultTy
+          typeArgs
+          (map ctEvVar methodCts)
+          []
+  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq])
+
+inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedFromInteger sp resolution = do
+  mBinder <- lookupResolvedTerm "fromInteger" (resolutionTarget resolution)
+  case mBinder of
+    Just (TcIdBinder scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp "fromInteger") (instPreds inst)
+      pure (instType inst, instTypeArgs inst, cts)
+    Just (TcMonoIdBinder ty) ->
+      pure (ty, [], [])
+    Nothing ->
+      abortTc ("resolved fromInteger missing from type environment: " <> show (resolutionTarget resolution))
+
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == "fromInteger"
+
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
   EAnn (mkAnnotation ann)
@@ -177,7 +256,7 @@ inferLambda sp pats body = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
-      pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+      pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
   pure (ELambdaPats pats' body', funTy, pcWantedCts patCheck ++ bodyCts)
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
@@ -235,7 +314,7 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
       patCheck <- checkPattern branchSp pat scrutTy
       (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
-          pat' = annotatePatternBindings (pcBindings patCheck) pat
+          pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
       pure (CaseAlt altAnns pat' rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
 
     inferAltAgainst expectedBranchSp expectedTy alt = do
@@ -265,7 +344,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   patCheck <- checkPatterns sp (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
-  let pats' = map (annotatePatternBindings (pcBindings patCheck)) pats
+  let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
 
@@ -410,7 +489,7 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen (annotatePatternBindings (pcBindings patCheck) pat) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar

@@ -342,7 +342,7 @@ test_reportsTypeCheckErrorsAndWritesNoArtifacts =
   withTempDir "aihc-cli" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
-    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] "module Demo where\nx = [1, 'a']\n"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] "module Demo where\nx = [(), 'a']\n"
     createDirectoryIfMissing True storeRoot
     plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
 

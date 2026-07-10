@@ -1,0 +1,13 @@
+annotated:
+- |-
+  module Main where
+  one = 1
+  │     └─ v Error unbound
+  └─ v Main
+extensions: []
+modules:
+- |
+  module Main where
+  one = 1
+reason: integer literals fail hard when Prelude.fromInteger is unavailable
+status: pass

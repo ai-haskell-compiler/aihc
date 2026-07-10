@@ -2,8 +2,10 @@ annotated:
 - |-
   module Data.Config where
   defaultConfig = 42
+  │               └─ v Error unbound
   └─ v Data.Config
   maxRetries = 3
+  │            └─ v Error unbound
   └─ v Data.Config
 - |-
   module Main where

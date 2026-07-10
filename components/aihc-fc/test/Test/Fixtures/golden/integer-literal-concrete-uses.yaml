@@ -1,0 +1,83 @@
+expected: |-
+  data Bool
+   = False
+   | True
+
+  data Int
+   = I Int#
+
+  data Integer
+   = IS Int#
+
+  == : ∀ a. (Eq a) ⇒ a → a → Bool =
+    Λa.
+      \$d0 : dict.
+        $d0.0
+
+  fromInteger : ∀ a. (Num a) ⇒ Integer → a =
+    Λa.
+      \$d0 : dict.
+        $d0.0
+
+  $fEqInt : () ⇒ Eq Int =
+    {λx1004 : Int.
+      λy1005 : Int.
+        case x1004 as _scrut : Int of
+          I x →
+            case y1005 as _scrut : Int of
+              I y →
+                True}
+
+  $fNumInt : () ⇒ Num Int =
+    {λx1012 : Integer.
+      case x1012 as _scrut : Integer of
+        IS x →
+          I x}
+
+  $fNumInteger : () ⇒ Num Integer =
+    {λx1017 : Integer.
+      x1017}
+  asInt : Int =
+    fromInteger @Int $$fNumInt (IS 1)
+
+  asInteger : Integer =
+    fromInteger @Integer $$fNumInteger (IS 1)
+
+  caseInt : () =
+    case fromInteger @Int $$fNumInt (IS 1) as _case : Int of
+      _ _case_value →
+        case == @Int $$fEqInt _case_value (fromInteger @Int $$fNumInt (IS 1)) as _case_guard : Bool of
+          True →
+            ()
+          False →
+            case _case_value as _case_nomatch : Int of
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  data Bool = False | True
+  data Int = I Int#
+  data Integer = IS Int#
+  class Eq a where
+    (==) :: a -> a -> Bool
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Eq Int where
+    I x == I y = True
+  instance Num Int where
+    fromInteger (IS x) = I x
+  instance Num Integer where
+    fromInteger x = x
+- |
+  module Main where
+  asInt :: Int
+  asInt = 1 :: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+  caseInt :: ()
+  caseInt = case (1 :: Int) of
+    1 -> ()
+reason: desugars concrete integer literals and integer case scrutinees through
+  Prelude.fromInteger
+status: pass

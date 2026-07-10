@@ -5,6 +5,7 @@ module GHC.Num
   )
 where
 
+import GHC.Int (Int (..))
 import GHC.Internal.Integer (Integer (..))
 
 foreign import prim (+#) :: Int# -> Int# -> Int#
@@ -12,6 +13,8 @@ foreign import prim (+#) :: Int# -> Int# -> Int#
 foreign import prim (-#) :: Int# -> Int# -> Int#
 
 foreign import prim (*#) :: Int# -> Int# -> Int#
+
+foreign import prim (<#) :: Int# -> Int# -> Int#
 
 class Num a where
   (+) :: a -> a -> a
@@ -41,3 +44,21 @@ instance Num Integer where
   signum _ = IS 1#
 
   fromInteger x = x
+
+instance Num Int where
+  I# x + I# y = I# ((+#) x y)
+  I# x - I# y = I# ((-#) x y)
+  I# x * I# y = I# ((*#) x y)
+  negate (I# x) = I# ((-#) 0# x)
+  abs (I# x) =
+    case (<#) x 0# of
+      0# -> I# x
+      _ -> I# ((-#) 0# x)
+  signum (I# x) =
+    case x of
+      0# -> I# 0#
+      _ ->
+        case (<#) x 0# of
+          0# -> I# 1#
+          _ -> I# ((-#) 0# 1#)
+  fromInteger (IS x) = I# x

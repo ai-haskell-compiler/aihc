@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Expression desugaring from surface AST to System FC Core.
 --
@@ -27,18 +28,27 @@ import Aihc.Parser.Syntax
     CompStmt (..),
     Decl (..),
     Expr (..),
+    LambdaCaseAlt (..),
     Match (..),
     Name (..),
+    NameType (..),
+    NumericType (..),
     Pattern (..),
     Rhs (..),
     TupleFlavor (..),
     UnqualifiedName (..),
     ValueDecl (..),
     fromAnnotation,
+    mkName,
     peelCompStmtAnn,
     peelDeclAnn,
+    peelLiteralAnn,
+    peelPatternAnn,
+    qualifyName,
     unqualifiedNameText,
   )
+import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -223,20 +233,92 @@ buildCaseChain [] _resTy (m : _) = dsRhs (matchRhs m)
 buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
-buildCaseChain (scrutVar : restVars) resTy matches = do
-  if allVarPatterns matches
-    then do
+buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
+  | any (any isOverloadedIntegerPattern . matchPats) matches =
+      dsOrderedMatches scrutVars matches
+  | allVarPatterns matches = do
       -- Variable patterns: bind each pattern variable name to the
       -- scrutinee Var, then recurse.
       let bindings = extractVarBindings scrutVar matches
           innerMatches = map dropFirstPat matches
       withLocals bindings (buildCaseChain restVars resTy innerMatches)
-    else do
+  | otherwise = do
       -- Build one case alternative per first-pattern constructor. Equations
       -- that share that constructor continue together under the next argument.
       alts <- mapM (buildAltGroup scrutVar restVars resTy) (groupFirstPatterns matches)
       caseBinder <- freshVar "_scrut" (varType scrutVar)
       pure (FcCase (FcVar scrutVar) caseBinder alts)
+
+dsOrderedMatches :: [Var] -> [Match] -> DsM FcExpr
+dsOrderedMatches scrutVars matches =
+  case matches of
+    [] -> noPatternMatch scrutVars
+    match : rest -> do
+      failure <- dsOrderedMatches scrutVars rest
+      dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) failure
+
+dsMatchPatterns :: [Var] -> [Pattern] -> DsM FcExpr -> FcExpr -> DsM FcExpr
+dsMatchPatterns [] [] success _failure = success
+dsMatchPatterns (scrutVar : scrutVars) (pat : pats) success failure =
+  dsMatchPattern scrutVar pat (dsMatchPatterns scrutVars pats success failure) failure
+dsMatchPatterns scrutVars pats _success _failure =
+  desugarBug ("pattern arity mismatch while desugaring: " <> show (length pats) <> " pattern(s) for " <> show (length scrutVars) <> " scrutinee(s)")
+
+dsMatchPattern :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
+dsMatchPattern scrutVar pat success failure =
+  case peelPatternAnn pat of
+    PVar name ->
+      withLocals [(unqualifiedNameText name, scrutVar)] success
+    PWildcard -> success
+    PParen inner -> dsMatchPattern scrutVar inner success failure
+    PAs name inner ->
+      withLocals [(unqualifiedNameText name, scrutVar)] (dsMatchPattern scrutVar inner success failure)
+    PStrict inner -> dsMatchPattern scrutVar inner success failure
+    PIrrefutable inner ->
+      withLocals (irrefutablePatternBindings scrutVar inner) success
+    PTypeSig inner _ -> dsMatchPattern scrutVar inner success failure
+    _
+      | isOverloadedIntegerPattern pat ->
+          dsOverloadedIntegerPatternMatch scrutVar pat success failure
+      | otherwise ->
+          dsOrdinaryPatternMatch scrutVar pat success failure
+
+irrefutablePatternBindings :: Var -> Pattern -> [(Text, Var)]
+irrefutablePatternBindings scrutVar pat =
+  case peelPatternAnn pat of
+    PVar name -> [(unqualifiedNameText name, scrutVar)]
+    PParen inner -> irrefutablePatternBindings scrutVar inner
+    PAs name inner -> (unqualifiedNameText name, scrutVar) : irrefutablePatternBindings scrutVar inner
+    PStrict inner -> irrefutablePatternBindings scrutVar inner
+    PIrrefutable inner -> irrefutablePatternBindings scrutVar inner
+    PTypeSig inner _ -> irrefutablePatternBindings scrutVar inner
+    _ -> []
+
+dsOrdinaryPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
+dsOrdinaryPatternMatch scrutVar pat success failure = do
+  let (con, binderNames) = dsPatternPure pat
+  case con of
+    DefaultAlt -> success
+    _ -> do
+      binderTys <- patternBinderTypesM pat (varType scrutVar)
+      binders <- zipWithM freshVar binderNames binderTys
+      matched <- withLocals (zip binderNames binders) success
+      caseBinder <- freshInternalVar "_match" (varType scrutVar)
+      pure
+        ( FcCase
+            (FcVar scrutVar)
+            caseBinder
+            [ FcAlt con binders matched,
+              FcAlt DefaultAlt [] failure
+            ]
+        )
+
+noPatternMatch :: [Var] -> DsM FcExpr
+noPatternMatch (scrutVar : _) = do
+  binder <- freshInternalVar "_no_match" (varType scrutVar)
+  pure (FcCase (FcVar scrutVar) binder [])
+noPatternMatch [] =
+  desugarBug "cannot construct a pattern-match failure without a scrutinee"
 
 -- | Extract variable bindings from the first pattern of each match,
 -- mapping the pattern variable name to the scrutinee Var.
@@ -355,6 +437,10 @@ dsExpr (ECase scrut alts) =
   dsCase scrut alts
 dsExpr (ELambdaPats pats body) =
   dsLambda pats body
+dsExpr (ELambdaCase alts) =
+  dsLambdaCase alts
+dsExpr (ELambdaCases alts) =
+  dsLambdaCases alts
 dsExpr (ELetDecls decls body) =
   dsLetDecls decls (dsExpr body)
 dsExpr expr =
@@ -376,6 +462,10 @@ dsAnnotatedVar tcAnn name _expr = do
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
   case inner of
+    EAnn ann (EInt value TInteger _)
+      | Just resolution <- fromAnnotation ann,
+        isFromIntegerResolution resolution ->
+          dsOverloadedIntegerLiteral tcAnn resolution value
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
@@ -383,10 +473,37 @@ dsAnnotatedExpr tcAnn inner =
     EListComp body quals -> dsListComp tcAnn body quals
     ETuple flavor elems -> dsTuple flavor tcAnn elems
     ELambdaPats pats body -> dsLambda pats body
+    ELambdaCase alts -> dsLambdaCase alts
+    ELambdaCases alts -> dsLambdaCases alts
     EIf cond thenE elseE -> dsIf cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+
+dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
+dsOverloadedIntegerLiteral tcAnn resolution value = do
+  fromIntegerExpr <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EInt value TInteger (T.pack (show value)))
+  integerExpr <- dsIntegerLiteral value
+  pure (FcApp fromIntegerExpr integerExpr)
+
+dsIntegerLiteral :: Integer -> DsM FcExpr
+dsIntegerLiteral value = do
+  conTy <- lookupType "IS"
+  con <- freshVar "IS" conTy
+  pure (FcApp (FcVar con) (FcLit (LitInt value)))
+
+resolvedAnnotationName :: ResolutionAnnotation -> Name
+resolvedAnnotationName resolution =
+  case resolutionTarget resolution of
+    ResolvedTopLevel name -> mkName Nothing (nameType name) (nameText name)
+    ResolvedLocal _ name -> qualifyName Nothing name
+    ResolvedBuiltin name -> mkName Nothing NameVarId name
+    ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
+
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionName resolution == "fromInteger"
 
 dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
 dsInfix lhs op rhs =
@@ -421,8 +538,124 @@ dsCase scrut alts = do
       Just ty -> pure ty
       Nothing -> fcExprTypeM scrut'
   binder <- freshVar "_case" scrutTy
-  alts' <- mapM (dsCaseAlt scrutTy) alts
-  pure (FcCase scrut' binder alts')
+  if any (isOverloadedIntegerPattern . caseAltPattern) alts
+    then do
+      scrutValue <- freshVar "_case_value" scrutTy
+      body <- dsCaseAlternatives scrutValue alts
+      pure (FcCase scrut' binder [FcAlt DefaultAlt [scrutValue] body])
+    else do
+      alts' <- mapM (dsCaseAlt scrutTy) alts
+      pure (FcCase scrut' binder alts')
+
+isOverloadedIntegerPattern :: Pattern -> Bool
+isOverloadedIntegerPattern pat =
+  case peelPatternAnn pat of
+    PLit lit -> isOverloadedIntegerLiteral lit
+    PNegLit lit -> isOverloadedIntegerLiteral lit
+    PParen inner -> isOverloadedIntegerPattern inner
+    PStrict inner -> isOverloadedIntegerPattern inner
+    PIrrefutable inner -> isOverloadedIntegerPattern inner
+    PAs _ inner -> isOverloadedIntegerPattern inner
+    PTypeSig inner _ -> isOverloadedIntegerPattern inner
+    _ -> False
+
+isOverloadedIntegerLiteral :: Surface.Literal -> Bool
+isOverloadedIntegerLiteral lit =
+  case peelLiteralAnn lit of
+    Surface.LitInt _ TInteger _ -> True
+    _ -> False
+
+dsCaseAlternatives :: Var -> [CaseAlt Expr] -> DsM FcExpr
+dsCaseAlternatives scrutVar alts =
+  case alts of
+    [] -> do
+      binder <- freshVar "_case_nomatch" (varType scrutVar)
+      pure (FcCase (FcVar scrutVar) binder [])
+    alt : rest -> do
+      failure <- dsCaseAlternatives scrutVar rest
+      dsMatchPattern scrutVar (caseAltPattern alt) (dsRhs (caseAltRhs alt)) failure
+
+dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
+dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
+  test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
+  trueBranch <- success
+  binder <- freshVar "_case_guard" boolTy
+  pure
+    ( FcCase
+        test
+        binder
+        [ FcAlt (DataAlt "True") [] trueBranch,
+          FcAlt (DataAlt "False") [] failure
+        ]
+    )
+
+dsOverloadedIntegerPatternTest :: FcExpr -> Pattern -> DsM FcExpr
+dsOverloadedIntegerPatternTest scrutValue pat =
+  case integerPatternValue pat of
+    Just (value, isNegative) -> do
+      (fromIntegerTc, fromIntegerResolution) <- requiredPatternOccurrence "fromInteger" pat
+      (eqTc, eqResolution) <- requiredPatternOccurrence "==" pat
+      fromIntegerExpr <- dsAnnotatedVar fromIntegerTc (resolvedAnnotationName fromIntegerResolution) (EInt value TInteger (T.pack (show value)))
+      integerExpr <- dsIntegerLiteral value
+      eqExpr <- dsAnnotatedVar eqTc (resolvedAnnotationName eqResolution) (EVar (resolvedAnnotationName eqResolution))
+      let positiveValue = FcApp fromIntegerExpr integerExpr
+      patternValue <-
+        if isNegative
+          then do
+            (negateTc, negateResolution) <- requiredPatternOccurrence "negate" pat
+            negateExpr <- dsAnnotatedVar negateTc (resolvedAnnotationName negateResolution) (EVar (resolvedAnnotationName negateResolution))
+            pure (FcApp negateExpr positiveValue)
+          else pure positiveValue
+      pure (FcApp (FcApp eqExpr scrutValue) patternValue)
+    Nothing ->
+      desugarBug ("expected overloaded integer pattern while desugaring: " <> take 80 (show pat))
+
+integerPatternValue :: Pattern -> Maybe (Integer, Bool)
+integerPatternValue pat =
+  case peelPatternAnn pat of
+    PLit lit -> (,False) <$> overloadedIntegerValue lit
+    PNegLit lit -> (,True) <$> overloadedIntegerValue lit
+    PParen inner -> integerPatternValue inner
+    PStrict inner -> integerPatternValue inner
+    PIrrefutable inner -> integerPatternValue inner
+    PAs _ inner -> integerPatternValue inner
+    PTypeSig inner _ -> integerPatternValue inner
+    _ -> Nothing
+
+overloadedIntegerValue :: Surface.Literal -> Maybe Integer
+overloadedIntegerValue lit =
+  case peelLiteralAnn lit of
+    Surface.LitInt value TInteger _ -> Just value
+    _ -> Nothing
+
+requiredPatternOccurrence :: Text -> Pattern -> DsM (TcAnnotation, ResolutionAnnotation)
+requiredPatternOccurrence name pat =
+  case patternOccurrence name pat of
+    Just occurrence -> pure occurrence
+    Nothing -> desugarBug ("missing " <> T.unpack name <> " annotation for overloaded integer pattern")
+
+patternOccurrence :: Text -> Pattern -> Maybe (TcAnnotation, ResolutionAnnotation)
+patternOccurrence target =
+  go Nothing
+  where
+    go currentTc pat =
+      case pat of
+        PAnn ann inner ->
+          case (fromAnnotation ann :: Maybe TcAnnotation, fromAnnotation ann :: Maybe ResolutionAnnotation) of
+            (Just tcAnn, _) -> go (Just tcAnn) inner
+            (_, Just resolution)
+              | resolutionName resolution == target,
+                resolutionNamespace resolution == ResolutionNamespaceTerm ->
+                  case currentTc of
+                    Just tcAnn -> Just (tcAnn, resolution)
+                    Nothing -> Nothing
+            _ -> go currentTc inner
+        PParen inner -> go currentTc inner
+        PStrict inner -> go currentTc inner
+        PIrrefutable inner -> go currentTc inner
+        PAs _ inner -> go currentTc inner
+        PTypeSig inner _ -> go currentTc inner
+        _ -> Nothing
 
 -- | Desugar local let/where declarations as a recursive Core let.
 --
@@ -663,8 +896,41 @@ dsLambda :: [Pattern] -> Expr -> DsM FcExpr
 dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
   vars <- zipWithM freshInternalVar (map lambdaArgName pats) argTys
-  body' <- withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
+  body' <-
+    if any isOverloadedIntegerPattern pats
+      then do
+        failure <- noPatternMatch vars
+        dsMatchPatterns vars pats (dsExpr body) failure
+      else withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
   pure (foldr FcLam body' vars)
+
+dsLambdaCase :: [CaseAlt Expr] -> DsM FcExpr
+dsLambdaCase alts =
+  case alts of
+    firstAlt : _ -> do
+      argTy <- lambdaPatternTypeRequired (caseAltPattern firstAlt)
+      argVar <- freshInternalVar "_lambda_case" argTy
+      body <- dsCaseAlternatives argVar alts
+      pure (FcLam argVar body)
+    [] -> desugarBug "cannot desugar an empty lambda-case"
+
+dsLambdaCases :: [LambdaCaseAlt] -> DsM FcExpr
+dsLambdaCases alts =
+  case alts of
+    firstAlt : _ -> do
+      argTys <- mapM lambdaPatternTypeRequired (lambdaCaseAltPats firstAlt)
+      argVars <- mapM (\(index, ty) -> freshInternalVar ("_lambda_cases" <> T.pack (show index)) ty) (zip [0 :: Int ..] argTys)
+      body <- dsLambdaCaseAlternatives argVars alts
+      pure (foldr FcLam body argVars)
+    [] -> desugarBug "cannot desugar an empty multi-argument lambda-case"
+
+dsLambdaCaseAlternatives :: [Var] -> [LambdaCaseAlt] -> DsM FcExpr
+dsLambdaCaseAlternatives argVars alts =
+  case alts of
+    [] -> noPatternMatch argVars
+    alt : rest -> do
+      failure <- dsLambdaCaseAlternatives argVars rest
+      dsMatchPatterns argVars (lambdaCaseAltPats alt) (dsRhs (lambdaCaseAltRhs alt)) failure
 
 lambdaArgName :: Pattern -> Text
 lambdaArgName pat =

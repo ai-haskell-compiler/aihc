@@ -140,11 +140,7 @@ isFunTy _ = False
 -- | Tests for literal expressions.
 literalTests :: [TestTree]
 literalTests =
-  [ testCase "integer literal has type Int" $ do
-      let result = tc "42"
-      assertBool "should succeed" (tcResultSuccess result)
-      assertBool "should be Int" (isTyCon "Int" (tcResultType result)),
-    testCase "float literal has type Double" $ do
+  [ testCase "float literal has type Double" $ do
       let result = tc "3.14"
       assertBool "should succeed" (tcResultSuccess result)
       assertBool "should be Double" (isTyCon "Double" (tcResultType result)),
@@ -162,7 +158,7 @@ literalTests =
 applicationTests :: [TestTree]
 applicationTests =
   [ testCase "application infers result type" $ do
-      let result = tcWithDecls "f x = x\narg = 1\n" "f arg"
+      let result = tcWithDecls "f x = x\narg = True\n" "f arg"
       assertBool "should succeed" (tcResultSuccess result)
   ]
 
@@ -170,7 +166,7 @@ applicationTests =
 ifTests :: [TestTree]
 ifTests =
   [ testCase "if-then-else with matching branches" $ do
-      let result = tc "if True then 1 else 2"
+      let result = tc "if True then False else True"
       let ty = tcResultType result
       assertBool "should produce a type" (ty /= TcMetaTv (Unique (-1)))
   ]
@@ -188,7 +184,7 @@ caseTests =
 lambdaTests :: [TestTree]
 lambdaTests =
   [ testCase "lambda produces function type" $ do
-      let result = tc "\\x -> 42"
+      let result = tc "\\x -> True"
       assertBool "should succeed" (tcResultSuccess result)
       assertBool "should be function type" (isFunTy (tcResultType result))
   ]
@@ -267,7 +263,7 @@ annotationTests =
             typecheckModule $
               parseM
                 "module Test where\n\
-                \bad xs = [ x | x <- xs, 1 ]\n"
+                \bad xs = [ x | x <- xs, () ]\n"
       assertBool "module should fail" (not (tcModuleSuccess result))
       assertBool "diagnostics should be attached to the annotated syntax tree" (containsParserAnnotation isTcDiagnosticAnnotation result)
       assertBool "located diagnostics should not be attached to module annotations" (not (any isTcDiagnosticAnnotation (moduleAnns result))),
