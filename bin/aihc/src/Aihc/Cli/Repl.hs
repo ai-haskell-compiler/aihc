@@ -40,6 +40,7 @@ import Aihc.Tc
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    renderTcSignature,
     renderTcType,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -219,7 +220,7 @@ handleTypeCommand session expression =
   pure . ReplContinue . Just $
     case typecheckExpression session (T.pack expression) of
       Left err -> renderReplError err
-      Right checked -> expression <> " :: " <> renderReplType (checkedType checked)
+      Right checked -> renderTcSignature (T.pack expression) (checkedType checked)
 
 replCommandArgument :: String -> String -> Maybe String
 replCommandArgument command input =
@@ -228,19 +229,6 @@ replCommandArgument command input =
     Just rest@(first : _)
       | isSpace first -> Just (trim rest)
     _ -> Nothing
-
-renderReplType :: TcType -> String
-renderReplType =
-  T.unpack
-    . T.replace "∀" "forall"
-    . T.replace "⇒" "=>"
-    . T.replace "→" "->"
-    . T.pack
-    . renderTcType
-    . stripOuterForalls
-  where
-    stripOuterForalls (TcForAllTy _ body) = stripOuterForalls body
-    stripOuterForalls ty = ty
 
 handleSetCommand :: ReplSession -> String -> IO ReplStep
 handleSetCommand session rawCommand =

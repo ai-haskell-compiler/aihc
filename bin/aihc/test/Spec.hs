@@ -109,11 +109,11 @@ main =
           testCase "reports expression types with long and short commands" $ do
             session <- loadReplSession Nothing
             longStep <- handleReplInput session ":type True"
-            assertEqual "long command" (ReplContinue (Just "True :: Bool")) longStep
+            assertEqual "long command" (ReplContinue (Just "True ∷ Bool")) longStep
             shortStep <- handleReplInput session ":t not"
-            assertEqual "short command" (ReplContinue (Just "not :: Bool -> Bool")) shortStep
+            assertEqual "short command" (ReplContinue (Just "not ∷ Bool → Bool")) shortStep
             polymorphicStep <- handleReplInput session ":t \\x -> x"
-            assertEqual "polymorphic expression" (ReplContinue (Just "\\x -> x :: a -> a")) polymorphicStep,
+            assertEqual "polymorphic expression" (ReplContinue (Just "\\x -> x ∷ ∀ a. a → a")) polymorphicStep,
           testCase "evaluates string expressions through the pipeline" $ do
             session <- testReplSession
             step <- handleReplInput session "\"hello world\""
