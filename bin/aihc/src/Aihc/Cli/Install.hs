@@ -3,7 +3,10 @@ module Aihc.Cli.Install
     DependencyResolver (..),
     InstallFailure (..),
     InstallResult (..),
+    PackageCheckCache,
+    PackageCheckResult,
     PackageHash (..),
+    PackagePlanCache,
     PackagePlan (..),
     PackageVariantKey (..),
     PhaseManifest (..),
@@ -12,8 +15,13 @@ module Aihc.Cli.Install
     buildDryRunPackagePlanWithResolver,
     buildPackagePlanFromSource,
     buildPackagePlanWithResolver,
+    buildPackagePlanWithResolverCached,
+    checkPackagePlan,
+    checkPackagePlanWithCache,
     defaultStoreRoot,
     dryRunInstallScaffold,
+    newPackageCheckCache,
+    newPackagePlanCache,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -23,6 +31,7 @@ where
 
 import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
 import Aihc.Cpp qualified as Cpp
+import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
@@ -71,7 +80,8 @@ import Aihc.Tc
     typecheckModulesWithEnv,
   )
 import Control.Applicative ((<|>))
-import Control.Exception (evaluate)
+import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar)
+import Control.Exception (SomeException, evaluate, mask, throwIO, try)
 import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.:), (.=))
 import Data.Aeson qualified as Aeson
@@ -197,6 +207,7 @@ data SourceAnalysis = SourceAnalysis
 data SourceAnalysisMode
   = AllowSourceWrites
   | AvoidSourceWrites
+  deriving (Eq)
 
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
@@ -213,7 +224,10 @@ data InterfaceBuildResult = InterfaceBuildResult
     interfaceResolveDiagnostics :: ![Aeson.Value],
     interfaceTcDiagnostics :: ![Aeson.Value],
     interfaceTcModules :: ![Aeson.Value],
-    interfaceImportedTerms :: ![(Text, TypeScheme)]
+    interfaceImportedTerms :: ![(Text, TypeScheme)],
+    interfaceTcBindings :: ![TcBindingResult],
+    interfaceFcDiagnostics :: ![Aeson.Value],
+    interfaceFcModules :: ![Aeson.Value]
   }
 
 data PreparedInstall = PreparedInstall
@@ -221,6 +235,21 @@ data PreparedInstall = PreparedInstall
     preparedDependencies :: ![PreparedInstall],
     preparedInterface :: !InterfaceBuildResult
   }
+
+-- | Successful output from the complete package compiler pipeline.
+-- The constructor stays private so callers cannot manufacture a success
+-- without parsing, resolving, type-checking, and desugaring the package.
+newtype PackageCheckResult = PackageCheckResult PreparedInstall
+
+-- | Concurrent cache for package-check results shared by batch callers.
+newtype PackageCheckCache
+  = PackageCheckCache
+      (MVar (Map.Map String (MVar (Either SomeException (Either InstallFailure PreparedInstall)))))
+
+-- | Concurrent plan cache. A cache belongs to one resolver and store root.
+newtype PackagePlanCache
+  = PackagePlanCache
+      (MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan)))))
 
 instance ToJSON ArtifactManifest where
   toJSON manifest =
@@ -277,7 +306,7 @@ runInstall opts = do
   putStrLn ("store: " <> resultStorePath result)
   putStrLn ("manifest: " <> resultManifestPath result)
   putStrLn ("interfaces: " <> resultInterfacePath result)
-  putStrLn ("system-fc: " <> resultFcPath result <> " (unimplemented)")
+  putStrLn ("system-fc: " <> resultFcPath result)
   when (installDryRun opts) $
     putStrLn "dry-run: no files written"
 
@@ -325,22 +354,35 @@ defaultStoreRoot = do
   pure (cacheDir </> "store")
 
 buildPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
-buildPackagePlanWithResolver resolver storeRoot spec =
-  snd <$> buildPackagePlanRecursive AllowSourceWrites resolver storeRoot [] spec
+buildPackagePlanWithResolver resolver storeRoot spec = do
+  cache <- newPackagePlanCache
+  buildPackagePlanWithResolverCached cache resolver storeRoot spec
+
+newPackagePlanCache :: IO PackagePlanCache
+newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty
+
+-- | Build a package plan while sharing dependency work with other roots.
+buildPackagePlanWithResolverCached :: PackagePlanCache -> DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
+buildPackagePlanWithResolverCached cache resolver storeRoot spec =
+  snd <$> buildPackagePlanRecursive cache AllowSourceWrites resolver storeRoot [] spec
 
 buildDryRunPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
-buildDryRunPackagePlanWithResolver resolver storeRoot spec =
-  snd <$> buildPackagePlanRecursive AvoidSourceWrites resolver storeRoot [] spec
+buildDryRunPackagePlanWithResolver resolver storeRoot spec = do
+  cache <- newPackagePlanCache
+  snd <$> buildPackagePlanRecursive cache AvoidSourceWrites resolver storeRoot [] spec
 
-buildPackagePlanRecursive :: SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanRecursive mode resolver storeRoot stack rawSpec
+buildPackagePlanRecursive :: PackagePlanCache -> SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
+buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
-  | otherwise = do
+  | otherwise = buildPackagePlanCached cache mode spec build
+  where
+    spec = canonicalPackageSpec rawSpec
+    build = do
       sourcePath <- sourcePathForSpec resolver spec
       analysis <- analyzeSourceWith mode sourcePath
       dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
-      dependencyPlans <- mapM (buildPackagePlanRecursive mode resolver storeRoot (spec : stack)) dependencySpecs
+      dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
       let plan =
             buildPackagePlanFromAnalysis
               storeRoot
@@ -350,8 +392,6 @@ buildPackagePlanRecursive mode resolver storeRoot stack rawSpec
               (map snd dependencyPlans)
               analysis
       pure (resolvedDependencyFromPlan plan, plan)
-  where
-    spec = canonicalPackageSpec rawSpec
 
     resolveDependencySpec dependencyName = do
       version <- resolveVersionForDependency dependencyName
@@ -361,6 +401,25 @@ buildPackagePlanRecursive mode resolver storeRoot stack rawSpec
       case lookupCoreProvider dependencyName of
         Just provider -> pure (coreProviderVersion provider)
         Nothing -> resolverResolveVersion resolver dependencyName
+
+buildPackagePlanCached :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> IO (ResolvedDependency, PackagePlan) -> IO (ResolvedDependency, PackagePlan)
+buildPackagePlanCached (PackagePlanCache entries) mode spec action = mask $ \restore -> do
+  resultVar <- newEmptyMVar
+  (isOwner, sharedResult) <-
+    modifyMVar entries $ \current ->
+      case Map.lookup cacheKey current of
+        Just existing -> pure (current, (False, existing))
+        Nothing -> pure (Map.insert cacheKey resultVar current, (True, resultVar))
+  if isOwner
+    then do
+      result <- try (restore action)
+      putMVar sharedResult result
+      either throwIO pure result
+    else do
+      result <- readMVar sharedResult
+      either throwIO pure result
+  where
+    cacheKey = (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec)
 
 sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
@@ -512,39 +571,67 @@ analyzeSourceFileCount mode gpd sourcePath =
 
 writeInstallScaffold :: PackagePlan -> IO (Either InstallFailure InstallResult)
 writeInstallScaffold plan = do
-  prepareResult <- prepareInstallScaffold plan
-  case prepareResult of
+  checkResult <- checkPackagePlan plan
+  case checkResult of
     Left failure -> pure (Left failure)
-    Right prepared -> do
+    Right (PackageCheckResult prepared) -> do
       writePreparedInstallScaffold prepared
       pure (Right (installResultForPlan plan))
 
-prepareInstallScaffold :: PackagePlan -> IO (Either InstallFailure PreparedInstall)
-prepareInstallScaffold plan =
-  fmap snd <$> prepareInstallScaffoldRecursive plan
+newPackageCheckCache :: IO PackageCheckCache
+newPackageCheckCache = PackageCheckCache <$> newMVar Map.empty
 
-prepareInstallScaffoldRecursive :: PackagePlan -> IO (Either InstallFailure (ModuleExports, PreparedInstall))
-prepareInstallScaffoldRecursive plan = do
-  dependencyResults <- traverse prepareInstallScaffoldRecursive (planDependencyPlans plan)
+-- | Check one package and its dependency closure without writing artifacts.
+-- This is the single success criterion used by both @aihc install@ and the
+-- Stackage progress runner.
+checkPackagePlan :: PackagePlan -> IO (Either InstallFailure PackageCheckResult)
+checkPackagePlan plan = do
+  cache <- newPackageCheckCache
+  checkPackagePlanWithCache cache plan
+
+checkPackagePlanWithCache :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PackageCheckResult)
+checkPackagePlanWithCache cache plan =
+  fmap PackageCheckResult <$> prepareInstallScaffoldRecursive cache plan
+
+prepareInstallScaffoldRecursive :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PreparedInstall)
+prepareInstallScaffoldRecursive cache@(PackageCheckCache entries) plan = mask $ \restore -> do
+  resultVar <- newEmptyMVar
+  (isOwner, sharedResult) <-
+    modifyMVar entries $ \current ->
+      case Map.lookup cacheKey current of
+        Just existing -> pure (current, (False, existing))
+        Nothing -> pure (Map.insert cacheKey resultVar current, (True, resultVar))
+  if isOwner
+    then do
+      result <- try (restore (prepareInstallScaffoldUncached cache plan))
+      putMVar sharedResult result
+      either throwIO pure result
+    else do
+      result <- readMVar sharedResult
+      either throwIO pure result
+  where
+    cacheKey = unPackageHash (packageKeyHash (planPackageKey plan))
+
+prepareInstallScaffoldUncached :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PreparedInstall)
+prepareInstallScaffoldUncached cache plan = do
+  dependencyResults <- traverse (prepareInstallScaffoldRecursive cache) (planDependencyPlans plan)
   case firstLeft dependencyResults of
     Just failure -> pure (Left failure)
     Nothing -> do
-      let preparedDependencyPairs = rights dependencyResults
-          depExports = foldl' Map.union Map.empty (map fst preparedDependencyPairs)
-          preparedDependencies = map snd preparedDependencyPairs
+      let preparedDependencies = rights dependencyResults
+          depExports = foldl' Map.union Map.empty (map (interfaceModuleExports . preparedInterface) preparedDependencies)
           importedTerms = concatMap (interfaceImportedTerms . preparedInterface) preparedDependencies
-      interfaceResult <- generatePackageInterface depExports importedTerms plan
+          importedBindings = concatMap (interfaceTcBindings . preparedInterface) preparedDependencies
+      interfaceResult <- generatePackageInterface depExports importedTerms importedBindings plan
       pure $
         case blockingInterfaceFailures interfaceResult of
           [] ->
             Right
-              ( interfaceModuleExports interfaceResult,
-                PreparedInstall
-                  { preparedPlan = plan,
-                    preparedDependencies = preparedDependencies,
-                    preparedInterface = interfaceResult
-                  }
-              )
+              PreparedInstall
+                { preparedPlan = plan,
+                  preparedDependencies = preparedDependencies,
+                  preparedInterface = interfaceResult
+                }
           failures ->
             Left (InstallInterfaceFailure (packageKeySpec (planPackageKey plan)) failures)
 
@@ -570,15 +657,24 @@ writeOnePreparedInstallScaffold plan interfaceResult = do
   createDirectoryIfMissing True (takeDirectory fcPath)
   BL.writeFile manifestPath (Aeson.encode manifest)
   BL.writeFile interfacePath (Aeson.encode (interfaceArtifactValue plan interfaceResult))
-  BL.writeFile fcPath (Aeson.encode (fcPlaceholder plan))
+  BL.writeFile fcPath (Aeson.encode (fcArtifactValue plan interfaceResult))
 
 blockingInterfaceFailures :: InterfaceBuildResult -> [(String, [Aeson.Value])]
 blockingInterfaceFailures result =
-  [ ("rename", interfaceResolveDiagnostics result)
-  | not (null (interfaceResolveDiagnostics result))
+  [ ("cpp", interfaceCppDiagnostics result)
+  | not (null (interfaceCppDiagnostics result))
   ]
+    <> [ ("parse", interfaceParseDiagnostics result)
+       | not (null (interfaceParseDiagnostics result))
+       ]
+    <> [ ("rename", interfaceResolveDiagnostics result)
+       | not (null (interfaceResolveDiagnostics result))
+       ]
     <> [ ("type-check", interfaceTcDiagnostics result)
        | not (null (interfaceTcDiagnostics result))
+       ]
+    <> [ ("desugar", interfaceFcDiagnostics result)
+       | not (null (interfaceFcDiagnostics result))
        ]
 
 renderInstallFailure :: InstallFailure -> String
@@ -940,20 +1036,22 @@ plannedPhases =
     PhaseManifest "configure-package" Unimplemented "Use the Cabal library to configure package components without invoking cabal-install",
     PhaseManifest "run-external-processors" Planned "Reserve processors such as happy, alex, and c2hs for reproducible generated sources",
     PhaseManifest "compile-interfaces" Complete "Generate name-resolution, type, and fixity interface data",
-    PhaseManifest "desugar-system-fc" Unimplemented "Generate desugared System-FC data files"
+    PhaseManifest "desugar-system-fc" Complete "Generate desugared System-FC data files"
   ]
 
-fcPlaceholder :: PackagePlan -> Aeson.Value
-fcPlaceholder plan =
+fcArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
+fcArtifactValue plan result =
   object
     [ "schemaVersion" .= (1 :: Int),
       "packageKey" .= packageVariantKeyValue (planPackageKey plan),
-      "status" .= ("unimplemented" :: String),
-      "contains" .= (["system-fc"] :: [String])
+      "status" .= if null (interfaceFcDiagnostics result) then ("complete" :: String) else "partial",
+      "contains" .= (["system-fc"] :: [String]),
+      "diagnostics" .= interfaceFcDiagnostics result,
+      "modules" .= interfaceFcModules result
     ]
 
-generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> PackagePlan -> IO InterfaceBuildResult
-generatePackageInterface depExports importedTerms plan = do
+generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> [TcBindingResult] -> PackagePlan -> IO InterfaceBuildResult
+generatePackageInterface depExports importedTerms importedBindings plan = do
   files <- collectPlanFiles plan
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
   let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
@@ -963,10 +1061,15 @@ generatePackageInterface depExports importedTerms plan = do
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
       resolveResult = resolveWithDeps depExports parsedModules
       ownExports = extractInterface resolveResult
-  (tcModules, tcDiagnostics, ownTerms) <- typecheckInterfaceModules importedTerms (resolvedModules resolveResult)
+  (checkedModules, tcModules, tcDiagnostics, ownTerms) <- typecheckInterfaceModules importedTerms (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
+      ownBindings = concatMap tcModuleBindings checkedModules
+      allBindings = importedBindings <> ownBindings
+      fcResults = zipWith (desugarModuleWithBindings allBindings) checkedModules (resolvedModules resolveResult)
+      fcModules = zipWith fcModuleValue (resolvedModules resolveResult) fcResults
+      fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure
     InterfaceBuildResult
       { interfaceModuleExports = ownExports,
@@ -977,18 +1080,21 @@ generatePackageInterface depExports importedTerms plan = do
         interfaceResolveDiagnostics = resolveDiagnostics,
         interfaceTcDiagnostics = enrichedTcDiagnostics,
         interfaceTcModules = enrichedTcModules,
-        interfaceImportedTerms = ownTerms
+        interfaceImportedTerms = ownTerms,
+        interfaceTcBindings = ownBindings,
+        interfaceFcDiagnostics = fcDiagnostics,
+        interfaceFcModules = fcModules
       }
 
-typecheckInterfaceModules :: [(Text, TypeScheme)] -> [Module] -> IO ([Aeson.Value], [Aeson.Value], [(Text, TypeScheme)])
+typecheckInterfaceModules :: [(Text, TypeScheme)] -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], [(Text, TypeScheme)])
 typecheckInterfaceModules importedTerms modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
-    Just (tcModules, ownTerms) -> pure (tcModules, concatMap tcModuleDiagnosticValues tcModules, ownTerms)
+    Just (checkedModules, tcModules, ownTerms) -> pure (checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, ownTerms)
     Nothing -> do
       current <- readIORef currentModule
-      pure ([], [typecheckTimeoutDiagnostic current], [])
+      pure ([], [], [typecheckTimeoutDiagnostic current], [])
   where
     sortedModules = sortModulesByImports modules
     go current = do
@@ -997,7 +1103,7 @@ typecheckInterfaceModules importedTerms modules = do
           tcModules = zipWith tcModuleValue sortedModules checkedModules
           ownTerms = concatMap moduleImportedTerms checkedModules
       _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
-      length (show ownTerms) `seq` pure (tcModules, ownTerms)
+      length (show ownTerms) `seq` pure (checkedModules, tcModules, ownTerms)
 
 sortModulesByImports :: [Module] -> [Module]
 sortModulesByImports modules = reverse sorted
@@ -1230,7 +1336,8 @@ interfaceArtifactValue plan result =
 
 interfaceStatus :: InterfaceBuildResult -> String
 interfaceStatus result =
-  if null (interfaceParseDiagnostics result)
+  if null (interfaceCppDiagnostics result)
+    && null (interfaceParseDiagnostics result)
     && null (interfaceResolveDiagnostics result)
     && null (interfaceTcDiagnostics result)
     then "complete"
@@ -1264,6 +1371,29 @@ tcModuleDiagnosticValues (Aeson.Object obj) =
     Just (Aeson.Array arr) -> foldr (:) [] arr
     _ -> []
 tcModuleDiagnosticValues _ = []
+
+fcModuleValue :: Module -> DesugarResult -> Aeson.Value
+fcModuleValue modu result =
+  object
+    [ "module" .= moduleDisplayName modu,
+      "success" .= dsSuccess result,
+      "program" .= renderProgram (dsProgram result),
+      "diagnostics"
+        .= [ object
+               [ "module" .= moduleDisplayName modu,
+                 "severity" .= ("error" :: String),
+                 "message" .= err
+               ]
+           | err <- dsErrors result
+           ]
+    ]
+
+fcModuleDiagnosticValues :: Aeson.Value -> [Aeson.Value]
+fcModuleDiagnosticValues (Aeson.Object obj) =
+  case KeyMap.lookup "diagnostics" obj of
+    Just (Aeson.Array arr) -> foldr (:) [] arr
+    _ -> []
+fcModuleDiagnosticValues _ = []
 
 tcBindingValue :: TcBindingResult -> Aeson.Value
 tcBindingValue binding =
