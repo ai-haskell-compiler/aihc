@@ -19,7 +19,7 @@ import Aihc.Cli.Install
     writeInstallScaffold,
   )
 import Aihc.Cli.Options (Command (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
-import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession)
+import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Resolve (Scope (..))
@@ -31,6 +31,7 @@ import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
@@ -106,6 +107,29 @@ main =
             session <- testReplSession
             step <- handleReplInput session ":unknown"
             assertEqual "step" (ReplContinue (Just "unknown command: :unknown")) step,
+          testCase "browses exported Prelude types and terms" $ do
+            session <- loadReplSession Nothing
+            step <- handleReplInput session ":browse Prelude"
+            case step of
+              ReplContinue (Just output) -> do
+                assertOutputLinePrefix "exported type" "type Bool" output
+                assertOutputLine "local function" "id ∷ ∀ a. a → a" output
+                assertOutputLine "symbolic function" "(++) ∷ ∀ a. [a] → [a] → [a]" output
+                assertOutputLine "re-exported function" "not ∷ Bool → Bool" output
+                assertBool "private helper should not be browsable" (not ("fmapList ∷" `isInfixOf` output))
+              other -> assertFailure ("expected browse output, got " <> show other),
+          testCase "reports browse usage and unknown modules" $ do
+            session <- testReplSession
+            handleReplInput session ":browse"
+              >>= assertEqual "missing module" (ReplContinue (Just "usage: :browse <module>"))
+            handleReplInput session ":browse Does.Not.Exist"
+              >>= assertEqual "unknown module" (ReplContinue (Just "unknown module: Does.Not.Exist")),
+          testCase "completes browse module names" $ do
+            session <- loadReplSession Nothing
+            (_, completions) <- replCompletion session (reverse ":browse Pre", "")
+            assertEqual "module completions" ["Prelude"] (map Haskeline.replacement completions)
+            (_, unrelatedCompletions) <- replCompletion session (reverse "Pre", "")
+            assertEqual "unrelated completions" [] unrelatedCompletions,
           testCase "reports expression types with long and short commands" $ do
             session <- loadReplSession Nothing
             longStep <- handleReplInput session ":type True"
@@ -208,6 +232,14 @@ assertHelp (ReplContinue (Just output)) =
 assertHelp other =
   assertFailure ("expected help output, got " <> show other)
 
+assertOutputLine :: String -> String -> String -> Assertion
+assertOutputLine label expected output =
+  assertBool (label <> ": expected line " <> show expected <> ", got:\n" <> output) (expected `elem` lines output)
+
+assertOutputLinePrefix :: String -> String -> String -> Assertion
+assertOutputLinePrefix label expectedPrefix output =
+  assertBool (label <> ": expected line starting with " <> show expectedPrefix <> ", got:\n" <> output) (any (expectedPrefix `isPrefixOf`) (lines output))
+
 assertLeftContains :: String -> Either String a -> Assertion
 assertLeftContains expected (Left actual) =
   assertBool ("expected error to contain " <> show expected <> ", got " <> show actual) (expected `isInfixOf` actual)
@@ -221,6 +253,7 @@ testReplSession = do
     ReplSession
       { replModuleExports = Map.empty,
         replImportedTerms = [],
+        replBindingTypes = Map.empty,
         replImportedInstances = [],
         replDependencyProgram = FcProgram [],
         replSettings = settingsRef

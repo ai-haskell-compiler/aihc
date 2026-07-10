@@ -9,6 +9,7 @@ module Aihc.Cli.Repl
     evaluateExpression,
     handleReplInput,
     loadReplSession,
+    replCompletion,
     runRepl,
   )
 where
@@ -28,9 +29,12 @@ import Aihc.Parser.Syntax
     Rhs (..),
     ValueDecl (..),
     mkUnqualifiedName,
+    nameQualifier,
+    nameText,
     qualifyName,
     unqualifiedNameFromText,
   )
+import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
@@ -58,10 +62,11 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString.Lazy qualified as BL
-import Data.Char (isSpace)
+import Data.Char (isAlpha, isSpace)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.List (find, stripPrefix)
+import Data.List (find, intercalate, isPrefixOf, sortOn, stripPrefix)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -77,6 +82,7 @@ import System.FilePath qualified as FilePath
 data ReplSession = ReplSession
   { replModuleExports :: !ModuleExports,
     replImportedTerms :: ![(Text, TypeScheme)],
+    replBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replImportedInstances :: ![InstanceInfo],
     replDependencyProgram :: !FcProgram,
     replSettings :: !(IORef ReplSettings)
@@ -124,7 +130,9 @@ data CheckedExpression = CheckedExpression
 runRepl :: Maybe FilePath -> IO ()
 runRepl maybeStoreRoot = do
   session <- loadReplSession maybeStoreRoot
-  Haskeline.runInputT Haskeline.defaultSettings (loop session)
+  let settings :: Haskeline.Settings IO
+      settings = (Haskeline.defaultSettings :: Haskeline.Settings IO) {Haskeline.complete = replCompletion session}
+  Haskeline.runInputT settings (loop session)
   where
     loop session = do
       minput <- Haskeline.getInputLine "aihc> "
@@ -146,10 +154,14 @@ loadReplSession maybeStoreRoot = do
   settingsRef <- newIORef defaultReplSettings
   let installedExports = maybe Map.empty interfaceExports installedInterface
       installedTerms = maybe [] interfaceImportedTerms installedInterface
+      installedBindingTypes = maybe Map.empty interfaceBindingTypes installedInterface
   pure
     ReplSession
       { replModuleExports = replBaseExports baseContext `Map.union` ensurePreludeMvpScope installedExports,
         replImportedTerms = mergeImportedTerms (replBaseImportedTerms baseContext) (ensurePreludeMvpTerms installedTerms),
+        replBindingTypes =
+          ensurePreludeMvpBindingTypes
+            (unionBindingTypes (replBaseBindingTypes baseContext) installedBindingTypes),
         replImportedInstances = replBaseImportedInstances baseContext,
         replDependencyProgram = replBaseProgram baseContext,
         replSettings = settingsRef
@@ -166,6 +178,7 @@ handleReplInput session input =
         ":?" -> pure (ReplContinue (Just helpText))
         ":set" -> ReplContinue . Just . renderReplSettings <$> readIORef (replSettings session)
         _ | Just command <- stripPrefix ":set " trimmedInput -> handleSetCommand session command
+        _ | Just moduleName' <- replCommandArgument ":browse" trimmedInput -> handleBrowseCommand session moduleName'
         _ | Just expression <- replCommandArgument ":type" trimmedInput -> handleTypeCommand session expression
         _ | Just expression <- replCommandArgument ":t" trimmedInput -> handleTypeCommand session expression
         command@(':' : _) -> pure (ReplContinue (Just ("unknown command: " <> command)))
@@ -228,6 +241,74 @@ handleTypeCommand session expression =
     case typecheckExpression session (T.pack expression) of
       Left err -> renderReplError err
       Right checked -> renderTcSignature (T.pack expression) (checkedType checked)
+
+handleBrowseCommand :: ReplSession -> String -> IO ReplStep
+handleBrowseCommand session rawModuleName
+  | null rawModuleName =
+      pure (ReplContinue (Just "usage: :browse <module>"))
+  | otherwise =
+      pure . ReplContinue . Just $
+        case Map.lookup moduleName' (replModuleExports session) of
+          Nothing -> "unknown module: " <> rawModuleName
+          Just scope -> renderBrowseScope session moduleName' scope
+  where
+    moduleName' = T.pack rawModuleName
+
+renderBrowseScope :: ReplSession -> Text -> Scope -> String
+renderBrowseScope session browsingModule scope =
+  intercalate "\n" (map snd (sortOn fst (typeEntries <> termEntries)))
+  where
+    typeEntries =
+      [ (name, renderBrowseType name)
+      | name <- Map.keys (scopeTypes scope)
+      ]
+    termEntries =
+      [ (name, renderBrowseTerm name (lookupExportType resolved name))
+      | (name, resolved) <- Map.toAscList (scopeTerms scope)
+      ]
+
+    lookupExportType resolved exportedName = do
+      (definingModule, bindingName) <- resolvedBindingKey browsingModule exportedName resolved
+      Map.lookup definingModule (replBindingTypes session) >>= Map.lookup bindingName
+
+renderBrowseType :: Text -> String
+renderBrowseType = ("type " <>) . T.unpack . renderBrowseName
+
+renderBrowseTerm :: Text -> Maybe TcType -> String
+renderBrowseTerm name maybeType =
+  case maybeType of
+    Just ty -> renderTcSignature (renderBrowseName name) ty
+    Nothing -> T.unpack (renderBrowseName name)
+
+renderBrowseName :: Text -> Text
+renderBrowseName name =
+  case T.uncons name of
+    Just (first, _)
+      | isAlpha first || first == '_' -> name
+    _
+      | name == "[]" || T.isPrefixOf "(" name -> name
+      | otherwise -> "(" <> name <> ")"
+
+resolvedBindingKey :: Text -> Text -> ResolvedName -> Maybe (Text, Text)
+resolvedBindingKey browsingModule exportedName resolved =
+  case resolved of
+    ResolvedTopLevel name ->
+      Just
+        ( fromMaybe browsingModule (nameQualifier name),
+          normalizeImportedBindingName (nameText name)
+        )
+    ResolvedBuiltin _ -> Just (browsingModule, exportedName)
+    _ -> Nothing
+
+replCompletion :: ReplSession -> Haskeline.CompletionFunc IO
+replCompletion session =
+  Haskeline.completeWordWithPrev Nothing " \t" $ \reversedBeforeWord word ->
+    pure
+      [ Haskeline.simpleCompletion candidate
+      | trim (reverse reversedBeforeWord) == ":browse",
+        candidate <- map T.unpack (Map.keys (replModuleExports session)),
+        word `isPrefixOf` candidate
+      ]
 
 replCommandArgument :: String -> String -> Maybe String
 replCommandArgument command input =
@@ -365,6 +446,7 @@ helpText =
     [ "Commands:",
       "  :quit, :q  Exit the REPL",
       "  :help, :?  Show this help",
+      "  :browse     Show a module's exported types and terms",
       "  :type, :t  Show an expression's type"
     ]
 
@@ -376,12 +458,14 @@ dropWhileEnd predicate = reverse . dropWhile predicate . reverse
 
 data Interface = Interface
   { interfaceExports :: ModuleExports,
-    interfaceImportedTerms :: [(Text, TypeScheme)]
+    interfaceImportedTerms :: [(Text, TypeScheme)],
+    interfaceBindingTypes :: Map.Map Text (Map.Map Text TcType)
   }
 
 data ReplBaseContext = ReplBaseContext
   { replBaseExports :: !ModuleExports,
     replBaseImportedTerms :: ![(Text, TypeScheme)],
+    replBaseBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replBaseImportedInstances :: ![InstanceInfo],
     replBaseProgram :: !FcProgram
   }
@@ -403,12 +487,14 @@ buildBaseContext modules =
         then do
           let allBindings = concatMap tcModuleBindings tcResults
               dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+              bindingTypes = moduleBindingTypes resolvedModules tcResults
           if all dsSuccess dsResults
             then
               pure
                 ReplBaseContext
                   { replBaseExports = extractInterface resolved,
                     replBaseImportedTerms = map bindingImportedTerm allBindings,
+                    replBaseBindingTypes = bindingTypes,
                     replBaseImportedInstances = concatMap tcModuleInstances tcResults,
                     replBaseProgram = concatPrograms (map dsProgram dsResults)
                   }
@@ -424,6 +510,23 @@ bindingImportedTerm binding =
 mergeImportedTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)] -> [(Text, TypeScheme)]
 mergeImportedTerms preferred fallback =
   Map.toList (Map.fromList fallback <> Map.fromList preferred)
+
+unionBindingTypes :: Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType)
+unionBindingTypes = Map.unionWith Map.union
+
+moduleBindingTypes :: [Module] -> [Module] -> Map.Map Text (Map.Map Text TcType)
+moduleBindingTypes sourceModules checkedModules =
+  Map.fromList
+    [ (moduleName', bindingTypesForModule checkedModule)
+    | (sourceModule, checkedModule) <- zip sourceModules checkedModules,
+      Just moduleName' <- [Syntax.moduleName sourceModule]
+    ]
+
+bindingTypesForModule :: Module -> Map.Map Text TcType
+bindingTypesForModule =
+  Map.fromList
+    . map (\binding -> (normalizeImportedBindingName (tbName binding), tbType binding))
+    . tcModuleBindings
 
 importedTermBindings :: [(Text, TypeScheme)] -> [TcBindingResult]
 importedTermBindings terms =
@@ -571,11 +674,17 @@ parseInterface =
     pure
       Interface
         { interfaceExports = Map.fromList [(interfaceModuleName modu, interfaceModuleScope modu) | modu <- modules],
-          interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules
+          interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
+          interfaceBindingTypes =
+            Map.fromList
+              [ (interfaceTcModuleName modu, interfaceTcModuleBindingTypes modu)
+              | modu <- tcModules
+              ]
         }
 
-newtype InterfaceTcModule = InterfaceTcModule
-  { interfaceTcModuleBindings :: [InterfaceTcBinding]
+data InterfaceTcModule = InterfaceTcModule
+  { interfaceTcModuleName :: !Text,
+    interfaceTcModuleBindings :: [InterfaceTcBinding]
   }
   deriving (Show)
 
@@ -588,7 +697,9 @@ data InterfaceTcBinding = InterfaceTcBinding
 instance Aeson.FromJSON InterfaceTcModule where
   parseJSON =
     Aeson.withObject "typecheck module" $ \obj ->
-      InterfaceTcModule <$> obj .: "bindings"
+      InterfaceTcModule
+        <$> obj .: "module"
+        <*> obj .: "bindings"
 
 instance Aeson.FromJSON InterfaceTcBinding where
   parseJSON =
@@ -602,6 +713,13 @@ interfaceTcModuleTerms modu =
   [ (normalizeImportedBindingName name, tcTypeScheme ty)
   | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
   ]
+
+interfaceTcModuleBindingTypes :: InterfaceTcModule -> Map.Map Text TcType
+interfaceTcModuleBindingTypes modu =
+  Map.fromList
+    [ (normalizeImportedBindingName name, ty)
+    | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
+    ]
 
 interfaceModuleScope :: InterfaceModule -> Scope
 interfaceModuleScope modu =
@@ -694,6 +812,12 @@ ensurePreludeMvpScope exports =
 ensurePreludeMvpTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)]
 ensurePreludeMvpTerms terms =
   Map.toList (Map.fromList [("++", appendScheme)] <> Map.fromList terms)
+
+ensurePreludeMvpBindingTypes :: Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType)
+ensurePreludeMvpBindingTypes =
+  Map.alter (Just . addAppend . fromMaybe Map.empty) "Prelude"
+  where
+    addAppend = Map.insertWith (\_ old -> old) "++" (instantiateSchemeBody appendScheme)
 
 appendScheme :: TypeScheme
 appendScheme =
