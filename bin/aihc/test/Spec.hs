@@ -114,6 +114,16 @@ main =
             assertEqual "short command" (ReplContinue (Just "not ∷ Bool → Bool")) shortStep
             polymorphicStep <- handleReplInput session ":t \\x -> x"
             assertEqual "polymorphic expression" (ReplContinue (Just "\\x -> x ∷ ∀ a. a → a")) polymorphicStep,
+          testCase "solves and normalizes type command constraints" $ do
+            session <- loadReplSession Nothing
+            operatorStep <- handleReplInput session ":t (+)"
+            assertEqual "operator" (ReplContinue (Just "(+) ∷ ∀ a. (Num a) ⇒ a → a → a")) operatorStep
+            partialStep <- handleReplInput session ":t (+) 1"
+            assertEqual "polymorphic partial application" (ReplContinue (Just "(+) 1 ∷ ∀ a. (Num a) ⇒ a → a")) partialStep
+            intStep <- handleReplInput session ":t (+) (1::Int)"
+            assertEqual "concrete instance" (ReplContinue (Just "(+) (1::Int) ∷ Int → Int")) intStep
+            boolStep <- handleReplInput session ":t (+) (1::Bool)"
+            assertEqual "missing concrete instance" (ReplContinue (Just "type error: no instance for Num Bool")) boolStep,
           testCase "evaluates string expressions through the pipeline" $ do
             session <- testReplSession
             step <- handleReplInput session "\"hello world\""
@@ -211,6 +221,7 @@ testReplSession = do
     ReplSession
       { replModuleExports = Map.empty,
         replImportedTerms = [],
+        replImportedInstances = [],
         replDependencyProgram = FcProgram [],
         replSettings = settingsRef
       }

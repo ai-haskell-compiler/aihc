@@ -28,6 +28,7 @@ module Aihc.Tc.Annotations
     pendingAnnotation,
 
     -- * Pretty-printing
+    renderPred,
     renderTcType,
     renderTcSignature,
   )
@@ -142,6 +143,15 @@ pendingAnnotation = PendingTcAnnotation
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String
 renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
+
+-- | Render a class or equality predicate as source-like text.
+renderPred :: Pred -> String
+renderPred pred' =
+  case pred' of
+    ClassPred className args ->
+      renderTcType (TcTyCon (TyCon className (length args)) args)
+    EqPred left right ->
+      renderTcType left ++ " ~ " ++ renderTcType right
 
 -- | Render a 'TcType' as a human-readable string.
 --

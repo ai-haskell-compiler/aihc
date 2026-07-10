@@ -9,6 +9,7 @@
 module Aihc.Tc.Generate.Decl
   ( tcModule,
     moduleBindings,
+    moduleInstances,
     TcBindingResult (..),
   )
 where
@@ -66,9 +67,10 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
-import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
+import Aihc.Tc.Generalize (generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -80,9 +82,9 @@ import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (foldM, forM_, zipWithM)
+import Control.Monad (foldM, forM_, when, zipWithM)
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (mapAccumL, nub, (\\))
+import Data.List (mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
@@ -130,6 +132,38 @@ data CheckedSig = CheckedSig
 moduleBindings :: Module -> [TcBindingResult]
 moduleBindings modu =
   concatMap declBindings (moduleDecls modu)
+
+-- | Recover instance-environment entries from finalized module annotations.
+moduleInstances :: Module -> [InstanceInfo]
+moduleInstances modu =
+  concatMap declInstances (moduleDecls modu)
+
+declInstances :: Decl -> [InstanceInfo]
+declInstances decl =
+  case decl of
+    DeclAnn ann inner ->
+      annotationInstances ann inner <> declInstances inner
+    _ -> []
+
+annotationInstances :: Annotation -> Decl -> [InstanceInfo]
+annotationInstances ann decl =
+  case (fromAnnotation ann, peelDeclAnn decl) of
+    (Just instAnn, DeclInstance instanceDecl)
+      | Just className <- instanceHeadName (instanceDeclHead instanceDecl) ->
+          [ InstanceInfo
+              { iiClassName = nameText className,
+                iiDictName = tcInstanceDictName instAnn,
+                iiDictType = tcInstanceDictType instAnn,
+                iiTyVars = tcInstanceTyVars instAnn,
+                iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
+                iiHead = tcInstanceHeadTypes instAnn
+              }
+          ]
+    _ -> []
+
+dictBinderPred :: TcDictBinderAnnotation -> Pred
+dictBinderPred dictBinder =
+  ClassPred (tcDictBinderClassName dictBinder) (tcDictBinderArgs dictBinder)
 
 declBindings :: Decl -> [TcBindingResult]
 declBindings decl =
@@ -1055,10 +1089,35 @@ tcFunctionInfer displayName name matches = do
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
 generalizableResidualPreds solveResult = do
-  let residualCts = srResidual solveResult <> inertDicts (srInerts solveResult)
+  residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  let uniqueResidualCts = nubBy sameCtPred residualCts
+      (polymorphicCts, concreteCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
+  -- Every occurrence still needs evidence, even when equal predicates share
+  -- one constraint in the generalized type.
   forM_ residualCts $ \ct ->
-    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
-  pure (map ctPred residualCts)
+    when (predicateCanGeneralize (ctPred ct)) $
+      bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  -- A fully concrete residual cannot be discharged by a caller-supplied
+  -- dictionary, so reject it at the originating expression.
+  forM_ concreteCts $ \ct ->
+    emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
+  pure (map ctPred polymorphicCts)
+  where
+    zonkCtPred ct = do
+      pred' <- zonkPred (ctPred ct)
+      pure (ct {ctPred = pred'})
+
+    sameCtPred left right = ctPred left == ctPred right
+
+predicateCanGeneralize :: Pred -> Bool
+predicateCanGeneralize =
+  not . null . predMetaVars
+
+zonkPred :: Pred -> TcM Pred
+zonkPred pred' =
+  case pred' of
+    ClassPred className args -> ClassPred className <$> mapM zonkType args
+    EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
