@@ -172,6 +172,7 @@ main =
           testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
           testCase "uses local provider for ghc-internal dependencies" test_usesLocalProviderForGhcInternal,
+          testCase "uses virtual provider for system-cxx-std-lib dependencies" test_usesVirtualProviderForSystemCxxStdLib,
           testCase "manifest records core provider dependency names" test_manifestRecordsCoreProviderDependencyNames,
           testCase "installs resolved base dependency closure" test_installsResolvedBaseDependencyClosure,
           testCase "dry run writes no scaffold artifacts" test_dryRunWritesNoScaffoldArtifacts,
@@ -605,6 +606,20 @@ test_usesLocalProviderForGhcInternal =
         (PackageSpec "demo" "0.1.0.0")
     assertDependencySpec plan (PackageSpec "aihc-internal" "9.1204.0")
 
+test_usesVirtualProviderForSystemCxxStdLib :: Assertion
+test_usesVirtualProviderForSystemCxxStdLib =
+  withCoreDependencyFixture "system-cxx-std-lib" $ \sourceRoot storeRoot -> do
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+    assertDependencySpec plan (PackageSpec "system-cxx-std-lib" "1.0")
+    dependencyPlan <- findPlanByName "system-cxx-std-lib" (planDependencyPlans plan)
+    assertEqual "virtual package source file count" 0 (planSourceFileCount dependencyPlan)
+    _ <- expectInstallSuccess (checkPackagePlan plan)
+    pure ()
+
 test_manifestRecordsCoreProviderDependencyNames :: Assertion
 test_manifestRecordsCoreProviderDependencyNames =
   withCoreDependencyFixture "ghc-prim" $ \sourceRoot storeRoot -> do
@@ -807,6 +822,10 @@ createCoreProviderFixtures root = do
     "aihc-internal"
     "9.1204.0"
     "GHC.Internal.Base"
+  createVirtualCoreProviderPackage
+    (root </> "core-libs" </> "system-cxx-std-lib")
+    "system-cxx-std-lib"
+    "1.0"
 
 createCoreProviderPackage :: FilePath -> String -> String -> String -> IO ()
 createCoreProviderPackage sourceRoot name version moduleName = do
@@ -818,6 +837,23 @@ createCoreProviderPackage sourceRoot name version moduleName = do
   where
     dotToSlash '.' = '/'
     dotToSlash c = c
+
+createVirtualCoreProviderPackage :: FilePath -> String -> String -> IO ()
+createVirtualCoreProviderPackage sourceRoot name version = do
+  createDirectoryIfMissing True sourceRoot
+  writeFile
+    (sourceRoot </> name <> ".cabal")
+    ( unlines
+        [ "cabal-version: 3.8",
+          "name: " <> name,
+          "version: " <> version,
+          "build-type: Simple",
+          "license: NONE",
+          "",
+          "library",
+          "  default-language: GHC2021"
+        ]
+    )
 
 fixtureCabal :: String -> String -> String -> [String] -> [String] -> String
 fixtureCabal name version moduleName otherModules dependencies =

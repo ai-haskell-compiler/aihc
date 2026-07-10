@@ -437,6 +437,7 @@ lookupCoreProvider name =
     "aihc-prim" -> Just aihcPrimProvider
     "ghc-internal" -> Just aihcInternalProvider
     "aihc-internal" -> Just aihcInternalProvider
+    "system-cxx-std-lib" -> Just systemCxxStdLibProvider
     _ -> Nothing
 
 canonicalPackageSpec :: PackageSpec -> PackageSpec
@@ -467,6 +468,14 @@ aihcInternalProvider =
     { coreProviderName = "aihc-internal",
       coreProviderVersion = "9.1204.0",
       coreProviderSourceRel = "core-libs" </> "aihc-internal"
+    }
+
+systemCxxStdLibProvider :: CoreProvider
+systemCxxStdLibProvider =
+  CoreProvider
+    { coreProviderName = "system-cxx-std-lib",
+      coreProviderVersion = "1.0",
+      coreProviderSourceRel = "core-libs" </> "system-cxx-std-lib"
     }
 
 coreProviderSourcePath :: CoreProvider -> IO FilePath
