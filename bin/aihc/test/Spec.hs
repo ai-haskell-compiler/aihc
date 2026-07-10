@@ -12,6 +12,7 @@ import Aihc.Cli.Install
     buildDryRunPackagePlanWithResolver,
     buildPackagePlanFromSource,
     buildPackagePlanWithResolver,
+    checkPackagePlan,
     dryRunInstallScaffold,
     renderInstallFailure,
     renderInstallFailureWithOptions,
@@ -157,12 +158,16 @@ main =
           testCase "recursive dependencies affect store paths" test_recursiveDependenciesAffectStorePaths,
           testCase "writes scaffold artifacts" test_writeInstallScaffold,
           testCase "writes dependency scaffold artifacts first" test_writeInstallScaffoldWritesDependencies,
+          testCase "reports parse errors and writes no artifacts" test_reportsParseErrorsAndWritesNoArtifacts,
           testCase "reports rename errors and writes no artifacts" test_reportsRenameErrorsAndWritesNoArtifacts,
           testCase "reports type-check errors and writes no artifacts" test_reportsTypeCheckErrorsAndWritesNoArtifacts,
+          testCase "reports desugar errors and writes no artifacts" test_reportsDesugarErrorsAndWritesNoArtifacts,
           testCase "limits rendered install errors to first module" test_limitsRenderedInstallErrorsToFirstModule,
           testCase "renders human install errors" test_rendersHumanInstallErrors,
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
           testCase "type-checks references to dependency bindings" test_typeChecksReferencesToDependencyBindings,
+          testCase "checks cast-style instance methods using dependency id" test_checksCastStyleDependencyId,
+          testCase "checks packages without writing install artifacts" test_checkPackagePlanWritesNoArtifacts,
           testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
           testCase "uses local provider for ghc-internal dependencies" test_usesLocalProviderForGhcInternal,
@@ -294,7 +299,7 @@ test_writeInstallScaffold =
     assertBool "manifest records dependencies" ("dependencies" `isInfixOf` renderedManifest)
     assertBool "manifest records dependency package" ("dep" `isInfixOf` renderedManifest)
     assertBool "manifest records source count" ("sourceFileCount" `isInfixOf` renderedManifest)
-    assertBool "manifest records unimplemented phases" ("unimplemented" `isInfixOf` renderedManifest)
+    assertBool "manifest records completed desugaring" ("desugar-system-fc" `isInfixOf` renderedManifest && "Generate desugared System-FC data files" `isInfixOf` renderedManifest)
 
     interfaceJson <- BL8.readFile (resultInterfacePath result)
     let renderedInterface = BL8.unpack interfaceJson
@@ -304,7 +309,10 @@ test_writeInstallScaffold =
     assertBool "interface is implemented" (not ("unimplemented" `isInfixOf` renderedInterface))
 
     fcJson <- BL8.readFile (resultFcPath result)
-    assertBool "fc placeholder includes system-fc" ("system-fc" `isInfixOf` BL8.unpack fcJson)
+    let renderedFc = BL8.unpack fcJson
+    assertBool "fc artifact includes system-fc" ("system-fc" `isInfixOf` renderedFc)
+    assertBool "fc artifact is complete" ("\"status\":\"complete\"" `isInfixOf` renderedFc)
+    assertBool "fc artifact contains desugared modules" ("\"program\"" `isInfixOf` renderedFc)
 
 test_writeInstallScaffoldWritesDependencies :: Assertion
 test_writeInstallScaffoldWritesDependencies =
@@ -319,6 +327,21 @@ test_writeInstallScaffoldWritesDependencies =
     assertFileExists (planStorePath dependencyPlan </> "manifest.json")
     assertFileExists (planStorePath dependencyPlan </> "interfaces" </> "package-interface.json")
     assertFileExists (planStorePath dependencyPlan </> "fc" </> "package-fc.json")
+
+test_reportsParseErrorsAndWritesNoArtifacts :: Assertion
+test_reportsParseErrorsAndWritesNoArtifacts =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] "module Demo where\nx =\n"
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+
+    err <- renderInstallFailure <$> expectInstallFailure (writeInstallScaffold plan)
+    assertBool "error reports parse phase" ("parse errors" `isInfixOf` err)
+    assertFileDoesNotExist (planStorePath plan </> "manifest.json")
+    assertFileDoesNotExist (planStorePath plan </> "interfaces" </> "package-interface.json")
+    assertFileDoesNotExist (planStorePath plan </> "fc" </> "package-fc.json")
 
 test_reportsRenameErrorsAndWritesNoArtifacts :: Assertion
 test_reportsRenameErrorsAndWritesNoArtifacts =
@@ -350,6 +373,23 @@ test_reportsTypeCheckErrorsAndWritesNoArtifacts =
     assertBool "error reports package" ("failed to install demo-0.1.0.0" `isInfixOf` err)
     assertBool "error reports type-check phase" ("type-check errors" `isInfixOf` err)
     assertBool "error includes unification diagnostic" ("UnificationError" `isInfixOf` err)
+    assertFileDoesNotExist (planStorePath plan </> "manifest.json")
+    assertFileDoesNotExist (planStorePath plan </> "interfaces" </> "package-interface.json")
+    assertFileDoesNotExist (planStorePath plan </> "fc" </> "package-fc.json")
+
+test_reportsDesugarErrorsAndWritesNoArtifacts :: Assertion
+test_reportsDesugarErrorsAndWritesNoArtifacts =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+        source = "{-# LANGUAGE MagicHash #-}\nmodule Demo where\nforeign import prim mystery# :: Int# -> Int#\n"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] source
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+
+    err <- renderInstallFailure <$> expectInstallFailure (writeInstallScaffold plan)
+    assertBool "error reports desugar phase" ("desugar errors" `isInfixOf` err)
+    assertBool "error includes unknown primitive" ("unknown foreign import prim" `isInfixOf` err)
     assertFileDoesNotExist (planStorePath plan </> "manifest.json")
     assertFileDoesNotExist (planStorePath plan </> "interfaces" </> "package-interface.json")
     assertFileDoesNotExist (planStorePath plan </> "fc" </> "package-fc.json")
@@ -464,6 +504,48 @@ test_typeChecksReferencesToDependencyBindings =
 
     _ <- expectInstallSuccess (writeInstallScaffold plan)
     assertFileExists (planStorePath plan </> "manifest.json")
+
+test_checksCastStyleDependencyId :: Assertion
+test_checksCastStyleDependencyId =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        depRoot = root </> "dep"
+        storeRoot = root </> "store"
+        source =
+          unlines
+            [ "{-# LANGUAGE FlexibleInstances #-}",
+              "{-# LANGUAGE MultiParamTypeClasses #-}",
+              "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Demo where",
+              "import Dep (id)",
+              "class Cast a b where",
+              "  cast :: a -> b",
+              "instance Cast a a where",
+              "  cast = id"
+            ]
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" ["dep >=1 && <2"] source
+    createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\nid :: a -> a\nid x = x\n"
+    createDirectoryIfMissing True storeRoot
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+
+    result <- expectInstallSuccess (writeInstallScaffold plan)
+    fcJson <- BL8.readFile (resultFcPath result)
+    assertBool "FC artifact applies imported id" ("{id @a}" `isInfixOf` BL8.unpack fcJson)
+
+test_checkPackagePlanWritesNoArtifacts :: Assertion
+test_checkPackagePlanWritesNoArtifacts =
+  withDependencyFixture $ \sourceRoot depRoot _ storeRoot -> do
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+    _ <- expectInstallSuccess (checkPackagePlan plan)
+    mapM_ (assertFileDoesNotExist . (</> "manifest.json") . planStorePath) (flattenPackagePlans plan)
 
 test_usesLocalProviderForGhcPrim :: Assertion
 test_usesLocalProviderForGhcPrim =
