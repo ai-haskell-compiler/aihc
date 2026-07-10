@@ -34,8 +34,9 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
     ExtensionSetting (..),
+    ImportDecl (..),
     LanguageEdition (..),
-    Module,
+    Module (..),
     SourceSpan (..),
     effectiveExtensions,
     headerExtensionSettings,
@@ -61,12 +62,13 @@ import Aihc.Tc
     TcType (..),
     TyCon (..),
     TyVarId (..),
+    TypeScheme (..),
     Unique (..),
     renderTcType,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModule,
+    typecheckModulesWithEnv,
   )
 import Control.Applicative ((<|>))
 import Control.Exception (evaluate)
@@ -85,6 +87,7 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -209,7 +212,8 @@ data InterfaceBuildResult = InterfaceBuildResult
     interfaceCppDiagnostics :: ![Aeson.Value],
     interfaceResolveDiagnostics :: ![Aeson.Value],
     interfaceTcDiagnostics :: ![Aeson.Value],
-    interfaceTcModules :: ![Aeson.Value]
+    interfaceTcModules :: ![Aeson.Value],
+    interfaceImportedTerms :: ![(Text, TypeScheme)]
   }
 
 data PreparedInstall = PreparedInstall
@@ -367,6 +371,7 @@ sourcePathForSpec resolver spec =
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
   case name of
+    "base" -> Just aihcBaseProvider
     "aihc-base" -> Just aihcBaseProvider
     "ghc-prim" -> Just aihcPrimProvider
     "aihc-prim" -> Just aihcPrimProvider
@@ -527,7 +532,8 @@ prepareInstallScaffoldRecursive plan = do
       let preparedDependencyPairs = rights dependencyResults
           depExports = foldl' Map.union Map.empty (map fst preparedDependencyPairs)
           preparedDependencies = map snd preparedDependencyPairs
-      interfaceResult <- generatePackageInterface depExports plan
+          importedTerms = concatMap (interfaceImportedTerms . preparedInterface) preparedDependencies
+      interfaceResult <- generatePackageInterface depExports importedTerms plan
       pure $
         case blockingInterfaceFailures interfaceResult of
           [] ->
@@ -946,8 +952,8 @@ fcPlaceholder plan =
       "contains" .= (["system-fc"] :: [String])
     ]
 
-generatePackageInterface :: ModuleExports -> PackagePlan -> IO InterfaceBuildResult
-generatePackageInterface depExports plan = do
+generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> PackagePlan -> IO InterfaceBuildResult
+generatePackageInterface depExports importedTerms plan = do
   files <- collectPlanFiles plan
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
   let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
@@ -957,7 +963,7 @@ generatePackageInterface depExports plan = do
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
       resolveResult = resolveWithDeps depExports parsedModules
       ownExports = extractInterface resolveResult
-  (tcModules, tcDiagnostics) <- typecheckInterfaceModules (resolvedModules resolveResult)
+  (tcModules, tcDiagnostics, ownTerms) <- typecheckInterfaceModules importedTerms (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
@@ -970,34 +976,69 @@ generatePackageInterface depExports plan = do
         interfaceCppDiagnostics = cppDiagnostics,
         interfaceResolveDiagnostics = resolveDiagnostics,
         interfaceTcDiagnostics = enrichedTcDiagnostics,
-        interfaceTcModules = enrichedTcModules
+        interfaceTcModules = enrichedTcModules,
+        interfaceImportedTerms = ownTerms
       }
 
-typecheckInterfaceModules :: [Module] -> IO ([Aeson.Value], [Aeson.Value])
-typecheckInterfaceModules modules = do
-  currentModule <- newIORef Nothing
-  completedModules <- newIORef []
-  result <- timeout typecheckPhaseTimeoutMicros (go currentModule completedModules [] modules)
+typecheckInterfaceModules :: [(Text, TypeScheme)] -> [Module] -> IO ([Aeson.Value], [Aeson.Value], [(Text, TypeScheme)])
+typecheckInterfaceModules importedTerms modules = do
+  currentModule <- newIORef (listToMaybe sortedModules)
+  result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
-    Just tcModules -> pure (tcModules, concatMap tcModuleDiagnosticValues tcModules)
+    Just (tcModules, ownTerms) -> pure (tcModules, concatMap tcModuleDiagnosticValues tcModules, ownTerms)
     Nothing -> do
-      acc <- readIORef completedModules
       current <- readIORef currentModule
-      let tcModules = reverse acc
-      pure (tcModules, concatMap tcModuleDiagnosticValues tcModules <> [typecheckTimeoutDiagnostic current])
+      pure ([], [typecheckTimeoutDiagnostic current], [])
   where
-    go _current _completed acc [] =
-      pure (reverse acc)
-    go current completed acc (modu : rest) = do
-      writeIORef current (Just modu)
-      tcModule <- evaluate (forceJsonValue (typecheckInterfaceModule modu))
-      let acc' = tcModule : acc
-      writeIORef completed acc'
-      go current completed acc' rest
+    sortedModules = sortModulesByImports modules
+    go current = do
+      mapM_ (writeIORef current . Just) sortedModules
+      let checkedModules = typecheckModulesWithEnv importedTerms sortedModules
+          tcModules = zipWith tcModuleValue sortedModules checkedModules
+          ownTerms = concatMap moduleImportedTerms checkedModules
+      _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
+      length (show ownTerms) `seq` pure (tcModules, ownTerms)
 
-typecheckInterfaceModule :: Module -> Aeson.Value
-typecheckInterfaceModule modu =
-  tcModuleValue modu (typecheckModule modu)
+sortModulesByImports :: [Module] -> [Module]
+sortModulesByImports modules = reverse sorted
+  where
+    modulesByName = Map.fromList [(name, modu) | modu <- modules, Just name <- [Syntax.moduleName modu]]
+    (_, sorted) = foldl' visitModule (Set.empty, []) modules
+
+    visitModule state@(seen, acc) modu =
+      case Syntax.moduleName modu of
+        Just name
+          | name `Set.member` seen -> state
+          | otherwise ->
+              let seen' = Set.insert name seen
+                  (seen'', acc') = foldl' visitImport (seen', acc) (moduleImports modu)
+               in (seen'', modu : acc')
+        Nothing -> (seen, modu : acc)
+
+    visitImport state importDecl =
+      case Map.lookup (importDeclModule importDecl) modulesByName of
+        Just importedModule -> visitModule state importedModule
+        Nothing -> state
+
+moduleImportedTerms :: Module -> [(Text, TypeScheme)]
+moduleImportedTerms =
+  map bindingImportedTerm . tcModuleBindings
+
+bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
+bindingImportedTerm binding =
+  (tbName binding, tcTypeScheme (tbType binding))
+
+tcTypeScheme :: TcType -> TypeScheme
+tcTypeScheme ty =
+  case collectForAlls ty of
+    (tvs, TcQualTy preds body) -> ForAll tvs preds body
+    (tvs, body) -> ForAll tvs [] body
+
+collectForAlls :: TcType -> ([TyVarId], TcType)
+collectForAlls (TcForAllTy tv body) =
+  let (tvs, inner) = collectForAlls body
+   in (tv : tvs, inner)
+collectForAlls ty = ([], ty)
 
 typecheckPhaseTimeoutMicros :: Int
 typecheckPhaseTimeoutMicros = 1000 * 1000

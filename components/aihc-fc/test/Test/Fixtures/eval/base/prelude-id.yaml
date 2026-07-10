@@ -1,0 +1,12 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+output: |
+  True
+expression: |
+  id True
+status: pass
+reason: evaluates Prelude.id loaded from the aihc-base dependency
