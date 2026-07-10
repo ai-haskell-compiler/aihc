@@ -28,7 +28,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     stripAnnotations,
   )
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolveWithDeps)
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -217,7 +217,18 @@ kindTests =
                 \data M a = J a | N\n\
                 \fn :: M Int\n\
                 \fn = N\n"
-      assertBool "module should typecheck" (tcModuleSuccess result)
+      assertBool "module should typecheck" (tcModuleSuccess result),
+    testCase "infers the kind of an imported class parameter" $ do
+      let baseResult = resolve [parseOnly "module Base (Monad) where\nclass Monad m where\n"]
+          depExports = extractInterface baseResult
+          target = parseOnly "module Test where\nimport Base\nliftedId :: Monad m => m a -> m a\nliftedId x = x\n"
+          resolved = resolveWithDeps depExports [target]
+      case resolved of
+        ResolveResult {resolvedModules = [modu], resolveErrors = []} -> do
+          let result = typecheckModule modu
+          assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+        ResolveResult {resolveErrors} ->
+          assertFailure ("Resolve error in imported-class kind test: " <> show resolveErrors)
   ]
   where
     isKindMismatch diag =
@@ -333,12 +344,16 @@ annotationModule =
 
 parseM :: Text -> Module
 parseM input =
+  case resolve [parseOnly input] of
+    ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
+    ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
+
+parseOnly :: Text -> Module
+parseOnly input =
   let config = defaultConfig {parserSourceName = "<test>"}
       (errs, modu) = parseModule config input
    in if null errs
-        then case resolve [modu] of
-          ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
-          ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
+        then modu
         else error ("Parse error in test: " ++ show errs)
 
 evidenceDictNames :: Module -> [Text]

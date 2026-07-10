@@ -1,0 +1,21 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Control.Monad
+    import Data.Maybe
+
+    flipBool :: Bool -> Maybe Bool
+    flipBool False = Just True
+    flipBool True = Just False
+
+    answer :: Maybe Bool
+    answer = flipBool =<< Just False
+output: |
+  Just True
+expression: |
+  answer
+status: pass
+reason: Control.Monad exports flipped bind from aihc-base

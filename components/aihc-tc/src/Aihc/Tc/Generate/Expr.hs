@@ -16,6 +16,8 @@ import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
     CompStmt (..),
+    DoFlavor (..),
+    DoStmt (..),
     Expr (..),
     LambdaCaseAlt (..),
     Name (..),
@@ -101,6 +103,8 @@ inferExprAt ambient expr = case expr of
     inferList (exprSpan expr `orSourceSpan` ambient) elems
   EListComp body quals ->
     inferListComp (exprSpan expr `orSourceSpan` ambient) body quals
+  EDo stmts flavor ->
+    inferDo (exprSpan expr `orSourceSpan` ambient) flavor stmts
   other -> do
     emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
@@ -513,6 +517,104 @@ inferListComp sp body quals = do
       emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
       inferCompQuals ambient rest action
 
+inferDo :: SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [Ct])
+inferDo sp flavor stmts =
+  case flavor of
+    DoPlain -> do
+      (stmts', resultTy, cts) <- inferDoStmts sp stmts
+      let pending = pendingAnnotation resultTy [] [] []
+      pure (annotatePendingExprAt sp pending (EDo stmts' flavor), resultTy, cts)
+    _ -> do
+      emitError sp (OtherError ("unsupported do flavor in TC MVP: " ++ show flavor))
+      resultTy <- freshMetaTv
+      pure (EDo stmts flavor, resultTy, [])
+
+inferDoStmts :: SourceSpan -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmts sp stmts =
+  case stmts of
+    [] -> do
+      emitError sp (OtherError "empty do block in TC MVP")
+      resultTy <- freshMetaTv
+      pure ([], resultTy, [])
+    [stmt] -> inferLastDoStmt sp stmt
+    stmt : rest -> inferDoStmt sp stmt rest
+
+inferLastDoStmt :: SourceSpan -> DoStmt Expr -> TcM ([DoStmt Expr], TcType, [Ct])
+inferLastDoStmt ambient stmt =
+  case stmt of
+    DoAnn ann inner -> do
+      (stmts', resultTy, cts) <- inferLastDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner
+      case stmts' of
+        [inner'] -> pure ([DoAnn ann inner'], resultTy, cts)
+        _ -> pure (stmts', resultTy, cts)
+    DoExpr body -> do
+      (body', bodyTy, cts) <- inferExprAt ambient body
+      pure ([DoExpr body'], bodyTy, cts)
+    _ -> do
+      emitError ambient (OtherError "the last statement in a do block must be an expression")
+      resultTy <- freshMetaTv
+      pure ([stmt], resultTy, [])
+
+inferDoStmt :: SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferDoStmt ambient stmt rest =
+  case stmt of
+    DoAnn ann inner -> do
+      (stmts', resultTy, cts) <- inferDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner rest
+      case stmts' of
+        inner' : rest' -> pure (DoAnn ann inner' : rest', resultTy, cts)
+        [] -> pure ([], resultTy, cts)
+    DoBind pat action -> do
+      monadTy <- freshMetaTv
+      itemTy <- freshMetaTv
+      resultItemTy <- freshMetaTv
+      (action', actionTy, actionCts) <- inferExprAt ambient action
+      patCheck <- checkPattern ambient pat itemTy
+      (rest', resultTy, restCts) <-
+        withPatternBindings (pcBindings patCheck) (inferDoStmts ambient rest)
+      actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
+      resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
+      monadCt <- wantedMonad ambient monadTy
+      let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+      pure
+        ( DoBind pat' action' : rest',
+          resultTy,
+          actionCts <> pcWantedCts patCheck <> restCts <> [actionEq, resultEq, monadCt]
+        )
+    DoExpr action -> do
+      monadTy <- freshMetaTv
+      itemTy <- freshMetaTv
+      resultItemTy <- freshMetaTv
+      (action', actionTy, actionCts) <- inferExprAt ambient action
+      (rest', resultTy, restCts) <- inferDoStmts ambient rest
+      actionEq <- wantedDoEq ambient actionTy (TcAppTy monadTy itemTy)
+      resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
+      monadCt <- wantedMonad ambient monadTy
+      pure
+        ( DoExpr action' : rest',
+          resultTy,
+          actionCts <> restCts <> [actionEq, resultEq, monadCt]
+        )
+    DoLetDecls decls -> do
+      (decls', rest', resultTy, cts) <-
+        inferLocalDecls inferExpr decls $ do
+          (rest', resultTy, restCts) <- inferDoStmts ambient rest
+          pure (rest', resultTy, restCts)
+      pure (DoLetDecls decls' : rest', resultTy, cts)
+    DoRecStmt _ -> do
+      emitError ambient (OtherError "recursive do statements are unsupported in TC MVP")
+      (rest', resultTy, cts) <- inferDoStmts ambient rest
+      pure (stmt : rest', resultTy, cts)
+
+wantedDoEq :: SourceSpan -> TcType -> TcType -> TcM Ct
+wantedDoEq sp actual expected = do
+  ev <- freshEvVar
+  pure (mkWantedCt (EqPred actual expected) ev (AppOrigin sp) sp)
+
+wantedMonad :: SourceSpan -> TcType -> TcM Ct
+wantedMonad sp monadTy = do
+  ev <- freshEvVar
+  pure (mkWantedCt (ClassPred "Monad" [monadTy]) ev (AppOrigin sp) sp)
+
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
 orSourceSpan NoSourceSpan fallback = fallback
 orSourceSpan sp _ = sp
@@ -521,6 +623,12 @@ compStmtSpan :: CompStmt -> SourceSpan
 compStmtSpan compStmt =
   case compStmt of
     CompAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
+    _ -> NoSourceSpan
+
+doStmtSpan :: DoStmt body -> SourceSpan
+doStmtSpan stmt =
+  case stmt of
+    DoAnn ann _ -> fromMaybe NoSourceSpan (fromAnnotation @SourceSpan ann)
     _ -> NoSourceSpan
 
 rhsExprSpan :: Rhs Expr -> SourceSpan

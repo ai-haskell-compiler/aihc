@@ -343,7 +343,7 @@ classPredicateArgKinds className argCount = do
   mInfo <- lookupTyCon className
   case mInfo of
     Just info -> takeClassArgKinds argCount <$> defaultKindMetas (tciKind info)
-    Nothing -> pure (replicate argCount KType)
+    Nothing -> mapM (const freshKindMeta) [1 .. argCount]
 
 takeClassArgKinds :: Int -> Kind -> [Kind]
 takeClassArgKinds n kind

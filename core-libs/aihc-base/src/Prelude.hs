@@ -17,6 +17,7 @@ module Prelude
     String,
     (&&),
     (++),
+    (=<<),
     (/=),
     (==),
     id,
@@ -140,6 +141,11 @@ class (Applicative m) => Monad (m :: Type -> Type) where
   return :: a -> m a
 
 infixl 1 >>=, >>
+
+(=<<) :: (Monad m) => (a -> m b) -> m a -> m b
+f =<< mx = mx >>= f
+
+infixr 1 =<<
 
 instance Monad List where
   xs >>= k = bindList xs k
