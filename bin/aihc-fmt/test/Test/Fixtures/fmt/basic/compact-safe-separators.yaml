@@ -7,15 +7,19 @@ formatters:
       module Main where
       xs = [1, 2, 3]
       f = case True of {
-              True -> 1;
-              False | otherwise
-                     -> 0 }
+        True -> 1;
+        False | otherwise
+         -> 0 }
       g = \case {
-              True -> 1;
-              False | otherwise
-                     -> 0 }
+        True -> 1;
+        False | otherwise
+         -> 0 }
+      h = case True of {
+        True -> do {
+            pure
+              1 } }
       q = [d|
-            x = 1 |]
+        x = 1 |]
       empty = [d| |]
     status: pass
 input: |
@@ -23,5 +27,6 @@ input: |
   xs=[1,2,3]
   f = case True of { True -> 1; False | otherwise -> 0 }
   g = \case { True -> 1; False | otherwise -> 0 }
+  h = case True of { True -> do { pure 1 } }
   q = [d| x=1 |]
   empty = [d| |]

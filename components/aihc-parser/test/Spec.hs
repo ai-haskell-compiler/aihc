@@ -1655,8 +1655,8 @@ test_viewExprBlockInfixLhsNoParens = do
       expected =
         """
         f [case [] of {  }
-          + []
-           -> _] = []
+         + []
+         -> _] = []
         """
   assertParsedModulePrettyContains source expected
 
