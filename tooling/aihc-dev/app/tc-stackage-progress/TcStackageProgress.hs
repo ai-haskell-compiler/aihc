@@ -17,12 +17,15 @@ import Aihc.Cli.Install
     PackageCheckCache,
     PackagePlan (..),
     PackagePlanCache,
+    PackageVariantKey (..),
     buildPackagePlanWithResolverCached,
     checkPackagePlanWithCache,
     defaultStoreRoot,
+    installFailureIsForPackage,
     lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
+    packagePlanFailureIsForPackage,
     renderInstallFailure,
   )
 import Aihc.Hackage.Cabal qualified as HC
@@ -200,8 +203,18 @@ checkOnePackage planCache checkCache resolver storeRoot spec = do
   case result of
     Left (err :: SomeException) -> do
       sourceFileCount <- fromMaybe 0 <$> lookupPackagePlanSourceFileCount planCache spec
-      pure (RSP.PkgFailed (displayException err), sourceFileCount)
-    Right (plan, Left failure) -> pure (RSP.PkgFailed (renderInstallFailure failure), planSourceFileCount plan)
+      let status =
+            if packagePlanFailureIsForPackage spec err
+              then RSP.PkgFailed (displayException err)
+              else RSP.PkgSkipped
+      pure (status, sourceFileCount)
+    Right (plan, Left failure) ->
+      let rootSpec = packageKeySpec (planPackageKey plan)
+          status =
+            if installFailureIsForPackage rootSpec failure
+              then RSP.PkgFailed (renderInstallFailure failure)
+              else RSP.PkgSkipped
+       in pure (status, planSourceFileCount plan)
     Right (plan, Right _) -> pure (RSP.PkgSuccess Map.empty, planSourceFileCount plan)
 
 reportResults :: Int -> Map Text (RSP.PackageStatus, Int) -> IO ()
@@ -212,7 +225,7 @@ reportResults topN resultsWithSizes = do
   putStrLn "Type checker results:"
   putStrLn $ "  Typechecked: " ++ show (countTypechecked counts) ++ " / " ++ show (countTotal counts) ++ " (" ++ show (pct (countTypechecked counts) (countTotal counts)) ++ "%)"
   putStrLn $ "  Failed:      " ++ show (countFailed counts) ++ " (parse, scope, type-check, or desugar errors)"
-  putStrLn $ "  Skipped:     " ++ show (countSkipped counts)
+  putStrLn $ "  Skipped:     " ++ show (countSkipped counts) ++ " (dependency failed)"
   let failures =
         take topN . sortOn (\(pkg, lineCount, msg) -> (lineCount, pkg, msg)) $
           [ (pkg, lineCount, msg)

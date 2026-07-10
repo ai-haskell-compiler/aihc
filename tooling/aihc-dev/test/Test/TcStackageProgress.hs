@@ -26,7 +26,9 @@ tcStackageProgressTests =
     "tc stackage progress"
     [ testCase "counts typechecked, failed, and skipped packages" test_countsPackageStatuses,
       testCase "selects the smallest failing packages before applying the top limit" test_smallestFailingPackages,
-      testCase "keeps the source file count when dependency planning fails" test_keepsSourceFileCountOnPlanningFailure
+      testCase "skips packages when dependency planning fails" test_skipsDependencyPlanningFailure,
+      testCase "skips packages when a dependency check fails" test_skipsDependencyCheckFailure,
+      testCase "reports failures originating in the root package" test_reportsRootPackageFailure
     ]
 
 test_countsPackageStatuses :: IO ()
@@ -73,8 +75,8 @@ test_smallestFailingPackages =
       [("tiny", 1, "tiny error"), ("medium", 2, "medium error")]
       =<< smallestFailingPackages 2 infos statuses
 
-test_keepsSourceFileCountOnPlanningFailure :: IO ()
-test_keepsSourceFileCountOnPlanningFailure =
+test_skipsDependencyPlanningFailure :: IO ()
+test_skipsDependencyPlanningFailure =
   withTempDir "tc-stackage-progress-planning-failure" $ \dir -> do
     let sourceRoot = dir </> "source"
         sourceDir = sourceRoot </> "src"
@@ -94,9 +96,75 @@ test_keepsSourceFileCountOnPlanningFailure =
     (status, sourceFileCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
 
     assertEqual "source file count" 1 sourceFileCount
+    assertSkipped status
+
+test_skipsDependencyCheckFailure :: IO ()
+test_skipsDependencyCheckFailure =
+  withTempDir "tc-stackage-progress-dependency-check-failure" $ \dir -> do
+    let sourceRoot = dir </> "source"
+        dependencyRoot = dir </> "dependency"
+        storeRoot = dir </> "store"
+        spec = PackageSpec "demo" "0.1.0.0"
+        resolver =
+          DependencyResolver
+            { resolverResolveVersion = const (pure "1.0.0"),
+              resolverSourcePath = \packageSpec ->
+                pure $ if pkgName packageSpec == "demo" then sourceRoot else dependencyRoot
+            }
+    createPackage sourceRoot "demo" "Demo" ["dependency"] "module Demo where\nx = ()\n"
+    createPackage dependencyRoot "dependency" "Dependency" [] "module Dependency where\nx =\n"
+    planCache <- newPackagePlanCache
+    checkCache <- newPackageCheckCache
+
+    (status, _) <- checkOnePackage planCache checkCache resolver storeRoot spec
+
+    assertSkipped status
+
+test_reportsRootPackageFailure :: IO ()
+test_reportsRootPackageFailure =
+  withTempDir "tc-stackage-progress-root-failure" $ \dir -> do
+    let sourceRoot = dir </> "source"
+        storeRoot = dir </> "store"
+        spec = PackageSpec "demo" "0.1.0.0"
+        resolver =
+          DependencyResolver
+            { resolverResolveVersion = \name -> fail ("unexpected dependency " <> name),
+              resolverSourcePath = const (pure sourceRoot)
+            }
+    createPackage sourceRoot "demo" "Demo" [] "module Demo where\nx =\n"
+    planCache <- newPackagePlanCache
+    checkCache <- newPackageCheckCache
+
+    (status, _) <- checkOnePackage planCache checkCache resolver storeRoot spec
+
     case status of
-      PkgFailed message -> assertBool "dependency failure is retained" ("missing dependency version" `isInfixOf` message)
-      _ -> fail "expected package failure"
+      PkgFailed message -> assertBool "root parse failure is retained" ("parse errors" `isInfixOf` message)
+      _ -> fail "expected root package failure"
+
+assertSkipped :: PackageStatus -> IO ()
+assertSkipped PkgSkipped = pure ()
+assertSkipped _ = fail "expected package to be skipped"
+
+createPackage :: FilePath -> String -> String -> [String] -> String -> IO ()
+createPackage root name moduleName dependencies source = do
+  let sourceDir = root </> "src"
+  createDirectoryIfMissing True sourceDir
+  writeFile (root </> name <> ".cabal") (packageCabal name moduleName dependencies)
+  writeFile (sourceDir </> moduleName <> ".hs") source
+
+packageCabal :: String -> String -> [String] -> String
+packageCabal name moduleName dependencies =
+  unlines $
+    [ "cabal-version: 3.0",
+      "name: " <> name,
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: " <> moduleName,
+      "  hs-source-dirs: src"
+    ]
+      <> ["  build-depends: " <> dependency | dependency <- dependencies]
+      <> ["  default-language: Haskell2010"]
 
 planningFailureCabal :: String
 planningFailureCabal =

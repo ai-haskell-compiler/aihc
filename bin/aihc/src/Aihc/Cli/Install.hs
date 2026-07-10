@@ -20,9 +20,11 @@ module Aihc.Cli.Install
     checkPackagePlanWithCache,
     defaultStoreRoot,
     dryRunInstallScaffold,
+    installFailureIsForPackage,
     lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
+    packagePlanFailureIsForPackage,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -82,7 +84,7 @@ import Aihc.Tc
   )
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
-import Control.Exception (SomeException, evaluate, mask, throwIO, try)
+import Control.Exception (AsyncException, Exception (..), SomeException, evaluate, fromException, mask, throwIO, try)
 import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.:), (.=))
 import Data.Aeson qualified as Aeson
@@ -210,6 +212,14 @@ data SourceAnalysisMode
   = AllowSourceWrites
   | AvoidSourceWrites
   deriving (Eq)
+
+data PackagePlanFailure = PackagePlanFailure !PackageSpec !SomeException
+
+instance Show PackagePlanFailure where
+  show (PackagePlanFailure _ cause) = displayException cause
+
+instance Exception PackagePlanFailure where
+  displayException (PackagePlanFailure _ cause) = displayException cause
 
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
@@ -384,29 +394,34 @@ buildDryRunPackagePlanWithResolver resolver storeRoot spec = do
 buildPackagePlanRecursive :: PackagePlanCache -> SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
 buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
-      ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
+      withPackagePlanFailure cycleSpec $
+        ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = buildPackagePlanCached cache mode spec build
   where
     spec = canonicalPackageSpec rawSpec
-    build = do
-      sourcePath <- sourcePathForSpec resolver spec
-      analysis <- analyzeSourceWith mode sourcePath
-      recordPackagePlanSourceFileCount cache mode spec (sourceFileCount analysis)
-      dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
-      dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
-      let plan =
-            buildPackagePlanFromAnalysis
-              storeRoot
-              spec
-              sourcePath
-              (map fst dependencyPlans)
-              (map snd dependencyPlans)
-              analysis
-      pure (resolvedDependencyFromPlan plan, plan)
+    cycleSpec = spec {pkgVersion = "cyclic-dependency"}
+    build =
+      withPackagePlanFailure spec $ do
+        sourcePath <- sourcePathForSpec resolver spec
+        analysis <- analyzeSourceWith mode sourcePath
+        recordPackagePlanSourceFileCount cache mode spec (sourceFileCount analysis)
+        dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
+        dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
+        let plan =
+              buildPackagePlanFromAnalysis
+                storeRoot
+                spec
+                sourcePath
+                (map fst dependencyPlans)
+                (map snd dependencyPlans)
+                analysis
+        pure (resolvedDependencyFromPlan plan, plan)
 
     resolveDependencySpec dependencyName = do
-      version <- resolveVersionForDependency dependencyName
+      version <- withPackagePlanFailure unresolvedSpec (resolveVersionForDependency dependencyName)
       pure (canonicalPackageSpec (PackageSpec dependencyName version))
+      where
+        unresolvedSpec = PackageSpec dependencyName "unresolved"
 
     resolveVersionForDependency dependencyName =
       case lookupCoreProvider dependencyName of
@@ -437,6 +452,29 @@ recordPackagePlanSourceFileCount :: PackagePlanCache -> SourceAnalysisMode -> Pa
 recordPackagePlanSourceFileCount cache mode spec count =
   modifyMVar_ (packagePlanSourceFileCounts cache) $ \counts ->
     pure (Map.insert (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec) count counts)
+
+withPackagePlanFailure :: PackageSpec -> IO a -> IO a
+withPackagePlanFailure spec action = do
+  result <- try action
+  case result of
+    Right value -> pure value
+    Left (err :: SomeException) ->
+      case fromException err of
+        Just (_ :: PackagePlanFailure) -> throwIO err
+        Nothing ->
+          case fromException err of
+            Just (_ :: AsyncException) -> throwIO err
+            Nothing -> throwIO (PackagePlanFailure spec err)
+
+packagePlanFailureIsForPackage :: PackageSpec -> SomeException -> Bool
+packagePlanFailureIsForPackage rawSpec err =
+  case fromException err of
+    Just (PackagePlanFailure failedSpec _) -> packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
+    Nothing -> True
+
+installFailureIsForPackage :: PackageSpec -> InstallFailure -> Bool
+installFailureIsForPackage rawSpec (InstallInterfaceFailure failedSpec _) =
+  packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
 
 sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
