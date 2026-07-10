@@ -25,7 +25,7 @@ import Aihc.Cli.Install
     lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
-    packagePlanFailureIsForPackage,
+    packagePlanFailureShouldBeReportedForPackage,
     renderInstallFailure,
   )
 import Aihc.Hackage.Cabal qualified as HC
@@ -204,7 +204,7 @@ checkOnePackage planCache checkCache resolver storeRoot spec = do
     Left (err :: SomeException) -> do
       sourceFileCount <- fromMaybe 0 <$> lookupPackagePlanSourceFileCount planCache spec
       let status =
-            if packagePlanFailureIsForPackage spec err
+            if packagePlanFailureShouldBeReportedForPackage spec err
               then RSP.PkgFailed (displayException err)
               else RSP.PkgSkipped
       pure (status, sourceFileCount)

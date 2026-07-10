@@ -24,7 +24,7 @@ module Aihc.Cli.Install
     lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
-    packagePlanFailureIsForPackage,
+    packagePlanFailureShouldBeReportedForPackage,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -213,13 +213,18 @@ data SourceAnalysisMode
   | AvoidSourceWrites
   deriving (Eq)
 
-data PackagePlanFailure = PackagePlanFailure !PackageSpec !SomeException
+data PackagePlanFailureDisposition
+  = ReportPackagePlanFailure
+  | SkipPackagePlanFailure
+  deriving (Eq)
+
+data PackagePlanFailure = PackagePlanFailure !PackagePlanFailureDisposition !PackageSpec !SomeException
 
 instance Show PackagePlanFailure where
-  show (PackagePlanFailure _ cause) = displayException cause
+  show (PackagePlanFailure _ _ cause) = displayException cause
 
 instance Exception PackagePlanFailure where
-  displayException (PackagePlanFailure _ cause) = displayException cause
+  displayException (PackagePlanFailure _ _ cause) = displayException cause
 
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
@@ -394,7 +399,7 @@ buildDryRunPackagePlanWithResolver resolver storeRoot spec = do
 buildPackagePlanRecursive :: PackagePlanCache -> SourceAnalysisMode -> DependencyResolver -> FilePath -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
 buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
-      withPackagePlanFailure cycleSpec $
+      withSkippedPackagePlanFailure cycleSpec $
         ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = buildPackagePlanCached cache mode spec build
   where
@@ -418,7 +423,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
         pure (resolvedDependencyFromPlan plan, plan)
 
     resolveDependencySpec dependencyName = do
-      version <- withPackagePlanFailure unresolvedSpec (resolveVersionForDependency dependencyName)
+      version <- withSkippedPackagePlanFailure unresolvedSpec (resolveVersionForDependency dependencyName)
       pure (canonicalPackageSpec (PackageSpec dependencyName version))
       where
         unresolvedSpec = PackageSpec dependencyName "unresolved"
@@ -454,7 +459,13 @@ recordPackagePlanSourceFileCount cache mode spec count =
     pure (Map.insert (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec) count counts)
 
 withPackagePlanFailure :: PackageSpec -> IO a -> IO a
-withPackagePlanFailure spec action = do
+withPackagePlanFailure = withPackagePlanFailureDisposition ReportPackagePlanFailure
+
+withSkippedPackagePlanFailure :: PackageSpec -> IO a -> IO a
+withSkippedPackagePlanFailure = withPackagePlanFailureDisposition SkipPackagePlanFailure
+
+withPackagePlanFailureDisposition :: PackagePlanFailureDisposition -> PackageSpec -> IO a -> IO a
+withPackagePlanFailureDisposition disposition spec action = do
   result <- try action
   case result of
     Right value -> pure value
@@ -464,12 +475,14 @@ withPackagePlanFailure spec action = do
         Nothing ->
           case fromException err of
             Just (_ :: AsyncException) -> throwIO err
-            Nothing -> throwIO (PackagePlanFailure spec err)
+            Nothing -> throwIO (PackagePlanFailure disposition spec err)
 
-packagePlanFailureIsForPackage :: PackageSpec -> SomeException -> Bool
-packagePlanFailureIsForPackage rawSpec err =
+packagePlanFailureShouldBeReportedForPackage :: PackageSpec -> SomeException -> Bool
+packagePlanFailureShouldBeReportedForPackage rawSpec err =
   case fromException err of
-    Just (PackagePlanFailure failedSpec _) -> packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
+    Just (PackagePlanFailure disposition failedSpec _) ->
+      disposition == ReportPackagePlanFailure
+        && packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
     Nothing -> True
 
 installFailureIsForPackage :: PackageSpec -> InstallFailure -> Bool
@@ -480,7 +493,7 @@ sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
   case lookupCoreProvider (pkgName spec) of
     Just provider -> coreProviderSourcePath provider
-    Nothing -> resolverSourcePath resolver spec
+    Nothing -> withSkippedPackagePlanFailure spec (resolverSourcePath resolver spec)
 
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =

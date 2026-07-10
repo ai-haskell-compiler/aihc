@@ -26,6 +26,7 @@ tcStackageProgressTests =
     "tc stackage progress"
     [ testCase "counts typechecked, failed, and skipped packages" test_countsPackageStatuses,
       testCase "selects the smallest failing packages before applying the top limit" test_smallestFailingPackages,
+      testCase "skips packages when source download fails" test_skipsSourceDownloadFailure,
       testCase "skips packages when dependency planning fails" test_skipsDependencyPlanningFailure,
       testCase "skips packages when a dependency check fails" test_skipsDependencyCheckFailure,
       testCase "reports failures originating in the root package" test_reportsRootPackageFailure
@@ -74,6 +75,24 @@ test_smallestFailingPackages =
       "smallest failures"
       [("tiny", 1, "tiny error"), ("medium", 2, "medium error")]
       =<< smallestFailingPackages 2 infos statuses
+
+test_skipsSourceDownloadFailure :: IO ()
+test_skipsSourceDownloadFailure =
+  withTempDir "tc-stackage-progress-download-failure" $ \dir -> do
+    let storeRoot = dir </> "store"
+        spec = PackageSpec "demo" "0.1.0.0"
+        resolver =
+          DependencyResolver
+            { resolverResolveVersion = \name -> fail ("unexpected dependency " <> name),
+              resolverSourcePath = const (fail "download failed")
+            }
+    planCache <- newPackagePlanCache
+    checkCache <- newPackageCheckCache
+
+    (status, sourceFileCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+
+    assertEqual "source file count" 0 sourceFileCount
+    assertSkipped status
 
 test_skipsDependencyPlanningFailure :: IO ()
 test_skipsDependencyPlanningFailure =
