@@ -401,18 +401,13 @@ prettyIndentedWhereClause Nothing = mempty
 prettyIndentedWhereClause whereDecls = hardline <> indent 2 (prettyWhereClauseBare whereDecls)
 
 prettyTHDeclQuote :: [Decl] -> Doc ann
-prettyTHDeclQuote [] =
-  hang 2 $
-    "[d|"
-      <> hardline
-      <> "|]"
+prettyTHDeclQuote [] = "[d| |]"
 prettyTHDeclQuote decls =
   hang 2 $
     "[d|"
       <> hardline
       <> vsep (concatMap prettyDeclLines decls)
-      <> hardline
-      <> "|]"
+      <+> "|]"
 
 -- | Infix type-family heads use @l \`Op\` r@ with a 'NameConId' operator (e.g.
 -- @\`And\`@), so 'isSymbolicTypeName' is false; 'TypeHeadInfix' already marks
@@ -1268,7 +1263,7 @@ prettyCommaSeparated :: (a -> Doc ann) -> [a] -> Doc ann
 prettyCommaSeparated render items =
   case map render items of
     [] -> mempty
-    rendered -> hang 2 (vsep (punctuate comma rendered))
+    rendered -> hsep (punctuate comma rendered)
 
 prettyBarSeparated :: [Doc ann] -> Doc ann
 prettyBarSeparated items =
@@ -1294,13 +1289,11 @@ prettyCaseAltWith prettyBody (CaseAlt _ pat rhs) = nest 2 $
     UnguardedRhs _ body whereDecls ->
       prettyPattern pat
         <+> "->"
-        <> hardline
-        <> indent 2 (prettyBody body)
+        <+> prettyBody body
         <> prettyIndentedWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       prettyPattern pat
-        <> hardline
-        <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyBody) grhss))
+        <+> align (vsep (map (prettyCaseGuardedRhsBlock prettyBody) grhss))
         <> prettyIndentedWhereClause whereDecls
 
 prettyCaseAlt :: CaseAlt Expr -> Doc ann
@@ -1315,8 +1308,7 @@ prettyGuardedRhsBodyBlock arrow grhs =
         <> hardline
         <> " "
         <> pretty arrow
-        <> hardline
-        <> indent 2 (prettyExpr body)
+        <+> prettyExpr body
 
 prettyCaseGuardedRhsBlock :: (body -> Doc ann) -> GuardedRhs body -> Doc ann
 prettyCaseGuardedRhsBlock prettyBody grhs =
@@ -1327,8 +1319,7 @@ prettyCaseGuardedRhsBlock prettyBody grhs =
         <> hardline
         <> " "
         <> "->"
-        <> hardline
-        <> indent 2 (prettyBody body)
+        <+> prettyBody body
 
 prettyMultiWayIfRhss :: [GuardedRhs Expr] -> Doc ann
 prettyMultiWayIfRhss rhss = vsep (map (prettyGuardedRhsBodyBlock "->") rhss)
@@ -1361,13 +1352,11 @@ prettyLambdaCaseAlt (LambdaCaseAlt _ pats rhs) = nest 2 $
     UnguardedRhs _ body whereDecls ->
       hsep (map prettyPattern pats)
         <+> "->"
-        <> hardline
-        <> indent 2 (prettyExpr body)
+        <+> prettyExpr body
         <> prettyIndentedWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       hsep (map prettyPattern pats)
-        <> hardline
-        <> indent 2 (vsep (map (prettyCaseGuardedRhsBlock prettyExpr) grhss))
+        <+> align (vsep (map (prettyCaseGuardedRhsBlock prettyExpr) grhss))
         <> prettyIndentedWhereClause whereDecls
 
 prettyGuardQualifier :: GuardQualifier -> Doc ann
@@ -1511,8 +1500,7 @@ prettyGuardedRhsBlock grhs =
         <+> nest
           2
           ( prettyGuardQualifiersLayout guards
-              <> hardline
-              <> "="
+              <+> "="
               <+> nest 2 (prettyExpr body)
           )
 

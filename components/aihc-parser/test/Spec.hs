@@ -465,7 +465,7 @@ test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
           EParen (EOverloadedLabel "a" "#a")
         ]
       rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
-      expected = ["( #a,\n   )", "[ #a]", "( #a)"]
+      expected = ["( #a, )", "[ #a]", "( #a)"]
   assertEqual "pretty-printed forms" expected rendered
   mapM_
     ( \source ->
