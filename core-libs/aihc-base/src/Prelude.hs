@@ -18,6 +18,7 @@ module Prelude
     (++),
     (/=),
     (==),
+    id,
     not,
     otherwise,
     (||),
@@ -37,6 +38,9 @@ data List a = [] | a : [a]
 infixr 5 :
 
 type String = [Char]
+
+id :: a -> a
+id x = x
 
 data Maybe a = Nothing | Just a
 
