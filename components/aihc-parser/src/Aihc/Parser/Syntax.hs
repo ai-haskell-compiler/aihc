@@ -165,6 +165,7 @@ import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.List (sort)
+import Data.List qualified as List
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.String (IsString (..))
@@ -343,7 +344,7 @@ data ExtensionSet = ExtensionSet !Word64 !Word64 !Word64
   deriving anyclass (NFData)
 
 mkExtensionSet :: [Extension] -> ExtensionSet
-mkExtensionSet = foldl' insertExtension (ExtensionSet 0 0 0)
+mkExtensionSet = List.foldl' insertExtension (ExtensionSet 0 0 0)
   where
     insertExtension (ExtensionSet low middle high) ext =
       case fromEnum ext `quotRem` 64 of
