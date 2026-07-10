@@ -1,26 +1,24 @@
 extensions: []
-input: |
-  module Main where { main = do { x <- pure 1; y <- pure 2; pure y }; f v = case v of { True -> 1; False -> 0 }; g = let { a = 1; b = 2 } in a; h x = x where { y = 1 } }
 formatters:
   aihc-fmt:
-    status: pass
     output: |
       module Main where {
       main = do {
-              x <- pure
-                  1;
-              y <- pure
-                  2;
-              pure
-                  y };
+        x <- pure
+          1;
+        y <- pure
+          2;
+        pure
+          y };
       f v = case v of {
-              True ->
-                  1;
-              False ->
-                  0 };
+        True -> 1;
+        False -> 0 };
       g = let { a = 1;
               b = 2 }
             in a;
       h x = x
-          where {
-            y = 1 } }
+        where {
+          y = 1 } }
+    status: pass
+input: |
+  module Main where { main = do { x <- pure 1; y <- pure 2; pure y }; f v = case v of { True -> 1; False -> 0 }; g = let { a = 1; b = 2 } in a; h x = x where { y = 1 } }

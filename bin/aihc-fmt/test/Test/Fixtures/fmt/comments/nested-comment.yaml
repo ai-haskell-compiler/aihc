@@ -1,37 +1,37 @@
 extensions: []
+formatters:
+  aihc-fmt:
+    output: |
+      module Main where
+      f = x {- nested -}
+        where
+          x = 1
+    status: pass
+  hindent:
+    output: |
+      module Main where
+
+      f = x {- nested -}
+        where
+          x = 1
+    status: pass
+  ormolu:
+    output: |
+      module Main where
+
+      f = x {- nested -}
+        where
+          x = 1
+    status: pass
+  stylish-haskell:
+    output: |
+      module Main where
+      f = x {- nested -}
+        where
+          x = 1
+    status: pass
 input: |
   module Main where
   f = x {- nested -}
     where
       x = 1
-formatters:
-  aihc-fmt:
-    status: pass
-    output: |
-      module Main where
-      f = x {- nested -}
-        where
-            x = 1
-  ormolu:
-    status: pass
-    output: |
-      module Main where
-
-      f = x {- nested -}
-        where
-          x = 1
-  hindent:
-    status: pass
-    output: |
-      module Main where
-
-      f = x {- nested -}
-        where
-          x = 1
-  stylish-haskell:
-    status: pass
-    output: |
-      module Main where
-      f = x {- nested -}
-        where
-          x = 1

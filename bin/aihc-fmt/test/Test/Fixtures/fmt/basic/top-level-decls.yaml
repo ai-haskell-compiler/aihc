@@ -1,36 +1,36 @@
 extensions: []
-input: |
-  module Main where
-  f x=x+1
-  g y = f y
 formatters:
   aihc-fmt:
-    status: pass
     output: |
       module Main where
       f x = x
-            + 1
+       + 1
       g y = f
-              y
-  ormolu:
+        y
     status: pass
-    output: |
-      module Main where
-
-      f x = x + 1
-
-      g y = f y
   hindent:
-    status: pass
     output: |
       module Main where
 
       f x = x + 1
 
       g y = f y
-  stylish-haskell:
     status: pass
+  ormolu:
+    output: |
+      module Main where
+
+      f x = x + 1
+
+      g y = f y
+    status: pass
+  stylish-haskell:
     output: |
       module Main where
       f x=x+1
       g y = f y
+    status: pass
+input: |
+  module Main where
+  f x=x+1
+  g y = f y
