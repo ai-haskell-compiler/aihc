@@ -5,6 +5,7 @@ module TcStackageProgress
   ( Options (..),
     PackageCounts (..),
     optionsParser,
+    checkOnePackage,
     smallestFailingPackages,
     summarizePackageStatuses,
     run,
@@ -19,6 +20,7 @@ import Aihc.Cli.Install
     buildPackagePlanWithResolverCached,
     checkPackagePlanWithCache,
     defaultStoreRoot,
+    lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
     renderInstallFailure,
@@ -37,6 +39,7 @@ import Control.Monad qualified
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Conc (getNumProcessors)
@@ -194,10 +197,12 @@ checkOnePackage planCache checkCache resolver storeRoot spec = do
     plan <- buildPackagePlanWithResolverCached planCache resolver storeRoot spec
     checkResult <- checkPackagePlanWithCache checkCache plan
     pure (plan, checkResult)
-  pure $ case result of
-    Left (err :: SomeException) -> (RSP.PkgFailed (displayException err), 0)
-    Right (plan, Left failure) -> (RSP.PkgFailed (renderInstallFailure failure), planSourceFileCount plan)
-    Right (plan, Right _) -> (RSP.PkgSuccess Map.empty, planSourceFileCount plan)
+  case result of
+    Left (err :: SomeException) -> do
+      sourceFileCount <- fromMaybe 0 <$> lookupPackagePlanSourceFileCount planCache spec
+      pure (RSP.PkgFailed (displayException err), sourceFileCount)
+    Right (plan, Left failure) -> pure (RSP.PkgFailed (renderInstallFailure failure), planSourceFileCount plan)
+    Right (plan, Right _) -> pure (RSP.PkgSuccess Map.empty, planSourceFileCount plan)
 
 reportResults :: Int -> Map Text (RSP.PackageStatus, Int) -> IO ()
 reportResults topN resultsWithSizes = do

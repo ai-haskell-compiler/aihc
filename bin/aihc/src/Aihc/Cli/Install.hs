@@ -20,6 +20,7 @@ module Aihc.Cli.Install
     checkPackagePlanWithCache,
     defaultStoreRoot,
     dryRunInstallScaffold,
+    lookupPackagePlanSourceFileCount,
     newPackageCheckCache,
     newPackagePlanCache,
     renderInstallFailure,
@@ -80,7 +81,7 @@ import Aihc.Tc
     typecheckModulesWithEnv,
   )
 import Control.Applicative ((<|>))
-import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
 import Control.Exception (SomeException, evaluate, mask, throwIO, try)
 import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.:), (.=))
@@ -248,9 +249,10 @@ newtype PackageCheckCache
       (MVar (Map.Map String (MVar (Either SomeException (Either InstallFailure PreparedInstall)))))
 
 -- | Concurrent plan cache. A cache belongs to one resolver and store root.
-newtype PackagePlanCache
-  = PackagePlanCache
-      (MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan)))))
+data PackagePlanCache = PackagePlanCache
+  { packagePlanEntries :: !(MVar (Map.Map (Bool, String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan))))),
+    packagePlanSourceFileCounts :: !(MVar (Map.Map (Bool, String, String) Int))
+  }
 
 instance ToJSON ArtifactManifest where
   toJSON manifest =
@@ -360,7 +362,14 @@ buildPackagePlanWithResolver resolver storeRoot spec = do
   buildPackagePlanWithResolverCached cache resolver storeRoot spec
 
 newPackagePlanCache :: IO PackagePlanCache
-newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty
+newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty <*> newMVar Map.empty
+
+lookupPackagePlanSourceFileCount :: PackagePlanCache -> PackageSpec -> IO (Maybe Int)
+lookupPackagePlanSourceFileCount cache rawSpec = do
+  counts <- readMVar (packagePlanSourceFileCounts cache)
+  pure (Map.lookup (False, pkgName spec, pkgVersion spec) counts)
+  where
+    spec = canonicalPackageSpec rawSpec
 
 -- | Build a package plan while sharing dependency work with other roots.
 buildPackagePlanWithResolverCached :: PackagePlanCache -> DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
@@ -382,6 +391,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
     build = do
       sourcePath <- sourcePathForSpec resolver spec
       analysis <- analyzeSourceWith mode sourcePath
+      recordPackagePlanSourceFileCount cache mode spec (sourceFileCount analysis)
       dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
       dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
       let plan =
@@ -404,7 +414,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
         Nothing -> resolverResolveVersion resolver dependencyName
 
 buildPackagePlanCached :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> IO (ResolvedDependency, PackagePlan) -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanCached (PackagePlanCache entries) mode spec action = mask $ \restore -> do
+buildPackagePlanCached cache mode spec action = mask $ \restore -> do
   resultVar <- newEmptyMVar
   (isOwner, sharedResult) <-
     modifyMVar entries $ \current ->
@@ -420,7 +430,13 @@ buildPackagePlanCached (PackagePlanCache entries) mode spec action = mask $ \res
       result <- readMVar sharedResult
       either throwIO pure result
   where
+    entries = packagePlanEntries cache
     cacheKey = (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec)
+
+recordPackagePlanSourceFileCount :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> Int -> IO ()
+recordPackagePlanSourceFileCount cache mode spec count =
+  modifyMVar_ (packagePlanSourceFileCounts cache) $ \counts ->
+    pure (Map.insert (mode == AvoidSourceWrites, pkgName spec, pkgVersion spec) count counts)
 
 sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
