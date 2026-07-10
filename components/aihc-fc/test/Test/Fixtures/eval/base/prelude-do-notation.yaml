@@ -1,0 +1,28 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    runMaybe :: Maybe Bool -> Maybe Bool
+    runMaybe value = do
+      result <- value
+      Just result
+
+    discardMaybe :: Maybe Bool
+    discardMaybe = do
+      Just False
+      Just True
+
+    letMaybe :: Maybe Bool
+    letMaybe = do
+      let result = True
+      Just result
+
+output: |
+  (((Just True),(Just True)),(Just True))
+expression: |
+  ((runMaybe (Just True), discardMaybe), letMaybe)
+status: pass
+reason: desugars do action statements through Prelude >>= while preserving let statements

@@ -801,25 +801,27 @@ resolveDoStmts stmts = do
         case stmts' of
           [] -> pure (scope, [])
           stmt : rest -> do
-            (scope', stmt') <- resolveDoStmt stmt
+            (scope', stmt') <- resolveDoStmt (null rest) stmt
             (scope'', rest') <- go scope' rest
             pure (scope'', stmt' : rest')
 
-resolveDoStmt :: DoStmt Expr -> ResolveM (Scope, DoStmt Expr)
-resolveDoStmt stmt =
+resolveDoStmt :: Bool -> DoStmt Expr -> ResolveM (Scope, DoStmt Expr)
+resolveDoStmt isLast stmt =
   case stmt of
     DoAnn ann inner -> do
-      (scope', inner') <- withPushedSpan ann (resolveDoStmt inner)
+      (scope', inner') <- withPushedSpan ann (resolveDoStmt isLast inner)
       pure (scope', DoAnn ann inner')
     DoExpr body -> do
       scope <- currentScope
       body' <- resolveExpr body
-      pure (scope, DoExpr body')
+      stmt' <- annotateDoBind isLast (DoExpr body')
+      pure (scope, stmt')
     DoBind pat body -> do
       scope <- currentScope
       body' <- resolveExpr body
       (patScope, pat') <- bindPattern pat
-      pure (unionScope patScope scope, DoBind pat' body')
+      stmt' <- annotateDoBind isLast (DoBind pat' body')
+      pure (unionScope patScope scope, stmt')
     DoLetDecls decls -> do
       scope <- currentScope
       (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
@@ -829,6 +831,14 @@ resolveDoStmt stmt =
       scope <- currentScope
       (_, stmts') <- resolveDoStmts stmts
       pure (scope, DoRecStmt stmts')
+
+annotateDoBind :: Bool -> DoStmt Expr -> ResolveM (DoStmt Expr)
+annotateDoBind isLast stmt
+  | isLast = pure stmt
+  | otherwise = do
+      sp <- currentSpan
+      bindAnn <- syntaxTermAnnotation sp ">>="
+      pure (DoAnn (mkAnnotation bindAnn) stmt)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =
