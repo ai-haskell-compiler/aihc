@@ -1339,7 +1339,7 @@ prettyGuardQualifiersLayout qualifiers =
 prettyCaseExpr :: ([Doc ann] -> Doc ann) -> Expr -> [CaseAlt Expr] -> Doc ann
 prettyCaseExpr layout scrutinee alts =
   "case"
-    <+> prettyExpr scrutinee
+    <+> align (prettyExpr scrutinee)
     <+> "of"
     <> layout (map prettyCaseAlt alts)
 
