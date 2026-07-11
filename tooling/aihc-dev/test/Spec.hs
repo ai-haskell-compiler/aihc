@@ -13,6 +13,7 @@ import Aihc.Dev.Snippet
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
 import Test.ExtractHiCompare (extractHiCompareTests)
 import Test.GoldenUpdate (goldenUpdateTests)
+import Test.ParserBenchReport (parserBenchReportTests)
 import Test.ParserCLI.Suite (cliTests)
 import Test.ResolvePackage (resolvePackageTests)
 import Test.ResolveStackageProgress.PathsModule (resolveStackagePathsModuleTests)
@@ -78,6 +79,7 @@ main = do
       stackageProgressFileCheckerTests,
       stackageProgressFileCheckerTimingTests,
       tcStackageProgressTests,
+      parserBenchReportTests,
       cliTestsTree
     ]
 

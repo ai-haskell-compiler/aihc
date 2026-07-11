@@ -3,13 +3,18 @@
 
 -- | Markdown report generation for relative Stackage parser and CPP benchmarks.
 module Aihc.Dev.Parser.Bench.Report
-  ( runReport,
+  ( ParserResult (..),
+    renderParserRatioRow,
+    runParserMeasurement,
+    runReport,
   )
 where
 
 import Aihc.Dev.Parser.Bench.CLI
   ( FilterOptions (..),
     GenerateOptions (..),
+    MeasureOptions (..),
+    ParserChoice (..),
     ReportOptions (..),
   )
 import Aihc.Dev.Parser.Bench.Parsers
@@ -40,17 +45,21 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumCapabilities)
+import GHC.Stats qualified as Stats
 import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, parseOptions, runCpphs)
 import System.Directory
   ( createDirectoryIfMissing,
     getTemporaryDirectory,
     removePathForcibly,
   )
+import System.Environment (getExecutablePath)
 import System.Exit (ExitCode (..))
 import System.FilePath (isRelative, splitDirectories, takeDirectory, (</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, stderr, withFile)
+import System.Mem (performMajorGC)
 import System.Process (StdStream (..), createProcess, proc, readProcessWithExitCode, std_err, std_out, waitForProcess)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 
 data Corpus = Corpus
   { corpusEntries :: ![TarballEntry],
@@ -73,18 +82,23 @@ data ToolResult = ToolResult
     toolNanos :: !Integer
   }
 
+data ParserResult = ParserResult
+  { parserName :: !String,
+    parserNanos :: !Integer,
+    parserAllocatedBytes :: !Integer,
+    parserPeakHeapBytes :: !Integer
+  }
+  deriving (Read, Show)
+
 runReport :: ReportOptions -> IO ()
 runReport opts@ReportOptions {reportOutput} = do
   corpus <- loadCorpus opts
   unless (corpusFileCount corpus > 0) $
     fail "benchmark corpus is empty"
 
-  hPutStrLn stderr "Preprocessing parser corpus with aihc-cpp..."
-  preprocessed <- preprocessCorpus corpus
-
   hPutStrLn stderr "Benchmarking parsers..."
-  ghcParser <- benchmarkParser "GHC (`ghc-lib-parser`)" parseGhc preprocessed
-  aihcParser <- benchmarkParser "AIHC" parseAihc preprocessed
+  ghcParser <- benchmarkParserSubprocess opts ParserGhc
+  aihcParser <- benchmarkParserSubprocess opts ParserAihc
 
   hPutStrLn stderr "Staging corpus for external preprocessors..."
   clangResult <-
@@ -181,10 +195,69 @@ preprocessCorpus Corpus {corpusHaskellEntries, corpusIncludeMap} =
               (entryContents entry)
       evaluate (source `deepseq` entry {entryContents = source, entryByteSize = BS.length (TE.encodeUtf8 source), entryCppOptions = []})
 
-benchmarkParser :: String -> (TarballEntry -> ParseResult) -> [TarballEntry] -> IO ToolResult
+benchmarkParser :: String -> (TarballEntry -> ParseResult) -> [TarballEntry] -> IO ParserResult
 benchmarkParser name parser entries = do
+  enabled <- Stats.getRTSStatsEnabled
+  unless enabled $
+    fail "RTS statistics are not enabled for parser measurement"
+  performMajorGC
+  before <- Stats.getRTSStats
   timed <- timeAction $ evaluateResults (map parser entries)
-  pure ToolResult {toolName = name, toolNanos = timedNanos timed}
+  performMajorGC
+  after <- Stats.getRTSStats
+  pure
+    ParserResult
+      { parserName = name,
+        parserNanos = timedNanos timed,
+        parserAllocatedBytes = fromIntegral (Stats.allocated_bytes after - Stats.allocated_bytes before),
+        parserPeakHeapBytes = fromIntegral (Stats.max_live_bytes after)
+      }
+
+benchmarkParserSubprocess :: ReportOptions -> ParserChoice -> IO ParserResult
+benchmarkParserSubprocess ReportOptions {reportSnapshot, reportOffline} parser = do
+  executable <- getExecutablePath
+  let args =
+        [ "parser-bench",
+          "report-measure",
+          "--snapshot",
+          reportSnapshot,
+          "--parser",
+          parserArgument parser
+        ]
+          ++ ["--offline" | reportOffline]
+          ++ ["+RTS", "-T", "-RTS"]
+  (exitCode, out, err) <- readProcessWithExitCode executable args ""
+  unless (null err) (hPutStrLn stderr err)
+  case (exitCode, readMaybe out) of
+    (ExitSuccess, Just result) -> pure result
+    (ExitSuccess, Nothing) -> fail ("invalid parser measurement output: " ++ out)
+    (ExitFailure code, _) -> fail ("parser measurement failed with exit code " ++ show code)
+
+parserArgument :: ParserChoice -> String
+parserArgument ParserAihc = "aihc"
+parserArgument ParserHse = "hse"
+parserArgument ParserGhc = "ghc"
+
+-- | Run one parser measurement. This is called in an isolated subprocess so
+-- each parser gets an independent RTS heap high-water mark.
+runParserMeasurement :: MeasureOptions -> IO ()
+runParserMeasurement MeasureOptions {measureSnapshot, measureOffline, measureParser} = do
+  let opts =
+        ReportOptions
+          { reportSnapshot = measureSnapshot,
+            reportOutput = "",
+            reportOffline = measureOffline
+          }
+  corpus <- loadCorpus opts
+  unless (corpusFileCount corpus > 0) $
+    fail "benchmark corpus is empty"
+  hPutStrLn stderr "Preprocessing parser corpus with aihc-cpp..."
+  entries <- preprocessCorpus corpus
+  result <- case measureParser of
+    ParserGhc -> benchmarkParser "GHC (`ghc-lib-parser`)" parseGhc entries
+    ParserAihc -> benchmarkParser "AIHC" parseAihc entries
+    ParserHse -> fail "haskell-src-exts is not part of the generated parser report"
+  print result
 
 evaluateResults :: [ParseResult] -> IO ()
 evaluateResults results =
@@ -385,7 +458,7 @@ currentCommit = do
     Right (ExitSuccess, out, _) -> trim out
     _ -> "unknown"
 
-renderReport :: ReportOptions -> Corpus -> String -> [ToolResult] -> [ToolResult] -> Text
+renderReport :: ReportOptions -> Corpus -> String -> [ParserResult] -> [ToolResult] -> Text
 renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFileCount, corpusCppFileCount, corpusByteCount} commit parserResults cppResults =
   T.pack $
     unlines $
@@ -406,12 +479,12 @@ renderReport ReportOptions {reportSnapshot} Corpus {corpusPackageCount, corpusFi
         "",
         "## Parser Performance",
         "",
-        "Parser input is preprocessed with `aihc-cpp` before measurement. GHC is the baseline.",
+        "Parser input is preprocessed with `aihc-cpp` before measurement. GHC is the baseline. Allocation and peak heap values are fractions of GHC's totals (lower is better); peak heap is the RTS maximum live heap.",
         "",
-        "| Parser | Relative Speed |",
-        "| --- | ---: |"
+        "| Parser | Relative Speed | Relative Allocations | Relative Peak Heap |",
+        "| --- | ---: | ---: | ---: |"
       ]
-        ++ map (renderRatioRow (baseline "GHC (`ghc-lib-parser`)" parserResults)) parserResults
+        ++ map (renderParserRatioRow (parserBaseline "GHC (`ghc-lib-parser`)" parserResults)) parserResults
         ++ [ "",
              "## CPP Performance",
              "",
@@ -426,6 +499,24 @@ renderRatioRow :: Integer -> ToolResult -> String
 renderRatioRow baselineNanos ToolResult {toolName, toolNanos} =
   "| " ++ toolName ++ " | `" ++ formatRatio baselineNanos toolNanos ++ "` |"
 
+renderParserRatioRow :: ParserResult -> ParserResult -> String
+renderParserRatioRow baselineResult result =
+  "| "
+    ++ parserName result
+    ++ " | `"
+    ++ formatRatio (parserNanos baselineResult) (parserNanos result)
+    ++ "` | `"
+    ++ formatFraction (parserAllocatedBytes baselineResult) (parserAllocatedBytes result)
+    ++ "` | `"
+    ++ formatFraction (parserPeakHeapBytes baselineResult) (parserPeakHeapBytes result)
+    ++ "` |"
+
+parserBaseline :: String -> [ParserResult] -> ParserResult
+parserBaseline name results =
+  case [result | result <- results, parserName result == name] of
+    result : _ -> result
+    [] -> error ("missing benchmark baseline: " ++ name)
+
 baseline :: String -> [ToolResult] -> Integer
 baseline name results =
   case [toolNanos r | r <- results, toolName r == name] of
@@ -436,6 +527,11 @@ formatRatio :: Integer -> Integer -> String
 formatRatio _ 0 = "0.00x"
 formatRatio baselineNanos candidateNanos =
   printf "%.2fx" (fromIntegral baselineNanos / fromIntegral candidateNanos :: Double)
+
+formatFraction :: Integer -> Integer -> String
+formatFraction 0 _ = "0.00x"
+formatFraction baselineBytes candidateBytes =
+  printf "%.2fx" (fromIntegral candidateBytes / fromIntegral baselineBytes :: Double)
 
 formatInt :: Int -> String
 formatInt n

@@ -13,7 +13,7 @@ import Aihc.Dev.Parser.Bench.CLI
     OutputFormat (..),
   )
 import Aihc.Dev.Parser.Bench.Metrics (computeMetrics, formatBytes, formatCsv, formatCsvHeader, formatHuman, formatJson)
-import Aihc.Dev.Parser.Bench.Report (runReport)
+import Aihc.Dev.Parser.Bench.Report (runParserMeasurement, runReport)
 import Aihc.Dev.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), PackageSpec (..), formatPackage, generateTarball)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -26,6 +26,7 @@ run opts =
     CmdGenerate genOpts -> runGenerate genOpts
     CmdBench benchOpts -> runBench benchOpts
     CmdReport reportOpts -> runReport reportOpts
+    CmdMeasure measureOpts -> runParserMeasurement measureOpts
 
 -- | Run the generate command.
 runGenerate :: GenerateOptions -> IO ()

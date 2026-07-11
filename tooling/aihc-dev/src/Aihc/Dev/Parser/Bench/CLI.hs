@@ -7,6 +7,7 @@ module Aihc.Dev.Parser.Bench.CLI
     GenerateOptions (..),
     BenchOptions (..),
     ReportOptions (..),
+    MeasureOptions (..),
     ParserChoice (..),
     OutputFormat (..),
     FilterOptions (..),
@@ -75,11 +76,20 @@ data ReportOptions = ReportOptions
   }
   deriving (Eq, Show)
 
+-- | Options for the internal parser measurement subprocess.
+data MeasureOptions = MeasureOptions
+  { measureSnapshot :: !String,
+    measureOffline :: !Bool,
+    measureParser :: !ParserChoice
+  }
+  deriving (Eq, Show)
+
 -- | Top-level command.
 data Command
   = CmdGenerate !GenerateOptions
   | CmdBench !BenchOptions
   | CmdReport !ReportOptions
+  | CmdMeasure !MeasureOptions
   deriving (Show)
 
 -- | Top-level options.
@@ -125,6 +135,14 @@ commandParser =
               (CmdReport <$> reportOptionsParser)
               (progDesc "Generate BENCHMARKS.md with relative Stackage benchmark ratios")
           )
+        <> ( command
+               "report-measure"
+               ( info
+                   (CmdMeasure <$> measureOptionsParser)
+                   (progDesc "Measure one parser in an isolated subprocess")
+               )
+               <> internal
+           )
     )
 
 generateParser :: Parser GenerateOptions
@@ -286,4 +304,21 @@ reportOptionsParser =
     <*> switch
       ( long "offline"
           <> help "Only use cached packages"
+      )
+
+measureOptionsParser :: Parser MeasureOptions
+measureOptionsParser =
+  MeasureOptions
+    <$> strOption
+      ( long "snapshot"
+          <> metavar "NAME"
+      )
+    <*> switch
+      ( long "offline"
+          <> help "Only use cached packages"
+      )
+    <*> option
+      parseParserChoice
+      ( long "parser"
+          <> metavar "PARSER"
       )
