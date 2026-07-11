@@ -36,7 +36,7 @@
 | FunctionalDependencies    |   🟢    | 7/7           |
 | GADTSyntax                |   🟢    | 11/11         |
 | GADTs                     |   🟢    | 15/15         |
-| GHC2021                   |   🟢    | 43/43         |
+| GHC2021                   |   🟢    | 44/44         |
 | GHCForeignImportPrim      |   🟢    | 1/1           |
 | Haskell2010               |   🟢    | 17/17         |
 | HexFloatLiterals          |   🟢    | 3/3           |
