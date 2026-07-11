@@ -1,0 +1,38 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import Data.Ord (comparing)
+    import GHC.Int (Int(I#))
+    import GHC.Internal.Integer (Integer(IS))
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : xs) = allTrue xs
+    allTrue (False : _) = False
+output: |
+  True
+expression: |
+  allTrue
+    [ False < True,
+      True > False,
+      False <= False,
+      True >= True,
+      compare True False == GT,
+      comparing not False True == GT,
+      I# 1# < I# 2#,
+      compare (IS 2#) (IS 2#) == EQ,
+      [False, True] < [True],
+      [False] < [False, True],
+      Nothing < Just False,
+      Left True < Right False,
+      LT < EQ,
+      max False True == True,
+      min (I# 2#) (I# 1#) == I# 1#,
+      max (Just False) (Just True) == Just True
+    ]
+status: pass
+reason: Prelude Ord methods implement structural ordering for all supported types

@@ -149,6 +149,8 @@ evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
   evalIntPrim "*#" (*) left right
+evalPrimitive "compareInt#" [left, right] =
+  evalIntPrim "compareInt#" compareInts left right
 evalPrimitive "<#" [left, right] =
   evalIntPrim "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
@@ -163,6 +165,13 @@ evalPrimitive "catch#" [action, handler, state] =
     result -> result
 evalPrimitive name args =
   Left (EvalPrimitiveArity name (length args))
+
+compareInts :: Integer -> Integer -> Integer
+compareInts left right =
+  case compare left right of
+    LT -> -1
+    EQ -> 0
+    GT -> 1
 
 evalIntPrim :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> Either EvalError Value
 evalIntPrim name op left right = do
