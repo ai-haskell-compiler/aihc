@@ -2,15 +2,16 @@
 
 ## Summary
 
-- Total Extensions: 4
-- Supported: 4
+- Total Extensions: 5
+- Supported: 5
 - In Progress: 0
 
 ## Extension Status
 
 | Extension                | Status | Tests Passing |
 |--------------------------|:------:|---------------|
-| MagicHash                |   🟢    | 2/2           |
+| LambdaCase               |   🟢    | 1/1           |
+| MagicHash                |   🟢    | 5/5           |
 | RecordWildCards          |   🟢    | 1/1           |
 | ScopedTypeVariables      |   🟢    | 1/1           |
 | StandaloneKindSignatures |   🟢    | 1/1           |
