@@ -80,6 +80,7 @@ data Scope = Scope
     scopeFixities :: Map.Map Text OperatorFixity,
     scopeQualifiedModules :: Map.Map Text Scope
   }
+  deriving (Eq)
 
 data OperatorFixity = OperatorFixity
   { operatorFixityAssoc :: !FixityAssoc,
@@ -90,30 +91,34 @@ data OperatorFixity = OperatorFixity
 type ModuleExports = Map.Map Text Scope
 
 collectModuleExports :: [Module] -> ModuleExports
-collectModuleExports modules =
-  Map.fromList
-    [ (moduleKey modu, exportedScope rawExports modu)
-    | modu <- modules
-    ]
+collectModuleExports modules = closeExports initialExports
   where
-    rawExports =
+    initialExports =
       Map.fromList
-        [ (moduleKey modu, topLevelScope modu)
+        [ (moduleKey modu, emptyScope)
         | modu <- modules
         ]
 
+    closeExports exports =
+      let exports' =
+            Map.fromList
+              [ (moduleKey modu, exportedScope exports modu)
+              | modu <- modules
+              ]
+       in if exports' == exports then exports else closeExports exports'
+
 exportedScope :: ModuleExports -> Module -> Scope
-exportedScope rawExports modu =
+exportedScope exports modu =
   case moduleExports modu of
     Nothing -> topLevelScope modu
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    availableScope = topLevelScope modu `unionScope` importedScope rawExports modu
+    availableScope = topLevelScope modu `unionScope` importedScope exports modu
 
     exportSpecScope spec =
       case spec of
         ExportAnn _ inner -> exportSpecScope inner
-        ExportModule _ exportModuleName -> Map.findWithDefault emptyScope exportModuleName rawExports
+        ExportModule _ exportModuleName -> Map.findWithDefault emptyScope exportModuleName exports
         ExportVar _ _ name -> selectTerm (nameText name) availableScope
         ExportAbs _ _ name -> selectType (nameText name) availableScope
         ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)

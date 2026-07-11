@@ -212,6 +212,7 @@ main =
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
           testCase "type-checks references to dependency bindings" test_typeChecksReferencesToDependencyBindings,
           testCase "checks cast-style instance methods using dependency id" test_checksCastStyleDependencyId,
+          testCase "checks constraint-kinded multi-parameter classes" test_checksConstraintKindedMultiParameterClasses,
           testCase "checks packages without writing install artifacts" test_checkPackagePlanWritesNoArtifacts,
           testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
@@ -639,6 +640,31 @@ test_checksCastStyleDependencyId =
     result <- expectInstallSuccess (writeInstallScaffold plan)
     fcJson <- BL8.readFile (resultFcPath result)
     assertBool "FC artifact applies imported id" ("{id @a}" `isInfixOf` BL8.unpack fcJson)
+
+test_checksConstraintKindedMultiParameterClasses :: Assertion
+test_checksConstraintKindedMultiParameterClasses =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+        source =
+          unlines
+            [ "{-# LANGUAGE ConstraintKinds #-}",
+              "{-# LANGUAGE MultiParamTypeClasses #-}",
+              "{-# LANGUAGE NoImplicitPrelude #-}",
+              "{-# LANGUAGE UndecidableSuperClasses #-}",
+              "module Demo where",
+              "class Eq a",
+              "class c t => Lawful c t",
+              "data Bool = False | True",
+              "instance Eq Bool",
+              "instance Lawful Eq Bool"
+            ]
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] source
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanWithResolver (fixtureDependencyResolver sourceRoot []) storeRoot (PackageSpec "demo" "0.1.0.0")
+
+    _ <- expectInstallSuccess (writeInstallScaffold plan)
+    pure ()
 
 test_checkPackagePlanWritesNoArtifacts :: Assertion
 test_checkPackagePlanWritesNoArtifacts =

@@ -189,6 +189,7 @@ primitiveImportSpecs =
     [ ("+#", intBinaryPrim),
       ("-#", intBinaryPrim),
       ("*#", intBinaryPrim),
+      ("compareInt#", intBinaryPrim),
       ("<#", intBinaryPrim),
       ("==#", intBinaryPrim),
       ("raise#", PrimitiveSpec 1 isRaisePrimType),

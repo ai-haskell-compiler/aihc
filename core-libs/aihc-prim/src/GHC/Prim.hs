@@ -4,6 +4,7 @@
 
 module GHC.Prim
   ( catch#,
+    compareInt#,
     raise#,
     State#,
     RealWorld,
@@ -18,6 +19,8 @@ data State# s
 data RealWorld
 
 foreign import prim raise# :: a -> b
+
+foreign import prim compareInt# :: Int# -> Int# -> Int#
 
 foreign import prim
   catch# ::

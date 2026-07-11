@@ -1,0 +1,25 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim (compareInt#)
+
+    data Result = Pass | Fail
+output: |
+  Pass
+expression: |
+  case compareInt# 1# 2# of
+    -1# ->
+      case compareInt# 2# 2# of
+        0# ->
+          case compareInt# 3# 2# of
+            1# -> Pass
+            _ -> Fail
+        _ -> Fail
+    _ -> Fail
+status: pass
+reason: compareInt# imported from aihc-prim returns negative, zero, and positive ordering tags
