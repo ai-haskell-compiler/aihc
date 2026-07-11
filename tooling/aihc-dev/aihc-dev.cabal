@@ -235,6 +235,7 @@ test-suite spec
     TcStackageProgress
     Test.ExtractHiCompare
     Test.GoldenUpdate
+    Test.ParserBenchReport
     Test.ParserCLI.Golden
     Test.ParserCLI.Suite
     Test.ResolvePackage
