@@ -118,15 +118,15 @@ installOptionsParser =
       ( OA.long "first-error-module"
           <> OA.help "Only print diagnostics from the module or file that produced the first install error"
       )
-    <*> humanErrorFormatParser
+    <*> errorFormatParser
 
-humanErrorFormatParser :: OA.Parser InstallErrorFormat
-humanErrorFormatParser =
+errorFormatParser :: OA.Parser InstallErrorFormat
+errorFormatParser =
   flagFromSwitch
     <$> OA.switch
-      ( OA.long "human-errors"
-          <> OA.help "Print install interface diagnostics in a human-readable format instead of JSON"
+      ( OA.long "json-errors"
+          <> OA.help "Print install interface diagnostics as JSON instead of human-readable text"
       )
   where
-    flagFromSwitch True = InstallErrorsHuman
-    flagFromSwitch False = InstallErrorsJson
+    flagFromSwitch True = InstallErrorsJson
+    flagFromSwitch False = InstallErrorsHuman
