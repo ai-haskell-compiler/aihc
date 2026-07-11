@@ -123,6 +123,7 @@ import System.Exit (exitFailure)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
+import Text.Read (readMaybe)
 
 data PackagePlan = PackagePlan
   { planPackageKey :: !PackageVariantKey,
@@ -764,7 +765,7 @@ blockingInterfaceFailures result =
 
 renderInstallFailure :: InstallFailure -> String
 renderInstallFailure =
-  renderInstallFailureWith False InstallErrorsJson
+  renderInstallFailureWith False InstallErrorsHuman
 
 renderInstallFailureWithOptions :: InstallOptions -> InstallFailure -> String
 renderInstallFailureWithOptions opts =
@@ -824,8 +825,31 @@ renderHumanDiagnostic phase diagnostic =
       case diagnosticModule diagnostic of
         Just moduleName -> "[" <> moduleName <> "] "
         Nothing -> ""
-    severityText = fromMaybe (T.pack phase) (stringField "severity" diagnostic)
-    messageText = fromMaybe (diagnosticSummary diagnostic) (stringField "message" diagnostic)
+    severityText = fromMaybe "error" (stringField "severity" diagnostic)
+    messageText = renderHumanDiagnosticMessage phase diagnostic
+
+renderHumanDiagnosticMessage :: String -> Aeson.Value -> Text
+renderHumanDiagnosticMessage phase diagnostic
+  | phase == "rename",
+    Just message <- stringField "message" diagnostic,
+    Just name <- stringField "name" diagnostic,
+    Just namespace <- stringField "namespace" diagnostic =
+      renderResolveMessage message name namespace
+  | otherwise = fromMaybe (diagnosticSummary diagnostic) (stringField "message" diagnostic)
+
+renderResolveMessage :: Text -> Text -> Text -> Text
+renderResolveMessage message name namespace
+  | message == "unbound" = "unbound " <> renderNamespace namespace <> " name ‘" <> name <> "’"
+  | message == "not found" = renderNamespace namespace <> " ‘" <> name <> "’ not found"
+  | otherwise = message <> ": " <> renderNamespace namespace <> " name ‘" <> name <> "’"
+
+renderNamespace :: Text -> Text
+renderNamespace namespace =
+  case namespace of
+    "ResolutionNamespaceTerm" -> "term"
+    "ResolutionNamespaceType" -> "type"
+    "ResolutionNamespaceModule" -> "module"
+    _ -> namespace
 
 renderHumanDiagnosticExcerpt :: Aeson.Value -> [String]
 renderHumanDiagnosticExcerpt diagnostic =
@@ -1016,7 +1040,9 @@ diagnosticSummary :: Aeson.Value -> Text
 diagnosticSummary =
   TE.decodeUtf8 . BL.toStrict . Aeson.encode
 
-addTcModuleDiagnosticSourceLines :: Map.Map FilePath [Text] -> Aeson.Value -> Aeson.Value
+type DiagnosticSourceMap = Map.Map FilePath (Map.Map Int Text)
+
+addTcModuleDiagnosticSourceLines :: DiagnosticSourceMap -> Aeson.Value -> Aeson.Value
 addTcModuleDiagnosticSourceLines sourceLinesByFile value =
   case value of
     Aeson.Object obj ->
@@ -1030,7 +1056,7 @@ addTcModuleDiagnosticSourceLines sourceLinesByFile value =
         _ -> value
     _ -> value
 
-addDiagnosticSourceLines :: Map.Map FilePath [Text] -> Aeson.Value -> Aeson.Value
+addDiagnosticSourceLines :: DiagnosticSourceMap -> Aeson.Value -> Aeson.Value
 addDiagnosticSourceLines sourceLinesByFile diagnostic =
   case (diagnostic, diagnosticFile diagnostic, diagnosticLineRange diagnostic) of
     (Aeson.Object obj, Just file, Just (startLine, endLine)) ->
@@ -1044,7 +1070,7 @@ addDiagnosticSourceLines sourceLinesByFile diagnostic =
         Nothing -> diagnostic
     _ -> diagnostic
 
-lookupSourceLines :: Text -> Map.Map FilePath [Text] -> Maybe [Text]
+lookupSourceLines :: Text -> DiagnosticSourceMap -> Maybe (Map.Map Int Text)
 lookupSourceLines file sourceLinesByFile =
   Map.lookup (T.unpack file) sourceLinesByFile
     <|> lookupNormalized
@@ -1071,13 +1097,13 @@ diagnosticLineRange diagnostic =
       line <- intField "line" diagnostic
       pure (line, line)
 
-sourceLineExcerpt :: [Text] -> Int -> Int -> [Aeson.Value]
+sourceLineExcerpt :: Map.Map Int Text -> Int -> Int -> [Aeson.Value]
 sourceLineExcerpt sourceLines startLine endLine =
   [ object
       [ "line" .= lineNumber,
         "text" .= lineText
       ]
-  | (lineNumber, lineText) <- zip [1 :: Int ..] sourceLines,
+  | (lineNumber, lineText) <- Map.toAscList sourceLines,
     lineNumber >= startLine,
     lineNumber <= endLine
   ]
@@ -1140,7 +1166,7 @@ generatePackageInterface depExports importedTerms importedBindings plan = do
   files <- collectPlanFiles plan
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
   let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
-      sourceLinesByFile = Map.fromList (map parsedFileSourceLines parsedFiles)
+      sourceLinesByFile = Map.unionsWith Map.union (map parsedFileSourceLines parsedFiles)
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
@@ -1249,14 +1275,14 @@ typecheckTimeoutDiagnostic modu =
         ]
 
 data ParsedInterfaceFile
-  = ParsedFileOk !FilePath !Module ![Text] ![Aeson.Value]
-  | ParsedFileFailed !FilePath ![Text] ![Aeson.Value] ![Aeson.Value]
+  = ParsedFileOk !FilePath !Module !DiagnosticSourceMap ![Aeson.Value]
+  | ParsedFileFailed !FilePath !DiagnosticSourceMap ![Aeson.Value] ![Aeson.Value]
 
-parsedFileSourceLines :: ParsedInterfaceFile -> (FilePath, [Text])
+parsedFileSourceLines :: ParsedInterfaceFile -> DiagnosticSourceMap
 parsedFileSourceLines parsed =
   case parsed of
-    ParsedFileOk path _ sourceLines _ -> (path, sourceLines)
-    ParsedFileFailed path sourceLines _ _ -> (path, sourceLines)
+    ParsedFileOk _ _ sourceLines _ -> sourceLines
+    ParsedFileFailed _ sourceLines _ _ -> sourceLines
 
 parsedFileParseDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
 parsedFileParseDiagnostics parsed =
@@ -1299,7 +1325,7 @@ parseInterfaceFile packageRoot fileInfo = do
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
-      sourceLines = T.lines source
+      sourceLines = diagnosticSourceMap path source
   pure $
     if null parseErrs
       then ParsedFileOk path modu sourceLines cppDiagnostics
@@ -1314,6 +1340,38 @@ parseInterfaceFile packageRoot fileInfo = do
       case setting of
         EnableExtension CPP -> True
         _ -> False
+
+diagnosticSourceMap :: FilePath -> Text -> DiagnosticSourceMap
+diagnosticSourceMap initialFile =
+  third . foldl' step (initialFile, 1, Map.empty) . T.lines
+  where
+    third (_, _, value) = value
+    step (currentFile, currentLine, sourceMap) line =
+      case parseLineDirective line of
+        Just (nextLine, nextFile) -> (fromMaybe currentFile nextFile, nextLine, sourceMap)
+        Nothing ->
+          ( currentFile,
+            currentLine + 1,
+            Map.insertWith Map.union currentFile (Map.singleton currentLine line) sourceMap
+          )
+
+parseLineDirective :: Text -> Maybe (Int, Maybe FilePath)
+parseLineDirective line = do
+  afterHash <- T.stripPrefix "#" line
+  let directive = T.stripStart afterHash
+      afterLine = fromMaybe directive (T.stripPrefix "line" directive)
+      (lineNumberText, rest) = T.span (`elem` ['0' .. '9']) (T.stripStart afterLine)
+  lineNumber <- readMaybe (T.unpack lineNumberText)
+  pure (lineNumber, directiveFile rest)
+  where
+    directiveFile rest =
+      case T.breakOn "\"" rest of
+        (_, quoted)
+          | Just afterQuote <- T.stripPrefix "\"" quoted,
+            let (file, closingQuote) = T.breakOn "\"" afterQuote,
+            not (T.null closingQuote) ->
+              Just (T.unpack file)
+        _ -> Nothing
 
 preprocessInterfaceSource :: FilePath -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value])
 preprocessInterfaceSource packageRoot fileInfo source = do

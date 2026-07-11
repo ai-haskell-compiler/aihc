@@ -56,28 +56,28 @@ main =
         [ testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsHuman)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False False InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False False InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
           testCase "parses install dry run" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True False InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--dry-run"]),
-          testCase "parses first error module and human errors" $
+          testCase "parses first error module and JSON errors" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False True InstallErrorsHuman)))
-              (parseCommandPure ["install", "text", "--first-error-module", "--human-errors"]),
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False True InstallErrorsJson)))
+              (parseCommandPure ["install", "text", "--first-error-module", "--json-errors"]),
           testCase "rejects explicit dependency variants" $
             assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
@@ -203,10 +203,12 @@ main =
           testCase "writes dependency scaffold artifacts first" test_writeInstallScaffoldWritesDependencies,
           testCase "reports parse errors and writes no artifacts" test_reportsParseErrorsAndWritesNoArtifacts,
           testCase "reports rename errors and writes no artifacts" test_reportsRenameErrorsAndWritesNoArtifacts,
+          testCase "renders preprocessed source for rename errors" test_rendersPreprocessedSourceForRenameErrors,
           testCase "reports type-check errors and writes no artifacts" test_reportsTypeCheckErrorsAndWritesNoArtifacts,
           testCase "reports desugar errors and writes no artifacts" test_reportsDesugarErrorsAndWritesNoArtifacts,
           testCase "limits rendered install errors to first module" test_limitsRenderedInstallErrorsToFirstModule,
           testCase "renders human install errors" test_rendersHumanInstallErrors,
+          testCase "renders JSON install errors on request" test_rendersJsonInstallErrors,
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
           testCase "type-checks references to dependency bindings" test_typeChecksReferencesToDependencyBindings,
           testCase "checks cast-style instance methods using dependency id" test_checksCastStyleDependencyId,
@@ -487,19 +489,40 @@ test_limitsRenderedInstallErrorsToFirstModule = do
 
 test_rendersHumanInstallErrors :: Assertion
 test_rendersHumanInstallErrors = do
-  let opts =
-        defaultInstallOptionsForTest
-          { installErrorFormat = InstallErrorsHuman
-          }
-      err = renderInstallFailureWithOptions opts syntheticInstallFailure
+  let err = renderInstallFailure syntheticInstallFailure
   assertBool ("error includes human location, got:\n" <> err) ("src/Demo.hs:2:3: error: [Demo] selected module failed" `isInfixOf` err)
   assertBool ("error includes source line, got:\n" <> err) ("  2 | x = selected + problem" `isInfixOf` err)
   assertBool ("error includes caret range, got:\n" <> err) ("    |   ^^^^^^^^" `isInfixOf` err)
   assertBool "error omits JSON object syntax" (not ("{\"" `isInfixOf` err))
 
+test_rendersJsonInstallErrors :: Assertion
+test_rendersJsonInstallErrors = do
+  let opts =
+        defaultInstallOptionsForTest
+          { installErrorFormat = InstallErrorsJson
+          }
+      err = renderInstallFailureWithOptions opts syntheticInstallFailure
+  assertBool ("error includes JSON diagnostic, got:\n" <> err) ("{\"message\":\"selected module failed\"" `isInfixOf` err)
+
+test_rendersPreprocessedSourceForRenameErrors :: Assertion
+test_rendersPreprocessedSourceForRenameErrors =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+        source = "{-# LANGUAGE CPP #-}\nmodule Demo where\n#define MISSING missingAfterCpp\nx = MISSING\n"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] source
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+
+    err <- renderInstallFailure <$> expectInstallFailure (writeInstallScaffold plan)
+    assertBool ("error explains the unbound name, got:\n" <> err) ("unbound term name ‘missingAfterCpp’" `isInfixOf` err)
+    assertBool ("error includes postprocessed source, got:\n" <> err) ("| x = missingAfterCpp" `isInfixOf` err)
+    assertBool ("error includes a caret, got:\n" <> err) ("^^^^^^^^^^^^^^^" `isInfixOf` err)
+    assertBool "error omits preprocessed macro use" (not ("| x = MISSING" `isInfixOf` err))
+
 defaultInstallOptionsForTest :: InstallOptions
 defaultInstallOptionsForTest =
-  InstallOptions "demo" Nothing Nothing False False False InstallErrorsJson
+  InstallOptions "demo" Nothing Nothing False False False InstallErrorsHuman
 
 syntheticInstallFailure :: InstallFailure
 syntheticInstallFailure =
