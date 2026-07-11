@@ -14,6 +14,7 @@ module Prelude
     Maybe (..),
     Monad (..),
     Num (..),
+    Ord,
     String,
     (&&),
     (++),
@@ -31,6 +32,7 @@ import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Kind (Type)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
+import GHC.Internal.Integer (eqInteger#)
 import GHC.Num (Num (..))
 
 foreign import prim (==#) :: Int# -> Int# -> Int#
@@ -72,6 +74,14 @@ instance Eq Int where
 
   x /= y = not (x == y)
 
+instance Eq Integer where
+  x == y =
+    case eqInteger# x y of
+      0# -> False
+      _ -> True
+
+  x /= y = not (x == y)
+
 instance (Eq a) => Eq [a] where
   [] == [] = True
   [] == (_ : _) = False
@@ -79,6 +89,36 @@ instance (Eq a) => Eq [a] where
   (x : xs) == (y : ys) = x == y && xs == ys
 
   xs /= ys = not (xs == ys)
+
+instance (Eq a) => Eq (Maybe a) where
+  Nothing == Nothing = True
+  Nothing == Just _ = False
+  Just _ == Nothing = False
+  Just x == Just y = x == y
+
+  x /= y = not (x == y)
+
+instance (Eq a, Eq b) => Eq (Either a b) where
+  Left x == Left y = x == y
+  Left _ == Right _ = False
+  Right _ == Left _ = False
+  Right x == Right y = x == y
+
+  x /= y = not (x == y)
+
+class (Eq a) => Ord a
+
+instance Ord Bool
+
+instance Ord Int
+
+instance Ord Integer
+
+instance (Ord a) => Ord [a]
+
+instance (Ord a) => Ord (Maybe a)
+
+instance (Ord a, Ord b) => Ord (Either a b)
 
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys

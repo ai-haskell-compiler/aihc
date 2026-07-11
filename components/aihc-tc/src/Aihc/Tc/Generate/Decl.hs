@@ -1155,6 +1155,7 @@ registerClassDecl classDecl = do
       paramKinds = map paramKind paramInfos
       paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
       classPred = ClassPred className (map TcTyVar paramTyVars)
+  mapM_ (\superclass -> checkSurfaceType paramTvEnv superclass KConstraint) (fromMaybe [] (classDeclContext classDecl))
   classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
   extendTyConEnvPermanent
     className

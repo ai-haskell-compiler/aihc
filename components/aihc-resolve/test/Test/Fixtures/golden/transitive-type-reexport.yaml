@@ -1,0 +1,36 @@
+annotated:
+- |-
+  module Internal (Integer) where
+  data Integer = IS
+       │         └─ v Internal
+       └─ t Internal
+- |-
+  module Main where
+  value :: Integer
+  │        └─ t Internal
+  └─ v Main
+  value = value
+  │       └─ v Main
+  └─ v Main
+- |-
+  module Prelude (Integer) where
+  import Public (Integer)
+- |-
+  module Public (Integer) where
+  import Internal (Integer)
+extensions: []
+modules:
+- |
+  module Internal (Integer) where
+  data Integer = IS
+- |
+  module Public (Integer) where
+  import Internal (Integer)
+- |
+  module Prelude (Integer) where
+  import Public (Integer)
+- |
+  module Main where
+  value :: Integer
+  value = value
+status: pass
