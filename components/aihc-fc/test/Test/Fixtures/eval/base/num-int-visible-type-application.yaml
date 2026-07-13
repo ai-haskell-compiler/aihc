@@ -1,0 +1,13 @@
+extensions:
+  - TypeApplications
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+output: |
+  I# 2
+expression: |
+  (+) @Int 1 1
+status: pass
+reason: visible type application selects the Num Int instance unambiguously
