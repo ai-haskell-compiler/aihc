@@ -149,26 +149,32 @@ evaluateFcEvalCase tc =
     Right (modules, expr) -> do
       let evalModules = combineModules modules expr
       dependencyModules <- loadDependencyModules tc evalModules
-      pure $
-        case dependencyModules of
-          Left errMsg -> classifyFailure tc errMsg
-          Right deps ->
-            let resolved = resolveWithDeps mempty (deps <> evalModules)
-             in case resolved of
-                  ResolveResult {resolvedModules, resolveErrors = []} ->
-                    let tcResults = typecheckModulesWithEnv [] resolvedModules
-                     in if all tcModuleSuccess tcResults
-                          then
-                            let allBindings = moduleGroupBindings tcResults
-                                results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
-                             in if all dsSuccess results
-                                  then case evalProgramBinding evalBindingName (concatPrograms (map dsProgram results)) >>= renderRawValue of
-                                    Right actual -> classifySuccess tc (T.unpack actual)
-                                    Left err -> classifyFailure tc ("eval error: " <> show err)
-                                  else classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results))
-                          else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
-                  ResolveResult {resolveErrors} ->
-                    classifyFailure tc ("resolve error: " <> show resolveErrors)
+      case dependencyModules of
+        Left errMsg -> pure (classifyFailure tc errMsg)
+        Right deps ->
+          let resolved = resolveWithDeps mempty (deps <> evalModules)
+           in case resolved of
+                ResolveResult {resolvedModules, resolveErrors = []} ->
+                  let tcResults = typecheckModulesWithEnv [] resolvedModules
+                   in if all tcModuleSuccess tcResults
+                        then do
+                          let allBindings = moduleGroupBindings tcResults
+                              results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                          if all dsSuccess results
+                            then do
+                              evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram results))
+                              case evalResult of
+                                Left err -> pure (classifyFailure tc ("eval error: " <> show err))
+                                Right value -> do
+                                  renderResult <- renderRawValue value
+                                  pure $
+                                    case renderResult of
+                                      Right actual -> classifySuccess tc (T.unpack actual)
+                                      Left err -> classifyFailure tc ("eval error: " <> show err)
+                            else pure (classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results)))
+                        else pure (classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults))
+                ResolveResult {resolveErrors} ->
+                  pure (classifyFailure tc ("resolve error: " <> show resolveErrors))
 
 parseInputs :: FcEvalCase -> Either String ([Module], Expr)
 parseInputs tc = do

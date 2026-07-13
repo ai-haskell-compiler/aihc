@@ -485,6 +485,7 @@ builtinTypeNames =
     -- Unboxed primitive types (GHC.Prim / GHC.Types)
     "Int#",
     "Int8#",
+    "Int32#",
     "Word#",
     "Char#",
     "Float#",

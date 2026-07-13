@@ -30,6 +30,7 @@ library
     containers,
     text >=1.2,
     transformers,
+    unix,
 
   ghc-options: -Wall
   default-language: GHC2021

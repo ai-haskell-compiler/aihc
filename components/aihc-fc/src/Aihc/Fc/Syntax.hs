@@ -21,6 +21,8 @@ module Aihc.Fc.Syntax
     FcBind (..),
     FcTopBind (..),
     FcProgram (..),
+    FcForeignCall (..),
+    FcForeignCallAbi (..),
 
     -- * Case alternatives
     FcAlt (..),
@@ -47,10 +49,32 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
+  | -- | Newtype declaration: type name, type variable parameters, and its
+    -- single constructor.
+    FcNewtype !Text ![TyVarId] !Text !TcType
   | -- | A primitive imported by @foreign import prim@.
     FcPrimitive !Var !Int
+  | -- | A C function imported by @foreign import ccall@.
+    FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  deriving (Eq, Show)
+
+-- | A statically named C function resolved by the evaluator or a code generator.
+data FcForeignCall = FcForeignCall
+  { fcForeignCallVar :: !Var,
+    fcForeignCallSymbol :: !Text,
+    fcForeignCallAbi :: !FcForeignCallAbi
+  }
+  deriving (Eq, Show)
+
+-- | Foreign ABI shapes supported by System FC lowering.
+--
+-- This is deliberately an algebraic type rather than an untyped arity. Each
+-- new shape must define its marshalling semantics before it can reach a
+-- backend or the interpreter.
+data FcForeignCallAbi
+  = FcCIntToCInt
   deriving (Eq, Show)
 
 -- | A typed variable.

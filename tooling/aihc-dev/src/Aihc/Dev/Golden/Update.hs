@@ -408,20 +408,27 @@ fcEvalActual opts value =
     Left err -> pure (Left err)
     Right (dependencies, evalModules) -> do
       dependencyModules <- loadFcEvalDependencyModules opts dependencies evalModules
-      pure $ do
-        deps <- dependencyModules
-        case resolveWithDeps mempty (deps <> evalModules) of
-          ResolveResult {resolvedModules, resolveErrors = []} ->
-            let tcResults = typecheckModulesWithEnv [] resolvedModules
-             in if all tcModuleSuccess tcResults
-                  then
-                    let allBindings = moduleGroupBindings tcResults
-                        dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
-                     in if all dsSuccess dsResults
-                          then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
-                          else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
-                  else Left ("typecheck error: " <> renderTcErrors tcResults)
-          ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      case dependencyModules of
+        Left err -> pure (Left err)
+        Right deps ->
+          case resolveWithDeps mempty (deps <> evalModules) of
+            ResolveResult {resolvedModules, resolveErrors = []} ->
+              let tcResults = typecheckModulesWithEnv [] resolvedModules
+               in if all tcModuleSuccess tcResults
+                    then do
+                      let allBindings = moduleGroupBindings tcResults
+                          dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                      if all dsSuccess dsResults
+                        then do
+                          evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults))
+                          case evalResult of
+                            Left err -> pure (Left ("eval error: " <> show err))
+                            Right evaluated -> do
+                              renderResult <- renderRawValue evaluated
+                              pure (first (("eval error: " <>) . show) (T.unpack <$> renderResult))
+                        else pure (Left ("desugar error: " <> unlines (concatMap dsErrors dsResults)))
+                    else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
+            ResolveResult {resolveErrors} -> pure (Left ("resolve error: " <> show resolveErrors))
 
 parseEvalInput :: Value -> Either String ([Text], [Module])
 parseEvalInput value = do
