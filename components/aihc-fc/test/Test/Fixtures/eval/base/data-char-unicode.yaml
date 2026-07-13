@@ -1,0 +1,32 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Char
+
+    data Checks = Checks [GeneralCategory] [Bool] [Char] Int
+
+    categories :: [Char] -> [GeneralCategory]
+    categories [] = []
+    categories (char : chars) = generalCategory char : categories chars
+output: |
+  Checks (: UppercaseLetter (: TitlecaseLetter (: OtherLetter (: NonSpacingMark (: LetterNumber (: OtherSymbol (: PrivateUse (: NotAssigned [])))))))) (: True (: False (: True (: True (: True (: False (: True []))))))) (: '\923' (: '\955' (: '\453' (: '\128512' [])))) (I# 128512)
+expression: |
+  Checks
+    (categories ['A', '\x01C5', '\x0627', '\x0301', '\x2168', '\x2665', '\xE000', '\x0378'])
+    [ isUpperCase '\x24B6'
+    , isUpper '\x24B6'
+    , isLowerCase '\x24D0'
+    , isSpace '\t'
+    , isSpace '\x00A0'
+    , isDigit '\xFF11'
+    , isNumber '\xFF11'
+    ]
+    [toUpper '\x03BB', toLower '\x039B', toTitle '\x01C6', chr (ord '\x1F600')]
+    (ord (chr (ord '\x1F600')))
+status: pass
+reason: Data.Char classifications and simple case mappings use the committed Unicode 17 tables from aihc-prim

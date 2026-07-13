@@ -77,6 +77,21 @@
   devTests = mkPackageTest hsPkgs.aihc-dev;
   aihcTests = mkAihcPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
+  unicode = import ./unicode.nix {inherit pkgs;};
+  unicodeGenerated =
+    pkgs.runCommand "aihc-unicode-generated" {
+      nativeBuildInputs = [pkgs.diffutils pkgs.ormolu];
+    } ''
+      generated="$TMPDIR/generated/GHC/Prim/Unicode.hs"
+      UNICODE_VERSION=${unicode.version} ${unicode.generator} \
+        --input=${unicode.ucd}/ \
+        --output="$TMPDIR/generated" \
+        --core-prop=Uppercase \
+        --core-prop=Lowercase
+      ormolu --mode inplace "$generated"
+      diff --unified ${sources.primSrc pkgs}/src/GHC/Prim/Unicode.hs "$generated"
+      touch "$out"
+    '';
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
     statix check flake.nix
@@ -156,6 +171,7 @@ in {
   dev-tests = devTests;
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
+  unicode-generated = unicodeGenerated;
   cpp-doctest = cppDoctest;
   parser-doctest = parserDoctest;
   parser-progress-strict = parserProgressStrict;
@@ -204,6 +220,10 @@ in {
     {
       name = "fmt-tests";
       path = fmtTests;
+    }
+    {
+      name = "unicode-generated";
+      path = unicodeGenerated;
     }
     {
       name = "cpp-doctest";

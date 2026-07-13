@@ -1,0 +1,26 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim.Unicode (charToInt#, intToChar#)
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    boxedMatch :: Char -> Int#
+    boxedMatch '\x03BB' = 1#
+    boxedMatch _ = 0#
+
+    unboxedMatch :: Char# -> Int#
+    unboxedMatch '\x03BB'# = 1#
+    unboxedMatch _ = 0#
+output: |
+  957
+expression: |
+  charToInt# (intToChar# (charToInt# '\x03BB'#)) +# boxedMatch '\x03BB' +# unboxedMatch '\x03BB'#
+status: pass
+reason: boxed Char uses C# while Unicode character/codepoint primitives and unboxed literals use Char#

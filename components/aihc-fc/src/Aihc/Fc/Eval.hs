@@ -16,6 +16,7 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
+import Data.Char qualified as Char
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -93,7 +94,8 @@ evalExpr = runExceptT . evalWithEnv builtinConstructorEnv
 builtinConstructorEnv :: Env
 builtinConstructorEnv =
   Map.fromList
-    [ ("[]", VConstructor "[]" []),
+    [ ("C#", VConstructor "C#" []),
+      ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
@@ -198,6 +200,14 @@ evalPrimitive "<#" [left, right] =
   evalIntPrim "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
   evalIntPrim "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
+evalPrimitive "charToInt#" [value] = do
+  charValue <- forceCharPrimitiveArg "charToInt#" value
+  pure (VLit (LitInt (fromIntegral (Char.ord charValue))))
+evalPrimitive "intToChar#" [value] = do
+  intValue <- forceIntPrimitiveArg "intToChar#" value
+  if intValue >= 0 && intValue <= 0x10ffff
+    then pure (VLit (LitChar (Char.chr (fromIntegral intValue))))
+    else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt intValue)))
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
 evalPrimitive "catch#" [action, handler, state] =
@@ -304,6 +314,13 @@ cIntValue :: Integer -> Value
 cIntValue value =
   VConstructor "CInt" [VConstructor "I32#" [VLit (LitInt value)]]
 
+forceCharPrimitiveArg :: Text -> Value -> EvalM Char
+forceCharPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitChar charValue) -> pure charValue
+    other -> throwE (EvalPrimitiveTypeError name other)
+
 extendBind :: Env -> FcBind -> Env
 extendBind env bind =
   case bind of
@@ -355,6 +372,7 @@ renderForcedValue :: Value -> EvalM Text
 renderForcedValue value =
   case value of
     VLit lit -> pure (renderLiteral lit)
+    VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor ":" _ -> do
       listValue <- collectList value
@@ -390,10 +408,14 @@ collectString value = do
   where
     charValue item = do
       forced <- forceValue item
-      pure $
-        case forced of
-          VLit (LitChar c) -> Just c
-          _ -> Nothing
+      case forced of
+        VConstructor "C#" [char] -> do
+          forcedChar <- forceValue char
+          pure $
+            case forcedChar of
+              VLit (LitChar c) -> Just c
+              _ -> Nothing
+        _ -> pure Nothing
 
 collectList :: Value -> EvalM (Maybe [Value])
 collectList value = do
@@ -409,8 +431,15 @@ renderLiteral :: Literal -> Text
 renderLiteral lit =
   case lit of
     LitInt i -> T.pack (show i)
-    LitChar c -> T.pack (show c)
+    LitChar c -> T.pack (show c) <> "#"
     LitString s -> T.pack (show (T.unpack s))
+
+renderBoxedChar :: Value -> EvalM Text
+renderBoxedChar value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitChar c) -> pure (T.pack (show c))
+    other -> throwE (EvalPrimitiveTypeError "C#" other)
 
 renderRawValue :: Value -> IO (Either EvalError Text)
 renderRawValue = runExceptT . renderRawValueM
@@ -420,6 +449,7 @@ renderRawValueM value = do
   forced <- forceValue value
   case forced of
     VLit lit -> pure (renderLiteral lit)
+    VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor name args | isTupleConstructor name (length args) -> do
       renderedArgs <- mapM renderRawArg args
@@ -442,6 +472,7 @@ renderRawArg value = do
   pure $
     case forced of
       VConstructor name args | isTupleConstructor name (length args) -> rendered
+      VConstructor "C#" [_] -> rendered
       VConstructor _ (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 

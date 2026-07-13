@@ -56,6 +56,7 @@ dsLiteralAlt lit =
   case lit of
     Surface.LitInt n _ _ -> LitAlt (LitInt n)
     Surface.LitChar c _ -> LitAlt (LitChar c)
+    Surface.LitCharHash c _ -> LitAlt (LitChar c)
     Surface.LitAnn _ inner -> dsLiteralAlt inner
     _ -> DefaultAlt
 

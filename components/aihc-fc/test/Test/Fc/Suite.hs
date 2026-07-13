@@ -39,7 +39,7 @@ fcEvalTests =
     [ testCase "renders string literals" $
         assertEvalExpr "\"hello world\"" (FcLit (LitString "hello world")),
       testCase "renders char literals" $
-        assertEvalExpr "'x'" (FcLit (LitChar 'x')),
+        assertEvalExpr "'x'#" (FcLit (LitChar 'x')),
       testCase "renders int literals" $
         assertEvalExpr "42" (FcLit (LitInt 42)),
       testCase "applies lambdas" $
@@ -56,7 +56,9 @@ fcEvalTests =
               result <- evalProgramBinding "answer" program >>= renderEvalResult
               assertEqual "result" (Right "\"top\"") result,
       testCase "renders raw constructor values" $ do
-        result <- renderRawValue (VConstructor ":" [VLit (LitChar 'x'), VConstructor "[]" []])
+        result <-
+          renderRawValue
+            (VConstructor ":" [VConstructor "C#" [VLit (LitChar 'x')], VConstructor "[]" []])
         assertEqual
           "raw result"
           (Right ": 'x' []")

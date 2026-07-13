@@ -5,7 +5,7 @@
 module Prelude
   ( Applicative (..),
     Bool (..),
-    Char,
+    Char (..),
     Either (..),
     Eq (..),
     Functor (..),
@@ -43,7 +43,7 @@ foreign import prim (==#) :: Int# -> Int# -> Int#
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
 
-data Char
+data Char = C# Char#
 
 data List a = [] | a : [a]
 

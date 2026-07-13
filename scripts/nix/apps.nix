@@ -11,6 +11,7 @@
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
+  unicode = import ./unicode.nix {inherit pkgs;};
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
@@ -71,6 +72,52 @@ in {
 
     git ls-files -z -- '*.nix' | xargs -0 -r alejandra
     git ls-files -z -- '*.hs' | grep -vz '/Fixtures/' | xargs -0 -r ormolu -m inplace
+  '';
+
+  generate-unicode = mkAppWithInputs "generate-unicode" [pkgs.bash pkgs.git pkgs.ormolu] ''
+    set -euo pipefail
+    ${repoRootGuard}
+
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    output="''${AIHC_UNICODE_OUTPUT:-$repo_root/core-libs/aihc-prim/src/GHC/Prim/Unicode.hs}"
+    generated_dir="$(mktemp -d)"
+    trap 'rm -rf "$generated_dir"' EXIT
+
+    UNICODE_VERSION=${unicode.version} ${unicode.generator} \
+      --input=${unicode.ucd}/ \
+      --output="$generated_dir" \
+      --core-prop=Uppercase \
+      --core-prop=Lowercase
+    cp "$generated_dir/GHC/Prim/Unicode.hs" "$output"
+    ormolu --mode inplace "$output"
+    echo "Generated $output from Unicode ${unicode.version}."
+  '';
+
+  check-unicode = mkAppWithInputs "check-unicode" [pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git pkgs.ormolu] ''
+    set -euo pipefail
+    ${repoRootGuard}
+
+    repo_root="$(git rev-parse --show-toplevel)"
+    cd "$repo_root"
+    committed="$repo_root/core-libs/aihc-prim/src/GHC/Prim/Unicode.hs"
+    generated_dir="$(mktemp -d)"
+    generated="$generated_dir/GHC/Prim/Unicode.hs"
+    trap 'rm -rf "$generated_dir"' EXIT
+
+    UNICODE_VERSION=${unicode.version} ${unicode.generator} \
+      --input=${unicode.ucd}/ \
+      --output="$generated_dir" \
+      --core-prop=Uppercase \
+      --core-prop=Lowercase
+    ormolu --mode inplace "$generated"
+
+    if ! cmp --silent "$committed" "$generated"; then
+      echo "Committed Unicode tables are stale. Run: just generate-unicode" >&2
+      diff --unified "$committed" "$generated" || true
+      exit 1
+    fi
+    echo "Committed Unicode tables match Unicode ${unicode.version}."
   '';
 
   line-counts = mkAppWithInputs "line-counts" [pkgs.tokei pkgs.jq pkgs.jtbl pkgs.bash] ''
