@@ -79,6 +79,8 @@ inferExprAt ambient expr = case expr of
     inferLambdaCases (exprSpan expr `orSourceSpan` ambient) alts
   EApp fun arg ->
     inferApp (exprSpan expr `orSourceSpan` ambient) fun arg
+  ETypeApp fun tyArg ->
+    inferTypeApp (exprSpan expr `orSourceSpan` ambient) fun tyArg
   EInfix lhs op rhs ->
     inferInfix (exprSpan expr `orSourceSpan` ambient) lhs op rhs
   EIf cond thenE elseE ->
@@ -380,6 +382,53 @@ inferApp sp fun arg = do
   ev <- freshEvVar
   let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
   pure (EApp fun' arg', resTy, funCts ++ argCts ++ [eqCt])
+
+inferTypeApp :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
+inferTypeApp sp fun tyArg = do
+  (fun', funTy, funCts) <- inferExpr fun
+  explicitTy <- checkSurfaceType Map.empty tyArg KType
+  case drop (visibleTypeApplicationCount fun) (pendingTypeArgs fun') of
+    inferredTy : _ -> do
+      ev <- freshEvVar
+      let origin = InstOrigin "visible type application"
+          eqCt =
+            mkWantedEqCt
+              TypeTrace
+                { typeTraceType = inferredTy,
+                  typeTraceRole = InferredType,
+                  typeTraceOrigin = ConstraintTypeOrigin origin
+                }
+              TypeTrace
+                { typeTraceType = explicitTy,
+                  typeTraceRole = RequiredType,
+                  typeTraceOrigin = ConstraintTypeOrigin origin
+                }
+              ev
+              origin
+              sp
+      pure (ETypeApp fun' tyArg, funTy, funCts <> [eqCt])
+    [] -> do
+      emitError sp (OtherError "visible type application requires a polymorphic expression")
+      pure (ETypeApp fun' tyArg, funTy, funCts)
+
+visibleTypeApplicationCount :: Expr -> Int
+visibleTypeApplicationCount expr =
+  case expr of
+    ETypeApp fun _ -> 1 + visibleTypeApplicationCount fun
+    EParen inner -> visibleTypeApplicationCount inner
+    EAnn _ inner -> visibleTypeApplicationCount inner
+    _ -> 0
+
+pendingTypeArgs :: Expr -> [TcType]
+pendingTypeArgs expr =
+  case expr of
+    EAnn ann inner ->
+      case fromAnnotation @PendingTcAnnotation ann of
+        Just pending -> pendingTcAnnTypeArgs pending
+        Nothing -> pendingTypeArgs inner
+    ETypeApp fun _ -> pendingTypeArgs fun
+    EParen inner -> pendingTypeArgs inner
+    _ -> []
 
 inferInfix :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferInfix sp lhs op rhs = do

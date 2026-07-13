@@ -52,12 +52,17 @@ fcEvalTests =
                 [ FcTopBind
                     (FcNonRec (var "answer" stringTy) (FcLit (LitString "top")))
                 ]
-         in assertEqual "result" (Right "\"top\"") (evalProgramBinding "answer" program >>= renderValue),
-      testCase "renders raw constructor values" $
+         in do
+              result <- evalProgramBinding "answer" program >>= renderEvalResult
+              assertEqual "result" (Right "\"top\"") result,
+      testCase "renders raw constructor values" $ do
+        result <-
+          renderRawValue
+            (VConstructor ":" [VConstructor "C#" [VLit (LitChar 'x')], VConstructor "[]" []])
         assertEqual
           "raw result"
           (Right ": 'x' []")
-          (renderRawValue (VConstructor ":" [VConstructor "C#" [VLit (LitChar 'x')], VConstructor "[]" []]))
+          result
     ]
 
 fcEvalFixtureTests :: IO TestTree
@@ -76,8 +81,15 @@ mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
     EvalGolden.OutcomeFail -> assertFailure details
 
 assertEvalExpr :: Text -> FcExpr -> IO ()
-assertEvalExpr expected expr =
-  assertEqual "result" (Right expected) (evalExpr expr >>= renderValue)
+assertEvalExpr expected expr = do
+  result <- evalExpr expr >>= renderEvalResult
+  assertEqual "result" (Right expected) result
+
+renderEvalResult :: Either EvalError Value -> IO (Either EvalError Text)
+renderEvalResult result =
+  case result of
+    Left err -> pure (Left err)
+    Right value -> renderValue value
 
 var :: Text -> TcType -> Var
 var name = Var name (Unique 0)

@@ -404,24 +404,38 @@ updateFcEvalGoldens opts =
 
 fcEvalActual :: Options -> Value -> IO (Either String String)
 fcEvalActual opts value =
+  case optionalTextField "stdout" value of
+    Left err -> pure (Left err)
+    Right (Just _) -> pure (Left "stdout-bearing eval fixtures must be validated with the aihc-fc test suite")
+    Right Nothing -> fcEvalActualWithoutStdout opts value
+
+fcEvalActualWithoutStdout :: Options -> Value -> IO (Either String String)
+fcEvalActualWithoutStdout opts value =
   case parseEvalInput value of
     Left err -> pure (Left err)
     Right (dependencies, evalModules) -> do
       dependencyModules <- loadFcEvalDependencyModules opts dependencies evalModules
-      pure $ do
-        deps <- dependencyModules
-        case resolveWithDeps mempty (deps <> evalModules) of
-          ResolveResult {resolvedModules, resolveErrors = []} ->
-            let tcResults = typecheckModulesWithEnv [] resolvedModules
-             in if all tcModuleSuccess tcResults
-                  then
-                    let allBindings = moduleGroupBindings tcResults
-                        dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
-                     in if all dsSuccess dsResults
-                          then first (("eval error: " <>) . show) (T.unpack <$> (evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults)) >>= renderRawValue))
-                          else Left ("desugar error: " <> unlines (concatMap dsErrors dsResults))
-                  else Left ("typecheck error: " <> renderTcErrors tcResults)
-          ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      case dependencyModules of
+        Left err -> pure (Left err)
+        Right deps ->
+          case resolveWithDeps mempty (deps <> evalModules) of
+            ResolveResult {resolvedModules, resolveErrors = []} ->
+              let tcResults = typecheckModulesWithEnv [] resolvedModules
+               in if all tcModuleSuccess tcResults
+                    then do
+                      let allBindings = moduleGroupBindings tcResults
+                          dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                      if all dsSuccess dsResults
+                        then do
+                          evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram dsResults))
+                          case evalResult of
+                            Left err -> pure (Left ("eval error: " <> show err))
+                            Right evaluated -> do
+                              renderResult <- renderRawValue evaluated
+                              pure (first (("eval error: " <>) . show) (T.unpack <$> renderResult))
+                        else pure (Left ("desugar error: " <> unlines (concatMap dsErrors dsResults)))
+                    else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
+            ResolveResult {resolveErrors} -> pure (Left ("resolve error: " <> show resolveErrors))
 
 parseEvalInput :: Value -> Either String ([Text], [Module])
 parseEvalInput value = do
@@ -754,6 +768,14 @@ textField field (Object obj) =
     Just _ -> Left (T.unpack field <> " must be a string")
     Nothing -> Left ("missing " <> T.unpack field)
 textField field _ = Left (T.unpack field <> " must be read from an object")
+
+optionalTextField :: Text -> Value -> Either String (Maybe Text)
+optionalTextField field (Object obj) =
+  case KeyMap.lookup (Key.fromText field) obj of
+    Nothing -> Right Nothing
+    Just (String txt) -> Right (Just txt)
+    Just _ -> Left (T.unpack field <> " must be a string")
+optionalTextField field _ = Left (T.unpack field <> " must be read from an object")
 
 statusText :: Value -> Text
 statusText value =

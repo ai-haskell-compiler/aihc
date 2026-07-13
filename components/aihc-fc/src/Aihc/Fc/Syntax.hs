@@ -21,6 +21,10 @@ module Aihc.Fc.Syntax
     FcBind (..),
     FcTopBind (..),
     FcProgram (..),
+    FcForeignCall (..),
+    FcForeignSignature (..),
+    FcForeignResult (..),
+    FcForeignType (..),
 
     -- * Case alternatives
     FcAlt (..),
@@ -47,10 +51,44 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
+  | -- | Newtype declaration: type name, type variable parameters, and its
+    -- single constructor.
+    FcNewtype !Text ![TyVarId] !Text !TcType
   | -- | A primitive imported by @foreign import prim@.
     FcPrimitive !Var !Int
+  | -- | A C function imported by @foreign import ccall@.
+    FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  deriving (Eq, Show)
+
+-- | A statically named C function resolved by the evaluator or a code generator.
+data FcForeignCall = FcForeignCall
+  { fcForeignCallVar :: !Var,
+    fcForeignCallSymbol :: !Text,
+    fcForeignCallSignature :: !FcForeignSignature
+  }
+  deriving (Eq, Show)
+
+-- | The ABI-relevant part of a foreign import's type.
+--
+-- Arguments are represented independently, so adding a new marshalled type
+-- does not require a constructor for every arity and result combination.
+data FcForeignSignature = FcForeignSignature
+  { fcForeignArgumentTypes :: ![FcForeignType],
+    fcForeignResult :: !FcForeignResult
+  }
+  deriving (Eq, Show)
+
+-- | Whether a foreign call is pure or produces an 'IO' action.
+data FcForeignResult
+  = FcForeignPure !FcForeignType
+  | FcForeignIO !FcForeignType
+  deriving (Eq, Show)
+
+-- | A value type with explicit host ABI marshalling support.
+data FcForeignType
+  = FcForeignCInt
   deriving (Eq, Show)
 
 -- | A typed variable.

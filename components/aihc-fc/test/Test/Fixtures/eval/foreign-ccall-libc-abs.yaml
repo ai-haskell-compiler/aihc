@@ -1,0 +1,20 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int32 (..))
+    import Foreign.C.Types (CInt (..))
+
+    foreign import ccall unsafe "abs" c_abs :: CInt -> CInt
+output: |
+  CInt (I32# 42)
+expression: |
+  c_abs (CInt (I32# (-42#Int32)))
+status: pass
+reason: dynamically resolves and invokes libc abs through an unsafe ccall

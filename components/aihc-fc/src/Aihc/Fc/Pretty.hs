@@ -45,6 +45,14 @@ renderTopBind (FcData tyName tyVars cons) =
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
     ++ renderDataCons cons
+renderTopBind (FcNewtype tyName tyVars conName fieldTy) =
+  "newtype "
+    ++ T.unpack tyName
+    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
+    ++ " = "
+    ++ T.unpack conName
+    ++ " "
+    ++ renderTypePrec True fieldTy
 renderTopBind (FcPrimitive var arity) =
   "foreign prim "
     ++ renderVar var
@@ -52,6 +60,13 @@ renderTopBind (FcPrimitive var arity) =
     ++ show arity
     ++ " : "
     ++ renderType (varType var)
+renderTopBind (FcForeignImport foreignCall) =
+  "foreign ccall \""
+    ++ T.unpack (fcForeignCallSymbol foreignCall)
+    ++ "\" "
+    ++ renderVar (fcForeignCallVar foreignCall)
+    ++ " : "
+    ++ renderType (varType (fcForeignCallVar foreignCall))
 renderTopBind (FcTopBind bind) = renderBind 0 bind
 
 -- | Render data constructors.

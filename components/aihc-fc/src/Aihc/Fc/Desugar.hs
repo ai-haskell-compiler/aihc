@@ -25,11 +25,14 @@ import Aihc.Parser.Syntax
     Expr,
     ForeignDecl (..),
     ForeignDirection (..),
+    ForeignEntitySpec (..),
+    ForeignSafety (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
+    NewtypeDecl (..),
     Pattern (..),
     Rhs,
     UnqualifiedName (..),
@@ -142,8 +145,9 @@ dsModule m = do
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
 dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
+dsDecl (DeclNewtype nd) = (: []) <$> dsNewtypeDeclM nd
 dsDecl (DeclAnn ann (DeclForeign foreignDecl))
-  | Just tcAnn <- fromAnnotation ann = (: []) <$> dsForeignPrim tcAnn foreignDecl
+  | Just tcAnn <- fromAnnotation ann = (: []) <$> dsForeignImport tcAnn foreignDecl
 dsDecl (DeclAnn ann (DeclClass _classDecl))
   | Just classAnn <- fromAnnotation ann = dsClassDeclM classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
@@ -157,16 +161,86 @@ dsDataDeclM dd = do
   cons <- mapM dsDataConM (dataDeclConstructors dd)
   pure (FcData tyName [] cons)
 
+-- | Preserve newtype declarations as distinct FC bindings so backends may
+-- erase their representation while the evaluator can still model source-level
+-- construction and pattern matching.
+dsNewtypeDeclM :: NewtypeDecl -> DsM FcTopBind
+dsNewtypeDeclM nd = do
+  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
+  case newtypeDeclConstructor nd of
+    Nothing -> desugarBug ("newtype " <> T.unpack tyName <> " has no constructor")
+    Just con -> do
+      (conName, fields) <- dsDataConM con
+      case fields of
+        [fieldTy] -> pure (FcNewtype tyName [] conName fieldTy)
+        _ -> desugarBug ("newtype constructor " <> T.unpack conName <> " does not have exactly one field")
+
+dsForeignImport :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
+dsForeignImport tcAnn foreignDecl
+  | foreignDirection foreignDecl /= ForeignImport =
+      desugarBug "unsupported foreign export after type checking"
+  | otherwise =
+      case foreignCallConv foreignDecl of
+        CPrim -> dsForeignPrim tcAnn foreignDecl
+        CCall -> dsForeignCcall tcAnn foreignDecl
+        callConv -> desugarBug ("unsupported foreign calling convention after type checking: " <> show callConv)
+
 dsForeignPrim :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
-dsForeignPrim tcAnn foreignDecl
-  | foreignDirection foreignDecl /= ForeignImport || foreignCallConv foreignDecl /= CPrim =
-      desugarBug "unsupported non-prim foreign declaration after type checking"
-  | otherwise = do
-      let name = unqualifiedNameText (foreignName foreignDecl)
-          ty = tcAnnType tcAnn
-      arity <- validatePrimitiveImport name ty
-      unique <- freshUnique
-      pure (FcPrimitive (Var name unique ty) arity)
+dsForeignPrim tcAnn foreignDecl = do
+  let name = unqualifiedNameText (foreignName foreignDecl)
+      ty = tcAnnType tcAnn
+  arity <- validatePrimitiveImport name ty
+  unique <- freshUnique
+  pure (FcPrimitive (Var name unique ty) arity)
+
+dsForeignCcall :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
+dsForeignCcall tcAnn foreignDecl = do
+  if foreignSafety foreignDecl == Just Unsafe
+    then pure ()
+    else desugarBug "only unsafe foreign imports are supported"
+  symbol <-
+    case foreignEntity foreignDecl of
+      ForeignEntityNamed name -> pure name
+      ForeignEntityStatic (Just name) -> pure name
+      ForeignEntityOmitted -> pure (unqualifiedNameText (foreignName foreignDecl))
+      _ -> desugarBug "only statically named foreign imports are supported"
+  let name = unqualifiedNameText (foreignName foreignDecl)
+      ty = tcAnnType tcAnn
+  signature <- foreignCallSignature ty
+  unique <- freshUnique
+  pure
+    ( FcForeignImport
+        FcForeignCall
+          { fcForeignCallVar = Var name unique ty,
+            fcForeignCallSymbol = symbol,
+            fcForeignCallSignature = signature
+          }
+    )
+
+foreignCallSignature :: TcType -> DsM FcForeignSignature
+foreignCallSignature ty = do
+  let (arguments, result) = splitForeignFunctionType ty
+  argumentTypes <- traverse marshalForeignType arguments
+  resultType <-
+    case result of
+      TcTyCon (TyCon "IO" 1) [ioResult] -> FcForeignIO <$> marshalForeignType ioResult
+      _ -> FcForeignPure <$> marshalForeignType result
+  pure
+    FcForeignSignature
+      { fcForeignArgumentTypes = argumentTypes,
+        fcForeignResult = resultType
+      }
+
+splitForeignFunctionType :: TcType -> ([TcType], TcType)
+splitForeignFunctionType (TcFunTy argument result) =
+  let (arguments, finalResult) = splitForeignFunctionType result
+   in (argument : arguments, finalResult)
+splitForeignFunctionType result = ([], result)
+
+marshalForeignType :: TcType -> DsM FcForeignType
+marshalForeignType (TcTyCon (TyCon "CInt" 0) []) = pure FcForeignCInt
+marshalForeignType ty =
+  desugarBug ("unsupported foreign import value type: " <> show ty)
 
 validatePrimitiveImport :: Text -> TcType -> DsM Int
 validatePrimitiveImport name ty =
