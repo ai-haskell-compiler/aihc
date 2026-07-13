@@ -22,7 +22,9 @@ module Aihc.Fc.Syntax
     FcTopBind (..),
     FcProgram (..),
     FcForeignCall (..),
-    FcForeignCallAbi (..),
+    FcForeignSignature (..),
+    FcForeignResult (..),
+    FcForeignType (..),
 
     -- * Case alternatives
     FcAlt (..),
@@ -64,17 +66,29 @@ data FcTopBind
 data FcForeignCall = FcForeignCall
   { fcForeignCallVar :: !Var,
     fcForeignCallSymbol :: !Text,
-    fcForeignCallAbi :: !FcForeignCallAbi
+    fcForeignCallSignature :: !FcForeignSignature
   }
   deriving (Eq, Show)
 
--- | Foreign ABI shapes supported by System FC lowering.
+-- | The ABI-relevant part of a foreign import's type.
 --
--- This is deliberately an algebraic type rather than an untyped arity. Each
--- new shape must define its marshalling semantics before it can reach a
--- backend or the interpreter.
-data FcForeignCallAbi
-  = FcCIntToCInt
+-- Arguments are represented independently, so adding a new marshalled type
+-- does not require a constructor for every arity and result combination.
+data FcForeignSignature = FcForeignSignature
+  { fcForeignArgumentTypes :: ![FcForeignType],
+    fcForeignResult :: !FcForeignResult
+  }
+  deriving (Eq, Show)
+
+-- | Whether a foreign call is pure or produces an 'IO' action.
+data FcForeignResult
+  = FcForeignPure !FcForeignType
+  | FcForeignIO !FcForeignType
+  deriving (Eq, Show)
+
+-- | A value type with explicit host ABI marshalling support.
+data FcForeignType
+  = FcForeignCInt
   deriving (Eq, Show)
 
 -- | A typed variable.

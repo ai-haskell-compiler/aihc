@@ -28,6 +28,7 @@ library
     aihc-tc,
     base >=4.16 && <5,
     containers,
+    libffi >=0.2 && <0.3,
     text >=1.2,
     transformers,
     unix,
@@ -58,10 +59,12 @@ test-suite spec
     containers,
     directory,
     filepath,
+    libffi >=0.2 && <0.3,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
     text,
+    unix,
     yaml,
 
   ghc-options:

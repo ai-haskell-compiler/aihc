@@ -1,5 +1,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Prelude
   ( Applicative (..),
@@ -8,6 +9,7 @@ module Prelude
     Either (..),
     Eq (..),
     Functor (..),
+    IO,
     Int,
     Integer,
     List (..),
@@ -35,6 +37,7 @@ import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (compareInteger#, eqInteger#)
 import GHC.Num (Num (..))
+import GHC.Prim (RealWorld, State#)
 
 foreign import prim (==#) :: Int# -> Int# -> Int#
 
@@ -54,6 +57,8 @@ id x = x
 data Maybe a = Nothing | Just a
 
 data Either a b = Left a | Right b
+
+newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
 data Ordering = LT | EQ | GT
 
@@ -301,6 +306,14 @@ instance Functor (Either e) where
       Left e -> Left e
       Right x -> Right (f x)
 
+instance Functor IO where
+  fmap f (IO action) =
+    IO
+      ( \state ->
+          case action state of
+            (# nextState, value #) -> (# nextState, f value #)
+      )
+
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b
@@ -333,6 +346,18 @@ instance Applicative (Either e) where
         case mx of
           Left e -> Left e
           Right x -> Right (f x)
+
+instance Applicative IO where
+  pure value = IO (pureIO value)
+
+  IO function <*> IO argument =
+    IO
+      ( \state ->
+          case function state of
+            (# functionState, f #) ->
+              case argument functionState of
+                (# resultState, value #) -> (# resultState, f value #)
+      )
 
 class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b
@@ -372,6 +397,27 @@ instance Monad (Either e) where
       Left e -> Left e
       Right _ -> my
   return = Right
+
+instance Monad IO where
+  IO action >>= k =
+    IO
+      ( \state ->
+          case action state of
+            (# nextState, value #) ->
+              case k value of
+                IO nextAction -> nextAction nextState
+      )
+
+  IO action >> IO nextAction =
+    IO
+      ( \state ->
+          case action state of
+            (# nextState, _ #) -> nextAction nextState
+      )
+  return = pure
+
+pureIO :: a -> State# RealWorld -> (# State# RealWorld, a #)
+pureIO value state = (# state, value #)
 
 fmapList :: (a -> b) -> [a] -> [b]
 fmapList _ [] = []

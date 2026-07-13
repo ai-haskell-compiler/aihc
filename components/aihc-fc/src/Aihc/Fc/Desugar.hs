@@ -206,28 +206,41 @@ dsForeignCcall tcAnn foreignDecl = do
       _ -> desugarBug "only statically named foreign imports are supported"
   let name = unqualifiedNameText (foreignName foreignDecl)
       ty = tcAnnType tcAnn
-  abi <- foreignCallAbi ty
+  signature <- foreignCallSignature ty
   unique <- freshUnique
   pure
     ( FcForeignImport
         FcForeignCall
           { fcForeignCallVar = Var name unique ty,
             fcForeignCallSymbol = symbol,
-            fcForeignCallAbi = abi
+            fcForeignCallSignature = signature
           }
     )
 
-foreignCallAbi :: TcType -> DsM FcForeignCallAbi
-foreignCallAbi (TcFunTy argument result)
-  | isCIntTy argument,
-    isCIntTy result =
-      pure FcCIntToCInt
-foreignCallAbi ty =
-  desugarBug ("unsupported foreign import type: " <> show ty)
+foreignCallSignature :: TcType -> DsM FcForeignSignature
+foreignCallSignature ty = do
+  let (arguments, result) = splitForeignFunctionType ty
+  argumentTypes <- traverse marshalForeignType arguments
+  resultType <-
+    case result of
+      TcTyCon (TyCon "IO" 1) [ioResult] -> FcForeignIO <$> marshalForeignType ioResult
+      _ -> FcForeignPure <$> marshalForeignType result
+  pure
+    FcForeignSignature
+      { fcForeignArgumentTypes = argumentTypes,
+        fcForeignResult = resultType
+      }
 
-isCIntTy :: TcType -> Bool
-isCIntTy (TcTyCon (TyCon "CInt" 0) []) = True
-isCIntTy _ = False
+splitForeignFunctionType :: TcType -> ([TcType], TcType)
+splitForeignFunctionType (TcFunTy argument result) =
+  let (arguments, finalResult) = splitForeignFunctionType result
+   in (argument : arguments, finalResult)
+splitForeignFunctionType result = ([], result)
+
+marshalForeignType :: TcType -> DsM FcForeignType
+marshalForeignType (TcTyCon (TyCon "CInt" 0) []) = pure FcForeignCInt
+marshalForeignType ty =
+  desugarBug ("unsupported foreign import value type: " <> show ty)
 
 validatePrimitiveImport :: Text -> TcType -> DsM Int
 validatePrimitiveImport name ty =

@@ -478,8 +478,12 @@ data ReplBaseContext = ReplBaseContext
 
 loadAihcBaseContext :: IO ReplBaseContext
 loadAihcBaseContext = do
-  root <- defaultAihcBaseRoot
-  modulesResult <- loadTransitiveModules [("aihc-base", root)] (Set.singleton "Prelude")
+  baseRoot <- defaultAihcBaseRoot
+  primRoot <- defaultAihcPrimRoot
+  modulesResult <-
+    loadTransitiveModules
+      [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
+      (Set.singleton "Prelude")
   case modulesResult of
     Left err -> ioError (userError ("repl error: could not load bundled aihc-base Prelude: " <> err))
     Right modules -> buildBaseContext modules
@@ -562,20 +566,26 @@ loadExplicitStoreInterface (Just storeRoot) = do
   Just <$> loadInterface interfacePath
 
 defaultAihcBaseRoot :: IO FilePath
-defaultAihcBaseRoot = do
-  baseOverride <- lookupEnv "AIHC_BASE_SRC"
-  case baseOverride of
+defaultAihcBaseRoot = defaultCoreLibraryRoot "AIHC_BASE_SRC" "aihc-base"
+
+defaultAihcPrimRoot :: IO FilePath
+defaultAihcPrimRoot = defaultCoreLibraryRoot "AIHC_PRIM_SRC" "aihc-prim"
+
+defaultCoreLibraryRoot :: String -> FilePath -> IO FilePath
+defaultCoreLibraryRoot sourceEnv packageName = do
+  sourceOverride <- lookupEnv sourceEnv
+  case sourceOverride of
     Just root -> pure root
     Nothing -> do
       coreLibsOverride <- lookupEnv "AIHC_CORE_LIBS_ROOT"
       case coreLibsOverride of
-        Just root -> pure (root </> "core-libs" </> "aihc-base")
+        Just root -> pure (root </> "core-libs" </> packageName)
         Nothing -> do
           cwd <- getCurrentDirectory
           findUp cwd
   where
     findUp dir = do
-      let candidate = dir </> "core-libs" </> "aihc-base"
+      let candidate = dir </> "core-libs" </> packageName
       exists <- doesDirectoryExist candidate
       if exists
         then pure candidate

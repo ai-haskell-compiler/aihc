@@ -1,0 +1,21 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int32 (..))
+    import Foreign.C.Types (CInt (..))
+
+    foreign import ccall unsafe putchar :: CInt -> IO CInt
+stdout: A
+output: |
+  CInt (I32# 65)
+expression: |
+  putchar (CInt (I32# 65#Int32))
+status: pass
+reason: executes an IO-returning libc putchar call and writes the character to stdout

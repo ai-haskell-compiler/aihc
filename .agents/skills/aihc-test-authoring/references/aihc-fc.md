@@ -54,6 +54,8 @@ reason: renders evaluated list literals in raw constructor form
 
 Required keys: `extensions`, `modules`, `expression`, `output`, `status`. `dependencies` is optional and defaults to `[]`, but include it explicitly when the fixture relies on shared library modules.
 
+Use the optional `stdout` string when evaluation must write to standard output. The fixture runner captures file descriptor 1, flushes libc output, and requires an exact text match without trimming. Prefer a quoted YAML string when leading, trailing, or newline characters matter. The golden updater skips fixtures with `stdout` expectations so it cannot leak side effects into its own output; validate them with the FC test suite and maintain both expectations manually.
+
 Use `dependencies: [aihc-base]` when an eval fixture depends on `Prelude` names or modules from `core-libs/aihc-base` instead of defining all dependencies inline in `modules`. The runner loads `aihc-base` from `core-libs/aihc-base` by default. Set `AIHC_BASE_SRC` only when local development, CI, or branch testing needs the fixture runner to use a modified or alternate `aihc-base` checkout; the value must be the package root whose `src` tree should replace the default `core-libs/aihc-base`. Dependency loading starts from `Prelude` plus the fixture modules' imports and follows imports transitively. Unknown dependency names fail the fixture.
 
 Keep self-contained eval fixtures dependency-free: define helper functions and operators in `modules` when the behavior under test is local FC evaluation rather than integration with `aihc-base`.
