@@ -12,9 +12,6 @@ module GHC.Prim.Unicode
     unicodeToLower,
     unicodeToTitle,
     unicodeToUpper,
-    unicodeVersionMajor#,
-    unicodeVersionMinor#,
-    unicodeVersionPatch#,
   )
 where
 
@@ -27,15 +24,6 @@ foreign import prim (-#) :: Int# -> Int# -> Int#
 foreign import prim charToInt# :: Char# -> Int#
 
 foreign import prim intToChar# :: Int# -> Char#
-
-unicodeVersionMajor# :: Int#
-unicodeVersionMajor# = 17#
-
-unicodeVersionMinor# :: Int#
-unicodeVersionMinor# = 0#
-
-unicodeVersionPatch# :: Int#
-unicodeVersionPatch# = 0#
 
 generalCategory# :: Char# -> Int#
 generalCategory# value = generalCategoryCode# (charToInt# value)

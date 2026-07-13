@@ -1,0 +1,18 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.IO (IO(..))
+    import System.IO.Unsafe (unsafePerformIO)
+
+    test = IO (\state -> (# state, 42# #))
+output: |
+  42
+expression: |
+  unsafePerformIO test
+status: pass
+reason: System.IO.Unsafe runs an IO state transformer with realWorld#

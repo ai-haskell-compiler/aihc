@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Core type representation for the type checker.
 --
 -- These are the semantic types used during type checking, distinct from
@@ -20,6 +22,7 @@ module Aihc.Tc.Types
     TyCon (..),
     Kind (..),
     TypeScheme (..),
+    isUnliftedType,
 
     -- * Predicates
     Pred (..),
@@ -32,6 +35,7 @@ module Aihc.Tc.Types
 where
 
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int
@@ -88,6 +92,80 @@ data TcType
   | -- | Unsaturated type application @f a@.
     TcAppTy !TcType !TcType
   deriving (Eq, Show)
+
+-- | Whether a type has an unlifted runtime representation in the subset of
+-- primitive types and runtime representations currently modeled by AIHC.
+-- This is deliberately semantic rather than a @#@ suffix check: user-defined
+-- lifted type constructors may legally end in @#@.
+isUnliftedType :: TcType -> Bool
+isUnliftedType (TcTyCon (TyCon name arity) args) =
+  length args == arity
+    && ( isPrimitiveUnliftedTyCon name arity
+           || isUnboxedTupleTyCon name arity
+           || isUnboxedSumTyCon name arity
+           || case (name, args) of
+             ("TYPE", [runtimeRep]) -> isUnliftedRuntimeRep runtimeRep
+             _ -> False
+       )
+isUnliftedType _ = False
+
+isPrimitiveUnliftedTyCon :: Text -> Int -> Bool
+isPrimitiveUnliftedTyCon name arity =
+  (arity == 0 && name `elem` primitiveScalarTyCons)
+    || (name, arity) `elem` [("State#", 1), ("MutVar#", 2)]
+  where
+    primitiveScalarTyCons =
+      [ "Addr#",
+        "Char#",
+        "Double#",
+        "Float#",
+        "Int#",
+        "Int8#",
+        "Int16#",
+        "Int32#",
+        "Int64#",
+        "Word#",
+        "Word8#",
+        "Word16#",
+        "Word32#",
+        "Word64#"
+      ]
+
+isUnboxedTupleTyCon :: Text -> Int -> Bool
+isUnboxedTupleTyCon name arity =
+  arity /= 1
+    && name == "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+
+isUnboxedSumTyCon :: Text -> Int -> Bool
+isUnboxedSumTyCon name arity =
+  arity >= 2
+    && name == "(#" <> T.replicate (arity - 1) "|" <> "#)"
+
+isUnliftedRuntimeRep :: TcType -> Bool
+isUnliftedRuntimeRep rep =
+  case rep of
+    TcTyCon (TyCon "'BoxedRep" 1) [TcTyCon (TyCon "'Unlifted" 0) []] ->
+      True
+    TcTyCon (TyCon name 0) [] ->
+      name
+        `elem` [ "'AddrRep",
+                 "'DoubleRep",
+                 "'FloatRep",
+                 "'IntRep",
+                 "'Int8Rep",
+                 "'Int16Rep",
+                 "'Int32Rep",
+                 "'Int64Rep",
+                 "'WordRep",
+                 "'Word8Rep",
+                 "'Word16Rep",
+                 "'Word32Rep",
+                 "'Word64Rep"
+               ]
+    TcTyCon (TyCon "'SumRep" 1) [_] -> True
+    TcTyCon (TyCon "'TupleRep" 1) [_] -> True
+    TcTyCon (TyCon "'VecRep" 2) [_, _] -> True
+    _ -> False
 
 -- | A type scheme: universally quantified type with constraints.
 --

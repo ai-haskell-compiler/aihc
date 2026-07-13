@@ -15,6 +15,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Char qualified as Char
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -50,8 +51,17 @@ data RuntimeValue
   = RuntimeLit !GrinLiteral
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
+  | RuntimeMutVar !GrinMutVar
   | RuntimeStateToken
   deriving (Eq, Show)
+
+newtype GrinMutVar = GrinMutVar (IORef RuntimeValue)
+
+instance Eq GrinMutVar where
+  GrinMutVar left == GrinMutVar right = left == right
+
+instance Show GrinMutVar where
+  show _ = "<mutvar>"
 
 type Env = Map GrinVar RuntimeValue
 
@@ -268,6 +278,7 @@ forceValue value =
     RuntimeNode (GrinForeign foreignCall) []
       | null (grinForeignArgumentTypes (grinForeignCallSignature foreignCall)) ->
           completeForeignCall foreignCall []
+    RuntimeNode (GrinPrimitive name 0) [] -> evalPrimitive name []
     _ -> pure value
 
 forceLocation :: Int -> EvalM RuntimeValue
@@ -346,10 +357,22 @@ evalPrimitive "intToChar#" [value] = do
   if intValue >= 0 && intValue <= 0x10ffff
     then pure (RuntimeLit (GrinLitChar (Char.chr (fromIntegral intValue))))
     else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt intValue)))
+evalPrimitive "realWorld#" [] = pure RuntimeStateToken
 evalPrimitive "raise#" [exception] =
   forceValue exception >>= throwE . EvalRaised
 evalPrimitive "catch#" [action, handler, state] =
   applyValue action state `catchE` handleRaised handler state
+evalPrimitive "newMutVar#" [initialValue, state] = do
+  mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
+  pure (RuntimeNode (GrinConstructor "(#,#)") [state, RuntimeMutVar mutVar])
+evalPrimitive "readMutVar#" [mutVar, state] = do
+  GrinMutVar reference <- forceMutVarPrimitiveArgument "readMutVar#" mutVar
+  value <- liftEvalIO (readIORef reference)
+  pure (RuntimeNode (GrinConstructor "(#,#)") [state, value])
+evalPrimitive "writeMutVar#" [mutVar, value, state] = do
+  GrinMutVar reference <- forceMutVarPrimitiveArgument "writeMutVar#" mutVar
+  liftEvalIO (writeIORef reference value)
+  pure state
 evalPrimitive name arguments =
   throwInterpret (InterpretPrimitiveArity name (length arguments))
 
@@ -371,6 +394,13 @@ forceCharPrimitiveArgument name value = do
   forced <- forceValue value
   case forced of
     RuntimeLit (GrinLitChar charValue) -> pure charValue
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+forceMutVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinMutVar
+forceMutVarPrimitiveArgument name value = do
+  forced <- forceValue value
+  case forced of
+    RuntimeMutVar mutVar -> pure mutVar
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 compareInts :: Integer -> Integer -> Integer
@@ -512,6 +542,7 @@ renderRawValueM value = do
     RuntimeNode GrinForeignIOAction {} _ -> pure "<io action>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
     RuntimeLocation _ -> renderRawValueM forced
+    RuntimeMutVar {} -> pure "<mutvar>"
     RuntimeStateToken -> pure "<state>"
 
 renderRawArgument :: RuntimeValue -> EvalM Text

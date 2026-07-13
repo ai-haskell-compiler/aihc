@@ -1,0 +1,27 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.IO (IO(..))
+    import GHC.Prim (newMutVar#, readMutVar#, writeMutVar#)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    test = IO (\state -> case newMutVar# 10# state of
+      (# state1, first #) -> case newMutVar# 20# state1 of
+        (# state2, second #) -> case writeMutVar# first 30# state2 of
+          state3 -> case readMutVar# first state3 of
+            (# state4, firstValue #) -> case readMutVar# second state4 of
+              (# state5, secondValue #) -> (# state5, (+#) firstValue secondValue #))
+output: |
+  50
+expression: |
+  unsafePerformIO test
+status: pass
+reason: unsafePerformIO observes independent MutVar# allocations and targeted writes

@@ -4,8 +4,10 @@ annotated:
   foreign import prim (+#) :: Int# -> Int# -> Int#
   └─ type: Int# → Int# → Int#
   int# = 10#
+  └─ error: top-level binding int# has unlifted type Int#
   └─ type: Int#
   word# = 10##
+  └─ error: top-level binding word# has unlifted type Word#
   └─ type: Word#
 extensions:
 - MagicHash
@@ -15,6 +17,5 @@ modules:
   foreign import prim (+#) :: Int# -> Int# -> Int#
   int# = 10#
   word# = 10##
-reason: foreign import prim registers unboxed primitive functions and MagicHash literals
-  keep their unboxed types
+reason: foreign primitives may have unlifted types but source top-level unboxed values are rejected
 status: pass

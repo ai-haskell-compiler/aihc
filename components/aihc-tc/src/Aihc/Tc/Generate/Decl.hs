@@ -305,6 +305,10 @@ tcModule m = do
   -- and evidence records as ordinary expressions.
   instanceDecls <- mapM tcInstanceDeclBodies (moduleDecls valueAnnotatedModule)
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
+  -- Phase 5: reject source top-level values whose finalized types are
+  -- unlifted. Generated declarations without source spans are permitted so
+  -- downstream passes can introduce internal unlifted bindings.
+  checkTopLevelUnliftedBindings sourceGroups groupResults
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
@@ -316,6 +320,26 @@ data TcDeclGroupResult = TcDeclGroupResult
     tcGroupBindingResults :: ![TcBindingResult],
     tcGroupAnnotatedDecls :: !(Maybe [Decl])
   }
+
+checkTopLevelUnliftedBindings :: [(Int, DeclGroup)] -> [TcDeclGroupResult] -> TcM ()
+checkTopLevelUnliftedBindings sourceGroups results =
+  forM_ results $ \result ->
+    case Map.lookup (tcGroupId result) groupsById of
+      Just group
+        | sourceSpan <- declGroupSourceSpan group,
+          sourceSpan /= NoSourceSpan ->
+            forM_ (tcGroupBindingResults result) $ \binding ->
+              when (isUnliftedType (tbType binding)) $
+                emitError sourceSpan (TopLevelUnliftedBinding (tbDisplayName binding) (tbType binding))
+      _ -> pure ()
+  where
+    groupsById = Map.fromList sourceGroups
+
+declGroupSourceSpan :: DeclGroup -> SourceSpan
+declGroupSourceSpan group =
+  case group of
+    SingleDecl decl -> peelDeclSpan NoSourceSpan decl
+    MergedFunctionBind sourceSpan _ _ _ -> sourceSpan
 
 renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
 renderCheckedGroup checkedGroups (groupId, group) =
