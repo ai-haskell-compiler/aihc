@@ -189,20 +189,26 @@ handleReplInput session input =
 evaluateExpression :: ReplSession -> Text -> IO (Either ReplError Text)
 evaluateExpression session input = do
   settings <- readIORef (replSettings session)
-  pure $ do
-    checked <- typecheckExpression session input
-    let expr = checkedExpr checked
-        resolvedModule = checkedResolvedModule checked
-        tcResult = checkedTcModule checked
-        inferredType = checkedType checked
-        allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
-        dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
-    if dsSuccess dsResult
-      then pure ()
-      else Left (ReplDesugarError (dsErrors dsResult))
-    value <- mapLeft (ReplEvalError . show) (evalProgramBinding replBindingName (concatPrograms [replDependencyProgram session, dsProgram dsResult]))
-    renderedValue <- mapLeft (ReplEvalError . show) (renderValue value)
-    Right (renderEvaluation settings expr inferredType dsResult renderedValue)
+  case typecheckExpression session input of
+    Left err -> pure (Left err)
+    Right checked -> do
+      let expr = checkedExpr checked
+          resolvedModule = checkedResolvedModule checked
+          tcResult = checkedTcModule checked
+          inferredType = checkedType checked
+          allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
+          dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
+      if not (dsSuccess dsResult)
+        then pure (Left (ReplDesugarError (dsErrors dsResult)))
+        else do
+          valueResult <- evalProgramBinding replBindingName (concatPrograms [replDependencyProgram session, dsProgram dsResult])
+          case mapLeft (ReplEvalError . show) valueResult of
+            Left err -> pure (Left err)
+            Right value -> do
+              renderedResult <- renderValue value
+              pure $ do
+                renderedValue <- mapLeft (ReplEvalError . show) renderedResult
+                Right (renderEvaluation settings expr inferredType dsResult renderedValue)
 
 typecheckExpression :: ReplSession -> Text -> Either ReplError CheckedExpression
 typecheckExpression session input = do
