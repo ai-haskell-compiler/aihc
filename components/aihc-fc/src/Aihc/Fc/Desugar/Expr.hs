@@ -433,6 +433,9 @@ dsExpr ETuple {} =
 dsExpr (EParen inner) = dsExpr inner
 dsExpr (EAnn _ann inner) = dsExpr inner
 dsExpr (ETypeSig inner _ty) = dsExpr inner
+-- The type checker records visible type arguments on the polymorphic
+-- occurrence, which 'dsAnnotatedVar' lowers to 'FcTyApp'.
+dsExpr (ETypeApp fun _ty) = dsExpr fun
 dsExpr (EIf cond thenE elseE) =
   dsIf cond thenE elseE
 dsExpr (ECase scrut alts) =
