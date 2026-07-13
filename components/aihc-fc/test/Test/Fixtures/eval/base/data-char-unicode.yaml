@@ -8,66 +8,25 @@ modules:
 
     import Data.Char
 
-    data Result = Pass | Fail
+    data Checks = Checks [GeneralCategory] [Bool] [Char] Int
+
+    categories :: [Char] -> [GeneralCategory]
+    categories [] = []
+    categories (char : chars) = generalCategory char : categories chars
 output: |
-  Pass
+  Checks (: UppercaseLetter (: TitlecaseLetter (: OtherLetter (: NonSpacingMark (: LetterNumber (: OtherSymbol (: PrivateUse (: NotAssigned [])))))))) (: True (: False (: True (: True (: True (: False (: True []))))))) (: '\923' (: '\955' (: '\453' (: '\128512' [])))) (I# 128512)
 expression: |
-  case generalCategory 'A' of
-    UppercaseLetter ->
-      case generalCategory '\x01C5' of
-        TitlecaseLetter ->
-          case generalCategory '\x0627' of
-            OtherLetter ->
-              case generalCategory '\x0301' of
-                NonSpacingMark ->
-                  case generalCategory '\x2168' of
-                    LetterNumber ->
-                      case generalCategory '\x2665' of
-                        OtherSymbol ->
-                          case generalCategory '\xE000' of
-                            PrivateUse ->
-                              case generalCategory '\x0378' of
-                                NotAssigned ->
-                                  case isUpperCase '\x24B6' of
-                                    True ->
-                                      case isUpper '\x24B6' of
-                                        False ->
-                                          case isLowerCase '\x24D0' of
-                                            True ->
-                                              case isSpace '\t' of
-                                                True ->
-                                                  case isSpace '\x00A0' of
-                                                    True ->
-                                                      case isDigit '\xFF11' of
-                                                        False ->
-                                                          case isNumber '\xFF11' of
-                                                            True ->
-                                                              case toUpper '\x03BB' of
-                                                                '\x039B' ->
-                                                                  case toLower '\x039B' of
-                                                                    '\x03BB' ->
-                                                                      case toTitle '\x01C6' of
-                                                                        '\x01C5' ->
-                                                                          case chr (ord '\x1F600') of
-                                                                            '\x1F600' -> Pass
-                                                                            _ -> Fail
-                                                                        _ -> Fail
-                                                                    _ -> Fail
-                                                                _ -> Fail
-                                                            _ -> Fail
-                                                        _ -> Fail
-                                                    _ -> Fail
-                                                _ -> Fail
-                                            _ -> Fail
-                                        _ -> Fail
-                                    _ -> Fail
-                                _ -> Fail
-                            _ -> Fail
-                        _ -> Fail
-                    _ -> Fail
-                _ -> Fail
-            _ -> Fail
-        _ -> Fail
-    _ -> Fail
+  Checks
+    (categories ['A', '\x01C5', '\x0627', '\x0301', '\x2168', '\x2665', '\xE000', '\x0378'])
+    [ isUpperCase '\x24B6'
+    , isUpper '\x24B6'
+    , isLowerCase '\x24D0'
+    , isSpace '\t'
+    , isSpace '\x00A0'
+    , isDigit '\xFF11'
+    , isNumber '\xFF11'
+    ]
+    [toUpper '\x03BB', toLower '\x039B', toTitle '\x01C6', chr (ord '\x1F600')]
+    (ord (chr (ord '\x1F600')))
 status: pass
 reason: Data.Char classifications and simple case mappings use the committed Unicode 17 tables from aihc-prim

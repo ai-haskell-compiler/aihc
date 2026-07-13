@@ -59,13 +59,6 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
-    aihc-ucd2haskell = {
-      src = sources.ucd2haskellSrc;
-      disableProfiling = true;
-      optimizeForChecks = false;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
     aihc-dev = {
       src = sources.devSrc;
       cabal2nixOptions = {

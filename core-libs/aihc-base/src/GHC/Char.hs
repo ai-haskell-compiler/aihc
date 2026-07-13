@@ -8,9 +8,10 @@ where
 
 import GHC.Int (Int (..))
 import GHC.Prim.Unicode (charToInt#, intToChar#)
+import Prelude (Char (C#))
 
 chr :: Int -> Char
-chr (I# value) = intToChar# value
+chr (I# value) = C# (intToChar# value)
 
 ord :: Char -> Int
-ord value = I# (charToInt# value)
+ord (C# value) = I# (charToInt# value)

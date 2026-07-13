@@ -39,7 +39,7 @@ fcEvalTests =
     [ testCase "renders string literals" $
         assertEvalExpr "\"hello world\"" (FcLit (LitString "hello world")),
       testCase "renders char literals" $
-        assertEvalExpr "'x'" (FcLit (LitChar 'x')),
+        assertEvalExpr "'x'#" (FcLit (LitChar 'x')),
       testCase "renders int literals" $
         assertEvalExpr "42" (FcLit (LitInt 42)),
       testCase "applies lambdas" $
@@ -57,7 +57,7 @@ fcEvalTests =
         assertEqual
           "raw result"
           (Right ": 'x' []")
-          (renderRawValue (VConstructor ":" [VLit (LitChar 'x'), VConstructor "[]" []]))
+          (renderRawValue (VConstructor ":" [VConstructor "C#" [VLit (LitChar 'x')], VConstructor "[]" []]))
     ]
 
 fcEvalFixtureTests :: IO TestTree

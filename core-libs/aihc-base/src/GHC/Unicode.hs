@@ -75,7 +75,7 @@ data GeneralCategory
   | NotAssigned
 
 generalCategory :: Char -> GeneralCategory
-generalCategory value =
+generalCategory (C# value) =
   case generalCategory# value of
     0# -> UppercaseLetter
     1# -> LowercaseLetter
@@ -158,7 +158,7 @@ isUpper value =
     _ -> False
 
 isUpperCase :: Char -> Bool
-isUpperCase value = intHashToBool (isUppercase# value)
+isUpperCase (C# value) = intHashToBool (isUppercase# value)
 
 isLower :: Char -> Bool
 isLower value =
@@ -167,7 +167,7 @@ isLower value =
     _ -> False
 
 isLowerCase :: Char -> Bool
-isLowerCase value = intHashToBool (isLowercase# value)
+isLowerCase (C# value) = intHashToBool (isLowercase# value)
 
 isAlpha :: Char -> Bool
 isAlpha = isLetter
@@ -248,13 +248,13 @@ isSeparator value =
     _ -> False
 
 toUpper :: Char -> Char
-toUpper = unicodeToUpper
+toUpper (C# value) = C# (unicodeToUpper value)
 
 toLower :: Char -> Char
-toLower = unicodeToLower
+toLower (C# value) = C# (unicodeToLower value)
 
 toTitle :: Char -> Char
-toTitle = unicodeToTitle
+toTitle (C# value) = C# (unicodeToTitle value)
 
 intHashToBool :: Int# -> Bool
 intHashToBool value =

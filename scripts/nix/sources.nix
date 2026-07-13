@@ -71,11 +71,6 @@ in rec {
     ".cabal"
   ];
 
-  ucd2haskellSrc = mkComponentSrc "/tooling/ucd2haskell" [
-    ".hs"
-    ".cabal"
-  ];
-
   testingSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;
@@ -175,8 +170,9 @@ in rec {
         inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
         inBin = pkgs.lib.hasInfix "/bin/" pathStr;
         inCoreLibs = pkgs.lib.hasInfix "/core-libs/" pathStr;
+        inNixHaskell = pkgs.lib.hasInfix "/scripts/nix/ucd2haskell-aihc/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Filtered source for scripts - only shell scripts.

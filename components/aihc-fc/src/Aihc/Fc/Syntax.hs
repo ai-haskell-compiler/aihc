@@ -133,6 +133,7 @@ data FcAltCon
 -- | Literal values.
 data Literal
   = LitInt !Integer
-  | LitChar !Char
+  | -- | An unboxed character literal, such as @'x'#@.
+    LitChar !Char
   | LitString !Text
   deriving (Eq, Show)

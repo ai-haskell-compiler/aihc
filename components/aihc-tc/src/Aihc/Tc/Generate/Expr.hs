@@ -67,6 +67,8 @@ inferExprAt ambient expr = case expr of
     pure (expr, doubleTyCon, [])
   EChar _ _ ->
     pure (expr, charTyCon, [])
+  ECharHash _ _ ->
+    pure (expr, charHashTyCon, [])
   EString _ _ ->
     pure (expr, stringTyCon, [])
   ELambdaPats pats body ->
@@ -734,6 +736,9 @@ doubleTyCon = TcTyCon (TyCon "Double" 0) []
 
 charTyCon :: TcType
 charTyCon = TcTyCon (TyCon "Char" 0) []
+
+charHashTyCon :: TcType
+charHashTyCon = TcTyCon (TyCon "Char#" 0) []
 
 stringTyCon :: TcType
 stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]

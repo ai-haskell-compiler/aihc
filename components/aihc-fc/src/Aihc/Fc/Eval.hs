@@ -69,7 +69,8 @@ evalExpr = evalWithEnv builtinConstructorEnv
 builtinConstructorEnv :: Env
 builtinConstructorEnv =
   Map.fromList
-    [ ("[]", VConstructor "[]" []),
+    [ ("C#", VConstructor "C#" []),
+      ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
       ("()", VConstructor "()" []),
       ("(,)", VConstructor "(,)" []),
@@ -249,6 +250,7 @@ renderForcedValue :: Value -> Either EvalError Text
 renderForcedValue value =
   case value of
     VLit lit -> pure (renderLiteral lit)
+    VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor ":" _ | Just elems <- collectList value -> do
       renderedElems <- mapM (renderValue <=< forceValue) elems
@@ -269,8 +271,14 @@ collectString value = do
   where
     charValue item =
       case item of
-        VLit (LitChar c) -> Just c
+        VConstructor "C#" [char] -> unboxedCharValue char
         VThunk {} -> either (const Nothing) charValue (forceValue item)
+        _ -> Nothing
+
+    unboxedCharValue item =
+      case item of
+        VLit (LitChar c) -> Just c
+        VThunk {} -> either (const Nothing) unboxedCharValue (forceValue item)
         _ -> Nothing
 
 collectList :: Value -> Maybe [Value]
@@ -287,14 +295,22 @@ renderLiteral :: Literal -> Text
 renderLiteral lit =
   case lit of
     LitInt i -> T.pack (show i)
-    LitChar c -> T.pack (show c)
+    LitChar c -> T.pack (show c) <> "#"
     LitString s -> T.pack (show (T.unpack s))
+
+renderBoxedChar :: Value -> Either EvalError Text
+renderBoxedChar value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitChar c) -> pure (T.pack (show c))
+    other -> Left (EvalPrimitiveTypeError "C#" other)
 
 renderRawValue :: Value -> Either EvalError Text
 renderRawValue value = do
   forced <- forceValue value
   case forced of
     VLit lit -> pure (renderLiteral lit)
+    VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor name args | isTupleConstructor name (length args) -> do
       renderedArgs <- mapM renderRawArg args
@@ -314,6 +330,7 @@ renderRawArg value = do
   pure $
     case forced of
       VConstructor name args | isTupleConstructor name (length args) -> rendered
+      VConstructor "C#" [_] -> rendered
       VConstructor _ (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 

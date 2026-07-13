@@ -236,7 +236,7 @@ buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
 buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
-  | any (any isOverloadedIntegerPattern . matchPats) matches =
+  | any (any requiresOrderedPatternMatch . matchPats) matches =
       dsOrderedMatches scrutVars matches
   | allVarPatterns matches = do
       -- Variable patterns: bind each pattern variable name to the
@@ -282,8 +282,48 @@ dsMatchPattern scrutVar pat success failure =
     _
       | isOverloadedIntegerPattern pat ->
           dsOverloadedIntegerPatternMatch scrutVar pat success failure
+      | Just char <- boxedCharPatternValue pat ->
+          dsBoxedCharPatternMatch scrutVar char success failure
       | otherwise ->
           dsOrdinaryPatternMatch scrutVar pat success failure
+
+requiresOrderedPatternMatch :: Pattern -> Bool
+requiresOrderedPatternMatch pat =
+  isOverloadedIntegerPattern pat || case boxedCharPatternValue pat of
+    Just _ -> True
+    Nothing -> False
+
+boxedCharPatternValue :: Pattern -> Maybe Char
+boxedCharPatternValue pat =
+  case peelPatternAnn pat of
+    PLit literal ->
+      case peelLiteralAnn literal of
+        Surface.LitChar char _ -> Just char
+        _ -> Nothing
+    PParen inner -> boxedCharPatternValue inner
+    _ -> Nothing
+
+dsBoxedCharPatternMatch :: Var -> Char -> DsM FcExpr -> FcExpr -> DsM FcExpr
+dsBoxedCharPatternMatch scrutVar char success failure = do
+  charVar <- freshInternalVar "_char#" charHashTy
+  outerBinder <- freshInternalVar "_boxed_char" charTy
+  innerBinder <- freshInternalVar "_unboxed_char" charHashTy
+  matched <- success
+  let innerCase =
+        FcCase
+          (FcVar charVar)
+          innerBinder
+          [ FcAlt (LitAlt (LitChar char)) [] matched,
+            FcAlt DefaultAlt [] failure
+          ]
+  pure
+    ( FcCase
+        (FcVar scrutVar)
+        outerBinder
+        [ FcAlt (DataAlt "C#") [charVar] innerCase,
+          FcAlt DefaultAlt [] failure
+        ]
+    )
 
 irrefutablePatternBindings :: Var -> Pattern -> [(Text, Var)]
 irrefutablePatternBindings scrutVar pat =
@@ -418,7 +458,8 @@ dsExpr (EVar name) = do
       v <- freshVar n ty
       pure (FcVar v)
 dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
-dsExpr (EChar c _) = pure (FcLit (LitChar c))
+dsExpr (EChar c _) = pure (boxCharLiteral c)
+dsExpr (ECharHash c _) = pure (FcLit (LitChar c))
 dsExpr (EString s _) = dsStringLiteral s
 dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
@@ -1053,7 +1094,13 @@ tupleConName flavor arity =
 
 consChar :: Char -> FcExpr -> FcExpr
 consChar char =
-  consList charTy (FcLit (LitChar char))
+  consList charTy (boxCharLiteral char)
+
+boxCharLiteral :: Char -> FcExpr
+boxCharLiteral char =
+  FcApp
+    (FcVar (Var "C#" (Unique (-12)) (TcFunTy charHashTy charTy)))
+    (FcLit (LitChar char))
 
 consList :: TcType -> FcExpr -> FcExpr -> FcExpr
 consList elemTy headExpr =
@@ -1248,7 +1295,7 @@ fcExprTypeM expr =
 
 litType :: Literal -> TcType
 litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
-litType (LitChar _) = TcTyCon (TyCon "Char" 0) []
+litType (LitChar _) = charHashTy
 litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 dictKey :: Text -> [TcType] -> Text
@@ -1272,6 +1319,9 @@ boolTy = TcTyCon (TyCon "Bool" 0) []
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []
+
+charHashTy :: TcType
+charHashTy = TcTyCon (TyCon "Char#" 0) []
 
 -- | Desugar a case alternative.
 dsCaseAlt :: TcType -> CaseAlt Expr -> DsM FcAlt

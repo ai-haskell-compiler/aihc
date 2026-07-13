@@ -11,7 +11,7 @@
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
-  unicode = import ./unicode.nix {inherit pkgs hsPkgs;};
+  unicode = import ./unicode.nix {inherit pkgs;};
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
@@ -81,12 +81,15 @@ in {
     repo_root="$(git rev-parse --show-toplevel)"
     cd "$repo_root"
     output="''${AIHC_UNICODE_OUTPUT:-$repo_root/core-libs/aihc-prim/src/GHC/Prim/Unicode.hs}"
+    generated_dir="$(mktemp -d)"
+    trap 'rm -rf "$generated_dir"' EXIT
 
-    ${unicode.generator} \
-      --unicode-version ${unicode.version} \
-      --unicode-data ${unicode.unicodeData} \
-      --derived-core-properties ${unicode.derivedCoreProperties} \
-      --output "$output"
+    UNICODE_VERSION=${unicode.version} ${unicode.generator} \
+      --input=${unicode.ucd}/ \
+      --output="$generated_dir" \
+      --core-prop=Uppercase \
+      --core-prop=Lowercase
+    cp "$generated_dir/GHC/Prim/Unicode.hs" "$output"
     ormolu --mode inplace "$output"
     echo "Generated $output from Unicode ${unicode.version}."
   '';
@@ -98,14 +101,15 @@ in {
     repo_root="$(git rev-parse --show-toplevel)"
     cd "$repo_root"
     committed="$repo_root/core-libs/aihc-prim/src/GHC/Prim/Unicode.hs"
-    generated="$(mktemp)"
-    trap 'rm -f "$generated"' EXIT
+    generated_dir="$(mktemp -d)"
+    generated="$generated_dir/GHC/Prim/Unicode.hs"
+    trap 'rm -rf "$generated_dir"' EXIT
 
-    ${unicode.generator} \
-      --unicode-version ${unicode.version} \
-      --unicode-data ${unicode.unicodeData} \
-      --derived-core-properties ${unicode.derivedCoreProperties} \
-      --output "$generated"
+    UNICODE_VERSION=${unicode.version} ${unicode.generator} \
+      --input=${unicode.ucd}/ \
+      --output="$generated_dir" \
+      --core-prop=Uppercase \
+      --core-prop=Lowercase
     ormolu --mode inplace "$generated"
 
     if ! cmp --silent "$committed" "$generated"; then

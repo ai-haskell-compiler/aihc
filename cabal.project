@@ -13,7 +13,6 @@ packages:
   tooling/aihc-testing
   tooling/aihc-parser-tooling-common
   tooling/aihc-resolve-tooling-common
-  tooling/ucd2haskell
   tooling/aihc-dev
 
 tests: True

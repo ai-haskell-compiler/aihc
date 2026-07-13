@@ -208,14 +208,14 @@ intHashBinaryTy = TcFunTy intHashTy (TcFunTy intHashTy intHashTy)
 intHashTy :: TcType
 intHashTy = TcTyCon (TyCon "Int#" 0) []
 
-charTy :: TcType
-charTy = TcTyCon (TyCon "Char" 0) []
+charHashTy :: TcType
+charHashTy = TcTyCon (TyCon "Char#" 0) []
 
 charToIntPrimTy :: TcType
-charToIntPrimTy = TcFunTy charTy intHashTy
+charToIntPrimTy = TcFunTy charHashTy intHashTy
 
 intToCharPrimTy :: TcType
-intToCharPrimTy = TcFunTy intHashTy charTy
+intToCharPrimTy = TcFunTy intHashTy charHashTy
 
 isRaisePrimType :: TcType -> Bool
 isRaisePrimType ty =

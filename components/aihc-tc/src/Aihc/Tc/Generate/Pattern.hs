@@ -93,7 +93,12 @@ checkPatternCore gadtHandling sp pat scrutTy =
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
       pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
     PWildcard {} -> pure (checkedOnly pat)
-    PLit {} -> pure (checkedOnly pat)
+    PLit lit ->
+      case charLiteralPatternType lit of
+        Just literalTy -> do
+          eqCt <- wantedEq sp scrutTy literalTy
+          pure (checkedOnly pat) {pcWantedCts = [eqCt]}
+        Nothing -> pure (checkedOnly pat)
     PNegLit {} -> pure (checkedOnly pat)
     PAs name inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
@@ -130,6 +135,13 @@ checkedPattern check =
   case pcPatterns check of
     [pat] -> pat
     _ -> error "checkedPattern: expected exactly one checked pattern"
+
+charLiteralPatternType :: Literal -> Maybe TcType
+charLiteralPatternType literal =
+  case peelLiteralAnn literal of
+    LitChar {} -> Just (TcTyCon (TyCon "Char" 0) [])
+    LitCharHash {} -> Just (TcTyCon (TyCon "Char#" 0) [])
+    _ -> Nothing
 
 overloadedIntegerPatternLiteral :: Pattern -> Maybe Bool
 overloadedIntegerPatternLiteral pat =
