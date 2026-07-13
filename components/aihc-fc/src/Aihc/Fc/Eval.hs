@@ -17,6 +17,7 @@ import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.Char qualified as Char
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -49,9 +50,18 @@ data Value
   | VPrim Text Int [Value]
   | VForeign FcForeignCall [Value]
   | VForeignIOAction FcForeignCall [Value]
+  | VMutVar EvalMutVar
   | VStateToken
   | VThunk Env FcExpr
   deriving (Eq, Show)
+
+newtype EvalMutVar = EvalMutVar (IORef Value)
+
+instance Eq EvalMutVar where
+  EvalMutVar left == EvalMutVar right = left == right
+
+instance Show EvalMutVar where
+  show _ = "<mutvar>"
 
 type Env = Map Text Value
 
@@ -217,6 +227,17 @@ evalPrimitive "catch#" [action, handler, state] =
       handlerWithException <- applyValue handler exception
       applyValue handlerWithException state
     handleRaised err = throwE err
+evalPrimitive "newMutVar#" [initialValue, state] = do
+  mutVar <- lift (newIORef initialValue)
+  pure (VConstructor "(#,#)" [state, VMutVar (EvalMutVar mutVar)])
+evalPrimitive "readMutVar#" [mutVar, state] = do
+  EvalMutVar ref <- forceMutVarPrimitiveArg "readMutVar#" mutVar
+  value <- lift (readIORef ref)
+  pure (VConstructor "(#,#)" [state, value])
+evalPrimitive "writeMutVar#" [mutVar, value, state] = do
+  EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
+  lift (writeIORef ref value)
+  pure state
 evalPrimitive name args =
   throwE (EvalPrimitiveArity name (length args))
 
@@ -238,6 +259,13 @@ forceIntPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
     VLit (LitInt intValue) -> pure intValue
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+forceMutVarPrimitiveArg :: Text -> Value -> EvalM EvalMutVar
+forceMutVarPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VMutVar mutVar -> pure mutVar
     other -> throwE (EvalPrimitiveTypeError name other)
 
 applyForeign :: FcForeignCall -> [Value] -> EvalM Value
@@ -389,6 +417,7 @@ renderForcedValue value =
     VPrim {} -> pure "<function>"
     VForeign {} -> pure "<function>"
     VForeignIOAction {} -> pure "<io action>"
+    VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
   where
@@ -462,6 +491,7 @@ renderRawValueM value = do
     VPrim {} -> pure "<function>"
     VForeign {} -> pure "<function>"
     VForeignIOAction {} -> pure "<io action>"
+    VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced
 

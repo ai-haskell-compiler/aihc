@@ -1,0 +1,21 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (MutVar#, RealWorld, State#, newMutVar#, readMutVar#)
+
+    state :: State# RealWorld
+    state = state
+output: |
+  41
+expression: |
+  case newMutVar# 41# state of
+    (# state1, mutVar #) -> case readMutVar# mutVar state1 of
+      (# _, value #) -> value
+status: pass
+reason: reads the initial value from a MutVar# allocated through aihc-prim
