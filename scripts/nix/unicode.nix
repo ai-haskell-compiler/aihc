@@ -4,6 +4,7 @@
   ucd2haskellArchive = pkgs.fetchzip {
     name = "ghc-ucd2haskell-${ucd2haskellRevision}.tar.gz";
     url = "https://gitlab.haskell.org/ghc/ghc/-/archive/${ucd2haskellRevision}/ghc-${ucd2haskellRevision}.tar.gz?path=libraries/ghc-internal/tools/ucd2haskell";
+    extension = "tar.gz";
     hash = "sha256-5FDNk4R18w1t0NjvJHW21je+GoB+6YJ39jtltDlPphU=";
   };
   ucd2haskellSource = pkgs.runCommand "ghc-ucd2haskell-aihc-source" {} ''
