@@ -33,6 +33,7 @@ where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Kind (Type)
+import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (compareInteger#, eqInteger#)
@@ -57,8 +58,6 @@ id x = x
 data Maybe a = Nothing | Just a
 
 data Either a b = Left a | Right b
-
-newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
 data Ordering = LT | EQ | GT
 

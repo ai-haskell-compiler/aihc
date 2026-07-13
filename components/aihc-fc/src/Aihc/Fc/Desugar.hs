@@ -269,7 +269,11 @@ primitiveImportSpecs =
       ("charToInt#", PrimitiveSpec 1 (typesEqual charToIntPrimTy)),
       ("intToChar#", PrimitiveSpec 1 (typesEqual intToCharPrimTy)),
       ("raise#", PrimitiveSpec 1 isRaisePrimType),
-      ("catch#", PrimitiveSpec 3 isCatchPrimType)
+      ("realWorld#", PrimitiveSpec 0 (typesEqual statePrimRealWorldTy)),
+      ("catch#", PrimitiveSpec 3 isCatchPrimType),
+      ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
+      ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
+      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType)
     ]
 
 intBinaryPrim :: PrimitiveSpec
@@ -323,6 +327,61 @@ isCatchPrimBody resultVar exceptionVar ty =
   where
     resultTupleTy =
       unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]
+
+isNewMutVarPrimType :: TcType -> Bool
+isNewMutVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy valueTy@(TcTyVar valueVar) (TcFunTy stateTy resultTy)) ->
+      case stateDomain stateTy of
+        Just domainVar ->
+          hasExactlyTyVars quantified [valueVar, domainVar]
+            && typesEqual
+              (unboxedTupleTy [stateTy, mutVarPrimTy domainVar valueTy])
+              resultTy
+        Nothing -> False
+    _ -> False
+
+isReadMutVarPrimType :: TcType -> Bool
+isReadMutVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutVarTy (TcFunTy stateTy resultTy)) ->
+      case (mutVarArgs mutVarTy, stateDomain stateTy) of
+        (Just (domainVar, valueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar, valueVar]
+            && typesEqual (unboxedTupleTy [stateTy, valueTy]) resultTy
+        _ -> False
+    _ -> False
+
+isWriteMutVarPrimType :: TcType -> Bool
+isWriteMutVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutVarTy (TcFunTy valueTy (TcFunTy stateTy resultTy))) ->
+      case (mutVarArgs mutVarTy, stateDomain stateTy) of
+        (Just (domainVar, mutVarValueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar, valueVar]
+            && typesEqual mutVarValueTy valueTy
+            && typesEqual stateTy resultTy
+        _ -> False
+    _ -> False
+
+stateDomain :: TcType -> Maybe TyVarId
+stateDomain (TcTyCon (TyCon "State#" 1) [TcTyVar domainVar]) = Just domainVar
+stateDomain _ = Nothing
+
+mutVarArgs :: TcType -> Maybe (TyVarId, TcType)
+mutVarArgs (TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]) =
+  Just (domainVar, valueTy)
+mutVarArgs _ = Nothing
+
+mutVarPrimTy :: TyVarId -> TcType -> TcType
+mutVarPrimTy domainVar valueTy =
+  TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]
+
+hasExactlyTyVars :: [TyVarId] -> [TyVarId] -> Bool
+hasExactlyTyVars actual expected =
+  length actual == length expected && all (`elem` actual) expected
 
 statePrimRealWorldTy :: TcType
 statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]

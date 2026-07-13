@@ -1,0 +1,11 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim realWorld# :: ()
+output: ""
+expression: |
+  realWorld#
+status: fail
+reason: realWorld# must have the exact State# RealWorld type

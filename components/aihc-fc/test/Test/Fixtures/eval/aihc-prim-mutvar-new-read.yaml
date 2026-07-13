@@ -1,0 +1,21 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.IO (IO(..))
+    import GHC.Prim (newMutVar#, readMutVar#)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    test = IO (\state -> case newMutVar# 41# state of
+      (# state1, mutVar #) -> readMutVar# mutVar state1)
+output: |
+  41
+expression: |
+  unsafePerformIO test
+status: pass
+reason: reads the initial value from a MutVar# through unsafePerformIO
