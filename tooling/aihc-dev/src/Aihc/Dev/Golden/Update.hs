@@ -388,7 +388,7 @@ fcActual value = do
 
 updateFcEvalGoldens :: Options -> IO Summary
 updateFcEvalGoldens opts =
-  updateYamlTree opts (optRoot opts </> "components/aihc-fc/test/Test/Fixtures/eval") $ \_ value ->
+  updateYamlTree opts (optRoot opts </> "test/Test/Fixtures/eval") $ \_ value ->
     if not (shouldUpdateOutput value)
       then pure FixtureUnchanged
       else do
@@ -406,7 +406,7 @@ fcEvalActual :: Options -> Value -> IO (Either String String)
 fcEvalActual opts value =
   case optionalTextField "stdout" value of
     Left err -> pure (Left err)
-    Right (Just _) -> pure (Left "stdout-bearing eval fixtures must be validated with the aihc-fc test suite")
+    Right (Just _) -> pure (Left "stdout-bearing eval fixtures must be validated with a shared pipeline evaluator")
     Right Nothing -> fcEvalActualWithoutStdout opts value
 
 fcEvalActualWithoutStdout :: Options -> Value -> IO (Either String String)

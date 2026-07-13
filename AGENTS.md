@@ -19,6 +19,7 @@ Each component owns one compiler domain. Domains must not overlap.
 | `aihc-resolve` | parsed surface modules | same surface AST annotated with binding/use resolution, exports, resolve diagnostics | name resolution only |
 | `aihc-tc` | resolved surface AST | same surface AST annotated with types, kinds, evidence, type diagnostics | Haskell type checking only |
 | `aihc-fc` | type-checked surface AST | System FC program, System FC lint/eval diagnostics | desugaring and System FC only |
+| `aihc-grin` | System FC program | strict GRIN program, GRIN lint/interpreter diagnostics | closure conversion, explicit runtime operations, and GRIN transformations only |
 
 Do not duplicate an upstream responsibility downstream. `aihc-tc` must not do
 name resolution; `aihc-fc` must not do Haskell type checking, though it may lint
@@ -26,6 +27,10 @@ types that already exist in System FC. If a feature in a downstream component
 needs upstream facts, change the upstream component and consume its output. For
 example, an `aihc-fc` feature that needs new Haskell typing information requires
 an `aihc-tc` change, not local type checking in `aihc-fc`.
+
+`aihc-grin` must preserve the semantics already represented by System FC. It may
+erase types and coercions and validate GRIN's structural invariants, but it must
+not reconstruct Haskell typing information or duplicate System FC desugaring.
 
 ## Mandatory Pre-Commit Workflow
 

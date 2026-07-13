@@ -10,8 +10,8 @@ where
 
 import Aihc.Fc
 import Aihc.Tc (TcType (..), TyCon (..), Unique (..))
+import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.Text (Text)
-import FcEvalGolden qualified as EvalGolden
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
@@ -67,18 +67,30 @@ fcEvalTests =
 
 fcEvalFixtureTests :: IO TestTree
 fcEvalFixtureTests = do
-  cases <- EvalGolden.loadFcEvalCases
+  cases <- EvalGolden.loadEvalCases
   let tests = map mkEvalFixtureTest cases
-  pure (testGroup "FC evaluation fixtures" tests)
+  pure (testGroup "shared evaluation fixtures via FC" tests)
 
-mkEvalFixtureTest :: EvalGolden.FcEvalCase -> TestTree
+mkEvalFixtureTest :: EvalGolden.EvalCase -> TestTree
 mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
-  (outcome, details) <- EvalGolden.evaluateFcEvalCase tc
+  (outcome, details) <- EvalGolden.evaluateEvalCase evaluateFcProgram tc
   case outcome of
     EvalGolden.OutcomePass -> pure ()
     EvalGolden.OutcomeXFail -> pure ()
     EvalGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
     EvalGolden.OutcomeFail -> assertFailure details
+
+evaluateFcProgram :: Text -> FcProgram -> IO (Either String Text)
+evaluateFcProgram name program = do
+  result <- evalProgramBinding name program
+  case result of
+    Left err -> pure (Left (show err))
+    Right value -> do
+      rendered <- renderRawValue value
+      pure $
+        case rendered of
+          Left err -> Left (show err)
+          Right text -> Right text
 
 assertEvalExpr :: Text -> FcExpr -> IO ()
 assertEvalExpr expected expr = do

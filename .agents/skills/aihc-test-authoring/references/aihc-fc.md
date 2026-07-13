@@ -34,7 +34,11 @@ Copy expected FC from the renderer when possible. The pretty-printer may use sym
 
 ## Eval Fixtures
 
-Root: `components/aihc-fc/test/Test/Fixtures/eval`.
+Root: `test/Test/Fixtures/eval`.
+
+These fixtures are phase-neutral source-to-runtime contracts. The `aihc-fc` and
+`aihc-grin` suites both consume them through `test/support/Aihc/Testing/EvalFixture.hs`.
+Keep exact System FC representation checks in FC golden fixtures instead.
 
 Fixture shape:
 

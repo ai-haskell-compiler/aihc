@@ -1,6 +1,6 @@
 ---
 name: aihc-test-authoring
-description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update tests in components/aihc-cpp, components/aihc-parser, components/aihc-resolve, components/aihc-tc, components/aihc-fc, or related compatibility/property suites, including unit tests, golden YAML fixtures, oracle fixtures, lexer fixtures, error-message fixtures, eval fixtures, and QuickCheck properties.
+description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update tests in components/aihc-cpp, components/aihc-parser, components/aihc-resolve, components/aihc-tc, components/aihc-fc, components/aihc-grin, or related compatibility/property suites, including unit tests, golden YAML fixtures, oracle fixtures, lexer fixtures, error-message fixtures, eval fixtures, and QuickCheck properties.
 ---
 
 # AIHC Test Authoring
@@ -34,6 +34,7 @@ Prefer a single focused fixture over a large scenario unless the behavior only a
 - `aihc-resolve`: read `references/aihc-resolve.md` for resolver golden fixtures and unit tests.
 - `aihc-tc`: read `references/aihc-tc.md` for type-checker annotated golden fixtures, unit tests, and properties.
 - `aihc-fc`: read `references/aihc-fc.md` for FC golden fixtures, eval fixtures, and unit tests.
+- `aihc-grin`: read `references/aihc-grin.md` for shared pipeline evaluation fixtures and GRIN structural/interpreter tests.
 - Shared commands and status semantics: read `references/validation.md`.
 
 ## Ground Rules
