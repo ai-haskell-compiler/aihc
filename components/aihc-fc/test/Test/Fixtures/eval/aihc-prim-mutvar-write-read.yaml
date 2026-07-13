@@ -7,16 +7,16 @@ extensions:
 modules:
   - |
     module Test where
-    import GHC.Prim (MutVar#, RealWorld, State#, newMutVar#, readMutVar#, writeMutVar#)
+    import GHC.IO (IO(..))
+    import GHC.Prim (newMutVar#, readMutVar#, writeMutVar#)
+    import System.IO.Unsafe (unsafePerformIO)
 
-    state :: State# RealWorld
-    state = state
+    test = IO (\state -> case newMutVar# 1# state of
+      (# state1, mutVar #) -> case writeMutVar# mutVar 42# state1 of
+        state2 -> readMutVar# mutVar state2)
 output: |
   42
 expression: |
-  case newMutVar# 1# state of
-    (# state1, mutVar #) -> case writeMutVar# mutVar 42# state1 of
-      state2 -> case readMutVar# mutVar state2 of
-        (# _, value #) -> value
+  unsafePerformIO test
 status: pass
-reason: observes a value written to a MutVar# through aihc-prim
+reason: observes a value written to a MutVar# through unsafePerformIO

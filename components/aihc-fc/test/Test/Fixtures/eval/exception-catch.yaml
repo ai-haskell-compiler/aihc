@@ -14,16 +14,15 @@ modules:
       (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
       State# RealWorld ->
       (# State# RealWorld, a #)
+    foreign import prim realWorld# :: State# RealWorld
     foreign import prim (+#) :: Int# -> Int# -> Int#
 
     throwing _ = raise# 10#
     handler e s = (# s, (+#) e 32# #)
-    state :: State# RealWorld
-    state = state
 output: |
   42
 expression: |
-  case catch# throwing handler state of
+  case catch# throwing handler realWorld# of
     (# _, x #) -> x
 status: pass
-reason: evaluates catch# by passing a raised primitive exception to the handler
+reason: evaluates catch# from realWorld# by passing a raised primitive exception to the handler

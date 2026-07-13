@@ -269,6 +269,7 @@ primitiveImportSpecs =
       ("charToInt#", PrimitiveSpec 1 (typesEqual charToIntPrimTy)),
       ("intToChar#", PrimitiveSpec 1 (typesEqual intToCharPrimTy)),
       ("raise#", PrimitiveSpec 1 isRaisePrimType),
+      ("realWorld#", PrimitiveSpec 0 (typesEqual statePrimRealWorldTy)),
       ("catch#", PrimitiveSpec 3 isCatchPrimType),
       ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
       ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),

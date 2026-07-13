@@ -119,6 +119,8 @@ renderDiagnosticKind kind =
       "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
     UnsolvedWanted pred' _ ->
       "unsolved constraint " <> renderPred pred'
+    TopLevelUnliftedBinding name ty ->
+      "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
     OtherError message ->
       message
 

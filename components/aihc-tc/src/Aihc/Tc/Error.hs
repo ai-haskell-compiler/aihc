@@ -9,6 +9,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Constraint (CtOrigin, EqProvenance)
 import Aihc.Tc.Types
+import Data.Text (Text)
 
 -- | A diagnostic produced by the type checker.
 --
@@ -40,6 +41,8 @@ data TcErrorKind
     KindMismatch !Kind !Kind
   | -- | Unsolved wanted constraint.
     UnsolvedWanted !Pred !CtOrigin
+  | -- | A source top-level value has an unlifted runtime representation.
+    TopLevelUnliftedBinding !Text !TcType
   | -- | Other error with a message.
     OtherError !String
   deriving (Show)

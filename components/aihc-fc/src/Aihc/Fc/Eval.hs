@@ -161,6 +161,7 @@ forceValue value =
     VForeign foreignCall []
       | null (fcForeignArgumentTypes (fcForeignCallSignature foreignCall)) ->
           completeForeignCall foreignCall []
+    VPrim name 0 [] -> evalPrimitive name []
     _ -> pure value
 
 runIOValue :: Value -> EvalM Value
@@ -220,6 +221,8 @@ evalPrimitive "intToChar#" [value] = do
     else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt intValue)))
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
+evalPrimitive "realWorld#" [] =
+  pure VStateToken
 evalPrimitive "catch#" [action, handler, state] =
   applyValue action state `catchE` handleRaised
   where

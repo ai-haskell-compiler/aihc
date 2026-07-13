@@ -8,6 +8,7 @@ module GHC.Prim
     MutVar#,
     newMutVar#,
     raise#,
+    realWorld#,
     readMutVar#,
     State#,
     RealWorld,
@@ -25,6 +26,8 @@ data MutVar# d a
 data RealWorld
 
 foreign import prim raise# :: a -> b
+
+foreign import prim realWorld# :: State# RealWorld
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
 
