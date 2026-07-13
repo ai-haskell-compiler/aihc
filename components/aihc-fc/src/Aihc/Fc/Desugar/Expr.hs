@@ -9,6 +9,7 @@
 module Aihc.Fc.Desugar.Expr
   ( dsMatches,
     dsMatchesWithDicts,
+    dsMatchesWithGivenDicts,
     dsRhs,
     DsM,
     DsState (..),
@@ -154,7 +155,16 @@ dsMatches :: TcType -> [Match] -> DsM FcExpr
 dsMatches = dsMatchesWithDicts True
 
 dsMatchesWithDicts :: Bool -> TcType -> [Match] -> DsM FcExpr
-dsMatchesWithDicts abstractDicts ty matches = case matches of
+dsMatchesWithDicts = dsMatchesWithDictSource Nothing
+
+-- | Desugar matches using dictionary binders supplied by an enclosing scope.
+-- The resulting expression refers to those exact variables and does not
+-- abstract over a second set of dictionaries.
+dsMatchesWithGivenDicts :: [ClassDict] -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithGivenDicts dicts = dsMatchesWithDictSource (Just dicts) False
+
+dsMatchesWithDictSource :: Maybe [ClassDict] -> Bool -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithDictSource givenDicts abstractDicts ty matches = case matches of
   [] -> do
     v <- freshVar "_void" ty
     pure (FcVar v)
@@ -164,7 +174,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
           then do
             let (tyLams, afterForAlls) = peelForAlls ty
                 dictPreds = fst (peelQuals afterForAlls)
-            dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
+            dicts <- dictionariesFor dictPreds
             body <- withDicts dicts (dsRhs (matchRhs m0))
             let dictLamExpr
                   | abstractDicts = foldr (FcDictLam . classDictVar) body dicts
@@ -174,7 +184,7 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
             let (tyLams, afterForAlls) = peelForAlls ty
                 (dictPreds, innerTy) = peelQuals afterForAlls
                 (argTys, resTy) = peelFunTys nArgs innerTy
-            dicts <- mapM mkClassDict (zip [0 :: Int ..] dictPreds)
+            dicts <- dictionariesFor dictPreds
             argVars <- mapM (\(i, argTy) -> freshInternalVar (argName i) argTy) (zip [0 :: Int ..] argTys)
             body <- withDicts dicts (buildCaseChain argVars resTy matches)
             let lamExpr = foldr FcLam body argVars
@@ -182,6 +192,11 @@ dsMatchesWithDicts abstractDicts ty matches = case matches of
                   | abstractDicts = foldr (FcDictLam . classDictVar) lamExpr dicts
                   | otherwise = lamExpr
             pure (foldr FcTyLam dictLamExpr tyLams)
+  where
+    dictionariesFor predicates =
+      case givenDicts of
+        Just dicts -> pure dicts
+        Nothing -> mapM mkClassDict (zip [0 :: Int ..] predicates)
 
 mkClassDict :: (Int, Pred) -> DsM ClassDict
 mkClassDict (i, pred') =

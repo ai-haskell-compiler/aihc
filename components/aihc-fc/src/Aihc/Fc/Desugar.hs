@@ -13,7 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithDicts, freshUnique, freshVar, lookupType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
@@ -425,7 +425,7 @@ dsInstanceDict :: TcInstanceAnnotation -> InstanceDecl -> DsM FcTopBind
 dsInstanceDict instAnn instanceDecl = do
   let methods = Map.fromListWith combineMethods (instanceMethodGroups instanceDecl)
   contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
-  fields <- mapM (dsInstanceMethod (map classDictPred contextDicts) methods) (tcInstanceMethodOrder instAnn)
+  fields <- mapM (dsInstanceMethod contextDicts methods) (tcInstanceMethodOrder instAnn)
   dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
   let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) (tcInstanceTyVars instAnn)
   pure (FcTopBind (FcNonRec dictVar dictBody))
@@ -440,11 +440,11 @@ mkContextDict ix dictAnn = do
 classDictPred :: ClassDict -> Pred
 classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
-dsInstanceMethod :: [Pred] -> Map.Map Text (TcType, [Match]) -> Text -> DsM FcExpr
-dsInstanceMethod contextPreds methods methodName =
+dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Text -> DsM FcExpr
+dsInstanceMethod contextDicts methods methodName =
   case Map.lookup methodName methods of
     Just (expected, matches) ->
-      dsMatchesWithDicts False (TcQualTy contextPreds expected) matches
+      dsMatchesWithGivenDicts contextDicts (TcQualTy (map classDictPred contextDicts) expected) matches
     Nothing ->
       desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 

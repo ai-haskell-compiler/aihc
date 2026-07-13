@@ -19,7 +19,7 @@ qc1:
 
 # Auto-format Nix, Cabal, and Haskell files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
-  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'find . -name "*.nix" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0 | xargs -0 -r alejandra; while IFS= read -r -d "" file; do cabal-gild --mode format --io "$file"; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
 # Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
 hlint-refactor:
@@ -29,13 +29,13 @@ hlint-refactor:
     'set -euo pipefail
      while IFS= read -r -d "" f; do
        hlint --refactor --refactor-options="--inplace" "$f"
-     done < <(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
+     done < <(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); exit "$failed"'
-  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)

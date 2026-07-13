@@ -13,6 +13,18 @@
       in
         type == "directory" || matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md";
     };
+
+  mkRootSubsetSrc = prefixes: suffixes: pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
+        matchesSourceSuffix = matchesSuffix pkgs suffixes path;
+      in
+        type == "directory" || (inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+    };
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
@@ -40,9 +52,19 @@ in rec {
     ".inc"
   ];
 
-  fcSrc = mkComponentSrc "/components/aihc-fc" [
+  fcSrc = mkRootSubsetSrc ["components/aihc-fc/" "test/support/"] [
     ".hs"
     ".cabal"
+    ".yaml"
+    ".yml"
+  ];
+
+  grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
+    ".hs"
+    ".cabal"
+  ];
+
+  evalFixturesSrc = mkComponentSrc "/test/Test/Fixtures/eval" [
     ".yaml"
     ".yml"
   ];
@@ -171,8 +193,9 @@ in rec {
         inBin = pkgs.lib.hasInfix "/bin/" pathStr;
         inCoreLibs = pkgs.lib.hasInfix "/core-libs/" pathStr;
         inNixHaskell = pkgs.lib.hasInfix "/scripts/nix/ucd2haskell-aihc/" pathStr;
+        inTestSupport = pkgs.lib.hasInfix "/test/support/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Filtered source for scripts - only shell scripts.

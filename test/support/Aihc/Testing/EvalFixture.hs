@@ -1,16 +1,20 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Golden test infrastructure for System FC evaluation fixtures.
-module FcEvalGolden
+-- | Shared source-to-runtime evaluation fixtures.
+module Aihc.Testing.EvalFixture
   ( Outcome (..),
-    FcEvalCase (..),
+    EvalCase (..),
+    ProgramEvaluator,
     evalFixtureRoot,
-    loadFcEvalCases,
-    evaluateFcEvalCase,
+    evalBindingName,
+    loadEvalCases,
+    compileEvalCase,
+    evaluateEvalCase,
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderRawValue)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -50,7 +54,7 @@ import Foreign.LibFFI (argPtr, callFFI, retCInt)
 import Foreign.Ptr (nullPtr)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
 import System.Environment (lookupEnv)
-import System.FilePath (joinPath, takeDirectory, takeExtension, (</>))
+import System.FilePath (joinPath, makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, openTempFile, stdout)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -70,7 +74,7 @@ data Outcome
   | OutcomeFail
   deriving (Eq, Show)
 
-data FcEvalCase = FcEvalCase
+data EvalCase = EvalCase
   { evalCaseId :: !String,
     evalCaseCategory :: !String,
     evalCasePath :: !FilePath,
@@ -85,35 +89,58 @@ data FcEvalCase = FcEvalCase
   }
   deriving (Eq, Show)
 
-evalFixtureRoot :: FilePath
-evalFixtureRoot = "test/Test/Fixtures/eval"
+-- | A phase evaluator receives the synthetic binding name and the fully
+-- desugared FC program, then renders the resulting value.
+type ProgramEvaluator = Text -> FcProgram -> IO (Either String Text)
+
+evalFixtureRoot :: IO FilePath
+evalFixtureRoot = do
+  configured <- lookupEnv "AIHC_EVAL_FIXTURES"
+  maybe defaultEvalFixtureRoot pure configured
+
+defaultEvalFixtureRoot :: IO FilePath
+defaultEvalFixtureRoot = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "test" </> "Test" </> "Fixtures" </> "eval"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then pure candidate
+            else findUp parent
 
 evalBindingName :: Text
 evalBindingName = "__aihc_eval__"
 
-loadFcEvalCases :: IO [FcEvalCase]
-loadFcEvalCases = do
-  exists <- doesDirectoryExist evalFixtureRoot
+loadEvalCases :: IO [EvalCase]
+loadEvalCases = do
+  root <- evalFixtureRoot
+  exists <- doesDirectoryExist root
   if not exists
-    then pure []
+    then fail ("Shared eval fixture root does not exist: " <> root)
     else do
-      paths <- listFixtureFiles evalFixtureRoot
-      mapM loadFcEvalCase paths
+      paths <- listFixtureFiles root
+      mapM (loadEvalCase root) paths
 
-loadFcEvalCase :: FilePath -> IO FcEvalCase
-loadFcEvalCase path = do
+loadEvalCase :: FilePath -> FilePath -> IO EvalCase
+loadEvalCase root path = do
   raw <- Y.decodeFileEither path
   case raw of
     Left err -> fail ("Invalid YAML eval fixture " <> path <> ": " <> Y.prettyPrintParseException err)
-    Right value -> case parseFcEvalFixture path value of
+    Right value -> case parseEvalFixture root path value of
       Left e -> fail e
       Right c -> pure c
 
-parseFcEvalFixture :: FilePath -> Y.Value -> Either String FcEvalCase
-parseFcEvalFixture path value = do
+parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
+parseEvalFixture root path value = do
   (extNames, dependencies, modules, expression, output, expectedStdout, statusText, reasonText) <-
     parseEither
-      ( withObject "fc eval fixture" $ \obj -> do
+      ( withObject "eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
           deps <- obj .:? "dependencies" .!= []
           mods <- obj .: "modules" >>= parseModules
@@ -130,10 +157,10 @@ parseFcEvalFixture path value = do
     else do
       exts <- validateExtensions path extNames
       status <- parseStatus path statusText
-      let relPath = dropRootPrefix path
+      let relPath = makeRelative root path
           category = categoryFromPath relPath
       pure
-        FcEvalCase
+        EvalCase
           { evalCaseId = relPath,
             evalCaseCategory = category,
             evalCasePath = relPath,
@@ -154,15 +181,28 @@ parseModules = withArray "modules" $ \arr ->
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
 
-evaluateFcEvalCase :: FcEvalCase -> IO (Outcome, String)
-evaluateFcEvalCase tc =
-  case parseInputs tc of
+evaluateEvalCase :: ProgramEvaluator -> EvalCase -> IO (Outcome, String)
+evaluateEvalCase evaluator tc = do
+  compileResult <- compileEvalCase tc
+  case compileResult of
     Left errMsg -> pure (classifyFailure tc errMsg)
+    Right program -> do
+      (actualStdout, renderResult) <-
+        evaluateWithExpectedStdout tc (evaluator evalBindingName program)
+      pure $
+        case renderResult of
+          Right actual -> classifySuccess tc (T.unpack actual) actualStdout
+          Left err -> classifyFailure tc ("eval error: " <> err)
+
+compileEvalCase :: EvalCase -> IO (Either String FcProgram)
+compileEvalCase tc =
+  case parseInputs tc of
+    Left errMsg -> pure (Left errMsg)
     Right (modules, expr) -> do
       let evalModules = combineModules modules expr
       dependencyModules <- loadDependencyModules tc evalModules
       case dependencyModules of
-        Left errMsg -> pure (classifyFailure tc errMsg)
+        Left errMsg -> pure (Left errMsg)
         Right deps ->
           let resolved = resolveWithDeps mempty (deps <> evalModules)
            in case resolved of
@@ -173,23 +213,13 @@ evaluateFcEvalCase tc =
                           let allBindings = moduleGroupBindings tcResults
                               results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
                           if all dsSuccess results
-                            then do
-                              (actualStdout, renderResult) <-
-                                evaluateWithExpectedStdout tc $ do
-                                  evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram results))
-                                  case evalResult of
-                                    Left err -> pure (Left err)
-                                    Right value -> renderRawValue value
-                              pure $
-                                case renderResult of
-                                  Right actual -> classifySuccess tc (T.unpack actual) actualStdout
-                                  Left err -> classifyFailure tc ("eval error: " <> show err)
-                            else pure (classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results)))
-                        else pure (classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults))
+                            then pure (Right (concatPrograms (map dsProgram results)))
+                            else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))
+                        else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
                 ResolveResult {resolveErrors} ->
-                  pure (classifyFailure tc ("resolve error: " <> show resolveErrors))
+                  pure (Left ("resolve error: " <> show resolveErrors))
 
-parseInputs :: FcEvalCase -> Either String ([Module], Expr)
+parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
   modules <- mapM (parseOneModuleWithExtensions (evalCaseExtensions tc)) (evalCaseModules tc)
   expr <- parseOneExpr (evalCaseExpression tc)
@@ -268,7 +298,7 @@ concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
   FcProgram (concatMap fcTopBinds programs)
 
-loadDependencyModules :: FcEvalCase -> [Module] -> IO (Either String [Module])
+loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [Module])
 loadDependencyModules tc evalModules =
   case evalCaseDependencies tc of
     [] -> pure (Right [])
@@ -383,7 +413,7 @@ moduleNamePath :: Text -> FilePath
 moduleNamePath moduleName =
   joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
 
-classifySuccess :: FcEvalCase -> String -> Maybe String -> (Outcome, String)
+classifySuccess :: EvalCase -> String -> Maybe String -> (Outcome, String)
 classifySuccess tc actual actualStdout =
   case evalCaseStatus tc of
     StatusPass
@@ -404,7 +434,7 @@ classifySuccess tc actual actualStdout =
           Just ("output mismatch\nexpected:\n" <> evalCaseOutput tc <> "\nactual:\n" <> trim actual)
       | otherwise = stdoutMismatch tc actualStdout
 
-stdoutMismatch :: FcEvalCase -> Maybe String -> Maybe String
+stdoutMismatch :: EvalCase -> Maybe String -> Maybe String
 stdoutMismatch tc actual =
   case (evalCaseStdout tc, actual) of
     (Nothing, _) -> Nothing
@@ -420,7 +450,7 @@ stdoutMismatch tc actual =
     (Just expected, Nothing) ->
       Just ("stdout was not captured\nexpected: " <> show expected)
 
-evaluateWithExpectedStdout :: FcEvalCase -> IO a -> IO (Maybe String, a)
+evaluateWithExpectedStdout :: EvalCase -> IO a -> IO (Maybe String, a)
 evaluateWithExpectedStdout tc action =
   case evalCaseStdout tc of
     Nothing -> do
@@ -468,7 +498,7 @@ flushCStdout = do
   _ <- callFFI fflush retCInt [argPtr nullPtr]
   pure ()
 
-classifyFailure :: FcEvalCase -> String -> (Outcome, String)
+classifyFailure :: EvalCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =
   case evalCaseStatus tc of
     StatusPass -> (OutcomeFail, "expected success, got error: " <> errDetails)
@@ -509,10 +539,6 @@ parseStatus path raw =
     "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
     _ -> Left ("Invalid status in " <> path <> ": " <> T.unpack raw)
-
-dropRootPrefix :: FilePath -> FilePath
-dropRootPrefix path =
-  maybe path T.unpack (T.stripPrefix (T.pack (evalFixtureRoot <> "/")) (T.pack path))
 
 categoryFromPath :: FilePath -> String
 categoryFromPath path =

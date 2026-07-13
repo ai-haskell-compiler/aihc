@@ -15,7 +15,7 @@
       pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv addHiddenSuccesses)
     );
 
-  mkFcPackageTest = drv:
+  mkEvalPackageTest = drv:
     pkgs.haskell.lib.doCheck (
       pkgs.haskell.lib.dontHaddock (
         pkgs.haskell.lib.overrideCabal drv (
@@ -27,6 +27,7 @@
                 + ''
                   export AIHC_BASE_SRC=${sources.baseSrc pkgs}
                   export AIHC_PRIM_SRC=${sources.primSrc pkgs}
+                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
                 '';
             }
         )
@@ -70,7 +71,8 @@
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
-  fcTests = mkFcPackageTest hsPkgs.aihc-fc;
+  fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
+  grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   testingTests = mkPackageTest hsPkgs.aihc-testing;
@@ -165,6 +167,7 @@ in {
   parser-tests = parserTests;
   cpp-tests = cppTests;
   fc-tests = fcTests;
+  grin-tests = grinTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
   testing-tests = testingTests;
@@ -196,6 +199,10 @@ in {
     {
       name = "fc-tests";
       path = fcTests;
+    }
+    {
+      name = "grin-tests";
+      path = grinTests;
     }
     {
       name = "resolve-tests";

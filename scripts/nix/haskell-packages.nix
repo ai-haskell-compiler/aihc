@@ -26,6 +26,21 @@
     };
     aihc-fc = {
       src = sources.fcSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-fc";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-grin = {
+      src = sources.grinSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-grin";
+        srcModifier = src: src;
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
