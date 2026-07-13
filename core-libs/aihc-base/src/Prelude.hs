@@ -8,6 +8,7 @@ module Prelude
     Either (..),
     Eq (..),
     Functor (..),
+    IO,
     Int,
     Integer,
     List (..),
@@ -54,6 +55,8 @@ id x = x
 data Maybe a = Nothing | Just a
 
 data Either a b = Left a | Right b
+
+data IO a
 
 data Ordering = LT | EQ | GT
 

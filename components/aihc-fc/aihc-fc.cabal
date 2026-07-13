@@ -62,6 +62,7 @@ test-suite spec
     tasty-hunit,
     tasty-quickcheck,
     text,
+    unix,
     yaml,
 
   ghc-options:

@@ -1,3 +1,4 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Golden test infrastructure for System FC evaluation fixtures.
@@ -34,18 +35,27 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnv)
+import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, nub, sort)
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import Foreign.C.Types (CInt (..))
+import Foreign.Ptr (Ptr, nullPtr)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
 import System.Environment (lookupEnv)
 import System.FilePath (joinPath, takeDirectory, takeExtension, (</>))
+import System.IO (hClose, hFlush, openTempFile, stdout)
+import System.Posix.IO (closeFd, dup, dupTo, handleToFd, stdOutput)
+
+foreign import ccall unsafe "fflush"
+  c_fflush :: Ptr () -> IO CInt
 
 data ExpectedStatus
   = StatusPass
@@ -70,6 +80,7 @@ data FcEvalCase = FcEvalCase
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
+    evalCaseStdout :: !(Maybe String),
     evalCaseStatus :: !ExpectedStatus,
     evalCaseReason :: !String
   }
@@ -101,7 +112,7 @@ loadFcEvalCase path = do
 
 parseFcEvalFixture :: FilePath -> Y.Value -> Either String FcEvalCase
 parseFcEvalFixture path value = do
-  (extNames, dependencies, modules, expression, output, statusText, reasonText) <-
+  (extNames, dependencies, modules, expression, output, expectedStdout, statusText, reasonText) <-
     parseEither
       ( withObject "fc eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -109,9 +120,10 @@ parseFcEvalFixture path value = do
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
+          stdoutOutput <- obj .:? "stdout"
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, status, reason)
+          pure (exts, deps, mods, expr, expected, stdoutOutput, status, reason)
       )
       value
   if null modules
@@ -131,6 +143,7 @@ parseFcEvalFixture path value = do
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
+            evalCaseStdout = T.unpack <$> expectedStdout,
             evalCaseStatus = status,
             evalCaseReason = trim (T.unpack reasonText)
           }
@@ -162,15 +175,16 @@ evaluateFcEvalCase tc =
                               results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
                           if all dsSuccess results
                             then do
-                              evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram results))
-                              case evalResult of
-                                Left err -> pure (classifyFailure tc ("eval error: " <> show err))
-                                Right value -> do
-                                  renderResult <- renderRawValue value
-                                  pure $
-                                    case renderResult of
-                                      Right actual -> classifySuccess tc (T.unpack actual)
-                                      Left err -> classifyFailure tc ("eval error: " <> show err)
+                              (actualStdout, renderResult) <-
+                                evaluateWithExpectedStdout tc $ do
+                                  evalResult <- evalProgramBinding evalBindingName (concatPrograms (map dsProgram results))
+                                  case evalResult of
+                                    Left err -> pure (Left err)
+                                    Right value -> renderRawValue value
+                              pure $
+                                case renderResult of
+                                  Right actual -> classifySuccess tc (T.unpack actual) actualStdout
+                                  Left err -> classifyFailure tc ("eval error: " <> show err)
                             else pure (classifyFailure tc ("desugar error: " <> unlines (concatMap dsErrors results)))
                         else pure (classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults))
                 ResolveResult {resolveErrors} ->
@@ -365,24 +379,79 @@ moduleNamePath :: Text -> FilePath
 moduleNamePath moduleName =
   joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
 
-classifySuccess :: FcEvalCase -> String -> (Outcome, String)
-classifySuccess tc actual =
+classifySuccess :: FcEvalCase -> String -> Maybe String -> (Outcome, String)
+classifySuccess tc actual actualStdout =
   case evalCaseStatus tc of
     StatusPass
-      | trim actual == trim (evalCaseOutput tc) -> (OutcomePass, "")
-      | otherwise ->
-          ( OutcomeFail,
-            "output mismatch\nexpected:\n" <> evalCaseOutput tc <> "\nactual:\n" <> trim actual
-          )
+      | Just details <- mismatchDetails -> (OutcomeFail, details)
+      | otherwise -> (OutcomePass, "")
     StatusFail ->
       (OutcomeFail, "expected failure but evaluation succeeded")
     StatusXFail
-      | trim actual == trim (evalCaseOutput tc) -> (OutcomeXPass, "")
+      | isNothing mismatchDetails -> (OutcomeXPass, "")
       | otherwise -> (OutcomeXFail, "")
     StatusXPass
-      | trim actual == trim (evalCaseOutput tc) -> (OutcomeXPass, "known bug still passes")
+      | isNothing mismatchDetails -> (OutcomeXPass, "known bug still passes")
       | otherwise ->
           (OutcomeFail, "expected xpass output match but got: " <> trim actual)
+  where
+    mismatchDetails
+      | trim actual /= trim (evalCaseOutput tc) =
+          Just ("output mismatch\nexpected:\n" <> evalCaseOutput tc <> "\nactual:\n" <> trim actual)
+      | otherwise = stdoutMismatch tc actualStdout
+
+stdoutMismatch :: FcEvalCase -> Maybe String -> Maybe String
+stdoutMismatch tc actual =
+  case (evalCaseStdout tc, actual) of
+    (Nothing, _) -> Nothing
+    (Just expected, Just captured)
+      | expected == captured -> Nothing
+      | otherwise ->
+          Just
+            ( "stdout mismatch\nexpected: "
+                <> show expected
+                <> "\nactual: "
+                <> show captured
+            )
+    (Just expected, Nothing) ->
+      Just ("stdout was not captured\nexpected: " <> show expected)
+
+evaluateWithExpectedStdout :: FcEvalCase -> IO a -> IO (Maybe String, a)
+evaluateWithExpectedStdout tc action =
+  case evalCaseStdout tc of
+    Nothing -> do
+      result <- action
+      pure (Nothing, result)
+    Just _ -> do
+      (result, captured) <- captureStdout action
+      pure (Just (T.unpack captured), result)
+
+captureStdout :: IO a -> IO (a, Text)
+captureStdout action =
+  bracket acquire release $ \(path, captureFd) ->
+    bracket (dup stdOutput) closeFd $ \originalStdout ->
+      mask $ \restore -> do
+        hFlush stdout
+        _ <- c_fflush nullPtr
+        _ <- dupTo captureFd stdOutput
+        result <- restore action `onException` restoreStdout originalStdout
+        restoreStdout originalStdout
+        captured <- TIO.readFile path
+        pure (result, captured)
+  where
+    acquire = do
+      tempDir <- getTemporaryDirectory
+      (path, handle) <- openTempFile tempDir "aihc-fc-stdout"
+      captureFd <- handleToFd handle `onException` (hClose handle >> removeFile path)
+      pure (path, captureFd)
+    release (path, captureFd) = do
+      closeFd captureFd
+      removeFile path
+    restoreStdout originalStdout = do
+      _ <- c_fflush nullPtr
+      hFlush stdout
+      _ <- dupTo originalStdout stdOutput
+      pure ()
 
 classifyFailure :: FcEvalCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =

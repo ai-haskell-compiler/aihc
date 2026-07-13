@@ -404,6 +404,13 @@ updateFcEvalGoldens opts =
 
 fcEvalActual :: Options -> Value -> IO (Either String String)
 fcEvalActual opts value =
+  case optionalTextField "stdout" value of
+    Left err -> pure (Left err)
+    Right (Just _) -> pure (Left "stdout-bearing eval fixtures must be validated with the aihc-fc test suite")
+    Right Nothing -> fcEvalActualWithoutStdout opts value
+
+fcEvalActualWithoutStdout :: Options -> Value -> IO (Either String String)
+fcEvalActualWithoutStdout opts value =
   case parseEvalInput value of
     Left err -> pure (Left err)
     Right (dependencies, evalModules) -> do
@@ -761,6 +768,14 @@ textField field (Object obj) =
     Just _ -> Left (T.unpack field <> " must be a string")
     Nothing -> Left ("missing " <> T.unpack field)
 textField field _ = Left (T.unpack field <> " must be read from an object")
+
+optionalTextField :: Text -> Value -> Either String (Maybe Text)
+optionalTextField field (Object obj) =
+  case KeyMap.lookup (Key.fromText field) obj of
+    Nothing -> Right Nothing
+    Just (String txt) -> Right (Just txt)
+    Just _ -> Left (T.unpack field <> " must be a string")
+optionalTextField field _ = Left (T.unpack field <> " must be read from an object")
 
 statusText :: Value -> Text
 statusText value =

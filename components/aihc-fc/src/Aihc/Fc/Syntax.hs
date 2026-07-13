@@ -75,6 +75,7 @@ data FcForeignCall = FcForeignCall
 -- backend or the interpreter.
 data FcForeignCallAbi
   = FcCIntToCInt
+  | FcCIntToIOCInt
   deriving (Eq, Show)
 
 -- | A typed variable.

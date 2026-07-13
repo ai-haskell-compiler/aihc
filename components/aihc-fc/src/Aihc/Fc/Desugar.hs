@@ -222,12 +222,19 @@ foreignCallAbi (TcFunTy argument result)
   | isCIntTy argument,
     isCIntTy result =
       pure FcCIntToCInt
+  | isCIntTy argument,
+    isIOTypeOf isCIntTy result =
+      pure FcCIntToIOCInt
 foreignCallAbi ty =
   desugarBug ("unsupported foreign import type: " <> show ty)
 
 isCIntTy :: TcType -> Bool
 isCIntTy (TcTyCon (TyCon "CInt" 0) []) = True
 isCIntTy _ = False
+
+isIOTypeOf :: (TcType -> Bool) -> TcType -> Bool
+isIOTypeOf isResultTy (TcTyCon (TyCon "IO" 1) [result]) = isResultTy result
+isIOTypeOf _ _ = False
 
 validatePrimitiveImport :: Text -> TcType -> DsM Int
 validatePrimitiveImport name ty =

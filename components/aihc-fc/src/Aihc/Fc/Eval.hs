@@ -28,6 +28,9 @@ import System.Posix.DynamicLinker (DL (Default), dlsym)
 foreign import ccall unsafe "dynamic"
   callCIntToCInt :: FunPtr (CInt -> CInt) -> CInt -> CInt
 
+foreign import ccall unsafe "dynamic"
+  callCIntToIOCInt :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt
+
 data EvalError
   = EvalUnboundVariable Text
   | EvalMissingBinding Text
@@ -218,27 +221,40 @@ applyForeign foreignCall args =
   case (fcForeignCallAbi foreignCall, args) of
     (FcCIntToCInt, []) -> pure (VForeign foreignCall [])
     (FcCIntToCInt, [argument]) -> evalCIntToCInt foreignCall argument
+    (FcCIntToIOCInt, []) -> pure (VForeign foreignCall [])
+    -- The interpreter is the IO runner: evaluating a saturated foreign call
+    -- executes the host effect and returns its result value.
+    (FcCIntToIOCInt, [argument]) -> evalCIntToIOCInt foreignCall argument
     _ -> throwE (EvalPrimitiveArity (varName (fcForeignCallVar foreignCall)) (length args))
 
 evalCIntToCInt :: FcForeignCall -> Value -> EvalM Value
 evalCIntToCInt foreignCall argument = do
   argumentValue <- forceCInt (fcForeignCallSymbol foreignCall) argument
-  lookupResult <-
-    lift
-      ( try (dlsym Default (T.unpack (fcForeignCallSymbol foreignCall))) ::
-          IO (Either SomeException (FunPtr (CInt -> CInt)))
-      )
-  functionPointer <-
-    case lookupResult of
-      Left err ->
-        throwE
-          ( EvalForeignLookupError
-              (fcForeignCallSymbol foreignCall)
-              (T.pack (displayException err))
-          )
-      Right pointer -> pure pointer
+  functionPointer <- lookupForeignFunction foreignCall
   let CInt result = callCIntToCInt functionPointer (CInt (fromInteger argumentValue))
   pure (cIntValue (toInteger result))
+
+evalCIntToIOCInt :: FcForeignCall -> Value -> EvalM Value
+evalCIntToIOCInt foreignCall argument = do
+  argumentValue <- forceCInt (fcForeignCallSymbol foreignCall) argument
+  functionPointer <- lookupForeignFunction foreignCall
+  CInt result <- lift (callCIntToIOCInt functionPointer (CInt (fromInteger argumentValue)))
+  pure (cIntValue (toInteger result))
+
+lookupForeignFunction :: FcForeignCall -> EvalM (FunPtr a)
+lookupForeignFunction foreignCall = do
+  lookupResult <- lift (tryForeign (dlsym Default (T.unpack (fcForeignCallSymbol foreignCall))))
+  case lookupResult of
+    Left err ->
+      throwE
+        ( EvalForeignLookupError
+            (fcForeignCallSymbol foreignCall)
+            (T.pack (displayException err))
+        )
+    Right pointer -> pure pointer
+
+tryForeign :: IO a -> IO (Either SomeException a)
+tryForeign = try
 
 forceCInt :: Text -> Value -> EvalM Integer
 forceCInt symbol value = do
