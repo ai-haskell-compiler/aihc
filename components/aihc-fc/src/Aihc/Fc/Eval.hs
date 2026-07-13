@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Small evaluator for the System FC subset used by the REPL MVP.
@@ -14,7 +13,7 @@ where
 
 import Aihc.Fc.Syntax
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad ((<=<))
+import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.Map.Strict (Map)
@@ -22,14 +21,9 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Foreign.C.Types (CInt (..))
+import Foreign.LibFFI (Arg, argCInt, callFFI, retCInt)
 import Foreign.Ptr (FunPtr)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
-
-foreign import ccall unsafe "dynamic"
-  callCIntToCInt :: FunPtr (CInt -> CInt) -> CInt -> CInt
-
-foreign import ccall unsafe "dynamic"
-  callCIntToIOCInt :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt
 
 data EvalError
   = EvalUnboundVariable Text
@@ -38,8 +32,10 @@ data EvalError
   | EvalNoMatchingAlternative Value
   | EvalPrimitiveArity Text Int
   | EvalPrimitiveTypeError Text Value
+  | EvalForeignArity Text Int Int
   | EvalForeignTypeError Text Value
   | EvalForeignLookupError Text Text
+  | EvalInvalidIOResult Value
   | EvalInvalidDictSelect Value Int
   | EvalRaisedException Value
   deriving (Eq, Show)
@@ -51,6 +47,8 @@ data Value
   | VDict [Value]
   | VPrim Text Int [Value]
   | VForeign FcForeignCall [Value]
+  | VForeignIOAction FcForeignCall [Value]
+  | VStateToken
   | VThunk Env FcExpr
   deriving (Eq, Show)
 
@@ -61,7 +59,7 @@ type EvalM = ExceptT EvalError IO
 evalProgramBinding :: Text -> FcProgram -> IO (Either EvalError Value)
 evalProgramBinding name program = runExceptT $
   case Map.lookup name env of
-    Just value -> forceValue value
+    Just value -> forceValue value >>= runIOValue
     Nothing -> throwE (EvalMissingBinding name)
   where
     env = foreignTopEnv `Map.union` primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
@@ -148,6 +146,19 @@ forceValue :: Value -> EvalM Value
 forceValue value =
   case value of
     VThunk env expr -> evalWithEnv env expr
+    VForeign foreignCall []
+      | null (fcForeignArgumentTypes (fcForeignCallSignature foreignCall)) ->
+          completeForeignCall foreignCall []
+    _ -> pure value
+
+runIOValue :: Value -> EvalM Value
+runIOValue value =
+  case value of
+    VConstructor "IO" [action] -> do
+      result <- applyValue action VStateToken >>= forceValue
+      case result of
+        VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
+        other -> throwE (EvalInvalidIOResult other)
     _ -> pure value
 
 applyValue :: Value -> Value -> EvalM Value
@@ -162,6 +173,9 @@ applyValue value arg = do
       applyPrimitive name arity (args <> [arg])
     VForeign foreignCall args ->
       applyForeign foreignCall (args <> [arg])
+    VForeignIOAction foreignCall args -> do
+      result <- callForeign foreignCall args
+      pure (VConstructor "(#,#)" [arg, result])
     _ ->
       throwE (EvalApplyNonFunction forced)
 
@@ -217,31 +231,44 @@ forceIntPrimitiveArg name value = do
     other -> throwE (EvalPrimitiveTypeError name other)
 
 applyForeign :: FcForeignCall -> [Value] -> EvalM Value
-applyForeign foreignCall args =
-  case (fcForeignCallAbi foreignCall, args) of
-    (FcCIntToCInt, []) -> pure (VForeign foreignCall [])
-    (FcCIntToCInt, [argument]) -> evalCIntToCInt foreignCall argument
-    (FcCIntToIOCInt, []) -> pure (VForeign foreignCall [])
-    -- The interpreter is the IO runner: evaluating a saturated foreign call
-    -- executes the host effect and returns its result value.
-    (FcCIntToIOCInt, [argument]) -> evalCIntToIOCInt foreignCall argument
-    _ -> throwE (EvalPrimitiveArity (varName (fcForeignCallVar foreignCall)) (length args))
+applyForeign foreignCall args
+  | actualArity < expectedArity = pure (VForeign foreignCall args)
+  | actualArity == expectedArity = completeForeignCall foreignCall args
+  | otherwise = throwE (EvalForeignArity name expectedArity actualArity)
+  where
+    name = varName (fcForeignCallVar foreignCall)
+    actualArity = length args
+    expectedArity = length (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
 
-evalCIntToCInt :: FcForeignCall -> Value -> EvalM Value
-evalCIntToCInt foreignCall argument = do
-  argumentValue <- forceCInt (fcForeignCallSymbol foreignCall) argument
+completeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
+completeForeignCall foreignCall args =
+  case fcForeignResult (fcForeignCallSignature foreignCall) of
+    FcForeignPure _ -> callForeign foreignCall args
+    FcForeignIO _ -> pure (VConstructor "IO" [VForeignIOAction foreignCall args])
+
+callForeign :: FcForeignCall -> [Value] -> EvalM Value
+callForeign foreignCall args = do
+  marshalledArgs <-
+    zipWithM
+      (marshalForeignArgument (fcForeignCallSymbol foreignCall))
+      (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
+      args
   functionPointer <- lookupForeignFunction foreignCall
-  let CInt result = callCIntToCInt functionPointer (CInt (fromInteger argumentValue))
-  pure (cIntValue (toInteger result))
+  case foreignResultType (fcForeignResult (fcForeignCallSignature foreignCall)) of
+    FcForeignCInt -> do
+      CInt result <- lift (callFFI functionPointer retCInt marshalledArgs)
+      pure (cIntValue (toInteger result))
 
-evalCIntToIOCInt :: FcForeignCall -> Value -> EvalM Value
-evalCIntToIOCInt foreignCall argument = do
-  argumentValue <- forceCInt (fcForeignCallSymbol foreignCall) argument
-  functionPointer <- lookupForeignFunction foreignCall
-  CInt result <- lift (callCIntToIOCInt functionPointer (CInt (fromInteger argumentValue)))
-  pure (cIntValue (toInteger result))
+foreignResultType :: FcForeignResult -> FcForeignType
+foreignResultType (FcForeignPure resultType) = resultType
+foreignResultType (FcForeignIO resultType) = resultType
 
-lookupForeignFunction :: FcForeignCall -> EvalM (FunPtr a)
+marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
+marshalForeignArgument symbol FcForeignCInt argument = do
+  argumentValue <- forceCInt symbol argument
+  pure (argCInt (CInt (fromInteger argumentValue)))
+
+lookupForeignFunction :: FcForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
   lookupResult <- lift (tryForeign (dlsym Default (T.unpack (fcForeignCallSymbol foreignCall))))
   case lookupResult of
@@ -343,6 +370,8 @@ renderForcedValue value =
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VForeign {} -> pure "<function>"
+    VForeignIOAction {} -> pure "<io action>"
+    VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
   where
     renderConstructor (VConstructor name args) = do
@@ -402,6 +431,8 @@ renderRawValueM value = do
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VForeign {} -> pure "<function>"
+    VForeignIOAction {} -> pure "<io action>"
+    VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced
 
 renderRawArg :: Value -> EvalM Text

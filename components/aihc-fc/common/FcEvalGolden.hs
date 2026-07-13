@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Golden test infrastructure for System FC evaluation fixtures.
@@ -35,6 +34,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnv)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -46,16 +46,15 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import Foreign.C.Types (CInt (..))
-import Foreign.Ptr (Ptr, nullPtr)
+import Foreign.LibFFI (argPtr, callFFI, retCInt)
+import Foreign.Ptr (nullPtr)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
 import System.Environment (lookupEnv)
 import System.FilePath (joinPath, takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, openTempFile, stdout)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Posix.DynamicLinker (DL (Default), dlsym)
 import System.Posix.IO (closeFd, dup, dupTo, handleToFd, stdOutput)
-
-foreign import ccall unsafe "fflush"
-  c_fflush :: Ptr () -> IO CInt
 
 data ExpectedStatus
   = StatusPass
@@ -274,7 +273,12 @@ loadDependencyModules tc evalModules =
   case evalCaseDependencies tc of
     [] -> pure (Right [])
     dependencies -> do
-      roots <- traverse resolveDependencyRoot dependencies
+      let transitiveDependencies
+            | "aihc-base" `elem` dependencies,
+              "aihc-prim" `notElem` dependencies =
+                dependencies <> ["aihc-prim"]
+            | otherwise = dependencies
+      roots <- traverse resolveDependencyRoot transitiveDependencies
       case sequence roots of
         Left errMsg -> pure (Left errMsg)
         Right packageRoots ->
@@ -428,16 +432,17 @@ evaluateWithExpectedStdout tc action =
 
 captureStdout :: IO a -> IO (a, Text)
 captureStdout action =
-  bracket acquire release $ \(path, captureFd) ->
-    bracket (dup stdOutput) closeFd $ \originalStdout ->
-      mask $ \restore -> do
-        hFlush stdout
-        _ <- c_fflush nullPtr
-        _ <- dupTo captureFd stdOutput
-        result <- restore action `onException` restoreStdout originalStdout
-        restoreStdout originalStdout
-        captured <- TIO.readFile path
-        pure (result, captured)
+  withMVar stdoutCaptureLock $ \() ->
+    bracket acquire release $ \(path, captureFd) ->
+      bracket (dup stdOutput) closeFd $ \originalStdout ->
+        mask $ \restore -> do
+          hFlush stdout
+          flushCStdout
+          _ <- dupTo captureFd stdOutput
+          result <- restore action `onException` restoreStdout originalStdout
+          restoreStdout originalStdout
+          captured <- TIO.readFile path
+          pure (result, captured)
   where
     acquire = do
       tempDir <- getTemporaryDirectory
@@ -448,10 +453,20 @@ captureStdout action =
       closeFd captureFd
       removeFile path
     restoreStdout originalStdout = do
-      _ <- c_fflush nullPtr
+      flushCStdout
       hFlush stdout
       _ <- dupTo originalStdout stdOutput
       pure ()
+
+stdoutCaptureLock :: MVar ()
+stdoutCaptureLock = unsafePerformIO (newMVar ())
+{-# NOINLINE stdoutCaptureLock #-}
+
+flushCStdout :: IO ()
+flushCStdout = do
+  fflush <- dlsym Default "fflush"
+  _ <- callFFI fflush retCInt [argPtr nullPtr]
+  pure ()
 
 classifyFailure :: FcEvalCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =
