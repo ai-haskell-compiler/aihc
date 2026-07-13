@@ -192,6 +192,8 @@ primitiveImportSpecs =
       ("compareInt#", intBinaryPrim),
       ("<#", intBinaryPrim),
       ("==#", intBinaryPrim),
+      ("charToInt#", PrimitiveSpec 1 (typesEqual charToIntPrimTy)),
+      ("intToChar#", PrimitiveSpec 1 (typesEqual intToCharPrimTy)),
       ("raise#", PrimitiveSpec 1 isRaisePrimType),
       ("catch#", PrimitiveSpec 3 isCatchPrimType)
     ]
@@ -205,6 +207,15 @@ intHashBinaryTy = TcFunTy intHashTy (TcFunTy intHashTy intHashTy)
 
 intHashTy :: TcType
 intHashTy = TcTyCon (TyCon "Int#" 0) []
+
+charTy :: TcType
+charTy = TcTyCon (TyCon "Char" 0) []
+
+charToIntPrimTy :: TcType
+charToIntPrimTy = TcFunTy charTy intHashTy
+
+intToCharPrimTy :: TcType
+intToCharPrimTy = TcFunTy intHashTy charTy
 
 isRaisePrimType :: TcType -> Bool
 isRaisePrimType ty =

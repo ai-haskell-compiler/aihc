@@ -13,6 +13,7 @@ where
 
 import Aihc.Fc.Syntax
 import Control.Monad ((<=<))
+import Data.Char qualified as Char
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -155,6 +156,14 @@ evalPrimitive "<#" [left, right] =
   evalIntPrim "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
   evalIntPrim "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
+evalPrimitive "charToInt#" [value] = do
+  charValue <- forceCharPrimitiveArg "charToInt#" value
+  pure (VLit (LitInt (fromIntegral (Char.ord charValue))))
+evalPrimitive "intToChar#" [value] = do
+  intValue <- forceIntPrimitiveArg "intToChar#" value
+  if intValue >= 0 && intValue <= 0x10ffff
+    then pure (VLit (LitChar (Char.chr (fromIntegral intValue))))
+    else Left (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt intValue)))
 evalPrimitive "raise#" [exception] =
   Left . EvalRaisedException =<< forceValue exception
 evalPrimitive "catch#" [action, handler, state] =
@@ -184,6 +193,13 @@ forceIntPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
     VLit (LitInt intValue) -> pure intValue
+    other -> Left (EvalPrimitiveTypeError name other)
+
+forceCharPrimitiveArg :: Text -> Value -> Either EvalError Char
+forceCharPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitChar charValue) -> pure charValue
     other -> Left (EvalPrimitiveTypeError name other)
 
 extendBind :: Env -> FcBind -> Env

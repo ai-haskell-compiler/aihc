@@ -77,6 +77,23 @@
   devTests = mkPackageTest hsPkgs.aihc-dev;
   aihcTests = mkAihcPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
+  ucd2haskellTests = mkPackageTest hsPkgs.aihc-ucd2haskell;
+
+  unicode = import ./unicode.nix {inherit pkgs hsPkgs;};
+  unicodeGenerated =
+    pkgs.runCommand "aihc-unicode-generated" {
+      nativeBuildInputs = [pkgs.diffutils pkgs.ormolu];
+    } ''
+      generated="$TMPDIR/Unicode.hs"
+      ${unicode.generator} \
+        --unicode-version ${unicode.version} \
+        --unicode-data ${unicode.unicodeData} \
+        --derived-core-properties ${unicode.derivedCoreProperties} \
+        --output "$generated"
+      ormolu --mode inplace "$generated"
+      diff --unified ${sources.primSrc pkgs}/src/GHC/Prim/Unicode.hs "$generated"
+      touch "$out"
+    '';
 
   nixLint = mkSourceCheck "aihc-nix-lint" (sources.nixSrc pkgs) [pkgs.statix] ''
     statix check flake.nix
@@ -156,6 +173,8 @@ in {
   dev-tests = devTests;
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
+  ucd2haskell-tests = ucd2haskellTests;
+  unicode-generated = unicodeGenerated;
   cpp-doctest = cppDoctest;
   parser-doctest = parserDoctest;
   parser-progress-strict = parserProgressStrict;
@@ -204,6 +223,14 @@ in {
     {
       name = "fmt-tests";
       path = fmtTests;
+    }
+    {
+      name = "ucd2haskell-tests";
+      path = ucd2haskellTests;
+    }
+    {
+      name = "unicode-generated";
+      path = unicodeGenerated;
     }
     {
       name = "cpp-doctest";

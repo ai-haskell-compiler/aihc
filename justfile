@@ -50,3 +50,11 @@ gen-boot-ifaces:
     cabal run -v0 aihc-dev -- extract-resolve-iface --package "$pkg" --output "$CACHE_DIR/$pkg.json"
   done
   echo "Boot interfaces generated in $CACHE_DIR"
+
+# Regenerate the committed Unicode tables from pinned UCD inputs.
+generate-unicode:
+  nix run .#generate-unicode
+
+# Verify that the committed Unicode tables match the generator and pinned UCD.
+check-unicode:
+  nix run .#check-unicode

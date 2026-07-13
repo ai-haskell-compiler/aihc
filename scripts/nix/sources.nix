@@ -71,6 +71,11 @@ in rec {
     ".cabal"
   ];
 
+  ucd2haskellSrc = mkComponentSrc "/tooling/ucd2haskell" [
+    ".hs"
+    ".cabal"
+  ];
+
   testingSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;

@@ -1,0 +1,73 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Char
+
+    data Result = Pass | Fail
+output: |
+  Pass
+expression: |
+  case generalCategory 'A' of
+    UppercaseLetter ->
+      case generalCategory '\x01C5' of
+        TitlecaseLetter ->
+          case generalCategory '\x0627' of
+            OtherLetter ->
+              case generalCategory '\x0301' of
+                NonSpacingMark ->
+                  case generalCategory '\x2168' of
+                    LetterNumber ->
+                      case generalCategory '\x2665' of
+                        OtherSymbol ->
+                          case generalCategory '\xE000' of
+                            PrivateUse ->
+                              case generalCategory '\x0378' of
+                                NotAssigned ->
+                                  case isUpperCase '\x24B6' of
+                                    True ->
+                                      case isUpper '\x24B6' of
+                                        False ->
+                                          case isLowerCase '\x24D0' of
+                                            True ->
+                                              case isSpace '\t' of
+                                                True ->
+                                                  case isSpace '\x00A0' of
+                                                    True ->
+                                                      case isDigit '\xFF11' of
+                                                        False ->
+                                                          case isNumber '\xFF11' of
+                                                            True ->
+                                                              case toUpper '\x03BB' of
+                                                                '\x039B' ->
+                                                                  case toLower '\x039B' of
+                                                                    '\x03BB' ->
+                                                                      case toTitle '\x01C6' of
+                                                                        '\x01C5' ->
+                                                                          case chr (ord '\x1F600') of
+                                                                            '\x1F600' -> Pass
+                                                                            _ -> Fail
+                                                                        _ -> Fail
+                                                                    _ -> Fail
+                                                                _ -> Fail
+                                                            _ -> Fail
+                                                        _ -> Fail
+                                                    _ -> Fail
+                                                _ -> Fail
+                                            _ -> Fail
+                                        _ -> Fail
+                                    _ -> Fail
+                                _ -> Fail
+                            _ -> Fail
+                        _ -> Fail
+                    _ -> Fail
+                _ -> Fail
+            _ -> Fail
+        _ -> Fail
+    _ -> Fail
+status: pass
+reason: Data.Char classifications and simple case mappings use the committed Unicode 17 tables from aihc-prim
