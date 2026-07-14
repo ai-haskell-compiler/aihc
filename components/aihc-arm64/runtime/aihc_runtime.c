@@ -60,11 +60,26 @@ struct AihcValue {
 struct AihcContinuation {
   uint64_t kind;
   AihcContinuation *parent;
-  void *code;
-  AihcValue **locals;
-  uint64_t slot;
-  AihcValue *first;
-  uintptr_t info;
+  union {
+    struct {
+      void *code;
+      AihcValue **locals;
+      uint64_t slot;
+    } normal;
+    struct {
+      AihcValue *cell;
+    } update;
+    struct {
+      AihcValue *argument;
+    } apply;
+    struct {
+      AihcValue *state;
+      AihcForeign *descriptor;
+    } foreign_call;
+    struct {
+      uint64_t index;
+    } select;
+  } payload;
 };
 
 typedef struct {
@@ -181,9 +196,9 @@ void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 void aihc_push_normal(AihcMachine *machine, void *code, AihcValue **locals,
                       uint64_t slot) {
   AihcContinuation *continuation = aihc_push_special(machine, AIHC_CONT_NORMAL);
-  continuation->code = code;
-  continuation->locals = locals;
-  continuation->slot = slot;
+  continuation->payload.normal.code = code;
+  continuation->payload.normal.locals = locals;
+  continuation->payload.normal.slot = slot;
 }
 
 static void aihc_schedule_function(AihcMachine *machine, AihcValue *function,
@@ -202,8 +217,9 @@ static void aihc_complete_foreign(AihcMachine *machine, AihcValue *foreign,
                                   AihcValue *state) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_FOREIGN_CINT);
-  continuation->first = state;
-  continuation->info = foreign->info;
+  continuation->payload.foreign_call.state = state;
+  continuation->payload.foreign_call.descriptor =
+      (AihcForeign *)foreign->info;
   aihc_eval_value(machine, foreign->fields[0]);
 }
 
@@ -265,7 +281,7 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value) {
       value->info = AIHC_CELL_BLACKHOLE;
       AihcContinuation *continuation =
           aihc_push_special(machine, AIHC_CONT_UPDATE);
-      continuation->first = value;
+      continuation->payload.update.cell = value;
       aihc_schedule_function(machine, thunk, thunk->fields);
       return;
     }
@@ -292,7 +308,7 @@ static void aihc_apply_value(AihcMachine *machine, AihcValue *function,
                              AihcValue *argument) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_APPLY);
-  continuation->first = argument;
+  continuation->payload.apply.argument = argument;
   aihc_eval_value(machine, function);
 }
 
@@ -313,17 +329,18 @@ static void aihc_return_value(AihcMachine *machine, AihcValue *value) {
   machine->continuation = continuation->parent;
   switch (continuation->kind) {
   case AIHC_CONT_NORMAL:
-    continuation->locals[continuation->slot] = value;
-    machine->locals = continuation->locals;
-    machine->next = continuation->code;
+    continuation->payload.normal.locals
+        [continuation->payload.normal.slot] = value;
+    machine->locals = continuation->payload.normal.locals;
+    machine->next = continuation->payload.normal.code;
     return;
   case AIHC_CONT_UPDATE:
-    continuation->first->info = AIHC_CELL_VALUE;
-    continuation->first->fields[0] = value;
+    continuation->payload.update.cell->info = AIHC_CELL_VALUE;
+    continuation->payload.update.cell->fields[0] = value;
     aihc_return_value(machine, value);
     return;
   case AIHC_CONT_APPLY:
-    aihc_apply_forced(machine, value, continuation->first);
+    aihc_apply_forced(machine, value, continuation->payload.apply.argument);
     return;
   case AIHC_CONT_TOP:
     aihc_run_io(machine, value);
@@ -337,33 +354,31 @@ static void aihc_return_value(AihcMachine *machine, AihcValue *value) {
     machine->next = machine->exit_code;
     return;
   case AIHC_CONT_FOREIGN_CINT: {
-    AihcForeign *descriptor = (AihcForeign *)continuation->info;
+    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
     if (value->kind != AIHC_CONSTRUCTOR ||
         value->info != descriptor->cint_constructor || value->count != 1) {
       aihc_fail("foreign CInt argument has invalid outer constructor");
     }
     AihcContinuation *next =
         aihc_push_special(machine, AIHC_CONT_FOREIGN_INT32);
-    next->first = continuation->first;
-    next->info = continuation->info;
+    next->payload.foreign_call = continuation->payload.foreign_call;
     aihc_eval_value(machine, value->fields[0]);
     return;
   }
   case AIHC_CONT_FOREIGN_INT32: {
-    AihcForeign *descriptor = (AihcForeign *)continuation->info;
+    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
     if (value->kind != AIHC_CONSTRUCTOR ||
         value->info != descriptor->int32_constructor || value->count != 1) {
       aihc_fail("foreign CInt argument has invalid Int32 constructor");
     }
     AihcContinuation *next =
         aihc_push_special(machine, AIHC_CONT_FOREIGN_LITERAL);
-    next->first = continuation->first;
-    next->info = continuation->info;
+    next->payload.foreign_call = continuation->payload.foreign_call;
     aihc_eval_value(machine, value->fields[0]);
     return;
   }
   case AIHC_CONT_FOREIGN_LITERAL: {
-    AihcForeign *descriptor = (AihcForeign *)continuation->info;
+    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
     if (value->kind != AIHC_LITERAL_INT) {
       aihc_fail("foreign CInt argument is not an integer literal");
     }
@@ -374,16 +389,18 @@ static void aihc_return_value(AihcMachine *machine, AihcValue *value) {
     AihcValue *cint = aihc_constructor(descriptor->cint_constructor, 1, 1);
     cint->fields[0] = int32;
     AihcValue *tuple = aihc_constructor(descriptor->tuple_constructor, 2, 2);
-    tuple->fields[0] = continuation->first;
+    tuple->fields[0] = continuation->payload.foreign_call.state;
     tuple->fields[1] = cint;
     aihc_return_value(machine, tuple);
     return;
   }
   case AIHC_CONT_SELECT:
-    if (value->kind != AIHC_DICTIONARY || continuation->slot >= value->count) {
+    if (value->kind != AIHC_DICTIONARY ||
+        continuation->payload.select.index >= value->count) {
       aihc_fail("invalid dictionary selection");
     }
-    aihc_eval_value(machine, value->fields[continuation->slot]);
+    aihc_eval_value(machine,
+                    value->fields[continuation->payload.select.index]);
     return;
   default:
     aihc_fail("unknown continuation kind");
@@ -407,7 +424,7 @@ void aihc_select(AihcMachine *machine, AihcValue *dictionary,
                  uint64_t index) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_SELECT);
-  continuation->slot = index;
+  continuation->payload.select.index = index;
   aihc_eval_value(machine, dictionary);
 }
 
