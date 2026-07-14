@@ -33,12 +33,14 @@ import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    getCurrentDirectory,
     getTemporaryDirectory,
     removeDirectoryRecursive,
     removeFile,
@@ -106,7 +108,9 @@ main =
       testGroup
         "compile"
         [ testCase "lowers a standalone main module to ARM64 assembly" $ do
-            case compileSourceToAssembly "Main.hs" compileFixtureSource of
+            sourcePath <- helloWorldExamplePath
+            source <- TIO.readFile sourcePath
+            case compileSourceToAssembly sourcePath source of
               Left err -> assertFailure ("expected compile success, got: " <> show err)
               Right assembly -> do
                 assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
@@ -816,13 +820,11 @@ test_compileExecutable :: Assertion
 test_compileExecutable =
   when (arch == "aarch64" && os == "darwin") $
     withTempDir "aihc-compile" $ \root -> do
-      let sourcePath = root </> "Main.hs"
-          keptOutput = root </> "kept"
+      sourcePath <- helloWorldExamplePath
+      let keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           keptOptions = CompileOptions sourcePath (Just keptOutput) True
           temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False
-      writeFile sourcePath (T.unpack compileFixtureSource)
-
       runCompile keptOptions
       assertFileExists keptOutput
       assertFileExists (keptOutput <> ".s")
@@ -837,30 +839,22 @@ assertNativeOutput :: FilePath -> Assertion
 assertNativeOutput executable = do
   (exitCode, stdout, stderr) <- readProcessWithExitCode executable [] ""
   assertEqual ("native stderr: " <> stderr) ExitSuccess exitCode
-  assertEqual "native stdout" "H" stdout
+  assertEqual "native stdout" "Hello, world!\n" stdout
 
-compileFixtureSource :: T.Text
-compileFixtureSource =
-  T.unlines
-    [ "{-# LANGUAGE ExtendedLiterals #-}",
-      "{-# LANGUAGE ForeignFunctionInterface #-}",
-      "{-# LANGUAGE GHCForeignImportPrim #-}",
-      "{-# LANGUAGE MagicHash #-}",
-      "{-# LANGUAGE NoImplicitPrelude #-}",
-      "{-# LANGUAGE UnboxedTuples #-}",
-      "module Main where",
-      "data State# s",
-      "data RealWorld",
-      "data Int32 = I32# Int32#",
-      "newtype CInt = CInt Int32",
-      "newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))",
-      "foreign import prim realWorld# :: State# RealWorld",
-      "foreign import ccall unsafe putchar :: CInt -> IO CInt",
-      "char :: Int32# -> CInt",
-      "char value = CInt (I32# value)",
-      "main :: IO CInt",
-      "main = putchar (char 72#Int32)"
-    ]
+helloWorldExamplePath :: IO FilePath
+helloWorldExamplePath = getCurrentDirectory >>= findFrom
+  where
+    relativePath = "examples" </> "hello-world" </> "Main.hs"
+    findFrom directory = do
+      let candidate = directory </> relativePath
+      exists <- doesFileExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure ("could not find " <> relativePath)
+            else findFrom parent
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
