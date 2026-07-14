@@ -17,11 +17,11 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `366/3427` (`10.68%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
+| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `83/3427` (`2.42%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `234/3427` (`6.83%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `35/3425` (`1.02%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `71/10057` (`0.71%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `129/10057` (`1.28%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `37/38` (`97.36%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
@@ -36,12 +36,13 @@ Find more information here:
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   2465 |    1930 |    4395 |
+| aihc-fc            |   2887 |     607 |    3494 |
+| aihc-grin          |   1330 |     138 |    1468 |
 | aihc-parser        |  13536 |   17721 |   31257 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
-| aihc-resolve       |   2289 |    1328 |    3617 |
-| aihc-tc            |   5345 |    2302 |    7647 |
-| **Total**          |  27216 |   24807 |   52023 |
+| aihc-resolve       |   2290 |    1328 |    3618 |
+| aihc-tc            |   5495 |    2347 |    7842 |
+| **Total**          |  29119 |   23667 |   52786 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
