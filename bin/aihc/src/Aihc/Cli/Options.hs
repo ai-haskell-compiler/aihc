@@ -1,5 +1,6 @@
 module Aihc.Cli.Options
   ( Command (..),
+    CompileOptions (..),
     InstallErrorFormat (..),
     InstallOptions (..),
     ReplOptions (..),
@@ -12,8 +13,16 @@ where
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdInstall !InstallOptions
+  = CmdCompile !CompileOptions
+  | CmdInstall !InstallOptions
   | CmdRepl !ReplOptions
+  deriving (Eq, Show)
+
+data CompileOptions = CompileOptions
+  { compileSourceFile :: !FilePath,
+    compileOutputFile :: !(Maybe FilePath),
+    compileKeepAsm :: !Bool
+  }
   deriving (Eq, Show)
 
 newtype ReplOptions = ReplOptions
@@ -61,11 +70,17 @@ commandParser :: OA.Parser Command
 commandParser =
   OA.subparser
     ( OA.command
-        "install"
+        "compile"
         ( OA.info
-            (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Install a Hackage package into the aihc store scaffold")
+            (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
+            (OA.progDesc "Compile a Haskell source file to a native ARM64 executable")
         )
+        <> OA.command
+          "install"
+          ( OA.info
+              (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Install a Hackage package into the aihc store scaffold")
+          )
         <> OA.command
           "repl"
           ( OA.info
@@ -73,6 +88,26 @@ commandParser =
               (OA.progDesc "Start the aihc expression REPL")
           )
     )
+
+compileOptionsParser :: OA.Parser CompileOptions
+compileOptionsParser =
+  CompileOptions
+    <$> OA.strArgument
+      ( OA.metavar "SOURCE"
+          <> OA.help "Haskell source file containing the main binding"
+      )
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.short 'o'
+              <> OA.long "output"
+              <> OA.metavar "FILE"
+              <> OA.help "Write the executable to FILE (default: SOURCE without its extension)"
+          )
+      )
+    <*> OA.switch
+      ( OA.long "keep-asm"
+          <> OA.help "Keep the generated assembly as OUTPUT.s"
+      )
 
 replOptionsParser :: OA.Parser ReplOptions
 replOptionsParser =

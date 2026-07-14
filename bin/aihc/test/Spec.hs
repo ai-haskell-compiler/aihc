@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Aihc.Cli.Compile (compileOutputPath, compileSourceToAssembly, runCompile)
 import Aihc.Cli.Install
   ( DependencyResolver (..),
     InstallFailure (..),
@@ -18,12 +19,13 @@ import Aihc.Cli.Install
     renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), CompileOptions (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
+import Control.Monad (when)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
@@ -42,8 +44,11 @@ import System.Directory
     removeFile,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
+import System.Info (arch, os)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -53,7 +58,20 @@ main =
   defaultMain . testGroup "aihc" $
     [ testGroup
         "cli"
-        [ testCase "parses install package" $
+        [ testCase "parses compile source" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False)))
+              (parseCommandPure ["compile", "Main.hs"]),
+          testCase "parses compile output and keep-asm" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") True)))
+              (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
+          testCase "derives safe default compile output paths" $ do
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False)),
+          testCase "parses install package" $
             assertEqual
               "command"
               (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsHuman)))
@@ -84,6 +102,16 @@ main =
             assertEqual "command" (Right (CmdRepl (ReplOptions Nothing))) (parseCommandPure ["repl"]),
           testCase "parses repl store" $
             assertEqual "command" (Right (CmdRepl (ReplOptions (Just "/tmp/aihc-store")))) (parseCommandPure ["repl", "--store", "/tmp/aihc-store"])
+        ],
+      testGroup
+        "compile"
+        [ testCase "lowers a standalone main module to ARM64 assembly" $ do
+            case compileSourceToAssembly "Main.hs" compileFixtureSource of
+              Left err -> assertFailure ("expected compile success, got: " <> show err)
+              Right assembly -> do
+                assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+                assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
+          testCase "assembles an executable and honors keep-asm" test_compileExecutable
         ],
       testGroup
         "repl"
@@ -783,6 +811,56 @@ test_dryRunPlannerDoesNotGenerateSourceFiles =
 
     autogenExists <- doesDirectoryExist autogenDir
     assertBool ("expected dry-run planner not to create " <> autogenDir) (not autogenExists)
+
+test_compileExecutable :: Assertion
+test_compileExecutable =
+  when (arch == "aarch64" && os == "darwin") $
+    withTempDir "aihc-compile" $ \root -> do
+      let sourcePath = root </> "Main.hs"
+          keptOutput = root </> "kept"
+          temporaryOutput = root </> "temporary"
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False
+      writeFile sourcePath (T.unpack compileFixtureSource)
+
+      runCompile keptOptions
+      assertFileExists keptOutput
+      assertFileExists (keptOutput <> ".s")
+      assertNativeOutput keptOutput
+
+      runCompile temporaryOptions
+      assertFileExists temporaryOutput
+      assertFileDoesNotExist (temporaryOutput <> ".s")
+      assertNativeOutput temporaryOutput
+
+assertNativeOutput :: FilePath -> Assertion
+assertNativeOutput executable = do
+  (exitCode, stdout, stderr) <- readProcessWithExitCode executable [] ""
+  assertEqual ("native stderr: " <> stderr) ExitSuccess exitCode
+  assertEqual "native stdout" "H" stdout
+
+compileFixtureSource :: T.Text
+compileFixtureSource =
+  T.unlines
+    [ "{-# LANGUAGE ExtendedLiterals #-}",
+      "{-# LANGUAGE ForeignFunctionInterface #-}",
+      "{-# LANGUAGE GHCForeignImportPrim #-}",
+      "{-# LANGUAGE MagicHash #-}",
+      "{-# LANGUAGE NoImplicitPrelude #-}",
+      "{-# LANGUAGE UnboxedTuples #-}",
+      "module Main where",
+      "data State# s",
+      "data RealWorld",
+      "data Int32 = I32# Int32#",
+      "newtype CInt = CInt Int32",
+      "newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))",
+      "foreign import prim realWorld# :: State# RealWorld",
+      "foreign import ccall unsafe putchar :: CInt -> IO CInt",
+      "char :: Int32# -> CInt",
+      "char value = CInt (I32# value)",
+      "main :: IO CInt",
+      "main = putchar (char 72#Int32)"
+    ]
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

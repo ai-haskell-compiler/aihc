@@ -12,6 +12,7 @@ synopsis: Production command-line interface for the aihc compiler
 library
   exposed-modules:
     Aihc.Cli
+    Aihc.Cli.Compile
     Aihc.Cli.Install
     Aihc.Cli.Options
     Aihc.Cli.Repl
@@ -20,8 +21,10 @@ library
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
+    aihc-arm64,
     aihc-cpp,
     aihc-fc,
+    aihc-grin,
     aihc-hackage,
     aihc-parser,
     aihc-resolve,
@@ -34,6 +37,7 @@ library
     haskeline >=0.8 && <0.9,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
+    process,
     text >=1.2.3 && <2.2,
 
   default-extensions: OverloadedStrings
@@ -71,6 +75,7 @@ test-suite spec
     directory,
     filepath,
     haskeline,
+    process,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
