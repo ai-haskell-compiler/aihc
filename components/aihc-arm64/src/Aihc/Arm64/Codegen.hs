@@ -521,7 +521,6 @@ foreignDescriptors env program =
       pure
         [ label <> ":",
           "  .quad _" <> grinForeignCallSymbol foreignCall,
-          "  .quad " <> tshow (length (grinForeignArgumentTypes signature)),
           "  .quad " <> if isIo then "1" else "0",
           "  .quad " <> tshow ioId,
           "  .quad " <> tshow cintId,

@@ -42,7 +42,6 @@ typedef struct AihcContinuation AihcContinuation;
 
 typedef struct {
   void *function;
-  uint64_t arity;
   uint64_t is_io;
   uint64_t io_constructor;
   uint64_t cint_constructor;
@@ -65,7 +64,6 @@ struct AihcContinuation {
   AihcValue **locals;
   uint64_t slot;
   AihcValue *first;
-  AihcValue *second;
   uintptr_t info;
 };
 
