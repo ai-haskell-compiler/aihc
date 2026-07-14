@@ -59,6 +59,14 @@ in rec {
     ".yml"
   ];
 
+  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/"] [
+    ".hs"
+    ".cabal"
+    ".c"
+    ".yaml"
+    ".yml"
+  ];
+
   grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
     ".hs"
     ".cabal"
@@ -155,7 +163,7 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkComponentSrc "/bin/aihc" [
+  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/hello-world/"] [
     ".hs"
     ".cabal"
   ];

@@ -3,6 +3,17 @@
   sources,
 }: let
   componentSpecs = {
+    aihc-arm64 = {
+      src = sources.arm64Src;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-arm64";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-parser = {
       src = sources.parserSrc;
       disableProfiling = true;
@@ -120,6 +131,10 @@
     };
     aihc = {
       src = sources.aihcSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath bin/aihc";
+        srcModifier = src: src;
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
