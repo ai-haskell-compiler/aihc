@@ -35,14 +35,13 @@ import Aihc.Resolve
 import Aihc.Tc
   ( InstanceInfo,
     TcBindingResult (..),
-    TcType (..),
-    TyVarId,
+    TyConInfo,
     TypeScheme (..),
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleInstances,
     tcModuleSuccess,
-    typecheckModulesWithEnv,
+    typecheckModulesWithFullEnv,
   )
 import Control.Exception (bracketOnError)
 import Control.Monad (filterM, foldM)
@@ -86,6 +85,7 @@ data CompileEnvironment = CompileEnvironment
 data DependencyArtifact = DependencyArtifact
   { dependencyExports :: !ModuleExports,
     dependencyTerms :: ![(Text, TypeScheme)],
+    dependencyTyCons :: ![TyConInfo],
     dependencyBindings :: ![TcBindingResult],
     dependencyInstances :: ![InstanceInfo],
     dependencyProgram :: !FcProgram
@@ -95,6 +95,7 @@ data StoredDependencyArtifact = StoredDependencyArtifact
   { storedSchemaVersion :: !Int,
     storedExports :: !StoredModuleExports,
     storedTerms :: ![(Text, TypeScheme)],
+    storedTyCons :: ![TyConInfo],
     storedBindings :: ![TcBindingResult],
     storedInstances :: ![InstanceInfo],
     storedProgram :: !FcProgram
@@ -133,7 +134,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 1
+cacheSchemaVersion = 3
 
 buildDependencies :: CompileEnvironment -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies environment usesImplicitPrelude mainModule = do
@@ -172,6 +173,7 @@ emptyDependencyArtifact =
   DependencyArtifact
     { dependencyExports = Map.empty,
       dependencyTerms = [],
+      dependencyTyCons = [],
       dependencyBindings = [],
       dependencyInstances = [],
       dependencyProgram = FcProgram []
@@ -269,7 +271,7 @@ compileLoadedModules loaded =
   case resolveWithDeps Map.empty modules of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("core library resolve error: " <> show errors)
     resolved@ResolveResult {resolvedModules} ->
-      let checkedModules = typecheckModulesWithEnv [] resolvedModules
+      let (checkedModules, termSchemes, tyCons) = typecheckModulesWithFullEnv [] [] [] resolvedModules
        in if not (all tcModuleSuccess checkedModules)
             then Left ("core library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
             else
@@ -282,28 +284,14 @@ compileLoadedModules loaded =
                       Right
                         DependencyArtifact
                           { dependencyExports = extractInterface resolved,
-                            dependencyTerms = map bindingImportedTerm bindings,
+                            dependencyTerms = termSchemes,
+                            dependencyTyCons = tyCons,
                             dependencyBindings = bindings,
                             dependencyInstances = instances,
                             dependencyProgram = concatPrograms (map dsProgram desugared)
                           }
   where
     modules = map loadedModule loaded
-
-bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
-bindingImportedTerm binding = (tbName binding, tcTypeScheme (tbType binding))
-
-tcTypeScheme :: TcType -> TypeScheme
-tcTypeScheme ty =
-  case collectForAlls ty of
-    (tvs, TcQualTy preds body) -> ForAll tvs preds body
-    (tvs, body) -> ForAll tvs [] body
-
-collectForAlls :: TcType -> ([TyVarId], TcType)
-collectForAlls (TcForAllTy tv body) =
-  let (tvs, inner) = collectForAlls body
-   in (tv : tvs, inner)
-collectForAlls ty = ([], ty)
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
@@ -394,6 +382,7 @@ toStoredArtifact artifact =
     { storedSchemaVersion = cacheSchemaVersion,
       storedExports = toStoredExports (dependencyExports artifact),
       storedTerms = dependencyTerms artifact,
+      storedTyCons = dependencyTyCons artifact,
       storedBindings = dependencyBindings artifact,
       storedInstances = dependencyInstances artifact,
       storedProgram = dependencyProgram artifact
@@ -404,6 +393,7 @@ fromStoredArtifact stored =
   DependencyArtifact
     { dependencyExports = fromStoredExports (storedExports stored),
       dependencyTerms = storedTerms stored,
+      dependencyTyCons = storedTyCons stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
       dependencyProgram = storedProgram stored

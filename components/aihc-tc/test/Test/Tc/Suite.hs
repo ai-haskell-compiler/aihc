@@ -228,7 +228,25 @@ kindTests =
           let result = typecheckModule modu
           assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
         ResolveResult {resolveErrors} ->
-          assertFailure ("Resolve error in imported-class kind test: " <> show resolveErrors)
+          assertFailure ("Resolve error in imported-class kind test: " <> show resolveErrors),
+    testCase "uses imported type constructor arities" $ do
+      let baseResult = resolve [parseOnly "module Base (Box) where\ndata Box a = Box a\n"]
+          depExports = extractInterface baseResult
+      case baseResult of
+        ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
+          let (checkedBase, _, importedTyCons) = typecheckModulesWithFullEnv [] [] [] baseModules
+          assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
+          let target = parseOnly "module Test where\nimport Base\ndata Unit = Unit\nkeep :: Box Unit -> Box Unit\nkeep x = x\n"
+          case resolveWithDeps depExports [target] of
+            ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
+              let (checkedTarget, _, _) = typecheckModulesWithFullEnv [] importedTyCons [] targetModules
+              assertBool
+                ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget))
+                (all tcModuleSuccess checkedTarget)
+            ResolveResult {resolveErrors} ->
+              assertFailure ("Resolve error in imported-type test: " <> show resolveErrors)
+        ResolveResult {resolveErrors} ->
+          assertFailure ("Resolve error in dependency-type test: " <> show resolveErrors)
   ]
   where
     isKindMismatch diag =

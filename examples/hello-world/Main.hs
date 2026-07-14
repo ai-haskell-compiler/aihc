@@ -1,43 +1,13 @@
 {-# LANGUAGE ExtendedLiterals #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 
 module Main where
 
-data State# s
-
-data RealWorld
-
-data Int32 = I32# Int32#
-
-newtype CInt = CInt Int32
-
-newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
-
-foreign import prim realWorld# :: State# RealWorld
+import Foreign.C.Types (CInt (..))
+import GHC.Int (Int32 (..))
 
 foreign import ccall unsafe putchar :: CInt -> IO CInt
-
-bind :: IO a -> (a -> IO b) -> IO b
-bind (IO action) next =
-  IO
-    ( \state ->
-        case action state of
-          (# nextState, value #) ->
-            case next value of
-              IO nextAction -> nextAction nextState
-    )
-
-thenIO :: IO a -> IO b -> IO b
-thenIO first second = bind first (\ignored -> second)
-
-infixr 1 >>
-
-(>>) :: IO a -> IO b -> IO b
-(>>) first second = thenIO first second
 
 char :: Int32# -> CInt
 char value = CInt (I32# value)

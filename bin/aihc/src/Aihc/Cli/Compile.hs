@@ -37,7 +37,7 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnvAndInstances)
+import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Control.Exception (bracket)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -110,9 +110,10 @@ compileWithDependencies dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [parsed] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
-      let checkedModules =
-            typecheckModulesWithEnvAndInstances
+      let (checkedModules, _, _) =
+            typecheckModulesWithFullEnv
               (dependencyTerms dependencies)
+              (dependencyTyCons dependencies)
               (dependencyInstances dependencies)
               resolvedModules
        in if not (all tcModuleSuccess checkedModules)

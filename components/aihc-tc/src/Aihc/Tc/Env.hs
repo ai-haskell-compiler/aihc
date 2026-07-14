@@ -52,7 +52,7 @@ data TyConInfo = TyConInfo
     tciTyCon :: !TyCon,
     tciKind :: !Kind
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 -- | Information about a data constructor.
 --

@@ -21,6 +21,7 @@ module Aihc.Tc
     typecheckModuleWithEnvAndInstances,
     typecheckModulesWithEnv,
     typecheckModulesWithEnvAndInstances,
+    typecheckModulesWithFullEnv,
 
     -- * Result types
     TcResult (..),
@@ -40,6 +41,7 @@ module Aihc.Tc
     TypeScheme (..),
     Pred (..),
     InstanceInfo (..),
+    TyConInfo (..),
     Unique (..),
     TcAnnotation (..),
     TcDiagnostic (..),
@@ -77,7 +79,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Annotations (TcAnnotation (..), renderPred, renderTcSignature, renderTcType)
-import Aihc.Tc.Env (InstanceInfo (..))
+import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -191,7 +193,23 @@ typecheckModulesWithEnv importedTerms =
 -- | Type-check modules in order with preloaded terms and class instances.
 typecheckModulesWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
 typecheckModulesWithEnvAndInstances importedTerms importedInstances =
-  go initState
+  firstOfThree . typecheckModulesWithFullEnv importedTerms [] importedInstances
+
+firstOfThree :: (a, b, c) -> a
+firstOfThree (first, _, _) = first
+
+-- | Type-check modules with a complete imported type-checker interface and
+-- return the accumulated term schemes and type constructors for downstream
+-- modules.
+typecheckModulesWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
+typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modules =
+  let (checkedModules, finalState) = go initState modules
+   in ( checkedModules,
+        [ (name, scheme)
+        | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
+        ],
+        Map.elems (tcsGlobalTyCons finalState)
+      )
   where
     initState =
       initTcState
@@ -201,13 +219,20 @@ typecheckModulesWithEnvAndInstances importedTerms importedInstances =
               | (name, scheme) <- importedTerms
               ]
               <> tcsGlobalTerms initTcState,
+          tcsGlobalTyCons =
+            Map.fromList
+              [ (tciName tyCon, tyCon)
+              | tyCon <- importedTyCons
+              ]
+              <> tcsGlobalTyCons initTcState,
           tcsInstances = importedInstances
         }
 
-    go _ [] = []
+    go st [] = ([], st)
     go st (m : ms) =
       let (result, st') = typecheckModuleWithState st m
-       in result : go st' ms
+          (results, finalState) = go st' ms
+       in (result : results, finalState)
 
 typecheckModuleWithState :: TcState -> Module -> (Module, TcState)
 typecheckModuleWithState st m =
