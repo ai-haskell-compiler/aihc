@@ -99,4 +99,4 @@ data InstanceInfo = InstanceInfo
     -- | Instance head types.
     iiHead :: ![TcType]
   }
-  deriving (Show)
+  deriving (Show, Read)

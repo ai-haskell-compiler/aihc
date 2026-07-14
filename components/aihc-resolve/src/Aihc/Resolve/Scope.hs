@@ -86,7 +86,7 @@ data OperatorFixity = OperatorFixity
   { operatorFixityAssoc :: !FixityAssoc,
     operatorFixityPrecedence :: !Int
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 type ModuleExports = Map.Map Text Scope
 

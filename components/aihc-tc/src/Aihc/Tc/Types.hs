@@ -39,7 +39,7 @@ import Data.Text qualified as T
 
 -- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | A type variable identifier, carrying both a human-readable name and
 -- a unique tag for alpha-equivalence.
@@ -47,7 +47,7 @@ data TyVarId = TyVarId
   { tvName :: !Text,
     tvUnique :: !Unique
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 instance Eq TyVarId where
   a == b = tvUnique a == tvUnique b
@@ -60,7 +60,7 @@ data TyCon = TyCon
   { tyConName :: !Text,
     tyConArity :: !Int
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind
@@ -68,7 +68,7 @@ data Kind
   | KConstraint
   | KFun !Kind !Kind
   | KMeta !Unique
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Internal type representation.
 --
@@ -91,7 +91,7 @@ data TcType
     TcQualTy ![Pred] !TcType
   | -- | Unsaturated type application @f a@.
     TcAppTy !TcType !TcType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Whether a type has an unlifted runtime representation in the subset of
 -- primitive types and runtime representations currently modeled by AIHC.
@@ -172,7 +172,7 @@ isUnliftedRuntimeRep rep =
 -- @ForAll [a, b] [Eq a] (a -> b -> Bool)@
 -- represents @forall a b. Eq a => a -> b -> Bool@.
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A predicate (primitive constraint).
 --
@@ -184,7 +184,7 @@ data Pred
     ClassPred !Text ![TcType]
   | -- | Type equality predicate, e.g. @a ~ Int@.
     EqPred !TcType !TcType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | The nesting level of implication constraints.
 --

@@ -113,7 +113,7 @@ data TcBindingResult = TcBindingResult
     tbDisplayName :: !Text,
     tbType :: !TcType
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 data UserSig = UserSig
   { userSigName :: !Text,

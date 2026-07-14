@@ -17,6 +17,9 @@ library
     Aihc.Cli.Options
     Aihc.Cli.Repl
 
+  other-modules:
+    Aihc.Cli.Compile.Dependencies
+
   hs-source-dirs: src
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
@@ -80,6 +83,7 @@ test-suite spec
     tasty-hunit,
     tasty-quickcheck,
     text,
+    time,
 
   ghc-options: -Wall
   default-language: GHC2021

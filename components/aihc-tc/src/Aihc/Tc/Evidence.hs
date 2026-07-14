@@ -21,7 +21,7 @@ import Data.Text (Text)
 
 -- | An evidence variable, uniquely identified.
 newtype EvVar = EvVar {evVarUnique :: Unique}
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Evidence terms.
 --
@@ -41,14 +41,14 @@ data EvTerm
     EvSuperClass !EvTerm !Int
   | -- | Cast evidence through a coercion.
     EvCast !EvTerm !Coercion
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A binding of an evidence variable to its term.
 data EvBinding = EvBinding
   { evBindVar :: !EvVar,
     evBindTerm :: !EvTerm
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Coercions for type equality evidence.
 --
@@ -67,4 +67,4 @@ data Coercion
     TyConAppCo !TyCon ![Coercion]
   | -- | Type family / newtype axiom instantiation (future).
     AxiomInstCo !Text ![TcType]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)

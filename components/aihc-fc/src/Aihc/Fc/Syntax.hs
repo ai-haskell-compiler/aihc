@@ -44,7 +44,7 @@ newtype FcProgram = FcProgram
   { -- | Top-level bindings in dependency order.
     fcTopBinds :: [FcTopBind]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A top-level binding.
 data FcTopBind
@@ -60,7 +60,7 @@ data FcTopBind
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A statically named C function resolved by the evaluator or a code generator.
 data FcForeignCall = FcForeignCall
@@ -68,7 +68,7 @@ data FcForeignCall = FcForeignCall
     fcForeignCallSymbol :: !Text,
     fcForeignCallSignature :: !FcForeignSignature
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | The ABI-relevant part of a foreign import's type.
 --
@@ -78,18 +78,18 @@ data FcForeignSignature = FcForeignSignature
   { fcForeignArgumentTypes :: ![FcForeignType],
     fcForeignResult :: !FcForeignResult
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Whether a foreign call is pure or produces an 'IO' action.
 data FcForeignResult
   = FcForeignPure !FcForeignType
   | FcForeignIO !FcForeignType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A value type with explicit host ABI marshalling support.
 data FcForeignType
   = FcForeignCInt
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A typed variable.
 data Var = Var
@@ -97,7 +97,7 @@ data Var = Var
     varUnique :: !Unique,
     varType :: !TcType
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 -- Eq/Ord on Unique only, mirroring TyVarId.
 instance Eq Var where
@@ -137,7 +137,7 @@ data FcExpr
     FcCase !FcExpr !Var ![FcAlt]
   | -- | Cast: @e \triangleright \gamma@.
     FcCast !FcExpr !Coercion
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Binding group.
 data FcBind
@@ -145,7 +145,7 @@ data FcBind
     FcNonRec !Var !FcExpr
   | -- | Recursive binding group.
     FcRec ![(Var, FcExpr)]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Case alternative.
 data FcAlt = FcAlt
@@ -156,7 +156,7 @@ data FcAlt = FcAlt
     -- | Right-hand side.
     altRhs :: !FcExpr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Case alternative constructor.
 data FcAltCon
@@ -166,7 +166,7 @@ data FcAltCon
     LitAlt !Literal
   | -- | Default/wildcard.
     DefaultAlt
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Literal values.
 data Literal
@@ -174,4 +174,4 @@ data Literal
   | -- | An unboxed character literal, such as @'x'#@.
     LitChar !Char
   | LitString !Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)

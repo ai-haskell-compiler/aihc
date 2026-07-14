@@ -2,7 +2,14 @@
 
 module Main (main) where
 
-import Aihc.Cli.Compile (compileOutputPath, compileSourceToAssembly, runCompile)
+import Aihc.Cli.Compile
+  ( CompileEnvironment (..),
+    CompileError,
+    compileOutputPath,
+    compileSourceToAssembly,
+    compileSourceToAssemblyWithDependencies,
+    runCompile,
+  )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
     InstallFailure (..),
@@ -34,6 +41,8 @@ import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Time.Calendar (fromGregorian)
+import Data.Time.Clock (UTCTime (..))
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( createDirectory,
@@ -41,9 +50,12 @@ import System.Directory
     doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
+    getModificationTime,
     getTemporaryDirectory,
+    listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setModificationTime,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -115,7 +127,10 @@ main =
               Right assembly -> do
                 assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
                 assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
-          testCase "assembles an executable and honors keep-asm" test_compileExecutable
+          testCase "assembles an executable and honors keep-asm" test_compileExecutable,
+          testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
+          testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
+          testCase "builds explicit core imports under NoImplicitPrelude" test_compileExplicitCoreImport
         ],
       testGroup
         "repl"
@@ -834,6 +849,96 @@ test_compileExecutable =
       assertFileExists temporaryOutput
       assertFileDoesNotExist (temporaryOutput <> ".s")
       assertNativeOutput temporaryOutput
+
+test_compileImplicitCoreDependencies :: Assertion
+test_compileImplicitCoreDependencies =
+  withTempDir "aihc-compile-dependencies" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    source <- TIO.readFile sourcePath
+    let coreRoot = root </> "core-libs"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment coreRoot cacheRoot
+        implicitSource = T.replace "{-# LANGUAGE NoImplicitPrelude #-}\n" "" source
+    createCompileLibrary coreRoot "aihc-prim" "GHC.Prim" "module GHC.Prim where\n"
+    createCompileLibrary coreRoot "aihc-base" "Prelude" "module Prelude where\n"
+    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 1\n"
+
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    cacheFiles <- compileCacheFiles cacheRoot
+    assertEqual "one dependency artifact" 1 (length cacheFiles)
+    cachePath <- case cacheFiles of
+      [path] -> pure path
+      paths -> assertFailure ("expected one cache file, got " <> show paths)
+
+    let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
+    setModificationTime cachePath oldTimestamp
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    getModificationTime cachePath >>= assertEqual "cache hit preserves artifact" oldTimestamp
+
+    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 2\n"
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    compileCacheFiles cacheRoot >>= assertEqual "unused library input changes the graph key" 2 . length
+
+test_compileNoImplicitPrelude :: Assertion
+test_compileNoImplicitPrelude =
+  withTempDir "aihc-compile-no-prelude" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    source <- TIO.readFile sourcePath
+    let environment = CompileEnvironment (root </> "missing-core-libs") (root </> "cache")
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath source
+    cacheExists <- doesDirectoryExist (compileCacheRoot environment)
+    assertBool "NoImplicitPrelude should not create a dependency cache" (not cacheExists)
+
+test_compileExplicitCoreImport :: Assertion
+test_compileExplicitCoreImport =
+  withTempDir "aihc-compile-explicit-dependency" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    source <- TIO.readFile sourcePath
+    let coreRoot = root </> "core-libs"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment coreRoot cacheRoot
+        withImport = T.replace "module Main where\n" "module Main where\n\nimport Demo (identity)\n" source
+        importedSource = T.replace "putchar (char 72#Int32)" "putchar (identity (char 72#Int32))" withImport
+    createCompileLibrary
+      coreRoot
+      "demo"
+      "Demo"
+      "{-# LANGUAGE NoImplicitPrelude #-}\nmodule Demo (identity) where\nidentity x = x\n"
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath importedSource
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath importedSource
+    compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
+
+expectCompileSuccess :: Either CompileError T.Text -> Assertion
+expectCompileSuccess result =
+  case result of
+    Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
+    Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+
+createCompileLibrary :: FilePath -> FilePath -> FilePath -> String -> IO ()
+createCompileLibrary coreRoot library moduleName source = do
+  let sourcePath = coreRoot </> library </> "src" </> map dotToSlash moduleName <> ".hs"
+  createDirectoryIfMissing True (takeDirectory sourcePath)
+  writeFile (coreRoot </> library </> library <> ".cabal") ("name: " <> library <> "\n")
+  writeFile sourcePath source
+  where
+    dotToSlash '.' = '/'
+    dotToSlash char = char
+
+compileCacheFiles :: FilePath -> IO [FilePath]
+compileCacheFiles root = do
+  exists <- doesDirectoryExist root
+  if not exists
+    then pure []
+    else do
+      entries <- listDirectory root
+      concat <$> mapM visit entries
+  where
+    visit entry = do
+      let path = root </> entry
+      isDirectory <- doesDirectoryExist path
+      if isDirectory
+        then compileCacheFiles path
+        else pure [path | ".cache" `isSuffixOf` path]
 
 assertNativeOutput :: FilePath -> Assertion
 assertNativeOutput executable = do
