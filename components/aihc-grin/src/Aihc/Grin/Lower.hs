@@ -30,6 +30,7 @@ data LowerState = LowerState
     lowerFunctionsRev :: ![GrinFunction],
     lowerPrimitiveNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
+    lowerWhnfGlobalNames :: !(Set Text),
     lowerLocalVars :: !(Set (Text, Unique))
   }
 
@@ -77,7 +78,8 @@ lowerProgram program =
               [ varName var
               | FcPrimitive var _ <- fcTopBinds program
               ],
-          lowerGlobalNames = Set.fromList (programGlobalNames program),
+          lowerGlobalNames = Set.fromList (map fst builtinConstructors <> programGlobalNames program),
+          lowerWhnfGlobalNames = Set.fromList (map fst builtinConstructors <> programWhnfGlobalNames program),
           lowerLocalVars = Set.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
@@ -132,12 +134,14 @@ lowerOrdinaryExpr expr =
   case expr of
     FcVar var ->
       do
-        isGlobal <- isGlobalVar var
-        let resultRep = typeRuntimeRep (varType var)
-            runtimeVar = if isGlobal then lowerGlobalVar var else lowerVar var
-        if isGlobal || resultRep == liftedRuntimeRep
-          then pure (GrinEval resultRep (GrinVarValue runtimeVar))
-          else pure (GrinReturn (GrinVarValue runtimeVar))
+        direct <- lowerDirectValue expr
+        case direct of
+          Just value -> pure (GrinReturn value)
+          Nothing -> do
+            isGlobal <- isGlobalVar var
+            let resultRep = typeRuntimeRep (varType var)
+                runtimeVar = if isGlobal then lowerGlobalVar var else lowerVar var
+            pure (GrinEval resultRep (GrinVarValue runtimeVar))
     FcLit literal ->
       pure (GrinReturn (GrinLitValue (lowerLiteral literal)))
     FcApp function argument ->
@@ -240,10 +244,14 @@ makeThunk expr = do
 
 lowerStrict :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerStrict hint expr continuation = do
-  valueVar <- freshVar hint (exprRuntimeRep expr)
-  valueExpr <- lowerExpr expr
-  rest <- continuation (GrinVarValue valueVar)
-  pure (GrinBind valueVar valueExpr rest)
+  direct <- lowerDirectValue expr
+  case direct of
+    Just value -> continuation value
+    Nothing -> do
+      valueVar <- freshVar hint (exprRuntimeRep expr)
+      valueExpr <- lowerExpr expr
+      rest <- continuation (GrinVarValue valueVar)
+      pure (GrinBind valueVar valueExpr rest)
 
 lowerDelayed :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerDelayed expr continuation = do
@@ -253,9 +261,13 @@ lowerDelayed expr continuation = do
   pure (GrinBind pointerVar (GrinStore node) rest)
 
 lowerArgument :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerArgument expr
-  | exprRuntimeRep expr == liftedRuntimeRep = lowerDelayed expr
-  | otherwise = lowerStrict "argument" expr
+lowerArgument expr continuation = do
+  direct <- lowerDirectValue expr
+  case direct of
+    Just value -> continuation value
+    Nothing
+      | exprRuntimeRep expr == liftedRuntimeRep -> lowerDelayed expr continuation
+      | otherwise -> lowerStrict "argument" expr continuation
 
 lowerArgumentMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgumentMany expressions continuation =
@@ -357,6 +369,35 @@ isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
   pure (varKey var `Set.notMember` localVars && varName var `Set.member` globalNames)
+
+-- | Values that are already in runtime normal form can be embedded directly
+-- in the surrounding GRIN operation. Constructor, primitive, and foreign
+-- globals are initialized as runtime nodes; unlike CAFs, they have no thunk to
+-- enter. Unboxed locals and literals are direct machine values as well.
+lowerDirectValue :: FcExpr -> LowerM (Maybe GrinValue)
+lowerDirectValue expr =
+  case expr of
+    FcVar var -> do
+      isGlobal <- isGlobalVar var
+      isWhnfGlobal <- isWhnfGlobalVar var
+      let runtimeRep = typeRuntimeRep (varType var)
+      pure $
+        if isWhnfGlobal
+          then Just (GrinVarValue (lowerGlobalVar var))
+          else
+            if not isGlobal && runtimeRep /= liftedRuntimeRep
+              then Just (GrinVarValue (lowerVar var))
+              else Nothing
+    FcLit literal -> pure (Just (GrinLitValue (lowerLiteral literal)))
+    FcTyApp inner _ -> lowerDirectValue inner
+    FcCast inner _ -> lowerDirectValue inner
+    _ -> pure Nothing
+
+isWhnfGlobalVar :: Var -> LowerM Bool
+isWhnfGlobalVar var = do
+  localVars <- gets lowerLocalVars
+  whnfGlobalNames <- gets lowerWhnfGlobalNames
+  pure (varKey var `Set.notMember` localVars && varName var `Set.member` whnfGlobalNames)
 
 withLocalVars :: [Var] -> LowerM a -> LowerM a
 withLocalVars vars action = do
@@ -495,6 +536,17 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
       case bind of
         FcNonRec var expr -> [(var, expr)]
         FcRec bindings -> bindings
+
+programWhnfGlobalNames :: FcProgram -> [Text]
+programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds program)
+  where
+    topWhnfGlobalNames topBind =
+      case topBind of
+        FcData _ _ constructors -> map fst constructors
+        FcNewtype _ _ constructor _ -> [constructor]
+        FcPrimitive var _ -> [varName var]
+        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcTopBind {} -> []
 
 topVars :: FcTopBind -> [Var]
 topVars topBind =

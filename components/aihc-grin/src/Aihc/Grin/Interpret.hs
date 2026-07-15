@@ -147,7 +147,7 @@ initialMachine program =
             ],
           Map.fromList
             [ (constructor, RuntimeNode (GrinConstructor constructor) [])
-            | constructor <- builtinConstructors <> map fst (grinConstructors program)
+            | constructor <- map fst builtinConstructors <> map fst (grinConstructors program)
             ]
         ]
 
@@ -590,6 +590,3 @@ getsMachine = lift . gets
 
 modifyMachine :: (Machine -> Machine) -> EvalM ()
 modifyMachine = lift . modify'
-
-builtinConstructors :: [Text]
-builtinConstructors = ["C#", "[]", ":", "()", "(,)", "(#,#)"]

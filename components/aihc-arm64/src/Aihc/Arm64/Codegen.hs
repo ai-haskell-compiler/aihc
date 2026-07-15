@@ -659,16 +659,6 @@ uniqueByName values =
     Just arity <- [lookup name values]
   ]
 
-builtinConstructors :: [(Text, Int)]
-builtinConstructors =
-  [ ("C#", 1),
-    ("[]", 0),
-    (":", 2),
-    ("()", 0),
-    ("(,)", 2),
-    ("(#,#)", 2)
-  ]
-
 programConstructorArities :: GrinProgram -> [(Text, Int)]
 programConstructorArities program =
   [(name, length fieldReps) | (name, fieldReps) <- grinConstructors program]

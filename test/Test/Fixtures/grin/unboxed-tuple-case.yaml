@@ -1,26 +1,18 @@
 expected: |-
   constructor Box/1 [IntRep]
 
-  caf value%1005 :: BoxedRep Lifted = (F$grin_thunk_0 (#,#)%-22 :: BoxedRep Lifted)
+  caf value%1005 :: BoxedRep Lifted = (F$grin_thunk_0)
 
-  $grin_thunk_0 (#,#)%-22 :: BoxedRep Lifted -> BoxedRep Lifted =
-    $grin_function_1006%1006 :: BoxedRep Lifted <-
-      eval @BoxedRep Lifted Box%1001 :: BoxedRep Lifted
-    $grin_argument_1007%1007 :: IntRep <-
-      $grin_scrutinee_1008%1008 :: TupleRep [IntRep,WordRep] <-
-        $grin_function_1009%1009 :: BoxedRep Lifted <-
-          $grin_function_1010%1010 :: BoxedRep Lifted <-
-            eval @BoxedRep Lifted (#,#)%-22 :: BoxedRep Lifted
-          $grin_argument_1011%1011 :: IntRep <-
-            return 1
-          apply @BoxedRep Lifted $grin_function_1010%1010 :: BoxedRep Lifted $grin_argument_1011%1011 :: IntRep
-        $grin_argument_1012%1012 :: WordRep <-
-          return 2
-        apply @TupleRep [IntRep,WordRep] $grin_function_1009%1009 :: BoxedRep Lifted $grin_argument_1012%1012 :: WordRep
-      case $grin_scrutinee_1008%1008 :: TupleRep [IntRep,WordRep] as _case%1002 :: TupleRep [IntRep,WordRep] of
+  $grin_thunk_0 -> BoxedRep Lifted =
+    $grin_argument_1006%1006 :: IntRep <-
+      $grin_scrutinee_1007%1007 :: TupleRep [IntRep,WordRep] <-
+        $grin_function_1008%1008 :: BoxedRep Lifted <-
+          apply @BoxedRep Lifted (#,#)%-22 :: BoxedRep Lifted 1
+        apply @TupleRep [IntRep,WordRep] $grin_function_1008%1008 :: BoxedRep Lifted 2
+      case $grin_scrutinee_1007%1007 :: TupleRep [IntRep,WordRep] as _case%1002 :: TupleRep [IntRep,WordRep] of
         (#,#) first%1003 :: IntRep _%1004 :: WordRep ->
           return first%1003 :: IntRep
-    apply @BoxedRep Lifted $grin_function_1006%1006 :: BoxedRep Lifted $grin_argument_1007%1007 :: IntRep
+    apply @BoxedRep Lifted Box%1001 :: BoxedRep Lifted $grin_argument_1006%1006 :: IntRep
 extensions:
 - MagicHash
 - UnboxedTuples

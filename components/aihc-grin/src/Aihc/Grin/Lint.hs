@@ -56,7 +56,7 @@ lintProgram program =
           lintGlobalVars = Set.fromList cafVars,
           lintGlobalNames =
             Set.fromList
-              ( builtinConstructorNames
+              ( map fst builtinConstructors
                   <> map fst (grinConstructors program)
                   <> map (grinVarName . fst) (grinPrimitives program)
                   <> map grinForeignCallName (grinForeignCalls program)
@@ -175,9 +175,6 @@ duplicates = go Set.empty Set.empty
     go seen repeated (value : rest)
       | value `Set.member` seen = go seen (Set.insert value repeated) rest
       | otherwise = go (Set.insert value seen) repeated rest
-
-builtinConstructorNames :: [Text]
-builtinConstructorNames = ["C#", "[]", ":", "()", "(,)", "(#,#)"]
 
 exprRuntimeRep :: GrinExpr -> Maybe RuntimeRep
 exprRuntimeRep expr =

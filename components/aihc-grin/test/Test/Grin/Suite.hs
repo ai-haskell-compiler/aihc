@@ -53,7 +53,12 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "raw local is returned directly" ("return answer%2 :: IntRep" `isInfixOf` rendered)
-        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered))
+        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered)),
+      testCase "FC lowering still evaluates CAF references" $ do
+        let program = lowerProgram cafReferenceProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered)
     ]
 
 grinGoldenTests :: IO TestTree
@@ -143,6 +148,22 @@ shadowingProgram =
   where
     answerVar = Var "answer" (Unique 1) intTy
     localAnswerVar = Var "answer" (Unique 2) intTy
+
+cafReferenceProgram :: FcProgram
+cafReferenceProgram =
+  FcProgram
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            sourceVar
+            (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+        ),
+      FcTopBind (FcNonRec answerVar (FcVar sourceVar))
+    ]
+  where
+    sourceVar = Var "source" (Unique 20) boxedIntTy
+    answerVar = Var "answer" (Unique 21) boxedIntTy
+    boxConstructorVar = Var "BoxedInt" (Unique 22) (TcFunTy intTy boxedIntTy)
 
 exceptionProgram :: FcProgram
 exceptionProgram =

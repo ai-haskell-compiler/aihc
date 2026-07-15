@@ -4,11 +4,7 @@ expected: |-
   caf value%1002 :: BoxedRep Lifted = (F$grin_thunk_0)
 
   $grin_thunk_0 -> BoxedRep Lifted =
-    $grin_function_1003%1003 :: BoxedRep Lifted <-
-      eval @BoxedRep Lifted Box%1001 :: BoxedRep Lifted
-    $grin_argument_1004%1004 :: IntRep <-
-      return 42
-    apply @BoxedRep Lifted $grin_function_1003%1003 :: BoxedRep Lifted $grin_argument_1004%1004 :: IntRep
+    apply @BoxedRep Lifted Box%1001 :: BoxedRep Lifted 42
 extensions:
 - MagicHash
 reason: preserves lifted constructor storage and the IntRep field representation

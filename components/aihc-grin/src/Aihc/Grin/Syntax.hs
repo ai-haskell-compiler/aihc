@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Strict graph-reduction intermediate language.
 --
 -- GRIN evaluation is strict: operands are values, and sequencing is explicit
@@ -22,6 +24,7 @@ module Aihc.Grin.Syntax
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
+    builtinConstructors,
   )
 where
 
@@ -156,6 +159,20 @@ isPointerRuntimeRep runtimeRep =
     TupleRep {} -> True
     SumRep {} -> True
     _ -> False
+
+-- | Constructors supplied by the runtime rather than an FC data declaration.
+-- Keeping their arities with the shared GRIN syntax makes lowering,
+-- interpretation, linting, and native code generation agree on which global
+-- constructor values exist before the program starts.
+builtinConstructors :: [(Text, Int)]
+builtinConstructors =
+  [ ("C#", 1),
+    ("[]", 0),
+    (":", 2),
+    ("()", 0),
+    ("(,)", 2),
+    ("(#,#)", 2)
+  ]
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,
