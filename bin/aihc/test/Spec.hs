@@ -7,7 +7,8 @@ import Aihc.Cli.Compile
     CompileError,
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
-    runCompile,
+    defaultCompileEnvironment,
+    runCompileWithEnvironment,
   )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
@@ -132,6 +133,7 @@ main =
                   assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
                   assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-asm" test_compileExecutable,
+          testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
           testCase "builds explicit core imports under NoImplicitPrelude" test_compileExplicitCoreImport
@@ -843,18 +845,40 @@ test_compileExecutable =
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
           keptOptions = CompileOptions sourcePath (Just keptOutput) True
           temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False
       withCurrentDirectory repositoryRoot $ do
-        runCompile keptOptions
+        runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
         assertFileExists (keptOutput <> ".s")
         assertNativeOutput keptOutput
 
-        runCompile temporaryOptions
+        runCompileWithEnvironment environment temporaryOptions
         assertFileExists temporaryOutput
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
+
+test_compileDefaultEnvironment :: Assertion
+test_compileDefaultEnvironment =
+  withTempDir "aihc-compile-environment" $ \root -> do
+    let workingDirectory = root </> "project"
+        cacheHome = root </> "cache"
+    createDirectoryIfMissing True workingDirectory
+    bracket
+      (lookupEnv "XDG_CACHE_HOME")
+      restoreCacheHome
+      ( \_ -> do
+          setEnv "XDG_CACHE_HOME" cacheHome
+          withCurrentDirectory workingDirectory $ do
+            actualWorkingDirectory <- getCurrentDirectory
+            environment <- defaultCompileEnvironment
+            assertEqual "core libraries" (actualWorkingDirectory </> "core-libs") (compileCoreLibraryRoot environment)
+            assertEqual "compiled dependency cache" (cacheHome </> "aihc" </> "libraries") (compileCacheRoot environment)
+      )
+  where
+    restoreCacheHome Nothing = unsetEnv "XDG_CACHE_HOME"
+    restoreCacheHome (Just value) = setEnv "XDG_CACHE_HOME" value
 
 test_compileImplicitCoreDependencies :: Assertion
 test_compileImplicitCoreDependencies =

@@ -8,8 +8,10 @@ module Aihc.Cli.Compile
     compileOutputPath,
     compileSourceToAssembly,
     compileSourceToAssemblyWithDependencies,
+    defaultCompileEnvironment,
     renderCompileError,
     runCompile,
+    runCompileWithEnvironment,
   )
 where
 
@@ -45,7 +47,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import System.Directory (createDirectory, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, (</>))
 import System.IO (hClose, openTempFile)
@@ -61,9 +63,12 @@ data CompileError
 
 runCompile :: CompileOptions -> IO ()
 runCompile options = do
+  environment <- defaultCompileEnvironment
+  runCompileWithEnvironment environment options
+
+runCompileWithEnvironment :: CompileEnvironment -> CompileOptions -> IO ()
+runCompileWithEnvironment environment options = do
   source <- TIO.readFile (compileSourceFile options)
-  cwd <- getCurrentDirectory
-  let environment = CompileEnvironment (cwd </> "core-libs") (cwd </> ".aihc-cache" </> "libraries")
   assemblyResult <- compileSourceToAssemblyWithDependencies environment (compileSourceFile options) source
   assembly <- either (ioError . userError . renderCompileError) pure assemblyResult
   let output = compileOutputPath options
@@ -76,6 +81,14 @@ runCompile options = do
       let assemblyPath = directory </> "program.s"
       TIO.writeFile assemblyPath assembly
       assemble output assemblyPath
+
+-- | The project-local core libraries and shared compiled-library cache used by
+-- the command-line compiler.
+defaultCompileEnvironment :: IO CompileEnvironment
+defaultCompileEnvironment = do
+  cwd <- getCurrentDirectory
+  cacheDirectory <- getXdgDirectory XdgCache "aihc"
+  pure (CompileEnvironment (cwd </> "core-libs") (cacheDirectory </> "libraries"))
 
 compileOutputPath :: CompileOptions -> FilePath
 compileOutputPath options =
