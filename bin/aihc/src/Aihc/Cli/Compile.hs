@@ -6,6 +6,7 @@ module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
     compileOutputPath,
+    compileSourceToCoreWithDependencies,
     compileSourceToAssembly,
     compileSourceToAssemblyWithDependencies,
     defaultCompileEnvironment,
@@ -33,6 +34,7 @@ import Aihc.Fc
     Var (..),
     desugarModule,
     desugarModuleWithBindings,
+    eliminateDeadCode,
   )
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -43,10 +45,7 @@ import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Control.Exception (bracket)
 import Control.Monad (when)
-import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -129,6 +128,12 @@ compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Tex
 compileSourceToAssemblyWithDependencies environment sourceName source =
   fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies environment sourceName source)
 
+-- | Compile source and its dependencies to the optimized, combined System FC
+-- program rendered by @--keep-core@.
+compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToCoreWithDependencies environment sourceName source =
+  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies environment sourceName source)
+
 compileSourceToArtifactsWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
 compileSourceToArtifactsWithDependencies environment sourceName source =
   case parseCompileModule sourceName source of
@@ -160,7 +165,7 @@ compileWithDependencies dependencies parsed =
                     else
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                           freshDependencies = shiftProgramVars (1 + maximumProgramUnique mainProgram) (dependencyProgram dependencies)
-                          program = retainReachableTopBinds "main" (appendPrograms freshDependencies mainProgram)
+                          program = eliminateDeadCode "main" (appendPrograms freshDependencies mainProgram)
                        in compileProgramArtifacts program
 
 compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
@@ -263,69 +268,6 @@ exprVars expression =
     FcCast inner _ -> exprVars inner
   where
     altVars alternative = altBinders alternative <> exprVars (altRhs alternative)
-
--- Native linking starts from @main@. Keeping unreachable dependency bindings
--- would force the backend to implement primitives that the executable never
--- calls and would initialize dead closures at startup.
-retainReachableTopBinds :: Text -> FcProgram -> FcProgram
-retainReachableTopBinds entry (FcProgram topBinds) =
-  FcProgram [topBind | (index, topBind) <- indexedTopBinds, keepTopBind index topBind]
-  where
-    indexedTopBinds = zip [0 :: Int ..] topBinds
-    definitions = Map.fromList [(varName var, expressions) | topBind <- topBinds, (var, expressions) <- topBindDefinitions topBind]
-    selectedDefinitions = Map.fromList [(varName var, index) | (index, topBind) <- indexedTopBinds, var <- topBindVars topBind]
-    reachable = closeReachable (Set.singleton entry)
-
-    closeReachable names =
-      let referenced = Set.unions [foldMap referencedNames (Map.findWithDefault [] name definitions) | name <- Set.toList names]
-          names' = names <> Set.filter (`Map.member` definitions) referenced
-       in if names' == names then names else closeReachable names'
-
-    keepTopBind index topBind =
-      case topBind of
-        FcData {} -> True
-        FcNewtype {} -> True
-        _ -> any (isSelectedReachable index) (topBindVars topBind)
-
-    isSelectedReachable index var =
-      varName var `Set.member` reachable
-        && Map.lookup (varName var) selectedDefinitions == Just index
-
-topBindDefinitions :: FcTopBind -> [(Var, [FcExpr])]
-topBindDefinitions topBind =
-  case topBind of
-    FcPrimitive var _ -> [(var, [])]
-    FcForeignImport foreignCall -> [(fcForeignCallVar foreignCall, [])]
-    FcTopBind (FcNonRec var expression) -> [(var, [expression])]
-    FcTopBind (FcRec bindings) -> [(var, map snd bindings) | (var, _) <- bindings]
-    FcData {} -> []
-    FcNewtype {} -> []
-
-topBindVars :: FcTopBind -> [Var]
-topBindVars = map fst . topBindDefinitions
-
-referencedNames :: FcExpr -> Set Text
-referencedNames expression =
-  case expression of
-    FcVar var -> Set.singleton (varName var)
-    FcLit _ -> Set.empty
-    FcApp function argument -> referencedNames function <> referencedNames argument
-    FcDictApp function argument -> referencedNames function <> referencedNames argument
-    FcTyApp inner _ -> referencedNames inner
-    FcLam _ body -> referencedNames body
-    FcTyLam _ body -> referencedNames body
-    FcDictLam _ body -> referencedNames body
-    FcDict fields -> foldMap referencedNames fields
-    FcDictSelect dictionary _ -> referencedNames dictionary
-    FcLet bind body -> referencedBindNames bind <> referencedNames body
-    FcCase scrutinee _ alternatives -> referencedNames scrutinee <> foldMap (referencedNames . altRhs) alternatives
-    FcCast inner _ -> referencedNames inner
-
-referencedBindNames :: FcBind -> Set Text
-referencedBindNames bind =
-  case bind of
-    FcNonRec _ expression -> referencedNames expression
-    FcRec bindings -> foldMap (referencedNames . snd) bindings
 
 parseCompileModule :: FilePath -> Text -> Either CompileError Module
 parseCompileModule sourceName source =

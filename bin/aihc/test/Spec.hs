@@ -7,6 +7,7 @@ import Aihc.Cli.Compile
     CompileError,
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
+    compileSourceToCoreWithDependencies,
     defaultCompileEnvironment,
     runCompileWithEnvironment,
   )
@@ -946,8 +947,18 @@ test_compileExplicitCoreImport =
       coreRoot
       "demo"
       "Demo"
-      "{-# LANGUAGE NoImplicitPrelude #-}\nmodule Demo (identity) where\nidentity x = x\n"
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
+      ( unlines
+          [ "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module Demo (identity) where",
+            "data UnreachableDependencyType = UnreachableDependencyConstructor",
+            "unreachableDependencyFunction = UnreachableDependencyConstructor",
+            "identity x = x"
+          ]
+      )
+    core <- expectCompileCore =<< compileSourceToCoreWithDependencies environment "Main.hs" importedSource
+    assertBool "reachable dependency function is retained" ("identity" `T.isInfixOf` core)
+    assertBool "unreachable dependency function is eliminated" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
+    assertBool "unreachable dependency type is eliminated" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
     compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
 
@@ -956,6 +967,12 @@ expectCompileSuccess result =
   case result of
     Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
     Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+
+expectCompileCore :: Either CompileError T.Text -> IO T.Text
+expectCompileCore result =
+  case result of
+    Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
+    Right core -> pure core
 
 implicitDependencySource :: T.Text
 implicitDependencySource =

@@ -5,6 +5,7 @@ module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalTests,
     fcEvalFixtureTests,
+    fcOptimizationTests,
   )
 where
 
@@ -65,6 +66,44 @@ fcEvalTests =
           result
     ]
 
+fcOptimizationTests :: TestTree
+fcOptimizationTests =
+  testGroup
+    "FC optimizations"
+    [ testCase "eliminates values and types unreachable from the entry point" $ do
+        let liveTy = ty "Live"
+            leafTy = ty "Leaf"
+            deadTy = ty "Dead"
+            mainVar = Var "main" (Unique 1) liveTy
+            helperVar = Var "helper" (Unique 2) liveTy
+            deadVar = Var "dead" (Unique 3) deadTy
+            liveData = FcData "Live" [] [("Live", [leafTy])]
+            leafData = FcData "Leaf" [] [("Leaf", [])]
+            deadData = FcData "Dead" [] [("Dead", [])]
+            helper = FcTopBind (FcNonRec helperVar (FcVar (Var "Live" (Unique 4) (TcFunTy leafTy liveTy))))
+            mainBinding = FcTopBind (FcNonRec mainVar (FcVar helperVar))
+            deadBinding = FcTopBind (FcNonRec deadVar (FcVar (Var "Dead" (Unique 5) deadTy)))
+            program = FcProgram [deadData, deadBinding, leafData, liveData, helper, mainBinding]
+        assertEqual
+          "reachable program"
+          (FcProgram [leafData, liveData, helper, mainBinding])
+          (eliminateDeadCode "main" program),
+      testCase "does not confuse a local binder with a top-level definition" $ do
+        let valueTy = ty "Value"
+            local = Var "shadowed" (Unique 10) valueTy
+            global = Var "shadowed" (Unique 11) valueTy
+            mainVar = Var "main" (Unique 12) (TcFunTy valueTy valueTy)
+            program =
+              FcProgram
+                [ FcTopBind (FcNonRec global (FcVar global)),
+                  FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))
+                ]
+        assertEqual
+          "reachable program"
+          (FcProgram [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
+          (eliminateDeadCode "main" program)
+    ]
+
 fcEvalFixtureTests :: IO TestTree
 fcEvalFixtureTests = do
   cases <- EvalGolden.loadEvalCases
@@ -108,3 +147,6 @@ var name = Var name (Unique 0)
 
 stringTy :: TcType
 stringTy = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
+
+ty :: Text -> TcType
+ty name = TcTyCon (TyCon name 0) []

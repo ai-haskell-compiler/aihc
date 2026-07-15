@@ -25,6 +25,9 @@ module Aihc.Fc
     EvalError (..),
     Value (..),
 
+    -- * Optimization
+    eliminateDeadCode,
+
     -- * Lint
     lintProgram,
     lintExpr,
@@ -40,6 +43,7 @@ module Aihc.Fc
   )
 where
 
+import Aihc.Fc.DeadCode (eliminateDeadCode)
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBindings, desugarModuleWithTcResult)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)

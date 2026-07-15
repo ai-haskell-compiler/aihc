@@ -12,6 +12,7 @@ synopsis: System FC core language with desugaring and lint
 library
   exposed-modules:
     Aihc.Fc
+    Aihc.Fc.DeadCode
     Aihc.Fc.Desugar
     Aihc.Fc.Desugar.Expr
     Aihc.Fc.Desugar.Match
