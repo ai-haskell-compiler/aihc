@@ -2,6 +2,14 @@
 
 module Main (main) where
 
+import Aihc.Cli.Compile
+  ( CompileEnvironment (..),
+    CompileError,
+    compileOutputPath,
+    compileSourceToAssemblyWithDependencies,
+    defaultCompileEnvironment,
+    runCompileWithEnvironment,
+  )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
     InstallFailure (..),
@@ -18,12 +26,13 @@ import Aihc.Cli.Install
     renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), CompileOptions (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
+import Control.Monad (when)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
@@ -31,19 +40,30 @@ import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Data.Time.Calendar (fromGregorian)
+import Data.Time.Clock (UTCTime (..))
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    getCurrentDirectory,
+    getModificationTime,
     getTemporaryDirectory,
+    listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setModificationTime,
+    withCurrentDirectory,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
+import System.Info (arch, os)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -53,7 +73,20 @@ main =
   defaultMain . testGroup "aihc" $
     [ testGroup
         "cli"
-        [ testCase "parses install package" $
+        [ testCase "parses compile source" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False)))
+              (parseCommandPure ["compile", "Main.hs"]),
+          testCase "parses compile output and keep-asm" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") True)))
+              (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
+          testCase "derives safe default compile output paths" $ do
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False)),
+          testCase "parses install package" $
             assertEqual
               "command"
               (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsHuman)))
@@ -84,6 +117,26 @@ main =
             assertEqual "command" (Right (CmdRepl (ReplOptions Nothing))) (parseCommandPure ["repl"]),
           testCase "parses repl store" $
             assertEqual "command" (Right (CmdRepl (ReplOptions (Just "/tmp/aihc-store")))) (parseCommandPure ["repl", "--store", "/tmp/aihc-store"])
+        ],
+      testGroup
+        "compile"
+        [ testCase "lowers the aihc-base HelloWorld example to ARM64 assembly" $
+            withTempDir "aihc-compile-example" $ \root -> do
+              sourcePath <- helloWorldExamplePath
+              source <- TIO.readFile sourcePath
+              let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+                  environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+              result <- compileSourceToAssemblyWithDependencies environment sourcePath source
+              case result of
+                Left err -> assertFailure ("expected compile success, got: " <> show err)
+                Right assembly -> do
+                  assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+                  assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
+          testCase "assembles an executable and honors keep-asm" test_compileExecutable,
+          testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
+          testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
+          testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
+          testCase "builds explicit core imports under NoImplicitPrelude" test_compileExplicitCoreImport
         ],
       testGroup
         "repl"
@@ -783,6 +836,180 @@ test_dryRunPlannerDoesNotGenerateSourceFiles =
 
     autogenExists <- doesDirectoryExist autogenDir
     assertBool ("expected dry-run planner not to create " <> autogenDir) (not autogenExists)
+
+test_compileExecutable :: Assertion
+test_compileExecutable =
+  when (arch == "aarch64" && os == "darwin") $
+    withTempDir "aihc-compile" $ \root -> do
+      sourcePath <- helloWorldExamplePath
+      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+          keptOutput = root </> "kept"
+          temporaryOutput = root </> "temporary"
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False
+      withCurrentDirectory repositoryRoot $ do
+        runCompileWithEnvironment environment keptOptions
+        assertFileExists keptOutput
+        assertFileExists (keptOutput <> ".s")
+        assertNativeOutput keptOutput
+
+        runCompileWithEnvironment environment temporaryOptions
+        assertFileExists temporaryOutput
+        assertFileDoesNotExist (temporaryOutput <> ".s")
+        assertNativeOutput temporaryOutput
+
+test_compileDefaultEnvironment :: Assertion
+test_compileDefaultEnvironment =
+  withTempDir "aihc-compile-environment" $ \root -> do
+    let workingDirectory = root </> "project"
+        cacheHome = root </> "cache"
+    createDirectoryIfMissing True workingDirectory
+    bracket
+      (lookupEnv "XDG_CACHE_HOME")
+      restoreCacheHome
+      ( \_ -> do
+          setEnv "XDG_CACHE_HOME" cacheHome
+          withCurrentDirectory workingDirectory $ do
+            actualWorkingDirectory <- getCurrentDirectory
+            environment <- defaultCompileEnvironment
+            assertEqual "core libraries" (actualWorkingDirectory </> "core-libs") (compileCoreLibraryRoot environment)
+            assertEqual "compiled dependency cache" (cacheHome </> "aihc" </> "libraries") (compileCacheRoot environment)
+      )
+  where
+    restoreCacheHome Nothing = unsetEnv "XDG_CACHE_HOME"
+    restoreCacheHome (Just value) = setEnv "XDG_CACHE_HOME" value
+
+test_compileImplicitCoreDependencies :: Assertion
+test_compileImplicitCoreDependencies =
+  withTempDir "aihc-compile-dependencies" $ \root -> do
+    let sourcePath = "Main.hs"
+        coreRoot = root </> "core-libs"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment coreRoot cacheRoot
+        implicitSource = implicitDependencySource
+    createCompileLibrary coreRoot "aihc-prim" "GHC.Prim" "module GHC.Prim where\n"
+    createCompileLibrary coreRoot "aihc-base" "Prelude" "module Prelude where\nid x = x\n"
+    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 1\n"
+
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    cacheFiles <- compileCacheFiles cacheRoot
+    assertEqual "one dependency artifact" 1 (length cacheFiles)
+    cachePath <- case cacheFiles of
+      [path] -> pure path
+      paths -> assertFailure ("expected one cache file, got " <> show paths)
+
+    let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
+    setModificationTime cachePath oldTimestamp
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    getModificationTime cachePath >>= assertEqual "cache hit preserves artifact" oldTimestamp
+
+    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 2\n"
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
+    compileCacheFiles cacheRoot >>= assertEqual "unused library input changes the graph key" 2 . length
+
+test_compileNoImplicitPrelude :: Assertion
+test_compileNoImplicitPrelude =
+  withTempDir "aihc-compile-no-prelude" $ \root -> do
+    let environment = CompileEnvironment (root </> "missing-core-libs") (root </> "cache")
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" noImplicitDependencySource
+    cacheExists <- doesDirectoryExist (compileCacheRoot environment)
+    assertBool "NoImplicitPrelude should not create a dependency cache" (not cacheExists)
+
+test_compileExplicitCoreImport :: Assertion
+test_compileExplicitCoreImport =
+  withTempDir "aihc-compile-explicit-dependency" $ \root -> do
+    let coreRoot = root </> "core-libs"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment coreRoot cacheRoot
+        withImport = T.replace "module Main where\n" "module Main where\n\nimport Demo (identity)\n" noImplicitDependencySource
+        importedSource = T.replace "putchar (char 72#Int32)" "putchar (identity (char 72#Int32))" withImport
+    createCompileLibrary
+      coreRoot
+      "demo"
+      "Demo"
+      "{-# LANGUAGE NoImplicitPrelude #-}\nmodule Demo (identity) where\nidentity x = x\n"
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
+    compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
+
+expectCompileSuccess :: Either CompileError T.Text -> Assertion
+expectCompileSuccess result =
+  case result of
+    Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
+    Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+
+implicitDependencySource :: T.Text
+implicitDependencySource =
+  T.unlines
+    [ "{-# LANGUAGE ExtendedLiterals #-}",
+      "{-# LANGUAGE ForeignFunctionInterface #-}",
+      "{-# LANGUAGE MagicHash #-}",
+      "{-# LANGUAGE UnboxedTuples #-}",
+      "module Main where",
+      "data State# s",
+      "data RealWorld",
+      "data Int32 = I32# Int32#",
+      "newtype CInt = CInt Int32",
+      "newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))",
+      "foreign import ccall unsafe putchar :: CInt -> IO CInt",
+      "char value = CInt (I32# value)",
+      "main = id (putchar (char 72#Int32))"
+    ]
+
+noImplicitDependencySource :: T.Text
+noImplicitDependencySource =
+  T.replace
+    "main = id (putchar (char 72#Int32))"
+    "main = putchar (char 72#Int32)"
+    ("{-# LANGUAGE NoImplicitPrelude #-}\n" <> implicitDependencySource)
+
+createCompileLibrary :: FilePath -> FilePath -> FilePath -> String -> IO ()
+createCompileLibrary coreRoot library moduleName source = do
+  let sourcePath = coreRoot </> library </> "src" </> map dotToSlash moduleName <> ".hs"
+  createDirectoryIfMissing True (takeDirectory sourcePath)
+  writeFile (coreRoot </> library </> library <> ".cabal") ("name: " <> library <> "\n")
+  writeFile sourcePath source
+  where
+    dotToSlash '.' = '/'
+    dotToSlash char = char
+
+compileCacheFiles :: FilePath -> IO [FilePath]
+compileCacheFiles root = do
+  exists <- doesDirectoryExist root
+  if not exists
+    then pure []
+    else do
+      entries <- listDirectory root
+      concat <$> mapM visit entries
+  where
+    visit entry = do
+      let path = root </> entry
+      isDirectory <- doesDirectoryExist path
+      if isDirectory
+        then compileCacheFiles path
+        else pure [path | ".cache" `isSuffixOf` path]
+
+assertNativeOutput :: FilePath -> Assertion
+assertNativeOutput executable = do
+  (exitCode, stdout, stderr) <- readProcessWithExitCode executable [] ""
+  assertEqual ("native stderr: " <> stderr) ExitSuccess exitCode
+  assertEqual "native stdout" "Hello, world!\n" stdout
+
+helloWorldExamplePath :: IO FilePath
+helloWorldExamplePath = getCurrentDirectory >>= findFrom
+  where
+    relativePath = "examples" </> "hello-world" </> "Main.hs"
+    findFrom directory = do
+      let candidate = directory </> relativePath
+      exists <- doesFileExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure ("could not find " <> relativePath)
+            else findFrom parent
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

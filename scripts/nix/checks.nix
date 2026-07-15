@@ -71,6 +71,7 @@
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
+  arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -166,6 +167,7 @@
 in {
   parser-tests = parserTests;
   cpp-tests = cppTests;
+  arm64-tests = arm64Tests;
   fc-tests = fcTests;
   grin-tests = grinTests;
   resolve-tests = resolveTests;
@@ -195,6 +197,10 @@ in {
     {
       name = "cpp-tests";
       path = cppTests;
+    }
+    {
+      name = "arm64-tests";
+      path = arm64Tests;
     }
     {
       name = "fc-tests";

@@ -739,7 +739,7 @@ data NameType
     NameVarSym
   | -- | Constructor operator (e.g., @:@, @:++@)
     NameConSym
-  deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
+  deriving (Eq, Show, Read, Generic, NFData, Enum, Bounded, Data)
 
 mkName :: Maybe Text -> NameType -> Text -> Name
 mkName qualifier ty txt = Name qualifier ty txt []
@@ -1874,7 +1874,7 @@ data FixityAssoc
     InfixL
   | -- | @infixr@
     InfixR
-  deriving (Data, Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Read, Generic, NFData)
 
 -- | A foreign import or export declaration.
 -- Example: @foreign import ccall "puts" puts :: CString -> IO CInt@.

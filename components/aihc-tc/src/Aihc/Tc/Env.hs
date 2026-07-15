@@ -52,7 +52,7 @@ data TyConInfo = TyConInfo
     tciTyCon :: !TyCon,
     tciKind :: !Kind
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 -- | Information about a data constructor.
 --
@@ -99,4 +99,4 @@ data InstanceInfo = InstanceInfo
     -- | Instance head types.
     iiHead :: ![TcType]
   }
-  deriving (Show)
+  deriving (Show, Read)

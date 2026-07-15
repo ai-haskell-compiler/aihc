@@ -31,3 +31,4 @@ result-*
 
 # Qwen Code
 .qwen/
+.aihc-cache/
