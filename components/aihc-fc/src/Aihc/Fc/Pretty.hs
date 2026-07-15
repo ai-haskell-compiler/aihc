@@ -193,8 +193,8 @@ renderAltCon DefaultAlt = "_"
 
 -- | Render a literal.
 renderLiteral :: Literal -> String
-renderLiteral (LitInt i) = show i
-renderLiteral (LitChar c) = show c <> "#"
+renderLiteral (LitInt _ i) = show i
+renderLiteral (LitChar _ c) = show c <> "#"
 renderLiteral (LitString s) = show (T.unpack s)
 
 -- | Render a type.

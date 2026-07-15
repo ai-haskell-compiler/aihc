@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Strict graph-reduction intermediate language.
 --
 -- GRIN evaluation is strict: operands are values, and sequencing is explicit
@@ -19,14 +21,19 @@ module Aihc.Grin.Syntax
     GrinForeignSignature (..),
     GrinForeignResult (..),
     GrinForeignType (..),
+    grinValueRuntimeRep,
+    isLiftedRuntimeRep,
+    isPointerRuntimeRep,
+    builtinConstructors,
   )
 where
 
+import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
 import Data.Text (Text)
 
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
-  { grinConstructors :: ![(Text, Int)],
+  { grinConstructors :: ![(Text, [RuntimeRep])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
     grinCafs :: ![(GrinVar, GrinNode)],
@@ -39,6 +46,7 @@ data GrinProgram = GrinProgram
 data GrinFunction = GrinFunction
   { grinFunctionName :: !FunctionName,
     grinFunctionParameters :: ![GrinVar],
+    grinFunctionResultRep :: !RuntimeRep,
     grinFunctionBody :: !GrinExpr
   }
   deriving (Eq, Show)
@@ -48,10 +56,12 @@ newtype FunctionName = FunctionName
   }
   deriving (Eq, Ord, Show)
 
--- | GRIN erases source types but preserves variable identity.
+-- | GRIN erases source types but preserves the part of their kinds that
+-- determines the runtime ABI.
 data GrinVar = GrinVar
   { grinVarName :: !Text,
-    grinVarUnique :: !Int
+    grinVarUnique :: !Int,
+    grinVarRuntimeRep :: !RuntimeRep
   }
   deriving (Show)
 
@@ -73,14 +83,14 @@ data GrinExpr
   | GrinBind !GrinVar !GrinExpr !GrinExpr
   | GrinStore !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
-  | GrinFetch !GrinValue
+  | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
-  | GrinEval !GrinValue
-  | GrinApply !GrinValue !GrinValue
+  | GrinEval !RuntimeRep !GrinValue
+  | GrinApply !RuntimeRep !GrinValue !GrinValue
   | GrinCase !GrinValue !GrinVar ![GrinAlt]
-  | GrinDictSelect !GrinValue !Int
+  | GrinDictSelect !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
-  | GrinCatch !GrinValue !GrinValue !GrinValue
+  | GrinCatch !RuntimeRep !GrinValue !GrinValue !GrinValue
   deriving (Eq, Show)
 
 -- | Atomic operands in the strict language.
@@ -120,10 +130,49 @@ data GrinAltCon
   deriving (Eq, Show)
 
 data GrinLiteral
-  = GrinLitInt !Integer
-  | GrinLitChar !Char
+  = GrinLitInt !RuntimeRep !Integer
+  | GrinLitChar !RuntimeRep !Char
   | GrinLitString !Text
   deriving (Eq, Show)
+
+grinValueRuntimeRep :: GrinValue -> RuntimeRep
+grinValueRuntimeRep value =
+  case value of
+    GrinVarValue var -> grinVarRuntimeRep var
+    GrinLitValue literal ->
+      case literal of
+        GrinLitInt runtimeRep _ -> runtimeRep
+        GrinLitChar runtimeRep _ -> runtimeRep
+        GrinLitString {} -> liftedRuntimeRep
+    GrinNodeValue {} -> liftedRuntimeRep
+
+isLiftedRuntimeRep :: RuntimeRep -> Bool
+isLiftedRuntimeRep runtimeRep = runtimeRep == liftedRuntimeRep
+
+-- | Runtime reps currently carried as one pointer-sized heap reference by
+-- GRIN/native codegen. Tuple and sum reps are strict, but their aggregate
+-- payload is pointer-backed until the native ABI grows multi-value returns.
+isPointerRuntimeRep :: RuntimeRep -> Bool
+isPointerRuntimeRep runtimeRep =
+  case runtimeRep of
+    BoxedRep {} -> True
+    TupleRep {} -> True
+    SumRep {} -> True
+    _ -> False
+
+-- | Constructors supplied by the runtime rather than an FC data declaration.
+-- Keeping their arities with the shared GRIN syntax makes lowering,
+-- interpretation, linting, and native code generation agree on which global
+-- constructor values exist before the program starts.
+builtinConstructors :: [(Text, Int)]
+builtinConstructors =
+  [ ("C#", 1),
+    ("[]", 0),
+    (":", 2),
+    ("()", 0),
+    ("(,)", 2),
+    ("(#,#)", 2)
+  ]
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,

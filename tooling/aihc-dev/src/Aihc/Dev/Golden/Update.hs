@@ -12,6 +12,7 @@ import Aihc.Cpp (Result (..))
 import Aihc.Dev.Parser.Run qualified as ParserRun
 import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderProgram, renderRawValue)
 import Aihc.Fmt (defaultFormatOptions, formatErrorMessage, formatExtensions, formatText)
+import Aihc.Grin qualified as Grin
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -132,6 +133,7 @@ run opts = do
         updateResolverGoldens opts,
         updateTcAnnotatedGoldens opts,
         updateFcGoldens opts,
+        updateGrinGoldens opts,
         updateFcEvalGoldens opts,
         updateFormatterGoldens opts,
         updateParserCliGoldens opts
@@ -383,6 +385,38 @@ fcActual value = do
                in if all dsSuccess dsResults
                     then Right (trim (unlines (map (renderProgram . dsProgram) dsResults)))
                     else Left (unlines [err | r <- dsResults, err <- dsErrors r])
+            else Left ("typecheck error: " <> renderTcErrors tcResults)
+    ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+
+updateGrinGoldens :: Options -> IO Summary
+updateGrinGoldens opts =
+  updateYamlTree opts (optRoot opts </> "test/Test/Fixtures/grin") $ \_ value ->
+    if not (shouldUpdateOutput value)
+      then pure FixtureUnchanged
+      else case grinActual value of
+        Left err -> pure (skipForStatus (textField "status" value) err)
+        Right actual -> updateExpectedText value actual
+
+grinActual :: Value -> Either String String
+grinActual value = do
+  extensions <- parseExtensions value
+  source <- textField "source" value
+  parsed <- parseModuleText extensions source
+  case resolve [parsed] of
+    ResolveResult {resolvedModules, resolveErrors = []} ->
+      let tcResults = typecheck resolvedModules
+       in if all tcModuleSuccess tcResults
+            then
+              let allBindings = moduleGroupBindings tcResults
+                  desugared = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+               in if all dsSuccess desugared
+                    then
+                      let programs = map (Grin.lowerProgram . dsProgram) desugared
+                          lintErrors = concatMap Grin.lintProgram programs
+                       in if null lintErrors
+                            then Right (trim (unlines (map Grin.renderProgram programs)))
+                            else Left ("GRIN lint error: " <> show lintErrors)
+                    else Left (unlines [err | result <- desugared, err <- dsErrors result])
             else Left ("typecheck error: " <> renderTcErrors tcResults)
     ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 

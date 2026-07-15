@@ -10,6 +10,7 @@
 module Aihc.Fc.Desugar.Match
   ( dsPatternPure,
     dsDataConPure,
+    numericRuntimeRep,
   )
 where
 
@@ -17,11 +18,13 @@ import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( DataConDecl (..),
     Name (..),
+    NumericType (..),
     Pattern (..),
     TupleFlavor (..),
     UnqualifiedName (..),
   )
 import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Tc.Types (RuntimeRep (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -54,11 +57,26 @@ dsPatternPure _ = (DefaultAlt, [])
 dsLiteralAlt :: Surface.Literal -> FcAltCon
 dsLiteralAlt lit =
   case lit of
-    Surface.LitInt n _ _ -> LitAlt (LitInt n)
-    Surface.LitChar c _ -> LitAlt (LitChar c)
-    Surface.LitCharHash c _ -> LitAlt (LitChar c)
+    Surface.LitInt n numericType _ -> LitAlt (LitInt (numericRuntimeRep numericType) n)
+    Surface.LitChar c _ -> LitAlt (LitChar WordRep c)
+    Surface.LitCharHash c _ -> LitAlt (LitChar WordRep c)
     Surface.LitAnn _ inner -> dsLiteralAlt inner
     _ -> DefaultAlt
+
+numericRuntimeRep :: NumericType -> RuntimeRep
+numericRuntimeRep numericType =
+  case numericType of
+    TInteger -> IntRep
+    TIntHash -> IntRep
+    TWordHash -> WordRep
+    TInt8Hash -> Int8Rep
+    TInt16Hash -> Int16Rep
+    TInt32Hash -> Int32Rep
+    TInt64Hash -> Int64Rep
+    TWord8Hash -> Word8Rep
+    TWord16Hash -> Word16Rep
+    TWord32Hash -> Word32Rep
+    TWord64Hash -> Word64Rep
 
 -- | Extract a name from a sub-pattern.
 subPatName :: Pattern -> Text

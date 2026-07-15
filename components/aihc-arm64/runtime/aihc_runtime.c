@@ -29,8 +29,7 @@ enum {
   AIHC_CONT_FINAL = 4,
   AIHC_CONT_FOREIGN_CINT = 5,
   AIHC_CONT_FOREIGN_INT32 = 6,
-  AIHC_CONT_FOREIGN_LITERAL = 7,
-  AIHC_CONT_SELECT = 8,
+  AIHC_CONT_SELECT = 7,
 };
 
 enum {
@@ -39,6 +38,9 @@ enum {
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcContinuation AihcContinuation;
+/* Every runtime location is one machine word. Static RuntimeRep metadata says
+ * whether that word is a heap pointer or an unboxed payload. */
+typedef uintptr_t AihcSlot;
 
 typedef struct {
   void *function;
@@ -54,7 +56,7 @@ struct AihcValue {
   uintptr_t info;
   uint64_t arity;
   uint64_t count;
-  AihcValue *fields[];
+  AihcSlot fields[];
 };
 
 struct AihcContinuation {
@@ -63,35 +65,35 @@ struct AihcContinuation {
   union {
     struct {
       void *code;
-      AihcValue **locals;
+      AihcSlot *locals;
       uint64_t slot;
     } normal;
     struct {
       AihcValue *cell;
     } update;
     struct {
-      AihcValue *argument;
+      AihcSlot argument;
     } apply;
     struct {
-      AihcValue *state;
+      AihcSlot state;
       AihcForeign *descriptor;
     } foreign_call;
     struct {
       uint64_t index;
+      uint64_t result_is_lifted;
     } select;
   } payload;
 };
 
 typedef struct {
   void *next;
-  AihcValue **args;
+  AihcSlot *args;
   AihcContinuation *continuation;
-  AihcValue **globals;
-  AihcValue **locals;
+  AihcSlot *globals;
+  AihcSlot *locals;
   void *exit_code;
   uint64_t io_constructor;
   uint64_t tuple_constructor;
-  AihcValue *state_token;
 } AihcMachine;
 
 static void aihc_fail(const char *message) {
@@ -116,8 +118,8 @@ static AihcContinuation *aihc_push_special(AihcMachine *machine,
   return continuation;
 }
 
-static AihcValue *aihc_copy_with_field(AihcValue *value, AihcValue *field) {
-  AihcValue *copy = aihc_allocate(sizeof(*copy) + sizeof(AihcValue *) * (value->count + 1));
+static AihcValue *aihc_copy_with_field(AihcValue *value, AihcSlot field) {
+  AihcValue *copy = aihc_allocate(sizeof(*copy) + sizeof(AihcSlot) * (value->count + 1));
   copy->kind = value->kind;
   copy->info = value->info;
   copy->arity = value->arity;
@@ -129,9 +131,9 @@ static AihcValue *aihc_copy_with_field(AihcValue *value, AihcValue *field) {
   return copy;
 }
 
-static AihcValue **aihc_arguments_with_field(AihcValue *function,
-                                              AihcValue *argument) {
-  AihcValue **arguments = aihc_allocate(sizeof(*arguments) * (function->count + 1));
+static AihcSlot *aihc_arguments_with_field(AihcValue *function,
+                                            AihcSlot argument) {
+  AihcSlot *arguments = aihc_allocate(sizeof(*arguments) * (function->count + 1));
   for (uint64_t index = 0; index < function->count; ++index) {
     arguments[index] = function->fields[index];
   }
@@ -139,14 +141,15 @@ static AihcValue **aihc_arguments_with_field(AihcValue *function,
   return arguments;
 }
 
-static void aihc_return_value(AihcMachine *machine, AihcValue *value);
-static void aihc_eval_value(AihcMachine *machine, AihcValue *value);
+static void aihc_return_value(AihcMachine *machine, AihcSlot value);
+static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
+                            uint64_t result_is_lifted);
 static void aihc_apply_value(AihcMachine *machine, AihcValue *function,
-                             AihcValue *argument);
+                             AihcSlot argument);
 
 AihcValue *aihc_make_node(uint64_t kind, uintptr_t info, uint64_t arity,
                           uint64_t count) {
-  AihcValue *value = aihc_allocate(sizeof(*value) + sizeof(AihcValue *) * count);
+  AihcValue *value = aihc_allocate(sizeof(*value) + sizeof(AihcSlot) * count);
   value->kind = kind;
   value->info = info;
   value->arity = arity;
@@ -154,15 +157,11 @@ AihcValue *aihc_make_node(uint64_t kind, uintptr_t info, uint64_t arity,
   return value;
 }
 
-AihcValue *aihc_make_literal(int64_t integer) {
-  return aihc_make_node(AIHC_LITERAL_INT, (uintptr_t)integer, 0, 0);
-}
-
 AihcValue *aihc_make_cell(void) {
   return aihc_make_node(AIHC_CELL, AIHC_CELL_SUSPENDED, 1, 1);
 }
 
-void aihc_set_field(AihcValue *value, uint64_t index, AihcValue *field) {
+void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
   if (index >= value->count) {
     aihc_fail("field index out of bounds");
   }
@@ -174,7 +173,7 @@ void aihc_set_cell(AihcValue *cell, AihcValue *value) {
     aihc_fail("attempted to initialize a non-cell");
   }
   cell->info = AIHC_CELL_SUSPENDED;
-  cell->fields[0] = value;
+  cell->fields[0] = (AihcSlot)value;
 }
 
 AihcMachine *aihc_machine_new(uint64_t global_count, uint64_t io_constructor,
@@ -183,17 +182,16 @@ AihcMachine *aihc_machine_new(uint64_t global_count, uint64_t io_constructor,
   machine->globals = aihc_allocate(sizeof(*machine->globals) * global_count);
   machine->io_constructor = io_constructor;
   machine->tuple_constructor = tuple_constructor;
-  machine->state_token = aihc_make_node(AIHC_STATE_TOKEN, 0, 0, 0);
   return machine;
 }
 
-AihcValue **aihc_alloc_locals(uint64_t count) {
-  return aihc_allocate(sizeof(AihcValue *) * (count == 0 ? 1 : count));
+AihcSlot *aihc_alloc_locals(uint64_t count) {
+  return aihc_allocate(sizeof(AihcSlot) * (count == 0 ? 1 : count));
 }
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
-void aihc_push_normal(AihcMachine *machine, void *code, AihcValue **locals,
+void aihc_push_normal(AihcMachine *machine, void *code, AihcSlot *locals,
                       uint64_t slot) {
   AihcContinuation *continuation = aihc_push_special(machine, AIHC_CONT_NORMAL);
   continuation->payload.normal.code = code;
@@ -202,7 +200,7 @@ void aihc_push_normal(AihcMachine *machine, void *code, AihcValue **locals,
 }
 
 static void aihc_schedule_function(AihcMachine *machine, AihcValue *function,
-                                   AihcValue **arguments) {
+                                   AihcSlot *arguments) {
   machine->next = (void *)function->info;
   machine->args = arguments;
   machine->locals = NULL;
@@ -214,17 +212,17 @@ static AihcValue *aihc_constructor(uint64_t constructor, uint64_t arity,
 }
 
 static void aihc_complete_foreign(AihcMachine *machine, AihcValue *foreign,
-                                  AihcValue *state) {
+                                  AihcSlot state) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_FOREIGN_CINT);
   continuation->payload.foreign_call.state = state;
   continuation->payload.foreign_call.descriptor =
       (AihcForeign *)foreign->info;
-  aihc_eval_value(machine, foreign->fields[0]);
+  aihc_eval_value(machine, (AihcValue *)foreign->fields[0], 1);
 }
 
 static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
-                              AihcValue *argument) {
+                              AihcSlot argument) {
   switch (function->kind) {
   case AIHC_CLOSURE:
     aihc_schedule_function(machine, function,
@@ -235,7 +233,7 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
   case AIHC_FOREIGN: {
     AihcValue *applied = aihc_copy_with_field(function, argument);
     if (applied->count < applied->arity) {
-      aihc_return_value(machine, applied);
+      aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
     if (applied->count > applied->arity) {
@@ -252,11 +250,11 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
         action->fields[index] = applied->fields[index];
       }
       AihcValue *io = aihc_constructor(descriptor->io_constructor, 1, 1);
-      io->fields[0] = action;
-      aihc_return_value(machine, io);
+      io->fields[0] = (AihcSlot)action;
+      aihc_return_value(machine, (AihcSlot)io);
       return;
     }
-    aihc_return_value(machine, applied);
+    aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
   case AIHC_FOREIGN_IO:
@@ -267,14 +265,15 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
   }
 }
 
-static void aihc_eval_value(AihcMachine *machine, AihcValue *value) {
+static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
+                            uint64_t result_is_lifted) {
   if (value == NULL) {
     aihc_fail("attempted to evaluate null");
   }
   if (value->kind == AIHC_CELL) {
     switch (value->info) {
     case AIHC_CELL_SUSPENDED: {
-      AihcValue *thunk = value->fields[0];
+      AihcValue *thunk = (AihcValue *)value->fields[0];
       if (thunk == NULL || thunk->kind != AIHC_THUNK) {
         aihc_fail("suspended cell does not contain a thunk");
       }
@@ -286,7 +285,11 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value) {
       return;
     }
     case AIHC_CELL_VALUE:
-      aihc_eval_value(machine, value->fields[0]);
+      if (result_is_lifted) {
+        aihc_eval_value(machine, (AihcValue *)value->fields[0], 1);
+      } else {
+        aihc_return_value(machine, value->fields[0]);
+      }
       return;
     case AIHC_CELL_BLACKHOLE:
       aihc_fail("blackholed thunk re-entered");
@@ -296,20 +299,20 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value) {
   }
   if (value->kind == AIHC_PRIMITIVE && value->arity == 0) {
     if (value->info == AIHC_PRIM_REAL_WORLD) {
-      aihc_return_value(machine, machine->state_token);
+      aihc_return_value(machine, 0);
       return;
     }
     aihc_fail("unknown zero-arity primitive");
   }
-  aihc_return_value(machine, value);
+  aihc_return_value(machine, (AihcSlot)value);
 }
 
 static void aihc_apply_value(AihcMachine *machine, AihcValue *function,
-                             AihcValue *argument) {
+                             AihcSlot argument) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_APPLY);
   continuation->payload.apply.argument = argument;
-  aihc_eval_value(machine, function);
+  aihc_eval_value(machine, function, 1);
 }
 
 static void aihc_run_io(AihcMachine *machine, AihcValue *value) {
@@ -318,10 +321,10 @@ static void aihc_run_io(AihcMachine *machine, AihcValue *value) {
     aihc_fail("program result is not an IO value");
   }
   aihc_push_special(machine, AIHC_CONT_FINAL);
-  aihc_apply_value(machine, value->fields[0], machine->state_token);
+  aihc_apply_value(machine, (AihcValue *)value->fields[0], 0);
 }
 
-static void aihc_return_value(AihcMachine *machine, AihcValue *value) {
+static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
   AihcContinuation *continuation = machine->continuation;
   if (continuation == NULL) {
     aihc_fail("returned without a continuation");
@@ -340,96 +343,100 @@ static void aihc_return_value(AihcMachine *machine, AihcValue *value) {
     aihc_return_value(machine, value);
     return;
   case AIHC_CONT_APPLY:
-    aihc_apply_forced(machine, value, continuation->payload.apply.argument);
+    aihc_apply_forced(machine, (AihcValue *)value,
+                      continuation->payload.apply.argument);
     return;
   case AIHC_CONT_TOP:
-    aihc_run_io(machine, value);
+    aihc_run_io(machine, (AihcValue *)value);
     return;
-  case AIHC_CONT_FINAL:
-    if (value->kind != AIHC_CONSTRUCTOR ||
-        value->info != machine->tuple_constructor || value->count != 2) {
+  case AIHC_CONT_FINAL: {
+    AihcValue *tuple = (AihcValue *)value;
+    if (tuple->kind != AIHC_CONSTRUCTOR ||
+        tuple->info != machine->tuple_constructor || tuple->count != 2) {
       aihc_fail("IO action returned an invalid state/result tuple");
     }
     machine->locals = NULL;
     machine->next = machine->exit_code;
     return;
+  }
   case AIHC_CONT_FOREIGN_CINT: {
     AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    if (value->kind != AIHC_CONSTRUCTOR ||
-        value->info != descriptor->cint_constructor || value->count != 1) {
+    AihcValue *cint = (AihcValue *)value;
+    if (cint->kind != AIHC_CONSTRUCTOR ||
+        cint->info != descriptor->cint_constructor || cint->count != 1) {
       aihc_fail("foreign CInt argument has invalid outer constructor");
     }
     AihcContinuation *next =
         aihc_push_special(machine, AIHC_CONT_FOREIGN_INT32);
     next->payload.foreign_call = continuation->payload.foreign_call;
-    aihc_eval_value(machine, value->fields[0]);
+    aihc_eval_value(machine, (AihcValue *)cint->fields[0], 1);
     return;
   }
   case AIHC_CONT_FOREIGN_INT32: {
     AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    if (value->kind != AIHC_CONSTRUCTOR ||
-        value->info != descriptor->int32_constructor || value->count != 1) {
+    AihcValue *int32 = (AihcValue *)value;
+    if (int32->kind != AIHC_CONSTRUCTOR ||
+        int32->info != descriptor->int32_constructor || int32->count != 1) {
       aihc_fail("foreign CInt argument has invalid Int32 constructor");
     }
-    AihcContinuation *next =
-        aihc_push_special(machine, AIHC_CONT_FOREIGN_LITERAL);
-    next->payload.foreign_call = continuation->payload.foreign_call;
-    aihc_eval_value(machine, value->fields[0]);
-    return;
-  }
-  case AIHC_CONT_FOREIGN_LITERAL: {
-    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    if (value->kind != AIHC_LITERAL_INT) {
-      aihc_fail("foreign CInt argument is not an integer literal");
-    }
-    int result = ((int (*)(int))descriptor->function)((int)value->info);
-    AihcValue *literal = aihc_make_literal(result);
-    AihcValue *int32 = aihc_constructor(descriptor->int32_constructor, 1, 1);
-    int32->fields[0] = literal;
+    int argument = (int)(int32_t)(uint32_t)int32->fields[0];
+    int result = ((int (*)(int))descriptor->function)(argument);
+    AihcValue *result_int32 =
+        aihc_constructor(descriptor->int32_constructor, 1, 1);
+    result_int32->fields[0] = (AihcSlot)(intptr_t)(int32_t)result;
     AihcValue *cint = aihc_constructor(descriptor->cint_constructor, 1, 1);
-    cint->fields[0] = int32;
+    cint->fields[0] = (AihcSlot)result_int32;
     AihcValue *tuple = aihc_constructor(descriptor->tuple_constructor, 2, 2);
     tuple->fields[0] = continuation->payload.foreign_call.state;
-    tuple->fields[1] = cint;
-    aihc_return_value(machine, tuple);
+    tuple->fields[1] = (AihcSlot)cint;
+    aihc_return_value(machine, (AihcSlot)tuple);
     return;
   }
-  case AIHC_CONT_SELECT:
-    if (value->kind != AIHC_DICTIONARY ||
-        continuation->payload.select.index >= value->count) {
+  case AIHC_CONT_SELECT: {
+    AihcValue *dictionary = (AihcValue *)value;
+    if (dictionary->kind != AIHC_DICTIONARY ||
+        continuation->payload.select.index >= dictionary->count) {
       aihc_fail("invalid dictionary selection");
     }
-    aihc_eval_value(machine,
-                    value->fields[continuation->payload.select.index]);
+    AihcSlot selected =
+        dictionary->fields[continuation->payload.select.index];
+    if (continuation->payload.select.result_is_lifted) {
+      aihc_eval_value(machine, (AihcValue *)selected, 1);
+    } else {
+      aihc_return_value(machine, selected);
+    }
     return;
+  }
   default:
     aihc_fail("unknown continuation kind");
   }
 }
 
-void aihc_return(AihcMachine *machine, AihcValue *value) {
+void aihc_return(AihcMachine *machine, AihcSlot value) {
   aihc_return_value(machine, value);
 }
 
-void aihc_eval(AihcMachine *machine, AihcValue *value) {
-  aihc_eval_value(machine, value);
+void aihc_eval(AihcMachine *machine, AihcValue *value,
+               uint64_t result_is_lifted) {
+  aihc_eval_value(machine, value, result_is_lifted);
 }
 
 void aihc_apply(AihcMachine *machine, AihcValue *function,
-                AihcValue *argument) {
+                AihcSlot argument) {
   aihc_apply_value(machine, function, argument);
 }
 
 void aihc_select(AihcMachine *machine, AihcValue *dictionary,
-                 uint64_t index) {
+                 uint64_t index, uint64_t result_is_lifted) {
   AihcContinuation *continuation =
       aihc_push_special(machine, AIHC_CONT_SELECT);
   continuation->payload.select.index = index;
-  aihc_eval_value(machine, dictionary);
+  continuation->payload.select.result_is_lifted = result_is_lifted;
+  aihc_eval_value(machine, dictionary, 1);
 }
 
 void aihc_start(AihcMachine *machine, AihcValue *root, void *exit_code) {
   machine->exit_code = exit_code;
   aihc_push_special(machine, AIHC_CONT_TOP);
-  aihc_eval_value(machine, root);
+  aihc_eval_value(machine, root, 1);
 }

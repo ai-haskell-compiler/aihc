@@ -1,0 +1,19 @@
+expected: |-
+  constructor Narrow/2 [Int8Rep, Word16Rep]
+
+  caf value%1002 :: BoxedRep Lifted = (F$grin_thunk_0)
+
+  $grin_thunk_0 -> BoxedRep Lifted =
+    $grin_function_1003%1003 :: BoxedRep Lifted <-
+      apply @BoxedRep Lifted Narrow%1001 :: BoxedRep Lifted 123
+    apply @BoxedRep Lifted $grin_function_1003%1003 :: BoxedRep Lifted 456
+extensions:
+- MagicHash
+- ExtendedLiterals
+reason: preserves distinct narrow signed and unsigned runtime representations
+source: |
+  module Test where
+  data Narrow = Narrow Int8# Word16#
+  value :: Narrow
+  value = Narrow 123#Int8 456#Word16
+status: pass

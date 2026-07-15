@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
     ParamInfo (..),
     checkSurfaceType,
+    checkRuntimeType,
     convertSurfaceType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
@@ -47,6 +47,7 @@ import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 
 type TvKindEnv = Map Text (TyVarId, Kind)
 
@@ -61,23 +62,36 @@ sigToScheme :: Type -> TcM TypeScheme
 sigToScheme ty = do
   let (context, body) = splitContext ty
       freeVars = freeTypeVars ty
-  tvs <- mapM freshSkolemTv freeVars
+  rawTvs <- mapM freshSkolemTv freeVars
   kinds <- mapM (const freshKindMeta) freeVars
+  let tvs = zipWith setTyVarKind kinds rawTvs
   let tvEnv = Map.fromList (zip freeVars (zip tvs kinds))
-  tcTy <- checkSurfaceType tvEnv body KType
+  tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) context
   pure (ForAll tvs preds tcTy)
 
 convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
 convertSurfaceType tvMap ty = do
-  let tvEnv = Map.map (,KType) tvMap
-  checkSurfaceType tvEnv ty KType
+  let tvEnv = Map.map (\tv -> (tv, tvKind tv)) tvMap
+  checkRuntimeType tvEnv ty
 
 checkSurfaceType :: TvKindEnv -> Type -> Kind -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
   (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
   unifyKinds expected actual
   pure tcTy
+
+-- | Check that a surface type is a value-bearing type of kind @TYPE rep@.
+-- Unconstrained kind metas default to lifted representation; explicitly
+-- unlifted types retain their fixed representation.
+checkRuntimeType :: TvKindEnv -> Type -> TcM TcType
+checkRuntimeType tvEnv ty = do
+  (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
+  actual' <- zonkKind actual
+  case actual' of
+    KTYPE {} -> pure tcTy
+    KMeta unique -> bindKindMeta unique KType >> pure tcTy
+    _ -> emitError NoSourceSpan (KindMismatch KType actual') >> pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, Kind)
 convertSurfaceTypeWithKinds tvEnv ty =
@@ -109,17 +123,27 @@ convertSurfaceTypeWithKinds tvEnv ty =
     TInfix lhs name promoted rhs ->
       convertSurfaceTypeWithKinds tvEnv (TApp (TApp (TCon name promoted) lhs) rhs)
     TFun _ a b -> do
-      aTy <- checkSurfaceType tvEnv a KType
-      bTy <- checkSurfaceType tvEnv b KType
+      aTy <- checkRuntimeType tvEnv a
+      bTy <- checkRuntimeType tvEnv b
       pure (TcFunTy aTy bTy, KType)
     TTuple flavor _ args -> do
-      tys <- mapM (\arg -> checkSurfaceType tvEnv arg KType) args
+      tys <-
+        case flavor of
+          Boxed -> mapM (\arg -> checkSurfaceType tvEnv arg KType) args
+          Unboxed -> mapM (checkRuntimeType tvEnv) args
       let arity = length tys
-      pure (TcTyCon (TyCon (tupleConText flavor arity) arity) tys, KType)
+          resultKind =
+            case flavor of
+              Boxed -> KType
+              Unboxed -> KTYPE (TupleRep (map runtimeRepOrLifted tys))
+          tyConKind' = foldr (KFun . typeKind) resultKind tys
+      pure (TcTyCon (mkTyCon (tupleConText flavor arity) arity tyConKind') tys, resultKind)
     TUnboxedSum args -> do
-      tys <- mapM (\arg -> checkSurfaceType tvEnv arg KType) args
+      tys <- mapM (checkRuntimeType tvEnv) args
       let arity = length tys
-      pure (TcTyCon (TyCon ("(#" <> bars (arity - 1) <> "#)") arity) tys, KType)
+          resultKind = KTYPE (SumRep (map runtimeRepOrLifted tys))
+          tyConKind' = foldr (KFun . typeKind) resultKind tys
+      pure (TcTyCon (mkTyCon ("(#" <> bars (arity - 1) <> "#)") arity tyConKind') tys, resultKind)
     TList Unpromoted [arg] -> do
       argTy <- checkSurfaceType tvEnv arg KType
       pure (listType argTy, KType)
@@ -153,7 +177,7 @@ inferTypeVariable tvEnv name =
 inferTypeConstructor :: TypePromotion -> Name -> TcM (TcType, Kind)
 inferTypeConstructor promoted name =
   case promoted of
-    Promoted -> inferOpenTypeConstructor ("'" <> nameText name)
+    Promoted -> inferPromotedTypeConstructor (nameText name)
     Unpromoted ->
       case nameText name of
         "String" -> pure (listType (TcTyCon (TyCon "Char" 0) []), KType)
@@ -180,37 +204,42 @@ inferBuiltinTypeConstructor builtin =
 
 inferBuiltinOrOpenTypeConstructor :: Text -> TcM (TcType, Kind)
 inferBuiltinOrOpenTypeConstructor name =
-  case name of
-    "Int" -> pure (TcTyCon (TyCon "Int" 0) [], KType)
-    "Integer" -> pure (TcTyCon (TyCon "Integer" 0) [], KType)
-    "Double" -> pure (TcTyCon (TyCon "Double" 0) [], KType)
-    "Float" -> pure (TcTyCon (TyCon "Float" 0) [], KType)
-    "Char" -> pure (TcTyCon (TyCon "Char" 0) [], KType)
-    "Bool" -> pure (TcTyCon (TyCon "Bool" 0) [], KType)
-    _ -> inferOpenTypeConstructor name
+  case wiredInTypeKind name of
+    Just kind -> pure (TcTyCon (mkTyCon name 0 kind) [], kind)
+    Nothing -> inferOpenTypeConstructor name
+
+inferPromotedTypeConstructor :: Text -> TcM (TcType, Kind)
+inferPromotedTypeConstructor name =
+  case runtimeRepConstructor name of
+    Just _ -> pure (TcTyCon (mkTyCon ("'" <> name) 0 KRuntimeRep) [], KRuntimeRep)
+    Nothing -> inferOpenTypeConstructor ("'" <> name)
 
 inferOpenTypeConstructor :: Text -> TcM (TcType, Kind)
 inferOpenTypeConstructor name = do
   kind <- freshKindMeta
-  pure (TcTyCon (TyCon name 0) [], kind)
+  pure (TcTyCon (mkTyCon name 0 kind) [], kind)
 
 makeParamEnv :: [TyVarBinder] -> TcM [ParamInfo]
-makeParamEnv =
-  mapM makeParam
+makeParamEnv = go Map.empty
   where
-    makeParam binder = do
-      tv <- freshSkolemTv (tyVarBinderName binder)
-      kind <- maybe freshKindMeta (kindFromSurfaceType Map.empty) (tyVarBinderKind binder)
-      pure
-        ParamInfo
-          { paramName = tyVarBinderName binder,
-            paramTyVar = tv,
-            paramKind = kind
-          }
+    go _ [] = pure []
+    go tvEnv (binder : rest) = do
+      rawTv <- freshSkolemTv (tyVarBinderName binder)
+      kind <- maybe freshKindMeta (kindFromSurfaceType tvEnv) (tyVarBinderKind binder)
+      let tv = setTyVarKind kind rawTv
+          param =
+            ParamInfo
+              { paramName = tyVarBinderName binder,
+                paramTyVar = tv,
+                paramKind = kind
+              }
+          tvEnv' = Map.insert (paramName param) (tv, kind) tvEnv
+      (param :) <$> go tvEnv' rest
 
 tyConKindFromParams :: [ParamInfo] -> Maybe Type -> TcM Kind
 tyConKindFromParams params maybeResultKind = do
-  resultKind <- maybe (pure KType) (kindFromSurfaceType Map.empty) maybeResultKind
+  let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
+  resultKind <- maybe (pure KType) (kindFromSurfaceType tvEnv) maybeResultKind
   pure (foldr (KFun . paramKind) resultKind params)
 
 kindFromSurfaceType :: TvKindEnv -> Type -> TcM Kind
@@ -220,6 +249,14 @@ kindFromSurfaceType tvEnv ty =
     TCon name Unpromoted
       | nameText name == "Type" -> pure KType
       | nameText name == "Constraint" -> pure KConstraint
+      | nameText name == "RuntimeRep" -> pure KRuntimeRep
+      | nameText name == "Levity" -> pure KLevity
+      | nameText name == "VecCount" -> pure KVecCount
+      | nameText name == "VecElem" -> pure KVecElem
+    TApp function repTy
+      | TCon name Unpromoted <- peelTypeHead function,
+        nameText name == "TYPE" ->
+          KTYPE <$> runtimeRepFromSurfaceType tvEnv repTy
     TFun _ a b -> KFun <$> kindFromSurfaceType tvEnv a <*> kindFromSurfaceType tvEnv b
     TParen inner -> kindFromSurfaceType tvEnv inner
     TAnn _ inner -> kindFromSurfaceType tvEnv inner
@@ -235,8 +272,13 @@ unifyKinds expected actual = do
   case (expected', actual') of
     (KMeta u, kind) -> bindKindMeta u kind
     (kind, KMeta u) -> bindKindMeta u kind
-    (KType, KType) -> pure ()
+    (KTYPE expectedRep, KTYPE actualRep)
+      | expectedRep == actualRep -> pure ()
     (KConstraint, KConstraint) -> pure ()
+    (KRuntimeRep, KRuntimeRep) -> pure ()
+    (KLevity, KLevity) -> pure ()
+    (KVecCount, KVecCount) -> pure ()
+    (KVecElem, KVecElem) -> pure ()
     (KFun a1 b1, KFun a2 b2) -> unifyKinds a1 a2 >> unifyKinds b1 b2
     _ -> emitError NoSourceSpan (KindMismatch expected' actual')
 
@@ -255,8 +297,12 @@ zonkKind kind =
         Nothing -> pure kind
         Just solved -> zonkKind solved
     KFun a b -> KFun <$> zonkKind a <*> zonkKind b
-    KType -> pure KType
+    KTYPE runtimeRep -> pure (KTYPE runtimeRep)
     KConstraint -> pure KConstraint
+    KRuntimeRep -> pure KRuntimeRep
+    KLevity -> pure KLevity
+    KVecCount -> pure KVecCount
+    KVecElem -> pure KVecElem
 
 defaultKindMetas :: Kind -> TcM Kind
 defaultKindMetas kind =
@@ -267,8 +313,12 @@ defaultKindMetas kind =
         Nothing -> writeKindMeta u KType >> pure KType
         Just solved -> defaultKindMetas solved
     KFun a b -> KFun <$> defaultKindMetas a <*> defaultKindMetas b
-    KType -> pure KType
+    KTYPE runtimeRep -> pure (KTYPE runtimeRep)
     KConstraint -> pure KConstraint
+    KRuntimeRep -> pure KRuntimeRep
+    KLevity -> pure KLevity
+    KVecCount -> pure KVecCount
+    KVecElem -> pure KVecElem
 
 freshKindMeta :: TcM Kind
 freshKindMeta = KMeta <$> freshUnique
@@ -278,14 +328,24 @@ occursInKind needle kind =
   case kind of
     KMeta u -> u == needle
     KFun a b -> occursInKind needle a || occursInKind needle b
-    KType -> False
+    KTYPE runtimeRep -> occursInRuntimeRep needle runtimeRep
     KConstraint -> False
+    KRuntimeRep -> False
+    KLevity -> False
+    KVecCount -> False
+    KVecElem -> False
 
 kindToTcType :: Kind -> TcType
 kindToTcType kind =
   case kind of
-    KType -> TcTyCon (TyCon "*" 0) []
+    KTYPE runtimeRep
+      | runtimeRep == liftedRuntimeRep -> TcTyCon (TyCon "*" 0) []
+      | otherwise -> TcTyCon (TyCon "TYPE" 1) [runtimeRepToTcType runtimeRep]
     KConstraint -> TcTyCon (TyCon "Constraint" 0) []
+    KRuntimeRep -> TcTyCon (TyCon "RuntimeRep" 0) []
+    KLevity -> TcTyCon (TyCon "Levity" 0) []
+    KVecCount -> TcTyCon (TyCon "VecCount" 0) []
+    KVecElem -> TcTyCon (TyCon "VecElem" 0) []
     KMeta u -> TcMetaTv u
     KFun a b -> TcFunTy (kindToTcType a) (kindToTcType b)
 
@@ -298,6 +358,127 @@ listType ty = TcTyCon (TyCon "[]" 1) [ty]
 
 listTypeKind :: Kind -> Kind
 listTypeKind kind = KFun kind kind
+
+runtimeRepOrLifted :: TcType -> RuntimeRep
+runtimeRepOrLifted ty =
+  case runtimeRepOfType ty of
+    Right runtimeRep -> runtimeRep
+    Left _ -> liftedRuntimeRep
+
+wiredInTypeKind :: Text -> Maybe Kind
+wiredInTypeKind name =
+  case name of
+    "Int" -> Just KType
+    "Integer" -> Just KType
+    "Double" -> Just KType
+    "Float" -> Just KType
+    "Char" -> Just KType
+    "Bool" -> Just KType
+    "Int#" -> Just (KTYPE IntRep)
+    "Int8#" -> Just (KTYPE Int8Rep)
+    "Int16#" -> Just (KTYPE Int16Rep)
+    "Int32#" -> Just (KTYPE Int32Rep)
+    "Int64#" -> Just (KTYPE Int64Rep)
+    "Word#" -> Just (KTYPE WordRep)
+    "Word8#" -> Just (KTYPE Word8Rep)
+    "Word16#" -> Just (KTYPE Word16Rep)
+    "Word32#" -> Just (KTYPE Word32Rep)
+    "Word64#" -> Just (KTYPE Word64Rep)
+    "Addr#" -> Just (KTYPE AddrRep)
+    "Float#" -> Just (KTYPE FloatRep)
+    "Double#" -> Just (KTYPE DoubleRep)
+    "Char#" -> Just (KTYPE WordRep)
+    _ -> Nothing
+
+runtimeRepFromSurfaceType :: TvKindEnv -> Type -> TcM RuntimeRep
+runtimeRepFromSurfaceType tvEnv ty =
+  case peelTypeHead ty of
+    TVar name ->
+      case Map.lookup (unqualifiedNameText name) tvEnv of
+        Just (tyVar, KRuntimeRep) -> pure (RuntimeRepVar (tvUnique tyVar))
+        _ -> invalidRuntimeRep
+    TCon name _ ->
+      maybe invalidRuntimeRep pure (runtimeRepConstructor (nameText name))
+    TApp function levityTy
+      | TCon name _ <- peelTypeHead function,
+        nameText name == "BoxedRep" ->
+          BoxedRep <$> levityFromSurfaceType levityTy
+    _ -> invalidRuntimeRep
+  where
+    invalidRuntimeRep = do
+      emitError NoSourceSpan (OtherError ("invalid RuntimeRep: " <> take 80 (show ty)))
+      pure liftedRuntimeRep
+
+runtimeRepConstructor :: Text -> Maybe RuntimeRep
+runtimeRepConstructor rawName =
+  lookup
+    (T.dropWhile (== '\'') rawName)
+    [ ("LiftedRep", liftedRuntimeRep),
+      ("UnliftedRep", BoxedRep Unlifted),
+      ("IntRep", IntRep),
+      ("Int8Rep", Int8Rep),
+      ("Int16Rep", Int16Rep),
+      ("Int32Rep", Int32Rep),
+      ("Int64Rep", Int64Rep),
+      ("WordRep", WordRep),
+      ("Word8Rep", Word8Rep),
+      ("Word16Rep", Word16Rep),
+      ("Word32Rep", Word32Rep),
+      ("Word64Rep", Word64Rep),
+      ("AddrRep", AddrRep),
+      ("FloatRep", FloatRep),
+      ("DoubleRep", DoubleRep)
+    ]
+
+levityFromSurfaceType :: Type -> TcM Levity
+levityFromSurfaceType ty =
+  case peelTypeHead ty of
+    TCon name _
+      | T.dropWhile (== '\'') (nameText name) == "Lifted" -> pure Lifted
+      | T.dropWhile (== '\'') (nameText name) == "Unlifted" -> pure Unlifted
+    _ -> emitError NoSourceSpan (OtherError ("invalid Levity: " <> take 80 (show ty))) >> pure Lifted
+
+occursInRuntimeRep :: Unique -> RuntimeRep -> Bool
+occursInRuntimeRep needle runtimeRep =
+  case runtimeRep of
+    VecRep {} -> False
+    TupleRep reps -> any (occursInRuntimeRep needle) reps
+    SumRep reps -> any (occursInRuntimeRep needle) reps
+    RuntimeRepVar unique -> unique == needle
+    RuntimeRepMeta unique -> unique == needle
+    _ -> False
+
+runtimeRepToTcType :: RuntimeRep -> TcType
+runtimeRepToTcType runtimeRep =
+  case runtimeRep of
+    BoxedRep Lifted -> TcTyCon (TyCon "'LiftedRep" 0) []
+    BoxedRep Unlifted -> TcTyCon (TyCon "'UnliftedRep" 0) []
+    IntRep -> promoted "IntRep"
+    Int8Rep -> promoted "Int8Rep"
+    Int16Rep -> promoted "Int16Rep"
+    Int32Rep -> promoted "Int32Rep"
+    Int64Rep -> promoted "Int64Rep"
+    WordRep -> promoted "WordRep"
+    Word8Rep -> promoted "Word8Rep"
+    Word16Rep -> promoted "Word16Rep"
+    Word32Rep -> promoted "Word32Rep"
+    Word64Rep -> promoted "Word64Rep"
+    AddrRep -> promoted "AddrRep"
+    FloatRep -> promoted "FloatRep"
+    DoubleRep -> promoted "DoubleRep"
+    RuntimeRepVar unique ->
+      TcTyVar
+        ( setTyVarKind
+            KRuntimeRep
+            (TyVarId ("rep" <> T.pack (showUnique unique)) unique)
+        )
+    RuntimeRepMeta unique -> TcMetaTv unique
+    TupleRep _ -> promoted "TupleRep"
+    SumRep _ -> promoted "SumRep"
+    VecRep {} -> promoted "VecRep"
+  where
+    promoted name = TcTyCon (TyCon ("'" <> name) 0) []
+    showUnique (Unique value) = show value
 
 freeTypeVars :: Type -> [Text]
 freeTypeVars = nub . go

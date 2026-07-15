@@ -198,7 +198,68 @@ variableTests =
 
 kindTests :: [TestTree]
 kindTests =
-  [ testCase "rejects unsaturated type constructor in signature" $ do
+  [ testCase "primitive types retain their runtime-representation kinds" $ do
+      assertEqual
+        "Int kind"
+        liftedTypeKind
+        (typeKind (TcTyCon (TyCon "Int" 0) []))
+      mapM_
+        ( \(name, runtimeRep) ->
+            assertEqual
+              (show name <> " kind")
+              (KTYPE runtimeRep)
+              (typeKind (TcTyCon (TyCon name 0) []))
+        )
+        [ ("Int#", IntRep),
+          ("Int8#", Int8Rep),
+          ("Int16#", Int16Rep),
+          ("Int32#", Int32Rep),
+          ("Int64#", Int64Rep),
+          ("Word#", WordRep),
+          ("Word8#", Word8Rep),
+          ("Word16#", Word16Rep),
+          ("Word32#", Word32Rep),
+          ("Word64#", Word64Rep),
+          ("Addr#", AddrRep),
+          ("Float#", FloatRep),
+          ("Double#", DoubleRep),
+          ("Char#", WordRep)
+        ],
+    testCase "records source-level constructor field representations" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "{-# LANGUAGE MagicHash #-}\n\
+                \module Test where\n\
+                \data Box = Box Int#\n"
+          boxTypes = [tbType binding | binding <- tcModuleBindings result, tbName binding == "Box"]
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+      case boxTypes of
+        [TcFunTy fieldTy resultTy] -> do
+          assertEqual "field representation" (Right IntRep) (runtimeRepOfType fieldTy)
+          assertEqual "result representation" (Right liftedRuntimeRep) (runtimeRepOfType resultTy)
+          assertBool "constructor type kinds are finalized" (not (hasKindMeta fieldTy || hasKindMeta resultTy))
+        other -> assertFailure ("unexpected Box constructor types: " <> show other),
+    testCase "preserves dependent TYPE runtime representations" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "{-# LANGUAGE DataKinds #-}\n\
+                \{-# LANGUAGE KindSignatures #-}\n\
+                \{-# LANGUAGE PolyKinds #-}\n\
+                \module Test where\n\
+                \data R (r :: RuntimeRep) (a :: TYPE r) = R\n"
+          constructorTypes = [tbType binding | binding <- tcModuleBindings result, tbName binding == "R"]
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+      case constructorTypes of
+        [TcTyCon _ [TcTyVar repVar, TcTyVar valueVar]] -> do
+          assertEqual "representation binder kind" KRuntimeRep (tvKind repVar)
+          assertEqual
+            "value binder kind"
+            (KTYPE (RuntimeRepVar (tvUnique repVar)))
+            (tvKind valueVar)
+        other -> assertFailure ("unexpected R constructor types: " <> show other),
+    testCase "rejects unsaturated type constructor in signature" $ do
       let result =
             typecheckModule $
               parseM
@@ -252,6 +313,34 @@ kindTests =
     isKindMismatch diag =
       case diagKind diag of
         KindMismatch {} -> True
+        _ -> False
+
+    hasKindMeta ty =
+      case ty of
+        TcTyVar tv -> kindHasMeta (tvKind tv)
+        TcMetaTv {} -> True
+        TcTyCon tyCon args -> kindHasMeta (tyConKind tyCon) || any hasKindMeta args
+        TcFunTy argument result -> hasKindMeta argument || hasKindMeta result
+        TcForAllTy tv body -> kindHasMeta (tvKind tv) || hasKindMeta body
+        TcQualTy predicates body -> any predHasKindMeta predicates || hasKindMeta body
+        TcAppTy function argument -> hasKindMeta function || hasKindMeta argument
+    predHasKindMeta predicate =
+      case predicate of
+        ClassPred _ args -> any hasKindMeta args
+        EqPred left right -> hasKindMeta left || hasKindMeta right
+    kindHasMeta kind =
+      case kind of
+        KMeta {} -> True
+        KFun argument result -> kindHasMeta argument || kindHasMeta result
+        KTYPE runtimeRep -> runtimeRepHasMeta runtimeRep
+        _ -> False
+    runtimeRepHasMeta runtimeRep =
+      case runtimeRep of
+        VecRep {} -> False
+        TupleRep reps -> any runtimeRepHasMeta reps
+        SumRep reps -> any runtimeRepHasMeta reps
+        RuntimeRepVar {} -> False
+        RuntimeRepMeta {} -> True
         _ -> False
 
 annotationTests :: [TestTree]

@@ -9,6 +9,7 @@ module Aihc.Grin.Interpret
 where
 
 import Aihc.Grin.Syntax
+import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -146,7 +147,7 @@ initialMachine program =
             ],
           Map.fromList
             [ (constructor, RuntimeNode (GrinConstructor constructor) [])
-            | constructor <- builtinConstructors <> map fst (grinConstructors program)
+            | constructor <- map fst builtinConstructors <> map fst (grinConstructors program)
             ]
         ]
 
@@ -167,22 +168,22 @@ evalExpr env expr =
         (\((_, node), location) -> writeCell location (HeapSuspended recursiveEnv node))
         (zip bindings locations)
       evalExpr recursiveEnv body
-    GrinFetch pointer ->
+    GrinFetch _ pointer ->
       evalValue env pointer >>= fetchValue
     GrinUpdate pointer value -> do
       pointerValue <- evalValue env pointer
       updatedValue <- evalValue env value
       updateValue pointerValue updatedValue
-    GrinEval value ->
+    GrinEval _ value ->
       evalValue env value >>= forceValue
-    GrinApply function argument -> do
+    GrinApply _ function argument -> do
       functionValue <- evalValue env function
       argumentValue <- evalValue env argument
       applyValue functionValue argumentValue
     GrinCase scrutinee binder alternatives -> do
       value <- evalValue env scrutinee >>= forceValue
       matchAlternative (Map.insert binder value env) value alternatives
-    GrinDictSelect dictionary index -> do
+    GrinDictSelect _ dictionary index -> do
       dictionaryValue <- evalValue env dictionary >>= forceValue
       case dictionaryValue of
         RuntimeNode GrinDictionary fields
@@ -194,7 +195,7 @@ evalExpr env expr =
     GrinThrow exception -> do
       exceptionValue <- evalValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)
-    GrinCatch action handler state -> do
+    GrinCatch _ action handler state -> do
       actionValue <- evalValue env action
       handlerValue <- evalValue env handler
       stateValue <- evalValue env state
@@ -351,12 +352,12 @@ evalPrimitive "==#" [left, right] =
   evalIntPrimitive "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
 evalPrimitive "charToInt#" [value] = do
   charValue <- forceCharPrimitiveArgument "charToInt#" value
-  pure (RuntimeLit (GrinLitInt (fromIntegral (Char.ord charValue))))
+  pure (RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue))))
 evalPrimitive "intToChar#" [value] = do
   intValue <- forceIntPrimitiveArgument "intToChar#" value
   if intValue >= 0 && intValue <= 0x10ffff
-    then pure (RuntimeLit (GrinLitChar (Char.chr (fromIntegral intValue))))
-    else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt intValue)))
+    then pure (RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue))))
+    else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure RuntimeStateToken
 evalPrimitive "raise#" [exception] =
   forceValue exception >>= throwE . EvalRaised
@@ -380,20 +381,20 @@ evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> R
 evalIntPrimitive name operation left right = do
   leftInt <- forceIntPrimitiveArgument name left
   rightInt <- forceIntPrimitiveArgument name right
-  pure (RuntimeLit (GrinLitInt (operation leftInt rightInt)))
+  pure (RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt)))
 
 forceIntPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
 forceIntPrimitiveArgument name value = do
   forced <- forceValue value
   case forced of
-    RuntimeLit (GrinLitInt intValue) -> pure intValue
+    RuntimeLit (GrinLitInt _ intValue) -> pure intValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 forceCharPrimitiveArgument :: Text -> RuntimeValue -> EvalM Char
 forceCharPrimitiveArgument name value = do
   forced <- forceValue value
   case forced of
-    RuntimeLit (GrinLitChar charValue) -> pure charValue
+    RuntimeLit (GrinLitChar _ charValue) -> pure charValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 forceMutVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinMutVar
@@ -479,7 +480,7 @@ forceCInt symbol value = do
         RuntimeNode (GrinConstructor "I32#") [literal] -> do
           forcedLiteral <- forceValue literal
           case forcedLiteral of
-            RuntimeLit (GrinLitInt intValue) -> pure intValue
+            RuntimeLit (GrinLitInt _ intValue) -> pure intValue
             other -> throwInterpret (InterpretForeignTypeError symbol other)
         other -> throwInterpret (InterpretForeignTypeError symbol other)
 
@@ -487,7 +488,7 @@ cIntValue :: Integer -> RuntimeValue
 cIntValue value =
   RuntimeNode
     (GrinConstructor "CInt")
-    [RuntimeNode (GrinConstructor "I32#") [RuntimeLit (GrinLitInt value)]]
+    [RuntimeNode (GrinConstructor "I32#") [RuntimeLit (GrinLitInt Int32Rep value)]]
 
 runIOValue :: RuntimeValue -> EvalM RuntimeValue
 runIOValue value =
@@ -560,15 +561,15 @@ renderRawArgument value = do
 renderLiteral :: GrinLiteral -> Text
 renderLiteral literal =
   case literal of
-    GrinLitInt value -> T.pack (show value)
-    GrinLitChar value -> T.pack (show value) <> "#"
+    GrinLitInt _ value -> T.pack (show value)
+    GrinLitChar _ value -> T.pack (show value) <> "#"
     GrinLitString value -> T.pack (show (T.unpack value))
 
 renderBoxedChar :: RuntimeValue -> EvalM Text
 renderBoxedChar value = do
   forced <- forceValue value
   case forced of
-    RuntimeLit (GrinLitChar charValue) -> pure (T.pack (show charValue))
+    RuntimeLit (GrinLitChar _ charValue) -> pure (T.pack (show charValue))
     other -> throwInterpret (InterpretPrimitiveTypeError "C#" other)
 
 isTupleConstructor :: Text -> Int -> Bool
@@ -589,6 +590,3 @@ getsMachine = lift . gets
 
 modifyMachine :: (Machine -> Machine) -> EvalM ()
 modifyMachine = lift . modify'
-
-builtinConstructors :: [Text]
-builtinConstructors = ["C#", "[]", ":", "()", "(,)", "(#,#)"]

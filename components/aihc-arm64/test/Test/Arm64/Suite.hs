@@ -5,11 +5,12 @@ module Test.Arm64.Suite
   )
 where
 
-import Aihc.Arm64 (compileProgram, runtimeSourcePath)
+import Aihc.Arm64 (Arm64Error (..), compileProgram, runtimeSourcePath)
 import Aihc.Arm64.Emit (renderAllocatedBlock)
 import Aihc.Arm64.Lir
 import Aihc.Arm64.RegisterAllocate
-import Aihc.Grin (lowerProgram)
+import Aihc.Grin
+import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Control.Exception (bracket)
 import Control.Monad (when)
@@ -66,6 +67,41 @@ tests =
                   Move (Physical X0) (Virtual register)
                 ]
         assertEqual "call-spanning location" (Just (InHeapSpill 0)) (Map.lookup register (allocationLocations allocation)),
+      testCase "rejects unresolved representation-polymorphic native layouts" $ do
+        let runtimeRep = RuntimeRepVar (Unique 1)
+            program =
+              GrinProgram
+                { grinConstructors = [("Box", [runtimeRep])],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinCafs = [],
+                  grinFunctions = []
+                }
+        assertEqual
+          "native representation diagnostic"
+          (Left (Arm64UnsupportedRuntimeRep runtimeRep))
+          (compileProgram "missing" program),
+      testCase "canonicalizes narrow signed literals in machine-word slots" $ do
+        let answer = GrinVar "answer" 1 (BoxedRep Lifted)
+            functionName = FunctionName "answer_code"
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinCafs = [(answer, GrinNode (GrinThunk functionName) [])],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = Int8Rep,
+                          grinFunctionBody = GrinReturn (GrinLitValue (GrinLitInt Int8Rep 255))
+                        }
+                    ]
+                }
+        case compileProgram "answer" program of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 
@@ -88,6 +124,7 @@ testNativeHelloWorld = do
   let rendered = T.unpack assembly
   assertBool "emits indirect Haskell tail transfers" ("br x9" `isInfixOf` rendered)
   assertBool "never calls a generated Haskell entry" (not ("bl .Laihc_function_" `isInfixOf` rendered))
+  assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
   when (arch == "aarch64" && os == "darwin") $
     runHelloWorldAssembly assembly
 

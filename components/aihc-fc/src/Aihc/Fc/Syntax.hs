@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | System FC core language.
 --
 -- System FC extends System F with explicit coercions (proofs of type
@@ -32,11 +34,20 @@ module Aihc.Fc.Syntax
 
     -- * Literals
     Literal (..),
+    literalRuntimeRep,
+    literalType,
   )
 where
 
 import Aihc.Tc.Evidence (Coercion)
-import Aihc.Tc.Types (TcType, TyVarId, Unique)
+import Aihc.Tc.Types
+  ( RuntimeRep (..),
+    TcType (..),
+    TyCon (..),
+    TyVarId,
+    Unique,
+    liftedRuntimeRep,
+  )
 import Data.Text (Text)
 
 -- | A System FC program: a collection of top-level bindings.
@@ -170,8 +181,45 @@ data FcAltCon
 
 -- | Literal values.
 data Literal
-  = LitInt !Integer
+  = LitInt !RuntimeRep !Integer
   | -- | An unboxed character literal, such as @'x'#@.
-    LitChar !Char
+    LitChar !RuntimeRep !Char
   | LitString !Text
   deriving (Eq, Show, Read)
+
+-- | The runtime representation carried by a Core literal. This is recorded
+-- during desugaring from type-checker information and must not be reconstructed
+-- by a downstream phase.
+literalRuntimeRep :: Literal -> RuntimeRep
+literalRuntimeRep literal =
+  case literal of
+    LitInt runtimeRep _ -> runtimeRep
+    LitChar runtimeRep _ -> runtimeRep
+    LitString {} -> liftedRuntimeRep
+
+-- | The primitive type denoted by a literal. Unsupported combinations are
+-- deliberately absent so Core Lint can reject them.
+literalType :: Literal -> Maybe TcType
+literalType literal =
+  case literal of
+    LitInt runtimeRep _ -> scalarType runtimeRep
+    LitChar WordRep _ -> Just (primitiveType "Char#")
+    LitChar _ _ -> Nothing
+    LitString {} -> Just (TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []])
+  where
+    scalarType runtimeRep =
+      primitiveType
+        <$> lookup
+          runtimeRep
+          [ (IntRep, "Int#"),
+            (Int8Rep, "Int8#"),
+            (Int16Rep, "Int16#"),
+            (Int32Rep, "Int32#"),
+            (Int64Rep, "Int64#"),
+            (WordRep, "Word#"),
+            (Word8Rep, "Word8#"),
+            (Word16Rep, "Word16#"),
+            (Word32Rep, "Word32#"),
+            (Word64Rep, "Word64#")
+          ]
+    primitiveType name = TcTyCon (TyCon name 0) []

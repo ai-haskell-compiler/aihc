@@ -41,6 +41,7 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Aihc.Testing.EvalFixture
+    GrinGolden
     Test.Grin.Suite
 
   build-depends:

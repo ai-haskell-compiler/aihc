@@ -75,14 +75,16 @@ import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Monad (foldM, forM_, when, zipWithM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -305,6 +307,9 @@ tcModule m = do
   -- and evidence records as ordinary expressions.
   instanceDecls <- mapM tcInstanceDeclBodies (moduleDecls valueAnnotatedModule)
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
+  -- A module interface must never retain state-local kind metavariables: the
+  -- kind solution map is deliberately cleared before the next module.
+  defaultGlobalKindMetas
   -- Phase 5: reject source top-level values whose finalized types are
   -- unlifted. Generated declarations without source spans are permitted so
   -- downstream passes can introduce internal unlifted bindings.
@@ -314,6 +319,41 @@ tcModule m = do
   -- they must not be rendered as successful inferred types.
   annotatedModule <- annotateModuleTc (Set.fromList (map tbName valueResults)) pendingModule
   finalizeModuleTc annotatedModule
+
+defaultGlobalKindMetas :: TcM ()
+defaultGlobalKindMetas = do
+  state <- lift get
+  terms <- traverse defaultBinderKinds (tcsGlobalTerms state)
+  tyCons <- traverse defaultTyConInfoKinds (tcsGlobalTyCons state)
+  instances <- mapM defaultInstanceKinds (tcsInstances state)
+  lift $
+    modify' $ \current ->
+      current
+        { tcsGlobalTerms = terms,
+          tcsGlobalTyCons = tyCons,
+          tcsInstances = instances
+        }
+  where
+    defaultBinderKinds binder =
+      case binder of
+        TcIdBinder scheme closedness -> TcIdBinder <$> defaultTypeSchemeKinds scheme <*> pure closedness
+        TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
+    defaultTyConInfoKinds info = do
+      kind <- defaultKindMetas (tciKind info)
+      let tyCon = tciTyCon info
+      pure
+        info
+          { tciTyCon = mkTyCon (tyConName tyCon) (tyConArity tyCon) kind,
+            tciKind = kind
+          }
+    defaultInstanceKinds info =
+      InstanceInfo
+        (iiClassName info)
+        (iiDictName info)
+        <$> defaultTypeKinds (iiDictType info)
+        <*> mapM defaultTyVarKinds (iiTyVars info)
+        <*> mapM defaultPredKinds (iiContext info)
+        <*> mapM defaultTypeKinds (iiHead info)
 
 data TcDeclGroupResult = TcDeclGroupResult
   { tcGroupId :: !Int,
@@ -1186,7 +1226,7 @@ registerClassDecl classDecl = do
     TyConInfo
       { tciName = className,
         tciArity = length params,
-        tciTyCon = TyCon className (length params),
+        tciTyCon = mkTyCon className (length params) classKind,
         tciKind = classKind
       }
   concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
@@ -1270,19 +1310,19 @@ registerDataDecl dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
-      tc = dataDeclTyCon tyName arity
   paramInfos <- makeParamEnv params
-  tyConKind <- tyConKindFromParams paramInfos (dataDeclKind dd)
+  declaredKind <- tyConKindFromParams paramInfos (dataDeclKind dd)
+  let tc = dataDeclTyCon tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKind = tyConKind
+        tciKind = declaredKind
       }
   conResults <- mapM (registerDataCon tc paramInfos) (dataDeclConstructors dd)
-  zonkedKind <- defaultKindMetas tyConKind
+  zonkedKind <- defaultKindMetas declaredKind
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure (tyConResult : conResults)
 
@@ -1294,25 +1334,25 @@ registerNewtypeDecl nd = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-      tc = TyCon tyName arity
   paramInfos <- makeParamEnv params
-  tyConKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  declaredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  let tc = mkTyCon tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKind = tyConKind
+        tciKind = declaredKind
       }
   conResults <- mapM (registerDataCon tc paramInfos) (newtypeDeclConstructor nd)
-  zonkedKind <- defaultKindMetas tyConKind
+  zonkedKind <- defaultKindMetas declaredKind
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure (tyConResult : maybeToList conResults)
 
-dataDeclTyCon :: Text -> Int -> TyCon
-dataDeclTyCon "List" 1 = TyCon "[]" 1
-dataDeclTyCon name arity = TyCon name arity
+dataDeclTyCon :: Text -> Int -> Kind -> TyCon
+dataDeclTyCon "List" 1 kind = mkTyCon "[]" 1 kind
+dataDeclTyCon name arity kind = mkTyCon name arity kind
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
@@ -1336,7 +1376,7 @@ registerDataCon tc paramInfos con = case con of
       let resultSurfTy = gadtBodyResultType body
           argSurfTys = gadtBodyArgTypes body
       gadtResTy <- checkSurfaceType paramEnv resultSurfTy KType
-      gadtArgTys <- mapM (\argTy -> checkSurfaceType paramEnv argTy KType) argSurfTys
+      gadtArgTys <- mapM (checkRuntimeType paramEnv) argSurfTys
       let conTy = foldr TcFunTy gadtResTy gadtArgTys
           gadtScheme = ForAll [] [] conTy
       mapM_
@@ -1362,7 +1402,7 @@ registerDataCon tc paramInfos con = case con of
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
     conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
 
-    fieldTypeTc ty = checkSurfaceType paramEnv ty KType
+    fieldTypeTc = checkRuntimeType paramEnv
 
     registerNamedDataCon name argTys = do
       let conTy = foldr TcFunTy resTy argTys
