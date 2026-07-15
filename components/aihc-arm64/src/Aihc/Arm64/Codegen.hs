@@ -12,6 +12,7 @@ where
 import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
 import Aihc.Grin.Syntax
+import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
@@ -31,6 +32,7 @@ data Arm64Error
   | Arm64UnsupportedPrimitive !Text
   | Arm64UnsupportedExpression !Text
   | Arm64UnsupportedValue !Text
+  | Arm64UnsupportedRuntimeRep !RuntimeRep
   | Arm64EmitError !EmitError
   deriving (Eq, Show)
 
@@ -63,6 +65,7 @@ data ValueEnv = ValueEnv
 
 compileProgram :: Text -> GrinProgram -> Either Arm64Error Text
 compileProgram entryName program = do
+  mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Arm64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -100,7 +103,7 @@ compileProgram entryName program = do
       <> concat functions
       <> descriptors
   where
-    constructors = uniqueByName (builtinConstructors <> grinConstructors program)
+    constructors = uniqueByName (builtinConstructors <> programConstructorArities program)
     constructorIds = Map.fromList (zip (map fst constructors) [1 ..])
     constructorArities = Map.fromList constructors
     globalNames = uniqueTexts (map fst constructors <> map (grinVarName . fst) (grinPrimitives program) <> map grinForeignCallName (grinForeignCalls program) <> map (grinVarName . fst) (grinCafs program))
@@ -143,7 +146,7 @@ compileInitializers env program = do
            ]
   pure (constructorLines <> primitiveLines <> foreignLines <> cafCellLines <> cafValueLines)
   where
-    constructors = uniqueByName (builtinConstructors <> grinConstructors program)
+    constructors = uniqueByName (builtinConstructors <> programConstructorArities program)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -219,10 +222,10 @@ compileExpr env prefix label expression =
     GrinStoreRec {} -> unsupportedExpression "recursive heap allocation"
     GrinFetch {} -> unsupportedExpression "fetch"
     GrinUpdate {} -> unsupportedExpression "update"
-    GrinEval value -> do
+    GrinEval runtimeRep value -> do
       valueLines <- liftEither (materializeValue env value)
-      addBlock label (prefix <> valueLines <> evalLines)
-    GrinApply function argument -> do
+      addBlock label (prefix <> valueLines <> evalLines runtimeRep)
+    GrinApply _ function argument -> do
       scratch <- freshSlot
       functionLines <- liftEither (materializeValue env function)
       argumentLines <- liftEither (materializeValue env argument)
@@ -241,7 +244,7 @@ compileExpr env prefix label expression =
         )
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
-    GrinDictSelect dictionary index -> do
+    GrinDictSelect runtimeRep dictionary index -> do
       dictionaryLines <- liftEither (materializeValue env dictionary)
       addBlock
         label
@@ -249,6 +252,7 @@ compileExpr env prefix label expression =
             <> dictionaryLines
             <> [ "  mov x1, x0",
                  immediate "x2" index,
+                 immediate "x3" (fromEnum (isLiftedRuntimeRep runtimeRep)),
                  "  mov x0, x22",
                  "  bl _aihc_select"
                ]
@@ -264,25 +268,38 @@ compileCase env prefix label scrutinee binder alternatives = do
   resultSlot <- freshSlot
   dispatchLabel <- freshLabel label "case_dispatch"
   scrutineeLines <- liftEither (materializeValue env scrutinee)
-  addBlock
-    label
-    ( prefix
-        <> scrutineeLines
-        <> ["  mov x20, x0"]
-        <> pushNormalLines dispatchLabel resultSlot
-        <> [ "  mov x1, x20",
-             "  mov x0, x22",
-             "  bl _aihc_eval"
-           ]
-        <> dispatchLines
-    )
+  let scrutineeRep = grinValueRuntimeRep scrutinee
+      scrutineeIsLifted = isLiftedRuntimeRep scrutineeRep
+      scrutineeIsPointer = isPointerRuntimeRep scrutineeRep
+  if scrutineeIsLifted
+    then
+      addBlock
+        label
+        ( prefix
+            <> scrutineeLines
+            <> ["  mov x20, x0"]
+            <> pushNormalLines dispatchLabel resultSlot
+            <> [ "  mov x1, x20",
+                 immediate "x2" (1 :: Int),
+                 "  mov x0, x22",
+                 "  bl _aihc_eval"
+               ]
+            <> dispatchLines
+        )
+    else
+      addBlock
+        label
+        ( prefix
+            <> scrutineeLines
+            <> [storeAt "x0" "x19" resultSlot, "  b " <> dispatchLabel]
+        )
   binderSlot <- localSlot env binder
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"
     prefixLines <- alternativePrefix env resultSlot alternative
     compileExpr env prefixLines alternativeLabel (grinAltRhs alternative)
     pure (alternative, alternativeLabel)
-  checks <- caseChecks env resultSlot alternativeTargets
+  checks <- caseChecks env resultSlot scrutineeIsPointer alternativeTargets
   addBlock
     dispatchLabel
     ( [ loadAt "x9" "x19" resultSlot,
@@ -311,38 +328,39 @@ alternativePrefix env resultSlot alternative =
             storeAt "x9" "x19" slot
           ]
 
-caseChecks :: ValueEnv -> Int -> [(GrinAlt, Text)] -> FunctionM [Text]
-caseChecks env resultSlot targets = do
+caseChecks :: ValueEnv -> Int -> Bool -> [(GrinAlt, Text)] -> FunctionM [Text]
+caseChecks env resultSlot scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->
     case grinAltCon alternative of
       GrinDataAlt name -> do
-        identifier <- liftEither (constructorId (valueCompileEnv env) name)
-        pure
-          [ loadAt "x9" "x19" resultSlot,
-            "  ldr x10, [x9, #0]",
-            "  cmp x10, #1",
-            "  b.ne 1f",
-            "  ldr x10, [x9, #8]",
-            "  cmp x10, #" <> tshow identifier,
-            "  b.eq " <> target,
-            "1:"
-          ]
-      GrinLitAlt literal ->
-        case literalInteger literal of
-          Just integer ->
+        if scrutineeIsPointer
+          then do
+            identifier <- liftEither (constructorId (valueCompileEnv env) name)
             pure
               [ loadAt "x9" "x19" resultSlot,
                 "  ldr x10, [x9, #0]",
-                "  cmp x10, #0",
+                "  cmp x10, #1",
                 "  b.ne 1f",
                 "  ldr x10, [x9, #8]",
-                immediate "x11" integer,
-                "  cmp x10, x11",
+                "  cmp x10, #" <> tshow identifier,
                 "  b.eq " <> target,
                 "1:"
               ]
+          else lift (Left (Arm64UnsupportedExpression "constructor case on an unboxed value"))
+      GrinLitAlt literal ->
+        case normalizedLiteralInteger literal of
+          Just integer ->
+            if scrutineeIsPointer
+              then lift (Left (Arm64UnsupportedExpression "literal case on a lifted value"))
+              else
+                pure
+                  [ loadAt "x10" "x19" resultSlot,
+                    immediate "x11" integer,
+                    "  cmp x10, x11",
+                    "  b.eq " <> target
+                  ]
           Nothing -> lift (Left (Arm64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $
@@ -360,15 +378,49 @@ materializeValue env value =
 
 materializeLiteral :: GrinLiteral -> Either Arm64Error [Text]
 materializeLiteral literal =
-  case literalInteger literal of
-    Just integer -> Right [immediate "x0" integer, "  bl _aihc_make_literal"]
+  case normalizedLiteralInteger literal of
+    Just integer -> Right [immediate "x0" integer]
     Nothing -> Left (Arm64UnsupportedValue "string literal")
+
+normalizedLiteralInteger :: GrinLiteral -> Maybe Integer
+normalizedLiteralInteger literal = do
+  integer <- literalInteger literal
+  pure $
+    case literal of
+      GrinLitInt runtimeRep _ -> normalizeScalar runtimeRep integer
+      GrinLitChar {} -> normalizeUnsigned 64 integer
+      GrinLitString {} -> integer
+
+normalizeScalar :: RuntimeRep -> Integer -> Integer
+normalizeScalar runtimeRep integer =
+  case runtimeRep of
+    IntRep -> normalizeSigned 64 integer
+    Int8Rep -> normalizeSigned 8 integer
+    Int16Rep -> normalizeSigned 16 integer
+    Int32Rep -> normalizeSigned 32 integer
+    Int64Rep -> normalizeSigned 64 integer
+    WordRep -> normalizeUnsigned 64 integer
+    Word8Rep -> normalizeUnsigned 8 integer
+    Word16Rep -> normalizeUnsigned 16 integer
+    Word32Rep -> normalizeUnsigned 32 integer
+    Word64Rep -> normalizeUnsigned 64 integer
+    _ -> integer
+
+normalizeSigned :: Int -> Integer -> Integer
+normalizeSigned bits integer =
+  let modulus = 2 ^ bits
+      signBit = 2 ^ (bits - 1)
+      unsigned = integer `mod` modulus
+   in if unsigned >= signBit then unsigned - modulus else unsigned
+
+normalizeUnsigned :: Int -> Integer -> Integer
+normalizeUnsigned bits integer = integer `mod` (2 ^ bits)
 
 literalInteger :: GrinLiteral -> Maybe Integer
 literalInteger literal =
   case literal of
-    GrinLitInt integer -> Just integer
-    GrinLitChar character -> Just (fromIntegral (ord character))
+    GrinLitInt _ integer -> Just integer
+    GrinLitChar _ character -> Just (fromIntegral (ord character))
     GrinLitString _ -> Nothing
 
 materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
@@ -492,9 +544,10 @@ returnLines =
   ]
     <> dispatchLines
 
-evalLines :: [Text]
-evalLines =
+evalLines :: RuntimeRep -> [Text]
+evalLines runtimeRep =
   [ "  mov x1, x0",
+    immediate "x2" (fromEnum (isLiftedRuntimeRep runtimeRep)),
     "  mov x0, x22",
     "  bl _aihc_eval"
   ]
@@ -581,12 +634,12 @@ boundVars expression =
     GrinBind var valueExpression body -> Set.insert var (boundVars valueExpression <> boundVars body)
     GrinStore _ -> Set.empty
     GrinStoreRec bindings body -> Set.fromList (map fst bindings) <> boundVars body
-    GrinFetch _ -> Set.empty
+    GrinFetch _ _ -> Set.empty
     GrinUpdate _ _ -> Set.empty
-    GrinEval _ -> Set.empty
-    GrinApply _ _ -> Set.empty
+    GrinEval _ _ -> Set.empty
+    GrinApply {} -> Set.empty
     GrinCase _ binder alternatives -> Set.insert binder (Set.unions (map altBoundVars alternatives))
-    GrinDictSelect _ _ -> Set.empty
+    GrinDictSelect {} -> Set.empty
     GrinThrow _ -> Set.empty
     GrinCatch {} -> Set.empty
   where
@@ -615,6 +668,70 @@ builtinConstructors =
     ("(,)", 2),
     ("(#,#)", 2)
   ]
+
+programConstructorArities :: GrinProgram -> [(Text, Int)]
+programConstructorArities program =
+  [(name, length fieldReps) | (name, fieldReps) <- grinConstructors program]
+
+validateRuntimeRep :: RuntimeRep -> Either Arm64Error ()
+validateRuntimeRep runtimeRep =
+  case runtimeRep of
+    VecRep {} -> Left (Arm64UnsupportedRuntimeRep runtimeRep)
+    TupleRep fieldReps -> mapM_ validateRuntimeRep fieldReps
+    SumRep alternativeReps -> mapM_ validateRuntimeRep alternativeReps
+    RuntimeRepVar {} -> Left (Arm64UnsupportedRuntimeRep runtimeRep)
+    RuntimeRepMeta {} -> Left (Arm64UnsupportedRuntimeRep runtimeRep)
+    _ -> Right ()
+
+programRuntimeReps :: GrinProgram -> [RuntimeRep]
+programRuntimeReps program =
+  concatMap snd (grinConstructors program)
+    <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
+    <> concatMap cafRuntimeReps (grinCafs program)
+    <> concatMap functionRuntimeReps (grinFunctions program)
+  where
+    cafRuntimeReps (var, node) = grinVarRuntimeRep var : nodeRuntimeReps node
+    functionRuntimeReps function =
+      grinFunctionResultRep function
+        : map grinVarRuntimeRep (grinFunctionParameters function)
+          <> exprRuntimeReps (grinFunctionBody function)
+
+exprRuntimeReps :: GrinExpr -> [RuntimeRep]
+exprRuntimeReps expression =
+  case expression of
+    GrinReturn value -> valueRuntimeReps value
+    GrinBind var valueExpression body ->
+      grinVarRuntimeRep var : exprRuntimeReps valueExpression <> exprRuntimeReps body
+    GrinStore node -> nodeRuntimeReps node
+    GrinStoreRec bindings body ->
+      concatMap (\(var, node) -> grinVarRuntimeRep var : nodeRuntimeReps node) bindings
+        <> exprRuntimeReps body
+    GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer
+    GrinUpdate pointer value -> valueRuntimeReps pointer <> valueRuntimeReps value
+    GrinEval runtimeRep value -> runtimeRep : valueRuntimeReps value
+    GrinApply runtimeRep function argument ->
+      runtimeRep : valueRuntimeReps function <> valueRuntimeReps argument
+    GrinCase scrutinee binder alternatives ->
+      valueRuntimeReps scrutinee
+        <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)
+    GrinDictSelect runtimeRep dictionary _ -> runtimeRep : valueRuntimeReps dictionary
+    GrinThrow exception -> valueRuntimeReps exception
+    GrinCatch runtimeRep action handler state ->
+      runtimeRep : concatMap valueRuntimeReps [action, handler, state]
+  where
+    altRuntimeReps alternative =
+      map grinVarRuntimeRep (grinAltBinders alternative)
+        <> exprRuntimeReps (grinAltRhs alternative)
+
+valueRuntimeReps :: GrinValue -> [RuntimeRep]
+valueRuntimeReps value =
+  grinValueRuntimeRep value
+    : case value of
+      GrinNodeValue node -> nodeRuntimeReps node
+      _ -> []
+
+nodeRuntimeReps :: GrinNode -> [RuntimeRep]
+nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
 
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index

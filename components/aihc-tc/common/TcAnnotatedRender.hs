@@ -24,7 +24,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
-import Aihc.Tc.Types (Kind (..), Pred (..), TyCon (..), Unique (..))
+import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TyCon (..), Unique (..))
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Control.Applicative ((<|>))
 import Data.List (intercalate, sortOn)
@@ -171,10 +171,21 @@ renderOrigin origin =
 renderKind :: Kind -> String
 renderKind kind =
   case kind of
-    KType -> "*"
+    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRep runtimeRep
     KConstraint -> "Constraint"
+    KRuntimeRep -> "RuntimeRep"
+    KLevity -> "Levity"
+    KVecCount -> "VecCount"
+    KVecElem -> "VecElem"
     KFun arg result -> renderKindArg arg <> " -> " <> renderKind result
     KMeta unique -> renderUnique unique
+
+renderRuntimeRep :: RuntimeRep -> String
+renderRuntimeRep runtimeRep =
+  case runtimeRep of
+    BoxedRep Lifted -> "LiftedRep"
+    BoxedRep Unlifted -> "UnliftedRep"
+    _ -> show runtimeRep
 
 renderKindArg :: Kind -> String
 renderKindArg kind =

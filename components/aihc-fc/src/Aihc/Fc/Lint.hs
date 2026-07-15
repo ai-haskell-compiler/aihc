@@ -115,7 +115,10 @@ lintExpr env (FcVar v) =
   case Map.lookup (varUnique v) (leTerms env) of
     Just ty -> Right ty
     Nothing -> Left (UnboundVar (varName v) (varUnique v))
-lintExpr _ (FcLit lit) = Right (litType lit)
+lintExpr _ (FcLit lit) =
+  case literalType lit of
+    Just ty -> Right ty
+    Nothing -> Left (LintFailure ("literal has invalid runtime representation: " ++ show lit))
 lintExpr env (FcApp f a) = do
   fTy <- lintExpr env f
   aTy <- lintExpr env a
@@ -199,12 +202,6 @@ coercionEndpoints (TyConAppCo tc coercions) =
    in (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
 coercionEndpoints (AxiomInstCo _ _) =
   (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
-
--- | Get the type of a literal.
-litType :: Literal -> TcType
-litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
-litType (LitChar _) = TcTyCon (TyCon "Char#" 0) []
-litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 -- | Extend the term environment with a variable.
 extendTermEnv :: Var -> LintEnv -> LintEnv

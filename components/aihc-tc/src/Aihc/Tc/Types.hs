@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Core type representation for the type checker.
 --
@@ -15,13 +16,26 @@ module Aihc.Tc.Types
     Unique (..),
 
     -- * Type variables
-    TyVarId (..),
+    TyVarId (TyVarId, tvName, tvUnique),
+    tvKind,
+    setTyVarKind,
 
     -- * Types
     TcType (..),
-    TyCon (..),
-    Kind (..),
+    TyCon (TyCon, tyConName, tyConArity),
+    tyConKind,
+    mkTyCon,
+    Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
+    RuntimeRep (..),
+    Levity (..),
+    VecCount (..),
+    VecElem (..),
     TypeScheme (..),
+    liftedRuntimeRep,
+    liftedTypeKind,
+    typeKind,
+    runtimeRepOfType,
+    isLiftedType,
     isUnliftedType,
 
     -- * Predicates
@@ -34,6 +48,7 @@ module Aihc.Tc.Types
   )
 where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -43,11 +58,21 @@ newtype Unique = Unique Int
 
 -- | A type variable identifier, carrying both a human-readable name and
 -- a unique tag for alpha-equivalence.
-data TyVarId = TyVarId
-  { tvName :: !Text,
-    tvUnique :: !Unique
-  }
+data TyVarId = TyVarIdInternal !Text !Unique !Kind
   deriving (Show, Read)
+
+pattern TyVarId :: Text -> Unique -> TyVarId
+pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
+  where
+    TyVarId name unique = TyVarIdInternal name unique liftedTypeKind
+
+{-# COMPLETE TyVarId #-}
+
+tvKind :: TyVarId -> Kind
+tvKind (TyVarIdInternal _ _ kind) = kind
+
+setTyVarKind :: Kind -> TyVarId -> TyVarId
+setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
 instance Eq TyVarId where
   a == b = tvUnique a == tvUnique b
@@ -55,20 +80,96 @@ instance Eq TyVarId where
 instance Ord TyVarId where
   compare a b = compare (tvUnique a) (tvUnique b)
 
--- | Type constructor.
-data TyCon = TyCon
-  { tyConName :: !Text,
-    tyConArity :: !Int
-  }
-  deriving (Eq, Ord, Show, Read)
+-- | Type constructor. Every constructor carries its fully applied kind so
+-- downstream phases can recover the kind of any 'TcType' without consulting
+-- the type-checker environment.
+data TyCon = TyConInternal !Text !Int !Kind
+  deriving (Show, Read)
+
+instance Eq TyCon where
+  left == right =
+    (tyConName left, tyConArity left) == (tyConName right, tyConArity right)
+
+instance Ord TyCon where
+  compare left right =
+    compare (tyConName left, tyConArity left) (tyConName right, tyConArity right)
+
+pattern TyCon :: Text -> Int -> TyCon
+pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName tyConArity _
+  where
+    TyCon name arity = TyConInternal name arity (wiredInTyConKind name arity)
+
+{-# COMPLETE TyCon #-}
+
+tyConKind :: TyCon -> Kind
+tyConKind (TyConInternal _ _ kind) = kind
+
+mkTyCon :: Text -> Int -> Kind -> TyCon
+mkTyCon name arity inferredKind =
+  TyConInternal name arity (fromMaybe inferredKind (fixedTyConKind name))
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind
-  = KType
+  = KTYPE !RuntimeRep
   | KConstraint
+  | KRuntimeRep
+  | KLevity
+  | KVecCount
+  | KVecElem
   | KFun !Kind !Kind
   | KMeta !Unique
   deriving (Eq, Ord, Show, Read)
+
+-- | The traditional @Type@ / @*@ kind.
+pattern KType :: Kind
+pattern KType = KTYPE (BoxedRep Lifted)
+
+data RuntimeRep
+  = VecRep !VecCount !VecElem
+  | TupleRep ![RuntimeRep]
+  | SumRep ![RuntimeRep]
+  | BoxedRep !Levity
+  | IntRep
+  | Int8Rep
+  | Int16Rep
+  | Int32Rep
+  | Int64Rep
+  | WordRep
+  | Word8Rep
+  | Word16Rep
+  | Word32Rep
+  | Word64Rep
+  | AddrRep
+  | FloatRep
+  | DoubleRep
+  | RuntimeRepVar !Unique
+  | RuntimeRepMeta !Unique
+  deriving (Eq, Ord, Show, Read)
+
+data Levity = Lifted | Unlifted
+  deriving (Eq, Ord, Show, Read)
+
+data VecCount = Vec2 | Vec4 | Vec8 | Vec16 | Vec32 | Vec64
+  deriving (Eq, Ord, Show, Read)
+
+data VecElem
+  = Int8ElemRep
+  | Int16ElemRep
+  | Int32ElemRep
+  | Int64ElemRep
+  | Word8ElemRep
+  | Word16ElemRep
+  | Word32ElemRep
+  | Word64ElemRep
+  | FloatElemRep
+  | DoubleElemRep
+  deriving (Eq, Ord, Show, Read)
+
+liftedRuntimeRep :: RuntimeRep
+liftedRuntimeRep = BoxedRep Lifted
+
+liftedTypeKind :: Kind
+liftedTypeKind = KTYPE liftedRuntimeRep
 
 -- | Internal type representation.
 --
@@ -98,38 +199,48 @@ data TcType
 -- This is deliberately semantic rather than a @#@ suffix check: user-defined
 -- lifted type constructors may legally end in @#@.
 isUnliftedType :: TcType -> Bool
-isUnliftedType (TcTyCon (TyCon name arity) args) =
-  length args == arity
-    && ( isPrimitiveUnliftedTyCon name arity
-           || isUnboxedTupleTyCon name arity
-           || isUnboxedSumTyCon name arity
-           || case (name, args) of
-             ("TYPE", [runtimeRep]) -> isUnliftedRuntimeRep runtimeRep
-             _ -> False
-       )
-isUnliftedType _ = False
+isUnliftedType ty =
+  case runtimeRepOfType ty of
+    Right runtimeRep -> runtimeRep /= liftedRuntimeRep
+    Left _ -> False
 
-isPrimitiveUnliftedTyCon :: Text -> Int -> Bool
-isPrimitiveUnliftedTyCon name arity =
-  (arity == 0 && name `elem` primitiveScalarTyCons)
-    || (name, arity) `elem` [("State#", 1), ("MutVar#", 2)]
+isLiftedType :: TcType -> Bool
+isLiftedType ty = runtimeRepOfType ty == Right liftedRuntimeRep
+
+runtimeRepOfType :: TcType -> Either String RuntimeRep
+runtimeRepOfType ty =
+  case typeKind ty of
+    KTYPE runtimeRep -> Right runtimeRep
+    other -> Left ("type does not have a runtime representation: " <> show other)
+
+typeKind :: TcType -> Kind
+typeKind ty =
+  case ty of
+    TcTyVar tyVar -> tvKind tyVar
+    TcMetaTv {} -> liftedTypeKind
+    TcTyCon tyCon args
+      | isUnboxedTupleTyCon (tyConName tyCon) (tyConArity tyCon),
+        length args == tyConArity tyCon ->
+          KTYPE (TupleRep (map runtimeRepOrLifted args))
+      | isUnboxedSumTyCon (tyConName tyCon) (tyConArity tyCon),
+        length args == tyConArity tyCon ->
+          KTYPE (SumRep (map runtimeRepOrLifted args))
+      | otherwise -> applyKindArguments (tyConKind tyCon) (length args)
+    TcFunTy {} -> liftedTypeKind
+    TcForAllTy _ body -> typeKind body
+    TcQualTy _ body -> typeKind body
+    TcAppTy function _ -> applyKindArguments (typeKind function) 1
   where
-    primitiveScalarTyCons =
-      [ "Addr#",
-        "Char#",
-        "Double#",
-        "Float#",
-        "Int#",
-        "Int8#",
-        "Int16#",
-        "Int32#",
-        "Int64#",
-        "Word#",
-        "Word8#",
-        "Word16#",
-        "Word32#",
-        "Word64#"
-      ]
+    runtimeRepOrLifted argument =
+      case runtimeRepOfType argument of
+        Right runtimeRep -> runtimeRep
+        Left _ -> liftedRuntimeRep
+
+applyKindArguments :: Kind -> Int -> Kind
+applyKindArguments kind count
+  | count <= 0 = kind
+applyKindArguments (KFun _ result) count = applyKindArguments result (count - 1)
+applyKindArguments kind _ = kind
 
 isUnboxedTupleTyCon :: Text -> Int -> Bool
 isUnboxedTupleTyCon name arity =
@@ -141,31 +252,76 @@ isUnboxedSumTyCon name arity =
   arity >= 2
     && name == "(#" <> T.replicate (arity - 1) "|" <> "#)"
 
-isUnliftedRuntimeRep :: TcType -> Bool
-isUnliftedRuntimeRep rep =
-  case rep of
-    TcTyCon (TyCon "'BoxedRep" 1) [TcTyCon (TyCon "'Unlifted" 0) []] ->
-      True
-    TcTyCon (TyCon name 0) [] ->
-      name
-        `elem` [ "'AddrRep",
-                 "'DoubleRep",
-                 "'FloatRep",
-                 "'IntRep",
-                 "'Int8Rep",
-                 "'Int16Rep",
-                 "'Int32Rep",
-                 "'Int64Rep",
-                 "'WordRep",
-                 "'Word8Rep",
-                 "'Word16Rep",
-                 "'Word32Rep",
-                 "'Word64Rep"
-               ]
-    TcTyCon (TyCon "'SumRep" 1) [_] -> True
-    TcTyCon (TyCon "'TupleRep" 1) [_] -> True
-    TcTyCon (TyCon "'VecRep" 2) [_, _] -> True
-    _ -> False
+wiredInTyConKind :: Text -> Int -> Kind
+wiredInTyConKind name arity =
+  fromMaybe (defaultTyConKind name arity) (fixedTyConKind name)
+
+fixedTyConKind :: Text -> Maybe Kind
+fixedTyConKind name =
+  case name of
+    "State#" -> Just (KFun liftedTypeKind (KTYPE (TupleRep [])))
+    "MutVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
+    _
+      | Just runtimeRep <- primitiveRuntimeRep name -> Just (KTYPE runtimeRep)
+      | isPromotedRuntimeRep name -> Just KRuntimeRep
+      | otherwise ->
+          lookup
+            name
+            [ ("TYPE", KFun KRuntimeRep liftedTypeKind),
+              ("RuntimeRep", liftedTypeKind),
+              ("Levity", liftedTypeKind),
+              ("VecCount", liftedTypeKind),
+              ("VecElem", liftedTypeKind),
+              ("Constraint", liftedTypeKind),
+              ("*", liftedTypeKind),
+              ("Type", liftedTypeKind),
+              ("(->)", KFun liftedTypeKind (KFun liftedTypeKind liftedTypeKind)),
+              ("[]", KFun liftedTypeKind liftedTypeKind),
+              (":", KFun liftedTypeKind (KFun (KFun liftedTypeKind liftedTypeKind) (KFun liftedTypeKind liftedTypeKind)))
+            ]
+
+defaultTyConKind :: Text -> Int -> Kind
+defaultTyConKind _ arity = foldr KFun liftedTypeKind (replicate arity liftedTypeKind)
+
+isPromotedRuntimeRep :: Text -> Bool
+isPromotedRuntimeRep name =
+  T.dropWhile (== '\'') name
+    `elem` [ "LiftedRep",
+             "UnliftedRep",
+             "IntRep",
+             "Int8Rep",
+             "Int16Rep",
+             "Int32Rep",
+             "Int64Rep",
+             "WordRep",
+             "Word8Rep",
+             "Word16Rep",
+             "Word32Rep",
+             "Word64Rep",
+             "AddrRep",
+             "FloatRep",
+             "DoubleRep"
+           ]
+
+primitiveRuntimeRep :: Text -> Maybe RuntimeRep
+primitiveRuntimeRep name =
+  lookup
+    name
+    [ ("Addr#", AddrRep),
+      ("Char#", WordRep),
+      ("Double#", DoubleRep),
+      ("Float#", FloatRep),
+      ("Int#", IntRep),
+      ("Int8#", Int8Rep),
+      ("Int16#", Int16Rep),
+      ("Int32#", Int32Rep),
+      ("Int64#", Int64Rep),
+      ("Word#", WordRep),
+      ("Word8#", Word8Rep),
+      ("Word16#", Word16Rep),
+      ("Word32#", Word32Rep),
+      ("Word64#", Word64Rep)
+    ]
 
 -- | A type scheme: universally quantified type with constraints.
 --

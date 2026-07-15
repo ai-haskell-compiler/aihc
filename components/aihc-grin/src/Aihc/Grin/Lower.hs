@@ -6,10 +6,19 @@ module Aihc.Grin.Lower
   )
 where
 
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Unique (..))
+import Aihc.Tc.Types
+  ( RuntimeRep,
+    TcType (..),
+    Unique (..),
+    liftedRuntimeRep,
+    runtimeRepOfType,
+  )
+import Control.Monad (filterM)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
+import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -19,13 +28,15 @@ data LowerState = LowerState
   { lowerNextUnique :: !Int,
     lowerNextFunction :: !Int,
     lowerFunctionsRev :: ![GrinFunction],
-    lowerPrimitiveNames :: !(Set Text)
+    lowerPrimitiveNames :: !(Set Text),
+    lowerGlobalNames :: !(Set Text),
+    lowerLocalVars :: !(Set (Text, Unique))
   }
 
 type LowerM = State LowerState
 
 data LoweredTop = LoweredTop
-  { loweredConstructors :: ![(Text, Int)],
+  { loweredConstructors :: ![(Text, [RuntimeRep])],
     loweredPrimitives :: ![(GrinVar, Int)],
     loweredForeignCalls :: ![GrinForeignCall],
     loweredCafs :: ![(GrinVar, GrinNode)]
@@ -43,8 +54,9 @@ instance Semigroup LoweredTop where
 instance Monoid LoweredTop where
   mempty = LoweredTop [] [] [] []
 
--- | Erase FC types and coercions, closure-convert lambdas and thunks, and make
--- evaluation, application, allocation, and exception control explicit.
+-- | Erase FC types and coercions while retaining their runtime
+-- representations, closure-convert lambdas and thunks, and make evaluation,
+-- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
 lowerProgram program =
   GrinProgram
@@ -64,7 +76,9 @@ lowerProgram program =
             Set.fromList
               [ varName var
               | FcPrimitive var _ <- fcTopBinds program
-              ]
+              ],
+          lowerGlobalNames = Set.fromList (programGlobalNames program),
+          lowerLocalVars = Set.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -73,11 +87,11 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, length fields) | (name, fields) <- constructors]}
-    FcNewtype _ _ constructor _ ->
-      pure mempty {loweredConstructors = [(constructor, 1)]}
+      pure mempty {loweredConstructors = [(name, map typeRuntimeRep fields) | (name, fields) <- constructors]}
+    FcNewtype _ _ constructor field ->
+      pure mempty {loweredConstructors = [(constructor, [typeRuntimeRep field])]}
     FcPrimitive var arity ->
-      pure mempty {loweredPrimitives = [(lowerVar var, arity)]}
+      pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> do
@@ -102,21 +116,28 @@ lowerCafBind bind =
 lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
   primitiveNames <- gets lowerPrimitiveNames
-  case primitiveApplication primitiveNames expr of
+  localVars <- gets lowerLocalVars
+  case primitiveApplication primitiveNames localVars expr of
     Just ("raise#", [exception]) ->
       lowerStrict "exception" exception (pure . GrinThrow)
     Just ("catch#", [action, handler, state]) ->
-      lowerDelayed action $ \actionValue ->
-        lowerDelayed handler $ \handlerValue ->
-          lowerDelayed state $ \stateValue ->
-            pure (GrinCatch actionValue handlerValue stateValue)
+      lowerArgument action $ \actionValue ->
+        lowerArgument handler $ \handlerValue ->
+          lowerArgument state $ \stateValue ->
+            pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue stateValue)
     _ -> lowerOrdinaryExpr expr
 
 lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
 lowerOrdinaryExpr expr =
   case expr of
     FcVar var ->
-      pure (GrinEval (GrinVarValue (lowerVar var)))
+      do
+        isGlobal <- isGlobalVar var
+        let resultRep = typeRuntimeRep (varType var)
+            runtimeVar = if isGlobal then lowerGlobalVar var else lowerVar var
+        if isGlobal || resultRep == liftedRuntimeRep
+          then pure (GrinEval resultRep (GrinVarValue runtimeVar))
+          else pure (GrinReturn (GrinVarValue runtimeVar))
     FcLit literal ->
       pure (GrinReturn (GrinLitValue (lowerLiteral literal)))
     FcApp function argument ->
@@ -132,16 +153,16 @@ lowerOrdinaryExpr expr =
     FcDictLam var body ->
       lowerLambda var body
     FcDict fields ->
-      lowerDelayedMany fields $ \values ->
+      lowerArgumentMany fields $ \values ->
         pure (GrinReturn (GrinNodeValue (GrinNode GrinDictionary values)))
     FcDictSelect dictionary index ->
       lowerStrict "dictionary" dictionary $ \value ->
-        pure (GrinDictSelect value index)
+        pure (GrinDictSelect liftedRuntimeRep value index)
     FcLet bind body ->
       lowerLet bind body
     FcCase scrutinee binder alternatives ->
       lowerStrict "scrutinee" scrutinee $ \value -> do
-        loweredAlternatives <- mapM lowerAlt alternatives
+        loweredAlternatives <- mapM (lowerAlt binder) alternatives
         pure (GrinCase value (lowerVar binder) loweredAlternatives)
     FcCast inner _ ->
       lowerExpr inner
@@ -149,18 +170,19 @@ lowerOrdinaryExpr expr =
 lowerApplication :: FcExpr -> FcExpr -> LowerM GrinExpr
 lowerApplication function argument =
   lowerStrict "function" function $ \functionValue ->
-    lowerDelayed argument $ \argumentValue ->
-      pure (GrinApply functionValue argumentValue)
+    lowerArgument argument $ \argumentValue ->
+      pure (GrinApply (applicationResultRep function) functionValue argumentValue)
 
 lowerLambda :: Var -> FcExpr -> LowerM GrinExpr
 lowerLambda binder body = do
-  let captures = map lowerVar (Set.toAscList (freeVars (FcLam binder body)))
+  captures <- capturesFor (FcLam binder body)
   functionName <- freshFunction "closure"
-  loweredBody <- lowerExpr body
+  loweredBody <- withLocalVars [binder] (lowerExpr body)
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
         grinFunctionParameters = captures <> [lowerVar binder],
+        grinFunctionResultRep = exprRuntimeRep body,
         grinFunctionBody = loweredBody
       }
   pure
@@ -174,21 +196,27 @@ lowerLet :: FcBind -> FcExpr -> LowerM GrinExpr
 lowerLet bind body =
   case bind of
     FcNonRec var rhs -> do
-      node <- makeThunk rhs
-      loweredBody <- lowerExpr body
-      pure (GrinBind (lowerVar var) (GrinStore node) loweredBody)
+      loweredBody <- withLocalVars [var] (lowerExpr body)
+      if typeRuntimeRep (varType var) == liftedRuntimeRep
+        then do
+          node <- makeThunk rhs
+          pure (GrinBind (lowerVar var) (GrinStore node) loweredBody)
+        else do
+          loweredRhs <- lowerExpr rhs
+          pure (GrinBind (lowerVar var) loweredRhs loweredBody)
     FcRec bindings -> do
-      nodes <- mapM lowerBinding bindings
-      loweredBody <- lowerExpr body
-      pure (GrinStoreRec nodes loweredBody)
+      withLocalVars (map fst bindings) $ do
+        nodes <- mapM lowerBinding bindings
+        loweredBody <- lowerExpr body
+        pure (GrinStoreRec nodes loweredBody)
   where
     lowerBinding (var, rhs) = do
       node <- makeThunk rhs
       pure (lowerVar var, node)
 
-lowerAlt :: FcAlt -> LowerM GrinAlt
-lowerAlt alt = do
-  rhs <- lowerExpr (altRhs alt)
+lowerAlt :: Var -> FcAlt -> LowerM GrinAlt
+lowerAlt caseBinder alt = do
+  rhs <- withLocalVars (caseBinder : altBinders alt) (lowerExpr (altRhs alt))
   pure
     GrinAlt
       { grinAltCon = lowerAltCon (altCon alt),
@@ -198,51 +226,57 @@ lowerAlt alt = do
 
 makeThunk :: FcExpr -> LowerM GrinNode
 makeThunk expr = do
-  let captures = map lowerVar (Set.toAscList (freeVars expr))
+  captures <- capturesFor expr
   functionName <- freshFunction "thunk"
   body <- lowerExpr expr
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
         grinFunctionParameters = captures,
+        grinFunctionResultRep = exprRuntimeRep expr,
         grinFunctionBody = body
       }
   pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
 
 lowerStrict :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerStrict hint expr continuation = do
-  valueVar <- freshVar hint
+  valueVar <- freshVar hint (exprRuntimeRep expr)
   valueExpr <- lowerExpr expr
   rest <- continuation (GrinVarValue valueVar)
   pure (GrinBind valueVar valueExpr rest)
 
 lowerDelayed :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerDelayed expr continuation = do
-  pointerVar <- freshVar "thunk"
+  pointerVar <- freshVar "thunk" liftedRuntimeRep
   node <- makeThunk expr
   rest <- continuation (GrinVarValue pointerVar)
   pure (GrinBind pointerVar (GrinStore node) rest)
 
-lowerDelayedMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerDelayedMany expressions continuation =
+lowerArgument :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArgument expr
+  | exprRuntimeRep expr == liftedRuntimeRep = lowerDelayed expr
+  | otherwise = lowerStrict "argument" expr
+
+lowerArgumentMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArgumentMany expressions continuation =
   case expressions of
     [] -> continuation []
     first : rest ->
-      lowerDelayed first $ \firstValue ->
-        lowerDelayedMany rest $ \restValues ->
+      lowerArgument first $ \firstValue ->
+        lowerArgumentMany rest $ \restValues ->
           continuation (firstValue : restValues)
 
-freshVar :: Text -> LowerM GrinVar
-freshVar hint = do
+freshVar :: Text -> RuntimeRep -> LowerM GrinVar
+freshVar hint runtimeRep = do
   unique <- gets lowerNextUnique
   modify' $ \state -> state {lowerNextUnique = unique + 1}
-  pure (GrinVar ("$grin_" <> hint <> "_" <> T.pack (show unique)) unique)
+  pure (GrinVar ("$grin_" <> hint <> "_" <> T.pack (show unique)) unique runtimeRep)
 
 freshTopVar :: Var -> LowerM GrinVar
 freshTopVar var = do
   unique <- gets lowerNextUnique
   modify' $ \state -> state {lowerNextUnique = unique + 1}
-  pure (GrinVar (varName var) unique)
+  pure (GrinVar (varName var) unique liftedRuntimeRep)
 
 freshFunction :: Text -> LowerM FunctionName
 freshFunction kind = do
@@ -254,11 +288,13 @@ emitFunction :: GrinFunction -> LowerM ()
 emitFunction function =
   modify' $ \state -> state {lowerFunctionsRev = function : lowerFunctionsRev state}
 
-primitiveApplication :: Set Text -> FcExpr -> Maybe (Text, [FcExpr])
-primitiveApplication primitiveNames expr =
+primitiveApplication :: Set Text -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
+primitiveApplication primitiveNames localVars expr =
   case collectApplications expr of
     (FcVar var, arguments)
-      | varName var `Set.member` primitiveNames -> Just (varName var, arguments)
+      | varKey var `Set.notMember` localVars,
+        varName var `Set.member` primitiveNames ->
+          Just (varName var, arguments)
     _ -> Nothing
 
 collectApplications :: FcExpr -> (FcExpr, [FcExpr])
@@ -306,7 +342,32 @@ freeVarsAlt alt =
   freeVars (altRhs alt) `Set.difference` Set.fromList (altBinders alt)
 
 lowerVar :: Var -> GrinVar
-lowerVar var = GrinVar (varName var) (sourceUnique var)
+lowerVar var = GrinVar (varName var) (sourceUnique var) (typeRuntimeRep (varType var))
+
+lowerGlobalVar :: Var -> GrinVar
+lowerGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedRuntimeRep
+
+capturesFor :: FcExpr -> LowerM [GrinVar]
+capturesFor expr = do
+  vars <- filterM (fmap not . isGlobalVar) (Set.toAscList (freeVars expr))
+  pure (map lowerVar vars)
+
+isGlobalVar :: Var -> LowerM Bool
+isGlobalVar var = do
+  localVars <- gets lowerLocalVars
+  globalNames <- gets lowerGlobalNames
+  pure (varKey var `Set.notMember` localVars && varName var `Set.member` globalNames)
+
+withLocalVars :: [Var] -> LowerM a -> LowerM a
+withLocalVars vars action = do
+  previous <- gets lowerLocalVars
+  modify' $ \state -> state {lowerLocalVars = Set.fromList (map varKey vars) <> previous}
+  result <- action
+  modify' $ \state -> state {lowerLocalVars = previous}
+  pure result
+
+varKey :: Var -> (Text, Unique)
+varKey var = (varName var, varUnique var)
 
 sourceUnique :: Var -> Int
 sourceUnique var =
@@ -316,8 +377,8 @@ sourceUnique var =
 lowerLiteral :: Literal -> GrinLiteral
 lowerLiteral literal =
   case literal of
-    LitInt value -> GrinLitInt value
-    LitChar value -> GrinLitChar value
+    LitInt runtimeRep value -> GrinLitInt runtimeRep value
+    LitChar runtimeRep value -> GrinLitChar runtimeRep value
     LitString value -> GrinLitString value
 
 lowerAltCon :: FcAltCon -> GrinAltCon
@@ -353,8 +414,87 @@ lowerForeignType foreignType =
   case foreignType of
     FcForeignCInt -> GrinForeignCInt
 
+exprRuntimeRep :: FcExpr -> RuntimeRep
+exprRuntimeRep expr =
+  case expr of
+    FcLit literal -> literalRuntimeRep literal
+    FcLam {} -> liftedRuntimeRep
+    FcTyLam {} -> liftedRuntimeRep
+    FcDictLam {} -> liftedRuntimeRep
+    FcDict {} -> liftedRuntimeRep
+    FcDictSelect {} -> liftedRuntimeRep
+    _ ->
+      case exprType expr of
+        Just ty -> typeRuntimeRep ty
+        Nothing -> error ("GRIN lowering could not determine expression type: " <> show expr)
+
+exprType :: FcExpr -> Maybe TcType
+exprType expr =
+  case expr of
+    FcVar var -> Just (varType var)
+    FcLit literal -> literalType literal
+    FcApp function _ -> functionResultType =<< exprType function
+    FcDictApp function _ -> functionResultType =<< exprType function
+    FcTyApp function argument -> do
+      functionType <- exprType function
+      case functionType of
+        TcForAllTy tyVar body -> Just (substType (Map.singleton tyVar argument) body)
+        _ -> Just functionType
+    FcLam var body -> TcFunTy (varType var) <$> exprType body
+    FcTyLam tyVar body -> TcForAllTy tyVar <$> exprType body
+    FcDictLam var body -> TcFunTy (varType var) <$> exprType body
+    FcDict {} -> Nothing
+    FcDictSelect {} -> Nothing
+    FcLet _ body -> exprType body
+    FcCase _ _ alternatives ->
+      case alternatives of
+        first : _ -> exprType (altRhs first)
+        [] -> Nothing
+    FcCast inner _ -> exprType inner
+  where
+    functionResultType functionType =
+      case functionType of
+        TcFunTy _ result -> Just result
+        TcQualTy [] body -> functionResultType body
+        TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
+        _ -> Nothing
+
+typeRuntimeRep :: TcType -> RuntimeRep
+typeRuntimeRep ty =
+  case runtimeRepOfType ty of
+    Right runtimeRep -> runtimeRep
+    Left problem -> error ("GRIN lowering received a non-runtime type: " <> problem)
+
+applicationResultRep :: FcExpr -> RuntimeRep
+applicationResultRep function =
+  case exprType function >>= functionResultType of
+    Just result -> typeRuntimeRep result
+    Nothing -> error ("GRIN lowering could not determine application result type: " <> show function)
+  where
+    functionResultType functionType =
+      case functionType of
+        TcFunTy _ result -> Just result
+        TcQualTy [] body -> functionResultType body
+        TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
+        _ -> Nothing
+
 programVars :: FcProgram -> [Var]
 programVars program = concatMap topVars (fcTopBinds program)
+
+programGlobalNames :: FcProgram -> [Text]
+programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
+  where
+    topGlobalNames topBind =
+      case topBind of
+        FcData _ _ constructors -> map fst constructors
+        FcNewtype _ _ constructor _ -> [constructor]
+        FcPrimitive var _ -> [varName var]
+        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcTopBind bind -> map (varName . fst) (topBindings bind)
+    topBindings bind =
+      case bind of
+        FcNonRec var expr -> [(var, expr)]
+        FcRec bindings -> bindings
 
 topVars :: FcTopBind -> [Var]
 topVars topBind =

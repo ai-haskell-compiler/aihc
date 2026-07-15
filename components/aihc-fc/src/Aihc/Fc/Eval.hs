@@ -12,6 +12,7 @@ module Aihc.Fc.Eval
 where
 
 import Aihc.Fc.Syntax
+import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
@@ -213,12 +214,12 @@ evalPrimitive "==#" [left, right] =
   evalIntPrim "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
 evalPrimitive "charToInt#" [value] = do
   charValue <- forceCharPrimitiveArg "charToInt#" value
-  pure (VLit (LitInt (fromIntegral (Char.ord charValue))))
+  pure (VLit (LitInt IntRep (fromIntegral (Char.ord charValue))))
 evalPrimitive "intToChar#" [value] = do
   intValue <- forceIntPrimitiveArg "intToChar#" value
   if intValue >= 0 && intValue <= 0x10ffff
-    then pure (VLit (LitChar (Char.chr (fromIntegral intValue))))
-    else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt intValue)))
+    then pure (VLit (LitChar WordRep (Char.chr (fromIntegral intValue))))
+    else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt IntRep intValue)))
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
 evalPrimitive "realWorld#" [] =
@@ -255,13 +256,13 @@ evalIntPrim :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> Eval
 evalIntPrim name op left right = do
   leftInt <- forceIntPrimitiveArg name left
   rightInt <- forceIntPrimitiveArg name right
-  pure (VLit (LitInt (op leftInt rightInt)))
+  pure (VLit (LitInt IntRep (op leftInt rightInt)))
 
 forceIntPrimitiveArg :: Text -> Value -> EvalM Integer
 forceIntPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
-    VLit (LitInt intValue) -> pure intValue
+    VLit (LitInt _ intValue) -> pure intValue
     other -> throwE (EvalPrimitiveTypeError name other)
 
 forceMutVarPrimitiveArg :: Text -> Value -> EvalM EvalMutVar
@@ -337,19 +338,19 @@ forceCInt symbol value = do
         VConstructor "I32#" [literal] -> do
           forcedLiteral <- forceValue literal
           case forcedLiteral of
-            VLit (LitInt intValue) -> pure intValue
+            VLit (LitInt _ intValue) -> pure intValue
             other -> throwE (EvalForeignTypeError symbol other)
         other -> throwE (EvalForeignTypeError symbol other)
 
 cIntValue :: Integer -> Value
 cIntValue value =
-  VConstructor "CInt" [VConstructor "I32#" [VLit (LitInt value)]]
+  VConstructor "CInt" [VConstructor "I32#" [VLit (LitInt Int32Rep value)]]
 
 forceCharPrimitiveArg :: Text -> Value -> EvalM Char
 forceCharPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
-    VLit (LitChar charValue) -> pure charValue
+    VLit (LitChar _ charValue) -> pure charValue
     other -> throwE (EvalPrimitiveTypeError name other)
 
 extendBind :: Env -> FcBind -> Env
@@ -445,7 +446,7 @@ collectString value = do
           forcedChar <- forceValue char
           pure $
             case forcedChar of
-              VLit (LitChar c) -> Just c
+              VLit (LitChar _ c) -> Just c
               _ -> Nothing
         _ -> pure Nothing
 
@@ -462,15 +463,15 @@ collectList value = do
 renderLiteral :: Literal -> Text
 renderLiteral lit =
   case lit of
-    LitInt i -> T.pack (show i)
-    LitChar c -> T.pack (show c) <> "#"
+    LitInt _ i -> T.pack (show i)
+    LitChar _ c -> T.pack (show c) <> "#"
     LitString s -> T.pack (show (T.unpack s))
 
 renderBoxedChar :: Value -> EvalM Text
 renderBoxedChar value = do
   forced <- forceValue value
   case forced of
-    VLit (LitChar c) -> pure (T.pack (show c))
+    VLit (LitChar _ c) -> pure (T.pack (show c))
     other -> throwE (EvalPrimitiveTypeError "C#" other)
 
 renderRawValue :: Value -> IO (Either EvalError Text)

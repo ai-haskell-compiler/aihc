@@ -21,7 +21,7 @@ module Aihc.Fc.Desugar.Expr
   )
 where
 
-import Aihc.Fc.Desugar.Match (dsPatternPure)
+import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -54,7 +54,7 @@ import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -328,7 +328,7 @@ dsBoxedCharPatternMatch scrutVar char success failure = do
         FcCase
           (FcVar charVar)
           innerBinder
-          [ FcAlt (LitAlt (LitChar char)) [] matched,
+          [ FcAlt (LitAlt (LitChar WordRep char)) [] matched,
             FcAlt DefaultAlt [] failure
           ]
   pure
@@ -472,9 +472,9 @@ dsExpr (EVar name) = do
       ty <- lookupTypeName name
       v <- freshVar n ty
       pure (FcVar v)
-dsExpr (EInt i _ _) = pure (FcLit (LitInt i))
+dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
-dsExpr (ECharHash c _) = pure (FcLit (LitChar c))
+dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
 dsExpr (EString s _) = dsStringLiteral s
 dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
@@ -616,7 +616,7 @@ dsIntegerLiteral :: Integer -> DsM FcExpr
 dsIntegerLiteral value = do
   conTy <- lookupType "IS"
   con <- freshVar "IS" conTy
-  pure (FcApp (FcVar con) (FcLit (LitInt value)))
+  pure (FcApp (FcVar con) (FcLit (LitInt IntRep value)))
 
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
@@ -1118,7 +1118,7 @@ boxCharLiteral :: Char -> FcExpr
 boxCharLiteral char =
   FcApp
     (FcVar (Var "C#" (Unique (-12)) (TcFunTy charHashTy charTy)))
-    (FcLit (LitChar char))
+    (FcLit (LitChar WordRep char))
 
 consList :: TcType -> FcExpr -> FcExpr -> FcExpr
 consList elemTy headExpr =
@@ -1282,7 +1282,10 @@ fcExprTypeM :: FcExpr -> DsM TcType
 fcExprTypeM expr =
   case expr of
     FcVar var -> pure (varType var)
-    FcLit lit -> pure (litType lit)
+    FcLit lit ->
+      case literalType lit of
+        Just ty -> pure ty
+        Nothing -> desugarBug ("literal has invalid runtime representation: " <> show lit)
     FcApp fun _arg -> do
       funTy <- qualifiedBody <$> fcExprTypeM fun
       case funTy of
@@ -1310,11 +1313,6 @@ fcExprTypeM expr =
         [] -> desugarBug "case expression has no alternatives while desugaring"
         FcAlt _ _ body : _ -> fcExprTypeM body
     FcCast inner _co -> fcExprTypeM inner
-
-litType :: Literal -> TcType
-litType (LitInt _) = TcTyCon (TyCon "Int" 0) []
-litType (LitChar _) = charHashTy
-litType (LitString _) = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)

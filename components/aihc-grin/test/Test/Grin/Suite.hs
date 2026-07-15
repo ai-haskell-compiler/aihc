@@ -8,7 +8,7 @@ where
 
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (isInfixOf)
 import Data.Text (Text)
@@ -29,12 +29,29 @@ grinUnitTests =
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
         assertEqual "result" (Right "2") result,
+      testCase "lint rejects constructor field representation mismatches" $ do
+        let program = heapProgram {grinConstructors = [("Box", [WordRep])]}
+        assertBool
+          "constructor layout mismatch"
+          (GrinLintConstructorLayout "Box" [WordRep] [IntRep] `elem` lintProgram program),
       testCase "FC lowering makes exception control explicit" $ do
         let program = lowerProgram exceptionProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
-        assertBool "contains explicit catch" ("catch " `isInfixOf` rendered)
+        assertBool "contains explicit catch" ("catch " `isInfixOf` rendered),
+      testCase "FC lowering evaluates Int# arguments without allocating thunks" $ do
+        let program = lowerProgram unboxedApplicationProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
+        assertBool "does not allocate an argument thunk" (not ("store " `isInfixOf` rendered)),
+      testCase "FC lowering distinguishes shadowing locals from globals" $ do
+        let program = lowerProgram shadowingProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "raw local is returned directly" ("return answer%2 :: IntRep" `isInfixOf` rendered)
+        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered))
     ]
 
 grinEvalFixtureTests :: IO TestTree
@@ -67,15 +84,51 @@ evaluateGrinProgram name fcProgram = do
 applicationProgram :: FcProgram
 applicationProgram =
   FcProgram
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            answerVar
+            ( FcApp
+                (FcLam argumentVar (FcVar argumentVar))
+                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42)))
+            )
+        )
+    ]
+  where
+    answerVar = Var "answer" (Unique 1) boxedIntTy
+    argumentVar = Var "argument" (Unique 2) boxedIntTy
+    boxConstructorVar = Var "BoxedInt" (Unique 3) (TcFunTy intTy boxedIntTy)
+
+unboxedApplicationProgram :: FcProgram
+unboxedApplicationProgram =
+  FcProgram
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            answerVar
+            ( FcApp
+                (FcVar boxConstructorVar)
+                (FcApp (FcLam argumentVar (FcVar argumentVar)) (FcLit (LitInt IntRep 42)))
+            )
+        )
+    ]
+  where
+    answerVar = Var "answer" (Unique 10) boxedIntTy
+    argumentVar = Var "argument" (Unique 11) intTy
+    boxConstructorVar = Var "BoxedInt" (Unique 12) (TcFunTy intTy boxedIntTy)
+
+shadowingProgram :: FcProgram
+shadowingProgram =
+  FcProgram
     [ FcTopBind
         ( FcNonRec
             answerVar
-            (FcApp (FcLam argumentVar (FcVar argumentVar)) (FcLit (LitInt 42)))
+            (FcApp (FcLam localAnswerVar (FcVar localAnswerVar)) (FcLit (LitInt IntRep 42)))
         )
     ]
   where
     answerVar = Var "answer" (Unique 1) intTy
-    argumentVar = Var "argument" (Unique 2) intTy
+    localAnswerVar = Var "answer" (Unique 2) intTy
 
 exceptionProgram :: FcProgram
 exceptionProgram =
@@ -85,23 +138,25 @@ exceptionProgram =
       FcTopBind (FcNonRec answerVar caughtExpression)
     ]
   where
-    raiseVar = Var "raise#" (Unique 1) intTy
-    catchVar = Var "catch#" (Unique 2) intTy
+    raiseVar = Var "raise#" (Unique 1) (TcFunTy intTy intTy)
+    catchVar = Var "catch#" (Unique 2) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy intTy intTy)))
     answerVar = Var "answer" (Unique 3) intTy
     actionState = Var "actionState" (Unique 4) intTy
     exception = Var "exception" (Unique 5) intTy
     handlerState = Var "handlerState" (Unique 6) intTy
-    action = FcLam actionState (FcApp (FcVar raiseVar) (FcLit (LitInt 10)))
+    actionTy = TcFunTy intTy intTy
+    handlerTy = TcFunTy intTy (TcFunTy intTy intTy)
+    action = FcLam actionState (FcApp (FcVar raiseVar) (FcLit (LitInt IntRep 10)))
     handler = FcLam exception (FcLam handlerState (FcVar exception))
     caughtExpression =
       FcApp
         (FcApp (FcApp (FcVar catchVar) action) handler)
-        (FcLit (LitInt 0))
+        (FcLit (LitInt IntRep 0))
 
 heapProgram :: GrinProgram
 heapProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinCafs =
@@ -113,20 +168,24 @@ heapProgram =
         [ GrinFunction
             { grinFunctionName = functionName,
               grinFunctionParameters = [],
+              grinFunctionResultRep = IntRep,
               grinFunctionBody =
-                GrinBind pointer (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt 1)])) $
-                  GrinBind fetched (GrinFetch (GrinVarValue pointer)) $
-                    GrinBind updated (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt 2))) $
-                      GrinEval (GrinVarValue pointer)
+                GrinBind pointer (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
+                  GrinBind fetched (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
+                    GrinBind updated (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
+                      GrinEval IntRep (GrinVarValue pointer)
             }
         ]
     }
   where
-    answer = GrinVar "answer" 1
-    pointer = GrinVar "pointer" 2
-    fetched = GrinVar "fetched" 3
-    updated = GrinVar "updated" 4
+    answer = GrinVar "answer" 1 (BoxedRep Lifted)
+    pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
+    fetched = GrinVar "fetched" 3 (BoxedRep Lifted)
+    updated = GrinVar "updated" 4 IntRep
     functionName = FunctionName "answer_code"
 
 intTy :: TcType
 intTy = TcTyCon (TyCon "Int#" 0) []
+
+boxedIntTy :: TcType
+boxedIntTy = TcTyCon (TyCon "Int" 0) []

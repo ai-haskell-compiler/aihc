@@ -3,13 +3,14 @@ extensions:
 modules:
   - |
     module Test where
-    loop :: () -> Int#
+    data Int = I# Int#
+    loop :: () -> Int
     loop value = loop value
-    constInt :: Int# -> Int# -> Int#
+    constInt :: Int -> Int -> Int
     constInt value _ = value
 output: |
-  42
+  I# 42
 expression: |
-  constInt 42# (loop ())
+  constInt (I# 42#) (loop ())
 status: pass
-reason: preserves non-strict application through explicit GRIN thunks
+reason: preserves non-strict application for lifted arguments through explicit GRIN thunks

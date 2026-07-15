@@ -9,7 +9,7 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc
-import Aihc.Tc (TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.Text (Text)
 import FcGolden
@@ -39,9 +39,9 @@ fcEvalTests =
     [ testCase "renders string literals" $
         assertEvalExpr "\"hello world\"" (FcLit (LitString "hello world")),
       testCase "renders char literals" $
-        assertEvalExpr "'x'#" (FcLit (LitChar 'x')),
+        assertEvalExpr "'x'#" (FcLit (LitChar WordRep 'x')),
       testCase "renders int literals" $
-        assertEvalExpr "42" (FcLit (LitInt 42)),
+        assertEvalExpr "42" (FcLit (LitInt IntRep 42)),
       testCase "applies lambdas" $
         assertEvalExpr
           "\"ok\""
@@ -58,7 +58,7 @@ fcEvalTests =
       testCase "renders raw constructor values" $ do
         result <-
           renderRawValue
-            (VConstructor ":" [VConstructor "C#" [VLit (LitChar 'x')], VConstructor "[]" []])
+            (VConstructor ":" [VConstructor "C#" [VLit (LitChar WordRep 'x')], VConstructor "[]" []])
         assertEqual
           "raw result"
           (Right ": 'x' []")

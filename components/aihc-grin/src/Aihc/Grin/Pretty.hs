@@ -6,6 +6,7 @@ module Aihc.Grin.Pretty
 where
 
 import Aihc.Grin.Syntax
+import Aihc.Tc.Types (RuntimeRep)
 import Data.List (intercalate)
 import Data.Text qualified as T
 
@@ -20,9 +21,15 @@ renderProgram program =
         <> map renderFunction (grinFunctions program)
     )
 
-renderConstructor :: (T.Text, Int) -> String
-renderConstructor (name, arity) =
-  "constructor " <> T.unpack name <> "/" <> show arity
+renderConstructor :: (T.Text, [RuntimeRep]) -> String
+renderConstructor (name, fieldReps) =
+  "constructor "
+    <> T.unpack name
+    <> "/"
+    <> show (length fieldReps)
+    <> " ["
+    <> intercalate ", " (map show fieldReps)
+    <> "]"
 
 renderPrimitive :: (GrinVar, Int) -> String
 renderPrimitive (var, arity) =
@@ -43,6 +50,8 @@ renderFunction :: GrinFunction -> String
 renderFunction function =
   T.unpack (unFunctionName (grinFunctionName function))
     <> concatMap ((" " <>) . renderVar) (grinFunctionParameters function)
+    <> " -> "
+    <> show (grinFunctionResultRep function)
     <> " =\n"
     <> renderExprIndented 2 (grinFunctionBody function)
 
@@ -71,12 +80,20 @@ renderExprIndented indentation expr =
           ]
         <> "\n"
         <> renderExprIndented indentation body
-    GrinFetch pointer -> indent indentation <> "fetch " <> renderValue pointer
+    GrinFetch runtimeRep pointer ->
+      indent indentation <> "fetch @" <> show runtimeRep <> " " <> renderValue pointer
     GrinUpdate pointer value ->
       indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
-    GrinEval value -> indent indentation <> "eval " <> renderValue value
-    GrinApply function argument ->
-      indent indentation <> "apply " <> renderValue function <> " " <> renderValue argument
+    GrinEval runtimeRep value ->
+      indent indentation <> "eval @" <> show runtimeRep <> " " <> renderValue value
+    GrinApply runtimeRep function argument ->
+      indent indentation
+        <> "apply @"
+        <> show runtimeRep
+        <> " "
+        <> renderValue function
+        <> " "
+        <> renderValue argument
     GrinCase scrutinee binder alternatives ->
       indent indentation
         <> "case "
@@ -85,12 +102,20 @@ renderExprIndented indentation expr =
         <> renderVar binder
         <> " of\n"
         <> intercalate "\n" (map (renderAlt (indentation + 2)) alternatives)
-    GrinDictSelect dictionary index ->
-      indent indentation <> "select " <> renderValue dictionary <> " " <> show index
-    GrinThrow exception -> indent indentation <> "throw " <> renderValue exception
-    GrinCatch action handler state ->
+    GrinDictSelect runtimeRep dictionary index ->
       indent indentation
-        <> "catch "
+        <> "select @"
+        <> show runtimeRep
+        <> " "
+        <> renderValue dictionary
+        <> " "
+        <> show index
+    GrinThrow exception -> indent indentation <> "throw " <> renderValue exception
+    GrinCatch runtimeRep action handler state ->
+      indent indentation
+        <> "catch @"
+        <> show runtimeRep
+        <> " "
         <> unwords (map renderValue [action, handler, state])
 
 renderAlt :: Int -> GrinAlt -> String
@@ -136,12 +161,17 @@ renderNodeTag nodeTag =
 renderLiteral :: GrinLiteral -> String
 renderLiteral literal =
   case literal of
-    GrinLitInt value -> show value
-    GrinLitChar value -> show value
+    GrinLitInt _ value -> show value
+    GrinLitChar _ value -> show value
     GrinLitString value -> show (T.unpack value)
 
 renderVar :: GrinVar -> String
-renderVar var = T.unpack (grinVarName var) <> "%" <> show (grinVarUnique var)
+renderVar var =
+  T.unpack (grinVarName var)
+    <> "%"
+    <> show (grinVarUnique var)
+    <> " :: "
+    <> show (grinVarRuntimeRep var)
 
 indent :: Int -> String
 indent count = replicate count ' '
