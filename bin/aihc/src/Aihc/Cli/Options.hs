@@ -21,6 +21,8 @@ data Command
 data CompileOptions = CompileOptions
   { compileSourceFile :: !FilePath,
     compileOutputFile :: !(Maybe FilePath),
+    compileKeepCore :: !Bool,
+    compileKeepGrin :: !Bool,
     compileKeepAsm :: !Bool
   }
   deriving (Eq, Show)
@@ -103,6 +105,14 @@ compileOptionsParser =
               <> OA.metavar "FILE"
               <> OA.help "Write the executable to FILE (default: SOURCE without its extension)"
           )
+      )
+    <*> OA.switch
+      ( OA.long "keep-core"
+          <> OA.help "Keep the generated System FC core as OUTPUT.core"
+      )
+    <*> OA.switch
+      ( OA.long "keep-grin"
+          <> OA.help "Keep the generated GRIN as OUTPUT.grin"
       )
     <*> OA.switch
       ( OA.long "keep-asm"

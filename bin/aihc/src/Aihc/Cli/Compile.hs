@@ -34,18 +34,21 @@ import Aihc.Fc
     desugarModule,
     desugarModuleWithBindings,
   )
-import Aihc.Grin (lowerProgram)
+import Aihc.Fc qualified as Fc
+import Aihc.Grin qualified as Grin
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Control.Exception (bracket)
+import Control.Monad (when)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
@@ -61,6 +64,12 @@ data CompileError
   | CompileClangError !ExitCode !String
   deriving (Eq, Show)
 
+data CompileArtifacts = CompileArtifacts
+  { compiledCore :: !Text,
+    compiledGrin :: !Text,
+    compiledAssembly :: !Text
+  }
+
 runCompile :: CompileOptions -> IO ()
 runCompile options = do
   environment <- defaultCompileEnvironment
@@ -69,18 +78,26 @@ runCompile options = do
 runCompileWithEnvironment :: CompileEnvironment -> CompileOptions -> IO ()
 runCompileWithEnvironment environment options = do
   source <- TIO.readFile (compileSourceFile options)
-  assemblyResult <- compileSourceToAssemblyWithDependencies environment (compileSourceFile options) source
-  assembly <- either (ioError . userError . renderCompileError) pure assemblyResult
+  artifactsResult <- compileSourceToArtifactsWithDependencies environment (compileSourceFile options) source
+  artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
+  writeIntermediateArtifacts output options artifacts
   if compileKeepAsm options
     then do
       let assemblyPath = output <> ".s"
-      TIO.writeFile assemblyPath assembly
+      TIO.writeFile assemblyPath (compiledAssembly artifacts)
       assemble output assemblyPath
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program.s"
-      TIO.writeFile assemblyPath assembly
+      TIO.writeFile assemblyPath (compiledAssembly artifacts)
       assemble output assemblyPath
+
+writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
+writeIntermediateArtifacts output options artifacts = do
+  when (compileKeepCore options) $
+    TIO.writeFile (output <> ".core") (compiledCore artifacts)
+  when (compileKeepGrin options) $
+    TIO.writeFile (output <> ".grin") (compiledGrin artifacts)
 
 -- | The project-local core libraries and shared compiled-library cache used by
 -- the command-line compiler.
@@ -105,11 +122,15 @@ compileSourceToAssembly sourceName source = do
   parsed <- parseCompileModule sourceName source
   let desugared = desugarModule parsed
   if dsSuccess desugared
-    then either (Left . CompileArm64Error) Right (compileProgram "main" (lowerProgram (dsProgram desugared)))
+    then compiledAssembly <$> compileProgramArtifacts (dsProgram desugared)
     else Left (CompileFrontendError (dsErrors desugared))
 
 compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToAssemblyWithDependencies environment sourceName source =
+  fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies environment sourceName source)
+
+compileSourceToArtifactsWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
+compileSourceToArtifactsWithDependencies environment sourceName source =
   case parseCompileModule sourceName source of
     Left err -> pure (Left err)
     Right parsed -> do
@@ -118,7 +139,7 @@ compileSourceToAssemblyWithDependencies environment sourceName source =
         artifact <- either (Left . CompileDependencyError) Right dependencies
         compileWithDependencies artifact parsed
 
-compileWithDependencies :: DependencyArtifact -> Module -> Either CompileError Text
+compileWithDependencies :: DependencyArtifact -> Module -> Either CompileError CompileArtifacts
 compileWithDependencies dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [parsed] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
@@ -140,7 +161,20 @@ compileWithDependencies dependencies parsed =
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                           freshDependencies = shiftProgramVars (1 + maximumProgramUnique mainProgram) (dependencyProgram dependencies)
                           program = retainReachableTopBinds "main" (appendPrograms freshDependencies mainProgram)
-                       in either (Left . CompileArm64Error) Right (compileProgram "main" (lowerProgram program))
+                       in compileProgramArtifacts program
+
+compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
+compileProgramArtifacts core = do
+  let grin = Grin.lowerProgram core
+  assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
+  pure
+    CompileArtifacts
+      { compiledCore = withFinalNewline (Fc.renderProgram core),
+        compiledGrin = withFinalNewline (Grin.renderProgram grin),
+        compiledAssembly = assembly
+      }
+  where
+    withFinalNewline rendered = T.pack rendered <> "\n"
 
 appendPrograms :: FcProgram -> FcProgram -> FcProgram
 appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)

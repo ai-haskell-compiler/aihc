@@ -76,16 +76,26 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") True)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
+          testCase "parses keep-core" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False)))
+              (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
+          testCase "parses keep-grin" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False)))
+              (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -132,7 +142,7 @@ main =
                 Right assembly -> do
                   assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
                   assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
-          testCase "assembles an executable and honors keep-asm" test_compileExecutable,
+          testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -846,16 +856,24 @@ test_compileExecutable =
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
+        assertFileExists (keptOutput <> ".core")
+        assertFileExists (keptOutput <> ".grin")
         assertFileExists (keptOutput <> ".s")
+        core <- TIO.readFile (keptOutput <> ".core")
+        grin <- TIO.readFile (keptOutput <> ".grin")
+        assertBool "core contains main" ("main" `T.isInfixOf` core)
+        assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
         assertNativeOutput keptOutput
 
         runCompileWithEnvironment environment temporaryOptions
         assertFileExists temporaryOutput
+        assertFileDoesNotExist (temporaryOutput <> ".core")
+        assertFileDoesNotExist (temporaryOutput <> ".grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
 
