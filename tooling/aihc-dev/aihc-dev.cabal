@@ -125,6 +125,7 @@ library golden-tools
     aihc-dev:parser-tools,
     aihc-fc,
     aihc-fmt,
+    aihc-grin,
     aihc-parser,
     aihc-parser-tooling-common,
     aihc-resolve,

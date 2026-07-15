@@ -2,6 +2,7 @@
 
 module Test.Grin.Suite
   ( grinUnitTests,
+    grinGoldenTests,
     grinEvalFixtureTests,
   )
 where
@@ -12,6 +13,7 @@ import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (.
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (isInfixOf)
 import Data.Text (Text)
+import GrinGolden qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -53,6 +55,18 @@ grinUnitTests =
         assertBool "raw local is returned directly" ("return answer%2 :: IntRep" `isInfixOf` rendered)
         assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered))
     ]
+
+grinGoldenTests :: IO TestTree
+grinGoldenTests =
+  testGroup "GRIN golden tests" . map goldenTest <$> GrinGolden.loadGrinCases
+  where
+    goldenTest fixture = testCase (GrinGolden.caseId fixture) $ do
+      let (outcome, details) = GrinGolden.evaluateGrinCase fixture
+      case outcome of
+        GrinGolden.OutcomePass -> pure ()
+        GrinGolden.OutcomeXFail -> pure ()
+        GrinGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
+        GrinGolden.OutcomeFail -> assertFailure details
 
 grinEvalFixtureTests :: IO TestTree
 grinEvalFixtureTests = do
