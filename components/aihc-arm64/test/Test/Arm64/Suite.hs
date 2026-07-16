@@ -98,27 +98,54 @@ tests =
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
-        let answer = GrinVar "answer" 1 (BoxedRep Lifted)
-            functionName = FunctionName "answer_code"
+        let functionName = FunctionName "narrow_code"
             program =
               GrinProgram
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
                   grinIoCafs = mempty,
-                  grinCafs = [(answer, GrinNode (GrinThunk functionName) [])],
+                  grinCafs = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = Int8Rep,
-                          grinFunctionBody = GrinReturn (GrinLitValue (GrinLitInt Int8Rep 255))
+                          grinFunctionBody = GrinReturn [GrinLitValue (GrinLitInt Int8Rep 255)]
                         }
                     ]
                 }
-        case compileProgram "answer" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" program of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
+      testCase "returns unboxed tuples as direct machine values" $ do
+        let functionName = FunctionName "pair_code"
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinIoCafs = mempty,
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [TupleRep [], IntRep, WordRep],
+                          grinFunctionBody =
+                            GrinReturn
+                              [ GrinLitValue (GrinLitInt IntRep 1),
+                                GrinLitValue (GrinLitInt WordRep 2)
+                              ]
+                        }
+                    ]
+                }
+        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" program of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "returns two values" ("ldr x1, =2" `T.isInfixOf` assembly)
+            assertBool "uses the multi-value return ABI" ("bl _aihc_return_values" `T.isInfixOf` assembly)
+            assertBool "does not allocate an aggregate node" (not ("bl _aihc_make_node" `T.isInfixOf` assembly)),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 
@@ -134,8 +161,10 @@ testNativeHelloWorld = do
     case compileResult of
       Right value -> pure value
       Left err -> assertFailure ("HelloWorld failed before GRIN lowering: " <> err)
+  let grinProgram = lowerProgram fcProgram
+  assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
   assembly <-
-    case compileProgram evalBindingName (lowerProgram fcProgram) of
+    case compileProgram evalBindingName grinProgram of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly

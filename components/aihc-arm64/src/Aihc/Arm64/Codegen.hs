@@ -19,13 +19,12 @@ import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep (..))
-import Control.Monad (forM)
+import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -152,7 +151,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName program =
       "  stp x19, x20, [sp, #16]",
       "  stp x21, x22, [sp, #32]",
       immediate "x0" (length globalNames),
-      immediate "x1" tupleConstructor,
       "  bl _aihc_machine_new",
       "  mov x22, x0"
     ]
@@ -178,9 +176,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName program =
     compileEnv = compileEnvironment layout program
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
-    constructorIds = compileConstructorIds compileEnv
-    tupleConstructor = Map.findWithDefault 0 "(#,#)" constructorIds
-
     callInitializer symbol =
       [ "  mov x0, x22",
         "  bl " <> symbol
@@ -244,8 +239,7 @@ compileInitializers env program = do
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
   label <- functionCodeLabel env (grinFunctionName function)
-  let bound = Set.fromList (grinFunctionParameters function) <> boundVars (grinFunctionBody function)
-      localSlots = Map.fromList (zip (Set.toAscList bound) [0 ..])
+  let localSlots = functionLocalSlots function
       firstScratch = Map.size localSlots
       bodyLabel = label <> "_body"
       initialState = FunctionState 0 firstScratch []
@@ -282,17 +276,21 @@ parameterCopyLir slots parameters =
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
   case expression of
-    GrinReturn value -> do
-      valueLines <- liftEither (materializeValue env value)
-      addBlock label (prefix <> valueLines <> returnLines)
-    GrinBind var valueExpression body -> do
+    GrinReturn values -> do
+      valueSlots <- freshSlots (length values)
+      valueLines <-
+        fmap concat . forM (zip values valueSlots) $ \(value, slot) -> do
+          lines' <- liftEither (materializeValue env value)
+          pure (lines' <> [storeAt "x0" "x19" slot])
+      addBlock label (prefix <> valueLines <> returnValuesLines valueSlots)
+    GrinBind vars valueExpression body -> do
       valueLabel <- freshLabel label "bind_value"
       bodyLabel <- freshLabel label "bind_body"
-      slot <- localSlot env var
+      slot <- contiguousLocalSlots env vars
       addBlock
         label
         ( prefix
-            <> pushNormalLines bodyLabel slot
+            <> pushNormalLines bodyLabel slot (length vars)
             <> ["  b " <> valueLabel]
         )
       compileExpr env [] valueLabel valueExpression
@@ -318,20 +316,25 @@ compileExpr env prefix label expression =
     GrinEval runtimeRep value -> do
       valueLines <- liftEither (materializeValue env value)
       addBlock label (prefix <> valueLines <> evalLines runtimeRep)
-    GrinApply _ function argument -> do
+    GrinApply _ function arguments -> do
       scratch <- freshSlot
       functionLines <- liftEither (materializeValue env function)
-      argumentLines <- liftEither (materializeValue env argument)
+      argumentSlots <- freshSlots (length arguments)
+      argumentLines <-
+        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
+          lines' <- liftEither (materializeValue env argument)
+          pure (lines' <> [storeAt "x0" "x19" slot])
       addBlock
         label
         ( prefix
             <> functionLines
             <> [storeAt "x0" "x19" scratch]
             <> argumentLines
-            <> [ "  mov x2, x0",
-                 loadAt "x1" "x19" scratch,
+            <> [ loadAt "x1" "x19" scratch,
+                 immediate "x2" (length arguments),
+                 slotPointer "x3" argumentSlots,
                  "  mov x0, x22",
-                 "  bl _aihc_apply"
+                 "  bl _aihc_apply_values"
                ]
             <> dispatchLines
         )
@@ -384,41 +387,13 @@ compileForeignCall env prefix label foreignCall arguments = do
                   <> loadAbiArguments
                   <> ["  bl _" <> grinForeignCallSymbol foreignCall]
                   <> normalizeForeignResult (grinForeignResultType signature)
-          resultLines <-
-            case grinForeignEffect signature of
-              GrinForeignPure -> pure returnLines
-              GrinForeignRealWorld ->
-                case drop abiArity argumentSlots of
-                  [stateSlot] -> makeForeignResultTuple env stateSlot
-                  _ -> lift (Left (Arm64UnsupportedExpression "foreign state-token arity mismatch"))
-          addBlock label (prefix <> callLines <> resultLines)
+          addBlock label (prefix <> callLines <> returnLines)
 
 normalizeForeignResult :: GrinForeignType -> [Text]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt32 -> ["  sxtw x0, w0"]
     GrinForeignWord64 -> []
-
-makeForeignResultTuple :: ValueEnv -> Int -> FunctionM [Text]
-makeForeignResultTuple env stateSlot = do
-  resultSlot <- freshSlot
-  tupleId <- liftEither (constructorId (valueCompileEnv env) "(#,#)")
-  pure
-    ( [storeAt "x0" "x19" resultSlot]
-        <> makeNodeLines 1 (InfoImmediate tupleId) 2 2
-        <> [ "  mov x20, x0",
-             loadAt "x2" "x19" stateSlot,
-             "  mov x0, x20",
-             immediate "x1" (0 :: Int),
-             "  bl _aihc_set_field",
-             loadAt "x2" "x19" resultSlot,
-             "  mov x0, x20",
-             immediate "x1" (1 :: Int),
-             "  bl _aihc_set_field",
-             "  mov x0, x20"
-           ]
-        <> returnLines
-    )
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
@@ -435,7 +410,7 @@ compileCase env prefix label scrutinee binder alternatives = do
         ( prefix
             <> scrutineeLines
             <> ["  mov x20, x0"]
-            <> pushNormalLines dispatchLabel resultSlot
+            <> pushNormalLines dispatchLabel resultSlot 1
             <> [ "  mov x1, x20",
                  immediate "x2" (1 :: Int),
                  "  mov x0, x22",
@@ -611,10 +586,9 @@ nodeHeader env node =
       identifier <- constructorId compileEnv name
       arity <- constructorArity compileEnv name
       pure (1, InfoImmediate identifier, arity)
-    GrinClosure functionName -> do
+    GrinClosure functionName argumentCount -> do
       label <- functionCodeLabel compileEnv functionName
-      arity <- functionArity compileEnv functionName
-      pure (2, InfoAddress label, arity)
+      pure (2, InfoAddress label, argumentCount)
     GrinThunk functionName -> do
       label <- functionCodeLabel compileEnv functionName
       arity <- functionArity compileEnv functionName
@@ -665,6 +639,19 @@ freshSlot = do
   modify' $ \current -> current {functionNextSlot = slot + 1}
   pure slot
 
+freshSlots :: Int -> FunctionM [Int]
+freshSlots count = replicateM count freshSlot
+
+contiguousLocalSlots :: ValueEnv -> [GrinVar] -> FunctionM Int
+contiguousLocalSlots _ [] = pure 0
+contiguousLocalSlots env vars = do
+  slots <- mapM (localSlot env) vars
+  case slots of
+    first : rest
+      | rest == [first + 1 .. first + length rest] -> pure first
+      | otherwise -> lift (Left (Arm64UnsupportedExpression "non-contiguous multi-value bind"))
+    [] -> pure 0
+
 freshLabel :: Text -> Text -> FunctionM Text
 freshLabel parent kind = do
   state <- get
@@ -679,14 +666,30 @@ addBlock label lines' =
 renderBlock :: Block -> [Text]
 renderBlock block = blockLabel block <> ":" : blockLines block
 
-pushNormalLines :: Text -> Int -> [Text]
-pushNormalLines code slot =
+pushNormalLines :: Text -> Int -> Int -> [Text]
+pushNormalLines code slot count =
   [ "  mov x0, x22",
     "  adr x1, " <> code,
     "  mov x2, x19",
     immediate "x3" slot,
+    immediate "x4" count,
     "  bl _aihc_push_normal"
   ]
+
+returnValuesLines :: [Int] -> [Text]
+returnValuesLines slots =
+  [ "  mov x0, x22",
+    immediate "x1" (length slots),
+    slotPointer "x2" slots,
+    "  bl _aihc_return_values"
+  ]
+    <> dispatchLines
+
+slotPointer :: Text -> [Int] -> Text
+slotPointer register slots =
+  case slots of
+    first : _ -> "  add " <> register <> ", x19, #" <> tshow (first * 8)
+    [] -> "  mov " <> register <> ", xzr"
 
 returnLines :: [Text]
 returnLines =
@@ -741,24 +744,34 @@ primitiveIdentifier allowUnsupported name
   | allowUnsupported = Right 0
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 
-boundVars :: GrinExpr -> Set GrinVar
-boundVars expression =
-  case expression of
-    GrinReturn _ -> Set.empty
-    GrinBind var valueExpression body -> Set.insert var (boundVars valueExpression <> boundVars body)
-    GrinStore _ -> Set.empty
-    GrinStoreRec bindings body -> Set.fromList (map fst bindings) <> boundVars body
-    GrinFetch _ _ -> Set.empty
-    GrinUpdate _ _ -> Set.empty
-    GrinEval _ _ -> Set.empty
-    GrinApply {} -> Set.empty
-    GrinCase _ binder alternatives -> Set.insert binder (Set.unions (map altBoundVars alternatives))
-    GrinDictSelect {} -> Set.empty
-    GrinThrow _ -> Set.empty
-    GrinCatch {} -> Set.empty
-    GrinForeignCallExpr {} -> Set.empty
+functionLocalSlots :: GrinFunction -> Map GrinVar Int
+functionLocalSlots function = snd (foldl' assignGroup (0, Map.empty) groups)
   where
-    altBoundVars alternative = Set.fromList (grinAltBinders alternative) <> boundVars (grinAltRhs alternative)
+    groups = grinFunctionParameters function : boundVarGroups (grinFunctionBody function)
+    assignGroup = foldl' assignVar
+    assignVar (next, slots) var =
+      case Map.lookup var slots of
+        Just _ -> (next, slots)
+        Nothing -> (next + 1, Map.insert var next slots)
+
+boundVarGroups :: GrinExpr -> [[GrinVar]]
+boundVarGroups expression =
+  case expression of
+    GrinReturn _ -> []
+    GrinBind vars valueExpression body -> vars : boundVarGroups valueExpression <> boundVarGroups body
+    GrinStore _ -> []
+    GrinStoreRec bindings body -> map (pure . fst) bindings <> boundVarGroups body
+    GrinFetch _ _ -> []
+    GrinUpdate _ _ -> []
+    GrinEval _ _ -> []
+    GrinApply {} -> []
+    GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
+    GrinDictSelect {} -> []
+    GrinThrow _ -> []
+    GrinCatch {} -> []
+    GrinForeignCallExpr {} -> []
+  where
+    altBoundVarGroups alternative = grinAltBinders alternative : boundVarGroups (grinAltRhs alternative)
 
 uniqueTexts :: [Text] -> [Text]
 uniqueTexts = reverse . snd . foldl' step (Set.empty, [])
@@ -804,9 +817,9 @@ programRuntimeReps program =
 exprRuntimeReps :: GrinExpr -> [RuntimeRep]
 exprRuntimeReps expression =
   case expression of
-    GrinReturn value -> valueRuntimeReps value
-    GrinBind var valueExpression body ->
-      grinVarRuntimeRep var : exprRuntimeReps valueExpression <> exprRuntimeReps body
+    GrinReturn values -> concatMap valueRuntimeReps values
+    GrinBind vars valueExpression body ->
+      map grinVarRuntimeRep vars <> exprRuntimeReps valueExpression <> exprRuntimeReps body
     GrinStore node -> nodeRuntimeReps node
     GrinStoreRec bindings body ->
       concatMap (\(var, node) -> grinVarRuntimeRep var : nodeRuntimeReps node) bindings
@@ -814,18 +827,18 @@ exprRuntimeReps expression =
     GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer
     GrinUpdate pointer value -> valueRuntimeReps pointer <> valueRuntimeReps value
     GrinEval runtimeRep value -> runtimeRep : valueRuntimeReps value
-    GrinApply runtimeRep function argument ->
-      runtimeRep : valueRuntimeReps function <> valueRuntimeReps argument
+    GrinApply runtimeRep function arguments ->
+      runtimeRep : valueRuntimeReps function <> concatMap valueRuntimeReps arguments
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)
     GrinDictSelect runtimeRep dictionary _ -> runtimeRep : valueRuntimeReps dictionary
     GrinThrow exception -> valueRuntimeReps exception
     GrinCatch runtimeRep action handler state ->
-      runtimeRep : concatMap valueRuntimeReps [action, handler, state]
+      runtimeRep : concatMap valueRuntimeReps (action : handler : state)
     GrinForeignCallExpr foreignCall arguments ->
-      grinForeignCallResultRep (grinForeignCallSignature foreignCall)
-        : concatMap valueRuntimeReps arguments
+      grinForeignCallResultReps (grinForeignCallSignature foreignCall)
+        <> concatMap valueRuntimeReps arguments
   where
     altRuntimeReps alternative =
       map grinVarRuntimeRep (grinAltBinders alternative)
