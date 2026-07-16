@@ -45,9 +45,10 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Control.Monad (zipWithM)
+import Control.Applicative ((<|>))
+import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -147,8 +148,12 @@ dsModule m = do
 dsDecl :: Decl -> DsM [FcTopBind]
 dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
 dsDecl (DeclNewtype nd) = (: []) <$> dsNewtypeDeclM nd
+dsDecl (DeclAnn ann inner)
+  | Just foreignAnn <- fromAnnotation ann,
+    Just (tcAnn, foreignDecl) <- annotatedForeignDecl inner =
+      dsForeignImport tcAnn (Just foreignAnn) foreignDecl
 dsDecl (DeclAnn ann (DeclForeign foreignDecl))
-  | Just tcAnn <- fromAnnotation ann = (: []) <$> dsForeignImport tcAnn foreignDecl
+  | Just tcAnn <- fromAnnotation ann = dsForeignImport tcAnn Nothing foreignDecl
 dsDecl (DeclAnn ann (DeclClass _classDecl))
   | Just classAnn <- fromAnnotation ann = dsClassDeclM classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
@@ -191,14 +196,26 @@ dsNewtypeDeclM nd = do
     asTyVar (TcTyVar tyVar) = Just tyVar
     asTyVar _ = Nothing
 
-dsForeignImport :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
-dsForeignImport tcAnn foreignDecl
+annotatedForeignDecl :: Decl -> Maybe (TcAnnotation, ForeignDecl)
+annotatedForeignDecl = go Nothing
+  where
+    go maybeTc decl =
+      case decl of
+        DeclAnn ann inner -> go (fromAnnotation ann <|> maybeTc) inner
+        DeclForeign foreignDecl -> (,foreignDecl) <$> maybeTc
+        _ -> Nothing
+
+dsForeignImport :: TcAnnotation -> Maybe TcForeignImportAnnotation -> ForeignDecl -> DsM [FcTopBind]
+dsForeignImport tcAnn foreignPlan foreignDecl
   | foreignDirection foreignDecl /= ForeignImport =
       desugarBug "unsupported foreign export after type checking"
   | otherwise =
       case foreignCallConv foreignDecl of
-        CPrim -> dsForeignPrim tcAnn foreignDecl
-        CCall -> dsForeignCcall tcAnn foreignDecl
+        CPrim -> (: []) <$> dsForeignPrim tcAnn foreignDecl
+        CCall ->
+          case foreignPlan of
+            Just plan -> dsForeignCcall tcAnn plan foreignDecl
+            Nothing -> desugarBug "missing type-checker foreign import plan"
         callConv -> desugarBug ("unsupported foreign calling convention after type checking: " <> show callConv)
 
 dsForeignPrim :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
@@ -209,8 +226,8 @@ dsForeignPrim tcAnn foreignDecl = do
   unique <- freshUnique
   pure (FcPrimitive (Var name unique ty) arity)
 
-dsForeignCcall :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
-dsForeignCcall tcAnn foreignDecl = do
+dsForeignCcall :: TcAnnotation -> TcForeignImportAnnotation -> ForeignDecl -> DsM [FcTopBind]
+dsForeignCcall tcAnn foreignPlan foreignDecl = do
   if foreignSafety foreignDecl == Just Unsafe
     then pure ()
     else desugarBug "only unsafe foreign imports are supported"
@@ -221,42 +238,108 @@ dsForeignCcall tcAnn foreignDecl = do
       ForeignEntityOmitted -> pure (unqualifiedNameText (foreignName foreignDecl))
       _ -> desugarBug "only statically named foreign imports are supported"
   let name = unqualifiedNameText (foreignName foreignDecl)
-      ty = tcAnnType tcAnn
-  signature <- foreignCallSignature ty
-  unique <- freshUnique
-  pure
-    ( FcForeignImport
+      wrapperType = tcAnnType tcAnn
+      signature =
+        FcForeignSignature
+          { fcForeignArgumentTypes = map (lowerForeignAbiType . tcForeignAbiType) (tcForeignArguments foreignPlan),
+            fcForeignResultType = lowerForeignAbiType (tcForeignAbiType (tcForeignResult foreignPlan)),
+            fcForeignEffect = lowerForeignEffect (tcForeignEffect foreignPlan)
+          }
+      foreignCall =
         FcForeignCall
-          { fcForeignCallVar = Var name unique ty,
+          { fcForeignCallName = "$ffi$" <> name,
             fcForeignCallSymbol = symbol,
             fcForeignCallSignature = signature
           }
-    )
-
-foreignCallSignature :: TcType -> DsM FcForeignSignature
-foreignCallSignature ty = do
-  let (arguments, result) = splitForeignFunctionType ty
-  argumentTypes <- traverse marshalForeignType arguments
-  resultType <-
-    case result of
-      TcTyCon (TyCon "IO" 1) [ioResult] -> FcForeignIO <$> marshalForeignType ioResult
-      _ -> FcForeignPure <$> marshalForeignType result
+  wrapperVar <- freshVar name wrapperType
+  argumentVars <-
+    mapM
+      (\(index, marshal) -> freshVar ("$ffi_arg_" <> T.pack (show index)) (tcForeignSourceType marshal))
+      (zip [0 :: Int ..] (tcForeignArguments foreignPlan))
+  wrapperBody <-
+    unboxForeignArguments (zip argumentVars (tcForeignArguments foreignPlan)) $ \arguments ->
+      case tcForeignEffect foreignPlan of
+        TcForeignPure ->
+          boxForeignValue (tcForeignResult foreignPlan) (FcCallForeign foreignCall arguments)
+        TcForeignRealWorld -> makeForeignIoWrapper foreignCall (tcForeignResult foreignPlan) arguments
   pure
-    FcForeignSignature
-      { fcForeignArgumentTypes = argumentTypes,
-        fcForeignResult = resultType
-      }
+    [ FcForeignImport foreignCall,
+      FcTopBind (FcNonRec wrapperVar (foldr FcLam wrapperBody argumentVars))
+    ]
 
-splitForeignFunctionType :: TcType -> ([TcType], TcType)
-splitForeignFunctionType (TcFunTy argument result) =
-  let (arguments, finalResult) = splitForeignFunctionType result
-   in (argument : arguments, finalResult)
-splitForeignFunctionType result = ([], result)
+lowerForeignAbiType :: TcForeignAbiType -> FcForeignType
+lowerForeignAbiType foreignType =
+  case foreignType of
+    TcForeignInt32 -> FcForeignInt32
+    TcForeignWord64 -> FcForeignWord64
 
-marshalForeignType :: TcType -> DsM FcForeignType
-marshalForeignType (TcTyCon (TyCon "CInt" 0) []) = pure FcForeignCInt
-marshalForeignType ty =
-  desugarBug ("unsupported foreign import value type: " <> show ty)
+lowerForeignEffect :: TcForeignEffect -> FcForeignEffect
+lowerForeignEffect effect =
+  case effect of
+    TcForeignPure -> FcForeignPure
+    TcForeignRealWorld -> FcForeignRealWorld
+
+unboxForeignArguments :: [(Var, TcForeignMarshal)] -> ([FcExpr] -> DsM FcExpr) -> DsM FcExpr
+unboxForeignArguments arguments continuation = go arguments []
+  where
+    go [] values = continuation (reverse values)
+    go ((var, marshal) : rest) values =
+      unboxForeignValue marshal (FcVar var) $ \value -> go rest (value : values)
+
+unboxForeignValue :: TcForeignMarshal -> FcExpr -> (FcExpr -> DsM FcExpr) -> DsM FcExpr
+unboxForeignValue marshal expression continuation =
+  go (tcForeignSourceType marshal) (tcForeignConstructors marshal) expression
+  where
+    go _ [] value = continuation value
+    go valueType (constructor : constructors) value = do
+      constructorType <- dropForAlls <$> lookupType constructor
+      fieldType <-
+        case constructorType of
+          TcFunTy field _ -> pure field
+          _ -> desugarBug ("foreign marshalling constructor is not unary: " <> T.unpack constructor)
+      caseBinder <- freshVar "$ffi_case" valueType
+      fieldBinder <- freshVar "$ffi_field" fieldType
+      rhs <- go fieldType constructors (FcVar fieldBinder)
+      pure
+        ( FcCase
+            value
+            caseBinder
+            [FcAlt (DataAlt constructor) [fieldBinder] rhs]
+        )
+
+boxForeignValue :: TcForeignMarshal -> FcExpr -> DsM FcExpr
+boxForeignValue marshal rawValue =
+  foldM applyConstructor rawValue (reverse (tcForeignConstructors marshal))
+  where
+    applyConstructor value constructor = do
+      constructorType <- lookupType constructor
+      constructorVar <- freshVar constructor constructorType
+      pure (FcApp (FcVar constructorVar) value)
+
+makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
+makeForeignIoWrapper foreignCall resultMarshal arguments = do
+  stateVar <- freshVar "$ffi_state" statePrimRealWorldTy
+  tupleBinder <- freshVar "$ffi_result" (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+  nextStateVar <- freshVar "$ffi_next_state" statePrimRealWorldTy
+  rawResultVar <- freshVar "$ffi_raw_result" (tcForeignPrimitiveType resultMarshal)
+  boxedResult <- boxForeignValue resultMarshal (FcVar rawResultVar)
+  tupleConstructor <-
+    freshVar
+      "(#,#)"
+      (TcFunTy statePrimRealWorldTy (TcFunTy (tcForeignSourceType resultMarshal) (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])))
+  ioConstructorType <- lookupType "IO"
+  ioConstructor <- freshVar "IO" ioConstructorType
+  let resultTuple = FcApp (FcApp (FcVar tupleConstructor) (FcVar nextStateVar)) boxedResult
+      call = FcCallForeign foreignCall (arguments <> [FcVar stateVar])
+      stateAction =
+        FcLam
+          stateVar
+          ( FcCase
+              call
+              tupleBinder
+              [FcAlt (DataAlt "(#,#)") [nextStateVar, rawResultVar] resultTuple]
+          )
+  pure (FcApp (FcTyApp (FcVar ioConstructor) (tcForeignSourceType resultMarshal)) stateAction)
 
 validatePrimitiveImport :: Text -> TcType -> DsM Int
 validatePrimitiveImport name ty =

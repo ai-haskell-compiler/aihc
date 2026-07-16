@@ -29,7 +29,6 @@ import Aihc.Fc
     FcAlt (..),
     FcBind (..),
     FcExpr (..),
-    FcForeignCall (..),
     FcProgram (..),
     FcTopBind (..),
     Var (..),
@@ -238,8 +237,7 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcData {} -> topBind
         FcNewtype {} -> topBind
         FcPrimitive var arity -> FcPrimitive (shiftVar var) arity
-        FcForeignImport foreignCall ->
-          FcForeignImport foreignCall {fcForeignCallVar = shiftVar (fcForeignCallVar foreignCall)}
+        FcForeignImport {} -> topBind
         FcTopBind bind -> FcTopBind (shiftBind bind)
 
     shiftBind bind =
@@ -263,6 +261,7 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcCase scrutinee binder alternatives ->
           FcCase (shiftExpr scrutinee) (shiftVar binder) (map shiftAlt alternatives)
         FcCast inner coercion -> FcCast (shiftExpr inner) coercion
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map shiftExpr arguments)
 
     shiftAlt alternative =
       alternative
@@ -279,7 +278,7 @@ topBindVarsDeep topBind =
     FcData {} -> []
     FcNewtype {} -> []
     FcPrimitive var _ -> [var]
-    FcForeignImport foreignCall -> [fcForeignCallVar foreignCall]
+    FcForeignImport {} -> []
     FcTopBind bind -> bindVarsDeep bind
 
 bindVarsDeep :: FcBind -> [Var]
@@ -304,6 +303,7 @@ exprVars expression =
     FcLet bind body -> bindVarsDeep bind <> exprVars body
     FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner
+    FcCallForeign _ arguments -> concatMap exprVars arguments
   where
     altVars alternative = altBinders alternative <> exprVars (altRhs alternative)
 

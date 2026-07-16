@@ -48,6 +48,8 @@ data LintError
     InconsistentAlts !TcType !TcType
   | -- | General lint failure.
     LintFailure !String
+  | UnknownForeignCall !Text
+  | ForeignCallDescriptorMismatch !Text
   deriving (Eq, Show)
 
 -- | Lint environment.
@@ -59,7 +61,8 @@ data LintEnv = LintEnv
     -- | Known data constructors: name -> (type var params, field types, result type).
     leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
     -- | Representational equality axioms introduced by newtypes.
-    leNewtypes :: !(Map Text FcNewtypeDecl)
+    leNewtypes :: !(Map Text FcNewtypeDecl),
+    leForeignCalls :: !(Map Text FcForeignCall)
   }
   deriving (Show)
 
@@ -70,18 +73,21 @@ emptyLintEnv =
     { leTerms = Map.empty,
       leTyVars = Set.empty,
       leDataCons = Map.empty,
-      leNewtypes = Map.empty
+      leNewtypes = Map.empty,
+      leForeignCalls = Map.empty
     }
 
 -- | Lint an entire program.
 lintProgram :: LintEnv -> FcProgram -> [LintError]
-lintProgram env0 prog = go envWithNewtypes (fcTopBinds prog)
+lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
   where
-    envWithNewtypes = foldr registerNewtype env0 (fcTopBinds prog)
+    envWithDeclarations = foldr registerDeclaration env0 (fcTopBinds prog)
 
-    registerNewtype (FcNewtype declaration) env =
+    registerDeclaration (FcNewtype declaration) env =
       env {leNewtypes = Map.insert (fcNewtypeName declaration) declaration (leNewtypes env)}
-    registerNewtype _ env = env
+    registerDeclaration (FcForeignImport foreignCall) env =
+      env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
+    registerDeclaration _ env = env
 
     go _ [] = []
     go env (FcData {} : rest) =
@@ -92,8 +98,8 @@ lintProgram env0 prog = go envWithNewtypes (fcTopBinds prog)
       go env rest
     go env (FcPrimitive var _arity : rest) =
       go (extendTermEnv var env) rest
-    go env (FcForeignImport foreignCall : rest) =
-      go (extendTermEnv (fcForeignCallVar foreignCall) env) rest
+    go env (FcForeignImport _ : rest) =
+      go env rest
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest
@@ -180,6 +186,23 @@ lintExpr env (FcCast e co) = do
   if typesEqual eTy coFrom
     then Right coTo
     else Left (TypeMismatch "cast source" coFrom eTy)
+lintExpr env (FcCallForeign foreignCall arguments) = do
+  case Map.lookup (fcForeignCallName foreignCall) (leForeignCalls env) of
+    Nothing -> Left (UnknownForeignCall (fcForeignCallName foreignCall))
+    Just declared
+      | declared /= foreignCall -> Left (ForeignCallDescriptorMismatch (fcForeignCallName foreignCall))
+      | otherwise -> Right ()
+  argumentTypes <- mapM (lintExpr env) arguments
+  let expectedTypes = fcForeignOperandTypes (fcForeignCallSignature foreignCall)
+  if length argumentTypes /= length expectedTypes
+    then Left (LintFailure ("foreign call arity mismatch for " ++ show (fcForeignCallName foreignCall)))
+    else do
+      mapM_ checkArgument (zip expectedTypes argumentTypes)
+      pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+  where
+    checkArgument (expected, actual)
+      | typesEqual expected actual = Right ()
+      | otherwise = Left (TypeMismatch "foreign call argument" expected actual)
 
 -- | Lint a case alternative.
 lintAlt :: LintEnv -> FcAlt -> Either LintError TcType

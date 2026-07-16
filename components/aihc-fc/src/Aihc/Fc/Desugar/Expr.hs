@@ -1313,6 +1313,8 @@ fcExprTypeM expr =
         [] -> desugarBug "case expression has no alternatives while desugaring"
         FcAlt _ _ body : _ -> fcExprTypeM body
     FcCast inner _co -> fcExprTypeM inner
+    FcCallForeign foreignCall _arguments ->
+      pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)

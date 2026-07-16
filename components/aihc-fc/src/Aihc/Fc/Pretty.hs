@@ -64,9 +64,9 @@ renderTopBind (FcForeignImport foreignCall) =
   "foreign ccall \""
     ++ T.unpack (fcForeignCallSymbol foreignCall)
     ++ "\" "
-    ++ renderVar (fcForeignCallVar foreignCall)
+    ++ T.unpack (fcForeignCallName foreignCall)
     ++ " : "
-    ++ renderType (varType (fcForeignCallVar foreignCall))
+    ++ renderType (fcForeignCallType (fcForeignCallSignature foreignCall))
 renderTopBind (FcTopBind bind) = renderBind 0 bind
 
 -- | Render data constructors.
@@ -173,6 +173,11 @@ renderExprPrec n parens (FcCase scrut binder alts) =
 renderExprPrec n parens (FcCast e _co) =
   paren parens $
     renderExprPrec n True e ++ " " ++ [castChar] ++ " <co>"
+renderExprPrec n parens (FcCallForeign foreignCall arguments) =
+  paren parens $
+    "foreign-call "
+      ++ T.unpack (fcForeignCallName foreignCall)
+      ++ concatMap ((" " ++) . renderExprPrec n True) arguments
 
 -- | Render a case alternative.
 renderAlt :: Int -> FcAlt -> String

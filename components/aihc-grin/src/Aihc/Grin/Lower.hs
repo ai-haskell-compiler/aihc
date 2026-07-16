@@ -216,6 +216,9 @@ lowerOrdinaryExpr expr =
         pure (GrinCase value (lowerVar binder) loweredAlternatives)
     FcCast inner _ ->
       lowerExpr inner
+    FcCallForeign foreignCall arguments ->
+      lowerStrictMany arguments $ \values ->
+        pure (GrinForeignCallExpr (lowerForeignCall foreignCall) values)
 
 lowerApplication :: FcExpr -> FcExpr -> LowerM GrinExpr
 lowerApplication function argument =
@@ -324,6 +327,15 @@ lowerArgumentMany expressions continuation =
         lowerArgumentMany rest $ \restValues ->
           continuation (firstValue : restValues)
 
+lowerStrictMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerStrictMany expressions continuation =
+  case expressions of
+    [] -> continuation []
+    first : rest ->
+      lowerStrict "foreign_argument" first $ \firstValue ->
+        lowerStrictMany rest $ \restValues ->
+          continuation (firstValue : restValues)
+
 freshVar :: Text -> RuntimeRep -> LowerM GrinVar
 freshVar hint runtimeRep = do
   unique <- gets lowerNextUnique
@@ -385,6 +397,7 @@ freeVars expr =
       freeVars scrutinee
         <> Set.delete binder (foldMap freeVarsAlt alternatives)
     FcCast inner _ -> freeVars inner
+    FcCallForeign _ arguments -> foldMap freeVars arguments
 
 freeVarsBind :: FcBind -> FcExpr -> Set Var
 freeVarsBind bind body =
@@ -478,7 +491,7 @@ lowerAltCon altCon =
 lowerForeignCall :: FcForeignCall -> GrinForeignCall
 lowerForeignCall foreignCall =
   GrinForeignCall
-    { grinForeignCallName = varName (fcForeignCallVar foreignCall),
+    { grinForeignCallName = fcForeignCallName foreignCall,
       grinForeignCallSymbol = fcForeignCallSymbol foreignCall,
       grinForeignCallSignature = lowerForeignSignature (fcForeignCallSignature foreignCall)
     }
@@ -487,19 +500,21 @@ lowerForeignSignature :: FcForeignSignature -> GrinForeignSignature
 lowerForeignSignature signature =
   GrinForeignSignature
     { grinForeignArgumentTypes = map lowerForeignType (fcForeignArgumentTypes signature),
-      grinForeignResult = lowerForeignResult (fcForeignResult signature)
+      grinForeignResultType = lowerForeignType (fcForeignResultType signature),
+      grinForeignEffect = lowerForeignEffect (fcForeignEffect signature)
     }
 
-lowerForeignResult :: FcForeignResult -> GrinForeignResult
-lowerForeignResult result =
-  case result of
-    FcForeignPure foreignType -> GrinForeignPure (lowerForeignType foreignType)
-    FcForeignIO foreignType -> GrinForeignIO (lowerForeignType foreignType)
+lowerForeignEffect :: FcForeignEffect -> GrinForeignEffect
+lowerForeignEffect effect =
+  case effect of
+    FcForeignPure -> GrinForeignPure
+    FcForeignRealWorld -> GrinForeignRealWorld
 
 lowerForeignType :: FcForeignType -> GrinForeignType
 lowerForeignType foreignType =
   case foreignType of
-    FcForeignCInt -> GrinForeignCInt
+    FcForeignInt32 -> GrinForeignInt32
+    FcForeignWord64 -> GrinForeignWord64
 
 exprRuntimeRep :: FcExpr -> RuntimeRep
 exprRuntimeRep expr =
@@ -538,6 +553,8 @@ exprType expr =
         first : _ -> exprType (altRhs first)
         [] -> Nothing
     FcCast inner _ -> exprType inner
+    FcCallForeign foreignCall _arguments ->
+      Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
   where
     functionResultType functionType =
       case functionType of
@@ -576,7 +593,7 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
         FcData _ _ constructors -> map fst constructors
         FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
-        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcForeignImport {} -> []
         FcTopBind bind -> map (varName . fst) (topBindings bind)
     topBindings bind =
       case bind of
@@ -591,7 +608,7 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
         FcData _ _ constructors -> map fst constructors
         FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
-        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcForeignImport {} -> []
         FcTopBind {} -> []
 
 programIoCafs :: FcProgram -> Set Text
@@ -621,7 +638,7 @@ topVars topBind =
     FcData {} -> []
     FcNewtype {} -> []
     FcPrimitive var _ -> [var]
-    FcForeignImport foreignCall -> [fcForeignCallVar foreignCall]
+    FcForeignImport {} -> []
     FcTopBind bind -> bindVars bind
 
 bindVars :: FcBind -> [Var]
@@ -647,6 +664,7 @@ exprVars expr =
     FcCase scrutinee binder alternatives ->
       exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner
+    FcCallForeign _ arguments -> concatMap exprVars arguments
 
 altVars :: FcAlt -> [Var]
 altVars alt = grinAltBinders' <> exprVars (altRhs alt)

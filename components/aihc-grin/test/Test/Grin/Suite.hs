@@ -48,6 +48,17 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
         assertBool "does not allocate an argument thunk" (not ("store " `isInfixOf` rendered)),
+      testCase "FC lowering emits saturated strict foreign calls" $ do
+        let program = lowerProgram foreignProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "contains a direct foreign call" ("foreign-call $ffi$abs" `isInfixOf` rendered)
+        assertBool "does not apply a foreign function value" (not ("apply " `isInfixOf` rendered)),
+      testCase "lint rejects undersaturated foreign calls" $ do
+        let program = lowerProgram undersaturatedForeignProgram
+        assertBool
+          "foreign arity mismatch"
+          (GrinLintForeignArity "$ffi$abs" 1 0 `elem` lintProgram program),
       testCase "FC lowering distinguishes shadowing locals from globals" $ do
         let program = lowerProgram shadowingProgram
             rendered = renderProgram program
@@ -238,6 +249,40 @@ intTy = TcTyCon (TyCon "Int#" 0) []
 
 boxedIntTy :: TcType
 boxedIntTy = TcTyCon (TyCon "Int" 0) []
+
+foreignProgram :: FcProgram
+foreignProgram =
+  FcProgram
+    [ FcForeignImport foreignCall,
+      FcTopBind
+        ( FcNonRec
+            foreignAnswerVar
+            (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42)])
+        )
+    ]
+
+undersaturatedForeignProgram :: FcProgram
+undersaturatedForeignProgram =
+  FcProgram
+    [ FcForeignImport foreignCall,
+      FcTopBind (FcNonRec foreignAnswerVar (FcCallForeign foreignCall []))
+    ]
+
+foreignCall :: FcForeignCall
+foreignCall =
+  FcForeignCall
+    { fcForeignCallName = "$ffi$abs",
+      fcForeignCallSymbol = "abs",
+      fcForeignCallSignature =
+        FcForeignSignature
+          { fcForeignArgumentTypes = [FcForeignInt32],
+            fcForeignResultType = FcForeignInt32,
+            fcForeignEffect = FcForeignPure
+          }
+    }
+
+foreignAnswerVar :: Var
+foreignAnswerVar = Var "answer" (Unique 50) (TcTyCon (TyCon "Int32#" 0) [])
 
 separatePrograms :: [FcProgram]
 separatePrograms =

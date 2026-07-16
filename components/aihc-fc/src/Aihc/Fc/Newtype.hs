@@ -80,6 +80,7 @@ lowerExpr env expr =
     FcLet bind body -> FcLet <$> lowerBind env bind <*> lowerExpr env body
     FcCase scrutinee binder alternatives -> lowerCase env scrutinee binder alternatives
     FcCast inner coercion -> (`FcCast` coercion) <$> lowerExpr env inner
+    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> mapM (lowerExpr env) arguments
 
 lowerTypeApplication :: NewtypeEnv -> FcExpr -> LowerM FcExpr
 lowerTypeApplication env expression =
@@ -179,7 +180,7 @@ topBindUniques :: FcTopBind -> [Int]
 topBindUniques topBind =
   case topBind of
     FcPrimitive var _ -> varUniques var
-    FcForeignImport foreignCall -> varUniques (fcForeignCallVar foreignCall)
+    FcForeignImport {} -> []
     FcTopBind bind -> bindUniques bind
     _ -> []
 
@@ -206,6 +207,7 @@ exprUniques expression =
     FcCase scrutinee binder alternatives ->
       exprUniques scrutinee <> varUniques binder <> concatMap altUniques alternatives
     FcCast inner _ -> exprUniques inner
+    FcCallForeign _ arguments -> concatMap exprUniques arguments
 
 altUniques :: FcAlt -> [Int]
 altUniques alternative = concatMap varUniques (altBinders alternative) <> exprUniques (altRhs alternative)
