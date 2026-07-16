@@ -45,6 +45,7 @@ data LoweredTop = LoweredTop
   { loweredConstructors :: ![(Text, [RuntimeRep])],
     loweredPrimitives :: ![(GrinVar, Int)],
     loweredForeignCalls :: ![GrinForeignCall],
+    loweredWhnfGlobals :: ![(GrinVar, GrinNode)],
     loweredCafs :: ![(GrinVar, GrinNode)]
   }
 
@@ -54,11 +55,12 @@ instance Semigroup LoweredTop where
       { loweredConstructors = loweredConstructors left <> loweredConstructors right,
         loweredPrimitives = loweredPrimitives left <> loweredPrimitives right,
         loweredForeignCalls = loweredForeignCalls left <> loweredForeignCalls right,
+        loweredWhnfGlobals = loweredWhnfGlobals left <> loweredWhnfGlobals right,
         loweredCafs = loweredCafs left <> loweredCafs right
       }
 
 instance Monoid LoweredTop where
-  mempty = LoweredTop [] [] [] []
+  mempty = LoweredTop [] [] [] [] []
 
 -- | Erase FC types and coercions while retaining their runtime
 -- representations, closure-convert lambdas and thunks, and make evaluation,
@@ -114,7 +116,8 @@ lowerProgramWithEnvironment environment program =
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
-      grinIoCafs = programIoCafs program,
+      grinIoBindings = programIoBindings program,
+      grinWhnfGlobals = loweredWhnfGlobals tops,
       grinCafs = loweredCafs tops,
       grinFunctions = reverse (lowerFunctionsRev finalState)
     }
@@ -143,24 +146,44 @@ lowerTopBind topBind =
       pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
-    FcTopBind bind -> do
-      cafs <- lowerCafBind bind
-      pure mempty {loweredCafs = cafs}
+    FcTopBind bind -> lowerTopValueBind bind
 
-lowerCafBind :: FcBind -> LowerM [(GrinVar, GrinNode)]
-lowerCafBind bind =
+lowerTopValueBind :: FcBind -> LowerM LoweredTop
+lowerTopValueBind bind =
   case bind of
-    FcNonRec var expr -> do
-      topVar <- freshTopVar var
-      node <- makeThunk expr
-      pure [(topVar, node)]
+    FcNonRec var expr -> lowerBinding var expr
     FcRec bindings ->
-      mapM lowerBinding bindings
+      mconcat <$> mapM (uncurry lowerBinding) bindings
   where
-    lowerBinding (var, expr) = do
+    lowerBinding var expr = do
       topVar <- freshTopVar var
-      node <- makeThunk expr
-      pure (topVar, node)
+      if isDirectFunction expr
+        then do
+          node <- makeGlobalFunction expr
+          pure mempty {loweredWhnfGlobals = [(topVar, node)]}
+        else do
+          node <- makeThunk expr
+          pure mempty {loweredCafs = [(topVar, node)]}
+
+-- | A top-level RHS is already a function value exactly when reaching its
+-- first runtime construct requires only erasing type abstraction or casts.
+-- Any term computation before the lambda must remain an updateable CAF so its
+-- result is shared.
+isDirectFunction :: FcExpr -> Bool
+isDirectFunction expr =
+  case expr of
+    FcLam {} -> True
+    FcDictLam {} -> True
+    FcTyLam _ body -> isDirectFunction body
+    FcCast inner _ -> isDirectFunction inner
+    _ -> False
+
+makeGlobalFunction :: FcExpr -> LowerM GrinNode
+makeGlobalFunction expr = do
+  lowered <- lowerExpr expr
+  case lowered of
+    GrinReturn [GrinNodeValue node@GrinNode {grinNodeTag = GrinClosure {}}] -> pure node
+    _ -> error "GRIN lowering expected a direct top-level function closure"
 
 lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
@@ -738,10 +761,18 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
         FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
         FcForeignImport {} -> []
-        FcTopBind {} -> []
+        FcTopBind bind ->
+          [ varName var
+          | (var, expr) <- topBindings bind,
+            isDirectFunction expr
+          ]
+    topBindings bind =
+      case bind of
+        FcNonRec var expr -> [(var, expr)]
+        FcRec bindings -> bindings
 
-programIoCafs :: FcProgram -> Set Text
-programIoCafs program =
+programIoBindings :: FcProgram -> Set Text
+programIoBindings program =
   Set.fromList
     [ varName var
     | FcTopBind bind <- fcTopBinds program,

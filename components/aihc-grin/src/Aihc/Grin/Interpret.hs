@@ -115,7 +115,7 @@ interpretProgramBinding name program = do
           Nothing -> throwInterpret (InterpretMissingBinding name)
       forced <- forceValue value
       result <-
-        if name `Set.member` grinIoCafs program
+        if name `Set.member` grinIoBindings program
           then runIOValue forced
           else pure forced
       renderRawValueM result
@@ -144,9 +144,15 @@ initialMachine program =
       | ((var, _), location) <- zip cafs [0 ..]
       ]
     cafEnv = Map.fromList cafLocations
+    staticGlobals =
+      Map.fromList
+        [ (grinVarName var, staticNode node)
+        | (var, node) <- grinWhnfGlobals program
+        ]
     globals =
       Map.unions
         [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
+          staticGlobals,
           Map.fromList
             [ (grinVarName var, RuntimeNode (GrinPrimitive (grinVarName var) arity) [])
             | (var, arity) <- grinPrimitives program
@@ -156,6 +162,15 @@ initialMachine program =
             | constructor <- map fst builtinConstructors <> map fst (grinConstructors program)
             ]
         ]
+    staticNode (GrinNode tag fields) = RuntimeNode tag (map staticValue fields)
+    staticValue value =
+      case value of
+        GrinVarValue var ->
+          case Map.lookup (grinVarName var) globals of
+            Just runtimeValue -> runtimeValue
+            Nothing -> error ("GRIN interpreter found an unbound static global " <> T.unpack (grinVarName var))
+        GrinLitValue literal -> RuntimeLit literal
+        GrinNodeValue node -> staticNode node
 
 evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
 evalExpr env expr =

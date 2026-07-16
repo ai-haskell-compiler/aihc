@@ -74,7 +74,8 @@ tests =
                 { grinConstructors = [("Box", [runtimeRep])],
                   grinPrimitives = [],
                   grinForeignCalls = [],
-                  grinIoCafs = mempty,
+                  grinIoBindings = mempty,
+                  grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions = []
                 }
@@ -89,7 +90,8 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(primitive, 2)],
                   grinForeignCalls = [],
-                  grinIoCafs = mempty,
+                  grinIoBindings = mempty,
+                  grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions = []
                 }
@@ -104,7 +106,8 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
-                  grinIoCafs = mempty,
+                  grinIoBindings = mempty,
+                  grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions =
                     [ GrinFunction
@@ -125,7 +128,8 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
-                  grinIoCafs = mempty,
+                  grinIoBindings = mempty,
+                  grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions =
                     [ GrinFunction

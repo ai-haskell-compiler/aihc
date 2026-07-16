@@ -40,9 +40,12 @@ data GrinProgram = GrinProgram
   { grinConstructors :: ![(Text, [RuntimeRep])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
-    -- | CAF names whose source type is @IO a@ and must be entered with the
+    -- | Top-level bindings whose source type is @IO a@ and must be entered with the
     -- real-world state token by a top-level runner.
-    grinIoCafs :: !(Set Text),
+    grinIoBindings :: !(Set Text),
+    -- | Top-level values that are already in weak-head normal form. These are
+    -- initialized directly rather than represented by updateable CAF cells.
+    grinWhnfGlobals :: ![(GrinVar, GrinNode)],
     grinCafs :: ![(GrinVar, GrinNode)],
     grinFunctions :: ![GrinFunction]
   }
