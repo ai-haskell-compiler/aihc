@@ -11,8 +11,9 @@ module Aihc.Fc.Eval
   )
 where
 
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
@@ -69,11 +70,23 @@ type Env = Map Text Value
 type EvalM = ExceptT EvalError IO
 
 evalProgramBinding :: Text -> FcProgram -> IO (Either EvalError Value)
-evalProgramBinding name program = runExceptT $
+evalProgramBinding name sourceProgram = runExceptT $
   case Map.lookup name env of
-    Just value -> forceValue value >>= runIOValue
+    Just value -> do
+      forced <- forceValue value
+      if name `Map.member` ioBindings
+        then runIOValue forced
+        else pure forced
     Nothing -> throwE (EvalMissingBinding name)
   where
+    program = lowerNewtypes sourceProgram
+    ioBindings =
+      Map.fromList
+        [ (varName var, ())
+        | FcTopBind bind <- fcTopBinds program,
+          var <- bindersOf bind,
+          isIOType (varType var)
+        ]
     env = foreignTopEnv `Map.union` primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
     foreignTopEnv = Map.fromList (concatMap foreignTopBindingValues (fcTopBinds program))
     primitiveTopEnv = Map.fromList (concatMap primitiveTopBindingValues (fcTopBinds program))
@@ -92,8 +105,8 @@ evalProgramBinding name program = runExceptT $
       [(varName var, VThunk env expr) | (var, expr) <- bindings]
     topBindingValues (FcData _ _ constructors) =
       [(conName, VConstructor conName []) | (conName, _) <- constructors]
-    topBindingValues (FcNewtype _ _ conName _) =
-      [(conName, VConstructor conName [])]
+    topBindingValues FcNewtype {} =
+      []
     topBindingValues FcPrimitive {} =
       []
     topBindingValues FcForeignImport {} =
@@ -166,14 +179,11 @@ forceValue value =
     _ -> pure value
 
 runIOValue :: Value -> EvalM Value
-runIOValue value =
-  case value of
-    VConstructor "IO" [action] -> do
-      result <- applyValue action VStateToken >>= forceValue
-      case result of
-        VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
-        other -> throwE (EvalInvalidIOResult other)
-    _ -> pure value
+runIOValue action = do
+  result <- applyValue action VStateToken >>= forceValue
+  case result of
+    VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
+    other -> throwE (EvalInvalidIOResult other)
 
 applyValue :: Value -> Value -> EvalM Value
 applyValue value arg = do
@@ -286,7 +296,7 @@ completeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
 completeForeignCall foreignCall args =
   case fcForeignResult (fcForeignCallSignature foreignCall) of
     FcForeignPure _ -> callForeign foreignCall args
-    FcForeignIO _ -> pure (VConstructor "IO" [VForeignIOAction foreignCall args])
+    FcForeignIO _ -> pure (VForeignIOAction foreignCall args)
 
 callForeign :: FcForeignCall -> [Value] -> EvalM Value
 callForeign foreignCall args = do
@@ -329,22 +339,32 @@ forceCInt :: Text -> Value -> EvalM Integer
 forceCInt symbol value = do
   forced <- forceValue value
   case forced of
-    VConstructor "CInt" [int32] -> forceInt32 int32
+    VConstructor "I32#" [literal] -> forceInt32 literal
     other -> throwE (EvalForeignTypeError symbol other)
   where
-    forceInt32 int32 = do
-      forcedInt32 <- forceValue int32
-      case forcedInt32 of
-        VConstructor "I32#" [literal] -> do
-          forcedLiteral <- forceValue literal
-          case forcedLiteral of
-            VLit (LitInt _ intValue) -> pure intValue
-            other -> throwE (EvalForeignTypeError symbol other)
+    forceInt32 literal = do
+      forcedLiteral <- forceValue literal
+      case forcedLiteral of
+        VLit (LitInt _ intValue) -> pure intValue
         other -> throwE (EvalForeignTypeError symbol other)
 
 cIntValue :: Integer -> Value
 cIntValue value =
-  VConstructor "CInt" [VConstructor "I32#" [VLit (LitInt Int32Rep value)]]
+  VConstructor "I32#" [VLit (LitInt Int32Rep value)]
+
+bindersOf :: FcBind -> [Var]
+bindersOf bind =
+  case bind of
+    FcNonRec var _ -> [var]
+    FcRec bindings -> map fst bindings
+
+isIOType :: TcType -> Bool
+isIOType ty =
+  case ty of
+    TcTyCon (TyCon "IO" 1) [_] -> True
+    TcForAllTy _ body -> isIOType body
+    TcQualTy _ body -> isIOType body
+    _ -> False
 
 forceCharPrimitiveArg :: Text -> Value -> EvalM Char
 forceCharPrimitiveArg name value = do

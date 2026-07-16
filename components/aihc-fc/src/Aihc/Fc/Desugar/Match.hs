@@ -95,8 +95,8 @@ dsDataConPure (PrefixCon _docs _ctx conName args) =
   (unqualifiedNameText conName, length args)
 dsDataConPure (InfixCon _docs _ctx _lhs conName _rhs) =
   (unqualifiedNameText conName, 2)
-dsDataConPure (RecordCon _docs _ctx conName _fields) =
-  (unqualifiedNameText conName, 0)
+dsDataConPure (RecordCon _docs _ctx conName fields) =
+  (unqualifiedNameText conName, length fields)
 dsDataConPure (GadtCon {}) = ("<gadt>", 0)
 dsDataConPure (TupleCon _docs _ctx flavor fields) =
   (tupleConText flavor (length fields), length fields)

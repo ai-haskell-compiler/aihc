@@ -194,6 +194,7 @@ heapProgram =
     { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinIoCafs = mempty,
       grinCafs =
         [ ( answer,
             GrinNode (GrinThunk functionName) []

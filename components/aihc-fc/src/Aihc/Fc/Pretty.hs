@@ -45,14 +45,14 @@ renderTopBind (FcData tyName tyVars cons) =
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
     ++ renderDataCons cons
-renderTopBind (FcNewtype tyName tyVars conName fieldTy) =
+renderTopBind (FcNewtype declaration) =
   "newtype "
-    ++ T.unpack tyName
-    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
+    ++ T.unpack (fcNewtypeName declaration)
+    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) (fcNewtypeTyVars declaration)
     ++ " = "
-    ++ T.unpack conName
+    ++ T.unpack (fcNewtypeConstructor declaration)
     ++ " "
-    ++ renderTypePrec True fieldTy
+    ++ renderTypePrec True (fcNewtypeRepresentation declaration)
 renderTopBind (FcPrimitive var arity) =
   "foreign prim "
     ++ renderVar var

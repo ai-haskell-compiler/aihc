@@ -28,8 +28,7 @@ enum {
   AIHC_CONT_TOP = 3,
   AIHC_CONT_FINAL = 4,
   AIHC_CONT_FOREIGN_CINT = 5,
-  AIHC_CONT_FOREIGN_INT32 = 6,
-  AIHC_CONT_SELECT = 7,
+  AIHC_CONT_SELECT = 6,
 };
 
 enum {
@@ -45,8 +44,6 @@ typedef uintptr_t AihcSlot;
 typedef struct {
   void *function;
   uint64_t is_io;
-  uint64_t io_constructor;
-  uint64_t cint_constructor;
   uint64_t int32_constructor;
   uint64_t tuple_constructor;
 } AihcForeign;
@@ -92,7 +89,6 @@ typedef struct {
   AihcSlot *globals;
   AihcSlot *locals;
   void *exit_code;
-  uint64_t io_constructor;
   uint64_t tuple_constructor;
 } AihcMachine;
 
@@ -176,11 +172,10 @@ void aihc_set_cell(AihcValue *cell, AihcValue *value) {
   cell->fields[0] = (AihcSlot)value;
 }
 
-AihcMachine *aihc_machine_new(uint64_t global_count, uint64_t io_constructor,
+AihcMachine *aihc_machine_new(uint64_t global_count,
                               uint64_t tuple_constructor) {
   AihcMachine *machine = aihc_allocate(sizeof(*machine));
   machine->globals = aihc_allocate(sizeof(*machine->globals) * global_count);
-  machine->io_constructor = io_constructor;
   machine->tuple_constructor = tuple_constructor;
   return machine;
 }
@@ -249,9 +244,7 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
       for (uint64_t index = 0; index < applied->count; ++index) {
         action->fields[index] = applied->fields[index];
       }
-      AihcValue *io = aihc_constructor(descriptor->io_constructor, 1, 1);
-      io->fields[0] = (AihcSlot)action;
-      aihc_return_value(machine, (AihcSlot)io);
+      aihc_return_value(machine, (AihcSlot)action);
       return;
     }
     aihc_return_value(machine, (AihcSlot)applied);
@@ -316,12 +309,8 @@ static void aihc_apply_value(AihcMachine *machine, AihcValue *function,
 }
 
 static void aihc_run_io(AihcMachine *machine, AihcValue *value) {
-  if (value->kind != AIHC_CONSTRUCTOR || value->info != machine->io_constructor ||
-      value->count != 1) {
-    aihc_fail("program result is not an IO value");
-  }
   aihc_push_special(machine, AIHC_CONT_FINAL);
-  aihc_apply_value(machine, (AihcValue *)value->fields[0], 0);
+  aihc_apply_value(machine, value, 0);
 }
 
 static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
@@ -361,19 +350,6 @@ static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
   }
   case AIHC_CONT_FOREIGN_CINT: {
     AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    AihcValue *cint = (AihcValue *)value;
-    if (cint->kind != AIHC_CONSTRUCTOR ||
-        cint->info != descriptor->cint_constructor || cint->count != 1) {
-      aihc_fail("foreign CInt argument has invalid outer constructor");
-    }
-    AihcContinuation *next =
-        aihc_push_special(machine, AIHC_CONT_FOREIGN_INT32);
-    next->payload.foreign_call = continuation->payload.foreign_call;
-    aihc_eval_value(machine, (AihcValue *)cint->fields[0], 1);
-    return;
-  }
-  case AIHC_CONT_FOREIGN_INT32: {
-    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
     AihcValue *int32 = (AihcValue *)value;
     if (int32->kind != AIHC_CONSTRUCTOR ||
         int32->info != descriptor->int32_constructor || int32->count != 1) {
@@ -384,11 +360,9 @@ static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
     AihcValue *result_int32 =
         aihc_constructor(descriptor->int32_constructor, 1, 1);
     result_int32->fields[0] = (AihcSlot)(intptr_t)(int32_t)result;
-    AihcValue *cint = aihc_constructor(descriptor->cint_constructor, 1, 1);
-    cint->fields[0] = (AihcSlot)result_int32;
     AihcValue *tuple = aihc_constructor(descriptor->tuple_constructor, 2, 2);
     tuple->fields[0] = continuation->payload.foreign_call.state;
-    tuple->fields[1] = (AihcSlot)cint;
+    tuple->fields[1] = (AihcSlot)result_int32;
     aihc_return_value(machine, (AihcSlot)tuple);
     return;
   }

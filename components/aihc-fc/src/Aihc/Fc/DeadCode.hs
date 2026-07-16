@@ -79,7 +79,7 @@ keepTopBind :: Map Text (Int, References) -> Map Text (Int, References) -> Set T
 keepTopBind valueDefinitions typeDefinitions values types index topBind =
   case topBind of
     FcData name _ _ -> selectedType name
-    FcNewtype name _ _ _ -> selectedType name
+    FcNewtype declaration -> selectedType (fcNewtypeName declaration)
     _ -> any selectedValue [varName var | (var, _) <- valueDefinitionsOf topBind]
   where
     selectedValue name = name `Set.member` values && fmap fst (Map.lookup name valueDefinitions) == Just index
@@ -98,14 +98,19 @@ typeDefinitionsOf :: FcTopBind -> [(Text, References)]
 typeDefinitionsOf topBind =
   case topBind of
     FcData name _ constructors -> [(name, foldMap (foldMap referencesType . snd) constructors)]
-    FcNewtype name _ _ fieldType -> [(name, referencesType fieldType)]
+    FcNewtype declaration ->
+      [ ( fcNewtypeName declaration,
+          referencesType (fcNewtypeRepresentation declaration)
+            <> referencesType (fcNewtypeResult declaration)
+        )
+      ]
     _ -> []
 
 typeConstructorsOf :: FcTopBind -> [(Text, [Text])]
 typeConstructorsOf topBind =
   case topBind of
     FcData name _ constructors -> [(name, map fst constructors)]
-    FcNewtype name _ constructor _ -> [(name, [constructor])]
+    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructor declaration])]
     _ -> []
 
 bindersOf :: FcBind -> [Var]

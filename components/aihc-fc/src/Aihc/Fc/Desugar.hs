@@ -15,6 +15,7 @@ where
 
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -100,7 +101,7 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = FcProgram binds,
+                { dsProgram = lowerNewtypes (FcProgram binds),
                   dsSuccess = True,
                   dsErrors = []
                 }
@@ -161,19 +162,34 @@ dsDataDeclM dd = do
   cons <- mapM dsDataConM (dataDeclConstructors dd)
   pure (FcData tyName [] cons)
 
--- | Preserve newtype declarations as distinct FC bindings so backends may
--- erase their representation while the evaluator can still model source-level
--- construction and pattern matching.
+-- | Retain the nominal declaration and its representation type as an FC axiom.
+-- 'lowerNewtypes' turns all term-level construction and matching into casts.
 dsNewtypeDeclM :: NewtypeDecl -> DsM FcTopBind
 dsNewtypeDeclM nd = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
   case newtypeDeclConstructor nd of
     Nothing -> desugarBug ("newtype " <> T.unpack tyName <> " has no constructor")
     Just con -> do
-      (conName, fields) <- dsDataConM con
-      case fields of
-        [fieldTy] -> pure (FcNewtype tyName [] conName fieldTy)
+      let (conName, arity) = dsDataConPure con
+      conTy <- lookupType conName
+      case (arity, dropForAlls conTy) of
+        (1, TcFunTy fieldTy resultTy@(TcTyCon resultTyCon resultArgs))
+          | tyConName resultTyCon == tyName,
+            Just tyVars <- traverse asTyVar resultArgs ->
+              pure
+                ( FcNewtype
+                    FcNewtypeDecl
+                      { fcNewtypeName = tyName,
+                        fcNewtypeTyVars = tyVars,
+                        fcNewtypeConstructor = conName,
+                        fcNewtypeRepresentation = fieldTy,
+                        fcNewtypeResult = resultTy
+                      }
+                )
         _ -> desugarBug ("newtype constructor " <> T.unpack conName <> " does not have exactly one field")
+  where
+    asTyVar (TcTyVar tyVar) = Just tyVar
+    asTyVar _ = Nothing
 
 dsForeignImport :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
 dsForeignImport tcAnn foreignDecl

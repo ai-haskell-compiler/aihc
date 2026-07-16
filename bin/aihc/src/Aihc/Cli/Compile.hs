@@ -169,7 +169,8 @@ compileWithDependencies dependencies parsed =
                        in compileProgramArtifacts program
 
 compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts core = do
+compileProgramArtifacts sourceCore = do
+  let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
   pure
