@@ -3,9 +3,11 @@
 -- | Lowering from non-strict System FC to strict, runtime-explicit GRIN.
 module Aihc.Grin.Lower
   ( lowerProgram,
+    lowerPrograms,
   )
 where
 
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
@@ -16,6 +18,8 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     runtimeRepOfType,
+    tyConArity,
+    tyConName,
   )
 import Control.Monad (filterM)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
@@ -60,11 +64,57 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram program =
+lowerProgram sourceProgram = lowerProgramWithEnvironment (programEnvironment [program]) program
+  where
+    program = lowerNewtypes sourceProgram
+
+-- | Lower separately compiled FC units with the complete set of global names
+-- supplied by the compilation closure. A unit may refer to a constructor,
+-- primitive, foreign import, or CAF defined in another unit, but generated
+-- functions and local variables remain private to that unit.
+lowerPrograms :: [FcProgram] -> [GrinProgram]
+lowerPrograms sourcePrograms = map (lowerProgramWithEnvironment environment) programs
+  where
+    programs = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
+    environment = programEnvironment programs
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+
+splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
+splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
+  where
+    go [] _ = []
+    go (FcProgram sourceTopBinds : rest) remaining =
+      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
+       in FcProgram unitTopBinds : go rest remaining'
+
+data ProgramEnvironment = ProgramEnvironment
+  { programEnvironmentGlobals :: !(Set Text),
+    programEnvironmentWhnfGlobals :: !(Set Text),
+    programEnvironmentPrimitives :: !(Map.Map Text PrimOp)
+  }
+
+programEnvironment :: [FcProgram] -> ProgramEnvironment
+programEnvironment programs =
+  ProgramEnvironment
+    { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors <> concatMap programGlobalNames programs),
+      programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors <> concatMap programWhnfGlobalNames programs),
+      programEnvironmentPrimitives =
+        Map.fromList
+          [ (varName var, primOp)
+          | program <- programs,
+            FcPrimitive var primOp <- fcTopBinds program
+          ]
+    }
+
+lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
+lowerProgramWithEnvironment environment program =
   GrinProgram
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
+      grinIoCafs = programIoCafs program,
       grinCafs = loweredCafs tops,
       grinFunctions = reverse (lowerFunctionsRev finalState)
     }
@@ -74,13 +124,9 @@ lowerProgram program =
         { lowerNextUnique = maximum (0 : map sourceUnique (programVars program)) + 1,
           lowerNextFunction = 0,
           lowerFunctionsRev = [],
-          lowerPrimitiveOps =
-            Map.fromList
-              [ (varName var, primOp)
-              | FcPrimitive var primOp <- fcTopBinds program
-              ],
-          lowerGlobalNames = Set.fromList (map fst builtinConstructors <> programGlobalNames program),
-          lowerWhnfGlobalNames = Set.fromList (map fst builtinConstructors <> programWhnfGlobalNames program),
+          lowerPrimitiveOps = programEnvironmentPrimitives environment,
+          lowerGlobalNames = programEnvironmentGlobals environment,
+          lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
           lowerLocalVars = Set.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
@@ -91,8 +137,8 @@ lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map typeRuntimeRep fields) | (name, fields) <- constructors]}
-    FcNewtype _ _ constructor field ->
-      pure mempty {loweredConstructors = [(constructor, [typeRuntimeRep field])]}
+    FcNewtype {} ->
+      pure mempty
     FcPrimitive var primOp ->
       pure mempty {loweredPrimitives = [(lowerGlobalVar var, primOp)]}
     FcForeignImport foreignCall ->
@@ -179,6 +225,9 @@ lowerOrdinaryExpr expr =
         pure (GrinCase value (lowerVar binder) loweredAlternatives)
     FcCast inner _ ->
       lowerExpr inner
+    FcCallForeign foreignCall arguments ->
+      lowerStrictMany arguments $ \values ->
+        pure (GrinForeignCallExpr (lowerForeignCall foreignCall) values)
 
 lowerApplication :: FcExpr -> FcExpr -> LowerM GrinExpr
 lowerApplication function argument =
@@ -287,6 +336,15 @@ lowerArgumentMany expressions continuation =
         lowerArgumentMany rest $ \restValues ->
           continuation (firstValue : restValues)
 
+lowerStrictMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerStrictMany expressions continuation =
+  case expressions of
+    [] -> continuation []
+    first : rest ->
+      lowerStrict "foreign_argument" first $ \firstValue ->
+        lowerStrictMany rest $ \restValues ->
+          continuation (firstValue : restValues)
+
 freshVar :: Text -> RuntimeRep -> LowerM GrinVar
 freshVar hint runtimeRep = do
   unique <- gets lowerNextUnique
@@ -348,6 +406,7 @@ freeVars expr =
       freeVars scrutinee
         <> Set.delete binder (foldMap freeVarsAlt alternatives)
     FcCast inner _ -> freeVars inner
+    FcCallForeign _ arguments -> foldMap freeVars arguments
 
 freeVarsBind :: FcBind -> FcExpr -> Set Var
 freeVarsBind bind body =
@@ -441,7 +500,7 @@ lowerAltCon altCon =
 lowerForeignCall :: FcForeignCall -> GrinForeignCall
 lowerForeignCall foreignCall =
   GrinForeignCall
-    { grinForeignCallName = varName (fcForeignCallVar foreignCall),
+    { grinForeignCallName = fcForeignCallName foreignCall,
       grinForeignCallSymbol = fcForeignCallSymbol foreignCall,
       grinForeignCallSignature = lowerForeignSignature (fcForeignCallSignature foreignCall)
     }
@@ -450,19 +509,21 @@ lowerForeignSignature :: FcForeignSignature -> GrinForeignSignature
 lowerForeignSignature signature =
   GrinForeignSignature
     { grinForeignArgumentTypes = map lowerForeignType (fcForeignArgumentTypes signature),
-      grinForeignResult = lowerForeignResult (fcForeignResult signature)
+      grinForeignResultType = lowerForeignType (fcForeignResultType signature),
+      grinForeignEffect = lowerForeignEffect (fcForeignEffect signature)
     }
 
-lowerForeignResult :: FcForeignResult -> GrinForeignResult
-lowerForeignResult result =
-  case result of
-    FcForeignPure foreignType -> GrinForeignPure (lowerForeignType foreignType)
-    FcForeignIO foreignType -> GrinForeignIO (lowerForeignType foreignType)
+lowerForeignEffect :: FcForeignEffect -> GrinForeignEffect
+lowerForeignEffect effect =
+  case effect of
+    FcForeignPure -> GrinForeignPure
+    FcForeignRealWorld -> GrinForeignRealWorld
 
 lowerForeignType :: FcForeignType -> GrinForeignType
 lowerForeignType foreignType =
   case foreignType of
-    FcForeignCInt -> GrinForeignCInt
+    FcForeignInt32 -> GrinForeignInt32
+    FcForeignWord64 -> GrinForeignWord64
 
 exprRuntimeRep :: FcExpr -> RuntimeRep
 exprRuntimeRep expr =
@@ -501,6 +562,8 @@ exprType expr =
         first : _ -> exprType (altRhs first)
         [] -> Nothing
     FcCast inner _ -> exprType inner
+    FcCallForeign foreignCall _arguments ->
+      Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
   where
     functionResultType functionType =
       case functionType of
@@ -537,9 +600,9 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
     topGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
-        FcNewtype _ _ constructor _ -> [constructor]
+        FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
-        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcForeignImport {} -> []
         FcTopBind bind -> map (varName . fst) (topBindings bind)
     topBindings bind =
       case bind of
@@ -552,10 +615,31 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
     topWhnfGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
-        FcNewtype _ _ constructor _ -> [constructor]
+        FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
-        FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
+        FcForeignImport {} -> []
         FcTopBind {} -> []
+
+programIoCafs :: FcProgram -> Set Text
+programIoCafs program =
+  Set.fromList
+    [ varName var
+    | FcTopBind bind <- fcTopBinds program,
+      var <- map fst (topBindings bind),
+      isIOType (varType var)
+    ]
+  where
+    topBindings bind =
+      case bind of
+        FcNonRec var rhs -> [(var, rhs)]
+        FcRec bindings -> bindings
+
+    isIOType ty =
+      case ty of
+        TcTyCon tyCon [_] | tyConName tyCon == "IO", tyConArity tyCon == 1 -> True
+        TcForAllTy _ body -> isIOType body
+        TcQualTy _ body -> isIOType body
+        _ -> False
 
 topVars :: FcTopBind -> [Var]
 topVars topBind =
@@ -563,7 +647,7 @@ topVars topBind =
     FcData {} -> []
     FcNewtype {} -> []
     FcPrimitive var _ -> [var]
-    FcForeignImport foreignCall -> [fcForeignCallVar foreignCall]
+    FcForeignImport {} -> []
     FcTopBind bind -> bindVars bind
 
 bindVars :: FcBind -> [Var]
@@ -589,6 +673,7 @@ exprVars expr =
     FcCase scrutinee binder alternatives ->
       exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner
+    FcCallForeign _ arguments -> concatMap exprVars arguments
 
 altVars :: FcAlt -> [Var]
 altVars alt = grinAltBinders' <> exprVars (altRhs alt)

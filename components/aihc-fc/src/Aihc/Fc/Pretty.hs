@@ -46,14 +46,14 @@ renderTopBind (FcData tyName tyVars cons) =
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
     ++ renderDataCons cons
-renderTopBind (FcNewtype tyName tyVars conName fieldTy) =
+renderTopBind (FcNewtype declaration) =
   "newtype "
-    ++ T.unpack tyName
-    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
+    ++ T.unpack (fcNewtypeName declaration)
+    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) (fcNewtypeTyVars declaration)
     ++ " = "
-    ++ T.unpack conName
+    ++ T.unpack (fcNewtypeConstructor declaration)
     ++ " "
-    ++ renderTypePrec True fieldTy
+    ++ renderTypePrec True (fcNewtypeRepresentation declaration)
 renderTopBind (FcPrimitive var primOp) =
   "foreign prim "
     ++ renderVar var
@@ -65,9 +65,9 @@ renderTopBind (FcForeignImport foreignCall) =
   "foreign ccall \""
     ++ T.unpack (fcForeignCallSymbol foreignCall)
     ++ "\" "
-    ++ renderVar (fcForeignCallVar foreignCall)
+    ++ T.unpack (fcForeignCallName foreignCall)
     ++ " : "
-    ++ renderType (varType (fcForeignCallVar foreignCall))
+    ++ renderType (fcForeignCallType (fcForeignCallSignature foreignCall))
 renderTopBind (FcTopBind bind) = renderBind 0 bind
 
 -- | Render data constructors.
@@ -174,6 +174,11 @@ renderExprPrec n parens (FcCase scrut binder alts) =
 renderExprPrec n parens (FcCast e _co) =
   paren parens $
     renderExprPrec n True e ++ " " ++ [castChar] ++ " <co>"
+renderExprPrec n parens (FcCallForeign foreignCall arguments) =
+  paren parens $
+    "foreign-call "
+      ++ T.unpack (fcForeignCallName foreignCall)
+      ++ concatMap ((" " ++) . renderExprPrec n True) arguments
 
 -- | Render a case alternative.
 renderAlt :: Int -> FcAlt -> String

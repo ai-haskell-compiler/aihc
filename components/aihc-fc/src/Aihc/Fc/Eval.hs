@@ -11,11 +11,12 @@ module Aihc.Fc.Eval
   )
 where
 
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Prim (primOpArity, primOpName)
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..))
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (zipWithM, (<=<))
+import Control.Monad (zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.Char qualified as Char
@@ -24,8 +25,9 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, callFFI, retCInt)
+import Foreign.LibFFI (Arg, argCInt, argWord64, callFFI, retCInt, retWord64)
 import Foreign.Ptr (FunPtr)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -50,8 +52,6 @@ data Value
   | VConstructor Text [Value]
   | VDict [Value]
   | VPrim Text Int [Value]
-  | VForeign FcForeignCall [Value]
-  | VForeignIOAction FcForeignCall [Value]
   | VMutVar EvalMutVar
   | VStateToken
   | VThunk Env FcExpr
@@ -70,19 +70,26 @@ type Env = Map Text Value
 type EvalM = ExceptT EvalError IO
 
 evalProgramBinding :: Text -> FcProgram -> IO (Either EvalError Value)
-evalProgramBinding name program = runExceptT $
+evalProgramBinding name sourceProgram = runExceptT $
   case Map.lookup name env of
-    Just value -> forceValue value >>= runIOValue
+    Just value -> do
+      forced <- forceValue value
+      if name `Map.member` ioBindings
+        then runIOValue forced
+        else pure forced
     Nothing -> throwE (EvalMissingBinding name)
   where
-    env = foreignTopEnv `Map.union` primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
-    foreignTopEnv = Map.fromList (concatMap foreignTopBindingValues (fcTopBinds program))
+    program = lowerNewtypes sourceProgram
+    ioBindings =
+      Map.fromList
+        [ (varName var, ())
+        | FcTopBind bind <- fcTopBinds program,
+          var <- bindersOf bind,
+          isIOType (varType var)
+        ]
+    env = primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
     primitiveTopEnv = Map.fromList (concatMap primitiveTopBindingValues (fcTopBinds program))
     topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
-    foreignTopBindingValues (FcForeignImport foreignCall) =
-      [(varName (fcForeignCallVar foreignCall), VForeign foreignCall [])]
-    foreignTopBindingValues _ =
-      []
     primitiveTopBindingValues (FcPrimitive var primOp) =
       [(varName var, VPrim (primOpName primOp) (primOpArity primOp) [])]
     primitiveTopBindingValues _ =
@@ -93,8 +100,8 @@ evalProgramBinding name program = runExceptT $
       [(varName var, VThunk env expr) | (var, expr) <- bindings]
     topBindingValues (FcData _ _ constructors) =
       [(conName, VConstructor conName []) | (conName, _) <- constructors]
-    topBindingValues (FcNewtype _ _ conName _) =
-      [(conName, VConstructor conName [])]
+    topBindingValues FcNewtype {} =
+      []
     topBindingValues FcPrimitive {} =
       []
     topBindingValues FcForeignImport {} =
@@ -155,26 +162,23 @@ evalWithEnv env expr =
       matchAlternative env value alts
     FcCast inner _ ->
       evalWithEnv env inner
+    FcCallForeign foreignCall arguments -> do
+      values <- mapM (evalWithEnv env >=> forceValue) arguments
+      executeForeignCall foreignCall values
 
 forceValue :: Value -> EvalM Value
 forceValue value =
   case value of
     VThunk env expr -> evalWithEnv env expr
-    VForeign foreignCall []
-      | null (fcForeignArgumentTypes (fcForeignCallSignature foreignCall)) ->
-          completeForeignCall foreignCall []
     VPrim name 0 [] -> evalPrimitive name []
     _ -> pure value
 
 runIOValue :: Value -> EvalM Value
-runIOValue value =
-  case value of
-    VConstructor "IO" [action] -> do
-      result <- applyValue action VStateToken >>= forceValue
-      case result of
-        VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
-        other -> throwE (EvalInvalidIOResult other)
-    _ -> pure value
+runIOValue action = do
+  result <- applyValue action VStateToken >>= forceValue
+  case result of
+    VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
+    other -> throwE (EvalInvalidIOResult other)
 
 applyValue :: Value -> Value -> EvalM Value
 applyValue value arg = do
@@ -186,11 +190,6 @@ applyValue value arg = do
       pure (VConstructor name (args <> [arg]))
     VPrim name arity args ->
       applyPrimitive name arity (args <> [arg])
-    VForeign foreignCall args ->
-      applyForeign foreignCall (args <> [arg])
-    VForeignIOAction foreignCall args -> do
-      result <- callForeign foreignCall args
-      pure (VConstructor "(#,#)" [arg, result])
     _ ->
       throwE (EvalApplyNonFunction forced)
 
@@ -273,21 +272,23 @@ forceMutVarPrimitiveArg name value = do
     VMutVar mutVar -> pure mutVar
     other -> throwE (EvalPrimitiveTypeError name other)
 
-applyForeign :: FcForeignCall -> [Value] -> EvalM Value
-applyForeign foreignCall args
-  | actualArity < expectedArity = pure (VForeign foreignCall args)
-  | actualArity == expectedArity = completeForeignCall foreignCall args
-  | otherwise = throwE (EvalForeignArity name expectedArity actualArity)
+executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
+executeForeignCall foreignCall arguments
+  | actualArity /= expectedArity = throwE (EvalForeignArity name expectedArity actualArity)
+  | otherwise =
+      case fcForeignEffect signature of
+        FcForeignPure -> callForeign foreignCall arguments
+        FcForeignRealWorld ->
+          case reverse arguments of
+            state : reversedAbiArguments -> do
+              result <- callForeign foreignCall (reverse reversedAbiArguments)
+              pure (VConstructor "(#,#)" [state, result])
+            [] -> throwE (EvalForeignArity name expectedArity actualArity)
   where
-    name = varName (fcForeignCallVar foreignCall)
-    actualArity = length args
-    expectedArity = length (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
-
-completeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
-completeForeignCall foreignCall args =
-  case fcForeignResult (fcForeignCallSignature foreignCall) of
-    FcForeignPure _ -> callForeign foreignCall args
-    FcForeignIO _ -> pure (VConstructor "IO" [VForeignIOAction foreignCall args])
+    name = fcForeignCallName foreignCall
+    signature = fcForeignCallSignature foreignCall
+    actualArity = length arguments
+    expectedArity = length (fcForeignOperandTypes signature)
 
 callForeign :: FcForeignCall -> [Value] -> EvalM Value
 callForeign foreignCall args = do
@@ -297,19 +298,21 @@ callForeign foreignCall args = do
       (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
       args
   functionPointer <- lookupForeignFunction foreignCall
-  case foreignResultType (fcForeignResult (fcForeignCallSignature foreignCall)) of
-    FcForeignCInt -> do
+  case fcForeignResultType (fcForeignCallSignature foreignCall) of
+    FcForeignInt32 -> do
       CInt result <- lift (callFFI functionPointer retCInt marshalledArgs)
-      pure (cIntValue (toInteger result))
-
-foreignResultType :: FcForeignResult -> FcForeignType
-foreignResultType (FcForeignPure resultType) = resultType
-foreignResultType (FcForeignIO resultType) = resultType
+      pure (VLit (LitInt Int32Rep (toInteger result)))
+    FcForeignWord64 -> do
+      result <- lift (callFFI functionPointer retWord64 marshalledArgs)
+      pure (VLit (LitInt Word64Rep (toInteger result)))
 
 marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
-marshalForeignArgument symbol FcForeignCInt argument = do
-  argumentValue <- forceCInt symbol argument
+marshalForeignArgument symbol FcForeignInt32 argument = do
+  argumentValue <- forceInt32 symbol argument
   pure (argCInt (CInt (fromInteger argumentValue)))
+marshalForeignArgument symbol FcForeignWord64 argument = do
+  argumentValue <- forceWord64 symbol argument
+  pure (argWord64 (fromInteger argumentValue :: Word64))
 
 lookupForeignFunction :: FcForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
@@ -326,26 +329,33 @@ lookupForeignFunction foreignCall = do
 tryForeign :: IO a -> IO (Either SomeException a)
 tryForeign = try
 
-forceCInt :: Text -> Value -> EvalM Integer
-forceCInt symbol value = do
+forceInt32 :: Text -> Value -> EvalM Integer
+forceInt32 symbol value = do
   forced <- forceValue value
   case forced of
-    VConstructor "CInt" [int32] -> forceInt32 int32
+    VLit (LitInt Int32Rep intValue) -> pure intValue
     other -> throwE (EvalForeignTypeError symbol other)
-  where
-    forceInt32 int32 = do
-      forcedInt32 <- forceValue int32
-      case forcedInt32 of
-        VConstructor "I32#" [literal] -> do
-          forcedLiteral <- forceValue literal
-          case forcedLiteral of
-            VLit (LitInt _ intValue) -> pure intValue
-            other -> throwE (EvalForeignTypeError symbol other)
-        other -> throwE (EvalForeignTypeError symbol other)
 
-cIntValue :: Integer -> Value
-cIntValue value =
-  VConstructor "CInt" [VConstructor "I32#" [VLit (LitInt Int32Rep value)]]
+forceWord64 :: Text -> Value -> EvalM Integer
+forceWord64 symbol value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitInt Word64Rep intValue) -> pure intValue
+    other -> throwE (EvalForeignTypeError symbol other)
+
+bindersOf :: FcBind -> [Var]
+bindersOf bind =
+  case bind of
+    FcNonRec var _ -> [var]
+    FcRec bindings -> map fst bindings
+
+isIOType :: TcType -> Bool
+isIOType ty =
+  case ty of
+    TcTyCon (TyCon "IO" 1) [_] -> True
+    TcForAllTy _ body -> isIOType body
+    TcQualTy _ body -> isIOType body
+    _ -> False
 
 forceCharPrimitiveArg :: Text -> Value -> EvalM Char
 forceCharPrimitiveArg name value = do
@@ -420,8 +430,6 @@ renderForcedValue value =
     VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
-    VForeign {} -> pure "<function>"
-    VForeignIOAction {} -> pure "<io action>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
@@ -494,8 +502,6 @@ renderRawValueM value = do
     VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
-    VForeign {} -> pure "<function>"
-    VForeignIOAction {} -> pure "<io action>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced

@@ -9,6 +9,10 @@
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
+    TcForeignImportAnnotation (..),
+    TcForeignEffect (..),
+    TcForeignMarshal (..),
+    TcForeignAbiType (..),
     PendingTcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
@@ -61,6 +65,41 @@ data TcAnnotation = TcAnnotation
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
   }
+  deriving (Eq, Show)
+
+-- | The fully checked lowering plan for a foreign import.  Keeping this in
+-- the type-checker output prevents System FC desugaring from rediscovering
+-- Haskell FFI representation rules from constructor names.
+data TcForeignImportAnnotation = TcForeignImportAnnotation
+  { tcForeignArguments :: ![TcForeignMarshal],
+    tcForeignResult :: !TcForeignMarshal,
+    tcForeignEffect :: !TcForeignEffect
+  }
+  deriving (Eq, Show)
+
+-- | Whether a raw foreign call is pure or explicitly threads the real-world
+-- state token.
+data TcForeignEffect
+  = TcForeignPure
+  | TcForeignRealWorld
+  deriving (Eq, Show)
+
+-- | A source value's path to its primitive ABI representation.  Constructor
+-- names are ordered outermost to innermost; for example, a @CInt@ is lowered
+-- through @CInt@ and @I32#@ to @Int32#@.
+data TcForeignMarshal = TcForeignMarshal
+  { tcForeignSourceType :: !TcType,
+    tcForeignPrimitiveType :: !TcType,
+    tcForeignConstructors :: ![Text],
+    tcForeignAbiType :: !TcForeignAbiType
+  }
+  deriving (Eq, Show)
+
+-- | Primitive values understood by the C ABI bridge.  This is deliberately
+-- independent from lifted Haskell wrapper types.
+data TcForeignAbiType
+  = TcForeignInt32
+  | TcForeignWord64
   deriving (Eq, Show)
 
 -- | Type-checker annotation payload before constraint solving has finished.

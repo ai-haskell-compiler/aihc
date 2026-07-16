@@ -5,12 +5,12 @@ module Test.Arm64.Suite
   )
 where
 
-import Aihc.Arm64 (Arm64Error (..), compileProgram, runtimeSourcePath)
+import Aihc.Arm64 (Arm64Error (..), buildLinkLayout, compileModule, compileProgram, runtimeSourcePath, validateProgramPrimitives)
 import Aihc.Arm64.Emit (renderAllocatedBlock)
 import Aihc.Arm64.Lir
 import Aihc.Arm64.RegisterAllocate
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
+import Aihc.Tc (Levity (..), PrimOp (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Control.Exception (bracket)
 import Control.Monad (when)
@@ -74,6 +74,7 @@ tests =
                 { grinConstructors = [("Box", [runtimeRep])],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [],
                   grinFunctions = []
                 }
@@ -81,6 +82,21 @@ tests =
           "native representation diagnostic"
           (Left (Arm64UnsupportedRuntimeRep runtimeRep))
           (compileProgram "missing" program),
+      testCase "keeps unsupported dormant primitives out of linked programs" $ do
+        let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(primitive, PrimIntAdd)],
+                  grinForeignCalls = [],
+                  grinIoCafs = mempty,
+                  grinCafs = [],
+                  grinFunctions = []
+                }
+        assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
+        case compileModule (buildLinkLayout [program]) "_aihc_init_test" program of
+          Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
+          Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let answer = GrinVar "answer" 1 (BoxedRep Lifted)
             functionName = FunctionName "answer_code"
@@ -89,6 +105,7 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [(answer, GrinNode (GrinThunk functionName) [])],
                   grinFunctions =
                     [ GrinFunction
@@ -112,6 +129,7 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [(answer, GrinNode (GrinThunk entryFunction) [])],
                   grinFunctions =
                     [ GrinFunction entryFunction [] IntRep (GrinReturn (GrinLitValue (GrinLitInt IntRep 0))),

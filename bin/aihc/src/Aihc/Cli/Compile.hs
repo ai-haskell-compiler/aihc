@@ -16,10 +16,11 @@ module Aihc.Cli.Compile
   )
 where
 
-import Aihc.Arm64 (Arm64Error, compileProgram, runtimeSourcePath)
+import Aihc.Arm64 (Arm64Error, buildLinkLayout, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validateProgramPrimitives)
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
+    DependencyUnit (..),
     buildDependencies,
   )
 import Aihc.Cli.Options (CompileOptions (..))
@@ -28,7 +29,6 @@ import Aihc.Fc
     FcAlt (..),
     FcBind (..),
     FcExpr (..),
-    FcForeignCall (..),
     FcProgram (..),
     FcTopBind (..),
     Var (..),
@@ -66,7 +66,8 @@ data CompileError
 data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
     compiledGrin :: !Text,
-    compiledAssembly :: !Text
+    compiledAssembly :: !Text,
+    compiledArchives :: ![FilePath]
   }
 
 runCompile :: CompileOptions -> IO ()
@@ -77,7 +78,7 @@ runCompile options = do
 runCompileWithEnvironment :: CompileEnvironment -> CompileOptions -> IO ()
 runCompileWithEnvironment environment options = do
   source <- TIO.readFile (compileSourceFile options)
-  artifactsResult <- compileSourceToArtifactsWithDependencies environment (compileSourceFile options) source
+  artifactsResult <- compileSourceToArtifactsWithDependencies (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
   writeIntermediateArtifacts output options artifacts
@@ -85,11 +86,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> ".s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble output assemblyPath
+      assemble output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program.s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble output assemblyPath
+      assemble output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -126,26 +127,26 @@ compileSourceToAssembly sourceName source = do
 
 compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToAssemblyWithDependencies environment sourceName source =
-  fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies environment sourceName source)
+  fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
 -- | Compile source and its dependencies to the optimized, combined System FC
 -- program rendered by @--keep-core@.
 compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCoreWithDependencies environment sourceName source =
-  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies environment sourceName source)
+  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
-compileSourceToArtifactsWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
-compileSourceToArtifactsWithDependencies environment sourceName source =
+compileSourceToArtifactsWithDependencies :: Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
+compileSourceToArtifactsWithDependencies wholeProgram environment sourceName source =
   case parseCompileModule sourceName source of
     Left err -> pure (Left err)
     Right parsed -> do
-      dependencies <- buildDependencies environment (ImplicitPrelude `elem` sourceExtensions source) parsed
+      dependencies <- buildDependencies environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        compileWithDependencies artifact parsed
+        compileWithDependencies wholeProgram artifact parsed
 
-compileWithDependencies :: DependencyArtifact -> Module -> Either CompileError CompileArtifacts
-compileWithDependencies dependencies parsed =
+compileWithDependencies :: Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
+compileWithDependencies wholeProgram dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [parsed] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
@@ -166,20 +167,56 @@ compileWithDependencies dependencies parsed =
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                           freshDependencies = shiftProgramVars (1 + maximumProgramUnique mainProgram) (dependencyProgram dependencies)
                           program = eliminateDeadCode "main" (appendPrograms freshDependencies mainProgram)
-                       in compileProgramArtifacts program
+                       in if wholeProgram
+                            then compileProgramArtifacts program
+                            else compileIncrementalArtifacts dependencies mainProgram program
+
+compileIncrementalArtifacts :: DependencyArtifact -> FcProgram -> FcProgram -> Either CompileError CompileArtifacts
+compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
+  let dependencyCorePrograms = map dependencyUnitProgram (dependencyUnits dependencies)
+      separatelyLowered = Grin.lowerPrograms (dependencyCorePrograms <> [mainCore])
+      dependencyGrinPrograms = take (length dependencyCorePrograms) separatelyLowered
+      mainGrin = last separatelyLowered
+      dependencyLayout = buildLinkLayout dependencyGrinPrograms
+      mainCore = eliminateDeadCode "main" unoptimizedMain
+      layout = extendLinkLayout dependencyLayout mainGrin
+      linkedCore = Fc.lowerNewtypes combinedCore
+      combinedGrin = Grin.lowerProgram linkedCore
+  either (Left . CompileArm64Error) Right (validateProgramPrimitives combinedGrin)
+  assembly <-
+    either
+      (Left . CompileArm64Error)
+      Right
+      (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainGrin)
+  pure
+    CompileArtifacts
+      { compiledCore = renderCore linkedCore,
+        compiledGrin = renderGrin combinedGrin,
+        compiledAssembly = assembly,
+        compiledArchives = dependencyArchivePaths dependencies
+      }
 
 compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts core = do
+compileProgramArtifacts sourceCore = do
+  let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
   pure
     CompileArtifacts
-      { compiledCore = withFinalNewline (Fc.renderProgram core),
-        compiledGrin = withFinalNewline (Grin.renderProgram grin),
-        compiledAssembly = assembly
+      { compiledCore = renderCore core,
+        compiledGrin = renderGrin grin,
+        compiledAssembly = assembly,
+        compiledArchives = []
       }
-  where
-    withFinalNewline rendered = T.pack rendered <> "\n"
+
+renderCore :: FcProgram -> Text
+renderCore = withFinalNewline . Fc.renderProgram
+
+renderGrin :: Grin.GrinProgram -> Text
+renderGrin = withFinalNewline . Grin.renderProgram
+
+withFinalNewline :: String -> Text
+withFinalNewline rendered = T.pack rendered <> "\n"
 
 appendPrograms :: FcProgram -> FcProgram -> FcProgram
 appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)
@@ -200,8 +237,7 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcData {} -> topBind
         FcNewtype {} -> topBind
         FcPrimitive var arity -> FcPrimitive (shiftVar var) arity
-        FcForeignImport foreignCall ->
-          FcForeignImport foreignCall {fcForeignCallVar = shiftVar (fcForeignCallVar foreignCall)}
+        FcForeignImport {} -> topBind
         FcTopBind bind -> FcTopBind (shiftBind bind)
 
     shiftBind bind =
@@ -225,6 +261,7 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcCase scrutinee binder alternatives ->
           FcCase (shiftExpr scrutinee) (shiftVar binder) (map shiftAlt alternatives)
         FcCast inner coercion -> FcCast (shiftExpr inner) coercion
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map shiftExpr arguments)
 
     shiftAlt alternative =
       alternative
@@ -241,7 +278,7 @@ topBindVarsDeep topBind =
     FcData {} -> []
     FcNewtype {} -> []
     FcPrimitive var _ -> [var]
-    FcForeignImport foreignCall -> [fcForeignCallVar foreignCall]
+    FcForeignImport {} -> []
     FcTopBind bind -> bindVarsDeep bind
 
 bindVarsDeep :: FcBind -> [Var]
@@ -266,6 +303,7 @@ exprVars expression =
     FcLet bind body -> bindVarsDeep bind <> exprVars body
     FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner
+    FcCallForeign _ arguments -> concatMap exprVars arguments
   where
     altVars alternative = altBinders alternative <> exprVars (altRhs alternative)
 
@@ -296,13 +334,13 @@ renderCompileError compileError =
     CompileArm64Error err -> "ARM64 code generation error: " <> show err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 
-assemble :: FilePath -> FilePath -> IO ()
-assemble output assemblyPath = do
+assemble :: FilePath -> FilePath -> [FilePath] -> IO ()
+assemble output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       "clang"
-      ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", output]
+      (["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
       ""
   case exitCode of
     ExitSuccess -> pure ()

@@ -27,11 +27,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq (..), (|>))
 import Data.Sequence qualified as Seq
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, callFFI, retCInt)
+import Foreign.LibFFI (Arg, argCInt, argWord64, callFFI, retCInt, retWord64)
 import Foreign.Ptr (FunPtr)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -176,7 +177,12 @@ interpretProgramBinding name program = do
         case Map.lookup name globals of
           Just binding -> pure binding
           Nothing -> throwInterpret (InterpretMissingBinding name)
-      forceValue value >>= runIOValue >>= renderRawValueM
+      forced <- forceValue value
+      result <-
+        if name `Set.member` grinIoCafs program
+          then runIOValue forced
+          else pure forced
+      renderRawValueM result
     finishMain result = modify' (\machine -> machine {machineResult = Just result})
 
 initialMachine :: GrinProgram -> Machine
@@ -213,10 +219,6 @@ initialMachine program =
     globals =
       Map.unions
         [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
-          Map.fromList
-            [ (grinForeignCallName foreignCall, RuntimeNode (GrinForeign foreignCall) [])
-            | foreignCall <- grinForeignCalls program
-            ],
           Map.fromList
             [ (grinVarName var, RuntimeNode (GrinPrimitive primOp) [])
             | (var, primOp) <- grinPrimitives program
@@ -347,6 +349,9 @@ evalCpsOperation env operation =
     CpsScheduler _ schedulerOp arguments -> do
       argumentValues <- mapM (evalValue env) arguments
       evalScheduler schedulerOp argumentValues
+    CpsForeignCall foreignCall arguments -> do
+      argumentValues <- mapM (evalValue env) arguments
+      executeForeignCall foreignCall argumentValues
 
 handleRaised :: RuntimeValue -> RuntimeValue -> EvalFailure -> EvalM RuntimeValue
 handleRaised handler state failure =
@@ -552,9 +557,6 @@ forceValue :: RuntimeValue -> EvalM RuntimeValue
 forceValue value =
   case value of
     RuntimeLocation location -> forceLocation location
-    RuntimeNode (GrinForeign foreignCall) []
-      | null (grinForeignArgumentTypes (grinForeignCallSignature foreignCall)) ->
-          completeForeignCall foreignCall []
     RuntimeNode (GrinPrimitive primOp) []
       | primOpArity primOp == 0 -> evalPrimitive (primOpName primOp) []
     _ -> pure value
@@ -594,11 +596,6 @@ applyValue function argument = do
       pure (RuntimeNode constructor (fields <> [argument]))
     RuntimeNode (GrinPrimitive primOp) fields ->
       applyPrimitive primOp (fields <> [argument])
-    RuntimeNode (GrinForeign foreignCall) fields ->
-      applyForeign foreignCall (fields <> [argument])
-    RuntimeNode (GrinForeignIOAction foreignCall) fields -> do
-      result <- callForeign foreignCall fields
-      pure (RuntimeNode (GrinConstructor "(#,#)") [argument, result])
     other -> throwInterpret (InterpretApplyNonFunction other)
 
 callFunction :: FunctionName -> [RuntimeValue] -> EvalM RuntimeValue
@@ -691,22 +688,23 @@ compareInts left right =
     EQ -> 0
     GT -> 1
 
-applyForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
-applyForeign foreignCall arguments
-  | actualArity < expectedArity = pure (RuntimeNode (GrinForeign foreignCall) arguments)
-  | actualArity == expectedArity = completeForeignCall foreignCall arguments
-  | otherwise = throwInterpret (InterpretForeignArity name expectedArity actualArity)
+executeForeignCall :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
+executeForeignCall foreignCall arguments
+  | actualArity /= expectedArity = throwInterpret (InterpretForeignArity name expectedArity actualArity)
+  | otherwise =
+      case grinForeignEffect signature of
+        GrinForeignPure -> callForeign foreignCall arguments
+        GrinForeignRealWorld ->
+          case reverse arguments of
+            state : reversedAbiArguments -> do
+              result <- callForeign foreignCall (reverse reversedAbiArguments)
+              pure (RuntimeNode (GrinConstructor "(#,#)") [state, result])
+            [] -> throwInterpret (InterpretForeignArity name expectedArity actualArity)
   where
     name = grinForeignCallName foreignCall
+    signature = grinForeignCallSignature foreignCall
     actualArity = length arguments
-    expectedArity = length (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
-
-completeForeignCall :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
-completeForeignCall foreignCall arguments =
-  case grinForeignResult (grinForeignCallSignature foreignCall) of
-    GrinForeignPure _ -> callForeign foreignCall arguments
-    GrinForeignIO _ ->
-      pure (RuntimeNode (GrinConstructor "IO") [RuntimeNode (GrinForeignIOAction foreignCall) arguments])
+    expectedArity = length (grinForeignOperandReps signature)
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
 callForeign foreignCall arguments = do
@@ -716,21 +714,21 @@ callForeign foreignCall arguments = do
       (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
       arguments
   functionPointer <- lookupForeignFunction foreignCall
-  case foreignResultType (grinForeignResult (grinForeignCallSignature foreignCall)) of
-    GrinForeignCInt -> do
+  case grinForeignResultType (grinForeignCallSignature foreignCall) of
+    GrinForeignInt32 -> do
       CInt result <- liftEvalIO (callFFI functionPointer retCInt marshalledArguments)
-      pure (cIntValue (toInteger result))
-
-foreignResultType :: GrinForeignResult -> GrinForeignType
-foreignResultType result =
-  case result of
-    GrinForeignPure resultType -> resultType
-    GrinForeignIO resultType -> resultType
+      pure (RuntimeLit (GrinLitInt Int32Rep (toInteger result)))
+    GrinForeignWord64 -> do
+      result <- liftEvalIO (callFFI functionPointer retWord64 marshalledArguments)
+      pure (RuntimeLit (GrinLitInt Word64Rep (toInteger result)))
 
 marshalForeignArgument :: Text -> GrinForeignType -> RuntimeValue -> EvalM Arg
-marshalForeignArgument symbol GrinForeignCInt argument = do
-  argumentValue <- forceCInt symbol argument
+marshalForeignArgument symbol GrinForeignInt32 argument = do
+  argumentValue <- forceInt32 symbol argument
   pure (argCInt (CInt (fromInteger argumentValue)))
+marshalForeignArgument symbol GrinForeignWord64 argument = do
+  argumentValue <- forceWord64 symbol argument
+  pure (argWord64 (fromInteger argumentValue :: Word64))
 
 lookupForeignFunction :: GrinForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
@@ -747,38 +745,26 @@ lookupForeignFunction foreignCall = do
 tryForeign :: IO value -> IO (Either SomeException value)
 tryForeign = try
 
-forceCInt :: Text -> RuntimeValue -> EvalM Integer
-forceCInt symbol value = do
+forceInt32 :: Text -> RuntimeValue -> EvalM Integer
+forceInt32 symbol value = do
   forced <- forceValue value
   case forced of
-    RuntimeNode (GrinConstructor "CInt") [int32] -> forceInt32 int32
+    RuntimeLit (GrinLitInt Int32Rep intValue) -> pure intValue
     other -> throwInterpret (InterpretForeignTypeError symbol other)
-  where
-    forceInt32 int32 = do
-      forcedInt32 <- forceValue int32
-      case forcedInt32 of
-        RuntimeNode (GrinConstructor "I32#") [literal] -> do
-          forcedLiteral <- forceValue literal
-          case forcedLiteral of
-            RuntimeLit (GrinLitInt _ intValue) -> pure intValue
-            other -> throwInterpret (InterpretForeignTypeError symbol other)
-        other -> throwInterpret (InterpretForeignTypeError symbol other)
 
-cIntValue :: Integer -> RuntimeValue
-cIntValue value =
-  RuntimeNode
-    (GrinConstructor "CInt")
-    [RuntimeNode (GrinConstructor "I32#") [RuntimeLit (GrinLitInt Int32Rep value)]]
+forceWord64 :: Text -> RuntimeValue -> EvalM Integer
+forceWord64 symbol value = do
+  forced <- forceValue value
+  case forced of
+    RuntimeLit (GrinLitInt Word64Rep intValue) -> pure intValue
+    other -> throwInterpret (InterpretForeignTypeError symbol other)
 
 runIOValue :: RuntimeValue -> EvalM RuntimeValue
-runIOValue value =
-  case value of
-    RuntimeNode (GrinConstructor "IO") [action] -> do
-      result <- applyValue action RuntimeStateToken >>= forceValue
-      case result of
-        RuntimeNode (GrinConstructor "(#,#)") [_state, ioResult] -> forceValue ioResult
-        other -> throwInterpret (InterpretInvalidIOResult other)
-    _ -> pure value
+runIOValue action = do
+  result <- applyValue action RuntimeStateToken >>= forceValue
+  case result of
+    RuntimeNode (GrinConstructor "(#,#)") [_state, ioResult] -> forceValue ioResult
+    other -> throwInterpret (InterpretInvalidIOResult other)
 
 matchCpsAlternative :: Env -> RuntimeValue -> [CpsAlt] -> EvalM RuntimeValue
 matchCpsAlternative env value alternatives =
@@ -819,8 +805,6 @@ renderRawValueM value = do
     RuntimeNode GrinDictionary _ -> pure "<dictionary>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode (GrinPrimitive _) _ -> pure "<function>"
-    RuntimeNode GrinForeign {} _ -> pure "<function>"
-    RuntimeNode GrinForeignIOAction {} _ -> pure "<io action>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
     RuntimeLocation _ -> renderRawValueM forced
     RuntimeMutVar {} -> pure "<mutvar>"

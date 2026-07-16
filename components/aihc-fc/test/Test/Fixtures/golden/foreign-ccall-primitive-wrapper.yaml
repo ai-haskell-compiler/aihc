@@ -1,0 +1,48 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  data Int32
+   = I32# Int32#
+
+  newtype CInt = CInt Int32
+
+  newtype IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
+
+  foreign ccall "putchar" $ffi$putchar : Int32# → (State# RealWorld) → (#,#) (State# RealWorld) Int32#
+
+  putchar : CInt → IO CInt =
+    λ$ffi_arg_0 : CInt.
+      let
+        $ffi_case : CInt =
+          $ffi_arg_0
+      in
+        let
+          $ffi_field : Int32 =
+            $ffi_case ▷ <co>
+        in
+          case $ffi_field as $ffi_case : Int32 of
+            I32# $ffi_field →
+              (λ$ffi_state : State# RealWorld.
+                case foreign-call $ffi$putchar $ffi_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
+                  (#,#) $ffi_next_state $ffi_raw_result →
+                    (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe putchar :: CInt -> IO CInt
+reason: ccall desugaring exposes only a saturated primitive operation beneath the
+  Haskell wrapper
+status: pass

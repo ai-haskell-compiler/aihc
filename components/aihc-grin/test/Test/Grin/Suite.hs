@@ -12,6 +12,7 @@ import Aihc.Grin
 import Aihc.Tc (Levity (..), PrimOp (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (isInfixOf)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import GrinGolden qualified
 import Test.Tasty (TestTree, testGroup)
@@ -48,6 +49,17 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
         assertBool "does not allocate an argument thunk" (not ("store " `isInfixOf` rendered)),
+      testCase "FC lowering emits saturated strict foreign calls" $ do
+        let program = lowerProgram foreignProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "contains a direct foreign call" ("foreign-call $ffi$abs" `isInfixOf` rendered)
+        assertBool "does not apply a foreign function value" (not ("apply " `isInfixOf` rendered)),
+      testCase "lint rejects undersaturated foreign calls" $ do
+        let program = lowerProgram undersaturatedForeignProgram
+        assertBool
+          "foreign arity mismatch"
+          (GrinLintForeignArity "$ffi$abs" 1 0 `elem` lintProgram program),
       testCase "FC lowering distinguishes shadowing locals from globals" $ do
         let program = lowerProgram shadowingProgram
             rendered = renderProgram program
@@ -71,7 +83,20 @@ grinUnitTests =
         let schedulerPoints = schedulerContinuations (cpsExpr schedulerActionBody)
         case schedulerPoints of
           (SchedulerNewMVar, CpsBind {}) : _ -> pure ()
-          other -> assertFailure ("expected newMVar scheduler continuation, got " <> show other)
+          other -> assertFailure ("expected newMVar scheduler continuation, got " <> show other),
+      testCase "separate FC units do not capture dependency globals" $ do
+        case lowerPrograms separatePrograms of
+          [_provider, consumer] -> do
+            let parameters = concatMap grinFunctionParameters (grinFunctions consumer)
+            assertBool "dependency CAF remains global" (all ((/= "source") . grinVarName) parameters)
+          programs -> assertFailure ("expected two separately lowered programs, got " <> show (length programs)),
+      testCase "separate FC units erase dependency newtypes" $ do
+        case lowerPrograms separateNewtypePrograms of
+          [provider, consumer] -> do
+            assertEqual "newtype declaration emits no constructor" [] (grinConstructors provider)
+            assertEqual "consumer lint" [] (lintProgram consumer)
+            assertBool "newtype constructor is erased across units" (not ("Wrap" `isInfixOf` renderProgram consumer))
+          programs -> assertFailure ("expected two separately lowered programs, got " <> show (length programs))
     ]
 
 grinGoldenTests :: IO TestTree
@@ -207,6 +232,7 @@ heapProgram =
     { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinIoCafs = mempty,
       grinCafs =
         [ ( answer,
             GrinNode (GrinThunk functionName) []
@@ -244,6 +270,7 @@ schedulerProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinIoCafs = Set.singleton "answer",
       grinCafs = [(answer, GrinNode (GrinThunk mainFunction) [])],
       grinFunctions =
         [ GrinFunction mainFunction [] liftedRep mainBody,
@@ -259,11 +286,7 @@ schedulerProgram =
     initialState = GrinVar "initialState" 101 stateRep
     childMVar = GrinVar "childMVar" 102 unliftedPointerRep
     childState = GrinVar "childState" 103 stateRep
-    mainBody =
-      GrinReturn
-        ( GrinNodeValue
-            (GrinNode (GrinConstructor "IO") [GrinNodeValue (GrinNode (GrinClosure actionFunction) [])])
-        )
+    mainBody = GrinReturn (GrinNodeValue (GrinNode (GrinClosure actionFunction) []))
     childBody =
       GrinBind childNextState (GrinScheduler stateRep SchedulerPutMVar [GrinVarValue childMVar, intValue 42, GrinVarValue childState]) $
         GrinReturn (stateValueResult (GrinVarValue childNextState) unitValue)
@@ -304,6 +327,7 @@ timerProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinIoCafs = Set.singleton "answer",
       grinCafs = [(answer, GrinNode (GrinThunk mainFunction) [])],
       grinFunctions =
         [ GrinFunction mainFunction [] liftedRep mainBody,
@@ -316,11 +340,7 @@ timerProgram =
     actionFunction = FunctionName "timer_action"
     initialState = GrinVar "initialState" 121 stateRep
     delayedState = GrinVar "delayedState" 122 stateRep
-    mainBody =
-      GrinReturn
-        ( GrinNodeValue
-            (GrinNode (GrinConstructor "IO") [GrinNodeValue (GrinNode (GrinClosure actionFunction) [])])
-        )
+    mainBody = GrinReturn (GrinNodeValue (GrinNode (GrinClosure actionFunction) []))
     actionBody =
       GrinBind delayedState (GrinScheduler stateRep SchedulerDelay [intValue 1, GrinVarValue initialState]) $
         GrinReturn (stateValueResult (GrinVarValue delayedState) (intValue 7))
@@ -352,3 +372,65 @@ forkResultRep = TupleRep [stateRep, unliftedPointerRep]
 
 ioResultRep :: RuntimeRep
 ioResultRep = TupleRep [stateRep, IntRep]
+
+foreignProgram :: FcProgram
+foreignProgram =
+  FcProgram
+    [ FcForeignImport foreignCall,
+      FcTopBind
+        ( FcNonRec
+            foreignAnswerVar
+            (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42)])
+        )
+    ]
+
+undersaturatedForeignProgram :: FcProgram
+undersaturatedForeignProgram =
+  FcProgram
+    [ FcForeignImport foreignCall,
+      FcTopBind (FcNonRec foreignAnswerVar (FcCallForeign foreignCall []))
+    ]
+
+foreignCall :: FcForeignCall
+foreignCall =
+  FcForeignCall
+    { fcForeignCallName = "$ffi$abs",
+      fcForeignCallSymbol = "abs",
+      fcForeignCallSignature =
+        FcForeignSignature
+          { fcForeignArgumentTypes = [FcForeignInt32],
+            fcForeignResultType = FcForeignInt32,
+            fcForeignEffect = FcForeignPure
+          }
+    }
+
+foreignAnswerVar :: Var
+foreignAnswerVar = Var "answer" (Unique 50) (TcTyCon (TyCon "Int32#" 0) [])
+
+separatePrograms :: [FcProgram]
+separatePrograms =
+  [ FcProgram [FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider")))],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcVar sourceVar)))]
+  ]
+  where
+    sourceVar = Var "source" (Unique 30) boxedIntTy
+    answerVar = Var "answer" (Unique 31) (TcFunTy boxedIntTy boxedIntTy)
+    argumentVar = Var "argument" (Unique 32) boxedIntTy
+
+separateNewtypePrograms :: [FcProgram]
+separateNewtypePrograms =
+  [ FcProgram [FcNewtype declaration],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcApp (FcVar constructorVar) (FcLit (LitInt IntRep 42))))]
+  ]
+  where
+    declaration =
+      FcNewtypeDecl
+        { fcNewtypeName = "Wrapper",
+          fcNewtypeTyVars = [],
+          fcNewtypeConstructor = "Wrap",
+          fcNewtypeRepresentation = intTy,
+          fcNewtypeResult = wrapperTy
+        }
+    wrapperTy = TcTyCon (TyCon "Wrapper" 0) []
+    constructorVar = Var "Wrap" (Unique 40) (TcFunTy intTy wrapperTy)
+    answerVar = Var "answer" (Unique 41) wrapperTy

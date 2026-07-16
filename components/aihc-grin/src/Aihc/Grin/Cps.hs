@@ -38,6 +38,7 @@ data CpsOperation
   | CpsThrow !GrinValue
   | CpsCatch !RuntimeRep !GrinValue !GrinValue !GrinValue
   | CpsScheduler !RuntimeRep !SchedulerPrimOp ![GrinValue]
+  | CpsForeignCall !GrinForeignCall ![GrinValue]
   deriving (Eq, Show)
 
 data CpsAlt = CpsAlt
@@ -72,6 +73,8 @@ transform expression continuation =
       CpsOperation (CpsCatch runtimeRep action handler state) continuation
     GrinScheduler runtimeRep schedulerOp arguments ->
       CpsOperation (CpsScheduler runtimeRep schedulerOp arguments) continuation
+    GrinForeignCallExpr foreignCall arguments ->
+      CpsOperation (CpsForeignCall foreignCall arguments) continuation
 
 transformAlt :: CpsContinuation -> GrinAlt -> CpsAlt
 transformAlt continuation alternative =

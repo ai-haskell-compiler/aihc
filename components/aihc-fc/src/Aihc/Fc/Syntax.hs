@@ -22,11 +22,15 @@ module Aihc.Fc.Syntax
     -- * Bindings
     FcBind (..),
     FcTopBind (..),
+    FcNewtypeDecl (..),
     FcProgram (..),
     FcForeignCall (..),
     FcForeignSignature (..),
-    FcForeignResult (..),
+    FcForeignEffect (..),
     FcForeignType (..),
+    fcForeignOperandTypes,
+    fcForeignCallResultType,
+    fcForeignCallType,
 
     -- * Case alternatives
     FcAlt (..),
@@ -63,20 +67,33 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
-  | -- | Newtype declaration: type name, type variable parameters, and its
-    -- single constructor.
-    FcNewtype !Text ![TyVarId] !Text !TcType
+  | -- | A nominal type with a representational equality axiom.
+    FcNewtype !FcNewtypeDecl
   | -- | A primitive imported by @foreign import prim@.
     FcPrimitive !Var !PrimOp
-  | -- | A C function imported by @foreign import ccall@.
+  | -- | A C symbol available to saturated 'FcCallForeign' expressions.  It
+    -- does not introduce a term variable.
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
   deriving (Eq, Show, Read)
 
+-- | The type-level information retained for a @newtype@ after its constructor
+-- and pattern matches have been lowered to representational casts.
+--
+-- This declaration is proof metadata, not a runtime constructor declaration.
+data FcNewtypeDecl = FcNewtypeDecl
+  { fcNewtypeName :: !Text,
+    fcNewtypeTyVars :: ![TyVarId],
+    fcNewtypeConstructor :: !Text,
+    fcNewtypeRepresentation :: !TcType,
+    fcNewtypeResult :: !TcType
+  }
+  deriving (Eq, Show, Read)
+
 -- | A statically named C function resolved by the evaluator or a code generator.
 data FcForeignCall = FcForeignCall
-  { fcForeignCallVar :: !Var,
+  { fcForeignCallName :: !Text,
     fcForeignCallSymbol :: !Text,
     fcForeignCallSignature :: !FcForeignSignature
   }
@@ -88,20 +105,51 @@ data FcForeignCall = FcForeignCall
 -- does not require a constructor for every arity and result combination.
 data FcForeignSignature = FcForeignSignature
   { fcForeignArgumentTypes :: ![FcForeignType],
-    fcForeignResult :: !FcForeignResult
+    fcForeignResultType :: !FcForeignType,
+    fcForeignEffect :: !FcForeignEffect
   }
   deriving (Eq, Show, Read)
 
--- | Whether a foreign call is pure or produces an 'IO' action.
-data FcForeignResult
-  = FcForeignPure !FcForeignType
-  | FcForeignIO !FcForeignType
+data FcForeignEffect
+  = FcForeignPure
+  | FcForeignRealWorld
   deriving (Eq, Show, Read)
 
 -- | A value type with explicit host ABI marshalling support.
 data FcForeignType
-  = FcForeignCInt
+  = FcForeignInt32
+  | FcForeignWord64
   deriving (Eq, Show, Read)
+
+fcForeignOperandTypes :: FcForeignSignature -> [TcType]
+fcForeignOperandTypes signature =
+  map foreignPrimitiveType (fcForeignArgumentTypes signature)
+    <> case fcForeignEffect signature of
+      FcForeignPure -> []
+      FcForeignRealWorld -> [statePrimRealWorldType]
+
+fcForeignCallResultType :: FcForeignSignature -> TcType
+fcForeignCallResultType signature =
+  case fcForeignEffect signature of
+    FcForeignPure -> foreignPrimitiveType (fcForeignResultType signature)
+    FcForeignRealWorld ->
+      TcTyCon
+        (TyCon "(#,#)" 2)
+        [statePrimRealWorldType, foreignPrimitiveType (fcForeignResultType signature)]
+
+fcForeignCallType :: FcForeignSignature -> TcType
+fcForeignCallType signature =
+  foldr TcFunTy (fcForeignCallResultType signature) (fcForeignOperandTypes signature)
+
+foreignPrimitiveType :: FcForeignType -> TcType
+foreignPrimitiveType foreignType =
+  case foreignType of
+    FcForeignInt32 -> TcTyCon (TyCon "Int32#" 0) []
+    FcForeignWord64 -> TcTyCon (TyCon "Word64#" 0) []
+
+statePrimRealWorldType :: TcType
+statePrimRealWorldType =
+  TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
 
 -- | A typed variable.
 data Var = Var
@@ -149,6 +197,9 @@ data FcExpr
     FcCase !FcExpr !Var ![FcAlt]
   | -- | Cast: @e \triangleright \gamma@.
     FcCast !FcExpr !Coercion
+  | -- | A fully saturated foreign call.  Unlike a term application, this
+    -- node cannot represent a foreign function value or partial application.
+    FcCallForeign !FcForeignCall ![FcExpr]
   deriving (Eq, Show, Read)
 
 -- | Binding group.

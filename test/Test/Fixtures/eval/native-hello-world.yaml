@@ -52,7 +52,7 @@ modules:
 stdout: |
   Hello, world!
 output: |
-  CInt (I32# 10)
+  I32# 10
 expression: hello
 status: pass
 reason: compiles and executes a standalone HelloWorld IO program without depending on aihc-base

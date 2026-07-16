@@ -13,8 +13,6 @@ enum {
   AIHC_CLOSURE = 2,
   AIHC_THUNK = 3,
   AIHC_PRIMITIVE = 4,
-  AIHC_FOREIGN = 5,
-  AIHC_FOREIGN_IO = 6,
   AIHC_DICTIONARY = 7,
   AIHC_CELL = 8,
   AIHC_STATE_TOKEN = 9,
@@ -32,9 +30,7 @@ enum {
   AIHC_CONT_APPLY = 2,
   AIHC_CONT_TOP = 3,
   AIHC_CONT_FINAL = 4,
-  AIHC_CONT_FOREIGN_CINT = 5,
-  AIHC_CONT_FOREIGN_INT32 = 6,
-  AIHC_CONT_SELECT = 7,
+  AIHC_CONT_SELECT = 5,
 };
 
 enum {
@@ -64,15 +60,6 @@ typedef struct AihcMVar AihcMVar;
  * whether that word is a heap pointer or an unboxed payload. */
 typedef uintptr_t AihcSlot;
 
-typedef struct {
-  void *function;
-  uint64_t is_io;
-  uint64_t io_constructor;
-  uint64_t cint_constructor;
-  uint64_t int32_constructor;
-  uint64_t tuple_constructor;
-} AihcForeign;
-
 struct AihcValue {
   uint64_t kind;
   uintptr_t info;
@@ -96,10 +83,6 @@ struct AihcContinuation {
     struct {
       AihcSlot argument;
     } apply;
-    struct {
-      AihcSlot state;
-      AihcForeign *descriptor;
-    } foreign_call;
     struct {
       uint64_t index;
       uint64_t result_is_lifted;
@@ -155,7 +138,6 @@ typedef struct {
   AihcSlot *globals;
   AihcSlot *locals;
   void *exit_code;
-  uint64_t io_constructor;
   uint64_t tuple_constructor;
   AihcFiber *current_fiber;
   AihcFiber *main_fiber;
@@ -248,11 +230,10 @@ void aihc_set_cell(AihcValue *cell, AihcValue *value) {
   cell->fields[0] = (AihcSlot)value;
 }
 
-AihcMachine *aihc_machine_new(uint64_t global_count, uint64_t io_constructor,
+AihcMachine *aihc_machine_new(uint64_t global_count,
                               uint64_t tuple_constructor) {
   AihcMachine *machine = aihc_allocate(sizeof(*machine));
   machine->globals = aihc_allocate(sizeof(*machine->globals) * global_count);
-  machine->io_constructor = io_constructor;
   machine->tuple_constructor = tuple_constructor;
   machine->next_thread_id = 1;
   AihcFiber *main_fiber = aihc_allocate(sizeof(*main_fiber));
@@ -456,16 +437,6 @@ static void aihc_schedule_next(AihcMachine *machine) {
   }
 }
 
-static void aihc_complete_foreign(AihcMachine *machine, AihcValue *foreign,
-                                  AihcSlot state) {
-  AihcContinuation *continuation =
-      aihc_push_special(machine, AIHC_CONT_FOREIGN_CINT);
-  continuation->payload.foreign_call.state = state;
-  continuation->payload.foreign_call.descriptor =
-      (AihcForeign *)foreign->info;
-  aihc_eval_value(machine, (AihcValue *)foreign->fields[0], 1);
-}
-
 static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                               AihcSlot argument) {
   switch (function->kind) {
@@ -474,8 +445,7 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                            aihc_arguments_with_field(function, argument));
     return;
   case AIHC_CONSTRUCTOR:
-  case AIHC_PRIMITIVE:
-  case AIHC_FOREIGN: {
+  case AIHC_PRIMITIVE: {
     AihcValue *applied = aihc_copy_with_field(function, argument);
     if (applied->count < applied->arity) {
       aihc_return_value(machine, (AihcSlot)applied);
@@ -484,21 +454,6 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
     if (applied->count > applied->arity) {
       aihc_fail("overapplication is not implemented");
     }
-    if (applied->kind == AIHC_FOREIGN) {
-      AihcForeign *descriptor = (AihcForeign *)applied->info;
-      if (!descriptor->is_io) {
-        aihc_fail("pure foreign calls are not implemented");
-      }
-      AihcValue *action = aihc_make_node(AIHC_FOREIGN_IO, applied->info,
-                                         applied->arity, applied->count);
-      for (uint64_t index = 0; index < applied->count; ++index) {
-        action->fields[index] = applied->fields[index];
-      }
-      AihcValue *io = aihc_constructor(descriptor->io_constructor, 1, 1);
-      io->fields[0] = (AihcSlot)action;
-      aihc_return_value(machine, (AihcSlot)io);
-      return;
-    }
     if (applied->kind == AIHC_PRIMITIVE) {
       aihc_execute_primitive(machine, applied);
       return;
@@ -506,9 +461,6 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
-  case AIHC_FOREIGN_IO:
-    aihc_complete_foreign(machine, function, argument);
-    return;
   default:
     aihc_fail("attempted to apply a non-function value");
   }
@@ -565,12 +517,8 @@ static void aihc_apply_value(AihcMachine *machine, AihcValue *function,
 }
 
 static void aihc_run_io(AihcMachine *machine, AihcValue *value) {
-  if (value->kind != AIHC_CONSTRUCTOR || value->info != machine->io_constructor ||
-      value->count != 1) {
-    aihc_fail("program result is not an IO value");
-  }
   aihc_push_special(machine, AIHC_CONT_FINAL);
-  aihc_apply_value(machine, (AihcValue *)value->fields[0], 0);
+  aihc_apply_value(machine, value, 0);
 }
 
 static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
@@ -612,39 +560,6 @@ static void aihc_return_value(AihcMachine *machine, AihcSlot value) {
     } else {
       aihc_schedule_next(machine);
     }
-    return;
-  }
-  case AIHC_CONT_FOREIGN_CINT: {
-    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    AihcValue *cint = (AihcValue *)value;
-    if (cint->kind != AIHC_CONSTRUCTOR ||
-        cint->info != descriptor->cint_constructor || cint->count != 1) {
-      aihc_fail("foreign CInt argument has invalid outer constructor");
-    }
-    AihcContinuation *next =
-        aihc_push_special(machine, AIHC_CONT_FOREIGN_INT32);
-    next->payload.foreign_call = continuation->payload.foreign_call;
-    aihc_eval_value(machine, (AihcValue *)cint->fields[0], 1);
-    return;
-  }
-  case AIHC_CONT_FOREIGN_INT32: {
-    AihcForeign *descriptor = continuation->payload.foreign_call.descriptor;
-    AihcValue *int32 = (AihcValue *)value;
-    if (int32->kind != AIHC_CONSTRUCTOR ||
-        int32->info != descriptor->int32_constructor || int32->count != 1) {
-      aihc_fail("foreign CInt argument has invalid Int32 constructor");
-    }
-    int argument = (int)(int32_t)(uint32_t)int32->fields[0];
-    int result = ((int (*)(int))descriptor->function)(argument);
-    AihcValue *result_int32 =
-        aihc_constructor(descriptor->int32_constructor, 1, 1);
-    result_int32->fields[0] = (AihcSlot)(intptr_t)(int32_t)result;
-    AihcValue *cint = aihc_constructor(descriptor->cint_constructor, 1, 1);
-    cint->fields[0] = (AihcSlot)result_int32;
-    AihcValue *tuple = aihc_constructor(descriptor->tuple_constructor, 2, 2);
-    tuple->fields[0] = continuation->payload.foreign_call.state;
-    tuple->fields[1] = (AihcSlot)cint;
-    aihc_return_value(machine, (AihcSlot)tuple);
     return;
   }
   case AIHC_CONT_SELECT: {

@@ -39,9 +39,9 @@ eliminateDeadCode entry (FcProgram topBinds) =
     indexedTopBinds = zip [0 :: Int ..] topBinds
     valueDefinitions =
       Map.fromList
-        [ (varName var, (index, references))
+        [ (name, (index, references))
         | (index, topBind) <- indexedTopBinds,
-          (var, references) <- valueDefinitionsOf topBind
+          (name, references) <- valueDefinitionsOf topBind
         ]
     typeDefinitions =
       Map.fromList
@@ -79,18 +79,18 @@ keepTopBind :: Map Text (Int, References) -> Map Text (Int, References) -> Set T
 keepTopBind valueDefinitions typeDefinitions values types index topBind =
   case topBind of
     FcData name _ _ -> selectedType name
-    FcNewtype name _ _ _ -> selectedType name
-    _ -> any selectedValue [varName var | (var, _) <- valueDefinitionsOf topBind]
+    FcNewtype declaration -> selectedType (fcNewtypeName declaration)
+    _ -> any selectedValue [name | (name, _) <- valueDefinitionsOf topBind]
   where
     selectedValue name = name `Set.member` values && fmap fst (Map.lookup name valueDefinitions) == Just index
     selectedType name = name `Set.member` types && fmap fst (Map.lookup name typeDefinitions) == Just index
 
-valueDefinitionsOf :: FcTopBind -> [(Var, References)]
+valueDefinitionsOf :: FcTopBind -> [(Text, References)]
 valueDefinitionsOf topBind =
   case topBind of
-    FcPrimitive var _ -> [(var, referencesVarType var)]
-    FcForeignImport foreignCall -> [(fcForeignCallVar foreignCall, referencesVarType (fcForeignCallVar foreignCall))]
-    FcTopBind bind -> [(var, referencesTopLevelBind bind) | var <- bindersOf bind]
+    FcPrimitive var _ -> [(varName var, referencesVarType var)]
+    FcForeignImport foreignCall -> [(fcForeignCallName foreignCall, mempty)]
+    FcTopBind bind -> [(varName var, referencesTopLevelBind bind) | var <- bindersOf bind]
     FcData {} -> []
     FcNewtype {} -> []
 
@@ -98,14 +98,19 @@ typeDefinitionsOf :: FcTopBind -> [(Text, References)]
 typeDefinitionsOf topBind =
   case topBind of
     FcData name _ constructors -> [(name, foldMap (foldMap referencesType . snd) constructors)]
-    FcNewtype name _ _ fieldType -> [(name, referencesType fieldType)]
+    FcNewtype declaration ->
+      [ ( fcNewtypeName declaration,
+          referencesType (fcNewtypeRepresentation declaration)
+            <> referencesType (fcNewtypeResult declaration)
+        )
+      ]
     _ -> []
 
 typeConstructorsOf :: FcTopBind -> [(Text, [Text])]
 typeConstructorsOf topBind =
   case topBind of
     FcData name _ constructors -> [(name, map fst constructors)]
-    FcNewtype name _ constructor _ -> [(name, [constructor])]
+    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructor declaration])]
     _ -> []
 
 bindersOf :: FcBind -> [Var]
@@ -143,6 +148,9 @@ referencesExpr bound expression =
         <> referencesVarType binder
         <> foldMap (referencesAlt (Set.insert binder bound)) alternatives
     FcCast inner coercion -> referencesExpr bound inner <> referencesCoercion coercion
+    FcCallForeign foreignCall arguments ->
+      mempty {referencedValues = Set.singleton (fcForeignCallName foreignCall)}
+        <> foldMap (referencesExpr bound) arguments
 
 referencesLet :: Set Var -> FcBind -> FcExpr -> References
 referencesLet bound bind body =

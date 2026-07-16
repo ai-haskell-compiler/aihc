@@ -48,6 +48,8 @@ data LintError
     InconsistentAlts !TcType !TcType
   | -- | General lint failure.
     LintFailure !String
+  | UnknownForeignCall !Text
+  | ForeignCallDescriptorMismatch !Text
   deriving (Eq, Show)
 
 -- | Lint environment.
@@ -57,7 +59,10 @@ data LintEnv = LintEnv
     -- | Type variables in scope.
     leTyVars :: !(Set TyVarId),
     -- | Known data constructors: name -> (type var params, field types, result type).
-    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType))
+    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
+    -- | Representational equality axioms introduced by newtypes.
+    leNewtypes :: !(Map Text FcNewtypeDecl),
+    leForeignCalls :: !(Map Text FcForeignCall)
   }
   deriving (Show)
 
@@ -67,13 +72,23 @@ emptyLintEnv =
   LintEnv
     { leTerms = Map.empty,
       leTyVars = Set.empty,
-      leDataCons = Map.empty
+      leDataCons = Map.empty,
+      leNewtypes = Map.empty,
+      leForeignCalls = Map.empty
     }
 
 -- | Lint an entire program.
 lintProgram :: LintEnv -> FcProgram -> [LintError]
-lintProgram env0 prog = go env0 (fcTopBinds prog)
+lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
   where
+    envWithDeclarations = foldr registerDeclaration env0 (fcTopBinds prog)
+
+    registerDeclaration (FcNewtype declaration) env =
+      env {leNewtypes = Map.insert (fcNewtypeName declaration) declaration (leNewtypes env)}
+    registerDeclaration (FcForeignImport foreignCall) env =
+      env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
+    registerDeclaration _ env = env
+
     go _ [] = []
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
@@ -83,8 +98,8 @@ lintProgram env0 prog = go env0 (fcTopBinds prog)
       go env rest
     go env (FcPrimitive var _arity : rest) =
       go (extendTermEnv var env) rest
-    go env (FcForeignImport foreignCall : rest) =
-      go (extendTermEnv (fcForeignCallVar foreignCall) env) rest
+    go env (FcForeignImport _ : rest) =
+      go env rest
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest
@@ -167,10 +182,27 @@ lintExpr env (FcCase scrut _binder alts) = do
       Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
-  let (coFrom, coTo) = coercionEndpoints co
+  (coFrom, coTo) <- coercionEndpoints env co
   if typesEqual eTy coFrom
     then Right coTo
     else Left (TypeMismatch "cast source" coFrom eTy)
+lintExpr env (FcCallForeign foreignCall arguments) = do
+  case Map.lookup (fcForeignCallName foreignCall) (leForeignCalls env) of
+    Nothing -> Left (UnknownForeignCall (fcForeignCallName foreignCall))
+    Just declared
+      | declared /= foreignCall -> Left (ForeignCallDescriptorMismatch (fcForeignCallName foreignCall))
+      | otherwise -> Right ()
+  argumentTypes <- mapM (lintExpr env) arguments
+  let expectedTypes = fcForeignOperandTypes (fcForeignCallSignature foreignCall)
+  if length argumentTypes /= length expectedTypes
+    then Left (LintFailure ("foreign call arity mismatch for " ++ show (fcForeignCallName foreignCall)))
+    else do
+      mapM_ checkArgument (zip expectedTypes argumentTypes)
+      pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+  where
+    checkArgument (expected, actual)
+      | typesEqual expected actual = Right ()
+      | otherwise = Left (TypeMismatch "foreign call argument" expected actual)
 
 -- | Lint a case alternative.
 lintAlt :: LintEnv -> FcAlt -> Either LintError TcType
@@ -189,19 +221,34 @@ lintAltWithExpected env resTy alt = do
 --
 -- For the MVP, this is minimal. A full implementation would recursively
 -- compute the proved equality.
-coercionEndpoints :: Coercion -> (TcType, TcType)
-coercionEndpoints (Refl ty) = (ty, ty)
-coercionEndpoints (Sym co) = let (a, b) = coercionEndpoints co in (b, a)
-coercionEndpoints (Trans co1 co2) =
-  let (a, _) = coercionEndpoints co1
-      (_, c) = coercionEndpoints co2
-   in (a, c)
-coercionEndpoints (CoVar _) = (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
-coercionEndpoints (TyConAppCo tc coercions) =
-  let pairs = map coercionEndpoints coercions
-   in (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
-coercionEndpoints (AxiomInstCo _ _) =
-  (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
+coercionEndpoints :: LintEnv -> Coercion -> Either LintError (TcType, TcType)
+coercionEndpoints _ (Refl ty) = Right (ty, ty)
+coercionEndpoints env (Sym co) = do
+  (from, to) <- coercionEndpoints env co
+  Right (to, from)
+coercionEndpoints env (Trans co1 co2) = do
+  (from, middleLeft) <- coercionEndpoints env co1
+  (middleRight, to) <- coercionEndpoints env co2
+  if typesEqual middleLeft middleRight
+    then Right (from, to)
+    else Left (TypeMismatch "coercion transitivity" middleLeft middleRight)
+coercionEndpoints _ (CoVar _) =
+  Right (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
+coercionEndpoints env (TyConAppCo tc coercions) = do
+  pairs <- mapM (coercionEndpoints env) coercions
+  Right (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
+coercionEndpoints env (AxiomInstCo name typeArgs) =
+  case Map.lookup name (leNewtypes env) of
+    Nothing -> Left (LintFailure ("unknown newtype axiom: " ++ show name))
+    Just declaration
+      | length typeArgs /= length (fcNewtypeTyVars declaration) ->
+          Left (LintFailure ("newtype axiom arity mismatch: " ++ show name))
+      | otherwise ->
+          let substitution = Map.fromList (zip (fcNewtypeTyVars declaration) typeArgs)
+           in Right
+                ( substType substitution (fcNewtypeResult declaration),
+                  substType substitution (fcNewtypeRepresentation declaration)
+                )
 
 -- | Extend the term environment with a variable.
 extendTermEnv :: Var -> LintEnv -> LintEnv

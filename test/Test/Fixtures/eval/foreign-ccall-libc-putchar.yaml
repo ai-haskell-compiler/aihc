@@ -14,7 +14,7 @@ modules:
     foreign import ccall unsafe putchar :: CInt -> IO CInt
 stdout: A
 output: |
-  CInt (I32# 65)
+  I32# 65
 expression: |
   putchar (CInt (I32# 65#Int32))
 status: pass

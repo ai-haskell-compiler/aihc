@@ -13,7 +13,7 @@ modules:
 
     foreign import ccall unsafe "abs" c_abs :: CInt -> CInt
 output: |
-  CInt (I32# 42)
+  I32# 42
 expression: |
   c_abs (CInt (I32# (-42#Int32)))
 status: pass

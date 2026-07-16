@@ -19,7 +19,7 @@ modules:
       putchar second
 stdout: AB
 output: |
-  CInt (I32# 66)
+  I32# 66
 expression: |
   putTwo (CInt (I32# 65#Int32)) (CInt (I32# 66#Int32))
 status: pass

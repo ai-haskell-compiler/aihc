@@ -1,0 +1,25 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Token = Token
+    newtype Action = Action Token
+
+    ignoreAction :: Action -> Token
+    ignoreAction (Action _) = Token
+
+    result :: Token
+    result = ignoreAction (raise# Token)
+output: |
+  Token
+expression: result
+status: pass
+reason: does not force a newtype scrutinee merely to match its nonexistent constructor tag
