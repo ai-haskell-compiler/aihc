@@ -27,6 +27,7 @@ module Aihc.Fc
 
     -- * Optimization
     eliminateDeadCode,
+    lowerNewtypes,
 
     -- * Lint
     lintProgram,
@@ -47,5 +48,6 @@ import Aihc.Fc.DeadCode (eliminateDeadCode)
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBindings, desugarModuleWithTcResult)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax

@@ -181,7 +181,8 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
       dependencyLayout = buildLinkLayout dependencyGrinPrograms
       mainCore = eliminateDeadCode "main" unoptimizedMain
       layout = extendLinkLayout dependencyLayout mainGrin
-      combinedGrin = Grin.lowerProgram combinedCore
+      linkedCore = Fc.lowerNewtypes combinedCore
+      combinedGrin = Grin.lowerProgram linkedCore
   either (Left . CompileArm64Error) Right (validateProgramPrimitives combinedGrin)
   assembly <-
     either
@@ -190,14 +191,15 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
       (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainGrin)
   pure
     CompileArtifacts
-      { compiledCore = renderCore combinedCore,
+      { compiledCore = renderCore linkedCore,
         compiledGrin = renderGrin combinedGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
 
 compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts core = do
+compileProgramArtifacts sourceCore = do
+  let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
   pure

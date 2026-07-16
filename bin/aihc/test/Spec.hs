@@ -875,6 +875,8 @@ test_compileExecutable =
         grin <- TIO.readFile (keptOutput <> ".grin")
         assertBool "core contains main" ("main" `T.isInfixOf` core)
         assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
+        assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
+        assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
         assertNativeOutput keptOutput
 
         runCompileWithEnvironment environment temporaryOptions

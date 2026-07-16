@@ -29,6 +29,7 @@ module Aihc.Grin.Syntax
 where
 
 import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
+import Data.Set (Set)
 import Data.Text (Text)
 
 -- | A whole GRIN program.
@@ -36,6 +37,9 @@ data GrinProgram = GrinProgram
   { grinConstructors :: ![(Text, [RuntimeRep])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
+    -- | CAF names whose source type is @IO a@ and must be entered with the
+    -- real-world state token by a top-level runner.
+    grinIoCafs :: !(Set Text),
     grinCafs :: ![(GrinVar, GrinNode)],
     grinFunctions :: ![GrinFunction]
   }

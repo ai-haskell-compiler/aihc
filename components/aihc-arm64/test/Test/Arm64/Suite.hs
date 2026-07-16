@@ -74,6 +74,7 @@ tests =
                 { grinConstructors = [("Box", [runtimeRep])],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [],
                   grinFunctions = []
                 }
@@ -88,6 +89,7 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(primitive, 2)],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [],
                   grinFunctions = []
                 }
@@ -103,6 +105,7 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinIoCafs = mempty,
                   grinCafs = [(answer, GrinNode (GrinThunk functionName) [])],
                   grinFunctions =
                     [ GrinFunction

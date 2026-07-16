@@ -7,6 +7,7 @@ module Aihc.Grin.Lower
   )
 where
 
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
@@ -16,6 +17,8 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     runtimeRepOfType,
+    tyConArity,
+    tyConName,
   )
 import Control.Monad (filterM)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
@@ -60,16 +63,30 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram program = lowerProgramWithEnvironment (programEnvironment [program]) program
+lowerProgram sourceProgram = lowerProgramWithEnvironment (programEnvironment [program]) program
+  where
+    program = lowerNewtypes sourceProgram
 
 -- | Lower separately compiled FC units with the complete set of global names
 -- supplied by the compilation closure. A unit may refer to a constructor,
 -- primitive, foreign import, or CAF defined in another unit, but generated
 -- functions and local variables remain private to that unit.
 lowerPrograms :: [FcProgram] -> [GrinProgram]
-lowerPrograms programs = map (lowerProgramWithEnvironment environment) programs
+lowerPrograms sourcePrograms = map (lowerProgramWithEnvironment environment) programs
   where
+    programs = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
     environment = programEnvironment programs
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+
+splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
+splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
+  where
+    go [] _ = []
+    go (FcProgram sourceTopBinds : rest) remaining =
+      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
+       in FcProgram unitTopBinds : go rest remaining'
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
@@ -96,6 +113,7 @@ lowerProgramWithEnvironment environment program =
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
+      grinIoCafs = programIoCafs program,
       grinCafs = loweredCafs tops,
       grinFunctions = reverse (lowerFunctionsRev finalState)
     }
@@ -118,8 +136,8 @@ lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map typeRuntimeRep fields) | (name, fields) <- constructors]}
-    FcNewtype _ _ constructor field ->
-      pure mempty {loweredConstructors = [(constructor, [typeRuntimeRep field])]}
+    FcNewtype {} ->
+      pure mempty
     FcPrimitive var arity ->
       pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
     FcForeignImport foreignCall ->
@@ -556,7 +574,7 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
     topGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
-        FcNewtype _ _ constructor _ -> [constructor]
+        FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
         FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
         FcTopBind bind -> map (varName . fst) (topBindings bind)
@@ -571,10 +589,31 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
     topWhnfGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
-        FcNewtype _ _ constructor _ -> [constructor]
+        FcNewtype {} -> []
         FcPrimitive var _ -> [varName var]
         FcForeignImport foreignCall -> [varName (fcForeignCallVar foreignCall)]
         FcTopBind {} -> []
+
+programIoCafs :: FcProgram -> Set Text
+programIoCafs program =
+  Set.fromList
+    [ varName var
+    | FcTopBind bind <- fcTopBinds program,
+      var <- map fst (topBindings bind),
+      isIOType (varType var)
+    ]
+  where
+    topBindings bind =
+      case bind of
+        FcNonRec var rhs -> [(var, rhs)]
+        FcRec bindings -> bindings
+
+    isIOType ty =
+      case ty of
+        TcTyCon tyCon [_] | tyConName tyCon == "IO", tyConArity tyCon == 1 -> True
+        TcForAllTy _ body -> isIOType body
+        TcQualTy _ body -> isIOType body
+        _ -> False
 
 topVars :: FcTopBind -> [Var]
 topVars topBind =

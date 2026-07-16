@@ -1,0 +1,17 @@
+expected: |-
+  constructor IS/1 [IntRep]
+
+  caf value%1003 :: BoxedRep Lifted = (F$grin_thunk_0)
+
+  $grin_thunk_0 -> BoxedRep Lifted =
+    apply @BoxedRep Lifted IS%1002 :: BoxedRep Lifted 42
+extensions:
+  - MagicHash
+reason: erases newtype constructors and casts before producing runtime GRIN
+source: |
+  module Test where
+  data Int = IS Int#
+  newtype Identity a = Identity a
+  value :: Identity Int
+  value = Identity (IS 42#)
+status: pass
