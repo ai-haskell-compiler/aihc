@@ -44,6 +44,8 @@ data InterpretError
   | InterpretForeignLookupError !Text !Text
   | InterpretResultArity !Int !Int
   | InterpretInvalidThunkResult ![RuntimeValue]
+  | InterpretInvalidThunkResultRep !FunctionName !RuntimeRep
+  | InterpretInvalidUpdateValue !RuntimeValue
   | InterpretInvalidDictSelect !RuntimeValue !Int
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
@@ -284,9 +286,11 @@ fetchValue value =
 
 updateValue :: RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
 updateValue pointer value =
-  case pointer of
-    RuntimeLocation location -> writeCell location (HeapValue value) >> pure value
-    other -> throwInterpret (InterpretExpectedLocation other)
+  if isLiftedRuntimeValue value
+    then case pointer of
+      RuntimeLocation location -> writeCell location (HeapValue value) >> pure value
+      other -> throwInterpret (InterpretExpectedLocation other)
+    else throwInterpret (InterpretInvalidUpdateValue value)
 
 forceValue :: RuntimeValue -> EvalM RuntimeValue
 forceValue value =
@@ -302,6 +306,11 @@ forceLocation location = do
       nodeValue <- evalNode nodeEnv node
       case nodeValue of
         RuntimeNode (GrinThunk functionName) fields -> do
+          function <- lookupFunction functionName
+          let resultRep = grinFunctionResultRep function
+          if isLiftedRuntimeRep resultRep
+            then pure ()
+            else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
           writeCell location HeapBlackhole
           result <- (Right <$> callFunction functionName fields) `catchE` (pure . Left)
           case result of
@@ -347,14 +356,27 @@ applyValue function arguments = do
 
 callFunction :: FunctionName -> [RuntimeValue] -> EvalM [RuntimeValue]
 callFunction functionName arguments = do
+  function <- lookupFunction functionName
+  let parameters = grinFunctionParameters function
+  if length parameters == length arguments
+    then evalExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function)
+    else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
+
+lookupFunction :: FunctionName -> EvalM GrinFunction
+lookupFunction functionName = do
   functions <- getsMachine machineFunctions
   case Map.lookup functionName functions of
     Nothing -> throwInterpret (InterpretUnknownFunction functionName)
-    Just function ->
-      let parameters = grinFunctionParameters function
-       in if length parameters == length arguments
-            then evalExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function)
-            else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
+    Just function -> pure function
+
+isLiftedRuntimeValue :: RuntimeValue -> Bool
+isLiftedRuntimeValue value =
+  case value of
+    RuntimeLit literal -> isLiftedRuntimeRep (grinValueRuntimeRep (GrinLitValue literal))
+    RuntimeNode {} -> True
+    RuntimeLocation {} -> True
+    RuntimeMutVar {} -> False
+    RuntimeStateToken -> False
 
 applyPrimitive :: Text -> Int -> [RuntimeValue] -> [RuntimeValue] -> EvalM [RuntimeValue]
 applyPrimitive name remaining captured arguments

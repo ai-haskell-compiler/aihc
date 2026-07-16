@@ -119,7 +119,9 @@ data GrinNode = GrinNode
 data GrinNodeTag
   = GrinConstructor !Text
   | GrinClosure !FunctionName !Int
-  | GrinThunk !FunctionName
+  | -- | A suspended computation. Its target function must return exactly
+    -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
+    GrinThunk !FunctionName
   | GrinPrimitive !Text !Int
   | GrinDictionary
   deriving (Eq, Show)

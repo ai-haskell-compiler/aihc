@@ -98,15 +98,14 @@ tests =
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
-        let answer = GrinVar "answer" 1 (BoxedRep Lifted)
-            functionName = FunctionName "answer_code"
+        let functionName = FunctionName "narrow_code"
             program =
               GrinProgram
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
                   grinIoCafs = mempty,
-                  grinCafs = [(answer, GrinNode (GrinThunk functionName) [])],
+                  grinCafs = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
@@ -116,7 +115,7 @@ tests =
                         }
                     ]
                 }
-        case compileProgram "answer" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" program of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "returns unboxed tuples as direct machine values" $ do

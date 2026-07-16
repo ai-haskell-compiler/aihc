@@ -7,12 +7,16 @@ module Test.Grin.Suite
   )
 where
 
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..), runtimeRepOfType)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
+import Control.Monad (forM_)
 import Data.List (isInfixOf)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 import GrinGolden qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -30,7 +34,23 @@ grinUnitTests =
         assertBool "contains explicit application" ("apply " `isInfixOf` rendered),
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
-        assertEqual "result" (Right "2") result,
+        assertEqual "result" (Right "Box 2") result,
+      testCase "interpreter rejects unlifted thunk results" $ do
+        result <- interpretProgramBinding "bad" (unliftedHeapProgram IntRep)
+        assertEqual "result" (Left (InterpretInvalidThunkResultRep unliftedThunkFunction IntRep)) result,
+      testCase "interpreter rejects unlifted heap updates" $ do
+        result <- interpretProgramBinding "answer" invalidUpdateProgram
+        assertEqual "result" (Left (InterpretInvalidUpdateValue (RuntimeLit (GrinLitInt IntRep 2)))) result,
+      testCase "lint rejects unlifted thunk results and heap updates" $
+        forM_ unliftedRuntimeReps $ \runtimeRep ->
+          let errors = lintProgram (unliftedHeapProgram runtimeRep)
+           in do
+                assertBool
+                  ("accepted thunk returning " <> show runtimeRep)
+                  (GrinLintThunkResult unliftedThunkFunction runtimeRep `elem` errors)
+                assertBool
+                  ("accepted heap update with " <> show runtimeRep)
+                  (GrinLintUpdateNonLifted runtimeRep `elem` errors),
       testCase "lint rejects constructor field representation mismatches" $ do
         let program = heapProgram {grinConstructors = [("Box", [WordRep])]}
         assertBool
@@ -53,7 +73,7 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct foreign call" ("foreign-call $ffi$abs" `isInfixOf` rendered)
-        assertBool "does not apply a foreign function value" (not ("apply " `isInfixOf` rendered)),
+        assertBool "does not apply a foreign function value" (not ("apply @Int32Rep $ffi$abs" `isInfixOf` rendered)),
       testCase "lint rejects undersaturated foreign calls" $ do
         let program = lowerProgram undersaturatedForeignProgram
         assertBool
@@ -114,15 +134,59 @@ mkEvalFixtureTest evalCase = testCase (EvalGolden.evalCaseId evalCase) $ do
 
 evaluateGrinProgram :: Text -> FcProgram -> IO (Either String Text)
 evaluateGrinProgram name fcProgram = do
-  let program = lowerProgram fcProgram
-  case lintProgram program of
-    [] -> do
-      result <- interpretProgramBinding name program
-      pure $
-        case result of
-          Left err -> Left (show err)
-          Right value -> Right value
-    lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
+  case prepareEvalProgram name (lowerNewtypes fcProgram) of
+    Left err -> pure (Left err)
+    Right (preparedProgram, unwrapResult) -> do
+      let program = lowerProgram preparedProgram
+      case lintProgram program of
+        [] -> do
+          result <- interpretProgramBinding name program
+          pure $
+            case result of
+              Left err -> Left (show err)
+              Right value -> Right (unwrapResult value)
+        lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
+
+prepareEvalProgram :: Text -> FcProgram -> Either String (FcProgram, Text -> Text)
+prepareEvalProgram name program@(FcProgram topBinds) =
+  case break isEvalBinding topBinds of
+    (_, []) -> Left ("missing evaluation binding " <> T.unpack name)
+    (_, FcTopBind (FcRec _) : _) -> Left "recursive evaluation binding is unsupported"
+    (before, FcTopBind (FcNonRec var rhs) : after) -> do
+      runtimeRep <- runtimeRepOfType (varType var)
+      if runtimeRep == BoxedRep Lifted
+        then Right (program, id)
+        else do
+          let componentCount = length (runtimeRepComponents runtimeRep)
+              constructorName = evalResultConstructor componentCount
+              wrapperType = TcTyCon (TyCon "__AihcEvalResultType" 0) []
+              constructorVar = Var constructorName (Unique (-1000000)) (TcFunTy (varType var) wrapperType)
+              wrappedVar = var {varType = wrapperType}
+              declaration = FcData "__AihcEvalResultType" [] [(constructorName, [varType var])]
+              wrappedBinding = FcTopBind (FcNonRec wrappedVar (FcApp (FcVar constructorVar) rhs))
+          Right
+            ( FcProgram (declaration : before <> (wrappedBinding : after)),
+              unwrapEvalResult componentCount constructorName
+            )
+    (_, _ : _) -> Left "invalid evaluation binding"
+  where
+    isEvalBinding topBind =
+      case topBind of
+        FcTopBind (FcNonRec var _) -> varName var == name
+        FcTopBind (FcRec bindings) -> any ((== name) . varName . fst) bindings
+        _ -> False
+
+evalResultConstructor :: Int -> Text
+evalResultConstructor componentCount
+  | componentCount == 0 = "()"
+  | componentCount == 1 = "__AihcEvalResult"
+  | otherwise = "(" <> T.replicate (componentCount - 1) "," <> ")"
+
+unwrapEvalResult :: Int -> Text -> Text -> Text
+unwrapEvalResult componentCount constructorName rendered
+  | componentCount == 0 = "<state>"
+  | componentCount == 1 = fromMaybe rendered (T.stripPrefix (constructorName <> " ") rendered)
+  | otherwise = rendered
 
 applicationProgram :: FcProgram
 applicationProgram =
@@ -163,15 +227,20 @@ unboxedApplicationProgram =
 shadowingProgram :: FcProgram
 shadowingProgram =
   FcProgram
-    [ FcTopBind
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
         ( FcNonRec
             answerVar
-            (FcApp (FcLam localAnswerVar (FcVar localAnswerVar)) (FcLit (LitInt IntRep 42)))
+            ( FcApp
+                (FcVar boxConstructorVar)
+                (FcApp (FcLam localAnswerVar (FcVar localAnswerVar)) (FcLit (LitInt IntRep 42)))
+            )
         )
     ]
   where
-    answerVar = Var "answer" (Unique 1) intTy
+    answerVar = Var "answer" (Unique 1) boxedIntTy
     localAnswerVar = Var "answer" (Unique 2) intTy
+    boxConstructorVar = Var "BoxedInt" (Unique 3) (TcFunTy intTy boxedIntTy)
 
 cafReferenceProgram :: FcProgram
 cafReferenceProgram =
@@ -192,14 +261,15 @@ cafReferenceProgram =
 exceptionProgram :: FcProgram
 exceptionProgram =
   FcProgram
-    [ FcPrimitive raiseVar 1,
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcPrimitive raiseVar 1,
       FcPrimitive catchVar 3,
-      FcTopBind (FcNonRec answerVar caughtExpression)
+      FcTopBind (FcNonRec answerVar (FcApp (FcVar boxConstructorVar) caughtExpression))
     ]
   where
     raiseVar = Var "raise#" (Unique 1) (TcFunTy intTy intTy)
     catchVar = Var "catch#" (Unique 2) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy intTy intTy)))
-    answerVar = Var "answer" (Unique 3) intTy
+    answerVar = Var "answer" (Unique 3) boxedIntTy
     actionState = Var "actionState" (Unique 4) intTy
     exception = Var "exception" (Unique 5) intTy
     handlerState = Var "handlerState" (Unique 6) intTy
@@ -207,6 +277,7 @@ exceptionProgram =
     handlerTy = TcFunTy intTy (TcFunTy intTy intTy)
     action = FcLam actionState (FcApp (FcVar raiseVar) (FcLit (LitInt IntRep 10)))
     handler = FcLam exception (FcLam handlerState (FcVar exception))
+    boxConstructorVar = Var "BoxedInt" (Unique 7) (TcFunTy intTy boxedIntTy)
     caughtExpression =
       FcApp
         (FcApp (FcApp (FcVar catchVar) action) handler)
@@ -228,12 +299,12 @@ heapProgram =
         [ GrinFunction
             { grinFunctionName = functionName,
               grinFunctionParameters = [],
-              grinFunctionResultRep = IntRep,
+              grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
                 GrinBind [pointer] (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
                   GrinBind [fetched] (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
-                    GrinBind [updated] (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
-                      GrinEval IntRep (GrinVarValue pointer)
+                    GrinBind [updated] (GrinUpdate (GrinVarValue pointer) updatedBox) $
+                      GrinEval (BoxedRep Lifted) (GrinVarValue pointer)
             }
         ]
     }
@@ -241,8 +312,71 @@ heapProgram =
     answer = GrinVar "answer" 1 (BoxedRep Lifted)
     pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
     fetched = GrinVar "fetched" 3 (BoxedRep Lifted)
-    updated = GrinVar "updated" 4 IntRep
+    updated = GrinVar "updated" 4 (BoxedRep Lifted)
+    updatedBox = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)])
     functionName = FunctionName "answer_code"
+
+invalidUpdateProgram :: GrinProgram
+invalidUpdateProgram =
+  heapProgram
+    { grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "answer_code",
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [pointer] (GrinStore initialBox) $
+                  GrinBind [updated] (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
+                    GrinReturn [updatedBox]
+            }
+        ]
+    }
+  where
+    pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
+    updated = GrinVar "updated" 3 IntRep
+    initialBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)]
+    updatedBox = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)])
+
+unliftedRuntimeReps :: [RuntimeRep]
+unliftedRuntimeReps =
+  [ IntRep,
+    WordRep,
+    BoxedRep Unlifted,
+    TupleRep [IntRep, WordRep],
+    TupleRep []
+  ]
+
+unliftedHeapProgram :: RuntimeRep -> GrinProgram
+unliftedHeapProgram runtimeRep =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinIoCafs = mempty,
+      grinCafs = [(GrinVar "bad" 1 (BoxedRep Lifted), GrinNode (GrinThunk unliftedThunkFunction) [GrinLitValue (GrinLitString "capture")])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = unliftedThunkFunction,
+              grinFunctionParameters = [pointer],
+              grinFunctionResultRep = runtimeRep,
+              grinFunctionBody =
+                GrinBind
+                  [updated]
+                  (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt runtimeRep 0)))
+                  ( GrinReturn
+                      [ GrinLitValue (GrinLitInt componentRep 0)
+                      | componentRep <- runtimeRepComponents runtimeRep
+                      ]
+                  )
+            }
+        ]
+    }
+  where
+    pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
+    updated = GrinVar "updated" 3 runtimeRep
+
+unliftedThunkFunction :: FunctionName
+unliftedThunkFunction = FunctionName "unlifted_thunk"
 
 intTy :: TcType
 intTy = TcTyCon (TyCon "Int#" 0) []
@@ -253,19 +387,21 @@ boxedIntTy = TcTyCon (TyCon "Int" 0) []
 foreignProgram :: FcProgram
 foreignProgram =
   FcProgram
-    [ FcForeignImport foreignCall,
+    [ FcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
+      FcForeignImport foreignCall,
       FcTopBind
         ( FcNonRec
             foreignAnswerVar
-            (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42)])
+            (FcApp (FcVar foreignBoxConstructorVar) (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42)]))
         )
     ]
 
 undersaturatedForeignProgram :: FcProgram
 undersaturatedForeignProgram =
   FcProgram
-    [ FcForeignImport foreignCall,
-      FcTopBind (FcNonRec foreignAnswerVar (FcCallForeign foreignCall []))
+    [ FcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
+      FcForeignImport foreignCall,
+      FcTopBind (FcNonRec foreignAnswerVar (FcApp (FcVar foreignBoxConstructorVar) (FcCallForeign foreignCall [])))
     ]
 
 foreignCall :: FcForeignCall
@@ -282,7 +418,13 @@ foreignCall =
     }
 
 foreignAnswerVar :: Var
-foreignAnswerVar = Var "answer" (Unique 50) (TcTyCon (TyCon "Int32#" 0) [])
+foreignAnswerVar = Var "answer" (Unique 50) boxedIntTy
+
+foreignBoxConstructorVar :: Var
+foreignBoxConstructorVar = Var "BoxedInt32" (Unique 51) (TcFunTy int32Ty boxedIntTy)
+
+int32Ty :: TcType
+int32Ty = TcTyCon (TyCon "Int32#" 0) []
 
 separatePrograms :: [FcProgram]
 separatePrograms =
@@ -297,7 +439,7 @@ separatePrograms =
 separateNewtypePrograms :: [FcProgram]
 separateNewtypePrograms =
   [ FcProgram [FcNewtype declaration],
-    FcProgram [FcTopBind (FcNonRec answerVar (FcApp (FcVar constructorVar) (FcLit (LitInt IntRep 42))))]
+    FcProgram [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcApp (FcVar constructorVar) (FcLit (LitInt IntRep 42)))))]
   ]
   where
     declaration =
@@ -310,4 +452,5 @@ separateNewtypePrograms =
         }
     wrapperTy = TcTyCon (TyCon "Wrapper" 0) []
     constructorVar = Var "Wrap" (Unique 40) (TcFunTy intTy wrapperTy)
-    answerVar = Var "answer" (Unique 41) wrapperTy
+    answerVar = Var "answer" (Unique 41) (TcFunTy boxedIntTy wrapperTy)
+    argumentVar = Var "argument" (Unique 42) boxedIntTy

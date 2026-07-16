@@ -21,9 +21,11 @@ data GrinLintError
   | GrinLintUnboundVariable !GrinVar
   | GrinLintUnknownFunction !FunctionName
   | GrinLintFunctionArity !FunctionName !Int !Int
+  | GrinLintThunkResult !FunctionName !RuntimeRep
   | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
   | GrinLintResultLayout !String ![RuntimeRep] ![RuntimeRep]
   | GrinLintEvalNonLifted !RuntimeRep
+  | GrinLintUpdateNonLifted !RuntimeRep
   | GrinLintForeignArity !Text !Int !Int
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
@@ -32,6 +34,7 @@ data GrinLintError
 
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
+    lintFunctionResults :: !(Map FunctionName RuntimeRep),
     lintGlobalVars :: !(Set GrinVar),
     lintGlobalNames :: !(Set Text),
     lintConstructorLayouts :: !(Map Text [RuntimeRep]),
@@ -58,6 +61,7 @@ lintProgram program =
               [ (grinFunctionName function, length (grinFunctionParameters function))
               | function <- functions
               ],
+          lintFunctionResults = Map.fromList [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
           lintGlobalVars = Set.fromList cafVars,
           lintGlobalNames =
             Set.fromList
@@ -105,7 +109,10 @@ lintExpr env bound expr =
        in concatMap (lintNode env recursiveBound . snd) bindings
             <> lintExpr env recursiveBound body
     GrinFetch _ pointer -> lintValue env bound pointer
-    GrinUpdate pointer value -> lintValue env bound pointer <> lintValue env bound value
+    GrinUpdate pointer value ->
+      [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
+        <> lintValue env bound pointer
+        <> lintValue env bound value
     GrinEval _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
         <> lintValue env bound value
@@ -182,7 +189,7 @@ lintConstructorFields env node =
 lintNodeFunction :: LintEnv -> GrinNode -> [GrinLintError]
 lintNodeFunction env node =
   case grinNodeTag node of
-    GrinThunk functionName -> checkFunctionArity functionName fieldCount
+    GrinThunk functionName -> checkFunctionArity functionName fieldCount <> checkThunkResult functionName
     GrinClosure functionName argumentCount -> checkClosureArity functionName argumentCount
     _ -> []
   where
@@ -195,6 +202,11 @@ lintNodeFunction env node =
           | otherwise -> [GrinLintFunctionArity functionName expected actual]
     checkClosureArity functionName argumentCount =
       checkFunctionArity functionName (fieldCount + argumentCount)
+    checkThunkResult functionName =
+      case Map.lookup functionName (lintFunctionResults env) of
+        Just runtimeRep
+          | not (isLiftedRuntimeRep runtimeRep) -> [GrinLintThunkResult functionName runtimeRep]
+        _ -> []
 
 duplicates :: (Ord a) => [a] -> [a]
 duplicates = go Set.empty Set.empty

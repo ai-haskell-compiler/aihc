@@ -341,18 +341,23 @@ lowerAlt caseBinding alt = do
       }
 
 makeThunk :: FcExpr -> LowerM GrinNode
-makeThunk expr = do
-  captures <- capturesFor expr
-  functionName <- freshFunction "thunk"
-  body <- lowerExpr expr
-  emitFunction
-    GrinFunction
-      { grinFunctionName = functionName,
-        grinFunctionParameters = captures,
-        grinFunctionResultRep = exprRuntimeRep expr,
-        grinFunctionBody = body
-      }
-  pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
+makeThunk expr
+  | not (isLiftedRuntimeRep runtimeRep) =
+      error ("GRIN lowering cannot suspend an expression with runtime representation " <> show runtimeRep)
+  | otherwise = do
+      captures <- capturesFor expr
+      functionName <- freshFunction "thunk"
+      body <- lowerExpr expr
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionParameters = captures,
+            grinFunctionResultRep = runtimeRep,
+            grinFunctionBody = body
+          }
+      pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
+  where
+    runtimeRep = exprRuntimeRep expr
 
 lowerStrict :: Text -> FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerStrict hint expr continuation = do
