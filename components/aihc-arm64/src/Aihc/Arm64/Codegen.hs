@@ -5,7 +5,13 @@
 -- for the C runtime and foreign functions.
 module Aihc.Arm64.Codegen
   ( Arm64Error (..),
+    LinkLayout,
+    buildLinkLayout,
+    compileModule,
     compileProgram,
+    compileProgramWithDependencies,
+    extendLinkLayout,
+    validateProgramPrimitives,
   )
 where
 
@@ -42,8 +48,19 @@ data CompileEnv = CompileEnv
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
     compileFunctionArities :: !(Map FunctionName Int),
-    compileForeignLabels :: !(Map Text Text)
+    compileForeignLabels :: !(Map Text Text),
+    compileAllowUnsupportedPrimitives :: !Bool
   }
+
+-- | The process-wide constructor tags and global table slots shared by all
+-- native compilation units in one executable. Extending a dependency layout
+-- appends user-program entries, so cached dependency objects keep the same
+-- assignments regardless of the program that links them.
+data LinkLayout = LinkLayout
+  { linkConstructors :: ![(Text, Int)],
+    linkGlobalNames :: ![Text]
+  }
+  deriving (Eq, Show)
 
 data Block = Block
   { blockLabel :: !Text,
@@ -64,9 +81,68 @@ data ValueEnv = ValueEnv
   }
 
 compileProgram :: Text -> GrinProgram -> Either Arm64Error Text
-compileProgram entryName program = do
+compileProgram entryName program =
+  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName program
+
+-- | Reject primitives that reachable native code would not execute correctly.
+-- Relocatable library objects may carry dormant primitive declarations, but
+-- the linked program is checked after whole-program dead-code elimination.
+validateProgramPrimitives :: GrinProgram -> Either Arm64Error ()
+validateProgramPrimitives program =
+  mapM_ (primitiveIdentifier False . grinVarName . fst) (grinPrimitives program)
+
+-- | Build the stable layout for a dependency closure in dependency order.
+buildLinkLayout :: [GrinProgram] -> LinkLayout
+buildLinkLayout = foldl extendLinkLayout emptyLinkLayout
+
+-- | Append a compilation unit to an existing layout without renumbering any
+-- existing constructor or global.
+extendLinkLayout :: LinkLayout -> GrinProgram -> LinkLayout
+extendLinkLayout layout program =
+  LinkLayout
+    { linkConstructors = uniqueByName (linkConstructors layout <> programConstructorArities program),
+      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> programGlobalNames program)
+    }
+
+-- | Compile a library module to relocatable assembly. The exported initializer
+-- installs the module's primitive, foreign, and CAF globals into the shared
+-- machine table. Constructors are installed once by the executable entry unit.
+compileModule :: LinkLayout -> Text -> GrinProgram -> Either Arm64Error Text
+compileModule layout initializerSymbol program = do
+  mapM_ validateRuntimeRep (programRuntimeReps program)
+  initLines <- compileInitializers compileEnv program
+  functions <- mapM (compileFunction compileEnv) (grinFunctions program)
+  descriptors <- foreignDescriptors compileEnv program
+  pure . T.unlines $
+    [ ".section __TEXT,__text,regular,pure_instructions",
+      ".p2align 2",
+      ".globl " <> initializerSymbol,
+      initializerSymbol <> ":",
+      "  stp x29, x30, [sp, #-48]!",
+      "  mov x29, sp",
+      "  stp x19, x20, [sp, #16]",
+      "  stp x21, x22, [sp, #32]",
+      "  mov x22, x0"
+    ]
+      <> initLines
+      <> [ "  ldp x21, x22, [sp, #32]",
+           "  ldp x19, x20, [sp, #16]",
+           "  ldp x29, x30, [sp], #48",
+           "  ret"
+         ]
+      <> concat functions
+      <> descriptors
+  where
+    compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
+
+-- | Compile the user program entry unit against cached dependency modules.
+-- Dependency initializers are called after constructors are installed and
+-- before the user module's own globals are initialized.
+compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GrinProgram -> Either Arm64Error Text
+compileProgramWithDependencies layout dependencyInitializers entryName program = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Arm64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
+  constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   descriptors <- foreignDescriptors compileEnv program
@@ -84,6 +160,8 @@ compileProgram entryName program = do
       "  bl _aihc_machine_new",
       "  mov x22, x0"
     ]
+      <> constructorLines
+      <> concatMap callInitializer dependencyInitializers
       <> initLines
       <> [ "  ldr x9, [x22, #24]",
            loadAt "x1" "x9" rootSlot,
@@ -102,26 +180,57 @@ compileProgram entryName program = do
       <> concat functions
       <> descriptors
   where
-    constructors = uniqueByName (builtinConstructors <> programConstructorArities program)
-    constructorIds = Map.fromList (zip (map fst constructors) [1 ..])
-    constructorArities = Map.fromList constructors
-    globalNames = uniqueTexts (map fst constructors <> map (grinVarName . fst) (grinPrimitives program) <> map grinForeignCallName (grinForeignCalls program) <> map (grinVarName . fst) (grinCafs program))
-    globalSlots = Map.fromList (zip globalNames [0 ..])
-    functionLabels = Map.fromList [(grinFunctionName function, functionLabel index) | (index, function) <- zip [0 ..] (grinFunctions program)]
-    functionArities = Map.fromList [(grinFunctionName function, length (grinFunctionParameters function)) | function <- grinFunctions program]
-    foreignLabels = Map.fromList [(grinForeignCallName foreignCall, foreignLabel index) | (index, foreignCall) <- zip [0 ..] (grinForeignCalls program)]
-    compileEnv = CompileEnv constructorIds constructorArities globalSlots functionLabels functionArities foreignLabels
+    compileEnv = compileEnvironment layout program
+    globalSlots = compileGlobalSlots compileEnv
+    globalNames = linkGlobalNames layout
+    constructorIds = compileConstructorIds compileEnv
     tupleConstructor = Map.findWithDefault 0 "(#,#)" constructorIds
+
+    callInitializer symbol =
+      [ "  mov x0, x22",
+        "  bl " <> symbol
+      ]
+
+emptyLinkLayout :: LinkLayout
+emptyLinkLayout =
+  LinkLayout
+    { linkConstructors = builtinConstructors,
+      linkGlobalNames = map fst builtinConstructors
+    }
+
+programGlobalNames :: GrinProgram -> [Text]
+programGlobalNames program =
+  map fst (programConstructorArities program)
+    <> map (grinVarName . fst) (grinPrimitives program)
+    <> map grinForeignCallName (grinForeignCalls program)
+    <> map (grinVarName . fst) (grinCafs program)
+
+compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironment layout program =
+  CompileEnv
+    { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
+      compileConstructorArities = Map.fromList constructors,
+      compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
+      compileFunctionLabels = Map.fromList [(grinFunctionName function, functionLabel index) | (index, function) <- zip [0 ..] (grinFunctions program)],
+      compileFunctionArities = Map.fromList [(grinFunctionName function, length (grinFunctionParameters function)) | function <- grinFunctions program],
+      compileForeignLabels = Map.fromList [(grinForeignCallName foreignCall, foreignLabel index) | (index, foreignCall) <- zip [0 ..] (grinForeignCalls program)],
+      compileAllowUnsupportedPrimitives = False
+    }
+  where
+    constructors = linkConstructors layout
+
+compileConstructorInitializers :: CompileEnv -> Either Arm64Error [Text]
+compileConstructorInitializers env =
+  fmap concat . forM (Map.toAscList (compileConstructorIds env)) $ \(name, constructor) -> do
+    slot <- globalSlot env name
+    arity <- constructorArity env name
+    pure $ makeNodeLines 1 (InfoImmediate constructor) arity 0 <> storeGlobal slot
 
 compileInitializers :: CompileEnv -> GrinProgram -> Either Arm64Error [Text]
 compileInitializers env program = do
-  constructorLines <- fmap concat . forM constructors $ \(name, arity) -> do
-    slot <- globalSlot env name
-    constructor <- constructorId env name
-    pure $ makeNodeLines 1 (InfoImmediate constructor) arity 0 <> storeGlobal slot
   primitiveLines <- fmap concat . forM (grinPrimitives program) $ \(var, arity) -> do
     slot <- globalSlot env (grinVarName var)
-    primitive <- primitiveId (grinVarName var)
+    primitive <- primitiveId env (grinVarName var)
     pure $ makeNodeLines 4 (InfoImmediate primitive) arity 0 <> storeGlobal slot
   foreignLines <- fmap concat . forM (grinForeignCalls program) $ \foreignCall -> do
     slot <- globalSlot env (grinForeignCallName foreignCall)
@@ -142,9 +251,7 @@ compileInitializers env program = do
              "  mov x1, x20",
              "  bl _aihc_set_cell"
            ]
-  pure (constructorLines <> primitiveLines <> foreignLines <> cafCellLines <> cafValueLines)
-  where
-    constructors = uniqueByName (builtinConstructors <> programConstructorArities program)
+  pure (primitiveLines <> foreignLines <> cafCellLines <> cafValueLines)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -461,7 +568,7 @@ nodeHeader env node =
       arity <- functionArity compileEnv functionName
       pure (3, InfoAddress label, arity)
     GrinPrimitive name arity -> do
-      identifier <- primitiveId name
+      identifier <- primitiveId compileEnv name
       pure (4, InfoImmediate identifier, arity)
     GrinForeign foreignCall -> do
       label <- foreignDescriptorLabel compileEnv foreignCall
@@ -616,9 +723,13 @@ foreignDescriptorLabel env foreignCall =
     Right
     (Map.lookup (grinForeignCallName foreignCall) (compileForeignLabels env))
 
-primitiveId :: Text -> Either Arm64Error Int
-primitiveId name
+primitiveId :: CompileEnv -> Text -> Either Arm64Error Int
+primitiveId env = primitiveIdentifier (compileAllowUnsupportedPrimitives env)
+
+primitiveIdentifier :: Bool -> Text -> Either Arm64Error Int
+primitiveIdentifier allowUnsupported name
   | name == "realWorld#" = Right 1
+  | allowUnsupported = Right 0
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 
 boundVars :: GrinExpr -> Set GrinVar

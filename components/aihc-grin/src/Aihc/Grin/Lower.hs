@@ -3,6 +3,7 @@
 -- | Lowering from non-strict System FC to strict, runtime-explicit GRIN.
 module Aihc.Grin.Lower
   ( lowerProgram,
+    lowerPrograms,
   )
 where
 
@@ -62,7 +63,52 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram sourceProgram =
+lowerProgram sourceProgram = lowerProgramWithEnvironment (programEnvironment [program]) program
+  where
+    program = lowerNewtypes sourceProgram
+
+-- | Lower separately compiled FC units with the complete set of global names
+-- supplied by the compilation closure. A unit may refer to a constructor,
+-- primitive, foreign import, or CAF defined in another unit, but generated
+-- functions and local variables remain private to that unit.
+lowerPrograms :: [FcProgram] -> [GrinProgram]
+lowerPrograms sourcePrograms = map (lowerProgramWithEnvironment environment) programs
+  where
+    programs = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
+    environment = programEnvironment programs
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+
+splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
+splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
+  where
+    go [] _ = []
+    go (FcProgram sourceTopBinds : rest) remaining =
+      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
+       in FcProgram unitTopBinds : go rest remaining'
+
+data ProgramEnvironment = ProgramEnvironment
+  { programEnvironmentGlobals :: !(Set Text),
+    programEnvironmentWhnfGlobals :: !(Set Text),
+    programEnvironmentPrimitives :: !(Set Text)
+  }
+
+programEnvironment :: [FcProgram] -> ProgramEnvironment
+programEnvironment programs =
+  ProgramEnvironment
+    { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors <> concatMap programGlobalNames programs),
+      programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors <> concatMap programWhnfGlobalNames programs),
+      programEnvironmentPrimitives =
+        Set.fromList
+          [ varName var
+          | program <- programs,
+            FcPrimitive var _ <- fcTopBinds program
+          ]
+    }
+
+lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
+lowerProgramWithEnvironment environment program =
   GrinProgram
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
@@ -72,19 +118,14 @@ lowerProgram sourceProgram =
       grinFunctions = reverse (lowerFunctionsRev finalState)
     }
   where
-    program = lowerNewtypes sourceProgram
     initialState =
       LowerState
         { lowerNextUnique = maximum (0 : map sourceUnique (programVars program)) + 1,
           lowerNextFunction = 0,
           lowerFunctionsRev = [],
-          lowerPrimitiveNames =
-            Set.fromList
-              [ varName var
-              | FcPrimitive var _ <- fcTopBinds program
-              ],
-          lowerGlobalNames = Set.fromList (map fst builtinConstructors <> programGlobalNames program),
-          lowerWhnfGlobalNames = Set.fromList (map fst builtinConstructors <> programWhnfGlobalNames program),
+          lowerPrimitiveNames = programEnvironmentPrimitives environment,
+          lowerGlobalNames = programEnvironmentGlobals environment,
+          lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
           lowerLocalVars = Set.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState

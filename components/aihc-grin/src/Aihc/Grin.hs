@@ -2,6 +2,7 @@
 module Aihc.Grin
   ( module Aihc.Grin.Syntax,
     lowerProgram,
+    lowerPrograms,
     lintProgram,
     GrinLintError (..),
     renderProgram,
@@ -14,6 +15,6 @@ where
 
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
-import Aihc.Grin.Lower (lowerProgram)
+import Aihc.Grin.Lower (lowerProgram, lowerPrograms)
 import Aihc.Grin.Pretty (renderExpr, renderProgram)
 import Aihc.Grin.Syntax

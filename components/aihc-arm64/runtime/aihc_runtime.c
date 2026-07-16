@@ -224,7 +224,6 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                            aihc_arguments_with_field(function, argument));
     return;
   case AIHC_CONSTRUCTOR:
-  case AIHC_PRIMITIVE:
   case AIHC_FOREIGN: {
     AihcValue *applied = aihc_copy_with_field(function, argument);
     if (applied->count < applied->arity) {
@@ -250,6 +249,9 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
+  case AIHC_PRIMITIVE:
+    aihc_fail("primitive is not implemented by the native runtime");
+    return;
   case AIHC_FOREIGN_IO:
     aihc_complete_foreign(machine, function, argument);
     return;

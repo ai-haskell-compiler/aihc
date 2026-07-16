@@ -23,7 +23,8 @@ data CompileOptions = CompileOptions
     compileOutputFile :: !(Maybe FilePath),
     compileKeepCore :: !Bool,
     compileKeepGrin :: !Bool,
-    compileKeepAsm :: !Bool
+    compileKeepAsm :: !Bool,
+    compileWholeProgram :: !Bool
   }
   deriving (Eq, Show)
 
@@ -117,6 +118,10 @@ compileOptionsParser =
     <*> OA.switch
       ( OA.long "keep-asm"
           <> OA.help "Keep the generated assembly as OUTPUT.s"
+      )
+    <*> OA.switch
+      ( OA.long "whole-program"
+          <> OA.help "Compile the program and all libraries as one assembly unit instead of linking cached library objects"
       )
 
 replOptionsParser :: OA.Parser ReplOptions

@@ -41,6 +41,7 @@
           old:
             addHiddenSuccesses old
             // {
+              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
               preCheck =
                 (old.preCheck or "")
                 + ''
