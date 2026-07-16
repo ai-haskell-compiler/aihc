@@ -16,7 +16,7 @@ module Aihc.Cli.Compile
   )
 where
 
-import Aihc.Arm64 (Arm64Error, buildLinkLayout, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, validateProgramPrimitives)
+import Aihc.Arm64 (Arm64Error, buildLinkLayout, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validateProgramPrimitives)
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -340,7 +340,7 @@ assemble output assemblyPath archives = do
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       "clang"
-      (["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
+      (["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
       ""
   case exitCode of
     ExitSuccess -> pure ()

@@ -8,6 +8,7 @@ module Aihc.Arm64
     compileProgramWithDependencies,
     extendLinkLayout,
     runtimeSourcePath,
+    targetTriple,
     validateProgramPrimitives,
   )
 where
@@ -27,3 +28,7 @@ import Paths_aihc_arm64 (getDataFileName)
 -- | Locate the C runtime used by generated assembly.
 runtimeSourcePath :: IO FilePath
 runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
+
+-- | LLVM target triple for the assembly emitted by this backend.
+targetTriple :: String
+targetTriple = "arm64-apple-darwin"

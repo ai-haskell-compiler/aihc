@@ -12,7 +12,7 @@ module Aihc.Cli.Compile.Dependencies
   )
 where
 
-import Aihc.Arm64 (LinkLayout, buildLinkLayout, compileModule)
+import Aihc.Arm64 (LinkLayout, buildLinkLayout, compileModule, targetTriple)
 import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
 import Aihc.Grin qualified as Grin
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -400,7 +400,7 @@ buildObject layout unit = do
             let assemblyPath = temporary </> "module.s"
                 objectPath = temporary </> "module.o"
             TIO.writeFile assemblyPath assembly
-            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["-c", assemblyPath, "-o", objectPath] ""
+            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath] ""
             case exitCode of
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
               ExitFailure _ -> pure (Left ("failed to assemble dependency module " <> T.unpack (dependencyUnitModule (nativeDependencyUnit unit)) <> ": " <> stderr))
