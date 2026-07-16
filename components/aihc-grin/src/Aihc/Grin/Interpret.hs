@@ -21,6 +21,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Foreign.C.Types (CInt (..))
@@ -108,7 +109,12 @@ interpretProgramBinding name program = do
         case Map.lookup name globals of
           Just binding -> pure binding
           Nothing -> throwInterpret (InterpretMissingBinding name)
-      forceValue value >>= runIOValue >>= renderRawValueM
+      forced <- forceValue value
+      result <-
+        if name `Set.member` grinIoCafs program
+          then runIOValue forced
+          else pure forced
+      renderRawValueM result
 
 initialMachine :: GrinProgram -> Machine
 initialMachine program =
@@ -426,7 +432,7 @@ completeForeignCall foreignCall arguments =
   case grinForeignResult (grinForeignCallSignature foreignCall) of
     GrinForeignPure _ -> callForeign foreignCall arguments
     GrinForeignIO _ ->
-      pure (RuntimeNode (GrinConstructor "IO") [RuntimeNode (GrinForeignIOAction foreignCall) arguments])
+      pure (RuntimeNode (GrinForeignIOAction foreignCall) arguments)
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
 callForeign foreignCall arguments = do
@@ -471,34 +477,27 @@ forceCInt :: Text -> RuntimeValue -> EvalM Integer
 forceCInt symbol value = do
   forced <- forceValue value
   case forced of
-    RuntimeNode (GrinConstructor "CInt") [int32] -> forceInt32 int32
+    RuntimeNode (GrinConstructor "I32#") [literal] -> forceInt32 literal
     other -> throwInterpret (InterpretForeignTypeError symbol other)
   where
-    forceInt32 int32 = do
-      forcedInt32 <- forceValue int32
-      case forcedInt32 of
-        RuntimeNode (GrinConstructor "I32#") [literal] -> do
-          forcedLiteral <- forceValue literal
-          case forcedLiteral of
-            RuntimeLit (GrinLitInt _ intValue) -> pure intValue
-            other -> throwInterpret (InterpretForeignTypeError symbol other)
+    forceInt32 literal = do
+      forcedLiteral <- forceValue literal
+      case forcedLiteral of
+        RuntimeLit (GrinLitInt _ intValue) -> pure intValue
         other -> throwInterpret (InterpretForeignTypeError symbol other)
 
 cIntValue :: Integer -> RuntimeValue
 cIntValue value =
   RuntimeNode
-    (GrinConstructor "CInt")
-    [RuntimeNode (GrinConstructor "I32#") [RuntimeLit (GrinLitInt Int32Rep value)]]
+    (GrinConstructor "I32#")
+    [RuntimeLit (GrinLitInt Int32Rep value)]
 
 runIOValue :: RuntimeValue -> EvalM RuntimeValue
-runIOValue value =
-  case value of
-    RuntimeNode (GrinConstructor "IO") [action] -> do
-      result <- applyValue action RuntimeStateToken >>= forceValue
-      case result of
-        RuntimeNode (GrinConstructor "(#,#)") [_state, ioResult] -> forceValue ioResult
-        other -> throwInterpret (InterpretInvalidIOResult other)
-    _ -> pure value
+runIOValue action = do
+  result <- applyValue action RuntimeStateToken >>= forceValue
+  case result of
+    RuntimeNode (GrinConstructor "(#,#)") [_state, ioResult] -> forceValue ioResult
+    other -> throwInterpret (InterpretInvalidIOResult other)
 
 matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM RuntimeValue
 matchAlternative env value alternatives =

@@ -1,0 +1,17 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE NoImplicitPrelude #-}
+    module Test where
+
+    data Int = IS Int#
+    newtype Wrapped = Wrapped { unwrap :: Int }
+
+    result :: Wrapped
+    result = Wrapped (IS 42#)
+output: |
+  IS 42
+expression: result
+status: pass
+reason: erases a record-style newtype constructor to its single field representation

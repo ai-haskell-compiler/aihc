@@ -101,7 +101,30 @@ fcOptimizationTests =
         assertEqual
           "reachable program"
           (FcProgram [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
-          (eliminateDeadCode "main" program)
+          (eliminateDeadCode "main" program),
+      testCase "lowers newtype construction to a linted representational cast" $ do
+        let metersTy = ty "Meters"
+            intHashTy = ty "Int#"
+            declaration =
+              FcNewtypeDecl
+                { fcNewtypeName = "Meters",
+                  fcNewtypeTyVars = [],
+                  fcNewtypeConstructor = "Meters",
+                  fcNewtypeRepresentation = intHashTy,
+                  fcNewtypeResult = metersTy
+                }
+            constructor = Var "Meters" (Unique 20) (TcFunTy intHashTy metersTy)
+            value = Var "value" (Unique 21) metersTy
+            source =
+              FcProgram
+                [ FcNewtype declaration,
+                  FcTopBind (FcNonRec value (FcApp (FcVar constructor) (FcLit (LitInt IntRep 42))))
+                ]
+            lowered = lowerNewtypes source
+        assertEqual "idempotent lowering" lowered (lowerNewtypes lowered)
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv lowered)
+        result <- evalProgramBinding "value" lowered >>= renderEvalResult
+        assertEqual "runtime representation" (Right "42") result
     ]
 
 fcEvalFixtureTests :: IO TestTree

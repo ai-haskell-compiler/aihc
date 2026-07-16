@@ -80,8 +80,7 @@ compileProgram entryName program = do
       "  stp x19, x20, [sp, #16]",
       "  stp x21, x22, [sp, #32]",
       immediate "x0" (length globalNames),
-      immediate "x1" ioConstructor,
-      immediate "x2" tupleConstructor,
+      immediate "x1" tupleConstructor,
       "  bl _aihc_machine_new",
       "  mov x22, x0"
     ]
@@ -112,7 +111,6 @@ compileProgram entryName program = do
     functionArities = Map.fromList [(grinFunctionName function, length (grinFunctionParameters function)) | function <- grinFunctions program]
     foreignLabels = Map.fromList [(grinForeignCallName foreignCall, foreignLabel index) | (index, foreignCall) <- zip [0 ..] (grinForeignCalls program)]
     compileEnv = CompileEnv constructorIds constructorArities globalSlots functionLabels functionArities foreignLabels
-    ioConstructor = Map.findWithDefault 0 "IO" constructorIds
     tupleConstructor = Map.findWithDefault 0 "(#,#)" constructorIds
 
 compileInitializers :: CompileEnv -> GrinProgram -> Either Arm64Error [Text]
@@ -570,13 +568,11 @@ foreignDescriptors env program =
   where
     renderForeign foreignCall = do
       label <- foreignDescriptorLabel env foreignCall
-      (ioId, cintId, int32Id, tupleId) <- foreignConstructorIds env
+      (int32Id, tupleId) <- foreignConstructorIds env
       pure
         [ label <> ":",
           "  .quad _" <> grinForeignCallSymbol foreignCall,
           "  .quad " <> if isIo then "1" else "0",
-          "  .quad " <> tshow ioId,
-          "  .quad " <> tshow cintId,
           "  .quad " <> tshow int32Id,
           "  .quad " <> tshow tupleId
         ]
@@ -587,12 +583,10 @@ foreignDescriptors env program =
             GrinForeignIO _ -> True
             GrinForeignPure _ -> False
 
-foreignConstructorIds :: CompileEnv -> Either Arm64Error (Int, Int, Int, Int)
+foreignConstructorIds :: CompileEnv -> Either Arm64Error (Int, Int)
 foreignConstructorIds env =
-  (,,,)
-    <$> constructorId env "IO"
-    <*> constructorId env "CInt"
-    <*> constructorId env "I32#"
+  (,)
+    <$> constructorId env "I32#"
     <*> constructorId env "(#,#)"
 
 globalSlot :: CompileEnv -> Text -> Either Arm64Error Int

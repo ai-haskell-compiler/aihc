@@ -57,7 +57,9 @@ data LintEnv = LintEnv
     -- | Type variables in scope.
     leTyVars :: !(Set TyVarId),
     -- | Known data constructors: name -> (type var params, field types, result type).
-    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType))
+    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
+    -- | Representational equality axioms introduced by newtypes.
+    leNewtypes :: !(Map Text FcNewtypeDecl)
   }
   deriving (Show)
 
@@ -67,13 +69,20 @@ emptyLintEnv =
   LintEnv
     { leTerms = Map.empty,
       leTyVars = Set.empty,
-      leDataCons = Map.empty
+      leDataCons = Map.empty,
+      leNewtypes = Map.empty
     }
 
 -- | Lint an entire program.
 lintProgram :: LintEnv -> FcProgram -> [LintError]
-lintProgram env0 prog = go env0 (fcTopBinds prog)
+lintProgram env0 prog = go envWithNewtypes (fcTopBinds prog)
   where
+    envWithNewtypes = foldr registerNewtype env0 (fcTopBinds prog)
+
+    registerNewtype (FcNewtype declaration) env =
+      env {leNewtypes = Map.insert (fcNewtypeName declaration) declaration (leNewtypes env)}
+    registerNewtype _ env = env
+
     go _ [] = []
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
@@ -167,7 +176,7 @@ lintExpr env (FcCase scrut _binder alts) = do
       Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
-  let (coFrom, coTo) = coercionEndpoints co
+  (coFrom, coTo) <- coercionEndpoints env co
   if typesEqual eTy coFrom
     then Right coTo
     else Left (TypeMismatch "cast source" coFrom eTy)
@@ -189,19 +198,34 @@ lintAltWithExpected env resTy alt = do
 --
 -- For the MVP, this is minimal. A full implementation would recursively
 -- compute the proved equality.
-coercionEndpoints :: Coercion -> (TcType, TcType)
-coercionEndpoints (Refl ty) = (ty, ty)
-coercionEndpoints (Sym co) = let (a, b) = coercionEndpoints co in (b, a)
-coercionEndpoints (Trans co1 co2) =
-  let (a, _) = coercionEndpoints co1
-      (_, c) = coercionEndpoints co2
-   in (a, c)
-coercionEndpoints (CoVar _) = (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
-coercionEndpoints (TyConAppCo tc coercions) =
-  let pairs = map coercionEndpoints coercions
-   in (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
-coercionEndpoints (AxiomInstCo _ _) =
-  (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
+coercionEndpoints :: LintEnv -> Coercion -> Either LintError (TcType, TcType)
+coercionEndpoints _ (Refl ty) = Right (ty, ty)
+coercionEndpoints env (Sym co) = do
+  (from, to) <- coercionEndpoints env co
+  Right (to, from)
+coercionEndpoints env (Trans co1 co2) = do
+  (from, middleLeft) <- coercionEndpoints env co1
+  (middleRight, to) <- coercionEndpoints env co2
+  if typesEqual middleLeft middleRight
+    then Right (from, to)
+    else Left (TypeMismatch "coercion transitivity" middleLeft middleRight)
+coercionEndpoints _ (CoVar _) =
+  Right (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
+coercionEndpoints env (TyConAppCo tc coercions) = do
+  pairs <- mapM (coercionEndpoints env) coercions
+  Right (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
+coercionEndpoints env (AxiomInstCo name typeArgs) =
+  case Map.lookup name (leNewtypes env) of
+    Nothing -> Left (LintFailure ("unknown newtype axiom: " ++ show name))
+    Just declaration
+      | length typeArgs /= length (fcNewtypeTyVars declaration) ->
+          Left (LintFailure ("newtype axiom arity mismatch: " ++ show name))
+      | otherwise ->
+          let substitution = Map.fromList (zip (fcNewtypeTyVars declaration) typeArgs)
+           in Right
+                ( substType substitution (fcNewtypeResult declaration),
+                  substType substitution (fcNewtypeRepresentation declaration)
+                )
 
 -- | Extend the term environment with a variable.
 extendTermEnv :: Var -> LintEnv -> LintEnv

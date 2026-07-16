@@ -22,6 +22,7 @@ module Aihc.Fc.Syntax
     -- * Bindings
     FcBind (..),
     FcTopBind (..),
+    FcNewtypeDecl (..),
     FcProgram (..),
     FcForeignCall (..),
     FcForeignSignature (..),
@@ -62,15 +63,27 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
-  | -- | Newtype declaration: type name, type variable parameters, and its
-    -- single constructor.
-    FcNewtype !Text ![TyVarId] !Text !TcType
+  | -- | A nominal type with a representational equality axiom.
+    FcNewtype !FcNewtypeDecl
   | -- | A primitive imported by @foreign import prim@.
     FcPrimitive !Var !Int
   | -- | A C function imported by @foreign import ccall@.
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  deriving (Eq, Show, Read)
+
+-- | The type-level information retained for a @newtype@ after its constructor
+-- and pattern matches have been lowered to representational casts.
+--
+-- This declaration is proof metadata, not a runtime constructor declaration.
+data FcNewtypeDecl = FcNewtypeDecl
+  { fcNewtypeName :: !Text,
+    fcNewtypeTyVars :: ![TyVarId],
+    fcNewtypeConstructor :: !Text,
+    fcNewtypeRepresentation :: !TcType,
+    fcNewtypeResult :: !TcType
+  }
   deriving (Eq, Show, Read)
 
 -- | A statically named C function resolved by the evaluator or a code generator.
