@@ -230,9 +230,9 @@ heapProgram =
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
               grinFunctionBody =
-                GrinBind pointer (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
-                  GrinBind fetched (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
-                    GrinBind updated (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
+                GrinBind [pointer] (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
+                  GrinBind [fetched] (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
+                    GrinBind [updated] (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
                       GrinEval IntRep (GrinVarValue pointer)
             }
         ]

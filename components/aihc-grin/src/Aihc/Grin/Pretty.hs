@@ -61,10 +61,10 @@ renderExpr = renderExprIndented 0
 renderExprIndented :: Int -> GrinExpr -> String
 renderExprIndented indentation expr =
   case expr of
-    GrinReturn value -> indent indentation <> "return " <> renderValue value
-    GrinBind var valueExpr body ->
+    GrinReturn values -> indent indentation <> "return" <> renderValues values
+    GrinBind vars valueExpr body ->
       indent indentation
-        <> renderVar var
+        <> renderBinders vars
         <> " <-\n"
         <> renderExprIndented (indentation + 2) valueExpr
         <> "\n"
@@ -86,14 +86,13 @@ renderExprIndented indentation expr =
       indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
     GrinEval runtimeRep value ->
       indent indentation <> "eval @" <> show runtimeRep <> " " <> renderValue value
-    GrinApply runtimeRep function argument ->
+    GrinApply runtimeRep function arguments ->
       indent indentation
         <> "apply @"
         <> show runtimeRep
         <> " "
         <> renderValue function
-        <> " "
-        <> renderValue argument
+        <> renderValues arguments
     GrinCase scrutinee binder alternatives ->
       indent indentation
         <> "case "
@@ -116,12 +115,22 @@ renderExprIndented indentation expr =
         <> "catch @"
         <> show runtimeRep
         <> " "
-        <> unwords (map renderValue [action, handler, state])
+        <> unwords (map renderValue [action, handler])
+        <> renderValues state
     GrinForeignCallExpr foreignCall arguments ->
       indent indentation
         <> "foreign-call "
         <> T.unpack (grinForeignCallName foreignCall)
         <> concatMap ((" " <>) . renderValue) arguments
+
+renderValues :: [GrinValue] -> String
+renderValues = concatMap ((" " <>) . renderValue)
+
+renderBinders :: [GrinVar] -> String
+renderBinders vars =
+  case vars of
+    [] -> "()"
+    _ -> intercalate ", " (map renderVar vars)
 
 renderAlt :: Int -> GrinAlt -> String
 renderAlt indentation alt =
@@ -156,7 +165,8 @@ renderNodeTag :: GrinNodeTag -> String
 renderNodeTag nodeTag =
   case nodeTag of
     GrinConstructor name -> "C" <> T.unpack name
-    GrinClosure functionName -> "P" <> T.unpack (unFunctionName functionName)
+    GrinClosure functionName argumentCount ->
+      "P" <> T.unpack (unFunctionName functionName) <> "/" <> show argumentCount
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
     GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
     GrinDictionary -> "Dict"

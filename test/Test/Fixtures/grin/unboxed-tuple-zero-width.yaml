@@ -1,0 +1,27 @@
+expected: |-
+  constructor Box/1 [IntRep]
+
+  primitive realWorld#%1000 :: BoxedRep Lifted/0
+
+  caf value%1007 :: BoxedRep Lifted = (F$grin_thunk_0)
+
+  $grin_thunk_0 -> BoxedRep Lifted =
+    $grin_argument_1008%1008 :: IntRep <-
+      $grin_tuple_1009%1009 :: IntRep <-
+        return 42
+      return $grin_tuple_1009%1009 :: IntRep
+    apply @BoxedRep Lifted Box%1002 :: BoxedRep Lifted $grin_argument_1008%1008 :: IntRep
+extensions:
+- EmptyDataDecls
+- MagicHash
+- UnboxedTuples
+reason: omits zero-width State# components from unboxed-tuple returns and binds
+source: |
+  module Test where
+  data State# s
+  data RealWorld
+  data Box = Box Int#
+  foreign import prim realWorld# :: State# RealWorld
+  value :: Box
+  value = Box (case (# realWorld#, 42# #) of (# _, answer #) -> answer)
+status: pass

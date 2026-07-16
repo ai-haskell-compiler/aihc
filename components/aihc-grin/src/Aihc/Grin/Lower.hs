@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Lowering from non-strict System FC to strict, runtime-explicit GRIN.
@@ -12,7 +13,7 @@ import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
-  ( RuntimeRep,
+  ( RuntimeRep (..),
     TcType (..),
     Unique (..),
     liftedRuntimeRep,
@@ -20,8 +21,8 @@ import Aihc.Tc.Types
     tyConArity,
     tyConName,
   )
-import Control.Monad (filterM)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -35,7 +36,7 @@ data LowerState = LowerState
     lowerPrimitiveNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
-    lowerLocalVars :: !(Set (Text, Unique))
+    lowerLocalVars :: !(Map (Text, Unique) [GrinVar])
   }
 
 type LowerM = State LowerState
@@ -126,7 +127,7 @@ lowerProgramWithEnvironment environment program =
           lowerPrimitiveNames = programEnvironmentPrimitives environment,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
-          lowerLocalVars = Set.empty
+          lowerLocalVars = Map.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -135,7 +136,7 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, map typeRuntimeRep fields) | (name, fields) <- constructors]}
+      pure mempty {loweredConstructors = [(name, concatMap (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
     FcNewtype {} ->
       pure mempty
     FcPrimitive var arity ->
@@ -165,31 +166,44 @@ lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
   primitiveNames <- gets lowerPrimitiveNames
   localVars <- gets lowerLocalVars
-  case primitiveApplication primitiveNames localVars expr of
+  case primitiveApplication primitiveNames (Map.keysSet localVars) expr of
     Just ("raise#", [exception]) ->
-      lowerStrict "exception" exception (pure . GrinThrow)
-    Just ("catch#", [action, handler, state]) ->
-      lowerArgument action $ \actionValue ->
-        lowerArgument handler $ \handlerValue ->
-          lowerArgument state $ \stateValue ->
-            pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue stateValue)
+      lowerSingleStrict "exception" exception (pure . GrinThrow)
+    Just ("catch#", [action, handler, _state]) ->
+      lowerSingleArgument action $ \actionValue ->
+        lowerSingleArgument handler $ \handlerValue ->
+          pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
     _ -> lowerOrdinaryExpr expr
 
 lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
 lowerOrdinaryExpr expr =
+  case unboxedTupleArguments expr of
+    Just arguments ->
+      lowerArgumentMany arguments (pure . GrinReturn)
+    Nothing -> lowerNonTupleExpr expr
+
+lowerNonTupleExpr :: FcExpr -> LowerM GrinExpr
+lowerNonTupleExpr expr =
   case expr of
     FcVar var ->
       do
-        direct <- lowerDirectValue expr
+        direct <- lowerDirectValues expr
         case direct of
-          Just value -> pure (GrinReturn value)
+          Just values -> pure (GrinReturn values)
           Nothing -> do
             isGlobal <- isGlobalVar var
+            runtimeVar <-
+              if isGlobal
+                then pure (lowerGlobalVar var)
+                else do
+                  localValues <- lookupLocalVars var
+                  case localValues of
+                    [localVar] -> pure localVar
+                    _ -> error "GRIN lowering expected one lifted local"
             let resultRep = typeRuntimeRep (varType var)
-                runtimeVar = if isGlobal then lowerGlobalVar var else lowerVar var
             pure (GrinEval resultRep (GrinVarValue runtimeVar))
     FcLit literal ->
-      pure (GrinReturn (GrinLitValue (lowerLiteral literal)))
+      pure (GrinReturn [GrinLitValue (lowerLiteral literal)])
     FcApp function argument ->
       lowerApplication function argument
     FcDictApp function argument ->
@@ -204,16 +218,14 @@ lowerOrdinaryExpr expr =
       lowerLambda var body
     FcDict fields ->
       lowerArgumentMany fields $ \values ->
-        pure (GrinReturn (GrinNodeValue (GrinNode GrinDictionary values)))
+        pure (GrinReturn [GrinNodeValue (GrinNode GrinDictionary values)])
     FcDictSelect dictionary index ->
-      lowerStrict "dictionary" dictionary $ \value ->
+      lowerSingleStrict "dictionary" dictionary $ \value ->
         pure (GrinDictSelect liftedRuntimeRep value index)
     FcLet bind body ->
       lowerLet bind body
     FcCase scrutinee binder alternatives ->
-      lowerStrict "scrutinee" scrutinee $ \value -> do
-        loweredAlternatives <- mapM (lowerAlt binder) alternatives
-        pure (GrinCase value (lowerVar binder) loweredAlternatives)
+      lowerCase scrutinee binder alternatives
     FcCast inner _ ->
       lowerExpr inner
     FcCallForeign foreignCall arguments ->
@@ -222,58 +234,109 @@ lowerOrdinaryExpr expr =
 
 lowerApplication :: FcExpr -> FcExpr -> LowerM GrinExpr
 lowerApplication function argument =
-  lowerStrict "function" function $ \functionValue ->
-    lowerArgument argument $ \argumentValue ->
-      pure (GrinApply (applicationResultRep function) functionValue argumentValue)
+  lowerSingleStrict "function" function $ \functionValue ->
+    lowerArgument argument $ \argumentValues ->
+      pure (GrinApply (applicationResultRep function) functionValue argumentValues)
+
+lowerCase :: FcExpr -> Var -> [FcAlt] -> LowerM GrinExpr
+lowerCase scrutinee binder alternatives =
+  case (runtimeRepComponents scrutineeRep, scrutineeRep, alternatives) of
+    ([], _, [alternative]) -> do
+      rhs <-
+        withBindings
+          ((binder, []) : [(fieldBinder, []) | fieldBinder <- altBinders alternative])
+          (lowerExpr (altRhs alternative))
+      scrutineeExpr <- lowerExpr scrutinee
+      pure (GrinBind [] scrutineeExpr rhs)
+    (_, TupleRep _, [alternative])
+      | DataAlt constructor <- altCon alternative,
+        isUnboxedTupleConstructor constructor ->
+          lowerUnboxedTupleCase scrutinee binder alternative
+    _ ->
+      lowerSingleStrict "scrutinee" scrutinee $ \value -> do
+        caseVars <- binderVars binder
+        caseVar <-
+          case caseVars of
+            [var] -> pure var
+            _ -> error "GRIN lowering expected one ordinary case binder"
+        loweredAlternatives <- mapM (lowerAlt (binder, [caseVar])) alternatives
+        pure (GrinCase value caseVar loweredAlternatives)
+  where
+    scrutineeRep = exprRuntimeRep scrutinee
+
+lowerUnboxedTupleCase :: FcExpr -> Var -> FcAlt -> LowerM GrinExpr
+lowerUnboxedTupleCase scrutinee binder alternative = do
+  resultVars <- freshVars "tuple" (exprRuntimeRep scrutinee)
+  let fieldBinders = altBinders alternative
+      fieldWidths = map (length . runtimeRepComponents . typeRuntimeRep . varType) fieldBinders
+      fieldGroups = splitWidths fieldWidths resultVars
+  if sum fieldWidths /= length resultVars
+    then error "GRIN lowering found inconsistent unboxed-tuple case fields"
+    else do
+      rhs <-
+        withBindings
+          ((binder, resultVars) : zip fieldBinders fieldGroups)
+          (lowerExpr (altRhs alternative))
+      scrutineeExpr <- lowerExpr scrutinee
+      pure (GrinBind resultVars scrutineeExpr rhs)
+
+splitWidths :: [Int] -> [value] -> [[value]]
+splitWidths widths values =
+  case widths of
+    [] -> []
+    width : rest ->
+      let (field, remaining) = splitAt width values
+       in field : splitWidths rest remaining
 
 lowerLambda :: Var -> FcExpr -> LowerM GrinExpr
 lowerLambda binder body = do
   captures <- capturesFor (FcLam binder body)
   functionName <- freshFunction "closure"
-  loweredBody <- withLocalVars [binder] (lowerExpr body)
+  (parameters, loweredBody) <- withFreshLocalVars [binder] $ \groups -> do
+    body' <- lowerExpr body
+    pure (concat groups, body')
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
-        grinFunctionParameters = captures <> [lowerVar binder],
+        grinFunctionParameters = captures <> parameters,
         grinFunctionResultRep = exprRuntimeRep body,
         grinFunctionBody = loweredBody
       }
   pure
-    ( GrinReturn
-        ( GrinNodeValue
-            (GrinNode (GrinClosure functionName) (map GrinVarValue captures))
-        )
-    )
+    (GrinReturn [GrinNodeValue (GrinNode (GrinClosure functionName (length parameters)) (map GrinVarValue captures))])
 
 lowerLet :: FcBind -> FcExpr -> LowerM GrinExpr
 lowerLet bind body =
   case bind of
     FcNonRec var rhs -> do
-      loweredBody <- withLocalVars [var] (lowerExpr body)
+      (vars, loweredBody) <- withFreshLocalVars [var] $ \groups -> do
+        body' <- lowerExpr body
+        pure (concat groups, body')
       if typeRuntimeRep (varType var) == liftedRuntimeRep
         then do
           node <- makeThunk rhs
-          pure (GrinBind (lowerVar var) (GrinStore node) loweredBody)
+          pure (GrinBind vars (GrinStore node) loweredBody)
         else do
           loweredRhs <- lowerExpr rhs
-          pure (GrinBind (lowerVar var) loweredRhs loweredBody)
+          pure (GrinBind vars loweredRhs loweredBody)
     FcRec bindings -> do
-      withLocalVars (map fst bindings) $ do
-        nodes <- mapM lowerBinding bindings
+      withFreshLocalVars (map fst bindings) $ \groups -> do
+        nodes <- mapM (makeThunk . snd) bindings
         loweredBody <- lowerExpr body
-        pure (GrinStoreRec nodes loweredBody)
-  where
-    lowerBinding (var, rhs) = do
-      node <- makeThunk rhs
-      pure (lowerVar var, node)
+        let vars = concat groups
+        if length vars == length nodes
+          then pure (GrinStoreRec (zip vars nodes) loweredBody)
+          else error "GRIN lowering expected lifted recursive bindings"
 
-lowerAlt :: Var -> FcAlt -> LowerM GrinAlt
-lowerAlt caseBinder alt = do
-  rhs <- withLocalVars (caseBinder : altBinders alt) (lowerExpr (altRhs alt))
+lowerAlt :: (Var, [GrinVar]) -> FcAlt -> LowerM GrinAlt
+lowerAlt caseBinding alt = do
+  (binders, rhs) <- withBindings [caseBinding] $ withFreshLocalVars (altBinders alt) $ \groups -> do
+    rhs' <- lowerExpr (altRhs alt)
+    pure (concat groups, rhs')
   pure
     GrinAlt
       { grinAltCon = lowerAltCon (altCon alt),
-        grinAltBinders = map lowerVar (altBinders alt),
+        grinAltBinders = binders,
         grinAltRhs = rhs
       }
 
@@ -291,50 +354,82 @@ makeThunk expr = do
       }
   pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
 
-lowerStrict :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerStrict :: Text -> FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerStrict hint expr continuation = do
-  direct <- lowerDirectValue expr
+  direct <- lowerDirectValues expr
   case direct of
-    Just value -> continuation value
+    Just values -> continuation values
     Nothing -> do
-      valueVar <- freshVar hint (exprRuntimeRep expr)
+      valueVars <- freshVars hint (exprRuntimeRep expr)
       valueExpr <- lowerExpr expr
-      rest <- continuation (GrinVarValue valueVar)
-      pure (GrinBind valueVar valueExpr rest)
+      rest <- continuation (map GrinVarValue valueVars)
+      pure (GrinBind valueVars valueExpr rest)
 
-lowerDelayed :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerSingleStrict :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerSingleStrict hint expr continuation =
+  lowerStrict hint expr $ \case
+    [value] -> continuation value
+    _ -> error ("GRIN lowering expected one value for " <> T.unpack hint)
+
+lowerDelayed :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerDelayed expr continuation = do
   pointerVar <- freshVar "thunk" liftedRuntimeRep
   node <- makeThunk expr
-  rest <- continuation (GrinVarValue pointerVar)
-  pure (GrinBind pointerVar (GrinStore node) rest)
+  rest <- continuation [GrinVarValue pointerVar]
+  pure (GrinBind [pointerVar] (GrinStore node) rest)
 
-lowerArgument :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArgument :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument expr continuation = do
-  direct <- lowerDirectValue expr
+  direct <- lowerDirectValues expr
   case direct of
-    Just value -> continuation value
+    Just values -> continuation values
     Nothing
       | exprRuntimeRep expr == liftedRuntimeRep -> lowerDelayed expr continuation
       | otherwise -> lowerStrict "argument" expr continuation
+
+lowerSingleArgument :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerSingleArgument expr continuation =
+  lowerArgument expr $ \case
+    [value] -> continuation value
+    _ -> error "GRIN lowering expected one argument value"
 
 lowerArgumentMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgumentMany expressions continuation =
   case expressions of
     [] -> continuation []
     first : rest ->
-      lowerArgument first $ \firstValue ->
+      lowerArgument first $ \firstValues ->
         lowerArgumentMany rest $ \restValues ->
-          continuation (firstValue : restValues)
+          continuation (firstValues <> restValues)
 
 lowerStrictMany :: [FcExpr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerStrictMany expressions continuation =
   case expressions of
     [] -> continuation []
     first : rest ->
-      lowerStrict "foreign_argument" first $ \firstValue ->
+      lowerStrict "foreign_argument" first $ \firstValues ->
         lowerStrictMany rest $ \restValues ->
-          continuation (firstValue : restValues)
+          continuation (firstValues <> restValues)
+
+freshVars :: Text -> RuntimeRep -> LowerM [GrinVar]
+freshVars hint = mapM (freshVar hint) . runtimeRepComponents
+
+unboxedTupleArguments :: FcExpr -> Maybe [FcExpr]
+unboxedTupleArguments expr =
+  case collectApplications expr of
+    (FcVar constructor, arguments)
+      | isUnboxedTupleConstructor (varName constructor) ->
+          case exprRuntimeRep expr of
+            TupleRep fieldReps
+              | length arguments == length fieldReps -> Just arguments
+            _ -> Nothing
+    _ -> Nothing
+
+isUnboxedTupleConstructor :: Text -> Bool
+isUnboxedTupleConstructor name =
+  case T.stripPrefix "(#" name >>= T.stripSuffix "#)" of
+    Just punctuation -> T.all (== ',') punctuation
+    Nothing -> False
 
 freshVar :: Text -> RuntimeRep -> LowerM GrinVar
 freshVar hint runtimeRep = do
@@ -412,59 +507,88 @@ freeVarsAlt :: FcAlt -> Set Var
 freeVarsAlt alt =
   freeVars (altRhs alt) `Set.difference` Set.fromList (altBinders alt)
 
-lowerVar :: Var -> GrinVar
-lowerVar var = GrinVar (varName var) (sourceUnique var) (typeRuntimeRep (varType var))
-
 lowerGlobalVar :: Var -> GrinVar
 lowerGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedRuntimeRep
 
 capturesFor :: FcExpr -> LowerM [GrinVar]
-capturesFor expr = do
-  vars <- filterM (fmap not . isGlobalVar) (Set.toAscList (freeVars expr))
-  pure (map lowerVar vars)
+capturesFor expr =
+  fmap concat . mapM captureVars $ Set.toAscList (freeVars expr)
+  where
+    captureVars var = do
+      global <- isGlobalVar var
+      if global then pure [] else lookupLocalVars var
 
 isGlobalVar :: Var -> LowerM Bool
 isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
-  pure (varKey var `Set.notMember` localVars && varName var `Set.member` globalNames)
+  pure
+    ( varKey var `Map.notMember` localVars
+        && (varName var `Set.member` globalNames || isUnboxedTupleConstructor (varName var))
+    )
 
 -- | Values that are already in runtime normal form can be embedded directly
 -- in the surrounding GRIN operation. Constructor, primitive, and foreign
 -- globals are initialized as runtime nodes; unlike CAFs, they have no thunk to
 -- enter. Unboxed locals and literals are direct machine values as well.
-lowerDirectValue :: FcExpr -> LowerM (Maybe GrinValue)
-lowerDirectValue expr =
+lowerDirectValues :: FcExpr -> LowerM (Maybe [GrinValue])
+lowerDirectValues expr =
   case expr of
     FcVar var -> do
       isGlobal <- isGlobalVar var
       isWhnfGlobal <- isWhnfGlobalVar var
       let runtimeRep = typeRuntimeRep (varType var)
-      pure $
-        if isWhnfGlobal
-          then Just (GrinVarValue (lowerGlobalVar var))
-          else
-            if not isGlobal && runtimeRep /= liftedRuntimeRep
-              then Just (GrinVarValue (lowerVar var))
-              else Nothing
-    FcLit literal -> pure (Just (GrinLitValue (lowerLiteral literal)))
-    FcTyApp inner _ -> lowerDirectValue inner
-    FcCast inner _ -> lowerDirectValue inner
+      if null (runtimeRepComponents runtimeRep)
+        then pure (Just [])
+        else
+          if isWhnfGlobal
+            then pure (Just [GrinVarValue (lowerGlobalVar var)])
+            else
+              if not isGlobal && runtimeRep /= liftedRuntimeRep
+                then Just . map GrinVarValue <$> lookupLocalVars var
+                else pure Nothing
+    FcLit literal -> pure (Just [GrinLitValue (lowerLiteral literal)])
+    FcTyApp inner _ -> lowerDirectValues inner
+    FcCast inner _ -> lowerDirectValues inner
     _ -> pure Nothing
 
 isWhnfGlobalVar :: Var -> LowerM Bool
 isWhnfGlobalVar var = do
   localVars <- gets lowerLocalVars
   whnfGlobalNames <- gets lowerWhnfGlobalNames
-  pure (varKey var `Set.notMember` localVars && varName var `Set.member` whnfGlobalNames)
+  pure (varKey var `Map.notMember` localVars && varName var `Set.member` whnfGlobalNames)
 
-withLocalVars :: [Var] -> LowerM a -> LowerM a
-withLocalVars vars action = do
+withFreshLocalVars :: [Var] -> ([[GrinVar]] -> LowerM a) -> LowerM a
+withFreshLocalVars vars action = do
+  groups <- mapM binderVars vars
+  withBindings (zip vars groups) (action groups)
+
+withBindings :: [(Var, [GrinVar])] -> LowerM a -> LowerM a
+withBindings bindings action = do
   previous <- gets lowerLocalVars
-  modify' $ \state -> state {lowerLocalVars = Set.fromList (map varKey vars) <> previous}
+  let locals = Map.fromList [(varKey var, values) | (var, values) <- bindings]
+  modify' $ \state -> state {lowerLocalVars = locals <> previous}
   result <- action
   modify' $ \state -> state {lowerLocalVars = previous}
   pure result
+
+binderVars :: Var -> LowerM [GrinVar]
+binderVars var =
+  case runtimeRepComponents (typeRuntimeRep (varType var)) of
+    [] -> pure []
+    [runtimeRep] -> pure [GrinVar (varName var) (sourceUnique var) runtimeRep]
+    runtimeReps ->
+      sequence
+        [ freshVar (varName var <> "_" <> T.pack (show index)) runtimeRep
+        | (index, runtimeRep) <- zip [0 :: Int ..] runtimeReps
+        ]
+
+lookupLocalVars :: Var -> LowerM [GrinVar]
+lookupLocalVars var = do
+  locals <- gets lowerLocalVars
+  case Map.lookup (varKey var) locals of
+    Just values -> pure values
+    Nothing -> error ("GRIN lowering lost local binding for " <> T.unpack (varName var))
 
 varKey :: Var -> (Text, Unique)
 varKey var = (varName var, varUnique var)

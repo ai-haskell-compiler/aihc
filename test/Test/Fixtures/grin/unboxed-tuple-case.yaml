@@ -5,18 +5,14 @@ expected: |-
 
   $grin_thunk_0 -> BoxedRep Lifted =
     $grin_argument_1006%1006 :: IntRep <-
-      $grin_scrutinee_1007%1007 :: TupleRep [IntRep,WordRep] <-
-        $grin_function_1008%1008 :: BoxedRep Lifted <-
-          apply @BoxedRep Lifted (#,#)%-22 :: BoxedRep Lifted 1
-        apply @TupleRep [IntRep,WordRep] $grin_function_1008%1008 :: BoxedRep Lifted 2
-      case $grin_scrutinee_1007%1007 :: TupleRep [IntRep,WordRep] as _case%1002 :: TupleRep [IntRep,WordRep] of
-        (#,#) first%1003 :: IntRep _%1004 :: WordRep ->
-          return first%1003 :: IntRep
+      $grin_tuple_1007%1007 :: IntRep, $grin_tuple_1008%1008 :: WordRep <-
+        return 1 2
+      return $grin_tuple_1007%1007 :: IntRep
     apply @BoxedRep Lifted Box%1001 :: BoxedRep Lifted $grin_argument_1006%1006 :: IntRep
 extensions:
 - MagicHash
 - UnboxedTuples
-reason: preserves the aggregate TupleRep and its heterogeneous component representations
+reason: returns heterogeneous unboxed-tuple components directly without allocating or matching a node
 source: |
   module Test where
   data Box = Box Int#

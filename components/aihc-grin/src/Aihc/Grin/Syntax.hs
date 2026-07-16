@@ -21,8 +21,9 @@ module Aihc.Grin.Syntax
     GrinForeignSignature (..),
     GrinForeignEffect (..),
     GrinForeignType (..),
+    runtimeRepComponents,
     grinForeignOperandReps,
-    grinForeignCallResultRep,
+    grinForeignCallResultReps,
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
@@ -82,21 +83,22 @@ instance Ord GrinVar where
       (grinVarName left, grinVarUnique left)
       (grinVarName right, grinVarUnique right)
 
--- | Strict expressions. Every constructor except 'GrinStoreRec' produces one
--- value; 'GrinBind' names that value for the following expression.
+-- | Strict expressions return zero or more register values. 'GrinBind' names
+-- those values for the following expression. In particular, an unboxed tuple
+-- is represented by its flattened components, never by a heap node.
 data GrinExpr
-  = GrinReturn !GrinValue
-  | GrinBind !GrinVar !GrinExpr !GrinExpr
+  = GrinReturn ![GrinValue]
+  | GrinBind ![GrinVar] !GrinExpr !GrinExpr
   | GrinStore !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
   | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | GrinEval !RuntimeRep !GrinValue
-  | GrinApply !RuntimeRep !GrinValue !GrinValue
+  | GrinApply !RuntimeRep !GrinValue ![GrinValue]
   | GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinDictSelect !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
-  | GrinCatch !RuntimeRep !GrinValue !GrinValue !GrinValue
+  | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
     GrinForeignCallExpr !GrinForeignCall ![GrinValue]
   deriving (Eq, Show)
@@ -116,7 +118,7 @@ data GrinNode = GrinNode
 
 data GrinNodeTag
   = GrinConstructor !Text
-  | GrinClosure !FunctionName
+  | GrinClosure !FunctionName !Int
   | GrinThunk !FunctionName
   | GrinPrimitive !Text !Int
   | GrinDictionary
@@ -155,14 +157,20 @@ grinValueRuntimeRep value =
 isLiftedRuntimeRep :: RuntimeRep -> Bool
 isLiftedRuntimeRep runtimeRep = runtimeRep == liftedRuntimeRep
 
--- | Runtime reps currently carried as one pointer-sized heap reference by
--- GRIN/native codegen. Tuple and sum reps are strict, but their aggregate
--- payload is pointer-backed until the native ABI grows multi-value returns.
+-- | Flatten a source runtime representation into the values carried by GRIN's
+-- calling convention. Tuple components compose recursively, and zero-width
+-- tuples such as @State# RealWorld@ occupy no runtime slot.
+runtimeRepComponents :: RuntimeRep -> [RuntimeRep]
+runtimeRepComponents runtimeRep =
+  case runtimeRep of
+    TupleRep fieldReps -> concatMap runtimeRepComponents fieldReps
+    _ -> [runtimeRep]
+
+-- | Runtime reps carried in one pointer-sized slot.
 isPointerRuntimeRep :: RuntimeRep -> Bool
 isPointerRuntimeRep runtimeRep =
   case runtimeRep of
     BoxedRep {} -> True
-    TupleRep {} -> True
     SumRep {} -> True
     _ -> False
 
@@ -176,8 +184,7 @@ builtinConstructors =
     ("[]", 0),
     (":", 2),
     ("()", 0),
-    ("(,)", 2),
-    ("(#,#)", 2)
+    ("(,)", 2)
   ]
 
 data GrinForeignCall = GrinForeignCall
@@ -207,16 +214,10 @@ data GrinForeignType
 grinForeignOperandReps :: GrinForeignSignature -> [RuntimeRep]
 grinForeignOperandReps signature =
   map foreignTypeRuntimeRep (grinForeignArgumentTypes signature)
-    <> case grinForeignEffect signature of
-      GrinForeignPure -> []
-      GrinForeignRealWorld -> [TupleRep []]
 
-grinForeignCallResultRep :: GrinForeignSignature -> RuntimeRep
-grinForeignCallResultRep signature =
-  case grinForeignEffect signature of
-    GrinForeignPure -> foreignTypeRuntimeRep (grinForeignResultType signature)
-    GrinForeignRealWorld ->
-      TupleRep [TupleRep [], foreignTypeRuntimeRep (grinForeignResultType signature)]
+grinForeignCallResultReps :: GrinForeignSignature -> [RuntimeRep]
+grinForeignCallResultReps signature =
+  [foreignTypeRuntimeRep (grinForeignResultType signature)]
 
 foreignTypeRuntimeRep :: GrinForeignType -> RuntimeRep
 foreignTypeRuntimeRep foreignType =

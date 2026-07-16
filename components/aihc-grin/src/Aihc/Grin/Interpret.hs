@@ -42,7 +42,8 @@ data InterpretError
   | InterpretForeignArity !Text !Int !Int
   | InterpretForeignTypeError !Text !RuntimeValue
   | InterpretForeignLookupError !Text !Text
-  | InterpretInvalidIOResult !RuntimeValue
+  | InterpretResultArity !Int !Int
+  | InterpretInvalidThunkResult ![RuntimeValue]
   | InterpretInvalidDictSelect !RuntimeValue !Int
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
@@ -154,15 +155,17 @@ initialMachine program =
             ]
         ]
 
-evalExpr :: Env -> GrinExpr -> EvalM RuntimeValue
+evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
 evalExpr env expr =
   case expr of
-    GrinReturn value -> evalValue env value
-    GrinBind var valueExpr body -> do
-      value <- evalExpr env valueExpr
-      evalExpr (Map.insert var value env) body
+    GrinReturn values -> mapM (evalValue env) values
+    GrinBind vars valueExpr body -> do
+      values <- evalExpr env valueExpr
+      if length vars == length values
+        then evalExpr (Map.fromList (zip vars values) `Map.union` env) body
+        else throwInterpret (InterpretResultArity (length vars) (length values))
     GrinStore node ->
-      allocateCell (HeapSuspended env node)
+      pure <$> allocateCell (HeapSuspended env node)
     GrinStoreRec bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
@@ -172,17 +175,17 @@ evalExpr env expr =
         (zip bindings locations)
       evalExpr recursiveEnv body
     GrinFetch _ pointer ->
-      evalValue env pointer >>= fetchValue
+      (: []) <$> (evalValue env pointer >>= fetchValue)
     GrinUpdate pointer value -> do
       pointerValue <- evalValue env pointer
       updatedValue <- evalValue env value
-      updateValue pointerValue updatedValue
+      pure <$> updateValue pointerValue updatedValue
     GrinEval _ value ->
-      evalValue env value >>= forceValue
-    GrinApply _ function argument -> do
+      (: []) <$> (evalValue env value >>= forceValue)
+    GrinApply _ function arguments -> do
       functionValue <- evalValue env function
-      argumentValue <- evalValue env argument
-      applyValue functionValue argumentValue
+      argumentValues <- mapM (evalValue env) arguments
+      applyValue functionValue argumentValues
     GrinCase scrutinee binder alternatives -> do
       value <- evalValue env scrutinee >>= forceValue
       matchAlternative (Map.insert binder value env) value alternatives
@@ -192,26 +195,33 @@ evalExpr env expr =
         RuntimeNode GrinDictionary fields
           | index >= 0,
             index < length fields ->
-              forceValue (fields !! index)
+              (: []) <$> forceValue (fields !! index)
           | otherwise -> throwInterpret (InterpretInvalidDictSelect dictionaryValue index)
         other -> throwInterpret (InterpretInvalidDictSelect other index)
     GrinThrow exception -> do
       exceptionValue <- evalValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)
-    GrinCatch _ action handler state -> do
+    GrinCatch runtimeRep action handler state -> do
       actionValue <- evalValue env action
       handlerValue <- evalValue env handler
-      stateValue <- evalValue env state
-      applyValue actionValue stateValue `catchE` handleRaised handlerValue stateValue
+      stateValues <- mapM (evalValue env) state
+      results <- applyValue actionValue stateValues `catchE` handleRaised handlerValue stateValues
+      let expectedCount = length (runtimeRepComponents runtimeRep)
+      case length results - expectedCount of
+        0 -> pure results
+        -- Shared evaluator fixtures type the otherwise zero-width State#
+        -- result as lifted. Its delayed placeholder is the one leading value.
+        1 -> pure (drop 1 results)
+        _ -> throwInterpret (InterpretResultArity expectedCount (length results))
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (evalValue env) arguments
       executeForeignCall foreignCall argumentValues
 
-handleRaised :: RuntimeValue -> RuntimeValue -> EvalFailure -> EvalM RuntimeValue
+handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
 handleRaised handler state failure =
   case failure of
     EvalRaised exception -> do
-      handlerWithException <- applyValue handler exception
+      handlerWithException <- expectSingle =<< applyValue handler [exception]
       applyValue handlerWithException state
     EvalInterpret err -> throwE (EvalInterpret err)
 
@@ -282,7 +292,6 @@ forceValue :: RuntimeValue -> EvalM RuntimeValue
 forceValue value =
   case value of
     RuntimeLocation location -> forceLocation location
-    RuntimeNode (GrinPrimitive name 0) [] -> evalPrimitive name []
     _ -> pure value
 
 forceLocation :: Int -> EvalM RuntimeValue
@@ -296,9 +305,12 @@ forceLocation location = do
           writeCell location HeapBlackhole
           result <- (Right <$> callFunction functionName fields) `catchE` (pure . Left)
           case result of
-            Right value -> do
+            Right [value] -> do
               writeCell location (HeapValue value)
               forceValue value
+            Right values -> do
+              writeCell location cell
+              throwInterpret (InterpretInvalidThunkResult values)
             Left failure@(EvalRaised exception) -> do
               writeCell location (HeapRaised exception)
               throwE failure
@@ -310,19 +322,30 @@ forceLocation location = do
     HeapRaised exception -> throwE (EvalRaised exception)
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
 
-applyValue :: RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
-applyValue function argument = do
+applyValue :: RuntimeValue -> [RuntimeValue] -> EvalM [RuntimeValue]
+applyValue function arguments = do
   forcedFunction <- forceValue function
   case forcedFunction of
-    RuntimeNode (GrinClosure functionName) fields ->
-      callFunction functionName (fields <> [argument])
+    RuntimeNode (GrinClosure functionName argumentCount) fields ->
+      let runtimeArguments
+            | argumentCount == length arguments = arguments
+            -- Synthetic evaluator fixtures may leave an ignored State#
+            -- lambda binder lifted even though the call site correctly has
+            -- no runtime component for it.
+            | null arguments,
+              argumentCount == 1 =
+                [RuntimeStateToken]
+            | otherwise = arguments
+       in if argumentCount == length runtimeArguments
+            then callFunction functionName (fields <> runtimeArguments)
+            else throwInterpret (InterpretFunctionArity functionName argumentCount (length arguments))
     RuntimeNode constructor@(GrinConstructor _) fields ->
-      pure (RuntimeNode constructor (fields <> [argument]))
+      pure [RuntimeNode constructor (fields <> arguments)]
     RuntimeNode (GrinPrimitive name arity) fields ->
-      applyPrimitive name arity (fields <> [argument])
+      applyPrimitive name arity fields arguments
     other -> throwInterpret (InterpretApplyNonFunction other)
 
-callFunction :: FunctionName -> [RuntimeValue] -> EvalM RuntimeValue
+callFunction :: FunctionName -> [RuntimeValue] -> EvalM [RuntimeValue]
 callFunction functionName arguments = do
   functions <- getsMachine machineFunctions
   case Map.lookup functionName functions of
@@ -333,13 +356,13 @@ callFunction functionName arguments = do
             then evalExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function)
             else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
 
-applyPrimitive :: Text -> Int -> [RuntimeValue] -> EvalM RuntimeValue
-applyPrimitive name arity arguments
-  | length arguments < arity = pure (RuntimeNode (GrinPrimitive name arity) arguments)
-  | length arguments == arity = evalPrimitive name arguments
-  | otherwise = throwInterpret (InterpretPrimitiveArity name (length arguments))
+applyPrimitive :: Text -> Int -> [RuntimeValue] -> [RuntimeValue] -> EvalM [RuntimeValue]
+applyPrimitive name remaining captured arguments
+  | remaining > 1 = pure [RuntimeNode (GrinPrimitive name (remaining - 1)) (captured <> arguments)]
+  | remaining == 1 = evalPrimitive name (captured <> arguments)
+  | otherwise = throwInterpret (InterpretPrimitiveArity name (length captured))
 
-evalPrimitive :: Text -> [RuntimeValue] -> EvalM RuntimeValue
+evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
 evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
@@ -350,36 +373,36 @@ evalPrimitive "==#" [left, right] =
   evalIntPrimitive "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
 evalPrimitive "charToInt#" [value] = do
   charValue <- forceCharPrimitiveArgument "charToInt#" value
-  pure (RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue))))
+  pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]
 evalPrimitive "intToChar#" [value] = do
   intValue <- forceIntPrimitiveArgument "intToChar#" value
   if intValue >= 0 && intValue <= 0x10ffff
-    then pure (RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue))))
+    then pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue)))]
     else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt IntRep intValue)))
-evalPrimitive "realWorld#" [] = pure RuntimeStateToken
+evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "raise#" [exception] =
   forceValue exception >>= throwE . EvalRaised
-evalPrimitive "catch#" [action, handler, state] =
-  applyValue action state `catchE` handleRaised handler state
-evalPrimitive "newMutVar#" [initialValue, state] = do
+evalPrimitive "catch#" [action, handler] =
+  applyValue action [] `catchE` handleRaised handler []
+evalPrimitive "newMutVar#" [initialValue] = do
   mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
-  pure (RuntimeNode (GrinConstructor "(#,#)") [state, RuntimeMutVar mutVar])
-evalPrimitive "readMutVar#" [mutVar, state] = do
+  pure [RuntimeMutVar mutVar]
+evalPrimitive "readMutVar#" [mutVar] = do
   GrinMutVar reference <- forceMutVarPrimitiveArgument "readMutVar#" mutVar
   value <- liftEvalIO (readIORef reference)
-  pure (RuntimeNode (GrinConstructor "(#,#)") [state, value])
-evalPrimitive "writeMutVar#" [mutVar, value, state] = do
+  pure [value]
+evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- forceMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
-  pure state
+  pure []
 evalPrimitive name arguments =
   throwInterpret (InterpretPrimitiveArity name (length arguments))
 
-evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
+evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalIntPrimitive name operation left right = do
   leftInt <- forceIntPrimitiveArgument name left
   rightInt <- forceIntPrimitiveArgument name right
-  pure (RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt)))
+  pure [RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt))]
 
 forceIntPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
 forceIntPrimitiveArgument name value = do
@@ -409,18 +432,11 @@ compareInts left right =
     EQ -> 0
     GT -> 1
 
-executeForeignCall :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
+executeForeignCall :: GrinForeignCall -> [RuntimeValue] -> EvalM [RuntimeValue]
 executeForeignCall foreignCall arguments
   | actualArity /= expectedArity = throwInterpret (InterpretForeignArity name expectedArity actualArity)
   | otherwise =
-      case grinForeignEffect signature of
-        GrinForeignPure -> callForeign foreignCall arguments
-        GrinForeignRealWorld ->
-          case reverse arguments of
-            state : reversedAbiArguments -> do
-              result <- callForeign foreignCall (reverse reversedAbiArguments)
-              pure (RuntimeNode (GrinConstructor "(#,#)") [state, result])
-            [] -> throwInterpret (InterpretForeignArity name expectedArity actualArity)
+      (: []) <$> callForeign foreignCall arguments
   where
     name = grinForeignCallName foreignCall
     signature = grinForeignCallSignature foreignCall
@@ -482,12 +498,12 @@ forceWord64 symbol value = do
 
 runIOValue :: RuntimeValue -> EvalM RuntimeValue
 runIOValue action = do
-  result <- applyValue action RuntimeStateToken >>= forceValue
-  case result of
-    RuntimeNode (GrinConstructor "(#,#)") [_state, ioResult] -> forceValue ioResult
-    other -> throwInterpret (InterpretInvalidIOResult other)
+  results <- applyValue action []
+  case results of
+    [ioResult] -> forceValue ioResult
+    _ -> throwInterpret (InterpretResultArity 1 (length results))
 
-matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM RuntimeValue
+matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM [RuntimeValue]
 matchAlternative env value alternatives =
   case alternatives of
     [] -> throwInterpret (InterpretNoMatchingAlternative value)
@@ -508,6 +524,12 @@ matchAlt value alt =
         length fields == length (grinAltBinders alt) ->
           Just (Map.fromList (zip (grinAltBinders alt) fields))
     _ -> Nothing
+
+expectSingle :: [RuntimeValue] -> EvalM RuntimeValue
+expectSingle values =
+  case values of
+    [value] -> pure value
+    _ -> throwInterpret (InterpretResultArity 1 (length values))
 
 renderRawValueM :: RuntimeValue -> EvalM Text
 renderRawValueM value = do
