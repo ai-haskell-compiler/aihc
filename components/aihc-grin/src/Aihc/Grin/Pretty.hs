@@ -117,6 +117,11 @@ renderExprIndented indentation expr =
         <> show runtimeRep
         <> " "
         <> unwords (map renderValue [action, handler, state])
+    GrinForeignCallExpr foreignCall arguments ->
+      indent indentation
+        <> "foreign-call "
+        <> T.unpack (grinForeignCallName foreignCall)
+        <> concatMap ((" " <>) . renderValue) arguments
 
 renderAlt :: Int -> GrinAlt -> String
 renderAlt indentation alt =
@@ -154,8 +159,6 @@ renderNodeTag nodeTag =
     GrinClosure functionName -> "P" <> T.unpack (unFunctionName functionName)
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
     GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
-    GrinForeign foreignCall -> "Foreign[" <> T.unpack (grinForeignCallName foreignCall) <> "]"
-    GrinForeignIOAction foreignCall -> "ForeignIO[" <> T.unpack (grinForeignCallName foreignCall) <> "]"
     GrinDictionary -> "Dict"
 
 renderLiteral :: GrinLiteral -> String

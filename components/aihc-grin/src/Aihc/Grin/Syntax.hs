@@ -19,8 +19,10 @@ module Aihc.Grin.Syntax
     GrinLiteral (..),
     GrinForeignCall (..),
     GrinForeignSignature (..),
-    GrinForeignResult (..),
+    GrinForeignEffect (..),
     GrinForeignType (..),
+    grinForeignOperandReps,
+    grinForeignCallResultRep,
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
@@ -95,6 +97,8 @@ data GrinExpr
   | GrinDictSelect !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue !GrinValue
+  | -- | A saturated call whose operands are already strict primitive values.
+    GrinForeignCallExpr !GrinForeignCall ![GrinValue]
   deriving (Eq, Show)
 
 -- | Atomic operands in the strict language.
@@ -115,8 +119,6 @@ data GrinNodeTag
   | GrinClosure !FunctionName
   | GrinThunk !FunctionName
   | GrinPrimitive !Text !Int
-  | GrinForeign !GrinForeignCall
-  | GrinForeignIOAction !GrinForeignCall
   | GrinDictionary
   deriving (Eq, Show)
 
@@ -187,15 +189,37 @@ data GrinForeignCall = GrinForeignCall
 
 data GrinForeignSignature = GrinForeignSignature
   { grinForeignArgumentTypes :: ![GrinForeignType],
-    grinForeignResult :: !GrinForeignResult
+    grinForeignResultType :: !GrinForeignType,
+    grinForeignEffect :: !GrinForeignEffect
   }
   deriving (Eq, Show)
 
-data GrinForeignResult
-  = GrinForeignPure !GrinForeignType
-  | GrinForeignIO !GrinForeignType
+data GrinForeignEffect
+  = GrinForeignPure
+  | GrinForeignRealWorld
   deriving (Eq, Show)
 
 data GrinForeignType
-  = GrinForeignCInt
+  = GrinForeignInt32
+  | GrinForeignWord64
   deriving (Eq, Show)
+
+grinForeignOperandReps :: GrinForeignSignature -> [RuntimeRep]
+grinForeignOperandReps signature =
+  map foreignTypeRuntimeRep (grinForeignArgumentTypes signature)
+    <> case grinForeignEffect signature of
+      GrinForeignPure -> []
+      GrinForeignRealWorld -> [TupleRep []]
+
+grinForeignCallResultRep :: GrinForeignSignature -> RuntimeRep
+grinForeignCallResultRep signature =
+  case grinForeignEffect signature of
+    GrinForeignPure -> foreignTypeRuntimeRep (grinForeignResultType signature)
+    GrinForeignRealWorld ->
+      TupleRep [TupleRep [], foreignTypeRuntimeRep (grinForeignResultType signature)]
+
+foreignTypeRuntimeRep :: GrinForeignType -> RuntimeRep
+foreignTypeRuntimeRep foreignType =
+  case foreignType of
+    GrinForeignInt32 -> Int32Rep
+    GrinForeignWord64 -> Word64Rep

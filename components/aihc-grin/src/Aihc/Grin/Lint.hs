@@ -23,6 +23,9 @@ data GrinLintError
   | GrinLintFunctionArity !FunctionName !Int !Int
   | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
   | GrinLintEvalNonLifted !RuntimeRep
+  | GrinLintForeignArity !Text !Int !Int
+  | GrinLintUnknownForeignCall !Text
+  | GrinLintForeignCallDescriptorMismatch !Text
   | GrinLintConstructorLayout !Text ![RuntimeRep] ![RuntimeRep]
   deriving (Eq, Show)
 
@@ -30,7 +33,8 @@ data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
     lintGlobalVars :: !(Set GrinVar),
     lintGlobalNames :: !(Set Text),
-    lintConstructorLayouts :: !(Map Text [RuntimeRep])
+    lintConstructorLayouts :: !(Map Text [RuntimeRep]),
+    lintForeignCalls :: !(Map Text GrinForeignCall)
   }
 
 lintProgram :: GrinProgram -> [GrinLintError]
@@ -59,10 +63,10 @@ lintProgram program =
               ( map fst builtinConstructors
                   <> map fst (grinConstructors program)
                   <> map (grinVarName . fst) (grinPrimitives program)
-                  <> map grinForeignCallName (grinForeignCalls program)
                   <> map grinVarName cafVars
               ),
-          lintConstructorLayouts = Map.fromList (grinConstructors program)
+          lintConstructorLayouts = Map.fromList (grinConstructors program),
+          lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
 
 lintCaf :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
@@ -113,6 +117,24 @@ lintExpr env bound expr =
       lintValue env bound action
         <> lintValue env bound handler
         <> lintValue env bound state
+    GrinForeignCallExpr foreignCall arguments ->
+      let expectedReps = grinForeignOperandReps (grinForeignCallSignature foreignCall)
+          actualReps = map grinValueRuntimeRep arguments
+          descriptorErrors =
+            case Map.lookup (grinForeignCallName foreignCall) (lintForeignCalls env) of
+              Nothing -> [GrinLintUnknownForeignCall (grinForeignCallName foreignCall)]
+              Just declared
+                | declared /= foreignCall -> [GrinLintForeignCallDescriptorMismatch (grinForeignCallName foreignCall)]
+                | otherwise -> []
+       in descriptorErrors
+            <> [ GrinLintForeignArity (grinForeignCallName foreignCall) (length expectedReps) (length actualReps)
+               | length expectedReps /= length actualReps
+               ]
+            <> [ GrinLintRepresentationMismatch "foreign call argument" expected actual
+               | (expected, actual) <- zip expectedReps actualReps,
+                 expected /= actual
+               ]
+            <> concatMap (lintValue env bound) arguments
   where
     bindRepresentationErrors var valueExpr =
       case exprRuntimeRep valueExpr of
@@ -194,3 +216,5 @@ exprRuntimeRep expr =
     GrinDictSelect runtimeRep _ _ -> Just runtimeRep
     GrinThrow {} -> Nothing
     GrinCatch runtimeRep _ _ _ -> Just runtimeRep
+    GrinForeignCallExpr foreignCall _ ->
+      Just (grinForeignCallResultRep (grinForeignCallSignature foreignCall))

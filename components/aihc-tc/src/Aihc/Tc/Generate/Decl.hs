@@ -18,6 +18,7 @@ import Aihc.Parser.Syntax
   ( Annotation,
     BangType (..),
     BinderHead (..),
+    CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
@@ -61,6 +62,10 @@ import Aihc.Tc.Annotations
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
+    TcForeignAbiType (..),
+    TcForeignEffect (..),
+    TcForeignImportAnnotation (..),
+    TcForeignMarshal (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     annotateDecl,
@@ -484,7 +489,64 @@ dataConBindingType name = do
 annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
-  pure (annotateDeclAt (unqualifiedNameSpan (foreignName foreignDecl)) (TcAnnotation ty [] [] []) (DeclForeign foreignDecl))
+  let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
+      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] []) (DeclForeign foreignDecl)
+  case foreignCallConv foreignDecl of
+    CCall -> do
+      plan <- checkForeignImportType sourceSpan ty
+      pure (DeclAnn (mkAnnotation plan) annotated)
+    _ -> pure annotated
+
+checkForeignImportType :: SourceSpan -> TcType -> TcM TcForeignImportAnnotation
+checkForeignImportType sourceSpan ty = do
+  let (argumentTypes, resultType) = splitFunctionType ty
+      (effect, valueResultType) =
+        case resultType of
+          TcTyCon (TyCon "IO" 1) [ioResult] -> (TcForeignRealWorld, ioResult)
+          _ -> (TcForeignPure, resultType)
+  arguments <- mapM (checkForeignValueType sourceSpan) argumentTypes
+  result <- checkForeignValueType sourceSpan valueResultType
+  pure
+    TcForeignImportAnnotation
+      { tcForeignArguments = arguments,
+        tcForeignResult = result,
+        tcForeignEffect = effect
+      }
+
+splitFunctionType :: TcType -> ([TcType], TcType)
+splitFunctionType ty =
+  case ty of
+    TcFunTy argument result ->
+      let (arguments, finalResult) = splitFunctionType result
+       in (argument : arguments, finalResult)
+    _ -> ([], ty)
+
+checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
+checkForeignValueType sourceSpan ty =
+  case ty of
+    TcTyCon (TyCon "CInt" 0) [] -> pure (int32Marshal ty ["CInt", "I32#"])
+    TcTyCon (TyCon "Int32" 0) [] -> pure (int32Marshal ty ["I32#"])
+    TcTyCon (TyCon "Int32#" 0) [] -> pure (int32Marshal ty [])
+    TcTyCon (TyCon "Word64" 0) [] -> pure (word64Marshal ty ["W64#"])
+    TcTyCon (TyCon "Word64#" 0) [] -> pure (word64Marshal ty [])
+    _ -> do
+      emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
+      pure (int32Marshal ty [])
+  where
+    int32Marshal sourceType constructors =
+      TcForeignMarshal
+        { tcForeignSourceType = sourceType,
+          tcForeignPrimitiveType = TcTyCon (TyCon "Int32#" 0) [],
+          tcForeignConstructors = constructors,
+          tcForeignAbiType = TcForeignInt32
+        }
+    word64Marshal sourceType constructors =
+      TcForeignMarshal
+        { tcForeignSourceType = sourceType,
+          tcForeignPrimitiveType = TcTyCon (TyCon "Word64#" 0) [],
+          tcForeignConstructors = constructors,
+          tcForeignAbiType = TcForeignWord64
+        }
 
 annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt NoSourceSpan tcAnn decl =

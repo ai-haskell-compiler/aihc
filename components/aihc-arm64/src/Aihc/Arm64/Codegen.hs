@@ -48,7 +48,6 @@ data CompileEnv = CompileEnv
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
     compileFunctionArities :: !(Map FunctionName Int),
-    compileForeignLabels :: !(Map Text Text),
     compileAllowUnsupportedPrimitives :: !Bool
   }
 
@@ -105,14 +104,13 @@ extendLinkLayout layout program =
     }
 
 -- | Compile a library module to relocatable assembly. The exported initializer
--- installs the module's primitive, foreign, and CAF globals into the shared
+-- installs the module's primitive and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
 compileModule :: LinkLayout -> Text -> GrinProgram -> Either Arm64Error Text
 compileModule layout initializerSymbol program = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  descriptors <- foreignDescriptors compileEnv program
   pure . T.unlines $
     [ ".section __TEXT,__text,regular,pure_instructions",
       ".p2align 2",
@@ -131,7 +129,6 @@ compileModule layout initializerSymbol program = do
            "  ret"
          ]
       <> concat functions
-      <> descriptors
   where
     compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
 
@@ -145,7 +142,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName program =
   constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  descriptors <- foreignDescriptors compileEnv program
   pure . T.unlines $
     [ ".section __TEXT,__text,regular,pure_instructions",
       ".p2align 2",
@@ -178,7 +174,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName program =
            "  ret"
          ]
       <> concat functions
-      <> descriptors
   where
     compileEnv = compileEnvironment layout program
     globalSlots = compileGlobalSlots compileEnv
@@ -202,7 +197,6 @@ programGlobalNames :: GrinProgram -> [Text]
 programGlobalNames program =
   map fst (programConstructorArities program)
     <> map (grinVarName . fst) (grinPrimitives program)
-    <> map grinForeignCallName (grinForeignCalls program)
     <> map (grinVarName . fst) (grinCafs program)
 
 compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
@@ -213,7 +207,6 @@ compileEnvironment layout program =
       compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
       compileFunctionLabels = Map.fromList [(grinFunctionName function, functionLabel index) | (index, function) <- zip [0 ..] (grinFunctions program)],
       compileFunctionArities = Map.fromList [(grinFunctionName function, length (grinFunctionParameters function)) | function <- grinFunctions program],
-      compileForeignLabels = Map.fromList [(grinForeignCallName foreignCall, foreignLabel index) | (index, foreignCall) <- zip [0 ..] (grinForeignCalls program)],
       compileAllowUnsupportedPrimitives = False
     }
   where
@@ -232,11 +225,6 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     primitive <- primitiveId env (grinVarName var)
     pure $ makeNodeLines 4 (InfoImmediate primitive) arity 0 <> storeGlobal slot
-  foreignLines <- fmap concat . forM (grinForeignCalls program) $ \foreignCall -> do
-    slot <- globalSlot env (grinForeignCallName foreignCall)
-    label <- foreignDescriptorLabel env foreignCall
-    let arity = length (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
-    pure $ makeNodeLines 5 (InfoAddress label) arity 0 <> storeGlobal slot
   cafCellLines <- fmap concat . forM (grinCafs program) $ \(var, _) -> do
     slot <- globalSlot env (grinVarName var)
     pure (["  bl _aihc_make_cell"] <> storeGlobal slot)
@@ -251,7 +239,7 @@ compileInitializers env program = do
              "  mov x1, x20",
              "  bl _aihc_set_cell"
            ]
-  pure (primitiveLines <> foreignLines <> cafCellLines <> cafValueLines)
+  pure (primitiveLines <> cafCellLines <> cafValueLines)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -365,8 +353,72 @@ compileExpr env prefix label expression =
         )
     GrinThrow {} -> unsupportedExpression "throw"
     GrinCatch {} -> unsupportedExpression "catch"
+    GrinForeignCallExpr foreignCall arguments ->
+      compileForeignCall env prefix label foreignCall arguments
   where
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
+
+compileForeignCall :: ValueEnv -> [Text] -> Text -> GrinForeignCall -> [GrinValue] -> FunctionM ()
+compileForeignCall env prefix label foreignCall arguments = do
+  let signature = grinForeignCallSignature foreignCall
+      abiArity = length (grinForeignArgumentTypes signature)
+      expectedArity = length (grinForeignOperandReps signature)
+  if length arguments /= expectedArity
+    then lift (Left (Arm64UnsupportedExpression "foreign call arity mismatch"))
+    else
+      if abiArity > 8
+        then lift (Left (Arm64UnsupportedExpression "foreign calls with more than eight arguments"))
+        else do
+          argumentSlots <- mapM (const freshSlot) arguments
+          argumentLines <-
+            fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
+              valueLines <- liftEither (materializeValue env argument)
+              pure (valueLines <> [storeAt "x0" "x19" slot])
+          let abiSlots = take abiArity argumentSlots
+              loadAbiArguments =
+                [ loadAt ("x" <> tshow index) "x19" slot
+                | (index, slot) <- zip [0 :: Int ..] abiSlots
+                ]
+              callLines =
+                argumentLines
+                  <> loadAbiArguments
+                  <> ["  bl _" <> grinForeignCallSymbol foreignCall]
+                  <> normalizeForeignResult (grinForeignResultType signature)
+          resultLines <-
+            case grinForeignEffect signature of
+              GrinForeignPure -> pure returnLines
+              GrinForeignRealWorld ->
+                case drop abiArity argumentSlots of
+                  [stateSlot] -> makeForeignResultTuple env stateSlot
+                  _ -> lift (Left (Arm64UnsupportedExpression "foreign state-token arity mismatch"))
+          addBlock label (prefix <> callLines <> resultLines)
+
+normalizeForeignResult :: GrinForeignType -> [Text]
+normalizeForeignResult foreignType =
+  case foreignType of
+    GrinForeignInt32 -> ["  sxtw x0, w0"]
+    GrinForeignWord64 -> []
+
+makeForeignResultTuple :: ValueEnv -> Int -> FunctionM [Text]
+makeForeignResultTuple env stateSlot = do
+  resultSlot <- freshSlot
+  tupleId <- liftEither (constructorId (valueCompileEnv env) "(#,#)")
+  pure
+    ( [storeAt "x0" "x19" resultSlot]
+        <> makeNodeLines 1 (InfoImmediate tupleId) 2 2
+        <> [ "  mov x20, x0",
+             loadAt "x2" "x19" stateSlot,
+             "  mov x0, x20",
+             immediate "x1" (0 :: Int),
+             "  bl _aihc_set_field",
+             loadAt "x2" "x19" resultSlot,
+             "  mov x0, x20",
+             immediate "x1" (1 :: Int),
+             "  bl _aihc_set_field",
+             "  mov x0, x20"
+           ]
+        <> returnLines
+    )
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
@@ -570,11 +622,6 @@ nodeHeader env node =
     GrinPrimitive name arity -> do
       identifier <- primitiveId compileEnv name
       pure (4, InfoImmediate identifier, arity)
-    GrinForeign foreignCall -> do
-      label <- foreignDescriptorLabel compileEnv foreignCall
-      let arity = length (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
-      pure (5, InfoAddress label, arity)
-    GrinForeignIOAction _ -> Left (Arm64UnsupportedValue "source foreign IO action node")
     GrinDictionary -> pure (7, InfoImmediate 0, length (grinNodeFields node))
   where
     compileEnv = valueCompileEnv env
@@ -665,37 +712,6 @@ dispatchLines =
     "  br x9"
   ]
 
-foreignDescriptors :: CompileEnv -> GrinProgram -> Either Arm64Error [Text]
-foreignDescriptors env program =
-  case grinForeignCalls program of
-    [] -> pure []
-    foreignCalls -> do
-      rendered <- fmap concat (mapM renderForeign foreignCalls)
-      pure ([".section __DATA,__data", ".p2align 3"] <> rendered)
-  where
-    renderForeign foreignCall = do
-      label <- foreignDescriptorLabel env foreignCall
-      (int32Id, tupleId) <- foreignConstructorIds env
-      pure
-        [ label <> ":",
-          "  .quad _" <> grinForeignCallSymbol foreignCall,
-          "  .quad " <> if isIo then "1" else "0",
-          "  .quad " <> tshow int32Id,
-          "  .quad " <> tshow tupleId
-        ]
-      where
-        signature = grinForeignCallSignature foreignCall
-        isIo =
-          case grinForeignResult signature of
-            GrinForeignIO _ -> True
-            GrinForeignPure _ -> False
-
-foreignConstructorIds :: CompileEnv -> Either Arm64Error (Int, Int)
-foreignConstructorIds env =
-  (,)
-    <$> constructorId env "I32#"
-    <*> constructorId env "(#,#)"
-
 globalSlot :: CompileEnv -> Text -> Either Arm64Error Int
 globalSlot env name =
   maybe (Left (Arm64MissingGlobal name)) Right (Map.lookup name (compileGlobalSlots env))
@@ -715,13 +731,6 @@ functionCodeLabel env name =
 functionArity :: CompileEnv -> FunctionName -> Either Arm64Error Int
 functionArity env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionArities env))
-
-foreignDescriptorLabel :: CompileEnv -> GrinForeignCall -> Either Arm64Error Text
-foreignDescriptorLabel env foreignCall =
-  maybe
-    (Left (Arm64MissingGlobal (grinForeignCallName foreignCall)))
-    Right
-    (Map.lookup (grinForeignCallName foreignCall) (compileForeignLabels env))
 
 primitiveId :: CompileEnv -> Text -> Either Arm64Error Int
 primitiveId env = primitiveIdentifier (compileAllowUnsupportedPrimitives env)
@@ -747,6 +756,7 @@ boundVars expression =
     GrinDictSelect {} -> Set.empty
     GrinThrow _ -> Set.empty
     GrinCatch {} -> Set.empty
+    GrinForeignCallExpr {} -> Set.empty
   where
     altBoundVars alternative = Set.fromList (grinAltBinders alternative) <> boundVars (grinAltRhs alternative)
 
@@ -813,6 +823,9 @@ exprRuntimeReps expression =
     GrinThrow exception -> valueRuntimeReps exception
     GrinCatch runtimeRep action handler state ->
       runtimeRep : concatMap valueRuntimeReps [action, handler, state]
+    GrinForeignCallExpr foreignCall arguments ->
+      grinForeignCallResultRep (grinForeignCallSignature foreignCall)
+        : concatMap valueRuntimeReps arguments
   where
     altRuntimeReps alternative =
       map grinVarRuntimeRep (grinAltBinders alternative)
@@ -830,9 +843,6 @@ nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
 
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index
-
-foreignLabel :: Int -> Text
-foreignLabel index = ".Laihc_foreign_" <> tshow index
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =
