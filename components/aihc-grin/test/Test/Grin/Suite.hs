@@ -9,7 +9,7 @@ where
 
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc (Levity (..), PrimOp (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (isInfixOf)
 import Data.Text (Text)
@@ -58,7 +58,20 @@ grinUnitTests =
         let program = lowerProgram cafReferenceProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered)
+        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+      testCase "cooperative scheduler forks and transfers through an MVar" $ do
+        assertEqual "lint" [] (lintProgram schedulerProgram)
+        result <- interpretProgramBinding "answer" schedulerProgram
+        assertEqual "result" (Right "42") result,
+      testCase "timer suspension resumes its CPS continuation" $ do
+        assertEqual "lint" [] (lintProgram timerProgram)
+        result <- interpretProgramBinding "answer" timerProgram
+        assertEqual "result" (Right "7") result,
+      testCase "CPS exposes the continuation saved by scheduler operations" $ do
+        let schedulerPoints = schedulerContinuations (cpsExpr schedulerActionBody)
+        case schedulerPoints of
+          (SchedulerNewMVar, CpsBind {}) : _ -> pure ()
+          other -> assertFailure ("expected newMVar scheduler continuation, got " <> show other)
     ]
 
 grinGoldenTests :: IO TestTree
@@ -168,8 +181,8 @@ cafReferenceProgram =
 exceptionProgram :: FcProgram
 exceptionProgram =
   FcProgram
-    [ FcPrimitive raiseVar 1,
-      FcPrimitive catchVar 3,
+    [ FcPrimitive raiseVar PrimRaise,
+      FcPrimitive catchVar PrimCatch,
       FcTopBind (FcNonRec answerVar caughtExpression)
     ]
   where
@@ -224,3 +237,118 @@ intTy = TcTyCon (TyCon "Int#" 0) []
 
 boxedIntTy :: TcType
 boxedIntTy = TcTyCon (TyCon "Int" 0) []
+
+schedulerProgram :: GrinProgram
+schedulerProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinCafs = [(answer, GrinNode (GrinThunk mainFunction) [])],
+      grinFunctions =
+        [ GrinFunction mainFunction [] liftedRep mainBody,
+          GrinFunction actionFunction [initialState] ioResultRep schedulerActionBody,
+          GrinFunction childFunction [childMVar, childState] liftedRep childBody
+        ]
+    }
+  where
+    answer = GrinVar "answer" 100 liftedRep
+    mainFunction = FunctionName "scheduler_main"
+    actionFunction = FunctionName "scheduler_action"
+    childFunction = FunctionName "scheduler_child"
+    initialState = GrinVar "initialState" 101 stateRep
+    childMVar = GrinVar "childMVar" 102 unliftedPointerRep
+    childState = GrinVar "childState" 103 stateRep
+    mainBody =
+      GrinReturn
+        ( GrinNodeValue
+            (GrinNode (GrinConstructor "IO") [GrinNodeValue (GrinNode (GrinClosure actionFunction) [])])
+        )
+    childBody =
+      GrinBind childNextState (GrinScheduler stateRep SchedulerPutMVar [GrinVarValue childMVar, intValue 42, GrinVarValue childState]) $
+        GrinReturn (stateValueResult (GrinVarValue childNextState) unitValue)
+    childNextState = GrinVar "childNextState" 104 stateRep
+
+schedulerActionBody :: GrinExpr
+schedulerActionBody =
+  GrinBind allocatedTuple (GrinScheduler mvarResultRep SchedulerNewMVar [GrinVarValue initialState]) $
+    GrinCase
+      (GrinVarValue allocatedTuple)
+      allocatedCaseBinder
+      [ GrinAlt (GrinDataAlt "(#,#)") [allocatedState, mvar] $
+          GrinBind forkedTuple (GrinScheduler forkResultRep SchedulerFork [childClosure mvar, GrinVarValue allocatedState]) $
+            GrinCase
+              (GrinVarValue forkedTuple)
+              forkedCaseBinder
+              [ GrinAlt (GrinDataAlt "(#,#)") [forkedState, threadId] $
+                  GrinScheduler ioResultRep SchedulerTakeMVar [GrinVarValue mvar, GrinVarValue forkedState]
+              ]
+      ]
+  where
+    initialState = GrinVar "initialState" 101 stateRep
+    allocatedTuple = GrinVar "allocatedTuple" 105 mvarResultRep
+    allocatedCaseBinder = GrinVar "allocatedCase" 106 mvarResultRep
+    allocatedState = GrinVar "allocatedState" 107 stateRep
+    mvar = GrinVar "mvar" 108 unliftedPointerRep
+    forkedTuple = GrinVar "forkedTuple" 109 forkResultRep
+    forkedCaseBinder = GrinVar "forkedCase" 110 forkResultRep
+    forkedState = GrinVar "forkedState" 111 stateRep
+    threadId = GrinVar "threadId" 112 unliftedPointerRep
+    childClosure capturedMVar =
+      GrinNodeValue
+        (GrinNode (GrinClosure (FunctionName "scheduler_child")) [GrinVarValue capturedMVar])
+
+timerProgram :: GrinProgram
+timerProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinCafs = [(answer, GrinNode (GrinThunk mainFunction) [])],
+      grinFunctions =
+        [ GrinFunction mainFunction [] liftedRep mainBody,
+          GrinFunction actionFunction [initialState] liftedRep actionBody
+        ]
+    }
+  where
+    answer = GrinVar "answer" 120 liftedRep
+    mainFunction = FunctionName "timer_main"
+    actionFunction = FunctionName "timer_action"
+    initialState = GrinVar "initialState" 121 stateRep
+    delayedState = GrinVar "delayedState" 122 stateRep
+    mainBody =
+      GrinReturn
+        ( GrinNodeValue
+            (GrinNode (GrinConstructor "IO") [GrinNodeValue (GrinNode (GrinClosure actionFunction) [])])
+        )
+    actionBody =
+      GrinBind delayedState (GrinScheduler stateRep SchedulerDelay [intValue 1, GrinVarValue initialState]) $
+        GrinReturn (stateValueResult (GrinVarValue delayedState) (intValue 7))
+
+stateValueResult :: GrinValue -> GrinValue -> GrinValue
+stateValueResult state value =
+  GrinNodeValue (GrinNode (GrinConstructor "(#,#)") [state, value])
+
+intValue :: Integer -> GrinValue
+intValue = GrinLitValue . GrinLitInt IntRep
+
+unitValue :: GrinValue
+unitValue = GrinNodeValue (GrinNode (GrinConstructor "()") [])
+
+liftedRep :: RuntimeRep
+liftedRep = BoxedRep Lifted
+
+unliftedPointerRep :: RuntimeRep
+unliftedPointerRep = BoxedRep Unlifted
+
+stateRep :: RuntimeRep
+stateRep = TupleRep []
+
+mvarResultRep :: RuntimeRep
+mvarResultRep = TupleRep [stateRep, unliftedPointerRep]
+
+forkResultRep :: RuntimeRep
+forkResultRep = TupleRep [stateRep, unliftedPointerRep]
+
+ioResultRep :: RuntimeRep
+ioResultRep = TupleRep [stateRep, IntRep]

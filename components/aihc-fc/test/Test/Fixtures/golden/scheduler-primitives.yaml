@@ -1,0 +1,45 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  data MVar#
+
+  data ThreadId#
+
+  foreign prim fork#/2 : ∀ a. ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId#
+
+  foreign prim yield#/1 : (State# RealWorld) → State# RealWorld
+
+  foreign prim newMVar#/1 : ∀ d a. (State# d) → (#,#) (State# d) (MVar# d a)
+
+  foreign prim takeMVar#/2 : ∀ d a. (MVar# d a) → (State# d) → (#,#) (State# d) a
+
+  foreign prim putMVar#/3 : ∀ d a. (MVar# d a) → a → (State# d) → State# d
+
+  foreign prim delay#/2 : ∀ d. Int# → (State# d) → State# d
+extensions:
+- EmptyDataDecls
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data MVar# d a
+  data ThreadId#
+
+  foreign import prim fork# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, ThreadId# #)
+  foreign import prim yield# :: State# RealWorld -> State# RealWorld
+  foreign import prim newMVar# :: State# d -> (# State# d, MVar# d a #)
+  foreign import prim takeMVar# :: MVar# d a -> State# d -> (# State# d, a #)
+  foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
+  foreign import prim delay# :: Int# -> State# d -> State# d
+reason: validates and preserves the exact scheduler primitive schemes
+status: pass

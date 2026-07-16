@@ -12,6 +12,7 @@ module Aihc.Fc.Eval
 where
 
 import Aihc.Fc.Syntax
+import Aihc.Tc.Prim (primOpArity, primOpName)
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<))
@@ -82,8 +83,8 @@ evalProgramBinding name program = runExceptT $
       [(varName (fcForeignCallVar foreignCall), VForeign foreignCall [])]
     foreignTopBindingValues _ =
       []
-    primitiveTopBindingValues (FcPrimitive var arity) =
-      [(varName var, VPrim (varName var) arity [])]
+    primitiveTopBindingValues (FcPrimitive var primOp) =
+      [(varName var, VPrim (primOpName primOp) (primOpArity primOp) [])]
     primitiveTopBindingValues _ =
       []
     topBindingValues (FcTopBind (FcNonRec var expr)) =

@@ -1,0 +1,31 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (ThreadId, forkIO, threadDelay, yield)
+    import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
+    import GHC.IO (IO)
+
+    schedulerEntry :: IO () -> IO ThreadId
+    schedulerEntry action = forkIO action
+
+    empty :: IO (MVar a)
+    empty = newEmptyMVar
+
+    full :: a -> IO (MVar a)
+    full value = newMVar value
+
+    transfer :: MVar a -> a -> IO a
+    transfer mvar value = putMVar mvar value >> takeMVar mvar
+
+    pause :: IO ()
+    pause = yield >> threadDelay 1
+output: |
+  <function>
+expression: schedulerEntry
+status: pass
+reason: typechecks and loads the minimal public green-thread, MVar, and timer API

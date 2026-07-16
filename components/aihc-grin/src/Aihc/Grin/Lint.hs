@@ -24,6 +24,7 @@ data GrinLintError
   | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
   | GrinLintEvalNonLifted !RuntimeRep
   | GrinLintConstructorLayout !Text ![RuntimeRep] ![RuntimeRep]
+  | GrinLintSchedulerArity !SchedulerPrimOp !Int !Int
   deriving (Eq, Show)
 
 data LintEnv = LintEnv
@@ -113,6 +114,12 @@ lintExpr env bound expr =
       lintValue env bound action
         <> lintValue env bound handler
         <> lintValue env bound state
+    GrinScheduler _ schedulerOp arguments ->
+      let expected = schedulerArity schedulerOp
+       in [ GrinLintSchedulerArity schedulerOp expected (length arguments)
+          | length arguments /= expected
+          ]
+            <> concatMap (lintValue env bound) arguments
   where
     bindRepresentationErrors var valueExpr =
       case exprRuntimeRep valueExpr of
@@ -194,3 +201,14 @@ exprRuntimeRep expr =
     GrinDictSelect runtimeRep _ _ -> Just runtimeRep
     GrinThrow {} -> Nothing
     GrinCatch runtimeRep _ _ _ -> Just runtimeRep
+    GrinScheduler runtimeRep _ _ -> Just runtimeRep
+
+schedulerArity :: SchedulerPrimOp -> Int
+schedulerArity schedulerOp =
+  case schedulerOp of
+    SchedulerFork -> 2
+    SchedulerYield -> 1
+    SchedulerNewMVar -> 1
+    SchedulerTakeMVar -> 2
+    SchedulerPutMVar -> 3
+    SchedulerDelay -> 2

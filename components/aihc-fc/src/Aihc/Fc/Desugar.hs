@@ -45,6 +45,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Prim (PrimOp (..), primOpArity, primOpFromName)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
@@ -189,9 +190,9 @@ dsForeignPrim :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
 dsForeignPrim tcAnn foreignDecl = do
   let name = unqualifiedNameText (foreignName foreignDecl)
       ty = tcAnnType tcAnn
-  arity <- validatePrimitiveImport name ty
+  primOp <- validatePrimitiveImport name ty
   unique <- freshUnique
-  pure (FcPrimitive (Var name unique ty) arity)
+  pure (FcPrimitive (Var name unique ty) primOp)
 
 dsForeignCcall :: TcAnnotation -> ForeignDecl -> DsM FcTopBind
 dsForeignCcall tcAnn foreignDecl = do
@@ -242,15 +243,18 @@ marshalForeignType (TcTyCon (TyCon "CInt" 0) []) = pure FcForeignCInt
 marshalForeignType ty =
   desugarBug ("unsupported foreign import value type: " <> show ty)
 
-validatePrimitiveImport :: Text -> TcType -> DsM Int
+validatePrimitiveImport :: Text -> TcType -> DsM PrimOp
 validatePrimitiveImport name ty =
-  case Map.lookup name primitiveImportSpecs of
-    Nothing ->
+  case (primOpFromName name, Map.lookup name primitiveImportSpecs) of
+    (Nothing, _) ->
       desugarBug ("unknown foreign import prim: " <> T.unpack name)
-    Just spec
-      | primitiveSpecAccepts spec ty -> pure (primitiveSpecArity spec)
+    (Just primOp, Just spec)
+      | primitiveSpecArity spec /= primOpArity primOp ->
+          desugarBug ("internal arity mismatch for foreign import prim " <> T.unpack name)
+      | primitiveSpecAccepts spec ty -> pure primOp
       | otherwise ->
           desugarBug ("incorrect type for foreign import prim " <> T.unpack name)
+    (Just _, Nothing) -> desugarBug ("missing type specification for foreign import prim: " <> T.unpack name)
 
 data PrimitiveSpec = PrimitiveSpec
   { primitiveSpecArity :: !Int,
@@ -273,7 +277,13 @@ primitiveImportSpecs =
       ("catch#", PrimitiveSpec 3 isCatchPrimType),
       ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
       ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
-      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType)
+      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType),
+      ("fork#", PrimitiveSpec 2 isForkPrimType),
+      ("yield#", PrimitiveSpec 1 (typesEqual (TcFunTy statePrimRealWorldTy statePrimRealWorldTy))),
+      ("newMVar#", PrimitiveSpec 1 isNewMVarPrimType),
+      ("takeMVar#", PrimitiveSpec 2 isTakeMVarPrimType),
+      ("putMVar#", PrimitiveSpec 3 isPutMVarPrimType),
+      ("delay#", PrimitiveSpec 2 isDelayPrimType)
     ]
 
 intBinaryPrim :: PrimitiveSpec
@@ -366,6 +376,69 @@ isWriteMutVarPrimType ty =
         _ -> False
     _ -> False
 
+isForkPrimType :: TcType -> Bool
+isForkPrimType ty =
+  case collectForAlls ty of
+    ([resultVar], TcFunTy actionTy (TcFunTy stateTy resultTy)) ->
+      typesEqual statePrimRealWorldTy stateTy
+        && typesEqual
+          (TcFunTy statePrimRealWorldTy (unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]))
+          actionTy
+        && typesEqual
+          (unboxedTupleTy [statePrimRealWorldTy, threadIdPrimTy])
+          resultTy
+    _ -> False
+
+isNewMVarPrimType :: TcType -> Bool
+isNewMVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy stateTy resultTy) ->
+      case stateDomain stateTy of
+        Just domainVar ->
+          case [valueVar | valueVar <- quantified, valueVar /= domainVar] of
+            [valueVar] ->
+              hasExactlyTyVars quantified [domainVar, valueVar]
+                && typesEqual
+                  (unboxedTupleTy [stateTy, mVarPrimTy domainVar (TcTyVar valueVar)])
+                  resultTy
+            _ -> False
+        Nothing -> False
+    _ -> False
+
+isTakeMVarPrimType :: TcType -> Bool
+isTakeMVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mVarTy (TcFunTy stateTy resultTy)) ->
+      case (mVarArgs mVarTy, stateDomain stateTy) of
+        (Just (domainVar, valueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar, valueVar]
+            && typesEqual (unboxedTupleTy [stateTy, valueTy]) resultTy
+        _ -> False
+    _ -> False
+
+isPutMVarPrimType :: TcType -> Bool
+isPutMVarPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mVarTy (TcFunTy valueTy (TcFunTy stateTy resultTy))) ->
+      case (mVarArgs mVarTy, stateDomain stateTy) of
+        (Just (domainVar, mVarValueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar, valueVar]
+            && typesEqual mVarValueTy valueTy
+            && typesEqual stateTy resultTy
+        _ -> False
+    _ -> False
+
+isDelayPrimType :: TcType -> Bool
+isDelayPrimType ty =
+  case collectForAlls ty of
+    ([domainVar], TcFunTy durationTy (TcFunTy stateTy resultTy)) ->
+      typesEqual intHashTy durationTy
+        && stateDomain stateTy == Just domainVar
+        && typesEqual stateTy resultTy
+    _ -> False
+
 stateDomain :: TcType -> Maybe TyVarId
 stateDomain (TcTyCon (TyCon "State#" 1) [TcTyVar domainVar]) = Just domainVar
 stateDomain _ = Nothing
@@ -378,6 +451,18 @@ mutVarArgs _ = Nothing
 mutVarPrimTy :: TyVarId -> TcType -> TcType
 mutVarPrimTy domainVar valueTy =
   TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]
+
+mVarArgs :: TcType -> Maybe (TyVarId, TcType)
+mVarArgs (TcTyCon (TyCon "MVar#" 2) [TcTyVar domainVar, valueTy]) =
+  Just (domainVar, valueTy)
+mVarArgs _ = Nothing
+
+mVarPrimTy :: TyVarId -> TcType -> TcType
+mVarPrimTy domainVar valueTy =
+  TcTyCon (TyCon "MVar#" 2) [TcTyVar domainVar, valueTy]
+
+threadIdPrimTy :: TcType
+threadIdPrimTy = TcTyCon (TyCon "ThreadId#" 0) []
 
 hasExactlyTyVars :: [TyVarId] -> [TyVarId] -> Bool
 hasExactlyTyVars actual expected =

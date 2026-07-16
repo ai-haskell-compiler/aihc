@@ -40,6 +40,7 @@ module Aihc.Fc.Syntax
 where
 
 import Aihc.Tc.Evidence (Coercion)
+import Aihc.Tc.Prim (PrimOp)
 import Aihc.Tc.Types
   ( RuntimeRep (..),
     TcType (..),
@@ -66,7 +67,7 @@ data FcTopBind
     -- single constructor.
     FcNewtype !Text ![TyVarId] !Text !TcType
   | -- | A primitive imported by @foreign import prim@.
-    FcPrimitive !Var !Int
+    FcPrimitive !Var !PrimOp
   | -- | A C function imported by @foreign import ccall@.
     FcForeignImport !FcForeignCall
   | -- | Value binding.

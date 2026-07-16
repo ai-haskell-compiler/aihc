@@ -9,6 +9,7 @@ where
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
+import Aihc.Tc.Prim (PrimOp, primOpArity, primOpName, schedulerPrimOp)
 import Aihc.Tc.Types
   ( RuntimeRep,
     TcType (..),
@@ -28,7 +29,7 @@ data LowerState = LowerState
   { lowerNextUnique :: !Int,
     lowerNextFunction :: !Int,
     lowerFunctionsRev :: ![GrinFunction],
-    lowerPrimitiveNames :: !(Set Text),
+    lowerPrimitiveOps :: !(Map.Map Text PrimOp),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
     lowerLocalVars :: !(Set (Text, Unique))
@@ -38,7 +39,7 @@ type LowerM = State LowerState
 
 data LoweredTop = LoweredTop
   { loweredConstructors :: ![(Text, [RuntimeRep])],
-    loweredPrimitives :: ![(GrinVar, Int)],
+    loweredPrimitives :: ![(GrinVar, PrimOp)],
     loweredForeignCalls :: ![GrinForeignCall],
     loweredCafs :: ![(GrinVar, GrinNode)]
   }
@@ -73,10 +74,10 @@ lowerProgram program =
         { lowerNextUnique = maximum (0 : map sourceUnique (programVars program)) + 1,
           lowerNextFunction = 0,
           lowerFunctionsRev = [],
-          lowerPrimitiveNames =
-            Set.fromList
-              [ varName var
-              | FcPrimitive var _ <- fcTopBinds program
+          lowerPrimitiveOps =
+            Map.fromList
+              [ (varName var, primOp)
+              | FcPrimitive var primOp <- fcTopBinds program
               ],
           lowerGlobalNames = Set.fromList (map fst builtinConstructors <> programGlobalNames program),
           lowerWhnfGlobalNames = Set.fromList (map fst builtinConstructors <> programWhnfGlobalNames program),
@@ -92,8 +93,8 @@ lowerTopBind topBind =
       pure mempty {loweredConstructors = [(name, map typeRuntimeRep fields) | (name, fields) <- constructors]}
     FcNewtype _ _ constructor field ->
       pure mempty {loweredConstructors = [(constructor, [typeRuntimeRep field])]}
-    FcPrimitive var arity ->
-      pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
+    FcPrimitive var primOp ->
+      pure mempty {loweredPrimitives = [(lowerGlobalVar var, primOp)]}
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> do
@@ -117,17 +118,25 @@ lowerCafBind bind =
 
 lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
-  primitiveNames <- gets lowerPrimitiveNames
+  primitiveOps <- gets lowerPrimitiveOps
   localVars <- gets lowerLocalVars
-  case primitiveApplication primitiveNames localVars expr of
-    Just ("raise#", [exception]) ->
-      lowerStrict "exception" exception (pure . GrinThrow)
-    Just ("catch#", [action, handler, state]) ->
+  case primitiveApplication primitiveOps localVars expr of
+    Just (primOp, [exception])
+      | primOpNameIs "raise#" primOp ->
+          lowerStrict "exception" exception (pure . GrinThrow)
+    Just (primOp, [action, handler, state]) | primOpNameIs "catch#" primOp ->
       lowerArgument action $ \actionValue ->
         lowerArgument handler $ \handlerValue ->
           lowerArgument state $ \stateValue ->
             pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue stateValue)
+    Just (primOp, arguments)
+      | length arguments == primOpArity primOp,
+        Just schedulerOp <- schedulerPrimOp primOp ->
+          lowerArgumentMany arguments $ \values ->
+            pure (GrinScheduler (exprRuntimeRep expr) schedulerOp values)
     _ -> lowerOrdinaryExpr expr
+  where
+    primOpNameIs expected primOp = primOpName primOp == expected
 
 lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
 lowerOrdinaryExpr expr =
@@ -300,13 +309,13 @@ emitFunction :: GrinFunction -> LowerM ()
 emitFunction function =
   modify' $ \state -> state {lowerFunctionsRev = function : lowerFunctionsRev state}
 
-primitiveApplication :: Set Text -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
-primitiveApplication primitiveNames localVars expr =
+primitiveApplication :: Map.Map Text PrimOp -> Set (Text, Unique) -> FcExpr -> Maybe (PrimOp, [FcExpr])
+primitiveApplication primitiveOps localVars expr =
   case collectApplications expr of
     (FcVar var, arguments)
       | varKey var `Set.notMember` localVars,
-        varName var `Set.member` primitiveNames ->
-          Just (varName var, arguments)
+        Just primOp <- Map.lookup (varName var) primitiveOps ->
+          Just (primOp, arguments)
     _ -> Nothing
 
 collectApplications :: FcExpr -> (FcExpr, [FcExpr])

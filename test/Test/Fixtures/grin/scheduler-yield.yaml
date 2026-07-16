@@ -1,0 +1,26 @@
+expected: |-
+  primitive yield#%1000 :: BoxedRep Lifted/1
+
+  caf resume%1004 :: BoxedRep Lifted = (F$grin_thunk_0)
+
+  $grin_closure_1 x1002%1002 :: TupleRep [] -> TupleRep [] =
+    scheduler @TupleRep [] SchedulerYield x1002%1002 :: TupleRep []
+
+  $grin_thunk_0 -> BoxedRep Lifted =
+    return (P$grin_closure_1)
+extensions:
+- EmptyDataDecls
+- GHCForeignImportPrim
+- MagicHash
+reason: lowers a saturated scheduler primitive to an explicit suspension operation
+source: |
+  module Test where
+
+  data State# s
+  data RealWorld
+
+  foreign import prim yield# :: State# RealWorld -> State# RealWorld
+
+  resume :: State# RealWorld -> State# RealWorld
+  resume state = yield# state
+status: pass

@@ -102,6 +102,32 @@ tests =
         case compileProgram "answer" program of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
+      testCase "lowers scheduler operations to the stable RTS ABI" $ do
+        let answer = GrinVar "answer" 20 (BoxedRep Lifted)
+            entryFunction = FunctionName "entry_code"
+            schedulerFunction = FunctionName "scheduler_code"
+            state = GrinVar "state" 21 (TupleRep [])
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinCafs = [(answer, GrinNode (GrinThunk entryFunction) [])],
+                  grinFunctions =
+                    [ GrinFunction entryFunction [] IntRep (GrinReturn (GrinLitValue (GrinLitInt IntRep 0))),
+                      GrinFunction
+                        schedulerFunction
+                        [state]
+                        (TupleRep [])
+                        (GrinScheduler (TupleRep []) SchedulerYield [GrinVarValue state])
+                    ]
+                }
+        case compileProgram "answer" program of
+          Left err -> assertFailure ("native scheduler compilation failed: " <> show err)
+          Right assembly ->
+            assertBool
+              "calls yield RTS entry"
+              ("bl _aihc_prim_yield" `T.isInfixOf` assembly),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 

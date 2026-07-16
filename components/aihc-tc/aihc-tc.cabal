@@ -26,6 +26,7 @@ library
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
+    Aihc.Tc.Prim
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Dict

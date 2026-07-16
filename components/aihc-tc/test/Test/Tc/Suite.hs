@@ -225,6 +225,16 @@ kindTests =
           ("Double#", DoubleRep),
           ("Char#", WordRep)
         ],
+    testCase "scheduler handles have fixed unlifted pointer kinds" $ do
+      let unliftedHandleKind = KTYPE (BoxedRep Unlifted)
+      assertEqual
+        "ThreadId# kind"
+        unliftedHandleKind
+        (typeKind (TcTyCon (TyCon "ThreadId#" 0) []))
+      assertEqual
+        "MVar# kind"
+        (KFun liftedTypeKind (KFun liftedTypeKind unliftedHandleKind))
+        (tyConKind (TyCon "MVar#" 2)),
     testCase "records source-level constructor field representations" $ do
       let result =
             typecheckModule $

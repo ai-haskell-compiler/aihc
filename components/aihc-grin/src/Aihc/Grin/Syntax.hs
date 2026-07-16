@@ -21,6 +21,7 @@ module Aihc.Grin.Syntax
     GrinForeignSignature (..),
     GrinForeignResult (..),
     GrinForeignType (..),
+    SchedulerPrimOp (..),
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
@@ -28,13 +29,14 @@ module Aihc.Grin.Syntax
   )
 where
 
+import Aihc.Tc.Prim (PrimOp, SchedulerPrimOp (..))
 import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
 import Data.Text (Text)
 
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
   { grinConstructors :: ![(Text, [RuntimeRep])],
-    grinPrimitives :: ![(GrinVar, Int)],
+    grinPrimitives :: ![(GrinVar, PrimOp)],
     grinForeignCalls :: ![GrinForeignCall],
     grinCafs :: ![(GrinVar, GrinNode)],
     grinFunctions :: ![GrinFunction]
@@ -91,6 +93,7 @@ data GrinExpr
   | GrinDictSelect !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue !GrinValue
+  | GrinScheduler !RuntimeRep !SchedulerPrimOp ![GrinValue]
   deriving (Eq, Show)
 
 -- | Atomic operands in the strict language.
@@ -110,7 +113,7 @@ data GrinNodeTag
   = GrinConstructor !Text
   | GrinClosure !FunctionName
   | GrinThunk !FunctionName
-  | GrinPrimitive !Text !Int
+  | GrinPrimitive !PrimOp
   | GrinForeign !GrinForeignCall
   | GrinForeignIOAction !GrinForeignCall
   | GrinDictionary

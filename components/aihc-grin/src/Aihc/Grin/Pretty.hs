@@ -6,6 +6,7 @@ module Aihc.Grin.Pretty
 where
 
 import Aihc.Grin.Syntax
+import Aihc.Tc.Prim (PrimOp, primOpArity, primOpName)
 import Aihc.Tc.Types (RuntimeRep)
 import Data.List (intercalate)
 import Data.Text qualified as T
@@ -31,9 +32,9 @@ renderConstructor (name, fieldReps) =
     <> intercalate ", " (map show fieldReps)
     <> "]"
 
-renderPrimitive :: (GrinVar, Int) -> String
-renderPrimitive (var, arity) =
-  "primitive " <> renderVar var <> "/" <> show arity
+renderPrimitive :: (GrinVar, PrimOp) -> String
+renderPrimitive (var, primOp) =
+  "primitive " <> renderVar var <> "/" <> show (primOpArity primOp)
 
 renderForeign :: GrinForeignCall -> String
 renderForeign foreignCall =
@@ -117,6 +118,13 @@ renderExprIndented indentation expr =
         <> show runtimeRep
         <> " "
         <> unwords (map renderValue [action, handler, state])
+    GrinScheduler runtimeRep schedulerOp arguments ->
+      indent indentation
+        <> "scheduler @"
+        <> show runtimeRep
+        <> " "
+        <> show schedulerOp
+        <> concatMap ((" " <>) . renderValue) arguments
 
 renderAlt :: Int -> GrinAlt -> String
 renderAlt indentation alt =
@@ -153,7 +161,7 @@ renderNodeTag nodeTag =
     GrinConstructor name -> "C" <> T.unpack name
     GrinClosure functionName -> "P" <> T.unpack (unFunctionName functionName)
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
-    GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
+    GrinPrimitive primOp -> "Prim[" <> T.unpack (primOpName primOp) <> "/" <> show (primOpArity primOp) <> "]"
     GrinForeign foreignCall -> "Foreign[" <> T.unpack (grinForeignCallName foreignCall) <> "]"
     GrinForeignIOAction foreignCall -> "ForeignIO[" <> T.unpack (grinForeignCallName foreignCall) <> "]"
     GrinDictionary -> "Dict"

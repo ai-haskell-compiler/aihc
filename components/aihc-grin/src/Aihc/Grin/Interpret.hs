@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Reference interpreter for strict GRIN programs.
@@ -8,24 +9,31 @@ module Aihc.Grin.Interpret
   )
 where
 
+import Aihc.Grin.Cps
 import Aihc.Grin.Syntax
+import Aihc.Tc.Prim (PrimOp, primOpArity, primOpName)
 import Aihc.Tc.Types (RuntimeRep (..))
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.List (insertBy)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Sequence (Seq (..), (|>))
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, callFFI, retCInt)
 import Foreign.Ptr (FunPtr)
+import GHC.Clock (getMonotonicTimeNSec)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data InterpretError
@@ -45,6 +53,7 @@ data InterpretError
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
+  | InterpretDeadlock
   | InterpretRaisedException !Text
   deriving (Eq, Show)
 
@@ -53,6 +62,8 @@ data RuntimeValue
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
   | RuntimeMutVar !GrinMutVar
+  | RuntimeMVar !Int
+  | RuntimeThreadId !Int
   | RuntimeStateToken
   deriving (Eq, Show)
 
@@ -77,30 +88,87 @@ data Machine = Machine
     machineFunctions :: !(Map FunctionName GrinFunction),
     machineGlobals :: !(Map Text RuntimeValue),
     machineHeap :: !(IntMap HeapCell),
-    machineNextLocation :: !Int
+    machineNextLocation :: !Int,
+    machineRunnable :: !(Seq (SchedulerM ())),
+    machineMVars :: !(IntMap MVarState),
+    machineNextMVar :: !Int,
+    machineNextThreadId :: !Int,
+    machineTimers :: ![Timer],
+    machineNextTimerSequence :: !Word64,
+    machineResult :: !(Maybe (Either EvalFailure Text))
   }
 
 data EvalFailure
   = EvalInterpret !InterpretError
   | EvalRaised !RuntimeValue
 
-type EvalM = ExceptT EvalFailure (StateT Machine IO)
+type SchedulerM = StateT Machine IO
+
+newtype EvalM a = EvalM
+  { runEvalM :: (Either EvalFailure a -> SchedulerM ()) -> SchedulerM ()
+  }
+
+instance Functor EvalM where
+  fmap function action =
+    EvalM $ \continuation ->
+      runEvalM action $ \case
+        Left failure -> continuation (Left failure)
+        Right value -> continuation (Right (function value))
+
+instance Applicative EvalM where
+  pure value = EvalM (\continuation -> continuation (Right value))
+  function <*> argument = do
+    applied <- function
+    applied <$> argument
+
+instance Monad EvalM where
+  action >>= next =
+    EvalM $ \continuation ->
+      runEvalM action $ \case
+        Left failure -> continuation (Left failure)
+        Right value -> runEvalM (next value) continuation
+
+instance MonadFail EvalM where
+  fail message = error ("GRIN interpreter invariant failed: " <> message)
+
+data MVarState = MVarState
+  { mvarValue :: !(Maybe RuntimeValue),
+    mvarTakers :: !(Seq Taker),
+    mvarPutters :: !(Seq Putter)
+  }
+
+data Taker
+  = Taker
+      !RuntimeValue
+      !(Either EvalFailure RuntimeValue -> SchedulerM ())
+
+data Putter
+  = Putter
+      !RuntimeValue
+      !RuntimeValue
+      !(Either EvalFailure RuntimeValue -> SchedulerM ())
+
+data Timer = Timer
+  { timerDeadline :: !Word64,
+    timerSequence :: !Word64,
+    timerAction :: !(SchedulerM ())
+  }
 
 -- | Interpret and render a named top-level binding using the raw constructor
 -- representation shared by the compiler pipeline evaluation fixtures.
 interpretProgramBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
 interpretProgramBinding name program = do
   let machine = initialMachine program
-  (result, finalMachine) <- runStateT (runExceptT action) machine
-  case result of
-    Right rendered -> pure (Right rendered)
-    Left (EvalInterpret err) -> pure (Left err)
-    Left (EvalRaised exception) -> do
-      (renderResult, _) <- runStateT (runExceptT (renderRawValueM exception)) finalMachine
-      pure $
-        case renderResult of
-          Right rendered -> Left (InterpretRaisedException rendered)
-          Left _ -> Left (InterpretRaisedException (T.pack (show exception)))
+  (_, finalMachine) <-
+    runStateT
+      (enqueueAction (runEvalM action finishMain) >> runScheduler)
+      machine
+  case machineResult finalMachine of
+    Just (Right rendered) -> pure (Right rendered)
+    Just (Left (EvalInterpret err)) -> pure (Left err)
+    Just (Left (EvalRaised exception)) ->
+      pure (Left (InterpretRaisedException (T.pack (show exception))))
+    Nothing -> pure (Left InterpretDeadlock)
   where
     action = do
       globals <- getsMachine machineGlobals
@@ -109,6 +177,7 @@ interpretProgramBinding name program = do
           Just binding -> pure binding
           Nothing -> throwInterpret (InterpretMissingBinding name)
       forceValue value >>= runIOValue >>= renderRawValueM
+    finishMain result = modify' (\machine -> machine {machineResult = Just result})
 
 initialMachine :: GrinProgram -> Machine
 initialMachine program =
@@ -125,7 +194,14 @@ initialMachine program =
           [ (location, HeapSuspended cafEnv node)
           | ((_, node), location) <- zip cafs [0 ..]
           ],
-      machineNextLocation = length cafs
+      machineNextLocation = length cafs,
+      machineRunnable = Seq.empty,
+      machineMVars = IntMap.empty,
+      machineNextMVar = 0,
+      machineNextThreadId = 1,
+      machineTimers = [],
+      machineNextTimerSequence = 0,
+      machineResult = Nothing
     }
   where
     cafs = grinCafs program
@@ -142,8 +218,8 @@ initialMachine program =
             | foreignCall <- grinForeignCalls program
             ],
           Map.fromList
-            [ (grinVarName var, RuntimeNode (GrinPrimitive (grinVarName var) arity) [])
-            | (var, arity) <- grinPrimitives program
+            [ (grinVarName var, RuntimeNode (GrinPrimitive primOp) [])
+            | (var, primOp) <- grinPrimitives program
             ],
           Map.fromList
             [ (constructor, RuntimeNode (GrinConstructor constructor) [])
@@ -151,39 +227,107 @@ initialMachine program =
             ]
         ]
 
-evalExpr :: Env -> GrinExpr -> EvalM RuntimeValue
-evalExpr env expr =
-  case expr of
-    GrinReturn value -> evalValue env value
-    GrinBind var valueExpr body -> do
-      value <- evalExpr env valueExpr
-      evalExpr (Map.insert var value env) body
-    GrinStore node ->
-      allocateCell (HeapSuspended env node)
-    GrinStoreRec bindings body -> do
+enqueueAction :: SchedulerM () -> SchedulerM ()
+enqueueAction action =
+  modify' (\machine -> machine {machineRunnable = machineRunnable machine |> action})
+
+runScheduler :: SchedulerM ()
+runScheduler = do
+  completed <- gets machineResult
+  case completed of
+    Just _ -> pure ()
+    Nothing -> do
+      now <- lift getMonotonicTimeNSec
+      drainDueTimers now
+      runnable <- gets machineRunnable
+      case Seq.viewl runnable of
+        action Seq.:< rest -> do
+          modify' (\machine -> machine {machineRunnable = rest})
+          action
+          runScheduler
+        Seq.EmptyL -> do
+          timers <- gets machineTimers
+          case timers of
+            [] ->
+              modify'
+                ( \machine ->
+                    machine
+                      { machineResult = Just (Left (EvalInterpret InterpretDeadlock))
+                      }
+                )
+            Timer deadline _ _ : _ -> do
+              waitForDeadline now deadline
+              runScheduler
+
+drainDueTimers :: Word64 -> SchedulerM ()
+drainDueTimers now = do
+  timers <- gets machineTimers
+  let (due, pending) = span ((<= now) . timerDeadline) timers
+  modify'
+    ( \machine ->
+        machine
+          { machineTimers = pending,
+            machineRunnable = foldl (|>) (machineRunnable machine) (map timerAction due)
+          }
+    )
+
+waitForDeadline :: Word64 -> Word64 -> SchedulerM ()
+waitForDeadline now deadline
+  | deadline <= now = pure ()
+  | otherwise =
+      lift (threadDelay (fromIntegral (min (fromIntegral (maxBound :: Int)) microseconds)))
+  where
+    nanoseconds = deadline - now
+    microseconds = max 1 ((nanoseconds + 999) `div` 1000)
+
+insertTimer :: Timer -> [Timer] -> [Timer]
+insertTimer = insertBy compareTimer
+  where
+    compareTimer left right =
+      compare
+        (timerDeadline left, timerSequence left)
+        (timerDeadline right, timerSequence right)
+
+evalCpsExpr :: Env -> CpsExpr -> EvalM RuntimeValue
+evalCpsExpr env expression =
+  case expression of
+    CpsContinue continuation value ->
+      evalValue env value >>= continueCps env continuation
+    CpsOperation operation continuation ->
+      evalCpsOperation env operation >>= continueCps env continuation
+    CpsStoreRec bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
           recursiveEnv = Map.fromList recursiveBindings `Map.union` env
       mapM_
         (\((_, node), location) -> writeCell location (HeapSuspended recursiveEnv node))
         (zip bindings locations)
-      evalExpr recursiveEnv body
-    GrinFetch _ pointer ->
-      evalValue env pointer >>= fetchValue
-    GrinUpdate pointer value -> do
+      evalCpsExpr recursiveEnv body
+    CpsCase scrutinee binder alternatives -> do
+      value <- evalValue env scrutinee >>= forceValue
+      matchCpsAlternative (Map.insert binder value env) value alternatives
+
+continueCps :: Env -> CpsContinuation -> RuntimeValue -> EvalM RuntimeValue
+continueCps env continuation value =
+  case continuation of
+    CpsReturn -> pure value
+    CpsBind binder body -> evalCpsExpr (Map.insert binder value env) body
+
+evalCpsOperation :: Env -> CpsOperation -> EvalM RuntimeValue
+evalCpsOperation env operation =
+  case operation of
+    CpsStore node -> allocateCell (HeapSuspended env node)
+    CpsFetch _ pointer -> evalValue env pointer >>= fetchValue
+    CpsUpdate pointer value -> do
       pointerValue <- evalValue env pointer
       updatedValue <- evalValue env value
       updateValue pointerValue updatedValue
-    GrinEval _ value ->
-      evalValue env value >>= forceValue
-    GrinApply _ function argument -> do
+    CpsEval _ value -> evalValue env value >>= forceValue
+    CpsApply _ function argument -> do
       functionValue <- evalValue env function
       argumentValue <- evalValue env argument
       applyValue functionValue argumentValue
-    GrinCase scrutinee binder alternatives -> do
-      value <- evalValue env scrutinee >>= forceValue
-      matchAlternative (Map.insert binder value env) value alternatives
-    GrinDictSelect _ dictionary index -> do
+    CpsDictSelect _ dictionary index -> do
       dictionaryValue <- evalValue env dictionary >>= forceValue
       case dictionaryValue of
         RuntimeNode GrinDictionary fields
@@ -192,14 +336,17 @@ evalExpr env expr =
               forceValue (fields !! index)
           | otherwise -> throwInterpret (InterpretInvalidDictSelect dictionaryValue index)
         other -> throwInterpret (InterpretInvalidDictSelect other index)
-    GrinThrow exception -> do
+    CpsThrow exception -> do
       exceptionValue <- evalValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)
-    GrinCatch _ action handler state -> do
+    CpsCatch _ action handler state -> do
       actionValue <- evalValue env action
       handlerValue <- evalValue env handler
       stateValue <- evalValue env state
       applyValue actionValue stateValue `catchE` handleRaised handlerValue stateValue
+    CpsScheduler _ schedulerOp arguments -> do
+      argumentValues <- mapM (evalValue env) arguments
+      evalScheduler schedulerOp argumentValues
 
 handleRaised :: RuntimeValue -> RuntimeValue -> EvalFailure -> EvalM RuntimeValue
 handleRaised handler state failure =
@@ -208,6 +355,135 @@ handleRaised handler state failure =
       handlerWithException <- applyValue handler exception
       applyValue handlerWithException state
     EvalInterpret err -> throwE (EvalInterpret err)
+
+evalScheduler :: SchedulerPrimOp -> [RuntimeValue] -> EvalM RuntimeValue
+evalScheduler SchedulerFork [action, state] =
+  EvalM $ \parentContinuation -> do
+    threadId <- gets machineNextThreadId
+    modify' (\machine -> machine {machineNextThreadId = threadId + 1})
+    enqueueAction
+      ( runEvalM
+          (applyValue action state)
+          (const (pure ()))
+      )
+    parentContinuation
+      ( Right
+          ( RuntimeNode
+              (GrinConstructor "(#,#)")
+              [state, RuntimeThreadId threadId]
+          )
+      )
+evalScheduler SchedulerYield [state] =
+  EvalM $ \continuation -> enqueueAction (continuation (Right state))
+evalScheduler SchedulerNewMVar [state] =
+  EvalM $ \continuation -> do
+    identifier <- gets machineNextMVar
+    modify'
+      ( \machine ->
+          machine
+            { machineMVars =
+                IntMap.insert identifier emptyMVarState (machineMVars machine),
+              machineNextMVar = identifier + 1
+            }
+      )
+    continuation
+      ( Right
+          ( RuntimeNode
+              (GrinConstructor "(#,#)")
+              [state, RuntimeMVar identifier]
+          )
+      )
+evalScheduler SchedulerTakeMVar [RuntimeMVar identifier, state] =
+  EvalM $ \continuation -> do
+    mvar <- lookupMVar identifier
+    case mvarValue mvar of
+      Nothing ->
+        updateMVar
+          identifier
+          mvar {mvarTakers = mvarTakers mvar |> Taker state continuation}
+      Just value ->
+        case Seq.viewl (mvarPutters mvar) of
+          Putter nextValue putterState resumePutter Seq.:< remainingPutters -> do
+            updateMVar
+              identifier
+              mvar
+                { mvarValue = Just nextValue,
+                  mvarPutters = remainingPutters
+                }
+            enqueueAction (resumePutter (Right putterState))
+            continuation (Right (stateValueTuple state value))
+          Seq.EmptyL -> do
+            updateMVar identifier mvar {mvarValue = Nothing}
+            continuation (Right (stateValueTuple state value))
+evalScheduler SchedulerPutMVar [RuntimeMVar identifier, value, state] =
+  EvalM $ \continuation -> do
+    mvar <- lookupMVar identifier
+    case Seq.viewl (mvarTakers mvar) of
+      Taker takerStateValue resumeTaker Seq.:< remainingTakers -> do
+        updateMVar identifier mvar {mvarTakers = remainingTakers}
+        enqueueAction (resumeTaker (Right (stateValueTuple takerStateValue value)))
+        continuation (Right state)
+      Seq.EmptyL ->
+        case mvarValue mvar of
+          Nothing -> do
+            updateMVar identifier mvar {mvarValue = Just value}
+            continuation (Right state)
+          Just _ ->
+            updateMVar
+              identifier
+              mvar {mvarPutters = mvarPutters mvar |> Putter value state continuation}
+evalScheduler SchedulerDelay [RuntimeLit (GrinLitInt _ microseconds), state]
+  | microseconds <= 0 = pure state
+  | otherwise =
+      EvalM $ \continuation -> do
+        now <- lift getMonotonicTimeNSec
+        sequenceNumber <- gets machineNextTimerSequence
+        let duration = saturatingMicrosecondsToNanoseconds microseconds
+            deadline = saturatingAdd now duration
+            timer = Timer deadline sequenceNumber (continuation (Right state))
+        modify'
+          ( \machine ->
+              machine
+                { machineTimers = insertTimer timer (machineTimers machine),
+                  machineNextTimerSequence = sequenceNumber + 1
+                }
+          )
+evalScheduler schedulerOp arguments =
+  throwInterpret
+    ( InterpretPrimitiveArity
+        (T.pack (show schedulerOp))
+        (length arguments)
+    )
+
+emptyMVarState :: MVarState
+emptyMVarState = MVarState Nothing Seq.empty Seq.empty
+
+lookupMVar :: Int -> SchedulerM MVarState
+lookupMVar identifier = do
+  mvars <- gets machineMVars
+  case IntMap.lookup identifier mvars of
+    Just mvar -> pure mvar
+    Nothing -> error ("GRIN scheduler referenced unknown MVar " <> show identifier)
+
+updateMVar :: Int -> MVarState -> SchedulerM ()
+updateMVar identifier mvar =
+  modify'
+    ( \machine ->
+        machine {machineMVars = IntMap.insert identifier mvar (machineMVars machine)}
+    )
+
+stateValueTuple :: RuntimeValue -> RuntimeValue -> RuntimeValue
+stateValueTuple state value =
+  RuntimeNode (GrinConstructor "(#,#)") [state, value]
+
+saturatingMicrosecondsToNanoseconds :: Integer -> Word64
+saturatingMicrosecondsToNanoseconds microseconds =
+  fromInteger (min (toInteger (maxBound :: Word64)) (microseconds * 1000))
+
+saturatingAdd :: Word64 -> Word64 -> Word64
+saturatingAdd left right
+  | maxBound - left < right = maxBound
+  | otherwise = left + right
 
 evalValue :: Env -> GrinValue -> EvalM RuntimeValue
 evalValue env value =
@@ -279,7 +555,8 @@ forceValue value =
     RuntimeNode (GrinForeign foreignCall) []
       | null (grinForeignArgumentTypes (grinForeignCallSignature foreignCall)) ->
           completeForeignCall foreignCall []
-    RuntimeNode (GrinPrimitive name 0) [] -> evalPrimitive name []
+    RuntimeNode (GrinPrimitive primOp) []
+      | primOpArity primOp == 0 -> evalPrimitive (primOpName primOp) []
     _ -> pure value
 
 forceLocation :: Int -> EvalM RuntimeValue
@@ -315,8 +592,8 @@ applyValue function argument = do
       callFunction functionName (fields <> [argument])
     RuntimeNode constructor@(GrinConstructor _) fields ->
       pure (RuntimeNode constructor (fields <> [argument]))
-    RuntimeNode (GrinPrimitive name arity) fields ->
-      applyPrimitive name arity (fields <> [argument])
+    RuntimeNode (GrinPrimitive primOp) fields ->
+      applyPrimitive primOp (fields <> [argument])
     RuntimeNode (GrinForeign foreignCall) fields ->
       applyForeign foreignCall (fields <> [argument])
     RuntimeNode (GrinForeignIOAction foreignCall) fields -> do
@@ -332,14 +609,17 @@ callFunction functionName arguments = do
     Just function ->
       let parameters = grinFunctionParameters function
        in if length parameters == length arguments
-            then evalExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function)
+            then evalCpsExpr (Map.fromList (zip parameters arguments)) (cpsExpr (grinFunctionBody function))
             else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
 
-applyPrimitive :: Text -> Int -> [RuntimeValue] -> EvalM RuntimeValue
-applyPrimitive name arity arguments
-  | length arguments < arity = pure (RuntimeNode (GrinPrimitive name arity) arguments)
+applyPrimitive :: PrimOp -> [RuntimeValue] -> EvalM RuntimeValue
+applyPrimitive primOp arguments
+  | length arguments < arity = pure (RuntimeNode (GrinPrimitive primOp) arguments)
   | length arguments == arity = evalPrimitive name arguments
   | otherwise = throwInterpret (InterpretPrimitiveArity name (length arguments))
+  where
+    name = primOpName primOp
+    arity = primOpArity primOp
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM RuntimeValue
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
@@ -500,26 +780,26 @@ runIOValue value =
         other -> throwInterpret (InterpretInvalidIOResult other)
     _ -> pure value
 
-matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM RuntimeValue
-matchAlternative env value alternatives =
+matchCpsAlternative :: Env -> RuntimeValue -> [CpsAlt] -> EvalM RuntimeValue
+matchCpsAlternative env value alternatives =
   case alternatives of
     [] -> throwInterpret (InterpretNoMatchingAlternative value)
     alt : rest ->
-      case matchAlt value alt of
-        Just bindings -> evalExpr (bindings `Map.union` env) (grinAltRhs alt)
-        Nothing -> matchAlternative env value rest
+      case matchCpsAlt value alt of
+        Just bindings -> evalCpsExpr (bindings `Map.union` env) (cpsAltRhs alt)
+        Nothing -> matchCpsAlternative env value rest
 
-matchAlt :: RuntimeValue -> GrinAlt -> Maybe Env
-matchAlt value alt =
-  case (grinAltCon alt, value) of
+matchCpsAlt :: RuntimeValue -> CpsAlt -> Maybe Env
+matchCpsAlt value alt =
+  case (cpsAltCon alt, value) of
     (GrinDefaultAlt, _) ->
-      Just (Map.fromList [(var, value) | var <- grinAltBinders alt])
+      Just (Map.fromList [(var, value) | var <- cpsAltBinders alt])
     (GrinLitAlt expected, RuntimeLit actual)
       | expected == actual -> Just Map.empty
     (GrinDataAlt expected, RuntimeNode (GrinConstructor actual) fields)
       | expected == actual,
-        length fields == length (grinAltBinders alt) ->
-          Just (Map.fromList (zip (grinAltBinders alt) fields))
+        length fields == length (cpsAltBinders alt) ->
+          Just (Map.fromList (zip (cpsAltBinders alt) fields))
     _ -> Nothing
 
 renderRawValueM :: RuntimeValue -> EvalM Text
@@ -538,12 +818,14 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArguments))
     RuntimeNode GrinDictionary _ -> pure "<dictionary>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
-    RuntimeNode GrinPrimitive {} _ -> pure "<function>"
+    RuntimeNode (GrinPrimitive _) _ -> pure "<function>"
     RuntimeNode GrinForeign {} _ -> pure "<function>"
     RuntimeNode GrinForeignIOAction {} _ -> pure "<io action>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
     RuntimeLocation _ -> renderRawValueM forced
     RuntimeMutVar {} -> pure "<mutvar>"
+    RuntimeMVar {} -> pure "<mvar>"
+    RuntimeThreadId identifier -> pure ("<thread " <> T.pack (show identifier) <> ">")
     RuntimeStateToken -> pure "<state>"
 
 renderRawArgument :: RuntimeValue -> EvalM Text
@@ -582,11 +864,24 @@ isTupleConstructor name arity =
 throwInterpret :: InterpretError -> EvalM value
 throwInterpret = throwE . EvalInterpret
 
+throwE :: EvalFailure -> EvalM value
+throwE failure = EvalM (\continuation -> continuation (Left failure))
+
+catchE :: EvalM value -> (EvalFailure -> EvalM value) -> EvalM value
+catchE action handler =
+  EvalM $ \continuation ->
+    runEvalM action $ \case
+      Left failure -> runEvalM (handler failure) continuation
+      Right value -> continuation (Right value)
+
 liftEvalIO :: IO value -> EvalM value
-liftEvalIO = lift . lift
+liftEvalIO action =
+  EvalM $ \continuation -> lift action >>= continuation . Right
 
 getsMachine :: (Machine -> value) -> EvalM value
-getsMachine = lift . gets
+getsMachine project =
+  EvalM $ \continuation -> gets project >>= continuation . Right
 
 modifyMachine :: (Machine -> Machine) -> EvalM ()
-modifyMachine = lift . modify'
+modifyMachine update =
+  EvalM $ \continuation -> modify' update >> continuation (Right ())

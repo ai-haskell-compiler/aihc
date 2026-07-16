@@ -55,6 +55,12 @@ module Aihc.Tc
     runtimeRepOfType,
     isLiftedType,
     isUnliftedType,
+    PrimOp (..),
+    SchedulerPrimOp (..),
+    primOpArity,
+    primOpFromName,
+    primOpName,
+    schedulerPrimOp,
     TcAnnotation (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -96,6 +102,7 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
+import Aihc.Tc.Prim
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)

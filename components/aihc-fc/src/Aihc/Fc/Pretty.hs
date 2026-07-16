@@ -19,6 +19,7 @@ module Aihc.Fc.Pretty
 where
 
 import Aihc.Fc.Syntax
+import Aihc.Tc.Prim (primOpArity)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
 import Data.List (intercalate)
 import Data.Text (Text)
@@ -53,11 +54,11 @@ renderTopBind (FcNewtype tyName tyVars conName fieldTy) =
     ++ T.unpack conName
     ++ " "
     ++ renderTypePrec True fieldTy
-renderTopBind (FcPrimitive var arity) =
+renderTopBind (FcPrimitive var primOp) =
   "foreign prim "
     ++ renderVar var
     ++ "/"
-    ++ show arity
+    ++ show (primOpArity primOp)
     ++ " : "
     ++ renderType (varType var)
 renderTopBind (FcForeignImport foreignCall) =

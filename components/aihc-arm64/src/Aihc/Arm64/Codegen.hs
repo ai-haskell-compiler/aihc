@@ -12,6 +12,7 @@ where
 import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
 import Aihc.Grin.Syntax
+import Aihc.Tc.Prim (PrimOp (..), primOpArity, primOpName)
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.Class (lift)
@@ -121,10 +122,10 @@ compileInitializers env program = do
     slot <- globalSlot env name
     constructor <- constructorId env name
     pure $ makeNodeLines 1 (InfoImmediate constructor) arity 0 <> storeGlobal slot
-  primitiveLines <- fmap concat . forM (grinPrimitives program) $ \(var, arity) -> do
+  primitiveLines <- fmap concat . forM (grinPrimitives program) $ \(var, primOp) -> do
     slot <- globalSlot env (grinVarName var)
-    primitive <- primitiveId (grinVarName var)
-    pure $ makeNodeLines 4 (InfoImmediate primitive) arity 0 <> storeGlobal slot
+    primitive <- primitiveId primOp
+    pure $ makeNodeLines 4 (InfoImmediate primitive) (primOpArity primOp) 0 <> storeGlobal slot
   foreignLines <- fmap concat . forM (grinForeignCalls program) $ \foreignCall -> do
     slot <- globalSlot env (grinForeignCallName foreignCall)
     label <- foreignDescriptorLabel env foreignCall
@@ -260,8 +261,38 @@ compileExpr env prefix label expression =
         )
     GrinThrow {} -> unsupportedExpression "throw"
     GrinCatch {} -> unsupportedExpression "catch"
+    GrinScheduler _ schedulerOp arguments ->
+      compileScheduler env prefix label schedulerOp arguments
   where
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
+
+compileScheduler :: ValueEnv -> [Text] -> Text -> SchedulerPrimOp -> [GrinValue] -> FunctionM ()
+compileScheduler env prefix label schedulerOp arguments = do
+  slots <- mapM (const freshSlot) arguments
+  argumentLines <-
+    fmap concat . forM (zip arguments slots) $ \(argument, slot) -> do
+      valueLines <- liftEither (materializeValue env argument)
+      pure (valueLines <> [storeAt "x0" "x19" slot])
+  let registerLines =
+        [ loadAt ("x" <> tshow register) "x19" slot
+        | (register, slot) <- zip [1 :: Int ..] slots
+        ]
+      symbol =
+        case schedulerOp of
+          SchedulerFork -> "_aihc_prim_fork"
+          SchedulerYield -> "_aihc_prim_yield"
+          SchedulerNewMVar -> "_aihc_prim_new_mvar"
+          SchedulerTakeMVar -> "_aihc_prim_take_mvar"
+          SchedulerPutMVar -> "_aihc_prim_put_mvar"
+          SchedulerDelay -> "_aihc_prim_delay"
+  addBlock
+    label
+    ( prefix
+        <> argumentLines
+        <> registerLines
+        <> ["  mov x0, x22", "  bl " <> symbol]
+        <> dispatchLines
+    )
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
@@ -462,9 +493,9 @@ nodeHeader env node =
       label <- functionCodeLabel compileEnv functionName
       arity <- functionArity compileEnv functionName
       pure (3, InfoAddress label, arity)
-    GrinPrimitive name arity -> do
-      identifier <- primitiveId name
-      pure (4, InfoImmediate identifier, arity)
+    GrinPrimitive primOp -> do
+      identifier <- primitiveId primOp
+      pure (4, InfoImmediate identifier, primOpArity primOp)
     GrinForeign foreignCall -> do
       label <- foreignDescriptorLabel compileEnv foreignCall
       let arity = length (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
@@ -622,10 +653,17 @@ foreignDescriptorLabel env foreignCall =
     Right
     (Map.lookup (grinForeignCallName foreignCall) (compileForeignLabels env))
 
-primitiveId :: Text -> Either Arm64Error Int
-primitiveId name
-  | name == "realWorld#" = Right 1
-  | otherwise = Left (Arm64UnsupportedPrimitive name)
+primitiveId :: PrimOp -> Either Arm64Error Int
+primitiveId primOp =
+  case primOp of
+    PrimRealWorld -> Right 1
+    PrimFork -> Right 2
+    PrimYield -> Right 3
+    PrimNewMVar -> Right 4
+    PrimTakeMVar -> Right 5
+    PrimPutMVar -> Right 6
+    PrimDelay -> Right 7
+    _ -> Left (Arm64UnsupportedPrimitive (primOpName primOp))
 
 boundVars :: GrinExpr -> Set GrinVar
 boundVars expression =
@@ -642,6 +680,7 @@ boundVars expression =
     GrinDictSelect {} -> Set.empty
     GrinThrow _ -> Set.empty
     GrinCatch {} -> Set.empty
+    GrinScheduler {} -> Set.empty
   where
     altBoundVars alternative = Set.fromList (grinAltBinders alternative) <> boundVars (grinAltRhs alternative)
 
@@ -708,6 +747,8 @@ exprRuntimeReps expression =
     GrinThrow exception -> valueRuntimeReps exception
     GrinCatch runtimeRep action handler state ->
       runtimeRep : concatMap valueRuntimeReps [action, handler, state]
+    GrinScheduler runtimeRep _ arguments ->
+      runtimeRep : concatMap valueRuntimeReps arguments
   where
     altRuntimeReps alternative =
       map grinVarRuntimeRep (grinAltBinders alternative)
