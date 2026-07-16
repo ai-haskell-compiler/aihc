@@ -2,14 +2,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Core-library discovery and content-addressed compilation for @aihc compile@.
+-- Each closure cache contains the frontend interface, one native object per
+-- loaded module, and one static archive per contributing library.
 module Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
+    DependencyUnit (..),
     buildDependencies,
   )
 where
 
+import Aihc.Arm64 (LinkLayout, buildLinkLayout, compileModule)
 import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
+import Aihc.Grin qualified as Grin
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( ImportDecl (importDeclModule),
@@ -21,6 +26,7 @@ import Aihc.Parser.Syntax
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
+    moduleName,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
@@ -43,7 +49,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModulesWithFullEnv,
   )
-import Control.Exception (bracketOnError)
+import Control.Exception (bracket, bracketOnError)
 import Control.Monad (filterM, foldM)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
@@ -63,17 +69,21 @@ import System.Directory
     doesDirectoryExist,
     doesFileExist,
     listDirectory,
+    removeDirectoryRecursive,
     removeFile,
     renameFile,
   )
+import System.Exit (ExitCode (..))
 import System.FilePath
   ( dropExtension,
     makeRelative,
     splitDirectories,
+    takeDirectory,
     takeExtension,
     (</>),
   )
 import System.IO (hClose, hPutStr, openTempFile)
+import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
 data CompileEnvironment = CompileEnvironment
@@ -88,8 +98,18 @@ data DependencyArtifact = DependencyArtifact
     dependencyTyCons :: ![TyConInfo],
     dependencyBindings :: ![TcBindingResult],
     dependencyInstances :: ![InstanceInfo],
-    dependencyProgram :: !FcProgram
+    dependencyProgram :: !FcProgram,
+    dependencyUnits :: ![DependencyUnit],
+    dependencyInitializerSymbols :: ![Text],
+    dependencyArchivePaths :: ![FilePath]
   }
+
+data DependencyUnit = DependencyUnit
+  { dependencyUnitLibrary :: !Text,
+    dependencyUnitModule :: !Text,
+    dependencyUnitProgram :: !FcProgram
+  }
+  deriving (Eq, Show, Read)
 
 data StoredDependencyArtifact = StoredDependencyArtifact
   { storedSchemaVersion :: !Int,
@@ -98,7 +118,7 @@ data StoredDependencyArtifact = StoredDependencyArtifact
     storedTyCons :: ![TyConInfo],
     storedBindings :: ![TcBindingResult],
     storedInstances :: ![InstanceInfo],
-    storedProgram :: !FcProgram
+    storedUnits :: ![DependencyUnit]
   }
   deriving (Show, Read)
 
@@ -134,10 +154,10 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 3
+cacheSchemaVersion = 4
 
-buildDependencies :: CompileEnvironment -> Bool -> Module -> IO (Either String DependencyArtifact)
-buildDependencies environment usesImplicitPrelude mainModule = do
+buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
+buildDependencies environment usesImplicitPrelude buildNative mainModule = do
   let importedRoots = map importDeclModule (moduleImports mainModule)
       defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
       initialRoots = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
@@ -159,14 +179,25 @@ buildDependencies environment usesImplicitPrelude mainModule = do
                   cachePath = cacheDirectory </> closureHash <> ".cache"
               cached <- readCache cachePath
               case cached of
-                Just artifact -> pure (Right artifact)
+                Just artifact
+                  | buildNative -> finishArtifact cacheDirectory closureHash artifact
+                  | otherwise -> pure (Right artifact)
                 Nothing ->
                   case compileLoadedModules loaded of
                     Left err -> pure (Left err)
                     Right artifact -> do
                       createDirectoryIfMissing True cacheDirectory
                       writeCache cacheDirectory cachePath artifact
-                      pure (Right artifact)
+                      if buildNative
+                        then finishArtifact cacheDirectory closureHash artifact
+                        else pure (Right artifact)
+
+finishArtifact :: FilePath -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
+finishArtifact cacheDirectory closureHash artifact = do
+  native <- buildNativeArtifacts (cacheDirectory </> closureHash) (dependencyUnits artifact)
+  pure $
+    (\(initializers, archives) -> artifact {dependencyInitializerSymbols = initializers, dependencyArchivePaths = archives})
+      <$> native
 
 emptyDependencyArtifact :: DependencyArtifact
 emptyDependencyArtifact =
@@ -176,7 +207,10 @@ emptyDependencyArtifact =
       dependencyTyCons = [],
       dependencyBindings = [],
       dependencyInstances = [],
-      dependencyProgram = FcProgram []
+      dependencyProgram = FcProgram [],
+      dependencyUnits = [],
+      dependencyInitializerSymbols = [],
+      dependencyArchivePaths = []
     }
 
 -- aihc-base is defined in terms of the compiler-owned GHC.Prim interface even
@@ -213,12 +247,12 @@ discoverModules root = do
 
     insertModule sourceRoot library index path =
       let relative = dropExtension (makeRelative sourceRoot path)
-          moduleName = T.intercalate "." (map T.pack (splitDirectories relative))
-       in case Map.lookup moduleName index of
-            Nothing -> Right (Map.insert moduleName (ModuleSource library path) index)
+          discoveredModuleName = T.intercalate "." (map T.pack (splitDirectories relative))
+       in case Map.lookup discoveredModuleName index of
+            Nothing -> Right (Map.insert discoveredModuleName (ModuleSource library path) index)
             Just previous
               | libraryPriority library < libraryPriority (moduleSourceLibrary previous) ->
-                  Right (Map.insert moduleName (ModuleSource library path) index)
+                  Right (Map.insert discoveredModuleName (ModuleSource library path) index)
               | otherwise -> Right index
 
     libraryPriority "aihc-prim" = 0 :: Int
@@ -288,13 +322,111 @@ compileLoadedModules loaded =
                             dependencyTyCons = tyCons,
                             dependencyBindings = bindings,
                             dependencyInstances = instances,
-                            dependencyProgram = concatPrograms (map dsProgram desugared)
+                            dependencyProgram = concatPrograms (map dsProgram desugared),
+                            dependencyUnits = zipWith makeUnit loaded desugared,
+                            dependencyInitializerSymbols = [],
+                            dependencyArchivePaths = []
                           }
   where
     modules = map loadedModule loaded
+    makeUnit loadedModule' desugared =
+      DependencyUnit
+        { dependencyUnitLibrary = loadedLibrary loadedModule',
+          dependencyUnitModule = fromMaybe "Main" (moduleName (loadedModule loadedModule')),
+          dependencyUnitProgram = dsProgram desugared
+        }
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+
+buildNativeArtifacts :: FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
+buildNativeArtifacts artifactRoot units = do
+  let programs = Grin.lowerPrograms (map dependencyUnitProgram units)
+      layout = buildLinkLayout programs
+      objectRoot = artifactRoot </> "objects"
+      archiveRoot = artifactRoot </> "archives"
+      nativeUnits = zipWith (nativeUnit objectRoot) units programs
+  objectResults <- mapM (buildObject layout) nativeUnits
+  case sequence objectResults of
+    Left err -> pure (Left err)
+    Right _ -> do
+      createDirectoryIfMissing True archiveRoot
+      let archiveMembers =
+            foldl'
+              (\archives unit -> Map.insertWith (flip (<>)) (dependencyUnitLibrary (nativeDependencyUnit unit)) [nativeObjectPath unit] archives)
+              Map.empty
+              nativeUnits
+      archives <- mapM (buildArchive archiveRoot) (Map.toAscList archiveMembers)
+      pure $ do
+        archivePaths <- sequence archives
+        Right (map nativeInitializerSymbol nativeUnits, archivePaths)
+
+data NativeUnit = NativeUnit
+  { nativeDependencyUnit :: !DependencyUnit,
+    nativeProgram :: !Grin.GrinProgram,
+    nativeInitializerSymbol :: !Text,
+    nativeObjectPath :: !FilePath
+  }
+
+nativeUnit :: FilePath -> DependencyUnit -> Grin.GrinProgram -> NativeUnit
+nativeUnit objectRoot unit program =
+  NativeUnit
+    { nativeDependencyUnit = unit,
+      nativeProgram = program,
+      nativeInitializerSymbol = initializer,
+      nativeObjectPath = objectRoot </> T.unpack (dependencyUnitLibrary unit) </> T.unpack (dependencyUnitModule unit) <> ".o"
+    }
+  where
+    initializer = "_aihc_init_" <> symbolHex (dependencyUnitLibrary unit <> "\0" <> dependencyUnitModule unit)
+
+symbolHex :: Text -> Text
+symbolHex = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
+  where
+    renderByte byte = T.pack (padLeft 2 '0' (showHex byte ""))
+
+buildObject :: LinkLayout -> NativeUnit -> IO (Either String ())
+buildObject layout unit = do
+  let destination = nativeObjectPath unit
+      directory = takeDirectory destination
+  exists <- doesFileExist destination
+  if exists
+    then pure (Right ())
+    else do
+      case compileModule layout (nativeInitializerSymbol unit) (nativeProgram unit) of
+        Left err -> pure (Left ("ARM64 dependency code generation failed for " <> T.unpack (dependencyUnitModule (nativeDependencyUnit unit)) <> ": " <> show err))
+        Right assembly -> do
+          createDirectoryIfMissing True directory
+          withTemporaryDirectory directory "module-build" $ \temporary -> do
+            let assemblyPath = temporary </> "module.s"
+                objectPath = temporary </> "module.o"
+            TIO.writeFile assemblyPath assembly
+            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["-c", assemblyPath, "-o", objectPath] ""
+            case exitCode of
+              ExitSuccess -> renameFile objectPath destination >> pure (Right ())
+              ExitFailure _ -> pure (Left ("failed to assemble dependency module " <> T.unpack (dependencyUnitModule (nativeDependencyUnit unit)) <> ": " <> stderr))
+
+buildArchive :: FilePath -> (Text, [FilePath]) -> IO (Either String FilePath)
+buildArchive archiveRoot (library, objects) = do
+  let destination = archiveRoot </> "lib" <> T.unpack library <> ".a"
+  exists <- doesFileExist destination
+  if exists
+    then pure (Right destination)
+    else withTemporaryDirectory archiveRoot "archive-build" $ \temporary -> do
+      let archivePath = temporary </> "library.a"
+      (exitCode, _stdout, stderr) <- readProcessWithExitCode "ar" (["rcs", archivePath] <> objects) ""
+      case exitCode of
+        ExitSuccess -> renameFile archivePath destination >> pure (Right destination)
+        ExitFailure _ -> pure (Left ("failed to archive dependency library " <> T.unpack library <> ": " <> stderr))
+
+withTemporaryDirectory :: FilePath -> String -> (FilePath -> IO value) -> IO value
+withTemporaryDirectory parent template = bracket acquire removeDirectoryRecursive
+  where
+    acquire = do
+      (path, handle) <- openTempFile parent template
+      hClose handle
+      removeFile path
+      createDirectoryIfMissing True path
+      pure path
 
 dependencyGraphHash :: FilePath -> [LoadedModule] -> IO String
 dependencyGraphHash root loaded = do
@@ -385,7 +517,7 @@ toStoredArtifact artifact =
       storedTyCons = dependencyTyCons artifact,
       storedBindings = dependencyBindings artifact,
       storedInstances = dependencyInstances artifact,
-      storedProgram = dependencyProgram artifact
+      storedUnits = dependencyUnits artifact
     }
 
 fromStoredArtifact :: StoredDependencyArtifact -> DependencyArtifact
@@ -396,7 +528,10 @@ fromStoredArtifact stored =
       dependencyTyCons = storedTyCons stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
-      dependencyProgram = storedProgram stored
+      dependencyProgram = concatPrograms (map dependencyUnitProgram (storedUnits stored)),
+      dependencyUnits = storedUnits stored,
+      dependencyInitializerSymbols = [],
+      dependencyArchivePaths = []
     }
 
 toStoredExports :: ModuleExports -> StoredModuleExports

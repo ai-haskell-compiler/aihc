@@ -33,7 +33,7 @@ import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (when, (>=>))
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
@@ -77,26 +77,31 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
+          testCase "parses whole-program compatibility mode" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True)))
+              (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -142,6 +147,7 @@ main =
                 Left err -> assertFailure ("expected compile success, got: " <> show err)
                 Right assembly -> do
                   assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+                  assertBool "dependency initializer call" ("bl _aihc_init_" `T.isInfixOf` assembly)
                   assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
@@ -857,8 +863,8 @@ test_compileExecutable =
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
@@ -908,7 +914,8 @@ test_compileImplicitCoreDependencies =
         environment = CompileEnvironment coreRoot cacheRoot
         implicitSource = implicitDependencySource
     createCompileLibrary coreRoot "aihc-prim" "GHC.Prim" "module GHC.Prim where\n"
-    createCompileLibrary coreRoot "aihc-base" "Prelude" "module Prelude where\nid x = x\n"
+    createCompileLibrary coreRoot "aihc-base" "BaseSupport" "module BaseSupport where\nsupport x = x\n"
+    createCompileLibrary coreRoot "aihc-base" "Prelude" "module Prelude where\nimport BaseSupport\nid x = support x\n"
     writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 1\n"
 
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
@@ -917,11 +924,17 @@ test_compileImplicitCoreDependencies =
     cachePath <- case cacheFiles of
       [path] -> pure path
       paths -> assertFailure ("expected one cache file, got " <> show paths)
+    objectFiles <- compileCacheArtifacts ".o" cacheRoot
+    archiveFiles <- compileCacheArtifacts ".a" cacheRoot
+    assertEqual "one object per dependency module" 3 (length objectFiles)
+    assertEqual "one archive per dependency library" 2 (length archiveFiles)
 
     let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
     setModificationTime cachePath oldTimestamp
+    mapM_ (`setModificationTime` oldTimestamp) (objectFiles <> archiveFiles)
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
     getModificationTime cachePath >>= assertEqual "cache hit preserves artifact" oldTimestamp
+    mapM_ (getModificationTime >=> assertEqual "cache hit preserves native artifact" oldTimestamp) (objectFiles <> archiveFiles)
 
     writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 2\n"
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
@@ -1010,7 +1023,10 @@ createCompileLibrary coreRoot library moduleName source = do
     dotToSlash char = char
 
 compileCacheFiles :: FilePath -> IO [FilePath]
-compileCacheFiles root = do
+compileCacheFiles = compileCacheArtifacts ".cache"
+
+compileCacheArtifacts :: String -> FilePath -> IO [FilePath]
+compileCacheArtifacts extension root = do
   exists <- doesDirectoryExist root
   if not exists
     then pure []
@@ -1022,8 +1038,8 @@ compileCacheFiles root = do
       let path = root </> entry
       isDirectory <- doesDirectoryExist path
       if isDirectory
-        then compileCacheFiles path
-        else pure [path | ".cache" `isSuffixOf` path]
+        then compileCacheArtifacts extension path
+        else pure [path | extension `isSuffixOf` path]
 
 assertNativeOutput :: FilePath -> Assertion
 assertNativeOutput executable = do

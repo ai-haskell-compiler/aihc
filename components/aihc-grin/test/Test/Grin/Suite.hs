@@ -58,7 +58,13 @@ grinUnitTests =
         let program = lowerProgram cafReferenceProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered)
+        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+      testCase "separate FC units do not capture dependency globals" $ do
+        case lowerPrograms separatePrograms of
+          [_provider, consumer] -> do
+            let parameters = concatMap grinFunctionParameters (grinFunctions consumer)
+            assertBool "dependency CAF remains global" (all ((/= "source") . grinVarName) parameters)
+          programs -> assertFailure ("expected two separately lowered programs, got " <> show (length programs))
     ]
 
 grinGoldenTests :: IO TestTree
@@ -224,3 +230,13 @@ intTy = TcTyCon (TyCon "Int#" 0) []
 
 boxedIntTy :: TcType
 boxedIntTy = TcTyCon (TyCon "Int" 0) []
+
+separatePrograms :: [FcProgram]
+separatePrograms =
+  [ FcProgram [FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider")))],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcVar sourceVar)))]
+  ]
+  where
+    sourceVar = Var "source" (Unique 30) boxedIntTy
+    answerVar = Var "answer" (Unique 31) (TcFunTy boxedIntTy boxedIntTy)
+    argumentVar = Var "argument" (Unique 32) boxedIntTy
