@@ -17,6 +17,9 @@ tests :: [TestTree]
 tests =
   [ testCase "a GRIN bind becomes a named continuation" testBindLowering,
     testCase "nested binds retain the enclosing continuation" testNestedBinds,
+    testCase "ordinary dictionary constructors and cases lower without special forms" testOrdinaryDictionary,
+    testCase "throw must be eliminated before Loom lowering" testRejectThrow,
+    testCase "catch must be eliminated before Loom lowering" testRejectCatch,
     testCase "the linter rejects a continuation argument layout mismatch" testContinuationMismatch,
     testCase "the renderer identifies Loom IR and explicit transfers" testRendering,
     QC.testProperty "dummy quickcheck property" prop_dummy
@@ -28,7 +31,7 @@ prop_dummy _ = True
 
 testBindLowering :: IO ()
 testBindLowering =
-  case loomFunctions (lowerProgram (singleFunctionProgram body)) of
+  case loomFunctions (lowerSuccessfully (singleFunctionProgram body)) of
     [function] -> do
       assertEqual "return continuation layout" [IntRep] (loomContRuntimeReps (loomFunctionReturn function))
       case loomFunctionBody function of
@@ -40,7 +43,7 @@ testBindLowering =
             (LoomContinue (loomFunctionReturn function) [GrinVarValue result])
             (loomContinuationBody continuation)
         actual -> fail ("unexpected lowering: " <> show actual)
-      assertEqual "lowered program lints" [] (lintProgram (lowerProgram (singleFunctionProgram body)))
+      assertEqual "lowered program lints" [] (lintProgram (lowerSuccessfully (singleFunctionProgram body)))
     actual -> fail ("expected one function, got: " <> show actual)
   where
     input = GrinVar "input" 1 liftedRuntimeRep
@@ -49,7 +52,7 @@ testBindLowering =
 
 testNestedBinds :: IO ()
 testNestedBinds =
-  case loomFunctionBody (onlyFunction (lowerProgram (singleFunctionProgram body))) of
+  case loomFunctionBody (onlyFunction (lowerSuccessfully (singleFunctionProgram body))) of
     LoomLetCont outer (LoomInvoke _ outerTarget) -> do
       assertEqual "first operation targets outer continuation" (loomContinuationName outer) outerTarget
       case loomContinuationBody outer of
@@ -70,8 +73,45 @@ testNestedBinds =
         [first]
         (GrinFetch liftedRuntimeRep (GrinVarValue pointer))
         (GrinBind [second] (GrinEval IntRep (GrinVarValue first)) (GrinReturn [GrinVarValue second]))
-    function = onlyFunction (lowerProgram (singleFunctionProgram body))
+    function = onlyFunction (lowerSuccessfully (singleFunctionProgram body))
     returnContinuation = loomFunctionReturn function
+
+testOrdinaryDictionary :: IO ()
+testOrdinaryDictionary = do
+  let source = (singleFunctionProgram body) {grinConstructors = [("$Dict$Test", [IntRep])]}
+      program = lowerSuccessfully source
+      rendered = renderProgram program
+  assertEqual "lowered program lints" [] (lintProgram program)
+  assertEqual "ordinary constructor layout" [("$Dict$Test", [IntRep])] (loomConstructors program)
+  assertBool "ordinary constructor case remains visible" ("$Dict$Test" `isInfixOf` rendered)
+  where
+    dictionary = GrinVar "input" 1 liftedRuntimeRep
+    binder = GrinVar "dictionary" 2 liftedRuntimeRep
+    method = GrinVar "method" 3 IntRep
+    body =
+      GrinCase
+        (GrinVarValue dictionary)
+        binder
+        [GrinAlt (GrinDataAlt "$Dict$Test") [method] (GrinReturn [GrinVarValue method])]
+
+testRejectThrow :: IO ()
+testRejectThrow =
+  assertEqual
+    "throw boundary error"
+    (Left (LoomLowerUnexpectedThrow (FunctionName "main")))
+    (lowerProgram (singleFunctionProgram (GrinThrow exception)))
+  where
+    exception = GrinVarValue (GrinVar "input" 1 liftedRuntimeRep)
+
+testRejectCatch :: IO ()
+testRejectCatch =
+  assertEqual
+    "catch boundary error"
+    (Left (LoomLowerUnexpectedCatch (FunctionName "main")))
+    (lowerProgram (singleFunctionProgram (GrinCatch IntRep action handler [])))
+  where
+    action = GrinVarValue (GrinVar "input" 1 liftedRuntimeRep)
+    handler = GrinNodeValue (GrinNode (GrinConstructor "Handler") [])
 
 testContinuationMismatch :: IO ()
 testContinuationMismatch = do
@@ -91,7 +131,7 @@ testContinuationMismatch = do
 
 testRendering :: IO ()
 testRendering = do
-  let rendered = renderProgram (lowerProgram (singleFunctionProgram body))
+  let rendered = renderProgram (lowerSuccessfully (singleFunctionProgram body))
   assertBool "versioned Loom header" ("loom-ir 1" `isInfixOf` rendered)
   assertBool "explicit return continuation" ("return return%0" `isInfixOf` rendered)
   assertBool "explicit operation transfer" ("eval @IntRep" `isInfixOf` rendered && " -> k%1" `isInfixOf` rendered)
@@ -134,3 +174,9 @@ onlyFunction program =
   case loomFunctions program of
     [function] -> function
     actual -> error ("expected one function, got: " <> show actual)
+
+lowerSuccessfully :: GrinProgram -> LoomProgram
+lowerSuccessfully program =
+  case lowerProgram program of
+    Left err -> error ("expected Loom lowering to succeed, got: " <> show err)
+    Right lowered -> lowered

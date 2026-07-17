@@ -115,15 +115,6 @@ renderOperation operation =
         <> " "
         <> renderValue function
         <> concatMap ((" " <>) . renderValue) arguments
-    LoomDictSelect runtimeRep dictionary index ->
-      "select @" <> show runtimeRep <> " " <> renderValue dictionary <> " " <> show index
-    LoomThrow exception -> "throw " <> renderValue exception
-    LoomCatch runtimeRep action handler state ->
-      "catch @"
-        <> show runtimeRep
-        <> " "
-        <> unwords (map renderValue [action, handler])
-        <> concatMap ((" " <>) . renderValue) state
     LoomForeignCall foreignCall arguments ->
       "foreign-call "
         <> T.unpack (grinForeignCallName foreignCall)
@@ -166,7 +157,6 @@ renderNodeTag nodeTag =
       "P" <> T.unpack (unFunctionName functionName) <> "/" <> show argumentCount
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
     GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
-    GrinDictionary -> "Dict"
 
 renderLiteral :: GrinLiteral -> String
 renderLiteral literal =

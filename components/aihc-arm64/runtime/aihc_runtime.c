@@ -8,9 +8,8 @@ enum {
   AIHC_CLOSURE = 2,
   AIHC_THUNK = 3,
   AIHC_PRIMITIVE = 4,
-  AIHC_DICTIONARY = 7,
-  AIHC_CELL = 8,
-  AIHC_STATE_TOKEN = 9,
+  AIHC_CELL = 5,
+  AIHC_STATE_TOKEN = 6,
 };
 
 enum {
@@ -25,7 +24,6 @@ enum {
   AIHC_CONT_APPLY = 2,
   AIHC_CONT_TOP = 3,
   AIHC_CONT_FINAL = 4,
-  AIHC_CONT_SELECT = 5,
 };
 
 enum {
@@ -63,10 +61,6 @@ struct AihcContinuation {
       AihcSlot *arguments;
       uint64_t count;
     } apply;
-    struct {
-      uint64_t index;
-      uint64_t result_is_lifted;
-    } select;
   } payload;
 };
 
@@ -337,24 +331,6 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
     machine->locals = NULL;
     machine->next = machine->exit_code;
     return;
-  case AIHC_CONT_SELECT: {
-    if (count != 1) {
-      aihc_fail("dictionary evaluation returned multiple values");
-    }
-    AihcValue *dictionary = (AihcValue *)values[0];
-    if (dictionary->kind != AIHC_DICTIONARY ||
-        continuation->payload.select.index >= dictionary->count) {
-      aihc_fail("invalid dictionary selection");
-    }
-    AihcSlot selected =
-        dictionary->fields[continuation->payload.select.index];
-    if (continuation->payload.select.result_is_lifted) {
-      aihc_eval_value(machine, (AihcValue *)selected, 1);
-    } else {
-      aihc_return_value(machine, selected);
-    }
-    return;
-  }
   default:
     aihc_fail("unknown continuation kind");
   }
@@ -386,15 +362,6 @@ void aihc_apply(AihcMachine *machine, AihcValue *function,
 void aihc_apply_values(AihcMachine *machine, AihcValue *function,
                        uint64_t count, const AihcSlot *arguments) {
   aihc_apply_values_internal(machine, function, count, arguments);
-}
-
-void aihc_select(AihcMachine *machine, AihcValue *dictionary,
-                 uint64_t index, uint64_t result_is_lifted) {
-  AihcContinuation *continuation =
-      aihc_push_special(machine, AIHC_CONT_SELECT);
-  continuation->payload.select.index = index;
-  continuation->payload.select.result_is_lifted = result_is_lifted;
-  aihc_eval_value(machine, dictionary, 1);
 }
 
 void aihc_start(AihcMachine *machine, AihcValue *root, void *exit_code) {

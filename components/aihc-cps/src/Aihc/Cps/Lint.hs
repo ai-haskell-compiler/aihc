@@ -52,11 +52,12 @@ lintTerm env term =
         extendedEnv = Map.insert continuationName signature env
     LoomInvoke operation continuation ->
       lintContinuation env continuation
-        <> case loomOperationResultReps operation of
-          Just resultReps
-            | resultReps /= loomContRuntimeReps continuation ->
-                [LoomLintOperationContinuation continuation (loomContRuntimeReps continuation) resultReps]
-          _ -> []
+        <> [ LoomLintOperationContinuation continuation expected actual
+           | expected /= actual
+           ]
+      where
+        expected = loomContRuntimeReps continuation
+        actual = loomOperationResultReps operation
     LoomContinue continuation arguments ->
       lintContinuation env continuation
         <> [ LoomLintContinuationArguments continuation expected actual

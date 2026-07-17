@@ -25,7 +25,7 @@ Find more information here:
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `37/38` (`97.36%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2358/2358` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2371/2371` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `104/104` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
@@ -35,15 +35,15 @@ Find more information here:
 ```
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
-| aihc-arm64         |   1495 |     164 |    1659 |
+| aihc-arm64         |   1580 |     210 |    1790 |
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   3129 |     648 |    3777 |
-| aihc-grin          |   1626 |     412 |    2038 |
-| aihc-parser        |  13536 |   17721 |   31257 |
+| aihc-fc            |   3516 |     711 |    4227 |
+| aihc-grin          |   1950 |     678 |    2628 |
+| aihc-parser        |  13536 |   17769 |   31305 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2296 |    1328 |    3624 |
-| aihc-tc            |   5899 |    2463 |    8362 |
-| **Total**          |  31562 |   24262 |   55824 |
+| aihc-tc            |   5983 |    2463 |    8446 |
+| **Total**          |  32442 |   24685 |   57127 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

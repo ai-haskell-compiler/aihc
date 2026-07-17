@@ -177,7 +177,7 @@ dsMatchesWithDictSource givenDicts abstractDicts ty matches = case matches of
             dicts <- dictionariesFor dictPreds
             body <- withDicts dicts (dsRhs (matchRhs m0))
             let dictLamExpr
-                  | abstractDicts = foldr (FcDictLam . classDictVar) body dicts
+                  | abstractDicts = foldr (FcLam . classDictVar) body dicts
                   | otherwise = body
             pure (foldr FcTyLam dictLamExpr tyLams)
           else do
@@ -189,7 +189,7 @@ dsMatchesWithDictSource givenDicts abstractDicts ty matches = case matches of
             body <- withDicts dicts (buildCaseChain argVars resTy matches)
             let lamExpr = foldr FcLam body argVars
                 dictLamExpr
-                  | abstractDicts = foldr (FcDictLam . classDictVar) lamExpr dicts
+                  | abstractDicts = foldr (FcLam . classDictVar) lamExpr dicts
                   | otherwise = lamExpr
             pure (foldr FcTyLam dictLamExpr tyLams)
   where
@@ -224,9 +224,6 @@ peelForAlls ty = ([], ty)
 peelQuals :: TcType -> ([Pred], TcType)
 peelQuals (TcQualTy preds body) = (preds, body)
 peelQuals ty = ([], ty)
-
-qualifiedBody :: TcType -> TcType
-qualifiedBody ty = snd (peelQuals (snd (peelForAlls ty)))
 
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
@@ -518,7 +515,7 @@ dsAnnotatedVar tcAnn name _expr = do
       v <- freshVar n ty
       let typedExpr = List.foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
       dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
-      pure (List.foldl' FcDictApp typedExpr dicts)
+      pure (List.foldl' FcApp typedExpr dicts)
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
@@ -1159,20 +1156,24 @@ dsEvidence evidence =
         Nothing ->
           desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
     EvGiven EqPred {} ->
-      pure (FcDict [])
+      pure unitConstructor
     EvDict dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
       contextDicts <- mapM dsEvidence contextEvidence
       let dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
-      pure (List.foldl' FcDictApp dictExpr contextDicts)
+      pure (List.foldl' FcApp dictExpr contextDicts)
     EvCoercion {} ->
-      pure (FcDict [])
-    EvSuperClass dict index ->
-      (`FcDictSelect` index) <$> dsEvidence dict
+      pure unitConstructor
+    EvSuperClass {} ->
+      desugarBug "superclass evidence is not supported by the type checker"
     EvCast dict _co ->
       dsEvidence dict
     EvVarTerm {} ->
       desugarBug "unresolved evidence variable in type-checker annotation"
+
+unitConstructor :: FcExpr
+unitConstructor =
+  FcVar (Var "()" (Unique (-13)) (TcTyCon (TyCon "()" 0) []))
 
 exprAnnotationType :: Expr -> Maybe TcType
 exprAnnotationType expr =
@@ -1287,16 +1288,11 @@ fcExprTypeM expr =
         Just ty -> pure ty
         Nothing -> desugarBug ("literal has invalid runtime representation: " <> show lit)
     FcApp fun _arg -> do
-      funTy <- qualifiedBody <$> fcExprTypeM fun
-      case funTy of
-        TcFunTy _argTy resTy -> pure resTy
-        _ -> desugarBug ("application to non-function type while desugaring: " <> show funTy)
-    FcDictApp fun _dict -> do
       funTy <- fcExprTypeM fun
       case funTy of
         TcQualTy (_pred : preds) body -> pure (if null preds then body else TcQualTy preds body)
         TcFunTy _argTy resTy -> pure resTy
-        _ -> desugarBug ("dictionary application to non-qualified type while desugaring: " <> show funTy)
+        _ -> desugarBug ("application to non-function type while desugaring: " <> show funTy)
     FcTyApp fun ty -> do
       funTy <- fcExprTypeM fun
       case funTy of
@@ -1304,9 +1300,6 @@ fcExprTypeM expr =
         _ -> desugarBug ("type application to non-forall type while desugaring: " <> show funTy)
     FcLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
     FcTyLam tv body -> TcForAllTy tv <$> fcExprTypeM body
-    FcDictLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
-    FcDict _fields -> pure (TcTyCon (TyCon "Dict" 0) [])
-    FcDictSelect {} -> desugarBug "dictionary selection lacks field type annotation while desugaring"
     FcLet _bind body -> fcExprTypeM body
     FcCase _scrut _binder alts ->
       case alts of

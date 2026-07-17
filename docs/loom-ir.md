@@ -20,6 +20,10 @@ A Loom program contains the same heap-layout declarations, globals, CAFs,
 primitive declarations, and foreign-call descriptors as its source GRIN
 program. Only function bodies change representation.
 
+Class dictionaries have no dedicated Loom representation. FC lowers them to
+ordinary data constructors and cases, and Loom preserves those ordinary GRIN
+forms.
+
 ```text
 function     ::= code f(value-parameters; return-continuation) = term
 
@@ -84,10 +88,6 @@ The Loom linter enforces:
 - values passed by `continue` match the target continuation's signature; and
 - an operation's result layout matches its successor's signature.
 
-`throw` has no result layout because it never returns, so it may occur with any
-successor signature. This keeps exceptional control explicit without claiming
-that the successor is reachable.
-
 The Haskell data type enforces the remaining control-flow invariant: it is not
 possible to construct a Loom term that implicitly returns or falls through.
 
@@ -98,10 +98,15 @@ Those facilities can be ordinary Loom code built around captured/resumable
 continuations. A later lowering may give a small set of continuation operations
 target-specific representations after control flow and roots are explicit.
 
-Runtime operations inherited from GRIN (`eval`, `apply`, `catch`, and similar
-operations) remain visible operations at this boundary. They are intentionally
-not part of Loom's control structure and can be replaced by ordinary Loom code
-in subsequent whole-program transformations.
+Runtime operations inherited from GRIN such as `eval` and `apply` remain
+visible operations at this boundary. They are intentionally not part of Loom's
+control structure and can be replaced by ordinary Loom code in subsequent
+whole-program transformations.
+
+Exception control is an earlier transformation. `throw` and `catch` must be
+replaced by ordinary GRIN control flow before CPS conversion; Loom has no
+exception operations, and its lowering rejects either GRIN form if one crosses
+the boundary.
 
 ## Compiler artifact
 

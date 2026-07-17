@@ -99,9 +99,6 @@ data LoomOperation
   | LoomUpdate !GrinValue !GrinValue
   | LoomEval !RuntimeRep !GrinValue
   | LoomApply !RuntimeRep !GrinValue ![GrinValue]
-  | LoomDictSelect !RuntimeRep !GrinValue !Int
-  | LoomThrow !GrinValue
-  | LoomCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | LoomForeignCall !GrinForeignCall ![GrinValue]
   deriving (Eq, Show)
 
@@ -112,18 +109,14 @@ data LoomAlt = LoomAlt
   }
   deriving (Eq, Show)
 
--- | The register layout delivered by an operation. 'LoomThrow' never returns,
--- so it is compatible with a successor of any signature.
-loomOperationResultReps :: LoomOperation -> Maybe [RuntimeRep]
+-- | The register layout delivered by an operation.
+loomOperationResultReps :: LoomOperation -> [RuntimeRep]
 loomOperationResultReps operation =
   case operation of
-    LoomStore {} -> Just [liftedRuntimeRep]
-    LoomFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
-    LoomUpdate _ value -> Just [grinValueRuntimeRep value]
-    LoomEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
-    LoomApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
-    LoomDictSelect runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
-    LoomThrow {} -> Nothing
-    LoomCatch runtimeRep _ _ _ -> Just (runtimeRepComponents runtimeRep)
+    LoomStore {} -> [liftedRuntimeRep]
+    LoomFetch runtimeRep _ -> runtimeRepComponents runtimeRep
+    LoomUpdate _ value -> [grinValueRuntimeRep value]
+    LoomEval runtimeRep _ -> runtimeRepComponents runtimeRep
+    LoomApply runtimeRep _ _ -> runtimeRepComponents runtimeRep
     LoomForeignCall foreignCall _ ->
-      Just (grinForeignCallResultReps (grinForeignCallSignature foreignCall))
+      grinForeignCallResultReps (grinForeignCallSignature foreignCall)

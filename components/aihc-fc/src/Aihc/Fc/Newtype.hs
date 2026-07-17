@@ -6,7 +6,10 @@
 -- providing their representational equality axiom. Their term constructors
 -- and patterns are casts and lazy bindings; they never denote heap nodes.
 module Aihc.Fc.Newtype
-  ( lowerNewtypes,
+  ( NewtypeInterface,
+    extractNewtypeInterface,
+    lowerNewtypes,
+    lowerNewtypesWithInterface,
   )
 where
 
@@ -19,9 +22,18 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
-newtype NewtypeEnv = NewtypeEnv
+newtype NewtypeInterface = NewtypeInterface
   { newtypesByConstructor :: Map Text FcNewtypeDecl
   }
+  deriving (Eq, Show, Read)
+
+instance Semigroup NewtypeInterface where
+  NewtypeInterface left <> NewtypeInterface right = NewtypeInterface (right <> left)
+
+instance Monoid NewtypeInterface where
+  mempty = NewtypeInterface Map.empty
+
+type NewtypeEnv = NewtypeInterface
 
 type LowerM = State Int
 
@@ -29,17 +41,27 @@ type LowerM = State Int
 -- Running this more than once is harmless, which lets callers normalize both
 -- individual modules and a later combined cross-module program.
 lowerNewtypes :: FcProgram -> FcProgram
-lowerNewtypes program@(FcProgram topBinds) =
+lowerNewtypes = lowerNewtypesWithInterface mempty
+
+-- | The representation information exported by one independently compiled
+-- unit. It contains declarations only; no term implementation crosses the
+-- incremental boundary.
+extractNewtypeInterface :: FcProgram -> NewtypeInterface
+extractNewtypeInterface (FcProgram topBinds) =
+  NewtypeInterface
+    ( Map.fromList
+        [ (fcNewtypeConstructor declaration, declaration)
+        | FcNewtype declaration <- topBinds
+        ]
+    )
+
+-- | Lower one compilation unit using declaration interfaces imported from
+-- already compiled units. Local declarations take precedence.
+lowerNewtypesWithInterface :: NewtypeInterface -> FcProgram -> FcProgram
+lowerNewtypesWithInterface imported program@(FcProgram topBinds) =
   FcProgram (evalState (mapM (lowerTopBind env) topBinds) (nextUnique program))
   where
-    env =
-      NewtypeEnv
-        { newtypesByConstructor =
-            Map.fromList
-              [ (fcNewtypeConstructor declaration, declaration)
-              | FcNewtype declaration <- topBinds
-              ]
-        }
+    env = imported <> extractNewtypeInterface program
 
 lowerTopBind :: NewtypeEnv -> FcTopBind -> LowerM FcTopBind
 lowerTopBind env topBind =
@@ -67,16 +89,12 @@ lowerExpr env expr =
           argument' <- lowerExpr env argument
           pure (wrapNewtype declaration typeArgs argument')
         Nothing -> FcApp <$> lowerExpr env function <*> lowerExpr env argument
-    FcDictApp function argument -> FcDictApp <$> lowerExpr env function <*> lowerExpr env argument
     FcTyApp {} ->
       case newtypeConstructorSpine env expr of
         Just (declaration, typeArgs) -> lowerConstructorValue declaration typeArgs
         Nothing -> lowerTypeApplication env expr
     FcLam var body -> FcLam var <$> lowerExpr env body
     FcTyLam tyVar body -> FcTyLam tyVar <$> lowerExpr env body
-    FcDictLam var body -> FcDictLam var <$> lowerExpr env body
-    FcDict fields -> FcDict <$> mapM (lowerExpr env) fields
-    FcDictSelect dictionary index -> (`FcDictSelect` index) <$> lowerExpr env dictionary
     FcLet bind body -> FcLet <$> lowerBind env bind <*> lowerExpr env body
     FcCase scrutinee binder alternatives -> lowerCase env scrutinee binder alternatives
     FcCast inner coercion -> (`FcCast` coercion) <$> lowerExpr env inner
@@ -196,13 +214,9 @@ exprUniques expression =
     FcVar var -> varUniques var
     FcLit {} -> []
     FcApp function argument -> exprUniques function <> exprUniques argument
-    FcDictApp function argument -> exprUniques function <> exprUniques argument
     FcTyApp inner _ -> exprUniques inner
     FcLam var body -> varUniques var <> exprUniques body
     FcTyLam _ body -> exprUniques body
-    FcDictLam var body -> varUniques var <> exprUniques body
-    FcDict fields -> concatMap exprUniques fields
-    FcDictSelect dictionary _ -> exprUniques dictionary
     FcLet bind body -> bindUniques bind <> exprUniques body
     FcCase scrutinee binder alternatives ->
       exprUniques scrutinee <> varUniques binder <> concatMap altUniques alternatives

@@ -126,7 +126,7 @@ compileOptionsParser =
       )
     <*> OA.switch
       ( OA.long "whole-program"
-          <> OA.help "Compile the program and all libraries as one assembly unit instead of linking cached library objects"
+          <> OA.help "After incremental module compilation, merge Core units for whole-program DCE and code generation"
       )
 
 replOptionsParser :: OA.Parser ReplOptions

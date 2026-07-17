@@ -2,6 +2,7 @@
 module Aihc.Cps
   ( module Aihc.Cps.Syntax,
     LoomLintError (..),
+    LoomLowerError (..),
     lintProgram,
     lowerProgram,
     renderProgram,
@@ -9,6 +10,6 @@ module Aihc.Cps
 where
 
 import Aihc.Cps.Lint (LoomLintError (..), lintProgram)
-import Aihc.Cps.Lower (lowerProgram)
+import Aihc.Cps.Lower (LoomLowerError (..), lowerProgram)
 import Aihc.Cps.Pretty (renderProgram)
 import Aihc.Cps.Syntax

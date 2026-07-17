@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 83
-- Supported: 83
+- Total Extensions: 84
+- Supported: 84
 - In Progress: 0
 
 ## Extension Status
@@ -22,6 +22,7 @@
 | DerivingStrategies        |   🟢    | 8/8           |
 | DerivingVia               |   🟢    | 7/7           |
 | DoAndIfThenElse           |   🟢    | 15/15         |
+| DoRec                     |   🟢    | 1/1           |
 | EmptyCase                 |   🟢    | 7/7           |
 | EmptyDataDecls            |   🟢    | 8/8           |
 | EmptyDataDeriving         |   🟢    | 4/4           |
@@ -63,7 +64,7 @@
 | PackageImports            |   🟢    | 6/6           |
 | ParallelListComp          |   🟢    | 3/3           |
 | PartialTypeSignatures     |   🟢    | 21/21         |
-| PatternGuards             |   🟢    | 8/8           |
+| PatternGuards             |   🟢    | 9/9           |
 | PatternSynonyms           |   🟢    | 34/34         |
 | PolyKinds                 |   🟢    | 14/14         |
 | QualifiedDo               |   🟢    | 4/4           |
@@ -71,7 +72,7 @@
 | QuasiQuotes               |   🟢    | 11/11         |
 | RankNTypes                |   🟢    | 5/5           |
 | RecordWildCards           |   🟢    | 10/10         |
-| RecursiveDo               |   🟢    | 4/4           |
+| RecursiveDo               |   🟢    | 5/5           |
 | RequiredTypeArguments     |   🟢    | 4/4           |
 | RoleAnnotations           |   🟢    | 7/7           |
 | Safe                      |   🟢    | 2/2           |
@@ -79,7 +80,7 @@
 | StandaloneDeriving        |   🟢    | 18/18         |
 | StandaloneKindSignatures  |   🟢    | 12/12         |
 | StarIsType                |   🟢    | 4/4           |
-| TemplateHaskell           |   🟢    | 67/67         |
+| TemplateHaskell           |   🟢    | 68/68         |
 | TemplateHaskellQuotes     |   🟢    | 14/14         |
 | TransformListComp         |   🟢    | 17/17         |
 | TupleSections             |   🟢    | 4/4           |

@@ -41,7 +41,6 @@ data EvalError
   | EvalForeignTypeError Text Value
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
-  | EvalInvalidDictSelect Value Int
   | EvalRaisedException Value
   deriving (Eq, Show)
 
@@ -49,7 +48,6 @@ data Value
   = VLit Literal
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
-  | VDict [Value]
   | VPrim Text Int [Value]
   | VMutVar EvalMutVar
   | VStateToken
@@ -132,28 +130,12 @@ evalWithEnv env expr =
     FcApp fun arg -> do
       funValue <- evalWithEnv env fun
       applyValue funValue (VThunk env arg)
-    FcDictApp fun arg -> do
-      funValue <- evalWithEnv env fun
-      applyValue funValue (VThunk env arg)
     FcTyApp inner _ ->
       evalWithEnv env inner
     FcLam var body ->
       pure (VClosure env var body)
     FcTyLam _ body ->
       evalWithEnv env body
-    FcDictLam var body ->
-      pure (VClosure env var body)
-    FcDict fields ->
-      pure (VDict (map (VThunk env) fields))
-    FcDictSelect dict index -> do
-      dictValue <- evalWithEnv env dict >>= forceValue
-      case dictValue of
-        VDict fields
-          | index >= 0,
-            index < length fields ->
-              forceValue (fields !! index)
-          | otherwise -> throwE (EvalInvalidDictSelect dictValue index)
-        _ -> throwE (EvalApplyNonFunction dictValue)
     FcLet bind body ->
       evalWithEnv (extendBind env bind) body
     FcCase scrut _ alts -> do
@@ -426,7 +408,6 @@ renderForcedValue value =
     VConstructor name args -> do
       renderedArgs <- mapM (renderValueM <=< forceValue) args
       pure (T.unwords (name : renderedArgs))
-    VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VMutVar {} -> pure "<mutvar>"
@@ -498,7 +479,6 @@ renderRawValueM value = do
     VConstructor name args -> do
       renderedArgs <- mapM renderRawArg args
       pure (T.unwords (name : renderedArgs))
-    VDict {} -> pure "<dictionary>"
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VMutVar {} -> pure "<mutvar>"

@@ -2,8 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Core-library discovery and content-addressed compilation for @aihc compile@.
--- Each closure cache contains the frontend interface, one native object per
--- loaded module, and one static archive per contributing library.
+-- Each closure cache contains the frontend interfaces and one Core, GRIN, and
+-- native object artifact per strongly connected module component.
 module Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -12,8 +12,8 @@ module Aihc.Cli.Compile.Dependencies
   )
 where
 
-import Aihc.Arm64 (LinkLayout, buildLinkLayout, compileModule, targetTriple)
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
+import Aihc.Arm64 (LinkInterface, LinkLayout, buildLinkLayoutFromInterfaces, compileModule, extractLinkInterface, targetTriple)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface)
 import Aihc.Grin qualified as Grin
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -35,7 +35,7 @@ import Aihc.Resolve
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
-    extractInterface,
+    extractInterfaceWithDeps,
     resolveWithDeps,
   )
 import Aihc.Tc
@@ -47,16 +47,17 @@ import Aihc.Tc
     tcModuleDiagnostics,
     tcModuleInstances,
     tcModuleSuccess,
-    typecheckModulesWithFullEnv,
+    typecheckModuleSccWithFullEnv,
   )
 import Control.Exception (bracket, bracketOnError)
 import Control.Monad (filterM, foldM)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -98,16 +99,24 @@ data DependencyArtifact = DependencyArtifact
     dependencyTyCons :: ![TyConInfo],
     dependencyBindings :: ![TcBindingResult],
     dependencyInstances :: ![InstanceInfo],
-    dependencyProgram :: !FcProgram,
+    dependencyNewtypeInterface :: !NewtypeInterface,
+    dependencyGrinInterface :: !Grin.GrinInterface,
+    dependencyReachabilityInterface :: !ReachabilityInterface,
+    dependencyLinkInterfaces :: ![LinkInterface],
     dependencyUnits :: ![DependencyUnit],
     dependencyInitializerSymbols :: ![Text],
     dependencyArchivePaths :: ![FilePath]
   }
 
 data DependencyUnit = DependencyUnit
-  { dependencyUnitLibrary :: !Text,
-    dependencyUnitModule :: !Text,
-    dependencyUnitProgram :: !FcProgram
+  { dependencyUnitLibraries :: ![Text],
+    dependencyUnitModules :: ![Text],
+    dependencyUnitProgram :: !FcProgram,
+    dependencyUnitGrin :: !Grin.GrinProgram,
+    dependencyUnitNewtypeInterface :: !NewtypeInterface,
+    dependencyUnitGrinInterface :: !Grin.GrinInterface,
+    dependencyUnitReachabilityInterface :: !ReachabilityInterface,
+    dependencyUnitLinkInterface :: !LinkInterface
   }
   deriving (Eq, Show, Read)
 
@@ -154,7 +163,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 4
+cacheSchemaVersion = 5
 
 buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies environment usesImplicitPrelude buildNative mainModule = do
@@ -207,7 +216,10 @@ emptyDependencyArtifact =
       dependencyTyCons = [],
       dependencyBindings = [],
       dependencyInstances = [],
-      dependencyProgram = FcProgram [],
+      dependencyNewtypeInterface = mempty,
+      dependencyGrinInterface = mempty,
+      dependencyReachabilityInterface = mempty,
+      dependencyLinkInterfaces = [],
       dependencyUnits = [],
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
@@ -301,51 +313,111 @@ parserConfig sourceName source =
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
 compileLoadedModules :: [LoadedModule] -> Either String DependencyArtifact
-compileLoadedModules loaded =
-  case resolveWithDeps Map.empty modules of
-    ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("core library resolve error: " <> show errors)
-    resolved@ResolveResult {resolvedModules} ->
-      let (checkedModules, termSchemes, tyCons) = typecheckModulesWithFullEnv [] [] [] resolvedModules
-       in if not (all tcModuleSuccess checkedModules)
-            then Left ("core library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
-            else
-              let bindings = concatMap tcModuleBindings checkedModules
-                  instances = concatMap tcModuleInstances checkedModules
-                  desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
-               in if not (all dsSuccess desugared)
-                    then Left ("core library desugar error: " <> unlines (concatMap dsErrors desugared))
-                    else
-                      Right
-                        DependencyArtifact
-                          { dependencyExports = extractInterface resolved,
-                            dependencyTerms = termSchemes,
-                            dependencyTyCons = tyCons,
-                            dependencyBindings = bindings,
-                            dependencyInstances = instances,
-                            dependencyProgram = concatPrograms (map dsProgram desugared),
-                            dependencyUnits = zipWith makeUnit loaded desugared,
-                            dependencyInitializerSymbols = [],
-                            dependencyArchivePaths = []
-                          }
+compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedModuleSccs loaded)
   where
-    modules = map loadedModule loaded
-    makeUnit loadedModule' desugared =
-      DependencyUnit
-        { dependencyUnitLibrary = loadedLibrary loadedModule',
-          dependencyUnitModule = fromMaybe "Main" (moduleName (loadedModule loadedModule')),
-          dependencyUnitProgram = dsProgram desugared
+    initialState = CompileState Map.empty [] [] [] [] mempty mempty mempty [] []
+
+    compileScc state members =
+      case resolveWithDeps (compileStateExports state) (map loadedModule members) of
+        ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("core library resolve error: " <> show errors)
+        resolved@ResolveResult {resolvedModules} ->
+          let (checkedModules, termSchemes, tyCons) =
+                typecheckModuleSccWithFullEnv
+                  (compileStateTerms state)
+                  (compileStateTyCons state)
+                  (compileStateInstances state)
+                  resolvedModules
+           in if not (all tcModuleSuccess checkedModules)
+                then Left ("core library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
+                else
+                  let localBindings = concatMap tcModuleBindings checkedModules
+                      bindings = compileStateBindings state <> localBindings
+                      localInstances = concatMap tcModuleInstances checkedModules
+                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
+                   in if not (all dsSuccess desugared)
+                        then Left ("core library desugar error: " <> unlines (concatMap dsErrors desugared))
+                        else
+                          let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
+                              core = lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore
+                              newtypes = extractNewtypeInterface core
+                              grinInterface = Grin.extractGrinInterface core
+                              reachabilityInterface = extractReachabilityInterface core
+                              grin = Grin.lowerProgramWithInterface (compileStateGrin state) core
+                              linkInterface = extractLinkInterface grin
+                              unit =
+                                DependencyUnit
+                                  { dependencyUnitLibraries = sort (Set.toList (Set.fromList (map loadedLibrary members))),
+                                    dependencyUnitModules = sort (map loadedModuleName members),
+                                    dependencyUnitProgram = core,
+                                    dependencyUnitGrin = grin,
+                                    dependencyUnitNewtypeInterface = newtypes,
+                                    dependencyUnitGrinInterface = grinInterface,
+                                    dependencyUnitReachabilityInterface = reachabilityInterface,
+                                    dependencyUnitLinkInterface = linkInterface
+                                  }
+                           in Right
+                                CompileState
+                                  { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
+                                    compileStateTerms = termSchemes,
+                                    compileStateTyCons = tyCons,
+                                    compileStateBindings = bindings,
+                                    compileStateInstances = compileStateInstances state <> localInstances,
+                                    compileStateNewtypes = compileStateNewtypes state <> newtypes,
+                                    compileStateGrin = compileStateGrin state <> grinInterface,
+                                    compileStateReachability = compileStateReachability state <> reachabilityInterface,
+                                    compileStateLinks = compileStateLinks state <> [linkInterface],
+                                    compileStateUnits = compileStateUnits state <> [unit]
+                                  }
+
+    finish state =
+      DependencyArtifact
+        { dependencyExports = compileStateExports state,
+          dependencyTerms = compileStateTerms state,
+          dependencyTyCons = compileStateTyCons state,
+          dependencyBindings = compileStateBindings state,
+          dependencyInstances = compileStateInstances state,
+          dependencyNewtypeInterface = compileStateNewtypes state,
+          dependencyGrinInterface = compileStateGrin state,
+          dependencyReachabilityInterface = compileStateReachability state,
+          dependencyLinkInterfaces = compileStateLinks state,
+          dependencyUnits = compileStateUnits state,
+          dependencyInitializerSymbols = [],
+          dependencyArchivePaths = []
         }
 
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+data CompileState = CompileState
+  { compileStateExports :: !ModuleExports,
+    compileStateTerms :: ![(Text, TypeScheme)],
+    compileStateTyCons :: ![TyConInfo],
+    compileStateBindings :: ![TcBindingResult],
+    compileStateInstances :: ![InstanceInfo],
+    compileStateNewtypes :: !NewtypeInterface,
+    compileStateGrin :: !Grin.GrinInterface,
+    compileStateReachability :: !ReachabilityInterface,
+    compileStateLinks :: ![LinkInterface],
+    compileStateUnits :: ![DependencyUnit]
+  }
+
+loadedModuleSccs :: [LoadedModule] -> [[LoadedModule]]
+loadedModuleSccs = map flatten . stronglyConnComp . map graphNode
+  where
+    graphNode loaded =
+      ( loaded,
+        loadedModuleName loaded,
+        map importDeclModule (moduleImports (loadedModule loaded))
+      )
+    flatten (AcyclicSCC member) = [member]
+    flatten (CyclicSCC members) = members
+
+loadedModuleName :: LoadedModule -> Text
+loadedModuleName = fromMaybe "Main" . moduleName . loadedModule
 
 buildNativeArtifacts :: FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
 buildNativeArtifacts artifactRoot units = do
-  let programs = Grin.lowerPrograms (map dependencyUnitProgram units)
-      layout = buildLinkLayout programs
+  let layout = buildLinkLayoutFromInterfaces (map dependencyUnitLinkInterface units)
       objectRoot = artifactRoot </> "objects"
       archiveRoot = artifactRoot </> "archives"
-      nativeUnits = zipWith (nativeUnit objectRoot) units programs
+      nativeUnits = map (nativeUnit objectRoot) units
   objectResults <- mapM (buildObject layout) nativeUnits
   case sequence objectResults of
     Left err -> pure (Left err)
@@ -353,7 +425,7 @@ buildNativeArtifacts artifactRoot units = do
       createDirectoryIfMissing True archiveRoot
       let archiveMembers =
             foldl'
-              (\archives unit -> Map.insertWith (flip (<>)) (dependencyUnitLibrary (nativeDependencyUnit unit)) [nativeObjectPath unit] archives)
+              (\archives unit -> Map.insertWith (flip (<>)) (nativeUnitLibrary unit) [nativeObjectPath unit] archives)
               Map.empty
               nativeUnits
       archives <- mapM (buildArchive archiveRoot) (Map.toAscList archiveMembers)
@@ -368,16 +440,24 @@ data NativeUnit = NativeUnit
     nativeObjectPath :: !FilePath
   }
 
-nativeUnit :: FilePath -> DependencyUnit -> Grin.GrinProgram -> NativeUnit
-nativeUnit objectRoot unit program =
+nativeUnit :: FilePath -> DependencyUnit -> NativeUnit
+nativeUnit objectRoot unit =
   NativeUnit
     { nativeDependencyUnit = unit,
-      nativeProgram = program,
+      nativeProgram = dependencyUnitGrin unit,
       nativeInitializerSymbol = initializer,
-      nativeObjectPath = objectRoot </> T.unpack (dependencyUnitLibrary unit) </> T.unpack (dependencyUnitModule unit) <> ".o"
+      nativeObjectPath = objectRoot </> T.unpack library </> T.unpack unitName <> ".o"
     }
   where
-    initializer = "_aihc_init_" <> symbolHex (dependencyUnitLibrary unit <> "\0" <> dependencyUnitModule unit)
+    library = dependencyUnitPrimaryLibrary unit
+    unitName = T.intercalate "+" (dependencyUnitModules unit)
+    initializer = "_aihc_init_" <> symbolHex (library <> "\0" <> T.intercalate "\0" (dependencyUnitModules unit))
+
+nativeUnitLibrary :: NativeUnit -> Text
+nativeUnitLibrary = dependencyUnitPrimaryLibrary . nativeDependencyUnit
+
+dependencyUnitPrimaryLibrary :: DependencyUnit -> Text
+dependencyUnitPrimaryLibrary unit = fromMaybe "dependencies" (listToMaybe (dependencyUnitLibraries unit))
 
 symbolHex :: Text -> Text
 symbolHex = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
@@ -393,7 +473,7 @@ buildObject layout unit = do
     then pure (Right ())
     else do
       case compileModule layout (nativeInitializerSymbol unit) (nativeProgram unit) of
-        Left err -> pure (Left ("ARM64 dependency code generation failed for " <> T.unpack (dependencyUnitModule (nativeDependencyUnit unit)) <> ": " <> show err))
+        Left err -> pure (Left ("ARM64 dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> show err))
         Right assembly -> do
           createDirectoryIfMissing True directory
           withTemporaryDirectory directory "module-build" $ \temporary -> do
@@ -403,7 +483,10 @@ buildObject layout unit = do
             (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath] ""
             case exitCode of
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
-              ExitFailure _ -> pure (Left ("failed to assemble dependency module " <> T.unpack (dependencyUnitModule (nativeDependencyUnit unit)) <> ": " <> stderr))
+              ExitFailure _ -> pure (Left ("failed to assemble dependency unit " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> stderr))
+
+dependencyUnitLabel :: DependencyUnit -> String
+dependencyUnitLabel = T.unpack . T.intercalate "," . dependencyUnitModules
 
 buildArchive :: FilePath -> (Text, [FilePath]) -> IO (Either String FilePath)
 buildArchive archiveRoot (library, objects) = do
@@ -528,11 +611,16 @@ fromStoredArtifact stored =
       dependencyTyCons = storedTyCons stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
-      dependencyProgram = concatPrograms (map dependencyUnitProgram (storedUnits stored)),
+      dependencyNewtypeInterface = foldMap dependencyUnitNewtypeInterface units,
+      dependencyGrinInterface = foldMap dependencyUnitGrinInterface units,
+      dependencyReachabilityInterface = foldMap dependencyUnitReachabilityInterface units,
+      dependencyLinkInterfaces = map dependencyUnitLinkInterface units,
       dependencyUnits = storedUnits stored,
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
     }
+  where
+    units = storedUnits stored
 
 toStoredExports :: ModuleExports -> StoredModuleExports
 toStoredExports = StoredModuleExports . map (fmap toStoredScope) . Map.toAscList

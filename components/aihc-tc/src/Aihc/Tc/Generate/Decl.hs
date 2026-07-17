@@ -8,6 +8,7 @@
 -- Processes top-level data declarations and value bindings from a module.
 module Aihc.Tc.Generate.Decl
   ( tcModule,
+    tcModuleScc,
     moduleBindings,
     moduleInstances,
     TcBindingResult (..),
@@ -288,12 +289,40 @@ dataConBindingName name =
 -- needed by older callers.
 tcModule :: Module -> TcM Module
 tcModule m = do
+  modules <- tcModuleScc [m]
+  case modules of
+    [result] -> pure result
+    _ -> pure m
+
+-- | Type-check one strongly connected module component. Data declarations and
+-- explicit signatures are registered for the whole component before any
+-- value body is checked, allowing a module to refer back to a signed binding
+-- in another member of the same import cycle.
+tcModuleScc :: [Module] -> TcM [Module]
+tcModuleScc modules = do
   -- Phase 1: collect data declarations, register constructors,
   --          and report their types.
-  mapM_ registerDecl (moduleDecls m)
+  mapM_ registerDecl (concatMap moduleDecls modules)
   -- Phase 2: collect type signatures and convert them to schemes.
-  rawSigs <- collectUserSigs (moduleDecls m)
-  schemes <- traverse checkUserSig rawSigs
+  rawSigs <- mapM (collectUserSigs . moduleDecls) modules
+  schemes <- mapM (traverse checkUserSig) rawSigs
+  mapM_ registerCheckedSig (concatMap Map.elems schemes)
+  pending <- zipWithM tcModuleBody schemes modules
+  -- No module interface in the SCC may retain state-local kind metavariables.
+  defaultGlobalKindMetas
+  mapM finishPendingModule pending
+
+registerCheckedSig :: CheckedSig -> TcM ()
+registerCheckedSig sig =
+  extendTermEnvPermanent (checkedSigName sig) (TcIdBinder (checkedSigScheme sig) Closed)
+
+data PendingModule = PendingModule
+  { pendingSyntax :: !Module,
+    pendingValueResults :: ![TcBindingResult]
+  }
+
+tcModuleBody :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
+tcModuleBody schemes m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
   grouped <- sortDeclGroups sourceGroups
@@ -312,17 +341,18 @@ tcModule m = do
   -- and evidence records as ordinary expressions.
   instanceDecls <- mapM tcInstanceDeclBodies (moduleDecls valueAnnotatedModule)
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
-  -- A module interface must never retain state-local kind metavariables: the
-  -- kind solution map is deliberately cleared before the next module.
-  defaultGlobalKindMetas
   -- Phase 5: reject source top-level values whose finalized types are
   -- unlifted. Generated declarations without source spans are permitted so
   -- downstream passes can introduce internal unlifted bindings.
   checkTopLevelUnliftedBindings sourceGroups groupResults
+  pure (PendingModule pendingModule valueResults)
+
+finishPendingModule :: PendingModule -> TcM Module
+finishPendingModule pending = do
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotatedModule <- annotateModuleTc (Set.fromList (map tbName valueResults)) pendingModule
+  annotatedModule <- annotateModuleTc (Set.fromList (map tbName (pendingValueResults pending))) (pendingSyntax pending)
   finalizeModuleTc annotatedModule
 
 defaultGlobalKindMetas :: TcM ()

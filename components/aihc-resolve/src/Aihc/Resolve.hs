@@ -11,6 +11,7 @@ module Aihc.Resolve
     resolve,
     resolveWithDeps,
     extractInterface,
+    extractInterfaceWithDeps,
     OperatorFixity (..),
     Scope (..),
     ModuleExports,
@@ -199,6 +200,9 @@ resolveWithDeps depExports modules =
 
 extractInterface :: ResolveResult -> ModuleExports
 extractInterface = collectModuleExports . resolvedModules
+
+extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
+extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
 resolveModule :: ModuleExports -> Int -> Module -> (Int, Module)
 resolveModule exports nextLocal modu =
