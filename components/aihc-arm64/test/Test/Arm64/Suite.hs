@@ -146,6 +146,30 @@ tests =
             assertBool "returns two values" ("ldr x1, =2" `T.isInfixOf` assembly)
             assertBool "uses the multi-value return ABI" ("bl _aihc_return_values" `T.isInfixOf` assembly)
             assertBool "does not allocate an aggregate node" (not ("bl _aihc_make_node" `T.isInfixOf` assembly)),
+      testCase "compiles ordinary constructor projection" $ do
+        let object = GrinVar "object" 1 (BoxedRep Lifted)
+            functionName = FunctionName "project_code"
+            program =
+              GrinProgram
+                { grinConstructors = [("Pair", [IntRep, IntRep])],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [object],
+                          grinFunctionResultRep = IntRep,
+                          grinFunctionBody = GrinProject IntRep (GrinVarValue object) 1
+                        }
+                    ]
+                }
+        case compileModule (buildLinkLayout [program]) "_aihc_init_project" program of
+          Left err -> assertFailure ("native projection compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "uses the general projection helper" ("bl _aihc_project" `T.isInfixOf` assembly)
+            assertBool "has no dictionary selector" (not ("_aihc_select" `T.isInfixOf` assembly)),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 

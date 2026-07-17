@@ -36,6 +36,7 @@ data LowerState = LowerState
     lowerPrimitiveNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
+    lowerRecordArities :: !(Set Int),
     lowerLocalVars :: !(Map (Text, Unique) [GrinVar])
   }
 
@@ -126,7 +127,11 @@ programEnvironment interface =
 lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
 lowerProgramWithEnvironment environment program =
   GrinProgram
-    { grinConstructors = loweredConstructors tops,
+    { grinConstructors =
+        loweredConstructors tops
+          <> [ (recordConstructorName arity, replicate arity liftedRuntimeRep)
+             | arity <- Set.toAscList (lowerRecordArities finalState)
+             ],
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
       grinWhnfGlobals = loweredWhnfGlobals tops,
@@ -142,6 +147,7 @@ lowerProgramWithEnvironment environment program =
           lowerPrimitiveNames = programEnvironmentPrimitives environment,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
+          lowerRecordArities = Set.empty,
           lowerLocalVars = Map.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
@@ -251,12 +257,27 @@ lowerNonTupleExpr expr =
       lowerExpr body
     FcDictLam var body ->
       lowerLambda var body
-    FcDict fields ->
+    FcDict fields -> do
+      let arity = length fields
+          fieldReps = map exprRuntimeRep fields
+      if all (== liftedRuntimeRep) fieldReps
+        then pure ()
+        else error ("GRIN lowering received a non-lifted dictionary layout: " <> show fieldReps)
+      registerRecordConstructor arity
       lowerArgumentMany fields $ \values ->
-        pure (GrinReturn [GrinNodeValue (GrinNode GrinDictionary values)])
+        if length values == arity
+          then pure (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor (recordConstructorName arity)) values)])
+          else error "GRIN lowering expected every dictionary field to occupy one runtime slot"
     FcDictSelect dictionary index ->
-      lowerSingleStrict "dictionary" dictionary $ \value ->
-        pure (GrinDictSelect liftedRuntimeRep value index)
+      lowerSingleStrict "record" dictionary $ \value ->
+        do
+          field <- freshVar "projected_field" liftedRuntimeRep
+          pure
+            ( GrinBind
+                [field]
+                (GrinProject liftedRuntimeRep value index)
+                (GrinEval liftedRuntimeRep (GrinVarValue field))
+            )
     FcLet bind body ->
       lowerLet bind body
     FcCase scrutinee binder alternatives ->
@@ -492,6 +513,15 @@ freshFunction kind = do
 emitFunction :: GrinFunction -> LowerM ()
 emitFunction function =
   modify' $ \state -> state {lowerFunctionsRev = function : lowerFunctionsRev state}
+
+-- | FC dictionaries are homogeneous lifted records once type-class meaning is
+-- erased. Equal layouts share an ordinary generated constructor.
+registerRecordConstructor :: Int -> LowerM ()
+registerRecordConstructor arity =
+  modify' $ \state -> state {lowerRecordArities = Set.insert arity (lowerRecordArities state)}
+
+recordConstructorName :: Int -> Text
+recordConstructorName arity = "$grin_record_" <> T.pack (show arity)
 
 primitiveApplication :: Set Text -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
 primitiveApplication primitiveNames localVars expr =

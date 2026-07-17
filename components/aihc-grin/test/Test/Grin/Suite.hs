@@ -56,6 +56,35 @@ grinUnitTests =
         assertBool
           "constructor layout mismatch"
           (GrinLintConstructorLayout "Box" [WordRep] [IntRep] `elem` lintProgram program),
+      testCase "lint rejects statically invalid constructor projections" $ do
+        let functionName = FunctionName "project_code"
+            nonConstructor = GrinNodeValue (GrinNode (GrinThunk functionName) [])
+            box = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])
+            projectProgram resultRep constructors object index =
+              GrinProgram
+                { grinConstructors = constructors,
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = resultRep,
+                          grinFunctionBody = GrinProject resultRep object index
+                        }
+                    ]
+                }
+        assertBool
+          "non-constructor projection"
+          (GrinLintProjectNonConstructor (GrinThunk functionName) `elem` lintProgram (projectProgram (BoxedRep Lifted) [] nonConstructor 0))
+        assertBool
+          "out-of-bounds projection"
+          (GrinLintInvalidProjectIndex 1 `elem` lintProgram (projectProgram IntRep [("Box", [IntRep])] box 1))
+        assertBool
+          "non-atomic projection result"
+          (GrinLintProjectNonAtomic (TupleRep [IntRep, WordRep]) `elem` lintProgram (projectProgram (TupleRep [IntRep, WordRep]) [("Box", [IntRep])] box 0)),
       testCase "FC lowering makes exception control explicit" $ do
         let program = lowerProgram exceptionProgram
             rendered = renderProgram program
@@ -95,6 +124,18 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
         assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
+      testCase "FC dictionaries lower to ordinary constructor projection" $ do
+        let program = lowerProgram dictionaryProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual
+          "dictionary layout"
+          (Just [BoxedRep Lifted, BoxedRep Lifted])
+          (lookup "$grin_record_2" (grinConstructors program))
+        assertBool "ordinary constructor node" ("C$grin_record_2" `isInfixOf` rendered)
+        assertBool "ordinary field projection" ("project @BoxedRep Lifted" `isInfixOf` rendered)
+        result <- interpretProgramBinding "answer" program
+        assertEqual "selected field is evaluated" (Right "Box 2") result,
       testCase "separate FC units do not capture dependency globals" $ do
         case separatePrograms of
           [providerCore, consumerCore] -> do
@@ -316,6 +357,21 @@ functionClassificationProgram =
     computedArgumentVar = Var "argument" (Unique 35) boxedIntTy
     computedVar = Var "computed" (Unique 36) (TcFunTy boxedIntTy boxedIntTy)
     boxConstructorVar = Var "BoxedInt" (Unique 37) (TcFunTy intTy boxedIntTy)
+
+dictionaryProgram :: FcProgram
+dictionaryProgram =
+  FcProgram
+    [ FcData "Box" [] [("Box", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            answerVar
+            (FcDictSelect (FcDict [boxed 1, boxed 2]) 1)
+        )
+    ]
+  where
+    answerVar = Var "answer" (Unique 40) boxedIntTy
+    boxConstructorVar = Var "Box" (Unique 41) (TcFunTy intTy boxedIntTy)
+    boxed value = FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep value))
 
 exceptionProgram :: FcProgram
 exceptionProgram =

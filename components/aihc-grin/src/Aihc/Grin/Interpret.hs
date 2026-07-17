@@ -46,7 +46,7 @@ data InterpretError
   | InterpretInvalidThunkResult ![RuntimeValue]
   | InterpretInvalidThunkResultRep !FunctionName !RuntimeRep
   | InterpretInvalidUpdateValue !RuntimeValue
-  | InterpretInvalidDictSelect !RuntimeValue !Int
+  | InterpretInvalidProject !RuntimeValue !Int
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
@@ -212,15 +212,15 @@ evalExpr env expr =
     GrinCase scrutinee binder alternatives -> do
       value <- evalValue env scrutinee >>= forceValue
       matchAlternative (Map.insert binder value env) value alternatives
-    GrinDictSelect _ dictionary index -> do
-      dictionaryValue <- evalValue env dictionary >>= forceValue
-      case dictionaryValue of
-        RuntimeNode GrinDictionary fields
+    GrinProject _ object index -> do
+      objectValue <- evalValue env object
+      case objectValue of
+        RuntimeNode (GrinConstructor _) fields
           | index >= 0,
             index < length fields ->
-              (: []) <$> forceValue (fields !! index)
-          | otherwise -> throwInterpret (InterpretInvalidDictSelect dictionaryValue index)
-        other -> throwInterpret (InterpretInvalidDictSelect other index)
+              pure [fields !! index]
+          | otherwise -> throwInterpret (InterpretInvalidProject objectValue index)
+        other -> throwInterpret (InterpretInvalidProject other index)
     GrinThrow exception -> do
       exceptionValue <- evalValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)
@@ -588,7 +588,6 @@ renderRawValueM value = do
     RuntimeNode (GrinConstructor name) arguments -> do
       renderedArguments <- mapM renderRawArgument arguments
       pure (T.unwords (name : renderedArguments))
-    RuntimeNode GrinDictionary _ -> pure "<dictionary>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode GrinPrimitive {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"

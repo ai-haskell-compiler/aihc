@@ -31,6 +31,9 @@ data GrinLintError
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
   | GrinLintConstructorLayout !Text ![RuntimeRep] ![RuntimeRep]
+  | GrinLintInvalidProjectIndex !Int
+  | GrinLintProjectNonConstructor !GrinNodeTag
+  | GrinLintProjectNonAtomic !RuntimeRep
   deriving (Eq, Show)
 
 data LintEnv = LintEnv
@@ -134,7 +137,11 @@ lintExpr env bound expr =
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
-    GrinDictSelect _ dictionary _ -> lintValue env bound dictionary
+    GrinProject runtimeRep object index ->
+      [GrinLintInvalidProjectIndex index | index < 0]
+        <> [GrinLintProjectNonAtomic runtimeRep | runtimeRepComponents runtimeRep /= [runtimeRep]]
+        <> lintProject runtimeRep object index
+        <> lintValue env bound object
     GrinThrow exception -> lintValue env bound exception
     GrinCatch _ action handler state ->
       lintValue env bound action
@@ -181,6 +188,23 @@ lintValue env bound value =
       | otherwise -> [GrinLintUnboundVariable var]
     GrinLitValue _ -> []
     GrinNodeValue node -> lintNode env bound node
+
+lintProject :: RuntimeRep -> GrinValue -> Int -> [GrinLintError]
+lintProject expected object index =
+  case object of
+    GrinNodeValue node ->
+      case grinNodeTag node of
+        GrinConstructor _
+          | index >= length fields -> [GrinLintInvalidProjectIndex index]
+          | index >= 0,
+            let actual = grinValueRuntimeRep (fields !! index),
+            expected /= actual ->
+              [GrinLintRepresentationMismatch "projection result" expected actual]
+          | otherwise -> []
+        tag -> [GrinLintProjectNonConstructor tag]
+      where
+        fields = grinNodeFields node
+    _ -> []
 
 lintNode :: LintEnv -> Set GrinVar -> GrinNode -> [GrinLintError]
 lintNode env bound node =
@@ -245,7 +269,7 @@ exprRuntimeReps expr =
       case alternatives of
         first : _ -> exprRuntimeReps (grinAltRhs first)
         [] -> Nothing
-    GrinDictSelect runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinProject runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinThrow {} -> Nothing
     GrinCatch runtimeRep _ _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinForeignCallExpr foreignCall _ ->
