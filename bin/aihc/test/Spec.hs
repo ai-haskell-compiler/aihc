@@ -8,6 +8,7 @@ import Aihc.Cli.Compile
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
     compileSourceToCoreWithDependencies,
+    compileSourceToGrinWithDependencies,
     defaultCompileEnvironment,
     runCompileWithEnvironment,
   )
@@ -153,7 +154,7 @@ main =
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
-          testCase "builds explicit core imports under NoImplicitPrelude" test_compileExplicitCoreImport
+          testCase "builds explicit incremental imports under NoImplicitPrelude" test_compileExplicitCoreImport
         ],
       testGroup
         "repl"
@@ -967,13 +968,18 @@ test_compileExplicitCoreImport =
             "module Demo (identity) where",
             "data UnreachableDependencyType = UnreachableDependencyConstructor",
             "unreachableDependencyFunction = UnreachableDependencyConstructor",
-            "identity x = x"
+            "dependencyImplementation x = x",
+            "identity x = dependencyImplementation x"
           ]
       )
-    core <- expectCompileCore =<< compileSourceToCoreWithDependencies environment "Main.hs" importedSource
-    assertBool "reachable dependency function is retained" ("identity" `T.isInfixOf` core)
-    assertBool "unreachable dependency function is eliminated" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
-    assertBool "unreachable dependency type is eliminated" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
+    core <- expectCompileArtifact =<< compileSourceToCoreWithDependencies environment "Main.hs" importedSource
+    grin <- expectCompileArtifact =<< compileSourceToGrinWithDependencies environment "Main.hs" importedSource
+    assertBool "dependency reference remains in incremental Core" ("identity" `T.isInfixOf` core)
+    assertBool "dependency reference remains in incremental GRIN" ("identity" `T.isInfixOf` grin)
+    assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
+    assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
+    assertBool "unreachable dependency function is excluded from Core" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
+    assertBool "unreachable dependency type is excluded from Core" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
     compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
 
@@ -983,8 +989,8 @@ expectCompileSuccess result =
     Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
     Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
 
-expectCompileCore :: Either CompileError T.Text -> IO T.Text
-expectCompileCore result =
+expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
+expectCompileArtifact result =
   case result of
     Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
     Right core -> pure core

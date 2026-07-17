@@ -7,6 +7,7 @@ module Aihc.Cli.Compile
     CompileError (..),
     compileOutputPath,
     compileSourceToCoreWithDependencies,
+    compileSourceToGrinWithDependencies,
     compileSourceToAssembly,
     compileSourceToAssemblyWithDependencies,
     defaultCompileEnvironment,
@@ -129,11 +130,18 @@ compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Tex
 compileSourceToAssemblyWithDependencies environment sourceName source =
   fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
--- | Compile source and its dependencies to the optimized, combined System FC
--- program rendered by @--keep-core@.
+-- | Compile source to the incremental System FC program rendered by
+-- @--keep-core@. Dependency declarations participate in cross-unit lowering,
+-- but their implementations remain in their separately compiled artifacts.
 compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCoreWithDependencies environment sourceName source =
   fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+
+-- | Compile source and its dependencies to the incremental GRIN program
+-- rendered by @--keep-grin@.
+compileSourceToGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToGrinWithDependencies environment sourceName source =
+  fmap (fmap compiledGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
 compileSourceToArtifactsWithDependencies :: Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
 compileSourceToArtifactsWithDependencies wholeProgram environment sourceName source =
@@ -174,15 +182,18 @@ compileWithDependencies wholeProgram dependencies parsed =
 compileIncrementalArtifacts :: DependencyArtifact -> FcProgram -> FcProgram -> Either CompileError CompileArtifacts
 compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
   let dependencyCorePrograms = map dependencyUnitProgram (dependencyUnits dependencies)
-      separatelyLowered = Grin.lowerPrograms (dependencyCorePrograms <> [mainCore])
+      sourcePrograms = dependencyCorePrograms <> [sourceMainCore]
+      normalizedCorePrograms = Fc.lowerNewtypesPrograms sourcePrograms
+      separatelyLowered = Grin.lowerPrograms normalizedCorePrograms
       dependencyGrinPrograms = take (length dependencyCorePrograms) separatelyLowered
+      incrementalCore = last normalizedCorePrograms
       mainGrin = last separatelyLowered
       dependencyLayout = buildLinkLayout dependencyGrinPrograms
-      mainCore = eliminateDeadCode "main" unoptimizedMain
+      sourceMainCore = eliminateDeadCode "main" unoptimizedMain
       layout = extendLinkLayout dependencyLayout mainGrin
       linkedCore = Fc.lowerNewtypes combinedCore
-      combinedGrin = Grin.lowerProgram linkedCore
-  either (Left . CompileArm64Error) Right (validateProgramPrimitives combinedGrin)
+      linkedGrin = Grin.lowerProgram linkedCore
+  either (Left . CompileArm64Error) Right (validateProgramPrimitives linkedGrin)
   assembly <-
     either
       (Left . CompileArm64Error)
@@ -190,8 +201,8 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
       (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainGrin)
   pure
     CompileArtifacts
-      { compiledCore = renderCore linkedCore,
-        compiledGrin = renderGrin combinedGrin,
+      { compiledCore = renderCore incrementalCore,
+        compiledGrin = renderGrin mainGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }

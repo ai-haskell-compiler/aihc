@@ -8,7 +8,7 @@ module Aihc.Grin.Lower
   )
 where
 
-import Aihc.Fc.Newtype (lowerNewtypes)
+import Aihc.Fc.Newtype (lowerNewtypes, lowerNewtypesPrograms)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
@@ -75,19 +75,8 @@ lowerProgram sourceProgram = lowerProgramWithEnvironment (programEnvironment [pr
 lowerPrograms :: [FcProgram] -> [GrinProgram]
 lowerPrograms sourcePrograms = map (lowerProgramWithEnvironment environment) programs
   where
-    programs = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
+    programs = lowerNewtypesPrograms sourcePrograms
     environment = programEnvironment programs
-
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
-
-splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
-splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
-  where
-    go [] _ = []
-    go (FcProgram sourceTopBinds : rest) remaining =
-      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
-       in FcProgram unitTopBinds : go rest remaining'
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),

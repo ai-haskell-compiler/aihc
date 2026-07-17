@@ -7,6 +7,7 @@
 -- and patterns are casts and lazy bindings; they never denote heap nodes.
 module Aihc.Fc.Newtype
   ( lowerNewtypes,
+    lowerNewtypesPrograms,
   )
 where
 
@@ -40,6 +41,23 @@ lowerNewtypes program@(FcProgram topBinds) =
               | FcNewtype declaration <- topBinds
               ]
         }
+
+-- | Lower newtypes across separately compiled units while preserving their
+-- boundaries. Dependency declarations are available while rewriting every
+-- unit, but dependency bindings do not become part of consumer units.
+lowerNewtypesPrograms :: [FcProgram] -> [FcProgram]
+lowerNewtypesPrograms sourcePrograms = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
+
+concatPrograms :: [FcProgram] -> FcProgram
+concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
+
+splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
+splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
+  where
+    go [] _ = []
+    go (FcProgram sourceTopBinds : rest) remaining =
+      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
+       in FcProgram unitTopBinds : go rest remaining'
 
 lowerTopBind :: NewtypeEnv -> FcTopBind -> LowerM FcTopBind
 lowerTopBind env topBind =
