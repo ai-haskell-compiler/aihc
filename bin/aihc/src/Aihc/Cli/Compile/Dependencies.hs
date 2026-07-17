@@ -98,7 +98,6 @@ data DependencyArtifact = DependencyArtifact
     dependencyTyCons :: ![TyConInfo],
     dependencyBindings :: ![TcBindingResult],
     dependencyInstances :: ![InstanceInfo],
-    dependencyProgram :: !FcProgram,
     dependencyUnits :: ![DependencyUnit],
     dependencyInitializerSymbols :: ![Text],
     dependencyArchivePaths :: ![FilePath]
@@ -207,7 +206,6 @@ emptyDependencyArtifact =
       dependencyTyCons = [],
       dependencyBindings = [],
       dependencyInstances = [],
-      dependencyProgram = FcProgram [],
       dependencyUnits = [],
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
@@ -322,7 +320,6 @@ compileLoadedModules loaded =
                             dependencyTyCons = tyCons,
                             dependencyBindings = bindings,
                             dependencyInstances = instances,
-                            dependencyProgram = concatPrograms (map dsProgram desugared),
                             dependencyUnits = zipWith makeUnit loaded desugared,
                             dependencyInitializerSymbols = [],
                             dependencyArchivePaths = []
@@ -335,9 +332,6 @@ compileLoadedModules loaded =
           dependencyUnitModule = fromMaybe "Main" (moduleName (loadedModule loadedModule')),
           dependencyUnitProgram = dsProgram desugared
         }
-
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
 
 buildNativeArtifacts :: FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
 buildNativeArtifacts artifactRoot units = do
@@ -528,7 +522,6 @@ fromStoredArtifact stored =
       dependencyTyCons = storedTyCons stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
-      dependencyProgram = concatPrograms (map dependencyUnitProgram (storedUnits stored)),
       dependencyUnits = storedUnits stored,
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
