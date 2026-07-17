@@ -10,7 +10,7 @@ expected: |-
       $grin_tuple_1009%1009 :: IntRep <-
         return 42
       return $grin_tuple_1009%1009 :: IntRep
-    store (CBox $grin_argument_1008%1008 :: IntRep)
+    return (CBox $grin_argument_1008%1008 :: IntRep)
 extensions:
 - EmptyDataDecls
 - MagicHash

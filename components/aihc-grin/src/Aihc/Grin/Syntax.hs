@@ -7,6 +7,7 @@
 -- nodes and the explicit 'GrinEval' and 'GrinApply' operations.
 module Aihc.Grin.Syntax
   ( GrinProgram (..),
+    GrinCodeInfo (..),
     GrinFunction (..),
     FunctionName (..),
     GrinVar (..),
@@ -39,6 +40,11 @@ data GrinProgram = GrinProgram
   { grinConstructors :: ![(Text, [RuntimeRep])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
+    -- | Global slots supplied by dependency units and referenced by this unit.
+    grinExternalGlobals :: ![Text],
+    -- | Code entries supplied by other compilation units. Unlike runtime
+    -- globals, these names never occupy global-table slots.
+    grinExternalFunctions :: ![GrinCodeInfo],
     -- | Top-level values that are already in weak-head normal form. These are
     -- initialized directly rather than represented by updateable CAF cells.
     grinWhnfGlobals :: ![(GrinVar, GrinNode)],
@@ -47,10 +53,23 @@ data GrinProgram = GrinProgram
   }
   deriving (Eq, Show, Read)
 
+-- | Runtime calling information exported for a top-level code binding.
+-- Parameter layouts retain source-argument boundaries because a Core term
+-- argument such as @State# RealWorld@ may contribute no runtime values.
+data GrinCodeInfo = GrinCodeInfo
+  { grinCodeSourceName :: !Text,
+    grinCodeFunctionName :: !FunctionName,
+    grinCodeParameterLayouts :: ![[RuntimeRep]],
+    grinCodeResultRep :: !RuntimeRep
+  }
+  deriving (Eq, Show, Read)
+
 -- | A first-order code definition. Closures and thunks refer to functions by
 -- name and carry their environment as node fields.
 data GrinFunction = GrinFunction
   { grinFunctionName :: !FunctionName,
+    -- | Source-level name when this entry is link-visible to other units.
+    grinFunctionLinkName :: !(Maybe Text),
     grinFunctionParameters :: ![GrinVar],
     grinFunctionResultRep :: !RuntimeRep,
     grinFunctionBody :: !GrinExpr
@@ -93,6 +112,10 @@ data GrinExpr
   | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | GrinEval !RuntimeRep !GrinValue
+  | -- | A saturated call to a statically known code entry.
+    GrinCall !RuntimeRep !FunctionName ![GrinValue]
+  | -- | A saturated call to a statically known primitive entry.
+    GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
   | GrinApply !RuntimeRep !GrinValue ![GrinValue]
   | GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue

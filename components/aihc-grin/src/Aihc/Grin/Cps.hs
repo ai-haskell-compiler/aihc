@@ -89,6 +89,7 @@ transformExpr parent bound resultRep expression =
           continuationFunction =
             GrinFunction
               { grinFunctionName = continuationName,
+                grinFunctionLinkName = Nothing,
                 grinFunctionParameters = captures <> resultVars,
                 grinFunctionResultRep = resultRep,
                 grinFunctionBody = transformedBody
@@ -116,6 +117,8 @@ transformExpr parent bound resultRep expression =
     GrinFetch {} -> pure expression
     GrinUpdate {} -> pure expression
     GrinEval {} -> pure expression
+    GrinCall {} -> pure expression
+    GrinPrimitiveCall {} -> pure expression
     GrinApply {} -> pure expression
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM transformAlternative alternatives
@@ -180,6 +183,8 @@ freeExprVars expression =
     GrinFetch _ pointer -> freeValueVars pointer
     GrinUpdate pointer value -> freeValueVars pointer <> freeValueVars value
     GrinEval _ value -> freeValueVars value
+    GrinCall _ _ arguments -> foldMap freeValueVars arguments
+    GrinPrimitiveCall _ _ arguments -> foldMap freeValueVars arguments
     GrinApply _ function arguments -> freeValueVars function <> foldMap freeValueVars arguments
     GrinCase scrutinee binder alternatives ->
       freeValueVars scrutinee
@@ -232,6 +237,8 @@ exprUniques expression =
     GrinFetch _ pointer -> valueUniques pointer
     GrinUpdate pointer value -> valueUniques pointer <> valueUniques value
     GrinEval _ value -> valueUniques value
+    GrinCall _ _ arguments -> concatMap valueUniques arguments
+    GrinPrimitiveCall _ _ arguments -> concatMap valueUniques arguments
     GrinApply _ function arguments -> valueUniques function <> concatMap valueUniques arguments
     GrinCase scrutinee binder alternatives ->
       valueUniques scrutinee

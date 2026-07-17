@@ -25,12 +25,11 @@ grinUnitTests :: TestTree
 grinUnitTests =
   testGroup
     "GRIN"
-    [ testCase "FC lowering makes laziness and application explicit" $ do
+    [ testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "contains an allocated thunk" ("store " `isInfixOf` rendered)
-        assertBool "contains explicit evaluation" ("eval " `isInfixOf` rendered)
+        assertBool "does not allocate a constructor argument thunk" (not ("store " `isInfixOf` rendered))
         assertBool "contains explicit application" ("apply " `isInfixOf` rendered),
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
@@ -90,14 +89,20 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
         assertBool "does not allocate an argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered)),
-      testCase "FC lowering stores saturated constructor applications directly" $ do
+      testCase "FC lowering calls saturated primitives without global slots" $ do
+        let program = lowerProgram primitiveCallProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
+        assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
+      testCase "FC lowering returns saturated constructor nodes without update cells" $ do
         let program = lowerProgram saturatedConstructorProgram
         assertEqual "lint" [] (lintProgram program)
         case grinFunctions program of
           [function] ->
             assertEqual
               "constructor body"
-              (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
+              (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)])])
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
@@ -122,11 +127,36 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+      testCase "FC lowering initializes static constructor values without CAF cells" $ do
+        let program = lowerProgram staticConstructorProgram
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "static globals" ["source"] (map (grinVarName . fst) (grinWhnfGlobals program))
+        assertEqual "no CAFs" [] (grinCafs program),
       testCase "FC lowering only makes computed function values CAFs" $ do
         let program = lowerProgram functionClassificationProgram
         assertEqual "lint" [] (lintProgram program)
-        assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
+        assertEqual "direct functions are not globals" [] (map (grinVarName . fst) (grinWhnfGlobals program))
         assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
+      testCase "FC lowering flattens top-level lambdas into one exported entry" $ do
+        let program = lowerProgram functionClassificationProgram
+            exported = [function | function <- grinFunctions program, grinFunctionLinkName function == Just "direct"]
+        case exported of
+          [function] -> assertEqual "runtime parameters" 2 (length (grinFunctionParameters function))
+          _ -> assertFailure ("expected one exported direct entry, got " <> show (length exported)),
+      testCase "recursive function bindings store closures without thunk wrappers" $ do
+        let program = lowerProgram recursiveFunctionProgram
+            recursiveNodes =
+              [ node
+              | function <- grinFunctions program,
+                GrinStoreRec bindings _ <- [grinFunctionBody function],
+                (_, node) <- bindings
+              ]
+        assertEqual "lint" [] (lintProgram program)
+        case recursiveNodes of
+          [GrinNode GrinClosure {} _] -> pure ()
+          nodes -> assertFailure ("expected one recursive closure node, got " <> show nodes)
+        result <- interpretProgramBinding "answer" program
+        assertEqual "result" (Right "<function>") result,
       testCase "FC dictionaries lower to ordinary constructor nodes and cases" $ do
         let program = lowerProgram dictionaryProgram
             rendered = renderProgram program
@@ -135,7 +165,7 @@ grinUnitTests =
           "dictionary constructor has an ordinary declared layout"
           [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
           (grinConstructors program)
-        assertBool ("direct dictionary constructor store:\n" <> rendered) ("store (C$Dict$Test" `isInfixOf` rendered)
+        assertBool ("direct dictionary constructor return:\n" <> rendered) ("return (C$Dict$Test" `isInfixOf` rendered)
         assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
         assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
@@ -148,6 +178,16 @@ grinUnitTests =
                 parameters = concatMap grinFunctionParameters (grinFunctions consumer)
             assertBool "dependency CAF remains global" (all ((/= "source") . grinVarName) parameters)
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
+      testCase "separate FC units call dependency code entries directly" $ do
+        case separateFunctionPrograms of
+          [providerCore, consumerCore] -> do
+            let consumer = lowerProgramWithInterface (extractGrinInterface providerCore) consumerCore
+                rendered = renderProgram consumer
+            assertEqual "lint" [] (lintProgram consumer)
+            assertEqual "external code" ["identity"] (map grinCodeSourceName (grinExternalFunctions consumer))
+            assertBool "direct dependency call" ("call @BoxedRep Lifted $entry$identity" `isInfixOf` rendered)
+            assertBool "dependency function has no global slot" (not ("global identity" `isInfixOf` rendered))
+          programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
       testCase "separate FC units store saturated dependency constructors directly" $ do
         case separateConstructorPrograms of
           [providerCore, consumerCore] -> do
@@ -156,7 +196,7 @@ grinUnitTests =
               [function] ->
                 assertEqual
                   "constructor body"
-                  (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
+                  (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)])])
                   (grinFunctionBody function)
               functions -> assertFailure ("expected one constructor function, got " <> show (length functions))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
@@ -348,7 +388,10 @@ cafReferenceProgram =
       FcTopBind
         ( FcNonRec
             sourceVar
-            (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+            ( FcApp
+                (FcLam computedVar (FcVar computedVar))
+                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+            )
         ),
       FcTopBind (FcNonRec answerVar (FcVar sourceVar))
     ]
@@ -356,6 +399,54 @@ cafReferenceProgram =
     sourceVar = Var "source" (Unique 20) boxedIntTy
     answerVar = Var "answer" (Unique 21) boxedIntTy
     boxConstructorVar = Var "BoxedInt" (Unique 22) (TcFunTy intTy boxedIntTy)
+    computedVar = Var "computed" (Unique 23) boxedIntTy
+
+staticConstructorProgram :: FcProgram
+staticConstructorProgram =
+  FcProgram
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            sourceVar
+            (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+        )
+    ]
+  where
+    sourceVar = Var "source" (Unique 24) boxedIntTy
+    boxConstructorVar = Var "BoxedInt" (Unique 25) (TcFunTy intTy boxedIntTy)
+
+recursiveFunctionProgram :: FcProgram
+recursiveFunctionProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            answerVar
+            ( FcLet
+                (FcRec [(functionVar, FcLam argumentVar (FcVar argumentVar))])
+                (FcVar functionVar)
+            )
+        )
+    ]
+  where
+    functionTy = TcFunTy boxedIntTy boxedIntTy
+    answerVar = Var "answer" (Unique 26) functionTy
+    functionVar = Var "function" (Unique 27) functionTy
+    argumentVar = Var "argument" (Unique 28) boxedIntTy
+
+primitiveCallProgram :: FcProgram
+primitiveCallProgram =
+  FcProgram
+    [ FcPrimitive addVar 2,
+      FcTopBind
+        ( FcNonRec
+            addOneVar
+            (FcLam argumentVar (FcApp (FcApp (FcVar addVar) (FcVar argumentVar)) (FcLit (LitInt IntRep 1))))
+        )
+    ]
+  where
+    addVar = Var "+#" (Unique 29) (TcFunTy intTy (TcFunTy intTy intTy))
+    addOneVar = Var "addOne" (Unique 30) (TcFunTy intTy intTy)
+    argumentVar = Var "argument" (Unique 31) intTy
 
 functionClassificationProgram :: FcProgram
 functionClassificationProgram =
@@ -443,6 +534,8 @@ heapProgram =
     { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
       grinWhnfGlobals = [],
       grinCafs =
         [ ( answer,
@@ -452,6 +545,7 @@ heapProgram =
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = functionName,
+              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
@@ -476,9 +570,19 @@ exceptionBoundaryProgram body =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
       grinWhnfGlobals = [],
       grinCafs = [],
-      grinFunctions = [GrinFunction exceptionBoundaryFunction [] IntRep body]
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = exceptionBoundaryFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody = body
+            }
+        ]
     }
 
 exceptionBoundaryFunction :: FunctionName
@@ -496,6 +600,7 @@ invalidUpdateProgram =
     { grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "answer_code",
+              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
@@ -526,11 +631,14 @@ unliftedHeapProgram runtimeRep =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
       grinWhnfGlobals = [],
       grinCafs = [(GrinVar "bad" 1 (BoxedRep Lifted), GrinNode (GrinThunk unliftedThunkFunction) [GrinLitValue (GrinLitString "capture")])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = unliftedThunkFunction,
+              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [pointer],
               grinFunctionResultRep = runtimeRep,
               grinFunctionBody =
@@ -645,6 +753,20 @@ separatePrograms =
     sourceVar = Var "source" (Unique 30) boxedIntTy
     answerVar = Var "answer" (Unique 31) (TcFunTy boxedIntTy boxedIntTy)
     argumentVar = Var "argument" (Unique 32) boxedIntTy
+
+separateFunctionPrograms :: [FcProgram]
+separateFunctionPrograms =
+  [ FcProgram
+      [ FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider"))),
+        FcTopBind (FcNonRec identityVar (FcLam argumentVar (FcVar argumentVar)))
+      ],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcApp (FcVar identityVar) (FcVar sourceVar)))]
+  ]
+  where
+    sourceVar = Var "source" (Unique 80) boxedIntTy
+    identityVar = Var "identity" (Unique 81) (TcFunTy boxedIntTy boxedIntTy)
+    argumentVar = Var "argument" (Unique 82) boxedIntTy
+    answerVar = Var "answer" (Unique 83) boxedIntTy
 
 separateNewtypePrograms :: [FcProgram]
 separateNewtypePrograms =

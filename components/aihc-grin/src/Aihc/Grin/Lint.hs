@@ -21,6 +21,7 @@ data GrinLintError
   | GrinLintDuplicateCaf !GrinVar
   | GrinLintUnboundVariable !GrinVar
   | GrinLintUnknownFunction !FunctionName
+  | GrinLintUnknownPrimitive !Text
   | GrinLintFunctionArity !FunctionName !Int !Int
   | GrinLintThunkResult !FunctionName !RuntimeRep
   | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
@@ -36,6 +37,7 @@ data GrinLintError
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
     lintFunctionResults :: !(Map FunctionName RuntimeRep),
+    lintPrimitiveArities :: !(Map Text Int),
     lintGlobalVars :: !(Set GrinVar),
     lintGlobalNames :: !(Set Text),
     lintConstructorLayouts :: !(Map Text [RuntimeRep]),
@@ -64,16 +66,25 @@ lintProgram program =
       LintEnv
         { lintFunctionArities =
             Map.fromList
-              [ (grinFunctionName function, length (grinFunctionParameters function))
-              | function <- functions
-              ],
-          lintFunctionResults = Map.fromList [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
+              ( [ (grinFunctionName function, length (grinFunctionParameters function))
+                | function <- functions
+                ]
+                  <> [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
+                     | info <- grinExternalFunctions program
+                     ]
+              ),
+          lintFunctionResults =
+            Map.fromList
+              ( [(grinFunctionName function, grinFunctionResultRep function) | function <- functions]
+                  <> [(grinCodeFunctionName info, grinCodeResultRep info) | info <- grinExternalFunctions program]
+              ),
+          lintPrimitiveArities = Map.fromList [(grinVarName var, arity) | (var, arity) <- grinPrimitives program],
           lintGlobalVars = Set.fromList (globalVars <> cafVars),
           lintGlobalNames =
             Set.fromList
-              ( map fst builtinConstructors
-                  <> map fst (grinConstructors program)
-                  <> map (grinVarName . fst) (grinPrimitives program)
+              ( [name | (name, arity) <- builtinConstructors, arity == 0]
+                  <> [name | (name, fields) <- grinConstructors program, null fields]
+                  <> grinExternalGlobals program
                   <> map grinVarName globalVars
                   <> map grinVarName cafVars
               ),
@@ -130,6 +141,11 @@ lintExpr env bound expr =
     GrinEval _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
         <> lintValue env bound value
+    GrinCall runtimeRep functionName arguments ->
+      lintKnownCall env bound runtimeRep functionName arguments
+    GrinPrimitiveCall _ name arguments ->
+      [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
+        <> concatMap (lintValue env bound) arguments
     GrinApply _ function arguments -> lintValue env bound function <> concatMap (lintValue env bound) arguments
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
@@ -157,15 +173,27 @@ lintExpr env bound expr =
                  expected /= actual
                ]
             <> concatMap (lintValue env bound) arguments
+
+lintKnownCall :: LintEnv -> Set GrinVar -> RuntimeRep -> FunctionName -> [GrinValue] -> [GrinLintError]
+lintKnownCall env bound _runtimeRep functionName arguments =
+  functionErrors <> concatMap (lintValue env bound) arguments
   where
-    bindRepresentationErrors vars valueExpr =
-      case exprRuntimeReps valueExpr of
-        Just actual
-          | actual /= expected ->
-              [GrinLintResultLayout "bind" expected actual]
-        _ -> []
-      where
-        expected = map grinVarRuntimeRep vars
+    functionErrors =
+      case Map.lookup functionName (lintFunctionArities env) of
+        Nothing -> [GrinLintUnknownFunction functionName]
+        Just expected
+          | expected /= length arguments -> [GrinLintFunctionArity functionName expected (length arguments)]
+        Just _ -> []
+
+bindRepresentationErrors :: [GrinVar] -> GrinExpr -> [GrinLintError]
+bindRepresentationErrors vars valueExpr =
+  case exprRuntimeReps valueExpr of
+    Just actual
+      | actual /= expected ->
+          [GrinLintResultLayout "bind" expected actual]
+    _ -> []
+  where
+    expected = map grinVarRuntimeRep vars
 
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
 lintAlt env bound alt =
@@ -193,7 +221,8 @@ lintConstructorFields env node =
     GrinConstructor name ->
       case Map.lookup name (lintConstructorLayouts env) of
         Just expected
-          | expected /= actual -> [GrinLintConstructorLayout name expected actual]
+          | actual /= take (length actual) expected || length actual > length expected ->
+              [GrinLintConstructorLayout name expected actual]
         _ -> []
     _ -> []
   where
@@ -239,6 +268,8 @@ exprRuntimeReps expr =
     GrinFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinUpdate _ value -> Just [grinValueRuntimeRep value]
     GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinCase _ _ alternatives ->
       case alternatives of

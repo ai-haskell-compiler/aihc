@@ -1,13 +1,10 @@
 expected: |-
   constructor Box/1 [IntRep]
 
-  caf value%1002 :: BoxedRep Lifted = (F$grin_thunk_0)
-
-  $grin_thunk_0 -> BoxedRep Lifted =
-    store (CBox 42)
+  global value%1002 :: BoxedRep Lifted = (CBox 42)
 extensions:
 - MagicHash
-reason: preserves lifted constructor storage and the IntRep field representation
+reason: initializes a static lifted constructor directly and preserves its IntRep field representation
 source: |
   module Test where
   data Box = Box Int#

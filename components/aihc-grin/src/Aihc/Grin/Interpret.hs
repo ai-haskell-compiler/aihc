@@ -158,12 +158,9 @@ initialMachine program =
         [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
           staticGlobals,
           Map.fromList
-            [ (grinVarName var, RuntimeNode (GrinPrimitive (grinVarName var) arity) [])
-            | (var, arity) <- grinPrimitives program
-            ],
-          Map.fromList
             [ (constructor, RuntimeNode (GrinConstructor constructor) [])
-            | constructor <- map fst builtinConstructors <> map fst (grinConstructors program)
+            | (constructor, arity) <- builtinConstructors <> [(name, length fields) | (name, fields) <- grinConstructors program],
+              arity == 0
             ]
         ]
     staticNode (GrinNode tag fields) = RuntimeNode tag (map staticValue fields)
@@ -202,6 +199,10 @@ evalExpr env expr =
       pure <$> updateValue pointerValue updatedValue
     GrinEval _ value ->
       (: []) <$> (materializeValue env value >>= forceValue)
+    GrinCall _ functionName arguments ->
+      callFunction functionName =<< mapM (materializeValue env) arguments
+    GrinPrimitiveCall _ name arguments ->
+      evalPrimitive name =<< mapM (materializeValue env) arguments
     GrinApply _ function arguments -> do
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments
@@ -359,9 +360,15 @@ applyValue function arguments = do
               argumentCount == 1 =
                 [RuntimeStateToken]
             | otherwise = arguments
-       in if argumentCount == length runtimeArguments
-            then callFunction functionName (fields <> runtimeArguments)
-            else throwInterpret (InterpretFunctionArity functionName argumentCount (length arguments))
+       in case compare (length runtimeArguments) argumentCount of
+            LT ->
+              pure
+                [ RuntimeNode
+                    (GrinClosure functionName (argumentCount - length runtimeArguments))
+                    (fields <> runtimeArguments)
+                ]
+            EQ -> callFunction functionName (fields <> runtimeArguments)
+            GT -> throwInterpret (InterpretFunctionArity functionName argumentCount (length arguments))
     RuntimeNode constructor@(GrinConstructor _) fields ->
       pure [RuntimeNode constructor (fields <> arguments)]
     RuntimeNode (GrinPrimitive name arity) fields ->
