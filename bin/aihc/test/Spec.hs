@@ -8,6 +8,7 @@ import Aihc.Cli.Compile
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
     compileSourceToCoreWithDependencies,
+    compileSourceToCpsWithDependencies,
     defaultCompileEnvironment,
     runCompileWithEnvironment,
   )
@@ -77,31 +78,36 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False False True False)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
+          testCase "parses keep-cps-ir" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False True False False)))
+              (parseCommandPure ["compile", "Main.hs", "--keep-cps-ir"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False True)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False False)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -150,6 +156,7 @@ main =
                   assertBool "dependency initializer call" ("bl _aihc_init_" `T.isInfixOf` assembly)
                   assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
+          testCase "renders explicit Loom continuations" test_compileCps,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -863,18 +870,22 @@ test_compileExecutable =
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True True False
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False False True
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
         assertFileExists (keptOutput <> ".core")
         assertFileExists (keptOutput <> ".grin")
+        assertFileExists (keptOutput <> ".cps")
         assertFileExists (keptOutput <> ".s")
         core <- TIO.readFile (keptOutput <> ".core")
         grin <- TIO.readFile (keptOutput <> ".grin")
+        cps <- TIO.readFile (keptOutput <> ".cps")
         assertBool "core contains main" ("main" `T.isInfixOf` core)
         assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
+        assertBool "CPS artifact is Loom IR" ("loom-ir 1" `T.isInfixOf` cps)
+        assertBool "CPS artifact contains explicit return continuations" (" return return%0 :: cont[" `T.isInfixOf` cps)
         assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
         assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
         assertNativeOutput keptOutput
@@ -883,8 +894,21 @@ test_compileExecutable =
         assertFileExists temporaryOutput
         assertFileDoesNotExist (temporaryOutput <> ".core")
         assertFileDoesNotExist (temporaryOutput <> ".grin")
+        assertFileDoesNotExist (temporaryOutput <> ".cps")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
+
+test_compileCps :: Assertion
+test_compileCps =
+  withTempDir "aihc-compile-cps" $ \root -> do
+    let environment = CompileEnvironment (root </> "missing-core-libs") (root </> "cache")
+    result <- compileSourceToCpsWithDependencies environment "Main.hs" noImplicitDependencySource
+    case result of
+      Left err -> assertFailure ("expected CPS lowering to succeed, got: " <> show err)
+      Right cps -> do
+        assertBool "versioned Loom header" ("loom-ir 1" `T.isInfixOf` cps)
+        assertBool "explicit function return continuation" (" return return%0 :: cont[" `T.isInfixOf` cps)
+        assertBool "explicit operation transfer" (" -> k%" `T.isInfixOf` cps)
 
 test_compileDefaultEnvironment :: Assertion
 test_compileDefaultEnvironment =

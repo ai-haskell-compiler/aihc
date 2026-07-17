@@ -6,6 +6,7 @@ module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
     compileOutputPath,
+    compileSourceToCpsWithDependencies,
     compileSourceToCoreWithDependencies,
     compileSourceToAssembly,
     compileSourceToAssemblyWithDependencies,
@@ -24,6 +25,7 @@ import Aihc.Cli.Compile.Dependencies
     buildDependencies,
   )
 import Aihc.Cli.Options (CompileOptions (..))
+import Aihc.Cps qualified as Cps
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -59,6 +61,7 @@ data CompileError
   = CompileParseError !String
   | CompileFrontendError ![String]
   | CompileDependencyError !String
+  | CompileCpsError ![Cps.LoomLintError]
   | CompileArm64Error !Arm64Error
   | CompileClangError !ExitCode !String
   deriving (Eq, Show)
@@ -66,6 +69,7 @@ data CompileError
 data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
     compiledGrin :: !Text,
+    compiledCpsIr :: !Text,
     compiledAssembly :: !Text,
     compiledArchives :: ![FilePath]
   }
@@ -98,6 +102,8 @@ writeIntermediateArtifacts output options artifacts = do
     TIO.writeFile (output <> ".core") (compiledCore artifacts)
   when (compileKeepGrin options) $
     TIO.writeFile (output <> ".grin") (compiledGrin artifacts)
+  when (compileKeepCpsIr options) $
+    TIO.writeFile (output <> ".cps") (compiledCpsIr artifacts)
 
 -- | The project-local core libraries and shared compiled-library cache used by
 -- the command-line compiler.
@@ -134,6 +140,12 @@ compileSourceToAssemblyWithDependencies environment sourceName source =
 compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCoreWithDependencies environment sourceName source =
   fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+
+-- | Compile source and its dependencies to the explicit continuation-passing
+-- program rendered by @--keep-cps-ir@.
+compileSourceToCpsWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToCpsWithDependencies environment sourceName source =
+  fmap (fmap compiledCpsIr) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
 compileSourceToArtifactsWithDependencies :: Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
 compileSourceToArtifactsWithDependencies wholeProgram environment sourceName source =
@@ -182,7 +194,9 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
       layout = extendLinkLayout dependencyLayout mainGrin
       linkedCore = Fc.lowerNewtypes combinedCore
       combinedGrin = Grin.lowerProgram linkedCore
+      cps = Cps.lowerProgram combinedGrin
   either (Left . CompileArm64Error) Right (validateProgramPrimitives combinedGrin)
+  validateCps cps
   assembly <-
     either
       (Left . CompileArm64Error)
@@ -192,6 +206,7 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
     CompileArtifacts
       { compiledCore = renderCore linkedCore,
         compiledGrin = renderGrin combinedGrin,
+        compiledCpsIr = renderCps cps,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
@@ -200,11 +215,14 @@ compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifacts sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
+  let cps = Cps.lowerProgram grin
+  validateCps cps
   assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
         compiledGrin = renderGrin grin,
+        compiledCpsIr = renderCps cps,
         compiledAssembly = assembly,
         compiledArchives = []
       }
@@ -214,6 +232,15 @@ renderCore = withFinalNewline . Fc.renderProgram
 
 renderGrin :: Grin.GrinProgram -> Text
 renderGrin = withFinalNewline . Grin.renderProgram
+
+renderCps :: Cps.LoomProgram -> Text
+renderCps = withFinalNewline . Cps.renderProgram
+
+validateCps :: Cps.LoomProgram -> Either CompileError ()
+validateCps program =
+  case Cps.lintProgram program of
+    [] -> Right ()
+    errors -> Left (CompileCpsError errors)
 
 withFinalNewline :: String -> Text
 withFinalNewline rendered = T.pack rendered <> "\n"
@@ -331,6 +358,7 @@ renderCompileError compileError =
     CompileParseError err -> "parse error: " <> err
     CompileFrontendError errors -> "frontend error: " <> unwords errors
     CompileDependencyError err -> "dependency error: " <> err
+    CompileCpsError errors -> "Loom IR error: " <> show errors
     CompileArm64Error err -> "ARM64 code generation error: " <> show err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 

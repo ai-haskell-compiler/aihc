@@ -57,6 +57,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-cps = {
+      src = sources.cpsSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-resolve = {
       src = sources.resolveSrc;
       disableProfiling = true;

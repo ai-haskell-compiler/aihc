@@ -26,6 +26,7 @@ library
     aeson >=2.0 && <2.3,
     aihc-arm64,
     aihc-cpp,
+    aihc-cps,
     aihc-fc,
     aihc-grin,
     aihc-hackage,

@@ -75,6 +75,7 @@
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
+  cpsTests = mkPackageTest hsPkgs.aihc-cps;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   testingTests = mkPackageTest hsPkgs.aihc-testing;
@@ -171,6 +172,7 @@ in {
   arm64-tests = arm64Tests;
   fc-tests = fcTests;
   grin-tests = grinTests;
+  cps-tests = cpsTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
   testing-tests = testingTests;
@@ -210,6 +212,10 @@ in {
     {
       name = "grin-tests";
       path = grinTests;
+    }
+    {
+      name = "cps-tests";
+      path = cpsTests;
     }
     {
       name = "resolve-tests";

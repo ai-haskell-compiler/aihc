@@ -23,6 +23,7 @@ data CompileOptions = CompileOptions
     compileOutputFile :: !(Maybe FilePath),
     compileKeepCore :: !Bool,
     compileKeepGrin :: !Bool,
+    compileKeepCpsIr :: !Bool,
     compileKeepAsm :: !Bool,
     compileWholeProgram :: !Bool
   }
@@ -114,6 +115,10 @@ compileOptionsParser =
     <*> OA.switch
       ( OA.long "keep-grin"
           <> OA.help "Keep the generated GRIN as OUTPUT.grin"
+      )
+    <*> OA.switch
+      ( OA.long "keep-cps-ir"
+          <> OA.help "Keep the generated Loom CPS IR as OUTPUT.cps"
       )
     <*> OA.switch
       ( OA.long "keep-asm"

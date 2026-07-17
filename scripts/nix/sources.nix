@@ -72,6 +72,11 @@ in rec {
     ".cabal"
   ];
 
+  cpsSrc = mkComponentSrc "/components/aihc-cps" [
+    ".hs"
+    ".cabal"
+  ];
+
   evalFixturesSrc = mkComponentSrc "/test/Test/Fixtures/eval" [
     ".yaml"
     ".yml"
