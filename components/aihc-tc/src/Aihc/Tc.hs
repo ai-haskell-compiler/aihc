@@ -22,6 +22,7 @@ module Aihc.Tc
     typecheckModulesWithEnv,
     typecheckModulesWithEnvAndInstances,
     typecheckModulesWithFullEnv,
+    typecheckModuleSccWithFullEnv,
 
     -- * Result types
     TcResult (..),
@@ -93,7 +94,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Annotations (TcAnnotation (..), renderPred, renderTcSignature, renderTcType)
 import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -245,6 +246,88 @@ typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modul
       let (result, st') = typecheckModuleWithState st m
           (results, finalState) = go st' ms
        in (result : results, finalState)
+
+-- | Type-check the modules in one strongly connected import component as a
+-- single incremental unit. Only the supplied imported interface is visible;
+-- implementations from predecessor components are never consumed.
+typecheckModuleSccWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
+typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances modules =
+  let initState = initialTcState importedTerms importedTyCons importedInstances
+      (checkedModules, finalState) = typecheckModuleSccWithState initState modules
+   in ( checkedModules,
+        [ (name, scheme)
+        | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
+        ],
+        Map.elems (tcsGlobalTyCons finalState)
+      )
+
+initialTcState :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> TcState
+initialTcState importedTerms importedTyCons importedInstances =
+  initTcState
+    { tcsGlobalTerms =
+        Map.fromList
+          [ (name, TcIdBinder scheme Closed)
+          | (name, scheme) <- importedTerms
+          ]
+          <> tcsGlobalTerms initTcState,
+      tcsGlobalTyCons =
+        Map.fromList
+          [ (tciName tyCon, tyCon)
+          | tyCon <- importedTyCons
+          ]
+          <> tcsGlobalTyCons initTcState,
+      tcsInstances = importedInstances
+    }
+
+typecheckModuleSccWithState :: TcState -> [Module] -> ([Module], TcState)
+typecheckModuleSccWithState st modules =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules) of
+    Left abort ->
+      ( case modules of
+          [] -> []
+          first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
+        st
+      )
+    Right (annotatedModules, st') ->
+      let diags = reverse (tcsDiagnostics st')
+          results = attachSccDiagnostics diags annotatedModules
+          nextState =
+            st'
+              { tcsDiagnostics = [],
+                tcsMetaSolutions = Map.empty,
+                tcsKindSolutions = Map.empty,
+                tcsEvBinds = Map.empty
+              }
+       in (results, nextState)
+  where
+    tcEnv =
+      emptyTcEnv
+        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
+          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules
+        }
+    moduleExtensions m =
+      applyImpliedExtensions $
+        foldr applyExtensionSetting [MonoLocalBinds, MonomorphismRestriction] (moduleLanguagePragmas m)
+
+attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]
+attachSccDiagnostics diagnostics modules = foldl attachOne modules diagnostics
+  where
+    attachOne [] _ = []
+    attachOne current@(first : rest) diagnostic =
+      case diagLoc diagnostic of
+        Nothing -> annotateModuleDiagnostics [diagnostic] first : rest
+        Just span' ->
+          let sourceName = sourceSpanSourceName span'
+              matches m = sourceName `elem` moduleSourceNames m
+           in if any matches current
+                then map (\m -> if matches m then annotateModuleDiagnostics [diagnostic] m else m) current
+                else annotateModuleDiagnostics [internalAbortDiagnostic "SCC diagnostic source did not match a module"] first : rest
+
+moduleSourceNames :: Module -> [FilePath]
+moduleSourceNames modu =
+  case spanFromAnnotations (moduleAnns modu) of
+    SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
+    NoSourceSpan -> []
 
 typecheckModuleWithState :: TcState -> Module -> (Module, TcState)
 typecheckModuleWithState st m =

@@ -6,12 +6,17 @@
 module Aihc.Arm64.Codegen
   ( Arm64Error (..),
     LinkLayout,
+    LinkInterface,
     buildLinkLayout,
+    buildLinkLayoutFromInterfaces,
     compileModule,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
+    extendLinkLayoutWithInterface,
+    extractLinkInterface,
     validateProgramPrimitives,
+    validatePrimitiveNames,
   )
 where
 
@@ -60,6 +65,14 @@ data LinkLayout = LinkLayout
   }
   deriving (Eq, Show)
 
+-- | Constructor and global-table metadata exported by a native compilation
+-- unit. Code generation for another unit never needs its GRIN bodies.
+data LinkInterface = LinkInterface
+  { linkInterfaceConstructors :: ![(Text, Int)],
+    linkInterfaceGlobalNames :: ![Text]
+  }
+  deriving (Eq, Show, Read)
+
 data Block = Block
   { blockLabel :: !Text,
     blockLines :: ![Text]
@@ -87,23 +100,39 @@ compileProgram entryName program =
 -- the linked program is checked after whole-program dead-code elimination.
 validateProgramPrimitives :: GrinProgram -> Either Arm64Error ()
 validateProgramPrimitives program =
-  mapM_ (primitiveIdentifier False . grinVarName . fst) (grinPrimitives program)
+  validatePrimitiveNames (map (grinVarName . fst) (grinPrimitives program))
+
+validatePrimitiveNames :: [Text] -> Either Arm64Error ()
+validatePrimitiveNames = mapM_ (primitiveIdentifier False)
 
 -- | Build the stable layout for a dependency closure in dependency order.
 buildLinkLayout :: [GrinProgram] -> LinkLayout
-buildLinkLayout = foldl extendLinkLayout emptyLinkLayout
+buildLinkLayout = buildLinkLayoutFromInterfaces . map extractLinkInterface
+
+buildLinkLayoutFromInterfaces :: [LinkInterface] -> LinkLayout
+buildLinkLayoutFromInterfaces = foldl extendLinkLayoutWithInterface emptyLinkLayout
+
+extractLinkInterface :: GrinProgram -> LinkInterface
+extractLinkInterface program =
+  LinkInterface
+    { linkInterfaceConstructors = programConstructorArities program,
+      linkInterfaceGlobalNames = programGlobalNames program
+    }
 
 -- | Append a compilation unit to an existing layout without renumbering any
 -- existing constructor or global.
 extendLinkLayout :: LinkLayout -> GrinProgram -> LinkLayout
-extendLinkLayout layout program =
+extendLinkLayout layout = extendLinkLayoutWithInterface layout . extractLinkInterface
+
+extendLinkLayoutWithInterface :: LinkLayout -> LinkInterface -> LinkLayout
+extendLinkLayoutWithInterface layout interface =
   LinkLayout
-    { linkConstructors = uniqueByName (linkConstructors layout <> programConstructorArities program),
-      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> programGlobalNames program)
+    { linkConstructors = uniqueByName (linkConstructors layout <> linkInterfaceConstructors interface),
+      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> linkInterfaceGlobalNames interface)
     }
 
--- | Compile a library module to relocatable assembly. The exported initializer
--- initializer installs the module's primitive, static, and CAF globals into the shared
+-- | Compile a library SCC to relocatable assembly. The exported initializer
+-- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
 compileModule :: LinkLayout -> Text -> GrinProgram -> Either Arm64Error Text
 compileModule layout initializerSymbol program = do

@@ -7,6 +7,8 @@ module Aihc.Cli.Compile
     CompileError (..),
     compileOutputPath,
     compileSourceToCoreWithDependencies,
+    compileSourceToGrinWithDependencies,
+    compileSourceToWholeCoreWithDependencies,
     compileSourceToAssembly,
     compileSourceToAssemblyWithDependencies,
     defaultCompileEnvironment,
@@ -16,7 +18,7 @@ module Aihc.Cli.Compile
   )
 where
 
-import Aihc.Arm64 (Arm64Error, buildLinkLayout, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validateProgramPrimitives)
+import Aihc.Arm64 (Arm64Error, buildLinkLayoutFromInterfaces, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validatePrimitiveNames)
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -35,6 +37,8 @@ import Aihc.Fc
     desugarModule,
     desugarModuleWithBindings,
     eliminateDeadCode,
+    extractReachabilityInterface,
+    reachablePrimitiveNames,
   )
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -46,6 +50,7 @@ import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSucc
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -68,6 +73,19 @@ data CompileArtifacts = CompileArtifacts
     compiledGrin :: !Text,
     compiledAssembly :: !Text,
     compiledArchives :: ![FilePath]
+  }
+
+-- | The Core and GRIN produced for one independently compiled module SCC.
+data IncrementalUnit = IncrementalUnit
+  { incrementalUnitCore :: !FcProgram,
+    incrementalUnitGrin :: !Grin.GrinProgram
+  }
+
+-- | Per-SCC compiler output. Whole-program compilation is derived from
+-- this structure; it is never an alternative frontend or lowering path.
+data IncrementalCompilation = IncrementalCompilation
+  { incrementalDependencyUnits :: ![IncrementalUnit],
+    incrementalMainUnit :: !IncrementalUnit
   }
 
 runCompile :: CompileOptions -> IO ()
@@ -129,11 +147,25 @@ compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Tex
 compileSourceToAssemblyWithDependencies environment sourceName source =
   fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
--- | Compile source and its dependencies to the optimized, combined System FC
--- program rendered by @--keep-core@.
+-- | Compile source to the incremental System FC program rendered by
+-- @--keep-core@. Dependency declarations participate in cross-unit lowering,
+-- but their implementations remain in their separately compiled artifacts.
 compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCoreWithDependencies environment sourceName source =
   fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+
+-- | Compile source and its dependencies to the incremental GRIN program
+-- rendered by @--keep-grin@.
+compileSourceToGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToGrinWithDependencies environment sourceName source =
+  fmap (fmap compiledGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+
+-- | Compile source incrementally, then merge the resulting Core units and run
+-- whole-program dead-code elimination. This is the Core rendered by
+-- @--whole-program --keep-core@.
+compileSourceToWholeCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToWholeCoreWithDependencies environment sourceName source =
+  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies True environment sourceName source)
 
 compileSourceToArtifactsWithDependencies :: Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
 compileSourceToArtifactsWithDependencies wholeProgram environment sourceName source =
@@ -165,24 +197,62 @@ compileWithDependencies wholeProgram dependencies parsed =
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
-                          freshDependencies = shiftProgramVars (1 + maximumProgramUnique mainProgram) (dependencyProgram dependencies)
-                          program = eliminateDeadCode "main" (appendPrograms freshDependencies mainProgram)
-                       in if wholeProgram
-                            then compileProgramArtifacts program
-                            else compileIncrementalArtifacts dependencies mainProgram program
+                       in do
+                            incremental <- compileIncrementally dependencies mainProgram
+                            if wholeProgram
+                              then compileWholeProgramArtifacts incremental
+                              else compileIncrementalArtifacts dependencies incremental
 
-compileIncrementalArtifacts :: DependencyArtifact -> FcProgram -> FcProgram -> Either CompileError CompileArtifacts
-compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
-  let dependencyCorePrograms = map dependencyUnitProgram (dependencyUnits dependencies)
-      separatelyLowered = Grin.lowerPrograms (dependencyCorePrograms <> [mainCore])
-      dependencyGrinPrograms = take (length dependencyCorePrograms) separatelyLowered
-      mainGrin = last separatelyLowered
-      dependencyLayout = buildLinkLayout dependencyGrinPrograms
-      mainCore = eliminateDeadCode "main" unoptimizedMain
+-- | Compile every module SCC to its own normalized Core and GRIN unit before any
+-- optional whole-program transformation is considered.
+compileIncrementally :: DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
+compileIncrementally dependencies unoptimizedMain =
+  Right
+    IncrementalCompilation
+      { incrementalDependencyUnits =
+          [ IncrementalUnit (dependencyUnitProgram unit) (dependencyUnitGrin unit)
+          | unit <- dependencyUnits dependencies
+          ],
+        incrementalMainUnit = IncrementalUnit mainCore mainGrin
+      }
+  where
+    mainCore = Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)
+    mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
+
+-- | Link already-incremental Core units for whole-program analysis. Unique
+-- namespaces are separated only while constructing the merged view.
+mergeIncrementalCore :: IncrementalCompilation -> FcProgram
+mergeIncrementalCore compilation =
+  appendPrograms freshDependencies mainCore
+  where
+    mainCore = incrementalUnitCore (incrementalMainUnit compilation)
+    freshDependencies = freshenPrograms (1 + maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
+
+freshenPrograms :: Int -> [FcProgram] -> FcProgram
+freshenPrograms _ [] = FcProgram []
+freshenPrograms nextUnique (program : programs) =
+  appendPrograms shifted (freshenPrograms (1 + maximumProgramUnique shifted) programs)
+  where
+    shifted = shiftProgramVars nextUnique program
+
+reachableLinkedCore :: IncrementalCompilation -> FcProgram
+reachableLinkedCore = eliminateDeadCode "main" . mergeIncrementalCore
+
+-- | The optional whole-program phase consumes incremental Core; it does not
+-- rerun the frontend or bypass per-SCC GRIN lowering.
+compileWholeProgramArtifacts :: IncrementalCompilation -> Either CompileError CompileArtifacts
+compileWholeProgramArtifacts = compileProgramArtifacts . reachableLinkedCore
+
+compileIncrementalArtifacts :: DependencyArtifact -> IncrementalCompilation -> Either CompileError CompileArtifacts
+compileIncrementalArtifacts dependencies compilation = do
+  let mainUnit = incrementalMainUnit compilation
+      mainCore = incrementalUnitCore mainUnit
+      mainGrin = incrementalUnitGrin mainUnit
+      dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
-      linkedCore = Fc.lowerNewtypes combinedCore
-      combinedGrin = Grin.lowerProgram linkedCore
-  either (Left . CompileArm64Error) Right (validateProgramPrimitives combinedGrin)
+      reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
+      primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
+  either (Left . CompileArm64Error) Right (validatePrimitiveNames primitives)
   assembly <-
     either
       (Left . CompileArm64Error)
@@ -190,8 +260,8 @@ compileIncrementalArtifacts dependencies unoptimizedMain combinedCore = do
       (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainGrin)
   pure
     CompileArtifacts
-      { compiledCore = renderCore linkedCore,
-        compiledGrin = renderGrin combinedGrin,
+      { compiledCore = renderCore mainCore,
+        compiledGrin = renderGrin mainGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }

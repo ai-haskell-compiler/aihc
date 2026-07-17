@@ -1,6 +1,9 @@
 -- | Whole-program dead-code elimination for System FC.
 module Aihc.Fc.DeadCode
-  ( eliminateDeadCode,
+  ( ReachabilityInterface,
+    eliminateDeadCode,
+    extractReachabilityInterface,
+    reachablePrimitiveNames,
   )
 where
 
@@ -24,6 +27,49 @@ instance Semigroup References where
 
 instance Monoid References where
   mempty = References Set.empty Set.empty
+
+-- | Per-definition call edges and primitive declarations exported by one
+-- incremental unit. This is sufficient to validate the reachable primitive
+-- closure without reopening dependency bodies.
+data ReachabilityInterface = ReachabilityInterface
+  { reachabilityValueEdges :: !(Map Text (Set Text)),
+    reachabilityPrimitives :: !(Set Text)
+  }
+  deriving (Eq, Show, Read)
+
+instance Semigroup ReachabilityInterface where
+  left <> right =
+    ReachabilityInterface
+      { reachabilityValueEdges = reachabilityValueEdges left <> reachabilityValueEdges right,
+        reachabilityPrimitives = reachabilityPrimitives left <> reachabilityPrimitives right
+      }
+
+instance Monoid ReachabilityInterface where
+  mempty = ReachabilityInterface Map.empty Set.empty
+
+extractReachabilityInterface :: FcProgram -> ReachabilityInterface
+extractReachabilityInterface (FcProgram topBinds) =
+  ReachabilityInterface
+    { reachabilityValueEdges =
+        Map.fromList
+          [ (name, referencedValues references)
+          | topBind <- topBinds,
+            (name, references) <- valueDefinitionsOf topBind
+          ],
+      reachabilityPrimitives =
+        Set.fromList
+          [ varName var
+          | FcPrimitive var _ <- topBinds
+          ]
+    }
+
+reachablePrimitiveNames :: Text -> ReachabilityInterface -> Set Text
+reachablePrimitiveNames entry interface =
+  Set.intersection (close (Set.singleton entry)) (reachabilityPrimitives interface)
+  where
+    close values =
+      let values' = values <> foldMap (\name -> Map.findWithDefault Set.empty name (reachabilityValueEdges interface)) values
+       in if values' == values then values else close values'
 
 -- | Retain only the value and type declarations transitively reachable from
 -- the named entry point. The input is expected to be the combined program so
