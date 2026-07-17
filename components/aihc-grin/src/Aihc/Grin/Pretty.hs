@@ -17,6 +17,7 @@ renderProgram program =
     ( map renderConstructor (grinConstructors program)
         <> map renderPrimitive (grinPrimitives program)
         <> map renderForeign (grinForeignCalls program)
+        <> map renderGlobal (grinWhnfGlobals program)
         <> map renderCaf (grinCafs program)
         <> map renderFunction (grinFunctions program)
     )
@@ -41,6 +42,10 @@ renderForeign foreignCall =
     <> T.unpack (grinForeignCallSymbol foreignCall)
     <> "\" "
     <> T.unpack (grinForeignCallName foreignCall)
+
+renderGlobal :: (GrinVar, GrinNode) -> String
+renderGlobal (var, node) =
+  "global " <> renderVar var <> " = " <> renderNode node
 
 renderCaf :: (GrinVar, GrinNode) -> String
 renderCaf (var, node) =

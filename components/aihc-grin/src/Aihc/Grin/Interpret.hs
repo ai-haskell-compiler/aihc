@@ -5,6 +5,7 @@ module Aihc.Grin.Interpret
   ( InterpretError (..),
     RuntimeValue (..),
     interpretProgramBinding,
+    interpretProgramIoBinding,
   )
 where
 
@@ -21,7 +22,6 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -94,7 +94,16 @@ type EvalM = ExceptT EvalFailure (StateT Machine IO)
 -- | Interpret and render a named top-level binding using the raw constructor
 -- representation shared by the compiler pipeline evaluation fixtures.
 interpretProgramBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
-interpretProgramBinding name program = do
+interpretProgramBinding = interpretProgramBindingWith pure
+
+-- | Interpret a named top-level binding and explicitly run its value as an IO
+-- action. The caller, rather than GRIN, owns the decision to use this entry
+-- point.
+interpretProgramIoBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
+interpretProgramIoBinding = interpretProgramBindingWith runIOValue
+
+interpretProgramBindingWith :: (RuntimeValue -> EvalM RuntimeValue) -> Text -> GrinProgram -> IO (Either InterpretError Text)
+interpretProgramBindingWith enterValue name program = do
   let machine = initialMachine program
   (result, finalMachine) <- runStateT (runExceptT action) machine
   case result of
@@ -114,10 +123,7 @@ interpretProgramBinding name program = do
           Just binding -> pure binding
           Nothing -> throwInterpret (InterpretMissingBinding name)
       forced <- forceValue value
-      result <-
-        if name `Set.member` grinIoCafs program
-          then runIOValue forced
-          else pure forced
+      result <- enterValue forced
       renderRawValueM result
 
 initialMachine :: GrinProgram -> Machine
@@ -144,9 +150,15 @@ initialMachine program =
       | ((var, _), location) <- zip cafs [0 ..]
       ]
     cafEnv = Map.fromList cafLocations
+    staticGlobals =
+      Map.fromList
+        [ (grinVarName var, staticNode node)
+        | (var, node) <- grinWhnfGlobals program
+        ]
     globals =
       Map.unions
         [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
+          staticGlobals,
           Map.fromList
             [ (grinVarName var, RuntimeNode (GrinPrimitive (grinVarName var) arity) [])
             | (var, arity) <- grinPrimitives program
@@ -156,6 +168,15 @@ initialMachine program =
             | constructor <- map fst builtinConstructors <> map fst (grinConstructors program)
             ]
         ]
+    staticNode (GrinNode tag fields) = RuntimeNode tag (map staticValue fields)
+    staticValue value =
+      case value of
+        GrinVarValue var ->
+          case Map.lookup (grinVarName var) globals of
+            Just runtimeValue -> runtimeValue
+            Nothing -> error ("GRIN interpreter found an unbound static global " <> T.unpack (grinVarName var))
+        GrinLitValue literal -> RuntimeLit literal
+        GrinNodeValue node -> staticNode node
 
 evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
 evalExpr env expr =

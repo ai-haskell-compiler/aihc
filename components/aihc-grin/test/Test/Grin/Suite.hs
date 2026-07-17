@@ -10,7 +10,7 @@ where
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), Unique (..), runtimeRepOfType)
+import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
@@ -90,6 +90,11 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+      testCase "FC lowering only makes computed function values CAFs" $ do
+        let program = lowerProgram functionClassificationProgram
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
+        assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
       testCase "separate FC units do not capture dependency globals" $ do
         case lowerPrograms separatePrograms of
           [_provider, consumer] -> do
@@ -136,18 +141,25 @@ evaluateGrinProgram :: Text -> FcProgram -> IO (Either String Text)
 evaluateGrinProgram name fcProgram = do
   case prepareEvalProgram name (lowerNewtypes fcProgram) of
     Left err -> pure (Left err)
-    Right (preparedProgram, unwrapResult) -> do
+    Right (preparedProgram, entry, unwrapResult) -> do
       let program = lowerProgram preparedProgram
       case lintProgram program of
         [] -> do
-          result <- interpretProgramBinding name program
+          result <-
+            case entry of
+              EvaluateBinding -> interpretProgramBinding name program
+              RunIoAction -> interpretProgramIoBinding name program
           pure $
             case result of
               Left err -> Left (show err)
               Right value -> Right (unwrapResult value)
         lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
 
-prepareEvalProgram :: Text -> FcProgram -> Either String (FcProgram, Text -> Text)
+data BindingEntry
+  = EvaluateBinding
+  | RunIoAction
+
+prepareEvalProgram :: Text -> FcProgram -> Either String (FcProgram, BindingEntry, Text -> Text)
 prepareEvalProgram name program@(FcProgram topBinds) =
   case break isEvalBinding topBinds of
     (_, []) -> Left ("missing evaluation binding " <> T.unpack name)
@@ -155,7 +167,7 @@ prepareEvalProgram name program@(FcProgram topBinds) =
     (before, FcTopBind (FcNonRec var rhs) : after) -> do
       runtimeRep <- runtimeRepOfType (varType var)
       if runtimeRep == BoxedRep Lifted
-        then Right (program, id)
+        then Right (program, bindingEntry (varType var), id)
         else do
           let componentCount = length (runtimeRepComponents runtimeRep)
               constructorName = evalResultConstructor componentCount
@@ -166,6 +178,7 @@ prepareEvalProgram name program@(FcProgram topBinds) =
               wrappedBinding = FcTopBind (FcNonRec wrappedVar (FcApp (FcVar constructorVar) rhs))
           Right
             ( FcProgram (declaration : before <> (wrappedBinding : after)),
+              EvaluateBinding,
               unwrapEvalResult componentCount constructorName
             )
     (_, _ : _) -> Left "invalid evaluation binding"
@@ -175,6 +188,19 @@ prepareEvalProgram name program@(FcProgram topBinds) =
         FcTopBind (FcNonRec var _) -> varName var == name
         FcTopBind (FcRec bindings) -> any ((== name) . varName . fst) bindings
         _ -> False
+
+bindingEntry :: TcType -> BindingEntry
+bindingEntry ty
+  | isIOType ty = RunIoAction
+  | otherwise = EvaluateBinding
+
+isIOType :: TcType -> Bool
+isIOType ty =
+  case ty of
+    TcTyCon (TyCon name arity) [_] -> name == "IO" && arity == 1
+    TcForAllTy _ body -> isIOType body
+    TcQualTy _ body -> isIOType body
+    _ -> False
 
 evalResultConstructor :: Int -> Text
 evalResultConstructor componentCount
@@ -258,6 +284,35 @@ cafReferenceProgram =
     answerVar = Var "answer" (Unique 21) boxedIntTy
     boxConstructorVar = Var "BoxedInt" (Unique 22) (TcFunTy intTy boxedIntTy)
 
+functionClassificationProgram :: FcProgram
+functionClassificationProgram =
+  FcProgram
+    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+      FcTopBind
+        ( FcNonRec
+            directVar
+            (FcTyLam typeVar (FcDictLam dictionaryVar (FcLam directArgumentVar (FcVar directArgumentVar))))
+        ),
+      FcTopBind
+        ( FcNonRec
+            computedVar
+            ( FcLet
+                (FcNonRec expensiveVar (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42))))
+                (FcLam computedArgumentVar (FcVar expensiveVar))
+            )
+        )
+    ]
+  where
+    typeVar = TyVarId "a" (Unique 30)
+    typeVarTy = TcTyVar typeVar
+    dictionaryVar = Var "$dictionary" (Unique 31) boxedIntTy
+    directArgumentVar = Var "argument" (Unique 32) typeVarTy
+    directVar = Var "direct" (Unique 33) (TcForAllTy typeVar (TcFunTy boxedIntTy (TcFunTy typeVarTy typeVarTy)))
+    expensiveVar = Var "expensive" (Unique 34) boxedIntTy
+    computedArgumentVar = Var "argument" (Unique 35) boxedIntTy
+    computedVar = Var "computed" (Unique 36) (TcFunTy boxedIntTy boxedIntTy)
+    boxConstructorVar = Var "BoxedInt" (Unique 37) (TcFunTy intTy boxedIntTy)
+
 exceptionProgram :: FcProgram
 exceptionProgram =
   FcProgram
@@ -289,7 +344,7 @@ heapProgram =
     { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinIoCafs = mempty,
+      grinWhnfGlobals = [],
       grinCafs =
         [ ( answer,
             GrinNode (GrinThunk functionName) []
@@ -352,7 +407,7 @@ unliftedHeapProgram runtimeRep =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinIoCafs = mempty,
+      grinWhnfGlobals = [],
       grinCafs = [(GrinVar "bad" 1 (BoxedRep Lifted), GrinNode (GrinThunk unliftedThunkFunction) [GrinLitValue (GrinLitString "capture")])],
       grinFunctions =
         [ GrinFunction

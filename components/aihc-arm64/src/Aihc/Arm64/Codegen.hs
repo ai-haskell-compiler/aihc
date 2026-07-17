@@ -103,7 +103,7 @@ extendLinkLayout layout program =
     }
 
 -- | Compile a library module to relocatable assembly. The exported initializer
--- installs the module's primitive and CAF globals into the shared
+-- initializer installs the module's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
 compileModule :: LinkLayout -> Text -> GrinProgram -> Either Arm64Error Text
 compileModule layout initializerSymbol program = do
@@ -192,6 +192,7 @@ programGlobalNames :: GrinProgram -> [Text]
 programGlobalNames program =
   map fst (programConstructorArities program)
     <> map (grinVarName . fst) (grinPrimitives program)
+    <> map (grinVarName . fst) (grinWhnfGlobals program)
     <> map (grinVarName . fst) (grinCafs program)
 
 compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
@@ -220,6 +221,10 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     primitive <- primitiveId env (grinVarName var)
     pure $ makeNodeLines 4 (InfoImmediate primitive) arity 0 <> storeGlobal slot
+  whnfGlobalLines <- fmap concat . forM (grinWhnfGlobals program) $ \(var, node) -> do
+    slot <- globalSlot env (grinVarName var)
+    nodeLines <- materializeNode (ValueEnv env Map.empty) node
+    pure (nodeLines <> storeGlobal slot)
   cafCellLines <- fmap concat . forM (grinCafs program) $ \(var, _) -> do
     slot <- globalSlot env (grinVarName var)
     pure (["  bl _aihc_make_cell"] <> storeGlobal slot)
@@ -234,7 +239,7 @@ compileInitializers env program = do
              "  mov x1, x20",
              "  bl _aihc_set_cell"
            ]
-  pure (primitiveLines <> cafCellLines <> cafValueLines)
+  pure (primitiveLines <> cafCellLines <> whnfGlobalLines <> cafValueLines)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -805,9 +810,11 @@ programRuntimeReps :: GrinProgram -> [RuntimeRep]
 programRuntimeReps program =
   concatMap snd (grinConstructors program)
     <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
+    <> concatMap globalRuntimeReps (grinWhnfGlobals program)
     <> concatMap cafRuntimeReps (grinCafs program)
     <> concatMap functionRuntimeReps (grinFunctions program)
   where
+    globalRuntimeReps (var, node) = grinVarRuntimeRep var : nodeRuntimeReps node
     cafRuntimeReps (var, node) = grinVarRuntimeRep var : nodeRuntimeReps node
     functionRuntimeReps function =
       grinFunctionResultRep function

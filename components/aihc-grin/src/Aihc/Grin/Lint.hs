@@ -17,6 +17,7 @@ import Data.Text (Text)
 
 data GrinLintError
   = GrinLintDuplicateFunction !FunctionName
+  | GrinLintDuplicateWhnfGlobal !GrinVar
   | GrinLintDuplicateCaf !GrinVar
   | GrinLintUnboundVariable !GrinVar
   | GrinLintUnknownFunction !FunctionName
@@ -44,15 +45,20 @@ data LintEnv = LintEnv
 lintProgram :: GrinProgram -> [GrinLintError]
 lintProgram program =
   duplicateFunctionErrors
+    <> duplicateGlobalErrors
     <> duplicateCafErrors
+    <> concatMap (lintWhnfGlobal env) (grinWhnfGlobals program)
     <> concatMap (lintCaf env) (grinCafs program)
     <> concatMap (lintFunction env) (grinFunctions program)
   where
     functions = grinFunctions program
+    globals = grinWhnfGlobals program
     cafs = grinCafs program
     functionNames = map grinFunctionName functions
+    globalVars = map fst globals
     cafVars = map fst cafs
     duplicateFunctionErrors = map GrinLintDuplicateFunction (duplicates functionNames)
+    duplicateGlobalErrors = map GrinLintDuplicateWhnfGlobal (duplicates globalVars)
     duplicateCafErrors = map GrinLintDuplicateCaf (duplicates cafVars)
     env =
       LintEnv
@@ -62,17 +68,25 @@ lintProgram program =
               | function <- functions
               ],
           lintFunctionResults = Map.fromList [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
-          lintGlobalVars = Set.fromList cafVars,
+          lintGlobalVars = Set.fromList (globalVars <> cafVars),
           lintGlobalNames =
             Set.fromList
               ( map fst builtinConstructors
                   <> map fst (grinConstructors program)
                   <> map (grinVarName . fst) (grinPrimitives program)
+                  <> map grinVarName globalVars
                   <> map grinVarName cafVars
               ),
           lintConstructorLayouts = Map.fromList (grinConstructors program),
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
+
+lintWhnfGlobal :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
+lintWhnfGlobal env (var, node) =
+  [ GrinLintRepresentationMismatch "global" (grinVarRuntimeRep var) liftedRuntimeRep
+  | grinVarRuntimeRep var /= liftedRuntimeRep
+  ]
+    <> lintNode env (lintGlobalVars env) node
 
 lintCaf :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
 lintCaf env (var, node) =

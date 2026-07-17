@@ -8,12 +8,13 @@ module Aihc.Grin
     renderProgram,
     renderExpr,
     interpretProgramBinding,
+    interpretProgramIoBinding,
     InterpretError (..),
     RuntimeValue (..),
   )
 where
 
-import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding)
+import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (lowerProgram, lowerPrograms)
 import Aihc.Grin.Pretty (renderExpr, renderProgram)
