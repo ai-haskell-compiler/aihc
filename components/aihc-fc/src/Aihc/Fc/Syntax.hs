@@ -31,6 +31,8 @@ module Aihc.Fc.Syntax
     fcForeignOperandTypes,
     fcForeignCallResultType,
     fcForeignCallType,
+    fcDictionaryTypeName,
+    fcDictionaryConstructorName,
 
     -- * Case alternatives
     FcAlt (..),
@@ -150,6 +152,14 @@ statePrimRealWorldType :: TcType
 statePrimRealWorldType =
   TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
 
+-- | Generated ordinary data declaration used to represent one class's
+-- dictionaries after FC is lowered to a runtime language.
+fcDictionaryTypeName :: Text -> Text
+fcDictionaryTypeName className = "$DictType$" <> className
+
+fcDictionaryConstructorName :: Text -> Text
+fcDictionaryConstructorName className = "$Dict$" <> className
+
 -- | A typed variable.
 data Var = Var
   { varName :: !Text,
@@ -186,10 +196,10 @@ data FcExpr
     FcTyLam !TyVarId !FcExpr
   | -- | Dictionary lambda.
     FcDictLam !Var !FcExpr
-  | -- | Dictionary value, represented as method fields.
-    FcDict ![FcExpr]
-  | -- | Dictionary field selection.
-    FcDictSelect !FcExpr !Int
+  | -- | Dictionary value: ordinary constructor name and method fields.
+    FcDict !Text ![FcExpr]
+  | -- | Dictionary field selection: ordinary constructor name, value, index.
+    FcDictSelect !Text !FcExpr !Int
   | -- | Let binding.
     FcLet !FcBind !FcExpr
   | -- | Case expression: scrutinee, case binder, alternatives.

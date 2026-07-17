@@ -2,6 +2,9 @@ expected: |-
   data Integer
    = IS Int#
 
+  data $DictType$Num
+   = $Dict$Num (∀ a. (Num a) ⇒ Integer → a)
+
   fromInteger : ∀ a. (Num a) ⇒ Integer → a =
     Λa.
       \$d0 : dict.
@@ -21,6 +24,6 @@ modules:
 - |
   module Main where
   one = 1
-reason: desugars default integer literals through Prelude.fromInteger applied to
-  an Integer constructor value
+reason: desugars default integer literals through Prelude.fromInteger applied to an
+  Integer constructor value
 status: pass

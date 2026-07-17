@@ -20,6 +20,7 @@ import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CallConv (..),
+    ClassDecl (..),
     DataConDecl,
     DataDecl (..),
     Decl (..),
@@ -154,8 +155,8 @@ dsDecl (DeclAnn ann inner)
       dsForeignImport tcAnn (Just foreignAnn) foreignDecl
 dsDecl (DeclAnn ann (DeclForeign foreignDecl))
   | Just tcAnn <- fromAnnotation ann = dsForeignImport tcAnn Nothing foreignDecl
-dsDecl (DeclAnn ann (DeclClass _classDecl))
-  | Just classAnn <- fromAnnotation ann = dsClassDeclM classAnn
+dsDecl (DeclAnn ann (DeclClass classDecl))
+  | Just classAnn <- fromAnnotation ann = dsClassDeclM classDecl classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
 dsDecl DeclClass {} = desugarBug "missing type-checker annotation for class declaration"
 dsDecl _ = pure []
@@ -534,12 +535,22 @@ dataConFieldTypes name arity (TcFunTy arg rest) =
 dataConFieldTypes name arity ty =
   desugarBug ("missing field type information for data constructor " <> T.unpack name <> ": expected " <> show arity <> " more field(s) in " <> show ty)
 
-dsClassDeclM :: TcClassAnnotation -> DsM [FcTopBind]
-dsClassDeclM classAnn =
-  mapM dsClassSelector (tcClassMethods classAnn)
+dsClassDeclM :: ClassDecl -> TcClassAnnotation -> DsM [FcTopBind]
+dsClassDeclM classDecl classAnn = do
+  selectors <- mapM (dsClassSelector dictionaryConstructor) methods
+  pure (dictionaryDeclaration : selectors)
+  where
+    className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
+    methods = tcClassMethods classAnn
+    dictionaryConstructor = fcDictionaryConstructorName className
+    dictionaryDeclaration =
+      FcData
+        (fcDictionaryTypeName className)
+        []
+        [(dictionaryConstructor, map tcClassMethodType methods)]
 
-dsClassSelector :: TcClassMethodAnnotation -> DsM FcTopBind
-dsClassSelector methodAnn = do
+dsClassSelector :: Text -> TcClassMethodAnnotation -> DsM FcTopBind
+dsClassSelector dictionaryConstructor methodAnn = do
   methodUnique <- freshUnique
   dictVars <- zipWithM mkSelectorDict [0 :: Int ..] dictPreds
   classDictVar <-
@@ -547,7 +558,7 @@ dsClassSelector methodAnn = do
       dictVar : _ -> pure dictVar
       [] -> freshVar "$d" (tcClassMethodDictType methodAnn)
   let methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
-      selected = FcDictSelect (FcVar classDictVar) (tcClassMethodIndex methodAnn)
+      selected = FcDictSelect dictionaryConstructor (FcVar classDictVar) (tcClassMethodIndex methodAnn)
       body = foldr FcTyLam (foldr FcDictLam selected dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
   where
@@ -585,10 +596,22 @@ dsInstanceDict instAnn instanceDecl = do
   contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
   fields <- mapM (dsInstanceMethod contextDicts methods) (tcInstanceMethodOrder instAnn)
   dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
-  let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict fields) contextDicts) (tcInstanceTyVars instAnn)
+  dictionaryConstructor <-
+    case dictionaryClassName (tcInstanceDictType instAnn) of
+      Just className -> pure (fcDictionaryConstructorName className)
+      Nothing -> desugarBug ("cannot determine class for instance dictionary " <> T.unpack (tcInstanceDictName instAnn))
+  let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict dictionaryConstructor fields) contextDicts) (tcInstanceTyVars instAnn)
   pure (FcTopBind (FcNonRec dictVar dictBody))
   where
     combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
+
+dictionaryClassName :: TcType -> Maybe Text
+dictionaryClassName ty =
+  case ty of
+    TcForAllTy _ body -> dictionaryClassName body
+    TcQualTy _ body -> dictionaryClassName body
+    TcTyCon (TyCon className _) _ -> Just className
+    _ -> Nothing
 
 mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
 mkContextDict ix dictAnn = do

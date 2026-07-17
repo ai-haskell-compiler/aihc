@@ -157,13 +157,6 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
   value->fields[index] = field;
 }
 
-AihcSlot aihc_project(AihcValue *object, uint64_t index) {
-  if (object->kind != AIHC_CONSTRUCTOR || index >= object->count) {
-    aihc_fail("invalid constructor projection");
-  }
-  return object->fields[index];
-}
-
 void aihc_set_cell(AihcValue *cell, AihcValue *value) {
   if (cell->kind != AIHC_CELL) {
     aihc_fail("attempted to initialize a non-cell");

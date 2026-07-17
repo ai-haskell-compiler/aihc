@@ -46,7 +46,6 @@ data InterpretError
   | InterpretInvalidThunkResult ![RuntimeValue]
   | InterpretInvalidThunkResultRep !FunctionName !RuntimeRep
   | InterpretInvalidUpdateValue !RuntimeValue
-  | InterpretInvalidProject !RuntimeValue !Int
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
@@ -212,15 +211,6 @@ evalExpr env expr =
     GrinCase scrutinee binder alternatives -> do
       value <- evalValue env scrutinee >>= forceValue
       matchAlternative (Map.insert binder value env) value alternatives
-    GrinProject _ object index -> do
-      objectValue <- evalValue env object
-      case objectValue of
-        RuntimeNode (GrinConstructor _) fields
-          | index >= 0,
-            index < length fields ->
-              pure [fields !! index]
-          | otherwise -> throwInterpret (InterpretInvalidProject objectValue index)
-        other -> throwInterpret (InterpretInvalidProject other index)
     GrinThrow exception -> do
       exceptionValue <- evalValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)

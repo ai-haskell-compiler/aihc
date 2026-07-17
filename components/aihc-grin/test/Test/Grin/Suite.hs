@@ -56,35 +56,6 @@ grinUnitTests =
         assertBool
           "constructor layout mismatch"
           (GrinLintConstructorLayout "Box" [WordRep] [IntRep] `elem` lintProgram program),
-      testCase "lint rejects statically invalid constructor projections" $ do
-        let functionName = FunctionName "project_code"
-            nonConstructor = GrinNodeValue (GrinNode (GrinThunk functionName) [])
-            box = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])
-            projectProgram resultRep constructors object index =
-              GrinProgram
-                { grinConstructors = constructors,
-                  grinPrimitives = [],
-                  grinForeignCalls = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
-                  grinFunctions =
-                    [ GrinFunction
-                        { grinFunctionName = functionName,
-                          grinFunctionParameters = [],
-                          grinFunctionResultRep = resultRep,
-                          grinFunctionBody = GrinProject resultRep object index
-                        }
-                    ]
-                }
-        assertBool
-          "non-constructor projection"
-          (GrinLintProjectNonConstructor (GrinThunk functionName) `elem` lintProgram (projectProgram (BoxedRep Lifted) [] nonConstructor 0))
-        assertBool
-          "out-of-bounds projection"
-          (GrinLintInvalidProjectIndex 1 `elem` lintProgram (projectProgram IntRep [("Box", [IntRep])] box 1))
-        assertBool
-          "non-atomic projection result"
-          (GrinLintProjectNonAtomic (TupleRep [IntRep, WordRep]) `elem` lintProgram (projectProgram (TupleRep [IntRep, WordRep]) [("Box", [IntRep])] box 0)),
       testCase "FC lowering makes exception control explicit" $ do
         let program = lowerProgram exceptionProgram
             rendered = renderProgram program
@@ -124,16 +95,18 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
         assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
-      testCase "FC dictionaries lower to ordinary constructor projection" $ do
+      testCase "FC dictionaries lower to ordinary constructor nodes and cases" $ do
         let program = lowerProgram dictionaryProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertEqual
-          "dictionary layout"
-          (Just [BoxedRep Lifted, BoxedRep Lifted])
-          (lookup "$grin_record_2" (grinConstructors program))
-        assertBool "ordinary constructor node" ("C$grin_record_2" `isInfixOf` rendered)
-        assertBool "ordinary field projection" ("project @BoxedRep Lifted" `isInfixOf` rendered)
+          "dictionary constructor has an ordinary declared layout"
+          [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
+          (grinConstructors program)
+        assertBool "one ordinary dictionary node" ("C$Dict$Test" `isInfixOf` rendered)
+        assertBool "ordinary dictionary case" ("C$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
+        assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
+        assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
         result <- interpretProgramBinding "answer" program
         assertEqual "selected field is evaluated" (Right "Box 2") result,
       testCase "separate FC units do not capture dependency globals" $ do
@@ -362,10 +335,11 @@ dictionaryProgram :: FcProgram
 dictionaryProgram =
   FcProgram
     [ FcData "Box" [] [("Box", [intTy])],
+      FcData "$DictType$Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
       FcTopBind
         ( FcNonRec
             answerVar
-            (FcDictSelect (FcDict [boxed 1, boxed 2]) 1)
+            (FcDictSelect "$Dict$Test" (FcDict "$Dict$Test" [boxed 1, boxed 2]) 1)
         )
     ]
   where

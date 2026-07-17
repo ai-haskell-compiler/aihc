@@ -3,6 +3,9 @@ expected: |-
    = False
    | True
 
+  data $DictType$Eq
+   = $Dict$Eq (∀ a. (Eq a) ⇒ a → a → Bool)
+
   == : ∀ a. (Eq a) ⇒ a → a → Bool =
     Λa.
       \$d0 : dict.

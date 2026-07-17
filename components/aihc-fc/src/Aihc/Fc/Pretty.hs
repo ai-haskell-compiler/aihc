@@ -144,12 +144,12 @@ renderExprPrec n parens (FcTyLam tv body) =
 renderExprPrec n parens (FcDictLam v body) =
   paren parens $
     "\\" ++ renderVar v ++ " : dict.\n" ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcDict fields) =
+renderExprPrec n parens (FcDict _ fields) =
   paren parens $
     "{"
       ++ intercalate ", " (map (renderExprPrec n False) fields)
       ++ "}"
-renderExprPrec n parens (FcDictSelect dict index) =
+renderExprPrec n parens (FcDictSelect _ dict index) =
   paren parens $
     renderExprPrec n True dict ++ "." ++ show index
 renderExprPrec n parens (FcLet bind body) =

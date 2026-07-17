@@ -9,10 +9,16 @@ expected: |-
   data Integer
    = IS Int#
 
+  data $DictType$Eq
+   = $Dict$Eq (∀ a. (Eq a) ⇒ a → a → Bool)
+
   == : ∀ a. (Eq a) ⇒ a → a → Bool =
     Λa.
       \$d0 : dict.
         $d0.0
+
+  data $DictType$Num
+   = $Dict$Num (∀ a. (Num a) ⇒ Integer → a)
 
   fromInteger : ∀ a. (Num a) ⇒ Integer → a =
     Λa.
@@ -78,6 +84,5 @@ modules:
   caseInt :: ()
   caseInt = case (1 :: Int) of
     1 -> ()
-reason: desugars concrete integer literals and integer case scrutinees through
-  Prelude.fromInteger
+reason: desugars concrete integer literals and integer case scrutinees through Prelude.fromInteger
 status: pass

@@ -28,6 +28,7 @@ module Aihc.Grin.Syntax
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
     builtinConstructors,
+    builtinConstructorLayouts,
   )
 where
 
@@ -95,10 +96,6 @@ data GrinExpr
   | GrinEval !RuntimeRep !GrinValue
   | GrinApply !RuntimeRep !GrinValue ![GrinValue]
   | GrinCase !GrinValue !GrinVar ![GrinAlt]
-  | -- | Project one field from an ordinary constructor node. The node must
-    -- already be in weak-head normal form; evaluating the selected field is a
-    -- separate 'GrinEval'.
-    GrinProject !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
@@ -182,12 +179,15 @@ isPointerRuntimeRep runtimeRep =
 -- interpretation, linting, and native code generation agree on which global
 -- constructor values exist before the program starts.
 builtinConstructors :: [(Text, Int)]
-builtinConstructors =
-  [ ("C#", 1),
-    ("[]", 0),
-    (":", 2),
-    ("()", 0),
-    ("(,)", 2)
+builtinConstructors = [(name, length layout) | (name, layout) <- builtinConstructorLayouts]
+
+builtinConstructorLayouts :: [(Text, [RuntimeRep])]
+builtinConstructorLayouts =
+  [ ("C#", [WordRep]),
+    ("[]", []),
+    (":", [liftedRuntimeRep, liftedRuntimeRep]),
+    ("()", []),
+    ("(,)", [liftedRuntimeRep, liftedRuntimeRep])
   ]
 
 data GrinForeignCall = GrinForeignCall

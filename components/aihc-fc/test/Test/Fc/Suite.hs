@@ -103,6 +103,20 @@ fcOptimizationTests =
           "reachable program"
           (FcProgram [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
           (eliminateDeadCode "main" program),
+      testCase "retains ordinary dictionary constructor declarations" $ do
+        let dictionaryTy = ty "$DictType$Test"
+            dictionaryData = FcData "$DictType$Test" [] [("$Dict$Test", [stringTy])]
+            mainBinding =
+              FcTopBind
+                ( FcNonRec
+                    (Var "main" (Unique 13) dictionaryTy)
+                    (FcDict "$Dict$Test" [FcLit (LitString "method")])
+                )
+            program = FcProgram [dictionaryData, mainBinding]
+        assertEqual
+          "reachable dictionary declaration"
+          program
+          (eliminateDeadCode "main" program),
       testCase "lowers newtype construction to a linted representational cast" $ do
         let metersTy = ty "Meters"
             intHashTy = ty "Int#"

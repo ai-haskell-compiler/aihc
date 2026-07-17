@@ -1159,20 +1159,44 @@ dsEvidence evidence =
         Nothing ->
           desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
     EvGiven EqPred {} ->
-      pure (FcDict [])
+      pure (FcDict "()" [])
     EvDict dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
       contextDicts <- mapM dsEvidence contextEvidence
       let dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
       pure (List.foldl' FcDictApp dictExpr contextDicts)
     EvCoercion {} ->
-      pure (FcDict [])
-    EvSuperClass dict index ->
-      (`FcDictSelect` index) <$> dsEvidence dict
+      pure (FcDict "()" [])
+    EvSuperClass dict index -> do
+      constructor <- evidenceDictionaryConstructor dict
+      FcDictSelect constructor <$> dsEvidence dict <*> pure index
     EvCast dict _co ->
       dsEvidence dict
     EvVarTerm {} ->
       desugarBug "unresolved evidence variable in type-checker annotation"
+
+evidenceDictionaryConstructor :: EvTerm -> DsM Text
+evidenceDictionaryConstructor evidence =
+  case evidence of
+    EvGiven (ClassPred className _) -> pure (fcDictionaryConstructorName className)
+    EvGiven EqPred {} -> pure "()"
+    EvDict dictName _ _ -> do
+      dictTy <- lookupType dictName
+      case dictionaryClassName dictTy of
+        Just className -> pure (fcDictionaryConstructorName className)
+        Nothing -> desugarBug ("cannot determine dictionary class from " <> T.unpack dictName <> " :: " <> show dictTy)
+    EvCoercion {} -> pure "()"
+    EvCast dict _ -> evidenceDictionaryConstructor dict
+    EvSuperClass {} -> desugarBug "nested superclass evidence lacks result class metadata"
+    EvVarTerm {} -> desugarBug "unresolved evidence variable has no dictionary constructor"
+
+dictionaryClassName :: TcType -> Maybe Text
+dictionaryClassName ty =
+  case ty of
+    TcForAllTy _ body -> dictionaryClassName body
+    TcQualTy _ body -> dictionaryClassName body
+    TcTyCon (TyCon className _) _ -> Just className
+    _ -> Nothing
 
 exprAnnotationType :: Expr -> Maybe TcType
 exprAnnotationType expr =
@@ -1305,7 +1329,7 @@ fcExprTypeM expr =
     FcLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
     FcTyLam tv body -> TcForAllTy tv <$> fcExprTypeM body
     FcDictLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
-    FcDict _fields -> pure (TcTyCon (TyCon "Dict" 0) [])
+    FcDict _ _fields -> pure (TcTyCon (TyCon "Dict" 0) [])
     FcDictSelect {} -> desugarBug "dictionary selection lacks field type annotation while desugaring"
     FcLet _bind body -> fcExprTypeM body
     FcCase _scrut _binder alts ->

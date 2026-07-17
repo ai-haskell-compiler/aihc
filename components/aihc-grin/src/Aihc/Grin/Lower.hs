@@ -36,7 +36,7 @@ data LowerState = LowerState
     lowerPrimitiveNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
-    lowerRecordArities :: !(Set Int),
+    lowerConstructorLayouts :: !(Map Text [RuntimeRep]),
     lowerLocalVars :: !(Map (Text, Unique) [GrinVar])
   }
 
@@ -108,30 +108,36 @@ extractGrinInterface program =
 -- The supplied program must already have completed its FC transformations.
 lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
 lowerProgramWithInterface imported program =
-  lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program)) program
+  lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program) program) program
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
     programEnvironmentWhnfGlobals :: !(Set Text),
-    programEnvironmentPrimitives :: !(Set Text)
+    programEnvironmentPrimitives :: !(Set Text),
+    programEnvironmentConstructorLayouts :: !(Map Text [RuntimeRep])
   }
 
-programEnvironment :: GrinInterface -> ProgramEnvironment
-programEnvironment interface =
+programEnvironment :: GrinInterface -> FcProgram -> ProgramEnvironment
+programEnvironment interface program =
   ProgramEnvironment
     { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceGlobals interface,
       programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceWhnfGlobals interface,
-      programEnvironmentPrimitives = grinInterfacePrimitives interface
+      programEnvironmentPrimitives = grinInterfacePrimitives interface,
+      programEnvironmentConstructorLayouts =
+        Map.fromList (builtinConstructorLayouts <> programConstructorLayouts program)
     }
+
+programConstructorLayouts :: FcProgram -> [(Text, [RuntimeRep])]
+programConstructorLayouts program =
+  [ (name, concatMap (runtimeRepComponents . typeRuntimeRep) fields)
+  | FcData _ _ constructors <- fcTopBinds program,
+    (name, fields) <- constructors
+  ]
 
 lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
 lowerProgramWithEnvironment environment program =
   GrinProgram
-    { grinConstructors =
-        loweredConstructors tops
-          <> [ (recordConstructorName arity, replicate arity liftedRuntimeRep)
-             | arity <- Set.toAscList (lowerRecordArities finalState)
-             ],
+    { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
       grinWhnfGlobals = loweredWhnfGlobals tops,
@@ -147,7 +153,7 @@ lowerProgramWithEnvironment environment program =
           lowerPrimitiveNames = programEnvironmentPrimitives environment,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
-          lowerRecordArities = Set.empty,
+          lowerConstructorLayouts = programEnvironmentConstructorLayouts environment,
           lowerLocalVars = Map.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
@@ -257,27 +263,23 @@ lowerNonTupleExpr expr =
       lowerExpr body
     FcDictLam var body ->
       lowerLambda var body
-    FcDict fields -> do
-      let arity = length fields
-          fieldReps = map exprRuntimeRep fields
-      if all (== liftedRuntimeRep) fieldReps
-        then pure ()
-        else error ("GRIN lowering received a non-lifted dictionary layout: " <> show fieldReps)
-      registerRecordConstructor arity
-      lowerArgumentMany fields $ \values ->
-        if length values == arity
-          then pure (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor (recordConstructorName arity)) values)])
-          else error "GRIN lowering expected every dictionary field to occupy one runtime slot"
-    FcDictSelect dictionary index ->
-      lowerSingleStrict "record" dictionary $ \value ->
-        do
-          field <- freshVar "projected_field" liftedRuntimeRep
-          pure
-            ( GrinBind
-                [field]
-                (GrinProject liftedRuntimeRep value index)
-                (GrinEval liftedRuntimeRep (GrinVarValue field))
-            )
+    FcDict constructor fields ->
+      lowerArgumentMany fields $ \values -> do
+        expectedLayout <- lookupConstructorLayout constructor
+        let actualLayout = map grinValueRuntimeRep values
+        if actualLayout == expectedLayout
+          then pure (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor constructor) values)])
+          else
+            error
+              ( "GRIN lowering found constructor layout mismatch for "
+                  <> T.unpack constructor
+                  <> ": expected "
+                  <> show expectedLayout
+                  <> ", got "
+                  <> show actualLayout
+              )
+    FcDictSelect constructor dictionary index ->
+      lowerSingleStrict "dictionary" dictionary $ \value -> lowerConstructorField constructor value index
     FcLet bind body ->
       lowerLet bind body
     FcCase scrutinee binder alternatives ->
@@ -514,14 +516,47 @@ emitFunction :: GrinFunction -> LowerM ()
 emitFunction function =
   modify' $ \state -> state {lowerFunctionsRev = function : lowerFunctionsRev state}
 
--- | FC dictionaries are homogeneous lifted records once type-class meaning is
--- erased. Equal layouts share an ordinary generated constructor.
-registerRecordConstructor :: Int -> LowerM ()
-registerRecordConstructor arity =
-  modify' $ \state -> state {lowerRecordArities = Set.insert arity (lowerRecordArities state)}
+lookupConstructorLayout :: Text -> LowerM [RuntimeRep]
+lookupConstructorLayout constructor = do
+  layouts <- gets lowerConstructorLayouts
+  case Map.lookup constructor layouts of
+    Just layout -> pure layout
+    Nothing -> error ("GRIN lowering could not find constructor layout for " <> T.unpack constructor)
 
-recordConstructorName :: Int -> Text
-recordConstructorName arity = "$grin_record_" <> T.pack (show arity)
+-- | Select a field by destructuring an ordinary constructor node. Dictionary
+-- access needs no GRIN or runtime-system operation beyond the normal case and
+-- evaluation forms used for every other lazy constructor field.
+lowerConstructorField :: Text -> GrinValue -> Int -> LowerM GrinExpr
+lowerConstructorField constructor nodeValue index = do
+  layout <- lookupConstructorLayout constructor
+  if index < 0 || index >= length layout
+    then
+      error
+        ( "GRIN lowering received an invalid field index "
+            <> show index
+            <> " for constructor "
+            <> T.unpack constructor
+        )
+    else do
+      nodeVar <- freshVar "dictionary" liftedRuntimeRep
+      fieldVars <- mapM (freshVar "dictionary_field") layout
+      let selectedVar = fieldVars !! index
+          selectedRep = layout !! index
+          selectedExpr =
+            if isLiftedRuntimeRep selectedRep
+              then GrinEval selectedRep (GrinVarValue selectedVar)
+              else GrinReturn [GrinVarValue selectedVar]
+      pure
+        ( GrinCase
+            nodeValue
+            nodeVar
+            [ GrinAlt
+                { grinAltCon = GrinDataAlt constructor,
+                  grinAltBinders = fieldVars,
+                  grinAltRhs = selectedExpr
+                }
+            ]
+        )
 
 primitiveApplication :: Set Text -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
 primitiveApplication primitiveNames localVars expr =
@@ -555,8 +590,8 @@ freeVars expr =
     FcLam var body -> Set.delete var (freeVars body)
     FcTyLam _ body -> freeVars body
     FcDictLam var body -> Set.delete var (freeVars body)
-    FcDict fields -> foldMap freeVars fields
-    FcDictSelect dictionary _ -> freeVars dictionary
+    FcDict _ fields -> foldMap freeVars fields
+    FcDictSelect _ dictionary _ -> freeVars dictionary
     FcLet bind body -> freeVarsBind bind body
     FcCase scrutinee binder alternatives ->
       freeVars scrutinee
@@ -839,8 +874,8 @@ exprVars expr =
     FcLam var body -> var : exprVars body
     FcTyLam _ body -> exprVars body
     FcDictLam var body -> var : exprVars body
-    FcDict fields -> concatMap exprVars fields
-    FcDictSelect dictionary _ -> exprVars dictionary
+    FcDict _ fields -> concatMap exprVars fields
+    FcDictSelect _ dictionary _ -> exprVars dictionary
     FcLet bind body -> bindVars bind <> exprVars body
     FcCase scrutinee binder alternatives ->
       exprVars scrutinee <> (binder : concatMap altVars alternatives)

@@ -186,8 +186,12 @@ referencesExpr bound expression =
     FcLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
     FcTyLam _ body -> referencesExpr bound body
     FcDictLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
-    FcDict fields -> foldMap (referencesExpr bound) fields
-    FcDictSelect dictionary _ -> referencesExpr bound dictionary
+    FcDict constructor fields ->
+      mempty {referencedValues = Set.singleton constructor}
+        <> foldMap (referencesExpr bound) fields
+    FcDictSelect constructor dictionary _ ->
+      mempty {referencedValues = Set.singleton constructor}
+        <> referencesExpr bound dictionary
     FcLet bind body -> referencesLet bound bind body
     FcCase scrutinee binder alternatives ->
       referencesExpr bound scrutinee

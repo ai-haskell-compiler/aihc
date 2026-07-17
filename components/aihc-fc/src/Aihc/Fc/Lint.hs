@@ -161,10 +161,10 @@ lintExpr env (FcDictLam v body) = do
   let env' = extendTermEnv v env
   bodyTy <- lintExpr env' body
   Right (TcFunTy (varType v) bodyTy)
-lintExpr env (FcDict fields) = do
+lintExpr env (FcDict _ fields) = do
   mapM_ (lintExpr env) fields
   Right (TcTyCon (TyCon "Dict" 0) [])
-lintExpr env (FcDictSelect dict index) = do
+lintExpr env (FcDictSelect _ dict index) = do
   _ <- lintExpr env dict
   Left (LintFailure ("dictionary selection lacks field type annotation: " ++ show index))
 lintExpr env (FcLet bind body) = do

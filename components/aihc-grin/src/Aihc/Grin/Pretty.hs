@@ -106,14 +106,6 @@ renderExprIndented indentation expr =
         <> renderVar binder
         <> " of\n"
         <> intercalate "\n" (map (renderAlt (indentation + 2)) alternatives)
-    GrinProject runtimeRep object index ->
-      indent indentation
-        <> "project @"
-        <> show runtimeRep
-        <> " "
-        <> renderValue object
-        <> " "
-        <> show index
     GrinThrow exception -> indent indentation <> "throw " <> renderValue exception
     GrinCatch runtimeRep action handler state ->
       indent indentation

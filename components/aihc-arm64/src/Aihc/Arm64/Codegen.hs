@@ -374,17 +374,6 @@ compileExpr env prefix label expression =
         )
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
-    GrinProject _ object index -> do
-      objectLines <- liftEither (materializeValue env object)
-      addBlock
-        label
-        ( prefix
-            <> objectLines
-            <> [ immediate "x1" index,
-                 "  bl _aihc_project"
-               ]
-            <> returnLines
-        )
     GrinThrow {} -> unsupportedExpression "throw"
     GrinCatch {} -> unsupportedExpression "catch"
     GrinForeignCallExpr foreignCall arguments ->
@@ -796,7 +785,6 @@ boundVarGroups expression =
     GrinEval _ _ -> []
     GrinApply {} -> []
     GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
-    GrinProject {} -> []
     GrinThrow _ -> []
     GrinCatch {} -> []
     GrinForeignCallExpr {} -> []
@@ -864,7 +852,6 @@ exprRuntimeReps expression =
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)
-    GrinProject runtimeRep object _ -> runtimeRep : valueRuntimeReps object
     GrinThrow exception -> valueRuntimeReps exception
     GrinCatch runtimeRep action handler state ->
       runtimeRep : concatMap valueRuntimeReps (action : handler : state)

@@ -49,7 +49,7 @@ data Value
   = VLit Literal
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
-  | VDict [Value]
+  | VDict Text [Value]
   | VPrim Text Int [Value]
   | VMutVar EvalMutVar
   | VStateToken
@@ -143,13 +143,14 @@ evalWithEnv env expr =
       evalWithEnv env body
     FcDictLam var body ->
       pure (VClosure env var body)
-    FcDict fields ->
-      pure (VDict (map (VThunk env) fields))
-    FcDictSelect dict index -> do
+    FcDict constructor fields ->
+      pure (VDict constructor (map (VThunk env) fields))
+    FcDictSelect expectedConstructor dict index -> do
       dictValue <- evalWithEnv env dict >>= forceValue
       case dictValue of
-        VDict fields
-          | index >= 0,
+        VDict actualConstructor fields
+          | actualConstructor == expectedConstructor,
+            index >= 0,
             index < length fields ->
               forceValue (fields !! index)
           | otherwise -> throwE (EvalInvalidDictSelect dictValue index)
