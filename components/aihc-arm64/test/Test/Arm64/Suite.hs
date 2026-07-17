@@ -74,6 +74,8 @@ tests =
                 { grinConstructors = [("Box", [runtimeRep])],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
                   grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions = []
@@ -89,6 +91,8 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(primitive, 2)],
                   grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
                   grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions = []
@@ -104,11 +108,14 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
                   grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
+                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = Int8Rep,
                           grinFunctionBody = GrinReturn [GrinLitValue (GrinLitInt Int8Rep 255)]
@@ -125,11 +132,14 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
                   grinWhnfGlobals = [],
                   grinCafs = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
+                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = TupleRep [TupleRep [], IntRep, WordRep],
                           grinFunctionBody =
@@ -146,6 +156,41 @@ tests =
             assertBool "returns two values" ("ldr x1, =2" `T.isInfixOf` assembly)
             assertBool "uses the multi-value return ABI" ("bl _aihc_return_values" `T.isInfixOf` assembly)
             assertBool "does not allocate an aggregate node" (not ("bl _aihc_make_node" `T.isInfixOf` assembly)),
+      testCase "exports stable entries and branches directly to dependency code" $ do
+        let identityName = FunctionName "$entry$identity"
+            callerName = FunctionName "$entry$caller"
+            argument = GrinVar "argument" 1 (BoxedRep Lifted)
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions =
+                    [ GrinCodeInfo
+                        { grinCodeSourceName = "identity",
+                          grinCodeFunctionName = identityName,
+                          grinCodeParameterLayouts = [[BoxedRep Lifted]],
+                          grinCodeResultRep = BoxedRep Lifted
+                        }
+                    ],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = callerName,
+                          grinFunctionLinkName = Just "caller",
+                          grinFunctionParameters = [argument],
+                          grinFunctionResultRep = BoxedRep Lifted,
+                          grinFunctionBody = GrinCall (BoxedRep Lifted) identityName [GrinVarValue argument]
+                        }
+                    ]
+                }
+        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" program of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
+            assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 

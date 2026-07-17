@@ -33,6 +33,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Numeric (showHex)
 
 data Arm64Error
   = Arm64MissingEntry !Text
@@ -214,13 +215,12 @@ emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
   LinkLayout
     { linkConstructors = builtinConstructors,
-      linkGlobalNames = map fst builtinConstructors
+      linkGlobalNames = [name | (name, arity) <- builtinConstructors, arity == 0]
     }
 
 programGlobalNames :: GrinProgram -> [Text]
 programGlobalNames program =
-  map fst (programConstructorArities program)
-    <> map (grinVarName . fst) (grinPrimitives program)
+  [name | (name, arity) <- programConstructorArities program, arity == 0]
     <> map (grinVarName . fst) (grinWhnfGlobals program)
     <> map (grinVarName . fst) (grinCafs program)
 
@@ -230,8 +230,24 @@ compileEnvironment layout program =
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
       compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
-      compileFunctionLabels = Map.fromList [(grinFunctionName function, functionLabel index) | (index, function) <- zip [0 ..] (grinFunctions program)],
-      compileFunctionArities = Map.fromList [(grinFunctionName function, length (grinFunctionParameters function)) | function <- grinFunctions program],
+      compileFunctionLabels =
+        Map.fromList
+          ( [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
+            | info <- grinExternalFunctions program
+            ]
+              <> [ (grinFunctionName function, localFunctionLabel index function)
+                 | (index, function) <- zip [0 ..] (grinFunctions program)
+                 ]
+          ),
+      compileFunctionArities =
+        Map.fromList
+          ( [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
+            | info <- grinExternalFunctions program
+            ]
+              <> [ (grinFunctionName function, length (grinFunctionParameters function))
+                 | function <- grinFunctions program
+                 ]
+          ),
       compileAllowUnsupportedPrimitives = False
     }
   where
@@ -239,17 +255,18 @@ compileEnvironment layout program =
 
 compileConstructorInitializers :: CompileEnv -> Either Arm64Error [Text]
 compileConstructorInitializers env =
-  fmap concat . forM (Map.toAscList (compileConstructorIds env)) $ \(name, constructor) -> do
+  fmap concat . forM nullaryConstructors $ \(name, constructor) -> do
     slot <- globalSlot env name
-    arity <- constructorArity env name
-    pure $ makeNodeLines 1 (InfoImmediate constructor) arity 0 <> storeGlobal slot
+    pure $ makeNodeLines 1 (InfoImmediate constructor) 0 0 <> storeGlobal slot
+  where
+    nullaryConstructors =
+      [ (name, constructor)
+      | (name, constructor) <- Map.toAscList (compileConstructorIds env),
+        Map.lookup name (compileConstructorArities env) == Just 0
+      ]
 
 compileInitializers :: CompileEnv -> GrinProgram -> Either Arm64Error [Text]
 compileInitializers env program = do
-  primitiveLines <- fmap concat . forM (grinPrimitives program) $ \(var, arity) -> do
-    slot <- globalSlot env (grinVarName var)
-    primitive <- primitiveId env (grinVarName var)
-    pure $ makeNodeLines 4 (InfoImmediate primitive) arity 0 <> storeGlobal slot
   whnfGlobalLines <- fmap concat . forM (grinWhnfGlobals program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
     nodeLines <- materializeNode (ValueEnv env Map.empty) node
@@ -268,7 +285,7 @@ compileInitializers env program = do
              "  mov x1, x20",
              "  bl _aihc_set_cell"
            ]
-  pure (primitiveLines <> cafCellLines <> whnfGlobalLines <> cafValueLines)
+  pure (cafCellLines <> whnfGlobalLines <> cafValueLines)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -284,17 +301,24 @@ compileFunction env function = do
     either (Left . Arm64EmitError) Right (renderAllocatedBlock spillBase (parameterCopyLir localSlots (grinFunctionParameters function)))
   let slotCount = max 1 (spillBase + spillCount)
       entry =
-        [ label <> ":",
-          immediate "x0" slotCount,
-          "  bl _aihc_alloc_locals",
-          "  mov x19, x0",
-          "  str x19, [x22, #32]",
-          "  ldr x8, [x22, #8]"
-        ]
+        exportLines function label
+          <> [ label <> ":",
+               immediate "x0" slotCount,
+               "  bl _aihc_alloc_locals",
+               "  mov x19, x0",
+               "  str x19, [x22, #32]",
+               "  ldr x8, [x22, #8]"
+             ]
           <> parameterCopies
           <> ["  b " <> bodyLabel]
       blocks = concatMap renderBlock (reverse (functionBlocksRev finalState))
   pure (entry <> blocks)
+
+exportLines :: GrinFunction -> Text -> [Text]
+exportLines function label =
+  case grinFunctionLinkName function of
+    Just _ -> [".globl " <> label]
+    Nothing -> []
 
 parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction]
 parameterCopyLir slots parameters =
@@ -350,6 +374,27 @@ compileExpr env prefix label expression =
     GrinEval runtimeRep value -> do
       valueLines <- liftEither (materializeValue env value)
       addBlock label (prefix <> valueLines <> evalLines runtimeRep)
+    GrinCall _ functionName arguments -> do
+      target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
+      argumentSlots <- freshSlots (length arguments)
+      argumentLines <-
+        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
+          lines' <- liftEither (materializeValue env argument)
+          pure (lines' <> [storeAt "x0" "x19" slot])
+      addBlock
+        label
+        ( prefix
+            <> argumentLines
+            <> [slotPointer "x8" argumentSlots, "  str x8, [x22, #8]", "  b " <> target]
+        )
+    GrinPrimitiveCall runtimeRep name arguments
+      | name == "realWorld#",
+        null arguments,
+        null (runtimeRepComponents runtimeRep) ->
+          addBlock label (prefix <> returnValuesLines [])
+      | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
+          addBlock label (prefix <> ["  bl _aihc_unsupported_primitive", "  b " <> label])
+      | otherwise -> unsupportedExpression ("primitive call " <> name)
     GrinApply _ function arguments -> do
       scratch <- freshSlot
       functionLines <- liftEither (materializeValue env function)
@@ -783,6 +828,8 @@ boundVarGroups expression =
     GrinFetch _ _ -> []
     GrinUpdate _ _ -> []
     GrinEval _ _ -> []
+    GrinCall {} -> []
+    GrinPrimitiveCall {} -> []
     GrinApply {} -> []
     GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
     GrinThrow _ -> []
@@ -847,6 +894,10 @@ exprRuntimeReps expression =
     GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer
     GrinUpdate pointer value -> valueRuntimeReps pointer <> valueRuntimeReps value
     GrinEval runtimeRep value -> runtimeRep : valueRuntimeReps value
+    GrinCall runtimeRep _ arguments ->
+      runtimeRep : concatMap valueRuntimeReps arguments
+    GrinPrimitiveCall runtimeRep _ arguments ->
+      runtimeRep : concatMap valueRuntimeReps arguments
     GrinApply runtimeRep function arguments ->
       runtimeRep : valueRuntimeReps function <> concatMap valueRuntimeReps arguments
     GrinCase scrutinee binder alternatives ->
@@ -875,6 +926,18 @@ nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
 
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index
+
+localFunctionLabel :: Int -> GrinFunction -> Text
+localFunctionLabel index function =
+  case grinFunctionLinkName function of
+    Just name -> linkedFunctionLabel name
+    Nothing -> functionLabel index
+
+linkedFunctionLabel :: Text -> Text
+linkedFunctionLabel name =
+  "_aihc_entry_" <> T.concatMap encode name
+  where
+    encode character = T.pack (showHex (ord character) "_")
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =

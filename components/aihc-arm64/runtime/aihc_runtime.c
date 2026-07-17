@@ -78,6 +78,10 @@ static void aihc_fail(const char *message) {
   abort();
 }
 
+void aihc_unsupported_primitive(void) {
+  aihc_fail("primitive is not implemented by the native runtime");
+}
+
 static void *aihc_allocate(size_t bytes) {
   void *pointer = calloc(1, bytes);
   if (pointer == NULL) {
@@ -199,7 +203,13 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                               const AihcSlot *arguments) {
   switch (function->kind) {
   case AIHC_CLOSURE:
-    if (count != function->arity) {
+    if (count < function->arity) {
+      AihcValue *applied = aihc_copy_with_fields(function, count, arguments);
+      applied->arity -= count;
+      aihc_return_value(machine, (AihcSlot)applied);
+      return;
+    }
+    if (count > function->arity) {
       aihc_fail("closure received the wrong number of values");
     }
     aihc_schedule_function(machine, function,

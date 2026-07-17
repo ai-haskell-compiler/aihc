@@ -163,7 +163,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 5
+cacheSchemaVersion = 6
 
 buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies environment usesImplicitPrelude buildNative mainModule = do

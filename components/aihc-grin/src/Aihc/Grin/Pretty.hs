@@ -17,10 +17,21 @@ renderProgram program =
     ( map renderConstructor (grinConstructors program)
         <> map renderPrimitive (grinPrimitives program)
         <> map renderForeign (grinForeignCalls program)
+        <> map (("external global " <>) . T.unpack) (grinExternalGlobals program)
+        <> map renderExternalFunction (grinExternalFunctions program)
         <> map renderGlobal (grinWhnfGlobals program)
         <> map renderCaf (grinCafs program)
         <> map renderFunction (grinFunctions program)
     )
+
+renderExternalFunction :: GrinCodeInfo -> String
+renderExternalFunction info =
+  "external "
+    <> T.unpack (grinCodeSourceName info)
+    <> "/"
+    <> show (length (grinCodeParameterLayouts info))
+    <> " = "
+    <> T.unpack (unFunctionName (grinCodeFunctionName info))
 
 renderConstructor :: (T.Text, [RuntimeRep]) -> String
 renderConstructor (name, fieldReps) =
@@ -91,6 +102,20 @@ renderExprIndented indentation expr =
       indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
     GrinEval runtimeRep value ->
       indent indentation <> "eval @" <> show runtimeRep <> " " <> renderValue value
+    GrinCall runtimeRep functionName arguments ->
+      indent indentation
+        <> "call @"
+        <> show runtimeRep
+        <> " "
+        <> T.unpack (unFunctionName functionName)
+        <> renderValues arguments
+    GrinPrimitiveCall runtimeRep name arguments ->
+      indent indentation
+        <> "primitive-call @"
+        <> show runtimeRep
+        <> " "
+        <> T.unpack name
+        <> renderValues arguments
     GrinApply runtimeRep function arguments ->
       indent indentation
         <> "apply @"
