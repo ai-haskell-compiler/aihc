@@ -5,6 +5,7 @@ module Aihc.Resolve.Scope
     OperatorFixity (..),
     ModuleExports,
     collectModuleExports,
+    collectModuleExportsWithDeps,
     moduleScope,
     moduleKey,
     emptyScope,
@@ -91,20 +92,26 @@ data OperatorFixity = OperatorFixity
 type ModuleExports = Map.Map Text Scope
 
 collectModuleExports :: [Module] -> ModuleExports
-collectModuleExports modules = closeExports initialExports
+collectModuleExports = collectModuleExportsWithDeps Map.empty
+
+-- | Extract interfaces for a compilation unit while allowing its explicit
+-- export lists to re-export names supplied by predecessor units.
+collectModuleExportsWithDeps :: ModuleExports -> [Module] -> ModuleExports
+collectModuleExportsWithDeps depExports modules = Map.restrictKeys (closeExports initialExports) moduleKeys
   where
-    initialExports =
+    moduleKeys = Map.keysSet localExports
+    localExports =
       Map.fromList
         [ (moduleKey modu, emptyScope)
         | modu <- modules
         ]
+    initialExports =
+      localExports `Map.union` depExports
 
     closeExports exports =
       let exports' =
-            Map.fromList
-              [ (moduleKey modu, exportedScope exports modu)
-              | modu <- modules
-              ]
+            Map.fromList [(moduleKey modu, exportedScope exports modu) | modu <- modules]
+              `Map.union` depExports
        in if exports' == exports then exports else closeExports exports'
 
 exportedScope :: ModuleExports -> Module -> Scope

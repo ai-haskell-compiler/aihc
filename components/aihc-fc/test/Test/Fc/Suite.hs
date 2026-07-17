@@ -144,9 +144,9 @@ fcOptimizationTests =
             consumer = FcProgram [FcTopBind (FcNonRec value (FcApp (FcVar constructor) literal))]
             loweredConsumer = FcProgram [FcTopBind (FcNonRec value (FcCast literal (Sym (AxiomInstCo "Wrapper" []))))]
         assertEqual
-          "separate programs"
-          [provider, loweredConsumer]
-          (lowerNewtypesPrograms [provider, consumer])
+          "consumer body"
+          loweredConsumer
+          (lowerNewtypesWithInterface (extractNewtypeInterface provider) consumer)
     ]
 
 fcEvalFixtureTests :: IO TestTree

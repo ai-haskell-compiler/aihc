@@ -18,7 +18,7 @@ module Aihc.Cli.Compile
   )
 where
 
-import Aihc.Arm64 (Arm64Error, buildLinkLayout, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validateProgramPrimitives)
+import Aihc.Arm64 (Arm64Error, buildLinkLayoutFromInterfaces, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validatePrimitiveNames)
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -37,6 +37,8 @@ import Aihc.Fc
     desugarModule,
     desugarModuleWithBindings,
     eliminateDeadCode,
+    extractReachabilityInterface,
+    reachablePrimitiveNames,
   )
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -48,6 +50,7 @@ import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSucc
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -72,13 +75,13 @@ data CompileArtifacts = CompileArtifacts
     compiledArchives :: ![FilePath]
   }
 
--- | The Core and GRIN produced for one independently compiled module.
+-- | The Core and GRIN produced for one independently compiled module SCC.
 data IncrementalUnit = IncrementalUnit
   { incrementalUnitCore :: !FcProgram,
     incrementalUnitGrin :: !Grin.GrinProgram
   }
 
--- | Per-module compiler output. Whole-program compilation is derived from
+-- | Per-SCC compiler output. Whole-program compilation is derived from
 -- this structure; it is never an alternative frontend or lowering path.
 data IncrementalCompilation = IncrementalCompilation
   { incrementalDependencyUnits :: ![IncrementalUnit],
@@ -200,25 +203,21 @@ compileWithDependencies wholeProgram dependencies parsed =
                               then compileWholeProgramArtifacts incremental
                               else compileIncrementalArtifacts dependencies incremental
 
--- | Compile every module to its own normalized Core and GRIN unit before any
+-- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
 compileIncrementally :: DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
 compileIncrementally dependencies unoptimizedMain =
-  case splitLast incrementalUnits of
-    Nothing -> Left (CompileFrontendError ["incremental compilation produced no main unit"])
-    Just (dependencyUnits', mainUnit) ->
-      Right
-        IncrementalCompilation
-          { incrementalDependencyUnits = dependencyUnits',
-            incrementalMainUnit = mainUnit
-          }
+  Right
+    IncrementalCompilation
+      { incrementalDependencyUnits =
+          [ IncrementalUnit (dependencyUnitProgram unit) (dependencyUnitGrin unit)
+          | unit <- dependencyUnits dependencies
+          ],
+        incrementalMainUnit = IncrementalUnit mainCore mainGrin
+      }
   where
-    dependencyCorePrograms = map dependencyUnitProgram (dependencyUnits dependencies)
-    mainCore = eliminateDeadCode "main" unoptimizedMain
-    sourceCorePrograms = dependencyCorePrograms <> [mainCore]
-    normalizedCorePrograms = Fc.lowerNewtypesPrograms sourceCorePrograms
-    grinPrograms = Grin.lowerPrograms sourceCorePrograms
-    incrementalUnits = zipWith IncrementalUnit normalizedCorePrograms grinPrograms
+    mainCore = Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)
+    mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
 
 -- | Link already-incremental Core units for whole-program analysis. Unique
 -- namespaces are separated only while constructing the merged view.
@@ -226,31 +225,34 @@ mergeIncrementalCore :: IncrementalCompilation -> FcProgram
 mergeIncrementalCore compilation =
   appendPrograms freshDependencies mainCore
   where
-    dependencyCore = concatPrograms (map incrementalUnitCore (incrementalDependencyUnits compilation))
     mainCore = incrementalUnitCore (incrementalMainUnit compilation)
-    freshDependencies = shiftProgramVars (1 + maximumProgramUnique mainCore) dependencyCore
+    freshDependencies = freshenPrograms (1 + maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
+
+freshenPrograms :: Int -> [FcProgram] -> FcProgram
+freshenPrograms _ [] = FcProgram []
+freshenPrograms nextUnique (program : programs) =
+  appendPrograms shifted (freshenPrograms (1 + maximumProgramUnique shifted) programs)
+  where
+    shifted = shiftProgramVars nextUnique program
 
 reachableLinkedCore :: IncrementalCompilation -> FcProgram
 reachableLinkedCore = eliminateDeadCode "main" . mergeIncrementalCore
 
 -- | The optional whole-program phase consumes incremental Core; it does not
--- rerun the frontend or bypass per-module GRIN lowering.
+-- rerun the frontend or bypass per-SCC GRIN lowering.
 compileWholeProgramArtifacts :: IncrementalCompilation -> Either CompileError CompileArtifacts
 compileWholeProgramArtifacts = compileProgramArtifacts . reachableLinkedCore
 
 compileIncrementalArtifacts :: DependencyArtifact -> IncrementalCompilation -> Either CompileError CompileArtifacts
 compileIncrementalArtifacts dependencies compilation = do
-  let dependencyGrinPrograms = map incrementalUnitGrin (incrementalDependencyUnits compilation)
-      mainUnit = incrementalMainUnit compilation
+  let mainUnit = incrementalMainUnit compilation
       mainCore = incrementalUnitCore mainUnit
       mainGrin = incrementalUnitGrin mainUnit
-      dependencyLayout = buildLinkLayout dependencyGrinPrograms
+      dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
-      -- Native dependency objects may contain dormant primitive declarations.
-      -- Validate only the linked reachable view, without using that merged
-      -- program as the output of incremental compilation.
-      linkedGrin = Grin.lowerProgram (reachableLinkedCore compilation)
-  either (Left . CompileArm64Error) Right (validateProgramPrimitives linkedGrin)
+      reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
+      primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
+  either (Left . CompileArm64Error) Right (validatePrimitiveNames primitives)
   assembly <-
     either
       (Left . CompileArm64Error)
@@ -288,15 +290,6 @@ withFinalNewline rendered = T.pack rendered <> "\n"
 
 appendPrograms :: FcProgram -> FcProgram -> FcProgram
 appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)
-
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
-
-splitLast :: [value] -> Maybe ([value], value)
-splitLast values =
-  case reverse values of
-    [] -> Nothing
-    final : preceding -> Just (reverse preceding, final)
 
 maximumProgramUnique :: FcProgram -> Int
 maximumProgramUnique = maximum . (0 :) . map varUniqueInt . programVars

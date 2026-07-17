@@ -45,7 +45,7 @@ data GrinProgram = GrinProgram
     grinCafs :: ![(GrinVar, GrinNode)],
     grinFunctions :: ![GrinFunction]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | A first-order code definition. Closures and thunks refer to functions by
 -- name and carry their environment as node fields.
@@ -55,12 +55,12 @@ data GrinFunction = GrinFunction
     grinFunctionResultRep :: !RuntimeRep,
     grinFunctionBody :: !GrinExpr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 newtype FunctionName = FunctionName
   { unFunctionName :: Text
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | GRIN erases source types but preserves the part of their kinds that
 -- determines the runtime ABI.
@@ -69,7 +69,7 @@ data GrinVar = GrinVar
     grinVarUnique :: !Int,
     grinVarRuntimeRep :: !RuntimeRep
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 instance Eq GrinVar where
   left == right =
@@ -100,20 +100,20 @@ data GrinExpr
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
     GrinForeignCallExpr !GrinForeignCall ![GrinValue]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- | Atomic operands in the strict language.
 data GrinValue
   = GrinVarValue !GrinVar
   | GrinLitValue !GrinLiteral
   | GrinNodeValue !GrinNode
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinNode = GrinNode
   { grinNodeTag :: !GrinNodeTag,
     grinNodeFields :: ![GrinValue]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinNodeTag
   = GrinConstructor !Text
@@ -123,26 +123,26 @@ data GrinNodeTag
     GrinThunk !FunctionName
   | GrinPrimitive !Text !Int
   | GrinDictionary
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinAlt = GrinAlt
   { grinAltCon :: !GrinAltCon,
     grinAltBinders :: ![GrinVar],
     grinAltRhs :: !GrinExpr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinAltCon
   = GrinDataAlt !Text
   | GrinLitAlt !GrinLiteral
   | GrinDefaultAlt
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinLiteral
   = GrinLitInt !RuntimeRep !Integer
   | GrinLitChar !RuntimeRep !Char
   | GrinLitString !Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 grinValueRuntimeRep :: GrinValue -> RuntimeRep
 grinValueRuntimeRep value =
@@ -193,24 +193,24 @@ data GrinForeignCall = GrinForeignCall
     grinForeignCallSymbol :: !Text,
     grinForeignCallSignature :: !GrinForeignSignature
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinForeignSignature = GrinForeignSignature
   { grinForeignArgumentTypes :: ![GrinForeignType],
     grinForeignResultType :: !GrinForeignType,
     grinForeignEffect :: !GrinForeignEffect
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinForeignEffect
   = GrinForeignPure
   | GrinForeignRealWorld
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data GrinForeignType
   = GrinForeignInt32
   | GrinForeignWord64
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 grinForeignOperandReps :: GrinForeignSignature -> [RuntimeRep]
 grinForeignOperandReps signature =

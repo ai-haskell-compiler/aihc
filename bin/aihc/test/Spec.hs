@@ -155,7 +155,8 @@ main =
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
-          testCase "builds explicit incremental imports under NoImplicitPrelude" test_compileExplicitCoreImport
+          testCase "builds explicit incremental imports under NoImplicitPrelude" test_compileExplicitCoreImport,
+          testCase "compiles mutually recursive modules as one SCC unit" test_compileMutuallyRecursiveModules
         ],
       testGroup
         "repl"
@@ -986,6 +987,44 @@ test_compileExplicitCoreImport =
     assertBool "whole-program DCE excludes unreachable dependency functions" (not ("unreachableDependencyFunction" `T.isInfixOf` wholeCore))
     expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
     compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
+
+test_compileMutuallyRecursiveModules :: Assertion
+test_compileMutuallyRecursiveModules =
+  withTempDir "aihc-compile-module-scc" $ \root -> do
+    let coreRoot = root </> "core-libs"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment coreRoot cacheRoot
+        source = T.replace "module Main where\n" "module Main where\n\nimport Cycle.A (Token)\n" noImplicitDependencySource
+    createCompileLibrary
+      coreRoot
+      "cycle"
+      "Cycle.A"
+      ( unlines
+          [ "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module Cycle.A (Token, a) where",
+            "import Cycle.B (b)",
+            "data Token = Token",
+            "a :: Token -> Token",
+            "a = b"
+          ]
+      )
+    createCompileLibrary
+      coreRoot
+      "cycle"
+      "Cycle.B"
+      ( unlines
+          [ "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module Cycle.B (b) where",
+            "import Cycle.A (Token, a)",
+            "b :: Token -> Token",
+            "b value = value",
+            "back :: Token -> Token",
+            "back = a"
+          ]
+      )
+    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" source
+    objectFiles <- compileCacheArtifacts ".o" cacheRoot
+    assertEqual "one object for the two-module SCC" 1 (length objectFiles)
 
 expectCompileSuccess :: Either CompileError T.Text -> Assertion
 expectCompileSuccess result =

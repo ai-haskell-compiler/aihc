@@ -6,8 +6,10 @@
 -- providing their representational equality axiom. Their term constructors
 -- and patterns are casts and lazy bindings; they never denote heap nodes.
 module Aihc.Fc.Newtype
-  ( lowerNewtypes,
-    lowerNewtypesPrograms,
+  ( NewtypeInterface,
+    extractNewtypeInterface,
+    lowerNewtypes,
+    lowerNewtypesWithInterface,
   )
 where
 
@@ -20,9 +22,18 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
-newtype NewtypeEnv = NewtypeEnv
+newtype NewtypeInterface = NewtypeInterface
   { newtypesByConstructor :: Map Text FcNewtypeDecl
   }
+  deriving (Eq, Show, Read)
+
+instance Semigroup NewtypeInterface where
+  NewtypeInterface left <> NewtypeInterface right = NewtypeInterface (right <> left)
+
+instance Monoid NewtypeInterface where
+  mempty = NewtypeInterface Map.empty
+
+type NewtypeEnv = NewtypeInterface
 
 type LowerM = State Int
 
@@ -30,34 +41,27 @@ type LowerM = State Int
 -- Running this more than once is harmless, which lets callers normalize both
 -- individual modules and a later combined cross-module program.
 lowerNewtypes :: FcProgram -> FcProgram
-lowerNewtypes program@(FcProgram topBinds) =
+lowerNewtypes = lowerNewtypesWithInterface mempty
+
+-- | The representation information exported by one independently compiled
+-- unit. It contains declarations only; no term implementation crosses the
+-- incremental boundary.
+extractNewtypeInterface :: FcProgram -> NewtypeInterface
+extractNewtypeInterface (FcProgram topBinds) =
+  NewtypeInterface
+    ( Map.fromList
+        [ (fcNewtypeConstructor declaration, declaration)
+        | FcNewtype declaration <- topBinds
+        ]
+    )
+
+-- | Lower one compilation unit using declaration interfaces imported from
+-- already compiled units. Local declarations take precedence.
+lowerNewtypesWithInterface :: NewtypeInterface -> FcProgram -> FcProgram
+lowerNewtypesWithInterface imported program@(FcProgram topBinds) =
   FcProgram (evalState (mapM (lowerTopBind env) topBinds) (nextUnique program))
   where
-    env =
-      NewtypeEnv
-        { newtypesByConstructor =
-            Map.fromList
-              [ (fcNewtypeConstructor declaration, declaration)
-              | FcNewtype declaration <- topBinds
-              ]
-        }
-
--- | Lower newtypes across separately compiled units while preserving their
--- boundaries. Dependency declarations are available while rewriting every
--- unit, but dependency bindings do not become part of consumer units.
-lowerNewtypesPrograms :: [FcProgram] -> [FcProgram]
-lowerNewtypesPrograms sourcePrograms = splitPrograms sourcePrograms (lowerNewtypes (concatPrograms sourcePrograms))
-
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs = FcProgram (concatMap fcTopBinds programs)
-
-splitPrograms :: [FcProgram] -> FcProgram -> [FcProgram]
-splitPrograms sourcePrograms (FcProgram topBinds) = go sourcePrograms topBinds
-  where
-    go [] _ = []
-    go (FcProgram sourceTopBinds : rest) remaining =
-      let (unitTopBinds, remaining') = splitAt (length sourceTopBinds) remaining
-       in FcProgram unitTopBinds : go rest remaining'
+    env = imported <> extractNewtypeInterface program
 
 lowerTopBind :: NewtypeEnv -> FcTopBind -> LowerM FcTopBind
 lowerTopBind env topBind =

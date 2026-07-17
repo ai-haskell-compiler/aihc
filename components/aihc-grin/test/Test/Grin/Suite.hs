@@ -7,7 +7,7 @@ module Test.Grin.Suite
   )
 where
 
-import Aihc.Fc.Newtype (lowerNewtypes)
+import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
@@ -96,18 +96,22 @@ grinUnitTests =
         assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
         assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
       testCase "separate FC units do not capture dependency globals" $ do
-        case lowerPrograms separatePrograms of
-          [_provider, consumer] -> do
-            let parameters = concatMap grinFunctionParameters (grinFunctions consumer)
+        case separatePrograms of
+          [providerCore, consumerCore] -> do
+            let consumer = lowerProgramWithInterface (extractGrinInterface providerCore) consumerCore
+                parameters = concatMap grinFunctionParameters (grinFunctions consumer)
             assertBool "dependency CAF remains global" (all ((/= "source") . grinVarName) parameters)
-          programs -> assertFailure ("expected two separately lowered programs, got " <> show (length programs)),
+          programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
       testCase "separate FC units erase dependency newtypes" $ do
-        case lowerPrograms separateNewtypePrograms of
-          [provider, consumer] -> do
+        case separateNewtypePrograms of
+          [providerCore, sourceConsumer] -> do
+            let consumerCore = lowerNewtypesWithInterface (extractNewtypeInterface providerCore) sourceConsumer
+                provider = lowerProgram providerCore
+                consumer = lowerProgramWithInterface (extractGrinInterface providerCore) consumerCore
             assertEqual "newtype declaration emits no constructor" [] (grinConstructors provider)
             assertEqual "consumer lint" [] (lintProgram consumer)
             assertBool "newtype constructor is erased across units" (not ("Wrap" `isInfixOf` renderProgram consumer))
-          programs -> assertFailure ("expected two separately lowered programs, got " <> show (length programs))
+          programs -> assertFailure ("expected two FC programs, got " <> show (length programs))
     ]
 
 grinGoldenTests :: IO TestTree

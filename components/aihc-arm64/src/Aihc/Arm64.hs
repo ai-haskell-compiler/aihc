@@ -2,25 +2,35 @@
 module Aihc.Arm64
   ( Arm64Error (..),
     LinkLayout,
+    LinkInterface,
     buildLinkLayout,
+    buildLinkLayoutFromInterfaces,
     compileModule,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
+    extendLinkLayoutWithInterface,
+    extractLinkInterface,
     runtimeSourcePath,
     targetTriple,
     validateProgramPrimitives,
+    validatePrimitiveNames,
   )
 where
 
 import Aihc.Arm64.Codegen
   ( Arm64Error (..),
+    LinkInterface,
     LinkLayout,
     buildLinkLayout,
+    buildLinkLayoutFromInterfaces,
     compileModule,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
+    extendLinkLayoutWithInterface,
+    extractLinkInterface,
+    validatePrimitiveNames,
     validateProgramPrimitives,
   )
 import Paths_aihc_arm64 (getDataFileName)

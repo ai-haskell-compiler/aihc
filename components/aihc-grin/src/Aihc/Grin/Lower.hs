@@ -3,12 +3,14 @@
 
 -- | Lowering from non-strict System FC to strict, runtime-explicit GRIN.
 module Aihc.Grin.Lower
-  ( lowerProgram,
-    lowerPrograms,
+  ( GrinInterface,
+    extractGrinInterface,
+    lowerProgram,
+    lowerProgramWithInterface,
   )
 where
 
-import Aihc.Fc.Newtype (lowerNewtypes, lowerNewtypesPrograms)
+import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Syntax
@@ -64,19 +66,48 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram sourceProgram = lowerProgramWithEnvironment (programEnvironment [program]) program
+lowerProgram sourceProgram = lowerProgramWithInterface mempty program
   where
     program = lowerNewtypes sourceProgram
 
--- | Lower separately compiled FC units with the complete set of global names
--- supplied by the compilation closure. A unit may refer to a constructor,
--- primitive, foreign import, or CAF defined in another unit, but generated
--- functions and local variables remain private to that unit.
-lowerPrograms :: [FcProgram] -> [GrinProgram]
-lowerPrograms sourcePrograms = map (lowerProgramWithEnvironment environment) programs
-  where
-    programs = lowerNewtypesPrograms sourcePrograms
-    environment = programEnvironment programs
+-- | Runtime facts exported by one compiled unit. Lowering consumers need to
+-- know which external names are globals, already in WHNF, or primitives, but
+-- never need the defining FC expressions.
+data GrinInterface = GrinInterface
+  { grinInterfaceGlobals :: !(Set Text),
+    grinInterfaceWhnfGlobals :: !(Set Text),
+    grinInterfacePrimitives :: !(Set Text)
+  }
+  deriving (Eq, Show, Read)
+
+instance Semigroup GrinInterface where
+  left <> right =
+    GrinInterface
+      { grinInterfaceGlobals = grinInterfaceGlobals left <> grinInterfaceGlobals right,
+        grinInterfaceWhnfGlobals = grinInterfaceWhnfGlobals left <> grinInterfaceWhnfGlobals right,
+        grinInterfacePrimitives = grinInterfacePrimitives left <> grinInterfacePrimitives right
+      }
+
+instance Monoid GrinInterface where
+  mempty = GrinInterface Set.empty Set.empty Set.empty
+
+extractGrinInterface :: FcProgram -> GrinInterface
+extractGrinInterface program =
+  GrinInterface
+    { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
+      grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
+      grinInterfacePrimitives =
+        Set.fromList
+          [ varName var
+          | FcPrimitive var _ <- fcTopBinds program
+          ]
+    }
+
+-- | Lower one SCC using only the exported runtime facts of predecessor SCCs.
+-- The supplied program must already have completed its FC transformations.
+lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
+lowerProgramWithInterface imported program =
+  lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program)) program
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
@@ -84,17 +115,12 @@ data ProgramEnvironment = ProgramEnvironment
     programEnvironmentPrimitives :: !(Set Text)
   }
 
-programEnvironment :: [FcProgram] -> ProgramEnvironment
-programEnvironment programs =
+programEnvironment :: GrinInterface -> ProgramEnvironment
+programEnvironment interface =
   ProgramEnvironment
-    { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors <> concatMap programGlobalNames programs),
-      programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors <> concatMap programWhnfGlobalNames programs),
-      programEnvironmentPrimitives =
-        Set.fromList
-          [ varName var
-          | program <- programs,
-            FcPrimitive var _ <- fcTopBinds program
-          ]
+    { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceGlobals interface,
+      programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceWhnfGlobals interface,
+      programEnvironmentPrimitives = grinInterfacePrimitives interface
     }
 
 lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
