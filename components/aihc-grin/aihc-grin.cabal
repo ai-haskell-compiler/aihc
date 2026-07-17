@@ -12,6 +12,7 @@ synopsis: Strict graph-reduction intermediate language for AIHC
 library
   exposed-modules:
     Aihc.Grin
+    Aihc.Grin.Cps
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
     Aihc.Grin.Lower

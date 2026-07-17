@@ -7,6 +7,7 @@ module Aihc.Cli.Compile
     CompileError (..),
     compileOutputPath,
     compileSourceToCoreWithDependencies,
+    compileSourceToCpsGrinWithDependencies,
     compileSourceToGrinWithDependencies,
     compileSourceToWholeCoreWithDependencies,
     compileSourceToAssembly,
@@ -64,6 +65,7 @@ data CompileError
   = CompileParseError !String
   | CompileFrontendError ![String]
   | CompileDependencyError !String
+  | CompileCpsGrinError !Grin.CpsGrinError
   | CompileArm64Error !Arm64Error
   | CompileClangError !ExitCode !String
   deriving (Eq, Show)
@@ -71,6 +73,7 @@ data CompileError
 data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
     compiledGrin :: !Text,
+    compiledCpsGrin :: !Text,
     compiledAssembly :: !Text,
     compiledArchives :: ![FilePath]
   }
@@ -78,7 +81,8 @@ data CompileArtifacts = CompileArtifacts
 -- | The Core and GRIN produced for one independently compiled module SCC.
 data IncrementalUnit = IncrementalUnit
   { incrementalUnitCore :: !FcProgram,
-    incrementalUnitGrin :: !Grin.GrinProgram
+    incrementalUnitGrin :: !Grin.GrinProgram,
+    incrementalUnitCpsGrin :: !Grin.CpsGrinProgram
   }
 
 -- | Per-SCC compiler output. Whole-program compilation is derived from
@@ -114,8 +118,9 @@ writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> 
 writeIntermediateArtifacts output options artifacts = do
   when (compileKeepCore options) $
     TIO.writeFile (output <> ".core") (compiledCore artifacts)
-  when (compileKeepGrin options) $
+  when (compileKeepGrin options) $ do
     TIO.writeFile (output <> ".grin") (compiledGrin artifacts)
+    TIO.writeFile (output <> ".cps.grin") (compiledCpsGrin artifacts)
 
 -- | The project-local core libraries and shared compiled-library cache used by
 -- the command-line compiler.
@@ -159,6 +164,12 @@ compileSourceToCoreWithDependencies environment sourceName source =
 compileSourceToGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToGrinWithDependencies environment sourceName source =
   fmap (fmap compiledGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+
+-- | Compile source to the continuation-reified GRIN consumed by native
+-- backends and rendered as @.cps.grin@ by @--keep-grin@.
+compileSourceToCpsGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToCpsGrinWithDependencies environment sourceName source =
+  fmap (fmap compiledCpsGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
 
 -- | Compile source incrementally, then merge the resulting Core units and run
 -- whole-program dead-code elimination. This is the Core rendered by
@@ -207,14 +218,16 @@ compileWithDependencies wholeProgram dependencies parsed =
 -- optional whole-program transformation is considered.
 compileIncrementally :: DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
 compileIncrementally dependencies unoptimizedMain =
-  Right
-    IncrementalCompilation
-      { incrementalDependencyUnits =
-          [ IncrementalUnit (dependencyUnitProgram unit) (dependencyUnitGrin unit)
-          | unit <- dependencyUnits dependencies
-          ],
-        incrementalMainUnit = IncrementalUnit mainCore mainGrin
-      }
+  do
+    mainCpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin mainGrin)
+    pure
+      IncrementalCompilation
+        { incrementalDependencyUnits =
+            [ IncrementalUnit (dependencyUnitProgram unit) (dependencyUnitGrin unit) (dependencyUnitCpsGrin unit)
+            | unit <- dependencyUnits dependencies
+            ],
+          incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin
+        }
   where
     mainCore = Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)
     mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
@@ -248,6 +261,7 @@ compileIncrementalArtifacts dependencies compilation = do
   let mainUnit = incrementalMainUnit compilation
       mainCore = incrementalUnitCore mainUnit
       mainGrin = incrementalUnitGrin mainUnit
+      mainCpsGrin = incrementalUnitCpsGrin mainUnit
       dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
@@ -257,11 +271,12 @@ compileIncrementalArtifacts dependencies compilation = do
     either
       (Left . CompileArm64Error)
       Right
-      (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainGrin)
+      (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
         compiledGrin = renderGrin mainGrin,
+        compiledCpsGrin = renderCpsGrin mainCpsGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
@@ -270,11 +285,13 @@ compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifacts sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
-  assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" grin)
+  cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
+  assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" cpsGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
         compiledGrin = renderGrin grin,
+        compiledCpsGrin = renderCpsGrin cpsGrin,
         compiledAssembly = assembly,
         compiledArchives = []
       }
@@ -284,6 +301,9 @@ renderCore = withFinalNewline . Fc.renderProgram
 
 renderGrin :: Grin.GrinProgram -> Text
 renderGrin = withFinalNewline . Grin.renderProgram
+
+renderCpsGrin :: Grin.CpsGrinProgram -> Text
+renderCpsGrin = renderGrin . Grin.cpsGrinProgram
 
 withFinalNewline :: String -> Text
 withFinalNewline rendered = T.pack rendered <> "\n"
@@ -393,6 +413,7 @@ renderCompileError compileError =
     CompileParseError err -> "parse error: " <> err
     CompileFrontendError errors -> "frontend error: " <> unwords errors
     CompileDependencyError err -> "dependency error: " <> err
+    CompileCpsGrinError err -> "CPS-GRIN error: " <> show err
     CompileArm64Error err -> "ARM64 code generation error: " <> show err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 

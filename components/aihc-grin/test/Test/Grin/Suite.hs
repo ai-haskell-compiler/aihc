@@ -61,6 +61,28 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
         assertBool "contains explicit catch" ("catch " `isInfixOf` rendered),
+      testCase "CPS-GRIN allocates and applies ordinary continuation closures" $ do
+        cps <- expectCpsGrin heapProgram
+        let program = cpsGrinProgram cps
+            rendered = renderProgram program
+        assertEqual "transformed lint" [] (lintProgram program)
+        assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
+        assertBool "invokes a continuation closure" ("apply @BoxedRep Lifted $cps_continuation" `isInfixOf` rendered)
+        assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
+      testCase "CPS-GRIN preserves evaluation semantics" $ do
+        cps <- expectCpsGrin heapProgram
+        directResult <- interpretProgramBinding "answer" heapProgram
+        cpsResult <- interpretProgramBinding "answer" (cpsGrinProgram cps)
+        assertEqual "result" directResult cpsResult,
+      testCase "CPS-GRIN requires exception control to be eliminated" $ do
+        assertEqual
+          "throw"
+          (Left (CpsGrinUnexpectedThrow exceptionBoundaryFunction))
+          (toCpsGrin (exceptionBoundaryProgram (GrinThrow (GrinLitValue (GrinLitInt IntRep 1)))))
+        assertEqual
+          "catch"
+          (Left (CpsGrinUnexpectedCatch exceptionBoundaryFunction))
+          (toCpsGrin (exceptionBoundaryProgram (GrinCatch IntRep exceptionAction exceptionHandler []))),
       testCase "FC lowering evaluates Int# arguments without allocating thunks" $ do
         let program = lowerProgram unboxedApplicationProgram
             rendered = renderProgram program
@@ -189,6 +211,17 @@ grinUnitTests =
             assertBool "newtype constructor is erased across units" (not ("Wrap" `isInfixOf` renderProgram consumer))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs))
     ]
+
+expectCpsGrin :: GrinProgram -> IO CpsGrinProgram
+expectCpsGrin program =
+  case toCpsGrin program of
+    Left err -> assertFailure ("expected CPS-GRIN conversion to succeed, got " <> show err)
+    Right cps -> pure cps
+
+continuationHasCaptures :: GrinFunction -> Bool
+continuationHasCaptures function =
+  "$cps$" `T.isInfixOf` unFunctionName (grinFunctionName function)
+    && length (grinFunctionParameters function) > 1
 
 grinGoldenTests :: IO TestTree
 grinGoldenTests =
@@ -530,6 +563,36 @@ heapProgram =
     updated = GrinVar "updated" 4 (BoxedRep Lifted)
     updatedBox = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)])
     functionName = FunctionName "answer_code"
+
+exceptionBoundaryProgram :: GrinExpr -> GrinProgram
+exceptionBoundaryProgram body =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = exceptionBoundaryFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody = body
+            }
+        ]
+    }
+
+exceptionBoundaryFunction :: FunctionName
+exceptionBoundaryFunction = FunctionName "exception_boundary"
+
+exceptionAction :: GrinValue
+exceptionAction = GrinNodeValue (GrinNode (GrinConstructor "Action") [])
+
+exceptionHandler :: GrinValue
+exceptionHandler = GrinNodeValue (GrinNode (GrinConstructor "Handler") [])
 
 invalidUpdateProgram :: GrinProgram
 invalidUpdateProgram =

@@ -83,7 +83,7 @@ tests =
         assertEqual
           "native representation diagnostic"
           (Left (Arm64UnsupportedRuntimeRep runtimeRep))
-          (compileProgram "missing" program),
+          (compileProgram "missing" (expectCpsGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
         let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
             program =
@@ -98,7 +98,7 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
-        case compileModule (buildLinkLayout [program]) "_aihc_init_test" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectCpsGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
@@ -122,7 +122,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "returns unboxed tuples as direct machine values" $ do
@@ -150,7 +150,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "returns two values" ("ldr x1, =2" `T.isInfixOf` assembly)
@@ -186,7 +186,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" program of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
@@ -209,7 +209,7 @@ testNativeHelloWorld = do
   let grinProgram = lowerProgram fcProgram
   assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
   assembly <-
-    case compileProgram evalBindingName grinProgram of
+    case compileProgram evalBindingName (expectCpsGrin grinProgram) of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
@@ -218,6 +218,12 @@ testNativeHelloWorld = do
   assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
   when (arch == "aarch64" && os == "darwin") $
     runHelloWorldAssembly assembly
+
+expectCpsGrin :: GrinProgram -> CpsGrinProgram
+expectCpsGrin program =
+  case toCpsGrin program of
+    Right cpsProgram -> cpsProgram
+    Left err -> error ("test GRIN failed CPS conversion: " <> show err)
 
 runHelloWorldAssembly :: T.Text -> IO ()
 runHelloWorldAssembly assembly =

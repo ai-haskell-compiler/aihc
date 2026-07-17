@@ -22,6 +22,7 @@ where
 
 import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
+import Aihc.Grin.Cps (CpsGrinProgram, cpsGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM, replicateM)
@@ -92,9 +93,11 @@ data ValueEnv = ValueEnv
     valueLocalSlots :: !(Map GrinVar Int)
   }
 
-compileProgram :: Text -> GrinProgram -> Either Arm64Error Text
-compileProgram entryName program =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName program
+compileProgram :: Text -> CpsGrinProgram -> Either Arm64Error Text
+compileProgram entryName cpsProgram =
+  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName cpsProgram
+  where
+    program = cpsGrinProgram cpsProgram
 
 -- | Reject primitives that reachable native code would not execute correctly.
 -- Relocatable library objects may carry dormant primitive declarations, but
@@ -135,8 +138,8 @@ extendLinkLayoutWithInterface layout interface =
 -- | Compile a library SCC to relocatable assembly. The exported initializer
 -- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
-compileModule :: LinkLayout -> Text -> GrinProgram -> Either Arm64Error Text
-compileModule layout initializerSymbol program = do
+compileModule :: LinkLayout -> Text -> CpsGrinProgram -> Either Arm64Error Text
+compileModule layout initializerSymbol cpsProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -159,13 +162,14 @@ compileModule layout initializerSymbol program = do
          ]
       <> concat functions
   where
+    program = cpsGrinProgram cpsProgram
     compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
 
 -- | Compile the user program entry unit against cached dependency modules.
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GrinProgram -> Either Arm64Error Text
-compileProgramWithDependencies layout dependencyInitializers entryName program = do
+compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> CpsGrinProgram -> Either Arm64Error Text
+compileProgramWithDependencies layout dependencyInitializers entryName cpsProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Arm64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
@@ -203,6 +207,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName program =
          ]
       <> concat functions
   where
+    program = cpsGrinProgram cpsProgram
     compileEnv = compileEnvironment layout program
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
