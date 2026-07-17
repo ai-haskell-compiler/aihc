@@ -33,6 +33,7 @@ data LowerState = LowerState
   { lowerNextUnique :: !Int,
     lowerNextFunction :: !Int,
     lowerFunctionsRev :: ![GrinFunction],
+    lowerConstructorArities :: !(Map Text Int),
     lowerPrimitiveNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
@@ -71,11 +72,12 @@ lowerProgram sourceProgram = lowerProgramWithInterface mempty program
     program = lowerNewtypes sourceProgram
 
 -- | Runtime facts exported by one compiled unit. Lowering consumers need to
--- know which external names are globals, already in WHNF, or primitives, but
--- never need the defining FC expressions.
+-- know which external names are globals, already in WHNF, constructors, or
+-- primitives, but never need the defining FC expressions.
 data GrinInterface = GrinInterface
   { grinInterfaceGlobals :: !(Set Text),
     grinInterfaceWhnfGlobals :: !(Set Text),
+    grinInterfaceConstructorArities :: !(Map Text Int),
     grinInterfacePrimitives :: !(Set Text)
   }
   deriving (Eq, Show, Read)
@@ -85,17 +87,19 @@ instance Semigroup GrinInterface where
     GrinInterface
       { grinInterfaceGlobals = grinInterfaceGlobals left <> grinInterfaceGlobals right,
         grinInterfaceWhnfGlobals = grinInterfaceWhnfGlobals left <> grinInterfaceWhnfGlobals right,
+        grinInterfaceConstructorArities = grinInterfaceConstructorArities left <> grinInterfaceConstructorArities right,
         grinInterfacePrimitives = grinInterfacePrimitives left <> grinInterfacePrimitives right
       }
 
 instance Monoid GrinInterface where
-  mempty = GrinInterface Set.empty Set.empty Set.empty
+  mempty = GrinInterface Set.empty Set.empty Map.empty Set.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
 extractGrinInterface program =
   GrinInterface
     { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
       grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
+      grinInterfaceConstructorArities = Map.fromList (programConstructors program),
       grinInterfacePrimitives =
         Set.fromList
           [ varName var
@@ -112,6 +116,7 @@ lowerProgramWithInterface imported program =
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
     programEnvironmentWhnfGlobals :: !(Set Text),
+    programEnvironmentConstructorArities :: !(Map Text Int),
     programEnvironmentPrimitives :: !(Set Text)
   }
 
@@ -120,6 +125,7 @@ programEnvironment interface =
   ProgramEnvironment
     { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceGlobals interface,
       programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceWhnfGlobals interface,
+      programEnvironmentConstructorArities = Map.fromList builtinConstructors <> grinInterfaceConstructorArities interface,
       programEnvironmentPrimitives = grinInterfacePrimitives interface
     }
 
@@ -139,6 +145,7 @@ lowerProgramWithEnvironment environment program =
         { lowerNextUnique = maximum (0 : map sourceUnique (programVars program)) + 1,
           lowerNextFunction = 0,
           lowerFunctionsRev = [],
+          lowerConstructorArities = programEnvironmentConstructorArities environment,
           lowerPrimitiveNames = programEnvironmentPrimitives environment,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
@@ -198,16 +205,22 @@ makeGlobalFunction expr = do
 
 lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
+  constructorArities <- gets lowerConstructorArities
   primitiveNames <- gets lowerPrimitiveNames
   localVars <- gets lowerLocalVars
-  case primitiveApplication primitiveNames (Map.keysSet localVars) expr of
-    Just ("raise#", [exception]) ->
-      lowerSingleStrict "exception" exception (pure . GrinThrow)
-    Just ("catch#", [action, handler, _state]) ->
-      lowerSingleArgument action $ \actionValue ->
-        lowerSingleArgument handler $ \handlerValue ->
-          pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
-    _ -> lowerOrdinaryExpr expr
+  case saturatedConstructorApplication constructorArities (Map.keysSet localVars) expr of
+    Just (constructor, arguments) ->
+      lowerArgumentMany arguments $ \values ->
+        pure (GrinStore (GrinNode (GrinConstructor constructor) values))
+    Nothing ->
+      case primitiveApplication primitiveNames (Map.keysSet localVars) expr of
+        Just ("raise#", [exception]) ->
+          lowerSingleStrict "exception" exception (pure . GrinThrow)
+        Just ("catch#", [action, handler, _state]) ->
+          lowerSingleArgument action $ \actionValue ->
+            lowerSingleArgument handler $ \handlerValue ->
+              pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
+        _ -> lowerOrdinaryExpr expr
 
 lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
 lowerOrdinaryExpr expr =
@@ -491,6 +504,17 @@ primitiveApplication primitiveNames localVars expr =
           Just (varName var, arguments)
     _ -> Nothing
 
+saturatedConstructorApplication :: Map Text Int -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
+saturatedConstructorApplication constructorArities localVars expr =
+  case collectApplications expr of
+    (FcVar var, arguments)
+      | varKey var `Set.notMember` localVars,
+        Just arity <- Map.lookup (varName var) constructorArities,
+        arity > 0,
+        length arguments == arity ->
+          Just (varName var, arguments)
+    _ -> Nothing
+
 collectApplications :: FcExpr -> (FcExpr, [FcExpr])
 collectApplications expr =
   case expr of
@@ -738,6 +762,13 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
       case bind of
         FcNonRec var expr -> [(var, expr)]
         FcRec bindings -> bindings
+
+programConstructors :: FcProgram -> [(Text, Int)]
+programConstructors program =
+  [ (name, length fields)
+  | FcData _ _ constructors <- fcTopBinds program,
+    (name, fields) <- constructors
+  ]
 
 programWhnfGlobalNames :: FcProgram -> [Text]
 programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds program)

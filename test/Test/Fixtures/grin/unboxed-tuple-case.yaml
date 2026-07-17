@@ -8,7 +8,7 @@ expected: |-
       $grin_tuple_1007%1007 :: IntRep, $grin_tuple_1008%1008 :: WordRep <-
         return 1 2
       return $grin_tuple_1007%1007 :: IntRep
-    apply @BoxedRep Lifted Box%1001 :: BoxedRep Lifted $grin_argument_1006%1006 :: IntRep
+    store (CBox $grin_argument_1006%1006 :: IntRep)
 extensions:
 - MagicHash
 - UnboxedTuples

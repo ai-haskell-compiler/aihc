@@ -161,7 +161,8 @@ void aihc_set_cell(AihcValue *cell, AihcValue *value) {
   if (cell->kind != AIHC_CELL) {
     aihc_fail("attempted to initialize a non-cell");
   }
-  cell->info = AIHC_CELL_SUSPENDED;
+  cell->info =
+      value->kind == AIHC_THUNK ? AIHC_CELL_SUSPENDED : AIHC_CELL_VALUE;
   cell->fields[0] = (AihcSlot)value;
 }
 

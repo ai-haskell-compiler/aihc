@@ -71,7 +71,7 @@ instance Show GrinMutVar where
 type Env = Map GrinVar RuntimeValue
 
 data HeapCell
-  = HeapSuspended !Env !GrinNode
+  = HeapSuspended !FunctionName ![RuntimeValue]
   | HeapValue !RuntimeValue
   | HeapRaised !RuntimeValue
   | HeapBlackhole
@@ -137,7 +137,7 @@ initialMachine program =
       machineGlobals = globals,
       machineHeap =
         IntMap.fromList
-          [ (location, HeapSuspended cafEnv node)
+          [ (location, storedCell (staticNode node))
           | ((_, node), location) <- zip cafs [0 ..]
           ],
       machineNextLocation = length cafs
@@ -148,7 +148,6 @@ initialMachine program =
       [ (var, RuntimeLocation location)
       | ((var, _), location) <- zip cafs [0 ..]
       ]
-    cafEnv = Map.fromList cafLocations
     staticGlobals =
       Map.fromList
         [ (grinVarName var, staticNode node)
@@ -180,44 +179,43 @@ initialMachine program =
 evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
 evalExpr env expr =
   case expr of
-    GrinReturn values -> mapM (evalValue env) values
+    GrinReturn values -> mapM (materializeValue env) values
     GrinBind vars valueExpr body -> do
       values <- evalExpr env valueExpr
       if length vars == length values
         then evalExpr (Map.fromList (zip vars values) `Map.union` env) body
         else throwInterpret (InterpretResultArity (length vars) (length values))
     GrinStore node ->
-      pure <$> allocateCell (HeapSuspended env node)
+      pure <$> (materializeNode env node >>= allocateCell . storedCell)
     GrinStoreRec bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
           recursiveEnv = Map.fromList recursiveBindings `Map.union` env
-      mapM_
-        (\((_, node), location) -> writeCell location (HeapSuspended recursiveEnv node))
-        (zip bindings locations)
+      runtimeNodes <- mapM (materializeNode recursiveEnv . snd) bindings
+      mapM_ (uncurry writeCell) (zip locations (map storedCell runtimeNodes))
       evalExpr recursiveEnv body
     GrinFetch _ pointer ->
-      (: []) <$> (evalValue env pointer >>= fetchValue)
+      (: []) <$> (materializeValue env pointer >>= fetchValue)
     GrinUpdate pointer value -> do
-      pointerValue <- evalValue env pointer
-      updatedValue <- evalValue env value
+      pointerValue <- materializeValue env pointer
+      updatedValue <- materializeValue env value
       pure <$> updateValue pointerValue updatedValue
     GrinEval _ value ->
-      (: []) <$> (evalValue env value >>= forceValue)
+      (: []) <$> (materializeValue env value >>= forceValue)
     GrinApply _ function arguments -> do
-      functionValue <- evalValue env function
-      argumentValues <- mapM (evalValue env) arguments
+      functionValue <- materializeValue env function
+      argumentValues <- mapM (materializeValue env) arguments
       applyValue functionValue argumentValues
     GrinCase scrutinee binder alternatives -> do
-      value <- evalValue env scrutinee >>= forceValue
+      value <- materializeValue env scrutinee >>= forceValue
       matchAlternative (Map.insert binder value env) value alternatives
     GrinThrow exception -> do
-      exceptionValue <- evalValue env exception >>= forceValue
+      exceptionValue <- materializeValue env exception >>= forceValue
       throwE (EvalRaised exceptionValue)
     GrinCatch runtimeRep action handler state -> do
-      actionValue <- evalValue env action
-      handlerValue <- evalValue env handler
-      stateValues <- mapM (evalValue env) state
+      actionValue <- materializeValue env action
+      handlerValue <- materializeValue env handler
+      stateValues <- mapM (materializeValue env) state
       results <- applyValue actionValue stateValues `catchE` handleRaised handlerValue stateValues
       let expectedCount = length (runtimeRepComponents runtimeRep)
       case length results - expectedCount of
@@ -227,7 +225,7 @@ evalExpr env expr =
         1 -> pure (drop 1 results)
         _ -> throwInterpret (InterpretResultArity expectedCount (length results))
     GrinForeignCallExpr foreignCall arguments -> do
-      argumentValues <- mapM (evalValue env) arguments
+      argumentValues <- mapM (materializeValue env) arguments
       executeForeignCall foreignCall argumentValues
 
 handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
@@ -238,8 +236,11 @@ handleRaised handler state failure =
       applyValue handlerWithException state
     EvalInterpret err -> throwE (EvalInterpret err)
 
-evalValue :: Env -> GrinValue -> EvalM RuntimeValue
-evalValue env value =
+-- | Resolve an atomic GRIN value into its runtime representation. This only
+-- captures variables and constructs nodes; it never forces a heap location or
+-- enters a thunk.
+materializeValue :: Env -> GrinValue -> EvalM RuntimeValue
+materializeValue env value =
   case value of
     GrinVarValue var ->
       case Map.lookup var env of
@@ -250,11 +251,17 @@ evalValue env value =
             Just runtimeValue -> pure runtimeValue
             Nothing -> throwInterpret (InterpretUnboundVariable var)
     GrinLitValue literal -> pure (RuntimeLit literal)
-    GrinNodeValue node -> evalNode env node
+    GrinNodeValue node -> materializeNode env node
 
-evalNode :: Env -> GrinNode -> EvalM RuntimeValue
-evalNode env node =
-  RuntimeNode (grinNodeTag node) <$> mapM (evalValue env) (grinNodeFields node)
+materializeNode :: Env -> GrinNode -> EvalM RuntimeValue
+materializeNode env node =
+  RuntimeNode (grinNodeTag node) <$> mapM (materializeValue env) (grinNodeFields node)
+
+storedCell :: RuntimeValue -> HeapCell
+storedCell value =
+  case value of
+    RuntimeNode (GrinThunk functionName) fields -> HeapSuspended functionName fields
+    _ -> HeapValue value
 
 allocateCell :: HeapCell -> EvalM RuntimeValue
 allocateCell cell = RuntimeLocation <$> allocateLocation cell
@@ -289,7 +296,7 @@ fetchValue value =
     RuntimeLocation location -> do
       cell <- readCell location
       case cell of
-        HeapSuspended nodeEnv node -> evalNode nodeEnv node
+        HeapSuspended functionName fields -> pure (RuntimeNode (GrinThunk functionName) fields)
         HeapValue result -> pure result
         HeapRaised exception -> throwE (EvalRaised exception)
         HeapBlackhole -> throwInterpret (InterpretBlackhole location)
@@ -313,31 +320,27 @@ forceLocation :: Int -> EvalM RuntimeValue
 forceLocation location = do
   cell <- readCell location
   case cell of
-    HeapSuspended nodeEnv node -> do
-      nodeValue <- evalNode nodeEnv node
-      case nodeValue of
-        RuntimeNode (GrinThunk functionName) fields -> do
-          function <- lookupFunction functionName
-          let resultRep = grinFunctionResultRep function
-          if isLiftedRuntimeRep resultRep
-            then pure ()
-            else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
-          writeCell location HeapBlackhole
-          result <- (Right <$> callFunction functionName fields) `catchE` (pure . Left)
-          case result of
-            Right [value] -> do
-              writeCell location (HeapValue value)
-              forceValue value
-            Right values -> do
-              writeCell location cell
-              throwInterpret (InterpretInvalidThunkResult values)
-            Left failure@(EvalRaised exception) -> do
-              writeCell location (HeapRaised exception)
-              throwE failure
-            Left failure@(EvalInterpret _) -> do
-              writeCell location cell
-              throwE failure
-        other -> pure other
+    HeapSuspended functionName fields -> do
+      function <- lookupFunction functionName
+      let resultRep = grinFunctionResultRep function
+      if isLiftedRuntimeRep resultRep
+        then pure ()
+        else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
+      writeCell location HeapBlackhole
+      result <- (Right <$> callFunction functionName fields) `catchE` (pure . Left)
+      case result of
+        Right [value] -> do
+          writeCell location (HeapValue value)
+          forceValue value
+        Right values -> do
+          writeCell location cell
+          throwInterpret (InterpretInvalidThunkResult values)
+        Left failure@(EvalRaised exception) -> do
+          writeCell location (HeapRaised exception)
+          throwE failure
+        Left failure@(EvalInterpret _) -> do
+          writeCell location cell
+          throwE failure
     HeapValue result -> forceValue result
     HeapRaised exception -> throwE (EvalRaised exception)
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
