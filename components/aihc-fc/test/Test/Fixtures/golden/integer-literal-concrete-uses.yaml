@@ -9,50 +9,54 @@ expected: |-
   data Integer
    = IS Int#
 
-  data $DictType$Eq
-   = $Dict$Eq (∀ a. (Eq a) ⇒ a → a → Bool)
+  data Eq a
+   = $Dict$Eq (a → a → Bool)
 
-  == : ∀ a. (Eq a) ⇒ a → a → Bool =
+  == : ∀ a. (Eq a) → a → a → Bool =
     Λa.
-      \$d0 : dict.
-        $d0.0
+      λ$d0 : Eq a.
+        case $d0 as $dict : Eq a of
+          $Dict$Eq $method0 →
+            $method0
 
-  data $DictType$Num
-   = $Dict$Num (∀ a. (Num a) ⇒ Integer → a)
+  data Num a
+   = $Dict$Num (Integer → a)
 
-  fromInteger : ∀ a. (Num a) ⇒ Integer → a =
+  fromInteger : ∀ a. (Num a) → Integer → a =
     Λa.
-      \$d0 : dict.
-        $d0.0
+      λ$d0 : Num a.
+        case $d0 as $dict : Num a of
+          $Dict$Num $method0 →
+            $method0
 
-  $fEqInt : () ⇒ Eq Int =
-    {λx1004 : Int.
-      λy1005 : Int.
-        case x1004 as _scrut : Int of
+  $fEqInt : Eq Int =
+    $Dict$Eq @Int (λx1008 : Int.
+      λy1009 : Int.
+        case x1008 as _scrut : Int of
           I x →
-            case y1005 as _scrut : Int of
+            case y1009 as _scrut : Int of
               I y →
-                True}
+                True)
 
-  $fNumInt : () ⇒ Num Int =
-    {λx1012 : Integer.
-      case x1012 as _scrut : Integer of
+  $fNumInt : Num Int =
+    $Dict$Num @Int (λx1017 : Integer.
+      case x1017 as _scrut : Integer of
         IS x →
-          I x}
+          I x)
 
-  $fNumInteger : () ⇒ Num Integer =
-    {λx1017 : Integer.
-      x1017}
+  $fNumInteger : Num Integer =
+    $Dict$Num @Integer (λx1023 : Integer.
+      x1023)
   asInt : Int =
-    fromInteger @Int $$fNumInt (IS 1)
+    fromInteger @Int $fNumInt (IS 1)
 
   asInteger : Integer =
-    fromInteger @Integer $$fNumInteger (IS 1)
+    fromInteger @Integer $fNumInteger (IS 1)
 
   caseInt : () =
-    case fromInteger @Int $$fNumInt (IS 1) as _case : Int of
+    case fromInteger @Int $fNumInt (IS 1) as _case : Int of
       _ _case_value →
-        case == @Int $$fEqInt _case_value (fromInteger @Int $$fNumInt (IS 1)) as _case_guard : Bool of
+        case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
           True →
             ()
           False →

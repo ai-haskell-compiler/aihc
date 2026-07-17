@@ -121,9 +121,6 @@ renderExprPrec _ _ (FcLit lit) = renderLiteral lit
 renderExprPrec n parens (FcApp f a) =
   paren parens $
     renderExprPrec n False f ++ " " ++ renderExprPrec n True a
-renderExprPrec n parens (FcDictApp f a) =
-  paren parens $
-    renderExprPrec n False f ++ " $" ++ renderExprPrec n True a
 renderExprPrec n parens (FcTyApp e ty) =
   paren parens $
     renderExprPrec n False e ++ " @" ++ renderTypePrec True ty
@@ -141,17 +138,6 @@ renderExprPrec n parens (FcTyLam tv body) =
       ++ T.unpack (tvName tv)
       ++ ".\n"
       ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcDictLam v body) =
-  paren parens $
-    "\\" ++ renderVar v ++ " : dict.\n" ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcDict _ fields) =
-  paren parens $
-    "{"
-      ++ intercalate ", " (map (renderExprPrec n False) fields)
-      ++ "}"
-renderExprPrec n parens (FcDictSelect _ dict index) =
-  paren parens $
-    renderExprPrec n True dict ++ "." ++ show index
 renderExprPrec n parens (FcLet bind body) =
   paren parens $
     "let\n"

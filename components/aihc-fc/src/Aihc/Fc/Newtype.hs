@@ -89,16 +89,12 @@ lowerExpr env expr =
           argument' <- lowerExpr env argument
           pure (wrapNewtype declaration typeArgs argument')
         Nothing -> FcApp <$> lowerExpr env function <*> lowerExpr env argument
-    FcDictApp function argument -> FcDictApp <$> lowerExpr env function <*> lowerExpr env argument
     FcTyApp {} ->
       case newtypeConstructorSpine env expr of
         Just (declaration, typeArgs) -> lowerConstructorValue declaration typeArgs
         Nothing -> lowerTypeApplication env expr
     FcLam var body -> FcLam var <$> lowerExpr env body
     FcTyLam tyVar body -> FcTyLam tyVar <$> lowerExpr env body
-    FcDictLam var body -> FcDictLam var <$> lowerExpr env body
-    FcDict constructor fields -> FcDict constructor <$> mapM (lowerExpr env) fields
-    FcDictSelect constructor dictionary index -> FcDictSelect constructor <$> lowerExpr env dictionary <*> pure index
     FcLet bind body -> FcLet <$> lowerBind env bind <*> lowerExpr env body
     FcCase scrutinee binder alternatives -> lowerCase env scrutinee binder alternatives
     FcCast inner coercion -> (`FcCast` coercion) <$> lowerExpr env inner
@@ -218,13 +214,9 @@ exprUniques expression =
     FcVar var -> varUniques var
     FcLit {} -> []
     FcApp function argument -> exprUniques function <> exprUniques argument
-    FcDictApp function argument -> exprUniques function <> exprUniques argument
     FcTyApp inner _ -> exprUniques inner
     FcLam var body -> varUniques var <> exprUniques body
     FcTyLam _ body -> exprUniques body
-    FcDictLam var body -> varUniques var <> exprUniques body
-    FcDict _ fields -> concatMap exprUniques fields
-    FcDictSelect _ dictionary _ -> exprUniques dictionary
     FcLet bind body -> bindUniques bind <> exprUniques body
     FcCase scrutinee binder alternatives ->
       exprUniques scrutinee <> varUniques binder <> concatMap altUniques alternatives

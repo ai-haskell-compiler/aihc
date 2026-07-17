@@ -103,8 +103,8 @@ grinUnitTests =
           "dictionary constructor has an ordinary declared layout"
           [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
           (grinConstructors program)
-        assertBool "one ordinary dictionary node" ("C$Dict$Test" `isInfixOf` rendered)
-        assertBool "ordinary dictionary case" ("C$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
+        assertBool ("ordinary dictionary constructor application:\n" <> rendered) ("$Dict$Test" `isInfixOf` rendered && "apply " `isInfixOf` rendered)
+        assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
         assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
         result <- interpretProgramBinding "answer" program
@@ -309,7 +309,7 @@ functionClassificationProgram =
       FcTopBind
         ( FcNonRec
             directVar
-            (FcTyLam typeVar (FcDictLam dictionaryVar (FcLam directArgumentVar (FcVar directArgumentVar))))
+            (FcTyLam typeVar (FcLam dictionaryVar (FcLam directArgumentVar (FcVar directArgumentVar))))
         ),
       FcTopBind
         ( FcNonRec
@@ -335,16 +335,26 @@ dictionaryProgram :: FcProgram
 dictionaryProgram =
   FcProgram
     [ FcData "Box" [] [("Box", [intTy])],
-      FcData "$DictType$Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
+      FcData "Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
       FcTopBind
         ( FcNonRec
             answerVar
-            (FcDictSelect "$Dict$Test" (FcDict "$Dict$Test" [boxed 1, boxed 2]) 1)
+            ( FcCase
+                dictionary
+                dictionaryBinder
+                [FcAlt (DataAlt "$Dict$Test") [firstMethod, secondMethod] (FcVar secondMethod)]
+            )
         )
     ]
   where
+    dictionaryTy = TcTyCon (TyCon "Test" 0) []
     answerVar = Var "answer" (Unique 40) boxedIntTy
     boxConstructorVar = Var "Box" (Unique 41) (TcFunTy intTy boxedIntTy)
+    dictionaryConstructorVar = Var "$Dict$Test" (Unique 42) (TcFunTy boxedIntTy (TcFunTy boxedIntTy dictionaryTy))
+    dictionaryBinder = Var "$dictionary" (Unique 43) dictionaryTy
+    firstMethod = Var "$method0" (Unique 44) boxedIntTy
+    secondMethod = Var "$method1" (Unique 45) boxedIntTy
+    dictionary = FcApp (FcApp (FcVar dictionaryConstructorVar) (boxed 1)) (boxed 2)
     boxed value = FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep value))
 
 exceptionProgram :: FcProgram

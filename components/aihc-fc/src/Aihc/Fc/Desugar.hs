@@ -37,9 +37,11 @@ import Aihc.Parser.Syntax
     NewtypeDecl (..),
     Pattern (..),
     Rhs,
+    TyVarBinder (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
+    binderHeadParams,
     fromAnnotation,
     peelDeclAnn,
     unqualifiedNameText,
@@ -47,6 +49,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
@@ -103,10 +106,80 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = lowerNewtypes (FcProgram binds),
+                { dsProgram = lowerConstraintProgram (lowerNewtypes (FcProgram binds)),
                   dsSuccess = True,
                   dsErrors = []
                 }
+
+-- | Type-class evidence is ordinary term-level data in FC. Replace qualified
+-- source types with explicit dictionary arrows after desugaring has consumed
+-- their predicate structure.
+lowerConstraintProgram :: FcProgram -> FcProgram
+lowerConstraintProgram (FcProgram topBinds) =
+  FcProgram (map lowerTopBind topBinds)
+  where
+    lowerTopBind topBind =
+      case topBind of
+        FcData name tyVars constructors ->
+          FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
+        FcNewtype declaration ->
+          FcNewtype
+            declaration
+              { fcNewtypeRepresentation = lowerConstraintType (fcNewtypeRepresentation declaration),
+                fcNewtypeResult = lowerConstraintType (fcNewtypeResult declaration)
+              }
+        FcPrimitive var arity -> FcPrimitive (lowerVar var) arity
+        FcForeignImport foreignCall -> FcForeignImport foreignCall
+        FcTopBind bind -> FcTopBind (lowerBind bind)
+
+    lowerBind bind =
+      case bind of
+        FcNonRec var expression -> FcNonRec (lowerVar var) (lowerExpr expression)
+        FcRec bindings -> FcRec [(lowerVar var, lowerExpr expression) | (var, expression) <- bindings]
+
+    lowerExpr expression =
+      case expression of
+        FcVar var -> FcVar (lowerVar var)
+        FcLit {} -> expression
+        FcApp function argument -> FcApp (lowerExpr function) (lowerExpr argument)
+        FcTyApp function ty -> FcTyApp (lowerExpr function) (lowerConstraintType ty)
+        FcLam var body -> FcLam (lowerVar var) (lowerExpr body)
+        FcTyLam tyVar body -> FcTyLam tyVar (lowerExpr body)
+        FcLet bind body -> FcLet (lowerBind bind) (lowerExpr body)
+        FcCase scrutinee binder alternatives ->
+          FcCase (lowerExpr scrutinee) (lowerVar binder) (map lowerAlt alternatives)
+        FcCast inner coercion -> FcCast (lowerExpr inner) (lowerCoercion coercion)
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map lowerExpr arguments)
+
+    lowerAlt alternative =
+      alternative
+        { altBinders = map lowerVar (altBinders alternative),
+          altRhs = lowerExpr (altRhs alternative)
+        }
+
+    lowerVar var = var {varType = lowerConstraintType (varType var)}
+
+lowerConstraintType :: TcType -> TcType
+lowerConstraintType ty =
+  case ty of
+    TcTyVar {} -> ty
+    TcMetaTv {} -> ty
+    TcTyCon tyCon arguments -> TcTyCon tyCon (map lowerConstraintType arguments)
+    TcFunTy argument result -> TcFunTy (lowerConstraintType argument) (lowerConstraintType result)
+    TcForAllTy tyVar body -> TcForAllTy tyVar (lowerConstraintType body)
+    TcQualTy predicates body ->
+      foldr (TcFunTy . lowerConstraintType . predType) (lowerConstraintType body) predicates
+    TcAppTy function argument -> TcAppTy (lowerConstraintType function) (lowerConstraintType argument)
+
+lowerCoercion :: Coercion -> Coercion
+lowerCoercion coercion =
+  case coercion of
+    CoVar {} -> coercion
+    Refl ty -> Refl (lowerConstraintType ty)
+    Sym inner -> Sym (lowerCoercion inner)
+    Trans left right -> Trans (lowerCoercion left) (lowerCoercion right)
+    TyConAppCo tyCon coercions -> TyConAppCo tyCon (map lowerCoercion coercions)
+    AxiomInstCo name types -> AxiomInstCo name (map lowerConstraintType types)
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
@@ -537,29 +610,45 @@ dataConFieldTypes name arity ty =
 
 dsClassDeclM :: ClassDecl -> TcClassAnnotation -> DsM [FcTopBind]
 dsClassDeclM classDecl classAnn = do
-  selectors <- mapM (dsClassSelector dictionaryConstructor) methods
+  (classTyVars, fieldTypes) <-
+    case methods of
+      [] -> do
+        tyVars <- mapM freshClassTyVar (binderHeadParams (classDeclHead classDecl))
+        pure (tyVars, [])
+      _ -> classDictionaryLayout className (map tcClassMethodType methods)
+  selectors <- mapM (dsClassSelector dictionaryConstructor classTyVars fieldTypes) methods
+  let dictionaryDeclaration = FcData className classTyVars [(dictionaryConstructor, fieldTypes)]
   pure (dictionaryDeclaration : selectors)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
     methods = tcClassMethods classAnn
     dictionaryConstructor = fcDictionaryConstructorName className
-    dictionaryDeclaration =
-      FcData
-        (fcDictionaryTypeName className)
-        []
-        [(dictionaryConstructor, map tcClassMethodType methods)]
+    freshClassTyVar binder = TyVarId (tyVarBinderName binder) <$> freshUnique
 
-dsClassSelector :: Text -> TcClassMethodAnnotation -> DsM FcTopBind
-dsClassSelector dictionaryConstructor methodAnn = do
+dsClassSelector :: Text -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
+dsClassSelector dictionaryConstructor classTyVars fieldTypes methodAnn = do
   methodUnique <- freshUnique
   dictVars <- zipWithM mkSelectorDict [0 :: Int ..] dictPreds
-  classDictVar <-
+  classDictionaryVar <-
     case dictVars of
       dictVar : _ -> pure dictVar
       [] -> freshVar "$d" (tcClassMethodDictType methodAnn)
-  let methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
-      selected = FcDictSelect dictionaryConstructor (FcVar classDictVar) (tcClassMethodIndex methodAnn)
-      body = foldr FcTyLam (foldr FcDictLam selected dictVars) (tcClassMethodTyVars methodAnn)
+  caseBinder <- freshVar "$dict" (varType classDictionaryVar)
+  fieldBinders <- zipWithM (\index -> freshVar ("$method" <> T.pack (show index))) [0 :: Int ..] fieldTypes
+  selectedField <-
+    case drop (tcClassMethodIndex methodAnn) fieldBinders of
+      selected : _ -> pure selected
+      [] -> desugarBug ("invalid class method index for " <> T.unpack (tcClassMethodName methodAnn))
+  let extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars methodAnn)
+      extraDictVars = drop 1 dictVars
+      selected =
+        foldl
+          FcApp
+          (foldl FcTyApp (FcVar selectedField) (map TcTyVar extraTyVars))
+          (map FcVar extraDictVars)
+      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt dictionaryConstructor) fieldBinders selected]
+      methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
+      body = foldr FcTyLam (foldr FcLam selection dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
   where
     (_tyVars, afterForAlls) = peelForAlls (tcClassMethodType methodAnn)
@@ -594,13 +683,28 @@ dsInstanceDict :: TcInstanceAnnotation -> InstanceDecl -> DsM FcTopBind
 dsInstanceDict instAnn instanceDecl = do
   let methods = Map.fromListWith combineMethods (instanceMethodGroups instanceDecl)
   contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
-  fields <- mapM (dsInstanceMethod contextDicts methods) (tcInstanceMethodOrder instAnn)
+  let methodOrder = tcInstanceMethodOrder instAnn
+  fields <- mapM (dsInstanceMethod contextDicts methods) methodOrder
   dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
-  dictionaryConstructor <-
+  className <-
     case dictionaryClassName (tcInstanceDictType instAnn) of
-      Just className -> pure (fcDictionaryConstructorName className)
+      Just name -> pure name
       Nothing -> desugarBug ("cannot determine class for instance dictionary " <> T.unpack (tcInstanceDictName instAnn))
-  let dictBody = foldr FcTyLam (foldr (FcDictLam . classDictVar) (FcDict dictionaryConstructor fields) contextDicts) (tcInstanceTyVars instAnn)
+  methodTypes <- mapM lookupType methodOrder
+  (classTyVars, fieldTypes) <-
+    case methodTypes of
+      [] -> do
+        tyVars <- mapM (\index -> TyVarId ("a" <> T.pack (show index)) <$> freshUnique) [0 .. length (tcInstanceHeadTypes instAnn) - 1]
+        pure (tyVars, [])
+      _ -> classDictionaryLayout className methodTypes
+  constructorUnique <- freshUnique
+  let dictionaryConstructor = fcDictionaryConstructorName className
+      dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
+      constructorType = foldr TcForAllTy (foldr TcFunTy dictionaryType fieldTypes) classTyVars
+      constructorVar = Var dictionaryConstructor constructorUnique constructorType
+      constructor = foldl FcTyApp (FcVar constructorVar) (tcInstanceHeadTypes instAnn)
+      dictionary = foldl FcApp constructor fields
+      dictBody = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcInstanceTyVars instAnn)
   pure (FcTopBind (FcNonRec dictVar dictBody))
   where
     combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
@@ -612,6 +716,51 @@ dictionaryClassName ty =
     TcQualTy _ body -> dictionaryClassName body
     TcTyCon (TyCon className _) _ -> Just className
     _ -> Nothing
+
+classDictionaryLayout :: Text -> [TcType] -> DsM ([TyVarId], [TcType])
+classDictionaryLayout className methodTypes = do
+  classTyVars <-
+    case methodTypes of
+      firstMethod : _ -> classTypeVariables className firstMethod
+      [] -> pure []
+  fieldTypes <- mapM (classMethodFieldType className classTyVars) methodTypes
+  pure (classTyVars, fieldTypes)
+
+classTypeVariables :: Text -> TcType -> DsM [TyVarId]
+classTypeVariables className methodType =
+  case [args | ClassPred predicateClass args <- predicates, predicateClass == className] of
+    args : _ ->
+      case traverse asTyVar args of
+        Just tyVars -> pure tyVars
+        Nothing -> desugarBug ("class predicate has non-variable parameters for " <> T.unpack className)
+    [] -> desugarBug ("class method lacks its class predicate for " <> T.unpack className)
+  where
+    (_, afterForAlls) = peelForAlls methodType
+    (predicates, _) = peelQuals afterForAlls
+    asTyVar (TcTyVar tyVar) = Just tyVar
+    asTyVar _ = Nothing
+
+classMethodFieldType :: Text -> [TyVarId] -> TcType -> DsM TcType
+classMethodFieldType className classTyVars methodType = do
+  remainingPredicates <-
+    case removeClassPredicate predicates of
+      Just result -> pure result
+      Nothing -> desugarBug ("class method lacks its class predicate for " <> T.unpack className)
+  let extraTyVars = filter (`notElem` classTyVars) methodTyVars
+      qualifiedBody =
+        if null remainingPredicates
+          then body
+          else TcQualTy remainingPredicates body
+  pure (foldr TcForAllTy qualifiedBody extraTyVars)
+  where
+    (methodTyVars, afterForAlls) = peelForAlls methodType
+    (predicates, body) = peelQuals afterForAlls
+    removeClassPredicate [] = Nothing
+    removeClassPredicate (predicate : rest) =
+      case predicate of
+        ClassPred predicateClass _
+          | predicateClass == className -> Just rest
+        _ -> (predicate :) <$> removeClassPredicate rest
 
 mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
 mkContextDict ix dictAnn = do

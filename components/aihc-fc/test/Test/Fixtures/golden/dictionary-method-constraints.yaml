@@ -1,0 +1,40 @@
+expected: |-
+  data Result
+   = Result
+
+  data Render a
+   = $Dict$Render (a → Result)
+
+  render : ∀ a. (Render a) → a → Result =
+    Λa.
+      λ$d0 : Render a.
+        case $d0 as $dict : Render a of
+          $Dict$Render $method0 →
+            $method0
+
+  data Convert a
+   = $Dict$Convert (∀ b. (Render b) → a → b → Result)
+
+  convert : ∀ a b. (Convert a) → (Render b) → a → b → Result =
+    Λa.
+      Λb.
+        λ$d0 : Convert a.
+          λ$d1 : Render b.
+            case $d0 as $dict : Convert a of
+              $Dict$Convert $method0 →
+                $method0 @b $d1
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Result = Result
+
+  class Render a where
+    render :: a -> Result
+
+  class Convert a where
+    convert :: Render b => a -> b -> Result
+reason: class dictionaries store constrained polymorphic methods as ordinary function
+  fields
+status: pass
