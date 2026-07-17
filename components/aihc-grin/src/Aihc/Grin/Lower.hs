@@ -185,7 +185,6 @@ isDirectFunction :: FcExpr -> Bool
 isDirectFunction expr =
   case expr of
     FcLam {} -> True
-    FcDictLam {} -> True
     FcTyLam _ body -> isDirectFunction body
     FcCast inner _ -> isDirectFunction inner
     _ -> False
@@ -241,22 +240,12 @@ lowerNonTupleExpr expr =
       pure (GrinReturn [GrinLitValue (lowerLiteral literal)])
     FcApp function argument ->
       lowerApplication function argument
-    FcDictApp function argument ->
-      lowerApplication function argument
     FcTyApp inner _ ->
       lowerExpr inner
     FcLam var body ->
       lowerLambda var body
     FcTyLam _ body ->
       lowerExpr body
-    FcDictLam var body ->
-      lowerLambda var body
-    FcDict fields ->
-      lowerArgumentMany fields $ \values ->
-        pure (GrinReturn [GrinNodeValue (GrinNode GrinDictionary values)])
-    FcDictSelect dictionary index ->
-      lowerSingleStrict "dictionary" dictionary $ \value ->
-        pure (GrinDictSelect liftedRuntimeRep value index)
     FcLet bind body ->
       lowerLet bind body
     FcCase scrutinee binder alternatives ->
@@ -508,9 +497,6 @@ collectApplications expr =
     FcApp function argument ->
       let (headExpr, arguments) = collectApplications function
        in (headExpr, arguments <> [argument])
-    FcDictApp function argument ->
-      let (headExpr, arguments) = collectApplications function
-       in (headExpr, arguments <> [argument])
     FcTyApp inner _ -> collectApplications inner
     _ -> (expr, [])
 
@@ -520,13 +506,9 @@ freeVars expr =
     FcVar var -> Set.singleton var
     FcLit _ -> Set.empty
     FcApp function argument -> freeVars function <> freeVars argument
-    FcDictApp function argument -> freeVars function <> freeVars argument
     FcTyApp inner _ -> freeVars inner
     FcLam var body -> Set.delete var (freeVars body)
     FcTyLam _ body -> freeVars body
-    FcDictLam var body -> Set.delete var (freeVars body)
-    FcDict fields -> foldMap freeVars fields
-    FcDictSelect dictionary _ -> freeVars dictionary
     FcLet bind body -> freeVarsBind bind body
     FcCase scrutinee binder alternatives ->
       freeVars scrutinee
@@ -686,9 +668,6 @@ exprRuntimeRep expr =
     FcLit literal -> literalRuntimeRep literal
     FcLam {} -> liftedRuntimeRep
     FcTyLam {} -> liftedRuntimeRep
-    FcDictLam {} -> liftedRuntimeRep
-    FcDict {} -> liftedRuntimeRep
-    FcDictSelect {} -> liftedRuntimeRep
     _ ->
       case exprType expr of
         Just ty -> typeRuntimeRep ty
@@ -700,7 +679,6 @@ exprType expr =
     FcVar var -> Just (varType var)
     FcLit literal -> literalType literal
     FcApp function _ -> functionResultType =<< exprType function
-    FcDictApp function _ -> functionResultType =<< exprType function
     FcTyApp function argument -> do
       functionType <- exprType function
       case functionType of
@@ -708,9 +686,6 @@ exprType expr =
         _ -> Just functionType
     FcLam var body -> TcFunTy (varType var) <$> exprType body
     FcTyLam tyVar body -> TcForAllTy tyVar <$> exprType body
-    FcDictLam var body -> TcFunTy (varType var) <$> exprType body
-    FcDict {} -> Nothing
-    FcDictSelect {} -> Nothing
     FcLet _ body -> exprType body
     FcCase _ _ alternatives ->
       case alternatives of
@@ -804,13 +779,9 @@ exprVars expr =
     FcVar var -> [var]
     FcLit _ -> []
     FcApp function argument -> exprVars function <> exprVars argument
-    FcDictApp function argument -> exprVars function <> exprVars argument
     FcTyApp inner _ -> exprVars inner
     FcLam var body -> var : exprVars body
     FcTyLam _ body -> exprVars body
-    FcDictLam var body -> var : exprVars body
-    FcDict fields -> concatMap exprVars fields
-    FcDictSelect dictionary _ -> exprVars dictionary
     FcLet bind body -> bindVars bind <> exprVars body
     FcCase scrutinee binder alternatives ->
       exprVars scrutinee <> (binder : concatMap altVars alternatives)

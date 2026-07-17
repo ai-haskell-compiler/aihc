@@ -2,14 +2,19 @@ expected: |-
   data Integer
    = IS Int#
 
-  fromInteger : ∀ a. (Num a) ⇒ Integer → a =
+  data Num a
+   = $Dict$Num (Integer → a)
+
+  fromInteger : ∀ a. (Num a) → Integer → a =
     Λa.
-      \$d0 : dict.
-        $d0.0
-  one : ∀ a. (Num a) ⇒ a =
+      λ$d0 : Num a.
+        case $d0 as $dict : Num a of
+          $Dict$Num $method0 →
+            $method0
+  one : ∀ a. (Num a) → a =
     Λa.
-      \$d0 : dict.
-        fromInteger @a $$d0 (IS 1)
+      λ$d0 : Num a.
+        fromInteger @a $d0 (IS 1)
 extensions:
 - MagicHash
 modules:
@@ -21,6 +26,6 @@ modules:
 - |
   module Main where
   one = 1
-reason: desugars default integer literals through Prelude.fromInteger applied to
-  an Integer constructor value
+reason: desugars default integer literals through Prelude.fromInteger applied to an
+  Integer constructor value
 status: pass

@@ -95,6 +95,20 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertEqual "direct function globals" ["direct"] (map (grinVarName . fst) (grinWhnfGlobals program))
         assertEqual "computed function CAFs" ["computed"] (map (grinVarName . fst) (grinCafs program)),
+      testCase "FC dictionaries lower to ordinary constructor nodes and cases" $ do
+        let program = lowerProgram dictionaryProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual
+          "dictionary constructor has an ordinary declared layout"
+          [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
+          (grinConstructors program)
+        assertBool ("ordinary dictionary constructor application:\n" <> rendered) ("$Dict$Test" `isInfixOf` rendered && "apply " `isInfixOf` rendered)
+        assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
+        assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
+        assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
+        result <- interpretProgramBinding "answer" program
+        assertEqual "selected field is evaluated" (Right "Box 2") result,
       testCase "separate FC units do not capture dependency globals" $ do
         case separatePrograms of
           [providerCore, consumerCore] -> do
@@ -295,7 +309,7 @@ functionClassificationProgram =
       FcTopBind
         ( FcNonRec
             directVar
-            (FcTyLam typeVar (FcDictLam dictionaryVar (FcLam directArgumentVar (FcVar directArgumentVar))))
+            (FcTyLam typeVar (FcLam dictionaryVar (FcLam directArgumentVar (FcVar directArgumentVar))))
         ),
       FcTopBind
         ( FcNonRec
@@ -316,6 +330,32 @@ functionClassificationProgram =
     computedArgumentVar = Var "argument" (Unique 35) boxedIntTy
     computedVar = Var "computed" (Unique 36) (TcFunTy boxedIntTy boxedIntTy)
     boxConstructorVar = Var "BoxedInt" (Unique 37) (TcFunTy intTy boxedIntTy)
+
+dictionaryProgram :: FcProgram
+dictionaryProgram =
+  FcProgram
+    [ FcData "Box" [] [("Box", [intTy])],
+      FcData "Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
+      FcTopBind
+        ( FcNonRec
+            answerVar
+            ( FcCase
+                dictionary
+                dictionaryBinder
+                [FcAlt (DataAlt "$Dict$Test") [firstMethod, secondMethod] (FcVar secondMethod)]
+            )
+        )
+    ]
+  where
+    dictionaryTy = TcTyCon (TyCon "Test" 0) []
+    answerVar = Var "answer" (Unique 40) boxedIntTy
+    boxConstructorVar = Var "Box" (Unique 41) (TcFunTy intTy boxedIntTy)
+    dictionaryConstructorVar = Var "$Dict$Test" (Unique 42) (TcFunTy boxedIntTy (TcFunTy boxedIntTy dictionaryTy))
+    dictionaryBinder = Var "$dictionary" (Unique 43) dictionaryTy
+    firstMethod = Var "$method0" (Unique 44) boxedIntTy
+    secondMethod = Var "$method1" (Unique 45) boxedIntTy
+    dictionary = FcApp (FcApp (FcVar dictionaryConstructorVar) (boxed 1)) (boxed 2)
+    boxed value = FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep value))
 
 exceptionProgram :: FcProgram
 exceptionProgram =

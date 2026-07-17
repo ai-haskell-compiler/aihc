@@ -85,6 +85,16 @@ lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
 
     registerDeclaration (FcNewtype declaration) env =
       env {leNewtypes = Map.insert (fcNewtypeName declaration) declaration (leNewtypes env)}
+    registerDeclaration (FcData typeName tyVars constructors) env =
+      env
+        { leDataCons =
+            foldr
+              (\(constructor, fields) -> Map.insert constructor (tyVars, fields, resultType))
+              (leDataCons env)
+              constructors
+        }
+      where
+        resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)
     registerDeclaration (FcForeignImport foreignCall) env =
       env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
     registerDeclaration _ env = env
@@ -129,7 +139,12 @@ lintExpr :: LintEnv -> FcExpr -> Either LintError TcType
 lintExpr env (FcVar v) =
   case Map.lookup (varUnique v) (leTerms env) of
     Just ty -> Right ty
-    Nothing -> Left (UnboundVar (varName v) (varUnique v))
+    Nothing ->
+      case Map.lookup (varName v) (leDataCons env) of
+        Just (tyVars, fields, resultType)
+          | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
+          | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
+        Nothing -> Left (UnboundVar (varName v) (varUnique v))
 lintExpr _ (FcLit lit) =
   case literalType lit of
     Just ty -> Right ty
@@ -142,7 +157,6 @@ lintExpr env (FcApp f a) = do
       | typesEqual argTy aTy -> Right resTy
       | otherwise -> Left (TypeMismatch "application argument" argTy aTy)
     _ -> Left (LintFailure ("application to non-function type: " ++ show fTy))
-lintExpr env (FcDictApp f a) = lintExpr env (FcApp f a)
 lintExpr env (FcTyApp e ty) = do
   eTy <- lintExpr env e
   case eTy of
@@ -157,16 +171,6 @@ lintExpr env (FcTyLam tv body) = do
   let env' = env {leTyVars = Set.insert tv (leTyVars env)}
   bodyTy <- lintExpr env' body
   Right (TcForAllTy tv bodyTy)
-lintExpr env (FcDictLam v body) = do
-  let env' = extendTermEnv v env
-  bodyTy <- lintExpr env' body
-  Right (TcFunTy (varType v) bodyTy)
-lintExpr env (FcDict fields) = do
-  mapM_ (lintExpr env) fields
-  Right (TcTyCon (TyCon "Dict" 0) [])
-lintExpr env (FcDictSelect dict index) = do
-  _ <- lintExpr env dict
-  Left (LintFailure ("dictionary selection lacks field type annotation: " ++ show index))
 lintExpr env (FcLet bind body) = do
   let (errs, env') = lintBind env bind
   case errs of

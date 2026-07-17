@@ -374,20 +374,6 @@ compileExpr env prefix label expression =
         )
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
-    GrinDictSelect runtimeRep dictionary index -> do
-      dictionaryLines <- liftEither (materializeValue env dictionary)
-      addBlock
-        label
-        ( prefix
-            <> dictionaryLines
-            <> [ "  mov x1, x0",
-                 immediate "x2" index,
-                 immediate "x3" (fromEnum (isLiftedRuntimeRep runtimeRep)),
-                 "  mov x0, x22",
-                 "  bl _aihc_select"
-               ]
-            <> dispatchLines
-        )
     GrinThrow {} -> unsupportedExpression "throw"
     GrinCatch {} -> unsupportedExpression "catch"
     GrinForeignCallExpr foreignCall arguments ->
@@ -630,7 +616,6 @@ nodeHeader env node =
     GrinPrimitive name arity -> do
       identifier <- primitiveId compileEnv name
       pure (4, InfoImmediate identifier, arity)
-    GrinDictionary -> pure (7, InfoImmediate 0, length (grinNodeFields node))
   where
     compileEnv = valueCompileEnv env
 
@@ -800,7 +785,6 @@ boundVarGroups expression =
     GrinEval _ _ -> []
     GrinApply {} -> []
     GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
-    GrinDictSelect {} -> []
     GrinThrow _ -> []
     GrinCatch {} -> []
     GrinForeignCallExpr {} -> []
@@ -868,7 +852,6 @@ exprRuntimeReps expression =
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)
-    GrinDictSelect runtimeRep dictionary _ -> runtimeRep : valueRuntimeReps dictionary
     GrinThrow exception -> valueRuntimeReps exception
     GrinCatch runtimeRep action handler state ->
       runtimeRep : concatMap valueRuntimeReps (action : handler : state)

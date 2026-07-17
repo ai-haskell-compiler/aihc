@@ -712,7 +712,9 @@ test_checksCastStyleDependencyId =
 
     result <- expectInstallSuccess (writeInstallScaffold plan)
     fcJson <- BL8.readFile (resultFcPath result)
-    assertBool "FC artifact applies imported id" ("{id @a}" `isInfixOf` BL8.unpack fcJson)
+    let renderedFc = BL8.unpack fcJson
+    assertBool "FC artifact constructs an ordinary Cast dictionary" ("$Dict$Cast @a @a" `isInfixOf` renderedFc)
+    assertBool "FC artifact applies imported id" ("id @a" `isInfixOf` renderedFc)
 
 test_checksConstraintKindedMultiParameterClasses :: Assertion
 test_checksConstraintKindedMultiParameterClasses =

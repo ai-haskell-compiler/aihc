@@ -181,13 +181,9 @@ referencesExpr bound expression =
       | otherwise -> mempty {referencedValues = Set.singleton (varName var)} <> referencesVarType var
     FcLit literal -> foldMap referencesType (literalType literal)
     FcApp function argument -> referencesExpr bound function <> referencesExpr bound argument
-    FcDictApp function argument -> referencesExpr bound function <> referencesExpr bound argument
     FcTyApp inner ty -> referencesExpr bound inner <> referencesType ty
     FcLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
     FcTyLam _ body -> referencesExpr bound body
-    FcDictLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
-    FcDict fields -> foldMap (referencesExpr bound) fields
-    FcDictSelect dictionary _ -> referencesExpr bound dictionary
     FcLet bind body -> referencesLet bound bind body
     FcCase scrutinee binder alternatives ->
       referencesExpr bound scrutinee

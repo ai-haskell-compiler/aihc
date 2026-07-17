@@ -134,7 +134,6 @@ lintExpr env bound expr =
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
-    GrinDictSelect _ dictionary _ -> lintValue env bound dictionary
     GrinThrow exception -> lintValue env bound exception
     GrinCatch _ action handler state ->
       lintValue env bound action
@@ -245,7 +244,6 @@ exprRuntimeReps expr =
       case alternatives of
         first : _ -> exprRuntimeReps (grinAltRhs first)
         [] -> Nothing
-    GrinDictSelect runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinThrow {} -> Nothing
     GrinCatch runtimeRep _ _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinForeignCallExpr foreignCall _ ->

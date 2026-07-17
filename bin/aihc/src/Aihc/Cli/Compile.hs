@@ -320,13 +320,9 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcVar var -> FcVar (shiftVar var)
         FcLit {} -> expression
         FcApp function argument -> FcApp (shiftExpr function) (shiftExpr argument)
-        FcDictApp function argument -> FcDictApp (shiftExpr function) (shiftExpr argument)
         FcTyApp inner ty -> FcTyApp (shiftExpr inner) ty
         FcLam var body -> FcLam (shiftVar var) (shiftExpr body)
         FcTyLam tyVar body -> FcTyLam tyVar (shiftExpr body)
-        FcDictLam var body -> FcDictLam (shiftVar var) (shiftExpr body)
-        FcDict fields -> FcDict (map shiftExpr fields)
-        FcDictSelect dictionary index -> FcDictSelect (shiftExpr dictionary) index
         FcLet bind body -> FcLet (shiftBind bind) (shiftExpr body)
         FcCase scrutinee binder alternatives ->
           FcCase (shiftExpr scrutinee) (shiftVar binder) (map shiftAlt alternatives)
@@ -363,13 +359,9 @@ exprVars expression =
     FcVar var -> [var]
     FcLit {} -> []
     FcApp function argument -> exprVars function <> exprVars argument
-    FcDictApp function argument -> exprVars function <> exprVars argument
     FcTyApp inner _ -> exprVars inner
     FcLam var body -> var : exprVars body
     FcTyLam _ body -> exprVars body
-    FcDictLam var body -> var : exprVars body
-    FcDict fields -> concatMap exprVars fields
-    FcDictSelect dictionary _ -> exprVars dictionary
     FcLet bind body -> bindVarsDeep bind <> exprVars body
     FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner

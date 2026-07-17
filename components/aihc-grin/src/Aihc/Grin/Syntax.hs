@@ -95,7 +95,6 @@ data GrinExpr
   | GrinEval !RuntimeRep !GrinValue
   | GrinApply !RuntimeRep !GrinValue ![GrinValue]
   | GrinCase !GrinValue !GrinVar ![GrinAlt]
-  | GrinDictSelect !RuntimeRep !GrinValue !Int
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
@@ -122,7 +121,6 @@ data GrinNodeTag
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
   | GrinPrimitive !Text !Int
-  | GrinDictionary
   deriving (Eq, Show, Read)
 
 data GrinAlt = GrinAlt

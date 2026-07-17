@@ -106,14 +106,6 @@ renderExprIndented indentation expr =
         <> renderVar binder
         <> " of\n"
         <> intercalate "\n" (map (renderAlt (indentation + 2)) alternatives)
-    GrinDictSelect runtimeRep dictionary index ->
-      indent indentation
-        <> "select @"
-        <> show runtimeRep
-        <> " "
-        <> renderValue dictionary
-        <> " "
-        <> show index
     GrinThrow exception -> indent indentation <> "throw " <> renderValue exception
     GrinCatch runtimeRep action handler state ->
       indent indentation
@@ -174,7 +166,6 @@ renderNodeTag nodeTag =
       "P" <> T.unpack (unFunctionName functionName) <> "/" <> show argumentCount
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
     GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
-    GrinDictionary -> "Dict"
 
 renderLiteral :: GrinLiteral -> String
 renderLiteral literal =
