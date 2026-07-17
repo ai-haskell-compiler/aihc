@@ -18,8 +18,6 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     runtimeRepOfType,
-    tyConArity,
-    tyConName,
   )
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.Map.Strict (Map)
@@ -116,7 +114,6 @@ lowerProgramWithEnvironment environment program =
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
-      grinIoBindings = programIoBindings program,
       grinWhnfGlobals = loweredWhnfGlobals tops,
       grinCafs = loweredCafs tops,
       grinFunctions = reverse (lowerFunctionsRev finalState)
@@ -770,27 +767,6 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
       case bind of
         FcNonRec var expr -> [(var, expr)]
         FcRec bindings -> bindings
-
-programIoBindings :: FcProgram -> Set Text
-programIoBindings program =
-  Set.fromList
-    [ varName var
-    | FcTopBind bind <- fcTopBinds program,
-      var <- map fst (topBindings bind),
-      isIOType (varType var)
-    ]
-  where
-    topBindings bind =
-      case bind of
-        FcNonRec var rhs -> [(var, rhs)]
-        FcRec bindings -> bindings
-
-    isIOType ty =
-      case ty of
-        TcTyCon tyCon [_] | tyConName tyCon == "IO", tyConArity tyCon == 1 -> True
-        TcForAllTy _ body -> isIOType body
-        TcQualTy _ body -> isIOType body
-        _ -> False
 
 topVars :: FcTopBind -> [Var]
 topVars topBind =

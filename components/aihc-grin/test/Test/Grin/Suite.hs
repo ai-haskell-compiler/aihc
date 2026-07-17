@@ -141,18 +141,25 @@ evaluateGrinProgram :: Text -> FcProgram -> IO (Either String Text)
 evaluateGrinProgram name fcProgram = do
   case prepareEvalProgram name (lowerNewtypes fcProgram) of
     Left err -> pure (Left err)
-    Right (preparedProgram, unwrapResult) -> do
+    Right (preparedProgram, entry, unwrapResult) -> do
       let program = lowerProgram preparedProgram
       case lintProgram program of
         [] -> do
-          result <- interpretProgramBinding name program
+          result <-
+            case entry of
+              EvaluateBinding -> interpretProgramBinding name program
+              RunIoAction -> interpretProgramIoBinding name program
           pure $
             case result of
               Left err -> Left (show err)
               Right value -> Right (unwrapResult value)
         lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
 
-prepareEvalProgram :: Text -> FcProgram -> Either String (FcProgram, Text -> Text)
+data BindingEntry
+  = EvaluateBinding
+  | RunIoAction
+
+prepareEvalProgram :: Text -> FcProgram -> Either String (FcProgram, BindingEntry, Text -> Text)
 prepareEvalProgram name program@(FcProgram topBinds) =
   case break isEvalBinding topBinds of
     (_, []) -> Left ("missing evaluation binding " <> T.unpack name)
@@ -160,7 +167,7 @@ prepareEvalProgram name program@(FcProgram topBinds) =
     (before, FcTopBind (FcNonRec var rhs) : after) -> do
       runtimeRep <- runtimeRepOfType (varType var)
       if runtimeRep == BoxedRep Lifted
-        then Right (program, id)
+        then Right (program, bindingEntry (varType var), id)
         else do
           let componentCount = length (runtimeRepComponents runtimeRep)
               constructorName = evalResultConstructor componentCount
@@ -171,6 +178,7 @@ prepareEvalProgram name program@(FcProgram topBinds) =
               wrappedBinding = FcTopBind (FcNonRec wrappedVar (FcApp (FcVar constructorVar) rhs))
           Right
             ( FcProgram (declaration : before <> (wrappedBinding : after)),
+              EvaluateBinding,
               unwrapEvalResult componentCount constructorName
             )
     (_, _ : _) -> Left "invalid evaluation binding"
@@ -180,6 +188,19 @@ prepareEvalProgram name program@(FcProgram topBinds) =
         FcTopBind (FcNonRec var _) -> varName var == name
         FcTopBind (FcRec bindings) -> any ((== name) . varName . fst) bindings
         _ -> False
+
+bindingEntry :: TcType -> BindingEntry
+bindingEntry ty
+  | isIOType ty = RunIoAction
+  | otherwise = EvaluateBinding
+
+isIOType :: TcType -> Bool
+isIOType ty =
+  case ty of
+    TcTyCon (TyCon name arity) [_] -> name == "IO" && arity == 1
+    TcForAllTy _ body -> isIOType body
+    TcQualTy _ body -> isIOType body
+    _ -> False
 
 evalResultConstructor :: Int -> Text
 evalResultConstructor componentCount
@@ -323,7 +344,6 @@ heapProgram =
     { grinConstructors = [("Box", [IntRep])],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinIoBindings = mempty,
       grinWhnfGlobals = [],
       grinCafs =
         [ ( answer,
@@ -387,7 +407,6 @@ unliftedHeapProgram runtimeRep =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinIoBindings = mempty,
       grinWhnfGlobals = [],
       grinCafs = [(GrinVar "bad" 1 (BoxedRep Lifted), GrinNode (GrinThunk unliftedThunkFunction) [GrinLitValue (GrinLitString "capture")])],
       grinFunctions =
