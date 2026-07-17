@@ -4,9 +4,7 @@ expected: |-
   caf value%1002 :: BoxedRep Lifted = (F$grin_thunk_0)
 
   $grin_thunk_0 -> BoxedRep Lifted =
-    $grin_function_1003%1003 :: BoxedRep Lifted <-
-      apply @BoxedRep Lifted Narrow%1001 :: BoxedRep Lifted 123
-    apply @BoxedRep Lifted $grin_function_1003%1003 :: BoxedRep Lifted 456
+    store (CNarrow 123 456)
 extensions:
 - MagicHash
 - ExtendedLiterals

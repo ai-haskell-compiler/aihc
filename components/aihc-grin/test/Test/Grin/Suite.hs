@@ -67,7 +67,17 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
-        assertBool "does not allocate an argument thunk" (not ("store " `isInfixOf` rendered)),
+        assertBool "does not allocate an argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered)),
+      testCase "FC lowering stores saturated constructor applications directly" $ do
+        let program = lowerProgram saturatedConstructorProgram
+        assertEqual "lint" [] (lintProgram program)
+        case grinFunctions program of
+          [function] ->
+            assertEqual
+              "constructor body"
+              (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
+              (grinFunctionBody function)
+          functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
         let program = lowerProgram foreignProgram
             rendered = renderProgram program
@@ -103,7 +113,7 @@ grinUnitTests =
           "dictionary constructor has an ordinary declared layout"
           [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
           (grinConstructors program)
-        assertBool ("ordinary dictionary constructor application:\n" <> rendered) ("$Dict$Test" `isInfixOf` rendered && "apply " `isInfixOf` rendered)
+        assertBool ("direct dictionary constructor store:\n" <> rendered) ("store (C$Dict$Test" `isInfixOf` rendered)
         assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
         assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
@@ -115,6 +125,18 @@ grinUnitTests =
             let consumer = lowerProgramWithInterface (extractGrinInterface providerCore) consumerCore
                 parameters = concatMap grinFunctionParameters (grinFunctions consumer)
             assertBool "dependency CAF remains global" (all ((/= "source") . grinVarName) parameters)
+          programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
+      testCase "separate FC units store saturated dependency constructors directly" $ do
+        case separateConstructorPrograms of
+          [providerCore, consumerCore] -> do
+            let consumer = lowerProgramWithInterface (extractGrinInterface providerCore) consumerCore
+            case grinFunctions consumer of
+              [function] ->
+                assertEqual
+                  "constructor body"
+                  (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
+                  (grinFunctionBody function)
+              functions -> assertFailure ("expected one constructor function, got " <> show (length functions))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
       testCase "separate FC units erase dependency newtypes" $ do
         case separateNewtypePrograms of
@@ -524,6 +546,42 @@ foreignBoxConstructorVar = Var "BoxedInt32" (Unique 51) (TcFunTy int32Ty boxedIn
 
 int32Ty :: TcType
 int32Ty = TcTyCon (TyCon "Int32#" 0) []
+
+saturatedConstructorProgram :: FcProgram
+saturatedConstructorProgram =
+  FcProgram
+    [ FcData "Int32" [] [("I32#", [int32Ty])],
+      FcTopBind
+        ( FcNonRec
+            int32WrapperVar
+            (FcLam int32ArgumentVar (FcApp (FcVar int32ConstructorVar) (FcVar int32ArgumentVar)))
+        )
+    ]
+  where
+    int32WrapperVar = Var "wrapInt32" (Unique 60) (TcFunTy int32Ty boxedInt32Ty)
+    int32ConstructorVar = Var "I32#" (Unique 61) (TcFunTy int32Ty boxedInt32Ty)
+
+boxedInt32Ty :: TcType
+boxedInt32Ty = TcTyCon (TyCon "Int32" 0) []
+
+int32ArgumentVar :: Var
+int32ArgumentVar = Var "value" (Unique 62) int32Ty
+
+separateConstructorPrograms :: [FcProgram]
+separateConstructorPrograms =
+  [ FcProgram [FcData "Int32" [] [("I32#", [int32Ty])]],
+    FcProgram
+      [ FcTopBind
+          ( FcNonRec
+              wrapperVar
+              (FcLam argumentVar (FcApp (FcVar constructorVar) (FcVar argumentVar)))
+          )
+      ]
+  ]
+  where
+    wrapperVar = Var "wrapInt32" (Unique 70) (TcFunTy int32Ty boxedInt32Ty)
+    constructorVar = Var "I32#" (Unique 71) (TcFunTy int32Ty boxedInt32Ty)
+    argumentVar = Var "value" (Unique 72) int32Ty
 
 separatePrograms :: [FcProgram]
 separatePrograms =

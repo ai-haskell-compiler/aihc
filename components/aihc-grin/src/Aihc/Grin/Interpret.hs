@@ -186,8 +186,11 @@ evalExpr env expr =
       if length vars == length values
         then evalExpr (Map.fromList (zip vars values) `Map.union` env) body
         else throwInterpret (InterpretResultArity (length vars) (length values))
-    GrinStore node ->
-      pure <$> allocateCell (HeapSuspended env node)
+    GrinStore node@GrinNode {grinNodeTag} ->
+      pure
+        <$> case grinNodeTag of
+          GrinThunk {} -> allocateCell (HeapSuspended env node)
+          _ -> evalNode env node >>= allocateCell . HeapValue
     GrinStoreRec bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
