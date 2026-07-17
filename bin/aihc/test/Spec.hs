@@ -8,6 +8,7 @@ import Aihc.Cli.Compile
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
     compileSourceToCoreWithDependencies,
+    compileSourceToCpsGrinWithDependencies,
     compileSourceToGrinWithDependencies,
     compileSourceToWholeCoreWithDependencies,
     defaultCompileEnvironment,
@@ -875,11 +876,14 @@ test_compileExecutable =
         assertFileExists keptOutput
         assertFileExists (keptOutput <> ".core")
         assertFileExists (keptOutput <> ".grin")
+        assertFileExists (keptOutput <> ".cps.grin")
         assertFileExists (keptOutput <> ".s")
         core <- TIO.readFile (keptOutput <> ".core")
         grin <- TIO.readFile (keptOutput <> ".grin")
+        cpsGrin <- TIO.readFile (keptOutput <> ".cps.grin")
         assertBool "core contains main" ("main" `T.isInfixOf` core)
         assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
+        assertBool "CPS-GRIN contains allocated continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
         assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
         assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
         assertNativeOutput keptOutput
@@ -888,6 +892,7 @@ test_compileExecutable =
         assertFileExists temporaryOutput
         assertFileDoesNotExist (temporaryOutput <> ".core")
         assertFileDoesNotExist (temporaryOutput <> ".grin")
+        assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
 
@@ -978,9 +983,12 @@ test_compileExplicitCoreImport =
       )
     core <- expectCompileArtifact =<< compileSourceToCoreWithDependencies environment "Main.hs" importedSource
     grin <- expectCompileArtifact =<< compileSourceToGrinWithDependencies environment "Main.hs" importedSource
+    cpsGrin <- expectCompileArtifact =<< compileSourceToCpsGrinWithDependencies environment "Main.hs" importedSource
     wholeCore <- expectCompileArtifact =<< compileSourceToWholeCoreWithDependencies environment "Main.hs" importedSource
     assertBool "dependency reference remains in incremental Core" ("identity" `T.isInfixOf` core)
     assertBool "dependency reference remains in incremental GRIN" ("identity" `T.isInfixOf` grin)
+    assertBool "CPS-GRIN allocates ordinary continuation closures" ("store (P$cps$" `T.isInfixOf` cpsGrin)
+    assertBool "CPS-GRIN invokes ordinary continuation closures" ("apply @" `T.isInfixOf` cpsGrin)
     assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
     assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
     assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)

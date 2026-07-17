@@ -1,6 +1,10 @@
 -- | AIHC's strict Graph Reduction Intermediate Notation dialect.
 module Aihc.Grin
   ( module Aihc.Grin.Syntax,
+    CpsGrinProgram,
+    CpsGrinError (..),
+    cpsGrinProgram,
+    toCpsGrin,
     lowerProgram,
     GrinInterface,
     extractGrinInterface,
@@ -16,6 +20,7 @@ module Aihc.Grin
   )
 where
 
+import Aihc.Grin.Cps (CpsGrinError (..), CpsGrinProgram, cpsGrinProgram, toCpsGrin)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (GrinInterface, extractGrinInterface, lowerProgram, lowerProgramWithInterface)

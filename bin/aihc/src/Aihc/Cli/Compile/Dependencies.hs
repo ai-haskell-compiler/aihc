@@ -113,6 +113,7 @@ data DependencyUnit = DependencyUnit
     dependencyUnitModules :: ![Text],
     dependencyUnitProgram :: !FcProgram,
     dependencyUnitGrin :: !Grin.GrinProgram,
+    dependencyUnitCpsGrin :: !Grin.CpsGrinProgram,
     dependencyUnitNewtypeInterface :: !NewtypeInterface,
     dependencyUnitGrinInterface :: !Grin.GrinInterface,
     dependencyUnitReachabilityInterface :: !ReachabilityInterface,
@@ -163,7 +164,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 5
+cacheSchemaVersion = 6
 
 buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies environment usesImplicitPrelude buildNative mainModule = do
@@ -344,30 +345,34 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                               reachabilityInterface = extractReachabilityInterface core
                               grin = Grin.lowerProgramWithInterface (compileStateGrin state) core
                               linkInterface = extractLinkInterface grin
-                              unit =
-                                DependencyUnit
-                                  { dependencyUnitLibraries = sort (Set.toList (Set.fromList (map loadedLibrary members))),
-                                    dependencyUnitModules = sort (map loadedModuleName members),
-                                    dependencyUnitProgram = core,
-                                    dependencyUnitGrin = grin,
-                                    dependencyUnitNewtypeInterface = newtypes,
-                                    dependencyUnitGrinInterface = grinInterface,
-                                    dependencyUnitReachabilityInterface = reachabilityInterface,
-                                    dependencyUnitLinkInterface = linkInterface
-                                  }
-                           in Right
-                                CompileState
-                                  { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
-                                    compileStateTerms = termSchemes,
-                                    compileStateTyCons = tyCons,
-                                    compileStateBindings = bindings,
-                                    compileStateInstances = compileStateInstances state <> localInstances,
-                                    compileStateNewtypes = compileStateNewtypes state <> newtypes,
-                                    compileStateGrin = compileStateGrin state <> grinInterface,
-                                    compileStateReachability = compileStateReachability state <> reachabilityInterface,
-                                    compileStateLinks = compileStateLinks state <> [linkInterface],
-                                    compileStateUnits = compileStateUnits state <> [unit]
-                                  }
+                           in case Grin.toCpsGrin grin of
+                                Left err -> Left ("core library CPS-GRIN error: " <> show err)
+                                Right cpsGrin ->
+                                  let unit =
+                                        DependencyUnit
+                                          { dependencyUnitLibraries = sort (Set.toList (Set.fromList (map loadedLibrary members))),
+                                            dependencyUnitModules = sort (map loadedModuleName members),
+                                            dependencyUnitProgram = core,
+                                            dependencyUnitGrin = grin,
+                                            dependencyUnitCpsGrin = cpsGrin,
+                                            dependencyUnitNewtypeInterface = newtypes,
+                                            dependencyUnitGrinInterface = grinInterface,
+                                            dependencyUnitReachabilityInterface = reachabilityInterface,
+                                            dependencyUnitLinkInterface = linkInterface
+                                          }
+                                   in Right
+                                        CompileState
+                                          { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
+                                            compileStateTerms = termSchemes,
+                                            compileStateTyCons = tyCons,
+                                            compileStateBindings = bindings,
+                                            compileStateInstances = compileStateInstances state <> localInstances,
+                                            compileStateNewtypes = compileStateNewtypes state <> newtypes,
+                                            compileStateGrin = compileStateGrin state <> grinInterface,
+                                            compileStateReachability = compileStateReachability state <> reachabilityInterface,
+                                            compileStateLinks = compileStateLinks state <> [linkInterface],
+                                            compileStateUnits = compileStateUnits state <> [unit]
+                                          }
 
     finish state =
       DependencyArtifact
@@ -435,7 +440,7 @@ buildNativeArtifacts artifactRoot units = do
 
 data NativeUnit = NativeUnit
   { nativeDependencyUnit :: !DependencyUnit,
-    nativeProgram :: !Grin.GrinProgram,
+    nativeProgram :: !Grin.CpsGrinProgram,
     nativeInitializerSymbol :: !Text,
     nativeObjectPath :: !FilePath
   }
@@ -444,7 +449,7 @@ nativeUnit :: FilePath -> DependencyUnit -> NativeUnit
 nativeUnit objectRoot unit =
   NativeUnit
     { nativeDependencyUnit = unit,
-      nativeProgram = dependencyUnitGrin unit,
+      nativeProgram = dependencyUnitCpsGrin unit,
       nativeInitializerSymbol = initializer,
       nativeObjectPath = objectRoot </> T.unpack library </> T.unpack unitName <> ".o"
     }
