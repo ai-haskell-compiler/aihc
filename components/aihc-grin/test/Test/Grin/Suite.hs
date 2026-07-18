@@ -25,7 +25,37 @@ grinUnitTests :: TestTree
 grinUnitTests =
   testGroup
     "GRIN"
-    [ testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
+    [ testCase "pretty printer parenthesizes compound applications" $ do
+        let first = GrinVar "$grin_tuple_2720" 2720 (BoxedRep Lifted)
+            second = GrinVar "$grin_tuple_2721" 2721 (BoxedRep Lifted)
+            function =
+              GrinFunction
+                { grinFunctionName = FunctionName "$grin_thunk_4",
+                  grinFunctionLinkName = Nothing,
+                  grinFunctionParameters = [first, second],
+                  grinFunctionResultRep = BoxedRep Lifted,
+                  grinFunctionBody = GrinApply (BoxedRep Lifted) (GrinVarValue first) [GrinVarValue second]
+                }
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions = [function]
+                }
+        assertEqual
+          "rendered program"
+          ( unlines
+              [ "$grin_thunk_4 ($grin_tuple_2720%2720 :: BoxedRep Lifted) ($grin_tuple_2721%2721 :: BoxedRep Lifted) -> BoxedRep Lifted =",
+                "  apply @(BoxedRep Lifted) ($grin_tuple_2720%2720 :: BoxedRep Lifted) ($grin_tuple_2721%2721 :: BoxedRep Lifted)"
+              ]
+          )
+          (renderProgram program <> "\n"),
+      testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
@@ -62,22 +92,30 @@ grinUnitTests =
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
         assertBool "contains explicit catch" ("catch " `isInfixOf` rendered),
       testCase "CPS-GRIN allocates and applies ordinary continuation closures" $ do
-        cps <- expectCpsGrin heapProgram
+        cps <- expectCpsGrin callBindProgram
         let program = cpsGrinProgram cps
             rendered = renderProgram program
         assertEqual "transformed lint" [] (lintProgram program)
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
-        assertBool "invokes a continuation closure" ("apply @BoxedRep Lifted $cps_continuation" `isInfixOf` rendered)
+        assertBool "invokes a continuation closure" ("apply @(BoxedRep Lifted) ($cps_continuation" `isInfixOf` rendered)
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
       testCase "CPS-GRIN treats a multi-value result as one logical argument" $ do
         cps <- expectCpsGrin multiValueContinuationProgram
         case grinFunctions (cpsGrinProgram cps) of
-          [function, _continuation] ->
+          function : _callee : [_continuation] ->
             case grinFunctionBody function of
               GrinBind _ (GrinStore (GrinNode (GrinClosure _ layouts) [])) _ ->
                 assertEqual "one multi-value argument layout" [[IntRep, WordRep]] layouts
               body -> assertFailure ("expected a stored continuation closure, got " <> show body)
           functions -> assertFailure ("expected source and continuation functions, got " <> show (length functions)),
+      testCase "CPS-GRIN reifies every function-call bind" $
+        forM_ functionCallExpressions $ \valueExpression -> do
+          let source = singleBindProgram valueExpression
+          cps <- expectCpsGrin source
+          assertEqual (show valueExpression) 2 (length (grinFunctions (cpsGrinProgram cps))),
+      testCase "CPS-GRIN keeps non-call binds in direct style" $ do
+        cps <- expectCpsGrin directBindProgram
+        assertEqual "transformed program" directBindProgram (cpsGrinProgram cps),
       testCase "CPS-GRIN preserves evaluation semantics" $ do
         cps <- expectCpsGrin heapProgram
         directResult <- interpretProgramBinding "answer" heapProgram
@@ -193,13 +231,13 @@ grinUnitTests =
         let program = lowerProgram shadowingProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "raw local is emitted as a constant" ("constant answer%2 :: IntRep" `isInfixOf` rendered)
-        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered)),
+        assertBool "raw local is emitted as a constant" ("constant (answer%2 :: IntRep)" `isInfixOf` rendered)
+        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep (answer%2" `isInfixOf` rendered)),
       testCase "FC lowering still evaluates CAF references" $ do
         let program = lowerProgram cafReferenceProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+        assertBool "CAF reference is evaluated" ("eval @(BoxedRep Lifted) (source%" `isInfixOf` rendered),
       testCase "FC lowering initializes static constructor values without CAF cells" $ do
         let program = lowerProgram staticConstructorProgram
         assertEqual "lint" [] (lintProgram program)
@@ -258,7 +296,7 @@ grinUnitTests =
                 rendered = renderProgram consumer
             assertEqual "lint" [] (lintProgram consumer)
             assertEqual "external code" ["identity"] (map grinCodeSourceName (grinExternalFunctions consumer))
-            assertBool "direct dependency call" ("call @BoxedRep Lifted $entry$identity" `isInfixOf` rendered)
+            assertBool "direct dependency call" ("call @(BoxedRep Lifted) $entry$identity" `isInfixOf` rendered)
             assertBool "dependency function has no global slot" (not ("global identity" `isInfixOf` rendered))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
       testCase "separate FC units store saturated dependency constructors directly" $ do
@@ -675,14 +713,23 @@ multiValueContinuationProgram =
               grinFunctionBody =
                 GrinBind
                   [first, second]
-                  (GrinConstant [GrinLitValue (GrinLitInt IntRep 1), GrinLitValue (GrinLitInt WordRep 2)])
+                  (GrinCall multiValueRep calleeName [])
                   (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue first]))
+            },
+          GrinFunction
+            { grinFunctionName = calleeName,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = multiValueRep,
+              grinFunctionBody = GrinConstant [GrinLitValue (GrinLitInt IntRep 1), GrinLitValue (GrinLitInt WordRep 2)]
             }
         ]
     }
   where
     first = GrinVar "first" 1 IntRep
     second = GrinVar "second" 2 WordRep
+    calleeName = FunctionName "multiValueCallee"
+    multiValueRep = TupleRep [IntRep, WordRep]
 
 zeroWidthApplyProgram :: GrinProgram
 zeroWidthApplyProgram =
@@ -760,6 +807,97 @@ heapProgram =
     updated = GrinVar "updated" 6 (BoxedRep Lifted)
     replacementBox = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 2)]
     functionName = FunctionName "answer_code"
+
+directBindProgram :: GrinProgram
+directBindProgram =
+  heapProgram
+    { grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "direct_binds",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [constant] (GrinConstant [zero]) $
+                  GrinBind [pointer] (GrinStore box) $
+                    GrinBind [selected] (GrinCase (GrinVarValue constant) caseBinder [alternative]) $
+                      GrinConstant [GrinVarValue selected]
+            }
+        ]
+    }
+  where
+    constant = GrinVar "constant" 1 IntRep
+    pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
+    caseBinder = GrinVar "case" 3 IntRep
+    selected = GrinVar "selected" 4 (BoxedRep Lifted)
+    zero = GrinLitValue (GrinLitInt IntRep 0)
+    box = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
+    alternative =
+      GrinAlt
+        { grinAltCon = GrinDefaultAlt,
+          grinAltBinders = [],
+          grinAltRhs = GrinConstant [GrinVarValue pointer]
+        }
+
+callBindProgram :: GrinProgram
+callBindProgram =
+  heapProgram
+    { grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = caller,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [capture],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [result] (GrinCall (BoxedRep Lifted) callee []) $
+                  GrinConstant [GrinVarValue capture]
+            },
+          GrinFunction
+            { grinFunctionName = callee,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinStore box
+            }
+        ]
+    }
+  where
+    caller = FunctionName "caller"
+    callee = FunctionName "callee"
+    capture = GrinVar "capture" 1 (BoxedRep Lifted)
+    result = GrinVar "result" 2 (BoxedRep Lifted)
+    box = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
+
+functionCallExpressions :: [GrinExpr]
+functionCallExpressions =
+  [ GrinEval lifted string,
+    GrinCall lifted (FunctionName "callee") [],
+    GrinPrimitiveCall lifted "primitive" [],
+    GrinApply lifted string []
+  ]
+  where
+    lifted = BoxedRep Lifted
+    string = GrinLitValue (GrinLitString "function")
+
+singleBindProgram :: GrinExpr -> GrinProgram
+singleBindProgram valueExpression =
+  directBindProgram
+    { grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "single_bind",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [result] valueExpression $
+                  GrinConstant [GrinVarValue result]
+            }
+        ]
+    }
+  where
+    result = GrinVar "result" 1 (BoxedRep Lifted)
 
 exceptionBoundaryProgram :: GrinExpr -> GrinProgram
 exceptionBoundaryProgram body =

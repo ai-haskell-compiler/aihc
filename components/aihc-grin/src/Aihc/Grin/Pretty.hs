@@ -6,7 +6,7 @@ module Aihc.Grin.Pretty
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep)
+import Aihc.Tc.Types (RuntimeRep (..))
 import Data.List (intercalate)
 import Data.Text qualified as T
 
@@ -70,7 +70,7 @@ renderCaf (var, node) =
 renderFunction :: GrinFunction -> String
 renderFunction function =
   T.unpack (unFunctionName (grinFunctionName function))
-    <> concatMap ((" " <>) . renderVar) (grinFunctionParameters function)
+    <> concatMap ((" " <>) . renderVarAtom) (grinFunctionParameters function)
     <> " -> "
     <> show (grinFunctionResultRep function)
     <> " =\n"
@@ -102,29 +102,29 @@ renderExprIndented indentation expr =
         <> "\n"
         <> renderExprIndented indentation body
     GrinFetch runtimeRep pointer ->
-      indent indentation <> "fetch @" <> show runtimeRep <> " " <> renderValue pointer
+      indent indentation <> "fetch @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue pointer
     GrinUpdate pointer value ->
       indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
     GrinEval runtimeRep value ->
-      indent indentation <> "eval @" <> show runtimeRep <> " " <> renderValue value
+      indent indentation <> "eval @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue value
     GrinCall runtimeRep functionName arguments ->
       indent indentation
         <> "call @"
-        <> show runtimeRep
+        <> renderRuntimeRepArgument runtimeRep
         <> " "
         <> T.unpack (unFunctionName functionName)
         <> renderValues arguments
     GrinPrimitiveCall runtimeRep name arguments ->
       indent indentation
         <> "primitive-call @"
-        <> show runtimeRep
+        <> renderRuntimeRepArgument runtimeRep
         <> " "
         <> T.unpack name
         <> renderValues arguments
     GrinApply runtimeRep function arguments ->
       indent indentation
         <> "apply @"
-        <> show runtimeRep
+        <> renderRuntimeRepArgument runtimeRep
         <> " "
         <> renderValue function
         <> renderArgument arguments
@@ -140,7 +140,7 @@ renderExprIndented indentation expr =
     GrinCatch runtimeRep action handler state ->
       indent indentation
         <> "catch @"
-        <> show runtimeRep
+        <> renderRuntimeRepArgument runtimeRep
         <> " "
         <> unwords (map renderValue [action, handler])
         <> renderValues state
@@ -154,7 +154,11 @@ renderValues :: [GrinValue] -> String
 renderValues = concatMap ((" " <>) . renderValue)
 
 renderArgument :: [GrinValue] -> String
-renderArgument values = " (" <> unwords (map renderValue values) <> ")"
+renderArgument values =
+  case values of
+    [] -> " ()"
+    [value] -> " " <> renderValue value
+    _ -> " (" <> unwords (map renderValue values) <> ")"
 
 renderBinders :: [GrinVar] -> String
 renderBinders vars =
@@ -166,7 +170,7 @@ renderAlt :: Int -> GrinAlt -> String
 renderAlt indentation alt =
   indent indentation
     <> renderAltCon (grinAltCon alt)
-    <> concatMap ((" " <>) . renderVar) (grinAltBinders alt)
+    <> concatMap ((" " <>) . renderVarAtom) (grinAltBinders alt)
     <> " ->\n"
     <> renderExprIndented (indentation + 2) (grinAltRhs alt)
 
@@ -180,7 +184,7 @@ renderAltCon altCon =
 renderValue :: GrinValue -> String
 renderValue value =
   case value of
-    GrinVarValue var -> renderVar var
+    GrinVarValue var -> renderVarAtom var
     GrinLitValue literal -> renderLiteral literal
 
 renderNode :: GrinNode -> String
@@ -214,6 +218,22 @@ renderVar var =
     <> show (grinVarUnique var)
     <> " :: "
     <> show (grinVarRuntimeRep var)
+
+renderVarAtom :: GrinVar -> String
+renderVarAtom var = "(" <> renderVar var <> ")"
+
+renderRuntimeRepArgument :: RuntimeRep -> String
+renderRuntimeRepArgument runtimeRep =
+  case runtimeRep of
+    VecRep {} -> parenthesized
+    TupleRep {} -> parenthesized
+    SumRep {} -> parenthesized
+    BoxedRep {} -> parenthesized
+    RuntimeRepVar {} -> parenthesized
+    RuntimeRepMeta {} -> parenthesized
+    _ -> show runtimeRep
+  where
+    parenthesized = "(" <> show runtimeRep <> ")"
 
 indent :: Int -> String
 indent count = replicate count ' '
