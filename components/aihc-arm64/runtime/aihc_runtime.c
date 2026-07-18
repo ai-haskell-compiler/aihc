@@ -11,7 +11,7 @@ typedef struct {
   void *exit_code;
 } AihcMachine;
 
-static void aihc_fail(const char *message) {
+static _Noreturn void aihc_fail(const char *message) {
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
 }
