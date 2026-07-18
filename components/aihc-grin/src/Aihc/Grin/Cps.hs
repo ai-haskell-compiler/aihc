@@ -2,13 +2,14 @@
 
 -- | Reify direct-style GRIN continuations as ordinary GRIN closures.
 --
--- This pass deliberately keeps the GRIN syntax. Each source 'GrinBind' is
--- rewritten so its body lives in a generated function. A closure for that
--- function is allocated with 'GrinStore' and invoked with 'GrinApply' after
--- the bound expression produces its values. The introduced administrative
--- binds retain the current runtime-operation protocol; future suspension
--- lowering can transfer ownership of the explicit closure instead of
--- returning through them.
+-- This pass deliberately keeps the GRIN syntax. Each potentially suspending
+-- source 'GrinBind' is rewritten so its body lives in a generated function. A
+-- closure for that function is allocated with 'GrinStore' and invoked with
+-- 'GrinApply' after the bound expression produces its values. Only 'GrinEval',
+-- 'GrinCall', 'GrinPrimitiveCall', and 'GrinApply' can suspend; all other binds
+-- remain in direct style. The introduced administrative binds retain the
+-- current runtime-operation protocol; future suspension lowering can transfer
+-- ownership of the explicit closure instead of returning through them.
 module Aihc.Grin.Cps
   ( CpsGrinProgram,
     CpsGrinError (..),
@@ -80,6 +81,11 @@ transformExpr :: FunctionName -> Set GrinVar -> RuntimeRep -> GrinExpr -> CpsM G
 transformExpr parent bound resultRep expression =
   case expression of
     GrinConstant {} -> pure expression
+    GrinBind resultVars valueExpression body
+      | not (requiresContinuation valueExpression) -> do
+          transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
+          transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
+          pure (GrinBind resultVars transformedValue transformedBody)
     GrinBind resultVars valueExpression body -> do
       transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
       transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
@@ -130,6 +136,15 @@ transformExpr parent bound resultRep expression =
     GrinThrow {} -> lift (Left (CpsGrinUnexpectedThrow parent))
     GrinCatch {} -> lift (Left (CpsGrinUnexpectedCatch parent))
     GrinForeignCallExpr {} -> pure expression
+
+requiresContinuation :: GrinExpr -> Bool
+requiresContinuation expression =
+  case expression of
+    GrinEval {} -> True
+    GrinCall {} -> True
+    GrinPrimitiveCall {} -> True
+    GrinApply {} -> True
+    _ -> False
 
 freshContinuationName :: FunctionName -> CpsM FunctionName
 freshContinuationName parent = do
