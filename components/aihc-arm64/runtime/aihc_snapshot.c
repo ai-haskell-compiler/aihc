@@ -156,9 +156,7 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
-    uint64_t count = tag == AIHC_TAG_CLOSURE
-                         ? aihc_value_count(object)
-                         : function->parameter_count;
+    uint64_t count = aihc_value_count(object);
     discover_fields(state, aihc_value_fields_const(object), count,
                     function->parameter_count, function->parameter_reps);
     return;
@@ -241,7 +239,7 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
       count = aihc_value_count(object);
     } else {
       printf("F%s", function->name);
-      count = function->parameter_count;
+      count = aihc_value_count(object);
     }
     print_fields(state, aihc_value_fields_const(object), count,
                  function->parameter_count, function->parameter_reps);
