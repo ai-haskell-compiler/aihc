@@ -85,6 +85,10 @@ grinUnitTests =
       testCase "interpreter rejects unlifted heap updates" $ do
         result <- interpretProgramBinding "answer" invalidUpdateProgram
         assertEqual "result" (Left (InterpretInvalidUpdateValue (RuntimeLit (GrinLitInt IntRep 2)))) result,
+      testCase "direct interpreter rejects CPS-only expressions" $
+        forM_ cpsOnlyExpressions $ \expression -> do
+          result <- interpretProgramFunctionSnapshot cpsOnlyFunction (cpsOnlyProgram expression)
+          assertEqual (show expression) (Left (InterpretCpsExpression expression)) result,
       testCase "lint rejects unlifted thunk results and heap updates" $
         forM_ unliftedRuntimeReps $ \runtimeRep ->
           let errors = lintProgram (unliftedHeapProgram runtimeRep)
@@ -1077,6 +1081,35 @@ transferringExpressions =
   where
     lifted = BoxedRep Lifted
     string = GrinLitValue (GrinLitString "function")
+
+cpsOnlyExpressions :: [GrinExpr]
+cpsOnlyExpressions =
+  [ GrinCpsEval lifted string string string,
+    GrinCpsApply lifted string [] string,
+    GrinContinue string [],
+    GrinUpdateBlackhole string string,
+    GrinHalt []
+  ]
+  where
+    lifted = BoxedRep Lifted
+    string = GrinLitValue (GrinLitString "continuation")
+
+cpsOnlyFunction :: FunctionName
+cpsOnlyFunction = FunctionName "cps_only"
+
+cpsOnlyProgram :: GrinExpr -> GrinProgram
+cpsOnlyProgram expression =
+  directBindProgram
+    { grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = cpsOnlyFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = expression
+            }
+        ]
+    }
 
 singleBindProgram :: GrinExpr -> GrinProgram
 singleBindProgram valueExpression =
