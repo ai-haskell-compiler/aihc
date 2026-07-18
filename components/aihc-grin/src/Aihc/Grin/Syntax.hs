@@ -118,8 +118,10 @@ data GrinExpr
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
-  | GrinApply !RuntimeRep !GrinValue ![GrinValue]
-  | GrinCase !GrinValue !GrinVar ![GrinAlt]
+  | -- | Apply a function that is already in weak-head normal form.
+    GrinApply !RuntimeRep !GrinValue ![GrinValue]
+  | -- | Match a value that is already in weak-head normal form.
+    GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.

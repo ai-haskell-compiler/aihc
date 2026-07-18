@@ -889,7 +889,7 @@ test_compileExecutable =
         assertBool "GRIN does not allocate putchar globally" (not ("global putchar" `T.isInfixOf` grin || "caf putchar" `T.isInfixOf` grin))
         assertBool "GRIN does not allocate char globally" (not ("global char" `T.isInfixOf` grin || "caf char" `T.isInfixOf` grin))
         assertBool "GRIN uses direct known calls" ("call @(BoxedRep Lifted) $entry$>>" `T.isInfixOf` grin)
-        assertBool "GRIN leaves forcing to case and apply" (not ("eval @" `T.isInfixOf` grin))
+        assertBool "GRIN makes evaluation explicit" ("eval @" `T.isInfixOf` grin)
         assertNativeOutput keptOutput
 
         runCompileWithEnvironment environment temporaryOptions

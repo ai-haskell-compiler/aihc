@@ -470,31 +470,13 @@ compileCase env prefix label scrutinee binder alternatives = do
   resultSlot <- freshSlot
   dispatchLabel <- freshLabel label "case_dispatch"
   scrutineeLines <- liftEither (materializeValue env scrutinee)
-  let scrutineeRep = grinValueRuntimeRep scrutinee
-      scrutineeIsLifted = isLiftedRuntimeRep scrutineeRep
-      scrutineeIsPointer = isPointerRuntimeRep scrutineeRep
-  if scrutineeIsLifted
-    then
-      addBlock
-        label
-        ( prefix
-            <> scrutineeLines
-            <> ["  mov x20, x0"]
-            <> pushNormalLines dispatchLabel resultSlot 1
-            <> [ "  mov x1, x20",
-                 immediate "x2" (1 :: Int),
-                 "  mov x0, x22",
-                 "  bl _aihc_eval"
-               ]
-            <> dispatchLines
-        )
-    else
-      addBlock
-        label
-        ( prefix
-            <> scrutineeLines
-            <> [storeAt "x0" "x19" resultSlot, "  b " <> dispatchLabel]
-        )
+  let scrutineeIsPointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
+  addBlock
+    label
+    ( prefix
+        <> scrutineeLines
+        <> [storeAt "x0" "x19" resultSlot, "  b " <> dispatchLabel]
+    )
   binderSlot <- localSlot env binder
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"

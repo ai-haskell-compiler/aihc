@@ -1,0 +1,29 @@
+extensions:
+  - EmptyDataDecls
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    data State# s
+    data RealWorld
+
+    foreign import prim raise# :: a -> b
+    foreign import prim catch# ::
+      (State# RealWorld -> (# State# RealWorld, a #)) ->
+      (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
+      State# RealWorld ->
+      (# State# RealWorld, a #)
+    foreign import prim realWorld# :: State# RealWorld
+
+    successful :: State# RealWorld -> (# State# RealWorld, Int# #)
+    successful s = (# s, 42# #)
+    failingHandler :: Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+    failingHandler = raise# 99#
+output: |
+  42
+expression: |
+  case catch# successful failingHandler realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: catch# does not evaluate its handler unless the protected action raises
