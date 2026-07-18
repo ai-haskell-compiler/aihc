@@ -29,7 +29,7 @@ grinUnitTests =
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "does not allocate a constructor argument thunk" (not ("store " `isInfixOf` rendered))
+        assertBool "does not allocate a constructor argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered))
         assertBool "contains explicit application" ("apply " `isInfixOf` rendered),
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
@@ -95,14 +95,14 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
-      testCase "FC lowering returns saturated constructor nodes without update cells" $ do
+      testCase "FC lowering stores saturated constructor nodes" $ do
         let program = lowerProgram saturatedConstructorProgram
         assertEqual "lint" [] (lintProgram program)
         case grinFunctions program of
           [function] ->
             assertEqual
               "constructor body"
-              (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)])])
+              (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
@@ -120,7 +120,7 @@ grinUnitTests =
         let program = lowerProgram shadowingProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "raw local is returned directly" ("return answer%2 :: IntRep" `isInfixOf` rendered)
+        assertBool "raw local is emitted as a constant" ("constant answer%2 :: IntRep" `isInfixOf` rendered)
         assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered)),
       testCase "FC lowering still evaluates CAF references" $ do
         let program = lowerProgram cafReferenceProgram
@@ -165,7 +165,7 @@ grinUnitTests =
           "dictionary constructor has an ordinary declared layout"
           [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
           (grinConstructors program)
-        assertBool ("direct dictionary constructor return:\n" <> rendered) ("return (C$Dict$Test" `isInfixOf` rendered)
+        assertBool ("explicit dictionary constructor store:\n" <> rendered) ("store (C$Dict$Test" `isInfixOf` rendered)
         assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
         assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
@@ -196,7 +196,7 @@ grinUnitTests =
               [function] ->
                 assertEqual
                   "constructor body"
-                  (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)])])
+                  (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
                   (grinFunctionBody function)
               functions -> assertFailure ("expected one constructor function, got " <> show (length functions))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
@@ -551,8 +551,10 @@ heapProgram =
               grinFunctionBody =
                 GrinBind [pointer] (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
                   GrinBind [fetched] (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
-                    GrinBind [updated] (GrinUpdate (GrinVarValue pointer) updatedBox) $
-                      GrinEval (BoxedRep Lifted) (GrinVarValue pointer)
+                    GrinBind [replacementPointer] (GrinStore replacementBox) $
+                      GrinBind [replacement] (GrinFetch (BoxedRep Lifted) (GrinVarValue replacementPointer)) $
+                        GrinBind [updated] (GrinUpdate (GrinVarValue pointer) (GrinVarValue replacement)) $
+                          GrinEval (BoxedRep Lifted) (GrinVarValue pointer)
             }
         ]
     }
@@ -560,8 +562,10 @@ heapProgram =
     answer = GrinVar "answer" 1 (BoxedRep Lifted)
     pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
     fetched = GrinVar "fetched" 3 (BoxedRep Lifted)
-    updated = GrinVar "updated" 4 (BoxedRep Lifted)
-    updatedBox = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)])
+    replacementPointer = GrinVar "replacement_pointer" 4 (BoxedRep Lifted)
+    replacement = GrinVar "replacement" 5 (BoxedRep Lifted)
+    updated = GrinVar "updated" 6 (BoxedRep Lifted)
+    replacementBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)]
     functionName = FunctionName "answer_code"
 
 exceptionBoundaryProgram :: GrinExpr -> GrinProgram
@@ -589,10 +593,10 @@ exceptionBoundaryFunction :: FunctionName
 exceptionBoundaryFunction = FunctionName "exception_boundary"
 
 exceptionAction :: GrinValue
-exceptionAction = GrinNodeValue (GrinNode (GrinConstructor "Action") [])
+exceptionAction = GrinLitValue (GrinLitString "action")
 
 exceptionHandler :: GrinValue
-exceptionHandler = GrinNodeValue (GrinNode (GrinConstructor "Handler") [])
+exceptionHandler = GrinLitValue (GrinLitString "handler")
 
 invalidUpdateProgram :: GrinProgram
 invalidUpdateProgram =
@@ -606,7 +610,7 @@ invalidUpdateProgram =
               grinFunctionBody =
                 GrinBind [pointer] (GrinStore initialBox) $
                   GrinBind [updated] (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt IntRep 2))) $
-                    GrinReturn [updatedBox]
+                    GrinConstant [GrinLitValue (GrinLitInt IntRep 0)]
             }
         ]
     }
@@ -614,7 +618,6 @@ invalidUpdateProgram =
     pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
     updated = GrinVar "updated" 3 IntRep
     initialBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)]
-    updatedBox = GrinNodeValue (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)])
 
 unliftedRuntimeReps :: [RuntimeRep]
 unliftedRuntimeReps =
@@ -645,7 +648,7 @@ unliftedHeapProgram runtimeRep =
                 GrinBind
                   [updated]
                   (GrinUpdate (GrinVarValue pointer) (GrinLitValue (GrinLitInt runtimeRep 0)))
-                  ( GrinReturn
+                  ( GrinConstant
                       [ GrinLitValue (GrinLitInt componentRep 0)
                       | componentRep <- runtimeRepComponents runtimeRep
                       ]

@@ -247,7 +247,7 @@ lowerExpr expr = do
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) ->
       lowerArgumentMany arguments $ \values ->
-        pure (GrinReturn [GrinNodeValue (GrinNode (GrinConstructor constructor) values)])
+        pure (GrinStore (GrinNode (GrinConstructor constructor) values))
     Nothing ->
       case primitiveApplication primitiveArities (Map.keysSet localVars) expr of
         Just ("raise#", [exception]) ->
@@ -266,7 +266,7 @@ lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
 lowerOrdinaryExpr expr =
   case unboxedTupleArguments expr of
     Just arguments ->
-      lowerArgumentMany arguments (pure . GrinReturn)
+      lowerArgumentMany arguments (pure . GrinConstant)
     Nothing -> lowerNonTupleExpr expr
 
 lowerNonTupleExpr :: FcExpr -> LowerM GrinExpr
@@ -276,17 +276,17 @@ lowerNonTupleExpr expr =
       do
         codeInfo <- lookupCodeInfo var
         case codeInfo of
-          Just info -> pure (GrinReturn [knownFunctionValue info 0 []])
+          Just info -> pure (GrinStore (knownFunctionNode info 0 []))
           Nothing -> do
             direct <- lowerDirectValues expr
             case direct of
-              Just values -> pure (GrinReturn values)
+              Just values -> pure (GrinConstant values)
               Nothing -> do
                 runtimeVar <- lookupRuntimeVar var
                 let resultRep = typeRuntimeRep (varType var)
                 pure (GrinEval resultRep (GrinVarValue runtimeVar))
     FcLit literal ->
-      pure (GrinReturn [GrinLitValue (lowerLiteral literal)])
+      pure (GrinConstant [GrinLitValue (lowerLiteral literal)])
     FcApp {} ->
       lowerApplication expr
     FcTyApp inner _ ->
@@ -320,7 +320,7 @@ lowerKnownApplication originalExpr info arguments =
   case compare suppliedArity termArity of
     LT ->
       lowerArgumentMany arguments $ \values ->
-        pure (GrinReturn [knownFunctionValue info suppliedArity values])
+        pure (GrinStore (knownFunctionNode info suppliedArity values))
     EQ ->
       lowerArgumentMany arguments $ \values ->
         pure (GrinCall (exprRuntimeRep appliedExpr) (grinCodeFunctionName info) values)
@@ -350,12 +350,7 @@ lowerPrimitiveApplication originalExpr name arity arguments =
   case compare suppliedArity arity of
     LT ->
       lowerArgumentMany arguments $ \values ->
-        pure
-          ( GrinReturn
-              [ GrinNodeValue
-                  (GrinNode (GrinPrimitive name (arity - suppliedArity)) values)
-              ]
-          )
+        pure (GrinStore (GrinNode (GrinPrimitive name (arity - suppliedArity)) values))
     EQ ->
       lowerArgumentMany arguments $ \values ->
         pure (GrinPrimitiveCall (exprRuntimeRep originalExpr) name values)
@@ -391,7 +386,7 @@ dropLastTermApplications count expr
 lowerRemainingApplications :: FcExpr -> GrinValue -> [FcExpr] -> LowerM GrinExpr
 lowerRemainingApplications functionExpr functionValue arguments =
   case arguments of
-    [] -> pure (GrinReturn [functionValue])
+    [] -> pure (GrinConstant [functionValue])
     argument : rest -> do
       let appliedExpr = FcApp functionExpr argument
           resultRep = exprRuntimeRep appliedExpr
@@ -415,13 +410,10 @@ lowerUnknownApplication expr =
           pure (GrinApply (applicationResultRep function) functionValue argumentValues)
     _ -> error "GRIN lowering expected an application"
 
-knownFunctionValue :: GrinCodeInfo -> Int -> [GrinValue] -> GrinValue
-knownFunctionValue info suppliedTermArity fields =
-  GrinNodeValue
-    ( GrinNode
-        (GrinClosure (grinCodeFunctionName info) remainingRuntimeArity)
-        fields
-    )
+knownFunctionNode :: GrinCodeInfo -> Int -> [GrinValue] -> GrinNode
+knownFunctionNode info suppliedTermArity =
+  GrinNode
+    (GrinClosure (grinCodeFunctionName info) remainingRuntimeArity)
   where
     remainingRuntimeArity =
       length (concat (drop suppliedTermArity (grinCodeParameterLayouts info)))
@@ -478,7 +470,7 @@ splitWidths widths values =
 
 lowerLambda :: Var -> FcExpr -> LowerM GrinExpr
 lowerLambda binder body =
-  GrinReturn . pure . GrinNodeValue <$> makeClosureNode (FcLam binder body)
+  GrinStore <$> makeClosureNode (FcLam binder body)
 
 makeClosureNode :: FcExpr -> LowerM GrinNode
 makeClosureNode expr = do
@@ -655,7 +647,7 @@ lowerArgument :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument expr continuation = do
   direct <- lowerLazyDirectValues expr
   case direct of
-    Just values -> atomizeNodeValues values continuation
+    Just values -> continuation values
     Nothing -> do
       whnf <- isWhnfExpr expr
       if whnf
@@ -664,17 +656,6 @@ lowerArgument expr continuation = do
           if exprRuntimeRep expr == liftedRuntimeRep
             then lowerDelayed expr continuation
             else lowerStrict "argument" expr continuation
-
-atomizeNodeValues :: [GrinValue] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
-atomizeNodeValues values continuation
-  | any isNodeValue values = do
-      vars <- mapM (freshVar "value" . grinValueRuntimeRep) values
-      rest <- continuation (map GrinVarValue vars)
-      pure (GrinBind vars (GrinReturn values) rest)
-  | otherwise = continuation values
-  where
-    isNodeValue GrinNodeValue {} = True
-    isNodeValue _ = False
 
 lowerSingleArgument :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerSingleArgument expr continuation =
@@ -828,10 +809,9 @@ isGlobalVar var = do
         && (varName var `Set.member` globalNames || isUnboxedTupleConstructor (varName var))
     )
 
--- | Values that are already in runtime normal form can be embedded directly
--- in the surrounding GRIN operation. Constructors and primitives with positive
--- arity are node literals rather than allocated globals. Unboxed locals and
--- literals are direct machine values as well.
+-- | Values that can be embedded directly in a non-allocating GRIN operation.
+-- Dynamic constructors, closures, and primitives are deliberately excluded:
+-- they must be introduced by 'GrinStore'.
 lowerDirectValues :: FcExpr -> LowerM (Maybe [GrinValue])
 lowerDirectValues expr =
   case expr of
@@ -844,11 +824,9 @@ lowerDirectValues expr =
       case (constructorArity, primitiveArity) of
         _ | null (runtimeRepComponents runtimeRep) -> pure (Just [])
         (Just arity, _)
-          | arity > 0 ->
-              pure (Just [GrinNodeValue (GrinNode (GrinConstructor (varName var)) [])])
+          | arity > 0 -> pure Nothing
         (_, Just arity)
-          | arity > 0 ->
-              pure (Just [GrinNodeValue (GrinNode (GrinPrimitive (varName var) arity) [])])
+          | arity > 0 -> pure Nothing
         _
           | isWhnfGlobal -> do
               noteExternalGlobalReference var
@@ -870,17 +848,15 @@ lowerLazyDirectValues expr =
     FcVar var -> do
       codeInfo <- lookupCodeInfo var
       case codeInfo of
-        Just info -> pure (Just [knownFunctionValue info 0 []])
+        Just _ -> pure Nothing
         Nothing -> do
           constructorArity <- lookupConstructorArity var
           primitiveArity <- lookupPrimitiveArity var
           case (constructorArity, primitiveArity) of
             (Just arity, _)
-              | arity > 0 ->
-                  pure (Just [GrinNodeValue (GrinNode (GrinConstructor (varName var)) [])])
+              | arity > 0 -> pure Nothing
             (_, Just arity)
-              | arity > 0 ->
-                  pure (Just [GrinNodeValue (GrinNode (GrinPrimitive (varName var) arity) [])])
+              | arity > 0 -> pure Nothing
             _ -> Just . map GrinVarValue <$> lookupRuntimeVars var
     FcLit literal -> pure (Just [GrinLitValue (lowerLiteral literal)])
     FcTyApp inner _ -> lowerLazyDirectValues inner

@@ -118,7 +118,7 @@ tests =
                           grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = Int8Rep,
-                          grinFunctionBody = GrinReturn [GrinLitValue (GrinLitInt Int8Rep 255)]
+                          grinFunctionBody = GrinConstant [GrinLitValue (GrinLitInt Int8Rep 255)]
                         }
                     ]
                 }
@@ -143,7 +143,7 @@ tests =
                           grinFunctionParameters = [],
                           grinFunctionResultRep = TupleRep [TupleRep [], IntRep, WordRep],
                           grinFunctionBody =
-                            GrinReturn
+                            GrinConstant
                               [ GrinLitValue (GrinLitInt IntRep 1),
                                 GrinLitValue (GrinLitInt WordRep 2)
                               ]

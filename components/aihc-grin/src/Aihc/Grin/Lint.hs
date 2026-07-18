@@ -123,7 +123,7 @@ lintFunction env function =
 lintExpr :: LintEnv -> Set GrinVar -> GrinExpr -> [GrinLintError]
 lintExpr env bound expr =
   case expr of
-    GrinReturn values -> concatMap (lintValue env bound) values
+    GrinConstant values -> concatMap (lintValue env bound) values
     GrinBind vars valueExpr body ->
       bindRepresentationErrors vars valueExpr
         <> lintExpr env bound valueExpr
@@ -207,7 +207,6 @@ lintValue env bound value =
       | grinVarName var `Set.member` lintGlobalNames env -> []
       | otherwise -> [GrinLintUnboundVariable var]
     GrinLitValue _ -> []
-    GrinNodeValue node -> lintNode env bound node
 
 lintNode :: LintEnv -> Set GrinVar -> GrinNode -> [GrinLintError]
 lintNode env bound node =
@@ -261,7 +260,7 @@ duplicates = go Set.empty Set.empty
 exprRuntimeReps :: GrinExpr -> Maybe [RuntimeRep]
 exprRuntimeReps expr =
   case expr of
-    GrinReturn values -> Just (map grinValueRuntimeRep values)
+    GrinConstant values -> Just (map grinValueRuntimeRep values)
     GrinBind _ _ body -> exprRuntimeReps body
     GrinStore {} -> Just [liftedRuntimeRep]
     GrinStoreRec _ body -> exprRuntimeReps body

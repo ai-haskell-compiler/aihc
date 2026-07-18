@@ -339,7 +339,7 @@ parameterCopyLir slots parameters =
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
   case expression of
-    GrinReturn values -> do
+    GrinConstant values -> do
       valueSlots <- freshSlots (length values)
       valueLines <-
         fmap concat . forM (zip values valueSlots) $ \(value, slot) -> do
@@ -576,7 +576,6 @@ materializeValue env value =
   case value of
     GrinVarValue var -> loadVariable env var
     GrinLitValue literal -> materializeLiteral literal
-    GrinNodeValue node -> materializeNode env node
 
 materializeLiteral :: GrinLiteral -> Either Arm64Error [Text]
 materializeLiteral literal =
@@ -629,7 +628,6 @@ materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 materializeNode env node = do
   (kind, info, arity) <- nodeHeader env node
   fieldLines <- fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
-    unlessAtomic field
     valueLines <- materializeValue env field
     pure $
       valueLines
@@ -643,11 +641,6 @@ materializeNode env node = do
       <> ["  mov x20, x0"]
       <> fieldLines
       <> ["  mov x0, x20"]
-  where
-    unlessAtomic field =
-      case field of
-        GrinNodeValue {} -> Left (Arm64UnsupportedValue "nested node field")
-        _ -> Right ()
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo, Int)
 nodeHeader env node =
@@ -826,7 +819,7 @@ functionLocalSlots function = snd (foldl' assignGroup (0, Map.empty) groups)
 boundVarGroups :: GrinExpr -> [[GrinVar]]
 boundVarGroups expression =
   case expression of
-    GrinReturn _ -> []
+    GrinConstant _ -> []
     GrinBind vars valueExpression body -> vars : boundVarGroups valueExpression <> boundVarGroups body
     GrinStore _ -> []
     GrinStoreRec bindings body -> map (pure . fst) bindings <> boundVarGroups body
@@ -889,7 +882,7 @@ programRuntimeReps program =
 exprRuntimeReps :: GrinExpr -> [RuntimeRep]
 exprRuntimeReps expression =
   case expression of
-    GrinReturn values -> concatMap valueRuntimeReps values
+    GrinConstant values -> concatMap valueRuntimeReps values
     GrinBind vars valueExpression body ->
       map grinVarRuntimeRep vars <> exprRuntimeReps valueExpression <> exprRuntimeReps body
     GrinStore node -> nodeRuntimeReps node
@@ -920,11 +913,7 @@ exprRuntimeReps expression =
         <> exprRuntimeReps (grinAltRhs alternative)
 
 valueRuntimeReps :: GrinValue -> [RuntimeRep]
-valueRuntimeReps value =
-  grinValueRuntimeRep value
-    : case value of
-      GrinNodeValue node -> nodeRuntimeReps node
-      _ -> []
+valueRuntimeReps value = [grinValueRuntimeRep value]
 
 nodeRuntimeReps :: GrinNode -> [RuntimeRep]
 nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
