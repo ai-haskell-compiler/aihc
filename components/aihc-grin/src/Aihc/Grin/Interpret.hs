@@ -6,16 +6,18 @@ module Aihc.Grin.Interpret
     RuntimeValue (..),
     interpretProgramBinding,
     interpretProgramIoBinding,
+    interpretProgramFunctionSnapshot,
   )
 where
 
+import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
-import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
+import Control.Monad.Trans.State.Strict (State, StateT, execState, get, gets, modify', runState, runStateT)
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
@@ -90,6 +92,14 @@ data EvalFailure
 
 type EvalM = ExceptT EvalFailure (StateT Machine IO)
 
+data SnapshotBuild = SnapshotBuild
+  { snapshotBuildSource :: !(IntMap HeapCell),
+    snapshotBuildLocations :: !(IntMap Int),
+    snapshotBuildSources :: !(IntMap Int),
+    snapshotBuildNextLocation :: !Int,
+    snapshotBuildCells :: !(IntMap SnapshotCell)
+  }
+
 -- | Interpret and render a named top-level binding using the raw constructor
 -- representation shared by the compiler pipeline evaluation fixtures.
 interpretProgramBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
@@ -100,6 +110,19 @@ interpretProgramBinding = interpretProgramBindingWith pure
 -- point.
 interpretProgramIoBinding :: Text -> GrinProgram -> IO (Either InterpretError Text)
 interpretProgramIoBinding = interpretProgramBindingWith runIOValue
+
+-- | Execute a nullary GRIN function and snapshot its raw return values and
+-- reachable heap. Snapshotting reads cells but never enters a thunk or forces
+-- a location; only 'GrinEval' nodes executed by the function may do that.
+interpretProgramFunctionSnapshot :: FunctionName -> GrinProgram -> IO (Either InterpretError HeapSnapshot)
+interpretProgramFunctionSnapshot functionName program = do
+  let machine = initialMachine program
+  (result, finalMachine) <- runStateT (runExceptT (callFunction functionName [])) machine
+  pure $
+    case result of
+      Right values -> Right (buildHeapSnapshot (machineHeap finalMachine) values)
+      Left (EvalInterpret err) -> Left err
+      Left (EvalRaised exception) -> Left (InterpretRaisedException (T.pack (show exception)))
 
 interpretProgramBindingWith :: (RuntimeValue -> EvalM RuntimeValue) -> Text -> GrinProgram -> IO (Either InterpretError Text)
 interpretProgramBindingWith enterValue name program = do
@@ -637,3 +660,65 @@ getsMachine = lift . gets
 
 modifyMachine :: (Machine -> Machine) -> EvalM ()
 modifyMachine = lift . modify'
+
+buildHeapSnapshot :: IntMap HeapCell -> [RuntimeValue] -> HeapSnapshot
+buildHeapSnapshot source values =
+  let initial =
+        SnapshotBuild
+          { snapshotBuildSource = source,
+            snapshotBuildLocations = IntMap.empty,
+            snapshotBuildSources = IntMap.empty,
+            snapshotBuildNextLocation = 0,
+            snapshotBuildCells = IntMap.empty
+          }
+      (returnValues, afterRoots) = runState (mapM snapshotRuntimeValue values) initial
+      final = execState (snapshotPendingCells 0) afterRoots
+   in HeapSnapshot
+        { snapshotReturnValues = returnValues,
+          snapshotHeap = snapshotBuildCells final
+        }
+
+snapshotPendingCells :: Int -> State SnapshotBuild ()
+snapshotPendingCells location = do
+  state <- get
+  if location >= snapshotBuildNextLocation state
+    then pure ()
+    else do
+      case IntMap.lookup location (snapshotBuildSources state) >>= (`IntMap.lookup` snapshotBuildSource state) of
+        Nothing -> pure ()
+        Just cell -> do
+          snapshotCell <- snapshotHeapCell cell
+          modify' $ \current -> current {snapshotBuildCells = IntMap.insert location snapshotCell (snapshotBuildCells current)}
+      snapshotPendingCells (location + 1)
+
+snapshotHeapCell :: HeapCell -> State SnapshotBuild SnapshotCell
+snapshotHeapCell cell =
+  case cell of
+    HeapSuspended functionName fields -> SnapshotSuspended functionName <$> mapM snapshotRuntimeValue fields
+    HeapValue value -> SnapshotValue <$> snapshotRuntimeValue value
+    HeapRaised exception -> SnapshotRaised <$> snapshotRuntimeValue exception
+    HeapBlackhole -> pure SnapshotBlackhole
+
+snapshotRuntimeValue :: RuntimeValue -> State SnapshotBuild SnapshotValue
+snapshotRuntimeValue value =
+  case value of
+    RuntimeLit literal -> pure (SnapshotLiteral literal)
+    RuntimeNode tag fields -> SnapshotNode tag <$> mapM snapshotRuntimeValue fields
+    RuntimeLocation sourceLocation -> SnapshotLocation <$> snapshotLocation sourceLocation
+    RuntimeMutVar {} -> pure SnapshotMutVar
+    RuntimeStateToken -> pure SnapshotStateToken
+
+snapshotLocation :: Int -> State SnapshotBuild Int
+snapshotLocation sourceLocation = do
+  state <- get
+  case IntMap.lookup sourceLocation (snapshotBuildLocations state) of
+    Just location -> pure location
+    Nothing -> do
+      let location = snapshotBuildNextLocation state
+      modify' $ \current ->
+        current
+          { snapshotBuildLocations = IntMap.insert sourceLocation location (snapshotBuildLocations current),
+            snapshotBuildSources = IntMap.insert location sourceLocation (snapshotBuildSources current),
+            snapshotBuildNextLocation = location + 1
+          }
+      pure location

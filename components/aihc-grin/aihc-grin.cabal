@@ -17,6 +17,7 @@ library
     Aihc.Grin.Lint
     Aihc.Grin.Lower
     Aihc.Grin.Pretty
+    Aihc.Grin.Snapshot
     Aihc.Grin.Syntax
 
   hs-source-dirs: src

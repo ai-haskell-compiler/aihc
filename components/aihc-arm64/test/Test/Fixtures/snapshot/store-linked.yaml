@@ -1,0 +1,14 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+  constructor Link/1 [BoxedRep Lifted]
+
+  $entry -> BoxedRep Lifted =
+    (leaf%1 :: BoxedRep Lifted) <- store (CI32# (2 :: Int32Rep))
+    store (CLink (leaf%1 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CLink @1
+  @1 = CI32# 2
+status: pass
+reason: snapshot traversal follows links between separately stored heap values

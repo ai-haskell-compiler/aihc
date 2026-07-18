@@ -28,6 +28,7 @@ module Aihc.Grin.Syntax
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
+    builtinConstructorLayouts,
     builtinConstructors,
   )
 where
@@ -200,14 +201,18 @@ isPointerRuntimeRep runtimeRep =
 -- Keeping their arities with the shared GRIN syntax makes lowering,
 -- interpretation, linting, and native code generation agree on which global
 -- constructor values exist before the program starts.
+builtinConstructorLayouts :: [(Text, [RuntimeRep])]
+builtinConstructorLayouts =
+  [ ("C#", [WordRep]),
+    ("[]", []),
+    (":", [liftedRuntimeRep, liftedRuntimeRep]),
+    ("()", []),
+    ("(,)", [liftedRuntimeRep, liftedRuntimeRep])
+  ]
+
 builtinConstructors :: [(Text, Int)]
 builtinConstructors =
-  [ ("C#", 1),
-    ("[]", 0),
-    (":", 2),
-    ("()", 0),
-    ("(,)", 2)
-  ]
+  [(name, length fields) | (name, fields) <- builtinConstructorLayouts]
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,

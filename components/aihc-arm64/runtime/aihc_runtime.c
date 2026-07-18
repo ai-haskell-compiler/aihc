@@ -1,22 +1,7 @@
-#include <stdint.h>
+#include "aihc_runtime.h"
+
 #include <stdio.h>
 #include <stdlib.h>
-
-enum {
-  AIHC_LITERAL_INT = 0,
-  AIHC_CONSTRUCTOR = 1,
-  AIHC_CLOSURE = 2,
-  AIHC_THUNK = 3,
-  AIHC_PRIMITIVE = 4,
-  AIHC_CELL = 5,
-  AIHC_STATE_TOKEN = 6,
-};
-
-enum {
-  AIHC_CELL_SUSPENDED = 0,
-  AIHC_CELL_VALUE = 1,
-  AIHC_CELL_BLACKHOLE = 2,
-};
 
 enum {
   AIHC_CONT_NORMAL = 0,
@@ -30,19 +15,7 @@ enum {
   AIHC_PRIM_REAL_WORLD = 1,
 };
 
-typedef struct AihcValue AihcValue;
 typedef struct AihcContinuation AihcContinuation;
-/* Every runtime location is one machine word. Static RuntimeRep metadata says
- * whether that word is a heap pointer or an unboxed payload. */
-typedef uintptr_t AihcSlot;
-
-struct AihcValue {
-  uint64_t kind;
-  uintptr_t info;
-  uint64_t arity;
-  uint64_t count;
-  AihcSlot fields[];
-};
 
 struct AihcContinuation {
   uint64_t kind;

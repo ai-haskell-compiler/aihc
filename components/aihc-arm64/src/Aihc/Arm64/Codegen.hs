@@ -10,6 +10,8 @@ module Aihc.Arm64.Codegen
     buildLinkLayout,
     buildLinkLayoutFromInterfaces,
     compileModule,
+    ObservedProgram (..),
+    compileObservedFunction,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
@@ -54,8 +56,15 @@ data CompileEnv = CompileEnv
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
     compileFunctionArities :: !(Map FunctionName Int),
+    compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
+
+data ObservedProgram = ObservedProgram
+  { observedAssembly :: !Text,
+    observedMetadataSource :: !Text
+  }
+  deriving (Eq, Show)
 
 -- | The process-wide constructor tags and global table slots shared by all
 -- native compilation units in one executable. Extending a dependency layout
@@ -98,6 +107,69 @@ compileProgram entryName cpsProgram =
   compileProgramWithDependencies (buildLinkLayout [program]) [] entryName cpsProgram
   where
     program = cpsGrinProgram cpsProgram
+
+-- | Compile a nullary function with a driver that snapshots its raw return
+-- values. The driver does not evaluate or apply any returned heap object.
+compileObservedFunction :: FunctionName -> CpsGrinProgram -> Either Arm64Error ObservedProgram
+compileObservedFunction entryName cpsProgram = do
+  mapM_ validateRuntimeRep (programRuntimeReps program)
+  validateProgramPrimitives program
+  entryFunction <-
+    maybe (Left (Arm64MissingFunction entryName)) Right $
+      findFunction entryName (grinFunctions program)
+  if null (grinFunctionParameters entryFunction)
+    then pure ()
+    else Left (Arm64UnsupportedExpression "observed entry function must be nullary")
+  entryLabel <- functionCodeLabel compileEnv entryName
+  constructorLines <- compileConstructorInitializers compileEnv
+  initLines <- compileInitializers compileEnv program
+  functions <- mapM (compileFunction compileEnv) (grinFunctions program)
+  metadata <- renderObservedMetadata compileEnv program resultReps
+  let resultCount = length resultReps
+      assembly =
+        T.unlines $
+          [ ".section __TEXT,__text,regular,pure_instructions",
+            ".p2align 2",
+            ".globl _main",
+            "_main:",
+            "  stp x29, x30, [sp, #-48]!",
+            "  mov x29, sp",
+            "  stp x19, x20, [sp, #16]",
+            "  stp x21, x22, [sp, #32]",
+            immediate "x0" (length globalNames),
+            "  bl _aihc_machine_new",
+            "  mov x22, x0"
+          ]
+            <> constructorLines
+            <> initLines
+            <> [ immediate "x0" (max 1 resultCount),
+                 "  bl _aihc_alloc_locals",
+                 "  mov x19, x0",
+                 "  str x19, [x22, #32]"
+               ]
+            <> pushNormalLines ".Laihc_snapshot_result" 0 resultCount
+            <> [ "  str xzr, [x22, #8]",
+                 "  b " <> entryLabel,
+                 ".Laihc_snapshot_result:",
+                 "  ldr x1, [x22, #32]",
+                 immediate "x0" resultCount,
+                 "  bl _aihc_snapshot_dump_result",
+                 "  mov w0, #0",
+                 "  ldp x21, x22, [sp, #32]",
+                 "  ldp x19, x20, [sp, #16]",
+                 "  ldp x29, x30, [sp], #48",
+                 "  ret"
+               ]
+            <> concat functions
+  pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
+  where
+    program = cpsGrinProgram cpsProgram
+    layout = buildLinkLayout [program]
+    compileEnv = compileEnvironmentWith True layout program
+    globalNames = linkGlobalNames layout
+    resultReps =
+      maybe [] (runtimeRepComponents . grinFunctionResultRep) $
+        findFunction entryName (grinFunctions program)
 
 -- | Reject primitives that reachable native code would not execute correctly.
 -- Relocatable library objects may carry dormant primitive declarations, but
@@ -230,7 +302,10 @@ programGlobalNames program =
     <> map (grinVarName . fst) (grinCafs program)
 
 compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment layout program =
+compileEnvironment = compileEnvironmentWith False
+
+compileEnvironmentWith :: Bool -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironmentWith exposeAllFunctions layout program =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -240,7 +315,7 @@ compileEnvironment layout program =
           ( [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
             | info <- grinExternalFunctions program
             ]
-              <> [ (grinFunctionName function, localFunctionLabel index function)
+              <> [ (grinFunctionName function, localFunctionLabelWith exposeAllFunctions index function)
                  | (index, function) <- zip [0 ..] (grinFunctions program)
                  ]
           ),
@@ -253,6 +328,7 @@ compileEnvironment layout program =
                  | function <- grinFunctions program
                  ]
           ),
+      compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
   where
@@ -306,7 +382,7 @@ compileFunction env function = do
     either (Left . Arm64EmitError) Right (renderAllocatedBlock spillBase (parameterCopyLir localSlots (grinFunctionParameters function)))
   let slotCount = max 1 (spillBase + spillCount)
       entry =
-        exportLines function label
+        exportLines env function label
           <> [ label <> ":",
                immediate "x0" slotCount,
                "  bl _aihc_alloc_locals",
@@ -319,11 +395,13 @@ compileFunction env function = do
       blocks = concatMap renderBlock (reverse (functionBlocksRev finalState))
   pure (entry <> blocks)
 
-exportLines :: GrinFunction -> Text -> [Text]
-exportLines function label =
-  case grinFunctionLinkName function of
-    Just _ -> [".globl " <> label]
-    Nothing -> []
+exportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
+exportLines env function label
+  | compileExposeAllFunctions env = [".globl " <> label]
+  | otherwise =
+      case grinFunctionLinkName function of
+        Just _ -> [".globl " <> label]
+        Nothing -> []
 
 parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction]
 parameterCopyLir slots parameters =
@@ -373,7 +451,23 @@ compileExpr env prefix label expression =
                ]
             <> returnLines
         )
-    GrinStoreRec {} -> unsupportedExpression "recursive heap allocation"
+    GrinStoreRec bindings body -> do
+      allocationLines <-
+        fmap concat . forM bindings $ \(var, _) -> do
+          slot <- localSlot env var
+          pure ["  bl _aihc_make_cell", storeAt "x0" "x19" slot]
+      initializationLines <-
+        fmap concat . forM bindings $ \(var, node) -> do
+          slot <- localSlot env var
+          nodeLines <- liftEither (materializeNode env node)
+          pure $
+            nodeLines
+              <> [ "  mov x20, x0",
+                   loadAt "x0" "x19" slot,
+                   "  mov x1, x20",
+                   "  bl _aihc_set_cell"
+                 ]
+      compileExpr env (prefix <> allocationLines <> initializationLines) label body
     GrinFetch {} -> unsupportedExpression "fetch"
     GrinUpdate {} -> unsupportedExpression "update"
     GrinEval runtimeRep value -> do
@@ -918,14 +1012,174 @@ valueRuntimeReps value = [grinValueRuntimeRep value]
 nodeRuntimeReps :: GrinNode -> [RuntimeRep]
 nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
 
+findFunction :: FunctionName -> [GrinFunction] -> Maybe GrinFunction
+findFunction name =
+  foldr
+    ( \function rest ->
+        if grinFunctionName function == name
+          then Just function
+          else rest
+    )
+    Nothing
+
+renderObservedMetadata :: CompileEnv -> GrinProgram -> [RuntimeRep] -> Either Arm64Error Text
+renderObservedMetadata env program resultReps = do
+  renderedResultReps <- mapM snapshotRepName resultReps
+  constructors <- mapM renderConstructorDescriptor constructorEntries
+  functions <- mapM renderFunctionDescriptor functionEntries
+  pure . T.unlines $
+    [ "#include \"aihc_runtime.h\"",
+      "#include <stddef.h>",
+      ""
+    ]
+      <> map renderFunctionDeclaration functions
+      <> [""]
+      <> concatMap renderConstructorRepDeclaration constructors
+      <> concatMap renderFunctionRepDeclaration functions
+      <> renderRepDeclaration "result_reps" renderedResultReps
+      <> renderConstructorTable constructors
+      <> renderFunctionTable functions
+      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values) {",
+           "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
+           "                     " <> tshow (length constructors) <> ", " <> tableOrNull constructors "constructors" <> ",",
+           "                     " <> tshow (length functions) <> ", " <> tableOrNull functions "functions" <> ");",
+           "}"
+         ]
+  where
+    layouts = Map.fromList (builtinConstructorLayouts <> grinConstructors program)
+    constructorEntries =
+      [ (identifier, name, fields)
+      | (name, identifier) <- Map.toAscList (compileConstructorIds env),
+        Just fields <- [Map.lookup name layouts]
+      ]
+    localFunctionEntries =
+      [ (grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function))
+      | function <- grinFunctions program
+      ]
+    externalFunctionEntries =
+      [ (grinCodeFunctionName info, concat (grinCodeParameterLayouts info))
+      | info <- grinExternalFunctions program
+      ]
+    functionEntries = externalFunctionEntries <> localFunctionEntries
+
+    renderConstructorDescriptor (identifier, name, fields) = do
+      reps <- mapM snapshotRepName fields
+      pure (identifier, name, reps)
+
+    renderFunctionDescriptor (name, parameters) = do
+      label <- functionCodeLabel env name
+      reps <- mapM snapshotRepName parameters
+      pure (name, label, reps)
+
+renderFunctionDeclaration :: (FunctionName, Text, [Text]) -> Text
+renderFunctionDeclaration (_, label, _) =
+  "extern void " <> cSymbol label <> "(void);"
+
+renderConstructorRepDeclaration :: (Int, Text, [Text]) -> [Text]
+renderConstructorRepDeclaration (identifier, _, reps) =
+  renderRepDeclaration ("constructor_reps_" <> tshow identifier) reps
+
+renderFunctionRepDeclaration :: (FunctionName, Text, [Text]) -> [Text]
+renderFunctionRepDeclaration (_, label, reps) =
+  renderRepDeclaration ("function_reps_" <> cSymbol label) reps
+
+renderRepDeclaration :: Text -> [Text] -> [Text]
+renderRepDeclaration _ [] = []
+renderRepDeclaration name reps =
+  [ "static const AihcSnapshotRep "
+      <> name
+      <> "[] = {"
+      <> T.intercalate ", " reps
+      <> "};"
+  ]
+
+renderConstructorTable :: [(Int, Text, [Text])] -> [Text]
+renderConstructorTable [] = []
+renderConstructorTable constructors =
+  [ "static const AihcSnapshotConstructor constructors[] = {"
+  ]
+    <> [ "  {"
+           <> tshow identifier
+           <> ", "
+           <> cString name
+           <> ", "
+           <> tshow (length reps)
+           <> ", "
+           <> pointerOrNull reps ("constructor_reps_" <> tshow identifier)
+           <> "},"
+       | (identifier, name, reps) <- constructors
+       ]
+    <> ["};"]
+
+renderFunctionTable :: [(FunctionName, Text, [Text])] -> [Text]
+renderFunctionTable [] = []
+renderFunctionTable functions =
+  [ "static const AihcSnapshotFunction functions[] = {"
+  ]
+    <> [ "  {(uintptr_t)&"
+           <> cSymbol label
+           <> ", "
+           <> cString (unFunctionName name)
+           <> ", "
+           <> tshow (length reps)
+           <> ", "
+           <> pointerOrNull reps ("function_reps_" <> cSymbol label)
+           <> "},"
+       | (name, label, reps) <- functions
+       ]
+    <> ["};"]
+
+snapshotRepName :: RuntimeRep -> Either Arm64Error Text
+snapshotRepName runtimeRep =
+  case runtimeRep of
+    BoxedRep {} -> pure "AIHC_SNAPSHOT_POINTER"
+    SumRep {} -> pure "AIHC_SNAPSHOT_POINTER"
+    IntRep -> pure "AIHC_SNAPSHOT_INT"
+    Int8Rep -> pure "AIHC_SNAPSHOT_INT8"
+    Int16Rep -> pure "AIHC_SNAPSHOT_INT16"
+    Int32Rep -> pure "AIHC_SNAPSHOT_INT32"
+    Int64Rep -> pure "AIHC_SNAPSHOT_INT64"
+    WordRep -> pure "AIHC_SNAPSHOT_WORD"
+    Word8Rep -> pure "AIHC_SNAPSHOT_WORD8"
+    Word16Rep -> pure "AIHC_SNAPSHOT_WORD16"
+    Word32Rep -> pure "AIHC_SNAPSHOT_WORD32"
+    Word64Rep -> pure "AIHC_SNAPSHOT_WORD64"
+    AddrRep -> pure "AIHC_SNAPSHOT_ADDR"
+    FloatRep -> pure "AIHC_SNAPSHOT_FLOAT"
+    DoubleRep -> pure "AIHC_SNAPSHOT_DOUBLE"
+    _ -> Left (Arm64UnsupportedRuntimeRep runtimeRep)
+
+pointerOrNull :: [value] -> Text -> Text
+pointerOrNull values name
+  | null values = "NULL"
+  | otherwise = name
+
+tableOrNull :: [value] -> Text -> Text
+tableOrNull = pointerOrNull
+
+cSymbol :: Text -> Text
+cSymbol = T.drop 1
+
+cString :: Text -> Text
+cString value = "\"" <> T.concatMap escape value <> "\""
+  where
+    escape '"' = "\\\""
+    escape '\\' = "\\\\"
+    escape '\n' = "\\n"
+    escape '\r' = "\\r"
+    escape '\t' = "\\t"
+    escape character = T.singleton character
+
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index
 
-localFunctionLabel :: Int -> GrinFunction -> Text
-localFunctionLabel index function =
-  case grinFunctionLinkName function of
-    Just name -> linkedFunctionLabel name
-    Nothing -> functionLabel index
+localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
+localFunctionLabelWith exposeAllFunctions index function
+  | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
+  | otherwise =
+      case grinFunctionLinkName function of
+        Just name -> linkedFunctionLabel name
+        Nothing -> functionLabel index
 
 linkedFunctionLabel :: Text -> Text
 linkedFunctionLabel name =

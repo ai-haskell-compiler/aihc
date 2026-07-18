@@ -1,0 +1,20 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $identity (argument%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (argument%1 :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    (closure%2 :: BoxedRep Lifted) <- store (P$identity/1)
+    (value%3 :: BoxedRep Lifted) <- store (CI32# (9 :: Int32Rep))
+    (applied%4 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (closure%2 :: BoxedRep Lifted) (value%3 :: BoxedRep Lifted)
+    store (CPair (closure%2 :: BoxedRep Lifted) (applied%4 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @2
+  @1 = P$identity/1
+  @2 = CI32# 9
+status: pass
+reason: GrinApply enters the closure while the heap snapshot still symbolizes its code pointer

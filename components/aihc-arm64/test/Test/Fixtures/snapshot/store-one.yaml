@@ -1,0 +1,11 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+
+  $entry -> BoxedRep Lifted =
+    store (CI32# (1 :: Int32Rep))
+return: "@0"
+heap: |
+  @0 = CI32# 1
+status: pass
+reason: a stored constructor is returned as a location with its raw scalar field

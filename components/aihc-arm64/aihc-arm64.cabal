@@ -10,6 +10,8 @@ category: Development
 synopsis: Native AArch64 backend for AIHC GRIN
 data-files:
   runtime/aihc_runtime.c
+  runtime/aihc_runtime.h
+  runtime/aihc_snapshot.c
 
 library
   exposed-modules:
@@ -42,6 +44,7 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Aihc.Testing.EvalFixture
+    Aihc.Testing.GrinProgram
     Test.Arm64.Suite
 
   build-depends:
