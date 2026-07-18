@@ -991,8 +991,9 @@ test_compileExplicitCoreImport =
     wholeCore <- expectCompileArtifact =<< compileSourceToWholeCoreWithDependencies environment "Main.hs" importedSource
     assertBool "dependency reference remains in incremental Core" ("identity" `T.isInfixOf` core)
     assertBool "dependency reference remains in incremental GRIN" ("identity" `T.isInfixOf` grin)
-    assertBool "CPS-GRIN allocates ordinary continuation closures" ("store (P$cps$" `T.isInfixOf` cpsGrin)
-    assertBool "CPS-GRIN invokes ordinary continuation closures" ("apply @" `T.isInfixOf` cpsGrin)
+    assertBool "dependency reference remains in incremental CPS-GRIN" ("identity" `T.isInfixOf` cpsGrin)
+    assertBool "CPS-GRIN preserves explicit evaluation" ("eval @" `T.isInfixOf` cpsGrin)
+    assertBool "CPS-GRIN reifies evaluation continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
     assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
     assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
     assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)
