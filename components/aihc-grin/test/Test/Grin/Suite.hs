@@ -99,6 +99,9 @@ grinUnitTests =
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
         assertBool "invokes a continuation closure" ("apply @(BoxedRep Lifted) ($cps_continuation" `isInfixOf` rendered)
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
+      testCase "CPS-GRIN keeps store binds in direct style" $ do
+        cps <- expectCpsGrin storeBindProgram
+        assertEqual "transformed program" storeBindProgram (cpsGrinProgram cps),
       testCase "CPS-GRIN preserves evaluation semantics" $ do
         cps <- expectCpsGrin heapProgram
         directResult <- interpretProgramBinding "answer" heapProgram
@@ -659,6 +662,26 @@ heapProgram =
     updated = GrinVar "updated" 6 (BoxedRep Lifted)
     replacementBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)]
     functionName = FunctionName "answer_code"
+
+storeBindProgram :: GrinProgram
+storeBindProgram =
+  heapProgram
+    { grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "store_bind",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [pointer] (GrinStore box) $
+                  GrinConstant [GrinVarValue pointer]
+            }
+        ]
+    }
+  where
+    pointer = GrinVar "pointer" 1 (BoxedRep Lifted)
+    box = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)]
 
 exceptionBoundaryProgram :: GrinExpr -> GrinProgram
 exceptionBoundaryProgram body =

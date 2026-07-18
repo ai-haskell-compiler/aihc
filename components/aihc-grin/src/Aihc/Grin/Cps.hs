@@ -2,13 +2,14 @@
 
 -- | Reify direct-style GRIN continuations as ordinary GRIN closures.
 --
--- This pass deliberately keeps the GRIN syntax. Each source 'GrinBind' is
--- rewritten so its body lives in a generated function. A closure for that
--- function is allocated with 'GrinStore' and invoked with 'GrinApply' after
--- the bound expression produces its values. The introduced administrative
--- binds retain the current runtime-operation protocol; future suspension
--- lowering can transfer ownership of the explicit closure instead of
--- returning through them.
+-- This pass deliberately keeps the GRIN syntax. Each potentially suspending
+-- source 'GrinBind' is rewritten so its body lives in a generated function. A
+-- closure for that function is allocated with 'GrinStore' and invoked with
+-- 'GrinApply' after the bound expression produces its values. Heap allocation
+-- itself cannot suspend, so binds of 'GrinStore' remain in direct style. The
+-- introduced administrative binds retain the current runtime-operation
+-- protocol; future suspension lowering can transfer ownership of the explicit
+-- closure instead of returning through them.
 module Aihc.Grin.Cps
   ( CpsGrinProgram,
     CpsGrinError (..),
@@ -80,6 +81,9 @@ transformExpr :: FunctionName -> Set GrinVar -> RuntimeRep -> GrinExpr -> CpsM G
 transformExpr parent bound resultRep expression =
   case expression of
     GrinConstant {} -> pure expression
+    GrinBind resultVars valueExpression@GrinStore {} body -> do
+      transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
+      pure (GrinBind resultVars valueExpression transformedBody)
     GrinBind resultVars valueExpression body -> do
       transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
       transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
