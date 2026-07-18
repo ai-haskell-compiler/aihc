@@ -889,7 +889,7 @@ test_compileExecutable =
         assertBool "GRIN does not allocate putchar globally" (not ("global putchar" `T.isInfixOf` grin || "caf putchar" `T.isInfixOf` grin))
         assertBool "GRIN does not allocate char globally" (not ("global char" `T.isInfixOf` grin || "caf char" `T.isInfixOf` grin))
         assertBool "GRIN uses direct known calls" ("call @(BoxedRep Lifted) $entry$>>" `T.isInfixOf` grin)
-        assertBool "GRIN leaves forcing to case and apply" (not ("eval @" `T.isInfixOf` grin))
+        assertBool "GRIN makes evaluation explicit" ("eval @" `T.isInfixOf` grin)
         assertNativeOutput keptOutput
 
         runCompileWithEnvironment environment temporaryOptions
@@ -992,7 +992,8 @@ test_compileExplicitCoreImport =
     assertBool "dependency reference remains in incremental Core" ("identity" `T.isInfixOf` core)
     assertBool "dependency reference remains in incremental GRIN" ("identity" `T.isInfixOf` grin)
     assertBool "dependency reference remains in incremental CPS-GRIN" ("identity" `T.isInfixOf` cpsGrin)
-    assertBool "CPS-GRIN avoids unnecessary continuation closures" (not ("store (P$cps$" `T.isInfixOf` cpsGrin))
+    assertBool "CPS-GRIN preserves explicit evaluation" ("eval @" `T.isInfixOf` cpsGrin)
+    assertBool "CPS-GRIN reifies evaluation continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
     assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
     assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
     assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)

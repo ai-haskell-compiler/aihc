@@ -118,11 +118,12 @@ data GrinExpr
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
-  | -- | Apply exactly one logical argument. The list contains that argument's
-    -- runtime values and may be empty for a zero-width argument such as
-    -- @State# RealWorld@.
+  | -- | Apply exactly one logical argument to a function already in weak-head
+    -- normal form. The list contains that argument's runtime values and may be
+    -- empty for a zero-width argument such as @State# RealWorld@.
     GrinApply !RuntimeRep !GrinValue ![GrinValue]
-  | GrinCase !GrinValue !GrinVar ![GrinAlt]
+  | -- | Match a value that is already in weak-head normal form.
+    GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.

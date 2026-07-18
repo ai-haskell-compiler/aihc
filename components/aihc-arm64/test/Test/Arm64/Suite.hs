@@ -191,8 +191,53 @@ tests =
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
             assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
+      testCase "case and apply never evaluate operands implicitly" $ do
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly ->
+            assertBool "generated case and apply contain no eval call" (not ("bl _aihc_eval" `T.isInfixOf` assembly))
+        runtime <- readFile =<< runtimeSourcePath
+        assertBool
+          "runtime apply does not enter its function"
+          (not ("aihc_eval_value(machine, function" `isInfixOf` runtime)),
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
+
+explicitEvaluationProgram :: GrinProgram
+explicitEvaluationProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "case_operand",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [caseOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue caseOperand)
+                  caseBinder
+                  [GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue caseBinder])]
+            },
+          GrinFunction
+            { grinFunctionName = FunctionName "apply_operand",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [applyOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinApply (BoxedRep Lifted) (GrinVarValue applyOperand) []
+            }
+        ]
+    }
+  where
+    caseOperand = GrinVar "case_operand" 201 (BoxedRep Lifted)
+    caseBinder = GrinVar "case_binder" 202 (BoxedRep Lifted)
+    applyOperand = GrinVar "apply_operand" 203 (BoxedRep Lifted)
 
 testNativeHelloWorld :: IO ()
 testNativeHelloWorld = do

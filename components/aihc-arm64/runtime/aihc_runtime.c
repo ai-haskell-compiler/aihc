@@ -21,9 +21,8 @@ enum {
 enum {
   AIHC_CONT_NORMAL = 0,
   AIHC_CONT_UPDATE = 1,
-  AIHC_CONT_APPLY = 2,
-  AIHC_CONT_TOP = 3,
-  AIHC_CONT_FINAL = 4,
+  AIHC_CONT_TOP = 2,
+  AIHC_CONT_FINAL = 3,
 };
 
 enum {
@@ -57,10 +56,6 @@ struct AihcContinuation {
     struct {
       AihcValue *cell;
     } update;
-    struct {
-      AihcSlot *arguments;
-      uint64_t count;
-    } apply;
   } payload;
 };
 
@@ -136,9 +131,6 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
 static void aihc_return_value(AihcMachine *machine, AihcSlot value);
 static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
                             uint64_t result_is_lifted);
-static void aihc_apply_values_internal(AihcMachine *machine,
-                                       AihcValue *function, uint64_t count,
-                                       const AihcSlot *arguments);
 
 AihcValue *aihc_make_node(uint64_t kind, uintptr_t info, uint64_t arity,
                           uint64_t count) {
@@ -280,19 +272,9 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
   aihc_return_value(machine, (AihcSlot)value);
 }
 
-static void aihc_apply_values_internal(AihcMachine *machine,
-                                       AihcValue *function, uint64_t count,
-                                       const AihcSlot *arguments) {
-  AihcContinuation *continuation =
-      aihc_push_special(machine, AIHC_CONT_APPLY);
-  continuation->payload.apply.arguments = (AihcSlot *)arguments;
-  continuation->payload.apply.count = count;
-  aihc_eval_value(machine, function, 1);
-}
-
 static void aihc_run_io(AihcMachine *machine, AihcValue *value) {
   aihc_push_special(machine, AIHC_CONT_FINAL);
-  aihc_apply_values_internal(machine, value, 0, NULL);
+  aihc_apply_forced(machine, value, 0, NULL);
 }
 
 static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
@@ -325,14 +307,6 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
      * forcing the thunk result so the awaiting continuation receives the
      * constructor node rather than that intermediate heap location. */
     aihc_eval_value(machine, (AihcValue *)values[0], 1);
-    return;
-  case AIHC_CONT_APPLY:
-    if (count != 1) {
-      aihc_fail("function evaluation returned multiple values");
-    }
-    aihc_apply_forced(machine, (AihcValue *)values[0],
-                      continuation->payload.apply.count,
-                      continuation->payload.apply.arguments);
     return;
   case AIHC_CONT_TOP:
     if (count != 1) {
@@ -372,12 +346,12 @@ void aihc_eval(AihcMachine *machine, AihcValue *value,
 
 void aihc_apply(AihcMachine *machine, AihcValue *function,
                 AihcSlot argument) {
-  aihc_apply_values_internal(machine, function, 1, &argument);
+  aihc_apply_forced(machine, function, 1, &argument);
 }
 
 void aihc_apply_values(AihcMachine *machine, AihcValue *function,
                        uint64_t count, const AihcSlot *arguments) {
-  aihc_apply_values_internal(machine, function, count, arguments);
+  aihc_apply_forced(machine, function, count, arguments);
 }
 
 void aihc_start(AihcMachine *machine, AihcValue *root, void *exit_code) {

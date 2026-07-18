@@ -15,6 +15,7 @@ import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GrinGolden qualified
@@ -61,6 +62,19 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "does not allocate a constructor argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered))
         assertBool "contains explicit application" ("apply " `isInfixOf` rendered),
+      testCase "FC lowering evaluates case and apply operands explicitly" $ do
+        let caseProgram = lowerProgram dictionaryProgram
+            applyProgram = lowerProgram applicationProgram
+        assertEqual "case lint" [] (lintProgram caseProgram)
+        assertEqual "apply lint" [] (lintProgram applyProgram)
+        assertBool "case operand is produced by eval" (any (containsExplicitOperand GrinCaseOperand) (grinFunctions caseProgram))
+        assertBool "apply operand is produced by eval" (any (containsExplicitOperand GrinApplyOperand) (grinFunctions applyProgram)),
+      testCase "interpreter case does not evaluate its operand" $ do
+        result <- interpretProgramBinding "answer" implicitCaseEvaluationProgram
+        assertEqual "result" (Left (InterpretNoMatchingAlternative (RuntimeLocation 1))) result,
+      testCase "interpreter apply does not evaluate its operand" $ do
+        result <- interpretProgramBinding "answer" implicitApplyEvaluationProgram
+        assertEqual "result" (Left (InterpretApplyNonFunction (RuntimeLocation 1))) result,
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
         assertEqual "result" (Right "Box 2") result,
@@ -97,6 +111,7 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "transformed lint" [] (lintProgram program)
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
+        assertBool "evaluates a continuation closure explicitly" ("eval @(BoxedRep Lifted) ($cps_continuation_pointer" `isInfixOf` rendered)
         assertBool "invokes a continuation closure" ("apply @(BoxedRep Lifted) ($cps_continuation" `isInfixOf` rendered)
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
       testCase "CPS-GRIN treats a multi-value result as one logical argument" $ do
@@ -154,8 +169,10 @@ grinUnitTests =
         case grinFunctions program of
           [function] ->
             case grinFunctionBody function of
-              GrinApply _ _ argumentValues -> assertEqual "zero runtime values" [] argumentValues
-              body -> assertFailure ("expected an application, got " <> show body)
+              GrinBind [evaluated] (GrinEval _ _) (GrinApply _ (GrinVarValue applied) argumentValues) -> do
+                assertEqual "applies the explicitly evaluated function" evaluated applied
+                assertEqual "zero runtime values" [] argumentValues
+              body -> assertFailure ("expected an explicit evaluation followed by application, got " <> show body)
           functions -> assertFailure ("expected one function, got " <> show (length functions)),
       testCase "interpreter consumes one logical zero-width argument" $ do
         assertEqual "lint" [] (lintProgram zeroWidthApplyProgram)
@@ -333,6 +350,32 @@ continuationHasCaptures :: GrinFunction -> Bool
 continuationHasCaptures function =
   "$cps$" `T.isInfixOf` unFunctionName (grinFunctionName function)
     && length (grinFunctionParameters function) > 1
+
+data ExplicitOperand
+  = GrinCaseOperand
+  | GrinApplyOperand
+  deriving (Eq)
+
+containsExplicitOperand :: ExplicitOperand -> GrinFunction -> Bool
+containsExplicitOperand operand = go Set.empty . grinFunctionBody
+  where
+    go evaluated expression =
+      case expression of
+        GrinBind vars value body ->
+          go evaluated value
+            || go (recordEvaluation evaluated vars value) body
+        GrinStoreRec _ body -> go evaluated body
+        GrinApply _ (GrinVarValue function) _ ->
+          operand == GrinApplyOperand && function `Set.member` evaluated
+        GrinCase (GrinVarValue scrutinee) _ alternatives ->
+          (operand == GrinCaseOperand && scrutinee `Set.member` evaluated)
+            || any (go evaluated . grinAltRhs) alternatives
+        GrinCase _ _ alternatives -> any (go evaluated . grinAltRhs) alternatives
+        _ -> False
+    recordEvaluation evaluated vars value =
+      case (vars, value) of
+        ([var], GrinEval {}) -> Set.insert var evaluated
+        _ -> evaluated `Set.difference` Set.fromList vars
 
 grinGoldenTests :: IO TestTree
 grinGoldenTests =
@@ -749,9 +792,13 @@ zeroWidthApplyProgram =
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
                 GrinBind
-                  [closure]
+                  [closurePointer]
                   (GrinStore (GrinNode (GrinClosure targetName [[]]) []))
-                  (GrinApply (BoxedRep Lifted) (GrinVarValue closure) [])
+                  ( GrinBind
+                      [closure]
+                      (GrinEval (BoxedRep Lifted) (GrinVarValue closurePointer))
+                      (GrinApply (BoxedRep Lifted) (GrinVarValue closure) [])
+                  )
             },
           GrinFunction
             { grinFunctionName = targetName,
@@ -764,7 +811,8 @@ zeroWidthApplyProgram =
     }
   where
     answer = GrinVar "answer" 1 (BoxedRep Lifted)
-    closure = GrinVar "closure" 2 (BoxedRep Lifted)
+    closurePointer = GrinVar "closure_pointer" 2 (BoxedRep Lifted)
+    closure = GrinVar "closure" 3 (BoxedRep Lifted)
     wrapperName = FunctionName "zeroWidthWrapper"
     targetName = FunctionName "zeroWidthTarget"
 
@@ -807,6 +855,78 @@ heapProgram =
     updated = GrinVar "updated" 6 (BoxedRep Lifted)
     replacementBox = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 2)]
     functionName = FunctionName "answer_code"
+
+implicitCaseEvaluationProgram :: GrinProgram
+implicitCaseEvaluationProgram =
+  implicitEvaluationProgram $
+    GrinCase
+      (GrinVarValue implicitPointer)
+      implicitValue
+      [ GrinAlt
+          (GrinDataAlt "Box")
+          [implicitField]
+          (GrinConstant [GrinVarValue implicitValue])
+      ]
+
+implicitApplyEvaluationProgram :: GrinProgram
+implicitApplyEvaluationProgram =
+  implicitEvaluationProgram $
+    GrinApply
+      (BoxedRep Lifted)
+      (GrinVarValue implicitPointer)
+      []
+
+implicitEvaluationProgram :: GrinExpr -> GrinProgram
+implicitEvaluationProgram operation =
+  GrinProgram
+    { grinConstructors = [("Box", [[IntRep]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [(implicitAnswer, GrinNode (GrinThunk implicitAnswerFunction) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = implicitAnswerFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [implicitPointer]
+                  (GrinStore (GrinNode (GrinThunk implicitValueFunction) []))
+                  operation
+            },
+          GrinFunction
+            { grinFunctionName = implicitValueFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinStore
+                  (GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)])
+            }
+        ]
+    }
+
+implicitAnswer :: GrinVar
+implicitAnswer = GrinVar "answer" 100 (BoxedRep Lifted)
+
+implicitPointer :: GrinVar
+implicitPointer = GrinVar "pointer" 101 (BoxedRep Lifted)
+
+implicitValue :: GrinVar
+implicitValue = GrinVar "value" 102 (BoxedRep Lifted)
+
+implicitField :: GrinVar
+implicitField = GrinVar "field" 103 IntRep
+
+implicitAnswerFunction :: FunctionName
+implicitAnswerFunction = FunctionName "implicit_answer"
+
+implicitValueFunction :: FunctionName
+implicitValueFunction = FunctionName "implicit_value"
 
 directBindProgram :: GrinProgram
 directBindProgram =

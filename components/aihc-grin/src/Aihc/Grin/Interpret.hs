@@ -208,10 +208,10 @@ evalExpr env expr =
       argumentValues <- mapM (materializeValue env) arguments
       applyValue functionValue argumentValues
     GrinCase scrutinee binder alternatives -> do
-      value <- materializeValue env scrutinee >>= forceValue
+      value <- materializeValue env scrutinee
       matchAlternative (Map.insert binder value env) value alternatives
     GrinThrow exception -> do
-      exceptionValue <- materializeValue env exception >>= forceValue
+      exceptionValue <- materializeValue env exception
       throwE (EvalRaised exceptionValue)
     GrinCatch runtimeRep action handler state -> do
       actionValue <- materializeValue env action
@@ -346,9 +346,8 @@ forceLocation location = do
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
 
 applyValue :: RuntimeValue -> [RuntimeValue] -> EvalM [RuntimeValue]
-applyValue function arguments = do
-  forcedFunction <- forceValue function
-  case forcedFunction of
+applyValue function arguments =
+  case function of
     RuntimeNode (GrinClosure functionName remainingLayouts) fields ->
       case remainingLayouts of
         [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
@@ -412,27 +411,27 @@ evalPrimitive "<#" [left, right] =
 evalPrimitive "==#" [left, right] =
   evalIntPrimitive "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
 evalPrimitive "charToInt#" [value] = do
-  charValue <- forceCharPrimitiveArgument "charToInt#" value
+  charValue <- expectCharPrimitiveArgument "charToInt#" value
   pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]
 evalPrimitive "intToChar#" [value] = do
-  intValue <- forceIntPrimitiveArgument "intToChar#" value
+  intValue <- expectIntPrimitiveArgument "intToChar#" value
   if intValue >= 0 && intValue <= 0x10ffff
     then pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue)))]
     else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "raise#" [exception] =
-  forceValue exception >>= throwE . EvalRaised
+  throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
 evalPrimitive "newMutVar#" [initialValue] = do
   mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
   pure [RuntimeMutVar mutVar]
 evalPrimitive "readMutVar#" [mutVar] = do
-  GrinMutVar reference <- forceMutVarPrimitiveArgument "readMutVar#" mutVar
+  GrinMutVar reference <- expectMutVarPrimitiveArgument "readMutVar#" mutVar
   value <- liftEvalIO (readIORef reference)
   pure [value]
 evalPrimitive "writeMutVar#" [mutVar, value] = do
-  GrinMutVar reference <- forceMutVarPrimitiveArgument "writeMutVar#" mutVar
+  GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
 evalPrimitive name arguments =
@@ -440,28 +439,25 @@ evalPrimitive name arguments =
 
 evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalIntPrimitive name operation left right = do
-  leftInt <- forceIntPrimitiveArgument name left
-  rightInt <- forceIntPrimitiveArgument name right
+  leftInt <- expectIntPrimitiveArgument name left
+  rightInt <- expectIntPrimitiveArgument name right
   pure [RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt))]
 
-forceIntPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
-forceIntPrimitiveArgument name value = do
-  forced <- forceValue value
-  case forced of
+expectIntPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
+expectIntPrimitiveArgument name value =
+  case value of
     RuntimeLit (GrinLitInt _ intValue) -> pure intValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
-forceCharPrimitiveArgument :: Text -> RuntimeValue -> EvalM Char
-forceCharPrimitiveArgument name value = do
-  forced <- forceValue value
-  case forced of
+expectCharPrimitiveArgument :: Text -> RuntimeValue -> EvalM Char
+expectCharPrimitiveArgument name value =
+  case value of
     RuntimeLit (GrinLitChar _ charValue) -> pure charValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
-forceMutVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinMutVar
-forceMutVarPrimitiveArgument name value = do
-  forced <- forceValue value
-  case forced of
+expectMutVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinMutVar
+expectMutVarPrimitiveArgument name value =
+  case value of
     RuntimeMutVar mutVar -> pure mutVar
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
@@ -501,10 +497,10 @@ callForeign foreignCall arguments = do
 
 marshalForeignArgument :: Text -> GrinForeignType -> RuntimeValue -> EvalM Arg
 marshalForeignArgument symbol GrinForeignInt32 argument = do
-  argumentValue <- forceInt32 symbol argument
+  argumentValue <- expectInt32 symbol argument
   pure (argCInt (CInt (fromInteger argumentValue)))
 marshalForeignArgument symbol GrinForeignWord64 argument = do
-  argumentValue <- forceWord64 symbol argument
+  argumentValue <- expectWord64 symbol argument
   pure (argWord64 (fromInteger argumentValue :: Word64))
 
 lookupForeignFunction :: GrinForeignCall -> EvalM (FunPtr ())
@@ -522,17 +518,15 @@ lookupForeignFunction foreignCall = do
 tryForeign :: IO value -> IO (Either SomeException value)
 tryForeign = try
 
-forceInt32 :: Text -> RuntimeValue -> EvalM Integer
-forceInt32 symbol value = do
-  forced <- forceValue value
-  case forced of
+expectInt32 :: Text -> RuntimeValue -> EvalM Integer
+expectInt32 symbol value =
+  case value of
     RuntimeLit (GrinLitInt Int32Rep intValue) -> pure intValue
     other -> throwInterpret (InterpretForeignTypeError symbol other)
 
-forceWord64 :: Text -> RuntimeValue -> EvalM Integer
-forceWord64 symbol value = do
-  forced <- forceValue value
-  case forced of
+expectWord64 :: Text -> RuntimeValue -> EvalM Integer
+expectWord64 symbol value =
+  case value of
     RuntimeLit (GrinLitInt Word64Rep intValue) -> pure intValue
     other -> throwInterpret (InterpretForeignTypeError symbol other)
 
@@ -540,7 +534,7 @@ runIOValue :: RuntimeValue -> EvalM RuntimeValue
 runIOValue action = do
   results <- applyValue action []
   case results of
-    [ioResult] -> forceValue ioResult
+    [ioResult] -> pure ioResult
     _ -> throwInterpret (InterpretResultArity 1 (length results))
 
 matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM [RuntimeValue]
