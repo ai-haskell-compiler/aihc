@@ -253,8 +253,8 @@ lowerExpr expr = do
         Just ("raise#", [exception]) ->
           lowerSingleOperand "exception" exception (pure . GrinThrow)
         Just ("catch#", [action, handler, _state]) ->
-          lowerSingleArgument action $ \actionValue ->
-            lowerSingleArgument handler $ \handlerValue ->
+          lowerSingleEvaluatedOperand "catch_action" action $ \actionValue ->
+            lowerCatchHandler handler $ \handlerValue ->
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
         Just (name, arguments) ->
           case Map.lookup name primitiveArities of
@@ -381,25 +381,26 @@ lowerRemainingApplications :: FcExpr -> GrinValue -> [FcExpr] -> LowerM GrinExpr
 lowerRemainingApplications functionExpr functionValue arguments =
   case arguments of
     [] -> pure (GrinConstant [functionValue])
-    argument : rest -> do
-      let appliedExpr = FcApp functionExpr argument
-          resultRep = exprRuntimeRep appliedExpr
-      lowerArgument argument $ \argumentValues ->
-        if null rest
-          then pure (GrinApply resultRep functionValue argumentValues)
-          else do
-            resultVars <- freshVars "function" resultRep
-            case resultVars of
-              [resultVar] -> do
-                body <- lowerRemainingApplications appliedExpr (GrinVarValue resultVar) rest
-                pure (bindExpr resultVars (GrinApply resultRep functionValue argumentValues) body)
-              _ -> error "GRIN lowering expected an intermediate application to return one function value"
+    argument : rest ->
+      evaluateGrinValue "function" (exprRuntimeRep functionExpr) functionValue $ \evaluatedFunction -> do
+        let appliedExpr = FcApp functionExpr argument
+            resultRep = exprRuntimeRep appliedExpr
+        lowerArgument argument $ \argumentValues ->
+          if null rest
+            then pure (GrinApply resultRep evaluatedFunction argumentValues)
+            else do
+              resultVars <- freshVars "function" resultRep
+              case resultVars of
+                [resultVar] -> do
+                  body <- lowerRemainingApplications appliedExpr (GrinVarValue resultVar) rest
+                  pure (bindExpr resultVars (GrinApply resultRep evaluatedFunction argumentValues) body)
+                _ -> error "GRIN lowering expected an intermediate application to return one function value"
 
 lowerUnknownApplication :: FcExpr -> LowerM GrinExpr
 lowerUnknownApplication expr =
   case expr of
     FcApp function argument ->
-      lowerSingleOperand "function" function $ \functionValue ->
+      lowerSingleEvaluatedOperand "function" function $ \functionValue ->
         lowerArgument argument $ \argumentValues ->
           pure (GrinApply (applicationResultRep function) functionValue argumentValues)
     _ -> error "GRIN lowering expected an application"
@@ -431,7 +432,7 @@ lowerCase scrutinee binder alternatives =
         isUnboxedTupleConstructor constructor ->
           lowerUnboxedTupleCase scrutinee binder alternative
     _ ->
-      lowerSingleOperand "scrutinee" scrutinee $ \value -> do
+      lowerSingleEvaluatedOperand "scrutinee" scrutinee $ \value -> do
         caseVars <- binderVars binder
         caseVar <-
           case caseVars of
@@ -635,6 +636,59 @@ lowerSingleOperand hint expr continuation =
   lowerOperand hint expr $ \case
     [value] -> continuation value
     _ -> error ("GRIN lowering expected one operand for " <> T.unpack hint)
+
+-- | Produce the weak-head normal form required by an operation whose operand
+-- is structural. GRIN operations never enter heap cells implicitly: a lifted
+-- function or case scrutinee must pass through 'GrinEval' before use.
+lowerSingleEvaluatedOperand :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerSingleEvaluatedOperand hint expr continuation =
+  lowerSingleOperand hint expr $ \value ->
+    evaluateGrinValue hint (exprRuntimeRep expr) value continuation
+
+evaluateGrinValue :: Text -> RuntimeRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+evaluateGrinValue hint runtimeRep value continuation
+  | isLiftedRuntimeRep runtimeRep = do
+      evaluated <- freshVar (hint <> "_whnf") runtimeRep
+      rest <- continuation (GrinVarValue evaluated)
+      pure (bindExpr [evaluated] (GrinEval runtimeRep value) rest)
+  | otherwise = continuation value
+
+-- | Keep a catch handler lazy until an exception is raised while still making
+-- every function entry explicit. The wrapper is already in WHNF; when called,
+-- it evaluates the captured handler and the action returned by that handler
+-- before either value is applied.
+lowerCatchHandler :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerCatchHandler handler continuation =
+  lowerSingleArgument handler $ \handlerValue -> do
+    let handlerRep = exprRuntimeRep handler
+        actionRep = applicationResultRep handler
+        exceptionRep = functionArgumentRep handler
+    capturedHandler <- freshVar "catch_handler" handlerRep
+    exception <- freshVar "catch_exception" exceptionRep
+    evaluatedHandler <- freshVar "catch_handler_whnf" handlerRep
+    actionPointer <- freshVar "catch_handler_action" actionRep
+    wrapperName <- freshFunction "catch_handler"
+    emitFunction
+      GrinFunction
+        { grinFunctionName = wrapperName,
+          grinFunctionLinkName = Nothing,
+          grinFunctionParameters = [capturedHandler, exception],
+          grinFunctionResultRep = actionRep,
+          grinFunctionBody =
+            bindExpr [evaluatedHandler] (GrinEval handlerRep (GrinVarValue capturedHandler)) $
+              bindExpr
+                [actionPointer]
+                (GrinApply actionRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
+                (GrinEval actionRep (GrinVarValue actionPointer))
+        }
+    wrapperPointer <- freshVar "catch_handler_wrapper" liftedRuntimeRep
+    evaluatedWrapper <- freshVar "catch_handler_wrapper_whnf" liftedRuntimeRep
+    rest <- continuation (GrinVarValue evaluatedWrapper)
+    pure $
+      bindExpr
+        [wrapperPointer]
+        (GrinStore (GrinNode (GrinClosure wrapperName 1) [handlerValue]))
+        (bindExpr [evaluatedWrapper] (GrinEval liftedRuntimeRep (GrinVarValue wrapperPointer)) rest)
 
 lowerDelayed :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerDelayed expr continuation = do
@@ -1183,6 +1237,18 @@ applicationResultRep function =
         TcFunTy _ result -> Just result
         TcQualTy [] body -> functionResultType body
         TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
+        _ -> Nothing
+
+functionArgumentRep :: FcExpr -> RuntimeRep
+functionArgumentRep function =
+  case exprType function >>= functionArgumentType of
+    Just argument -> typeRuntimeRep argument
+    Nothing -> error ("GRIN lowering could not determine function argument type: " <> show function)
+  where
+    functionArgumentType functionType =
+      case functionType of
+        TcFunTy argument _ -> Just argument
+        TcQualTy [] body -> functionArgumentType body
         _ -> Nothing
 
 programVars :: FcProgram -> [Var]
