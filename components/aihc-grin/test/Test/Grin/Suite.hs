@@ -51,7 +51,7 @@ grinUnitTests =
                   ("accepted heap update with " <> show runtimeRep)
                   (GrinLintUpdateNonLifted runtimeRep `elem` errors),
       testCase "lint rejects constructor field representation mismatches" $ do
-        let program = heapProgram {grinConstructors = [("Box", [WordRep])]}
+        let program = heapProgram {grinConstructors = [("Box", [[WordRep]])]}
         assertBool
           "constructor layout mismatch"
           (GrinLintConstructorLayout "Box" [WordRep] [IntRep] `elem` lintProgram program),
@@ -69,6 +69,15 @@ grinUnitTests =
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
         assertBool "invokes a continuation closure" ("apply @BoxedRep Lifted $cps_continuation" `isInfixOf` rendered)
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
+      testCase "CPS-GRIN treats a multi-value result as one logical argument" $ do
+        cps <- expectCpsGrin multiValueContinuationProgram
+        case grinFunctions (cpsGrinProgram cps) of
+          [function, _continuation] ->
+            case grinFunctionBody function of
+              GrinBind _ (GrinStore (GrinNode (GrinClosure _ layouts) [])) _ ->
+                assertEqual "one multi-value argument layout" [[IntRep, WordRep]] layouts
+              body -> assertFailure ("expected a stored continuation closure, got " <> show body)
+          functions -> assertFailure ("expected source and continuation functions, got " <> show (length functions)),
       testCase "CPS-GRIN preserves evaluation semantics" $ do
         cps <- expectCpsGrin heapProgram
         directResult <- interpretProgramBinding "answer" heapProgram
@@ -95,12 +104,36 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
-      testCase "FC lowering calls functions when only zero-width arguments remain" $ do
+      testCase "FC lowering counts zero-width arguments in closure arity" $ do
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "direct call" ("call @BoxedRep Lifted $entry$zeroWidthTarget" `isInfixOf` rendered)
-        assertBool "no saturated closure" (not ("P$entry$zeroWidthTarget/0" `isInfixOf` rendered)),
+        assertBool "one logical argument remains" ("P$entry$zeroWidthTarget/1" `isInfixOf` rendered)
+        assertBool "closure is not saturated" (not ("P$entry$zeroWidthTarget/0" `isInfixOf` rendered)),
+      testCase "FC lowering preserves a zero-width application" $ do
+        let program = lowerProgram zeroWidthUnknownApplicationProgram
+        assertEqual "lint" [] (lintProgram program)
+        case grinFunctions program of
+          [function] ->
+            case grinFunctionBody function of
+              GrinApply _ _ argumentValues -> assertEqual "zero runtime values" [] argumentValues
+              body -> assertFailure ("expected an application, got " <> show body)
+          functions -> assertFailure ("expected one function, got " <> show (length functions)),
+      testCase "interpreter consumes one logical zero-width argument" $ do
+        assertEqual "lint" [] (lintProgram zeroWidthApplyProgram)
+        result <- interpretProgramBinding "answer" zeroWidthApplyProgram
+        assertEqual "result" (Right "Box 1") result,
+      testCase "FC lowering counts zero-width constructor fields" $ do
+        let program = lowerProgram zeroWidthConstructorProgram
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "field layouts" [("StateBox", [[], [BoxedRep Lifted]])] (grinConstructors program)
+        case grinFunctions program of
+          [function] ->
+            assertEqual
+              "one logical field remains"
+              (GrinStore (GrinNode (GrinConstructor "StateBox" 1) []))
+              (grinFunctionBody function)
+          functions -> assertFailure ("expected one function, got " <> show (length functions)),
       testCase "lint rejects saturated closure nodes" $ do
         let target = FunctionName "target"
             wrapper = FunctionName "wrapper"
@@ -113,14 +146,14 @@ grinUnitTests =
                           grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = BoxedRep Lifted,
-                          grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])
+                          grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)])
                         },
                       GrinFunction
                         { grinFunctionName = wrapper,
                           grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = BoxedRep Lifted,
-                          grinFunctionBody = GrinStore (GrinNode (GrinClosure target 0) [])
+                          grinFunctionBody = GrinStore (GrinNode (GrinClosure target []) [])
                         }
                     ]
                 }
@@ -132,7 +165,7 @@ grinUnitTests =
           [function] ->
             assertEqual
               "constructor body"
-              (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
+              (GrinStore (GrinNode (GrinConstructor "I32#" 0) [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering returns a tail constructor store directly" $ do
@@ -142,7 +175,7 @@ grinUnitTests =
           [function] ->
             assertEqual
               "function body"
-              (GrinStore (GrinNode (GrinConstructor "Box") [GrinVarValue (GrinVar "value" 81 IntRep)]))
+              (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue (GrinVar "value" 81 IntRep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
@@ -203,7 +236,7 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertEqual
           "dictionary constructor has an ordinary declared layout"
-          [("Box", [IntRep]), ("$Dict$Test", [BoxedRep Lifted, BoxedRep Lifted])]
+          [("Box", [[IntRep]]), ("$Dict$Test", [[BoxedRep Lifted], [BoxedRep Lifted]])]
           (grinConstructors program)
         assertBool ("explicit dictionary constructor store:\n" <> rendered) ("store (C$Dict$Test" `isInfixOf` rendered)
         assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
@@ -236,7 +269,7 @@ grinUnitTests =
               [function] ->
                 assertEqual
                   "constructor body"
-                  (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
+                  (GrinStore (GrinNode (GrinConstructor "I32#" 0) [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
                   (grinFunctionBody function)
               functions -> assertFailure ("expected one constructor function, got " <> show (length functions))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
@@ -510,6 +543,39 @@ zeroWidthSaturatedApplicationProgram =
     stateVar = Var "state" (Unique 35) stateTy
     callerValueVar = Var "callerValue" (Unique 36) boxedIntTy
 
+zeroWidthUnknownApplicationProgram :: FcProgram
+zeroWidthUnknownApplicationProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            callerVar
+            (FcLam actionVar (FcLam stateVar (FcApp (FcVar actionVar) (FcVar stateVar))))
+        )
+    ]
+  where
+    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    actionTy = TcFunTy stateTy boxedIntTy
+    callerVar = Var "applyZeroWidth" (Unique 37) (TcFunTy actionTy actionTy)
+    actionVar = Var "action" (Unique 38) actionTy
+    stateVar = Var "state" (Unique 39) stateTy
+
+zeroWidthConstructorProgram :: FcProgram
+zeroWidthConstructorProgram =
+  FcProgram
+    [ FcData "StateBox" [] [("StateBox", [stateTy, boxedIntTy])],
+      FcTopBind
+        ( FcNonRec
+            partialVar
+            (FcLam stateVar (FcApp (FcVar constructorVar) (FcVar stateVar)))
+        )
+    ]
+  where
+    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (TyCon "StateBox" 0) []
+    constructorVar = Var "StateBox" (Unique 40) (TcFunTy stateTy (TcFunTy boxedIntTy resultTy))
+    partialVar = Var "partialStateBox" (Unique 41) (TcFunTy stateTy (TcFunTy boxedIntTy resultTy))
+    stateVar = Var "state" (Unique 42) stateTy
+
 functionClassificationProgram :: FcProgram
 functionClassificationProgram =
   FcProgram
@@ -590,10 +656,75 @@ exceptionProgram =
         (FcApp (FcApp (FcVar catchVar) action) handler)
         (FcLit (LitInt IntRep 0))
 
+multiValueContinuationProgram :: GrinProgram
+multiValueContinuationProgram =
+  GrinProgram
+    { grinConstructors = [("Box", [[IntRep]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "multiValue",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [first, second]
+                  (GrinConstant [GrinLitValue (GrinLitInt IntRep 1), GrinLitValue (GrinLitInt WordRep 2)])
+                  (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue first]))
+            }
+        ]
+    }
+  where
+    first = GrinVar "first" 1 IntRep
+    second = GrinVar "second" 2 WordRep
+
+zeroWidthApplyProgram :: GrinProgram
+zeroWidthApplyProgram =
+  GrinProgram
+    { grinConstructors = [("Box", [[IntRep]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [(answer, GrinNode (GrinThunk wrapperName) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = wrapperName,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [closure]
+                  (GrinStore (GrinNode (GrinClosure targetName [[]]) []))
+                  (GrinApply (BoxedRep Lifted) (GrinVarValue closure) [])
+            },
+          GrinFunction
+            { grinFunctionName = targetName,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)])
+            }
+        ]
+    }
+  where
+    answer = GrinVar "answer" 1 (BoxedRep Lifted)
+    closure = GrinVar "closure" 2 (BoxedRep Lifted)
+    wrapperName = FunctionName "zeroWidthWrapper"
+    targetName = FunctionName "zeroWidthTarget"
+
 heapProgram :: GrinProgram
 heapProgram =
   GrinProgram
-    { grinConstructors = [("Box", [IntRep])],
+    { grinConstructors = [("Box", [[IntRep]])],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinExternalGlobals = [],
@@ -611,7 +742,7 @@ heapProgram =
               grinFunctionParameters = [],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
-                GrinBind [pointer] (GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])) $
+                GrinBind [pointer] (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)])) $
                   GrinBind [fetched] (GrinFetch (BoxedRep Lifted) (GrinVarValue pointer)) $
                     GrinBind [replacementPointer] (GrinStore replacementBox) $
                       GrinBind [replacement] (GrinFetch (BoxedRep Lifted) (GrinVarValue replacementPointer)) $
@@ -627,7 +758,7 @@ heapProgram =
     replacementPointer = GrinVar "replacement_pointer" 4 (BoxedRep Lifted)
     replacement = GrinVar "replacement" 5 (BoxedRep Lifted)
     updated = GrinVar "updated" 6 (BoxedRep Lifted)
-    replacementBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 2)]
+    replacementBox = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 2)]
     functionName = FunctionName "answer_code"
 
 exceptionBoundaryProgram :: GrinExpr -> GrinProgram
@@ -679,7 +810,7 @@ invalidUpdateProgram =
   where
     pointer = GrinVar "pointer" 2 (BoxedRep Lifted)
     updated = GrinVar "updated" 3 IntRep
-    initialBox = GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)]
+    initialBox = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
 
 unliftedRuntimeReps :: [RuntimeRep]
 unliftedRuntimeReps =

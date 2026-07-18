@@ -71,7 +71,7 @@ tests =
         let runtimeRep = RuntimeRepVar (Unique 1)
             program =
               GrinProgram
-                { grinConstructors = [("Box", [runtimeRep])],
+                { grinConstructors = [("Box", [[runtimeRep]])],
                   grinPrimitives = [],
                   grinForeignCalls = [],
                   grinExternalGlobals = [],

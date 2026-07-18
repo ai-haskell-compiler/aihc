@@ -96,7 +96,7 @@ transformExpr parent bound resultRep expression =
               }
           continuationNode =
             GrinNode
-              (GrinClosure continuationName (length resultVars))
+              (GrinClosure continuationName [map grinVarRuntimeRep resultVars])
               (map GrinVarValue captures)
           invokeContinuation =
             GrinApply

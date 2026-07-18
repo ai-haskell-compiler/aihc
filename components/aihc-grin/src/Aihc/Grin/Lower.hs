@@ -48,7 +48,7 @@ data LowerState = LowerState
 type LowerM = State LowerState
 
 data LoweredTop = LoweredTop
-  { loweredConstructors :: ![(Text, [RuntimeRep])],
+  { loweredConstructors :: ![(Text, [[RuntimeRep]])],
     loweredPrimitives :: ![(GrinVar, Int)],
     loweredForeignCalls :: ![GrinForeignCall],
     loweredWhnfGlobals :: ![(GrinVar, GrinNode)],
@@ -134,7 +134,7 @@ programEnvironment interface =
   ProgramEnvironment
     { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceGlobals interface,
       programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceWhnfGlobals interface,
-      programEnvironmentConstructorArities = Map.fromList builtinConstructors <> grinInterfaceConstructorArities interface,
+      programEnvironmentConstructorArities = Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors] <> grinInterfaceConstructorArities interface,
       programEnvironmentPrimitiveArities = grinInterfacePrimitiveArities interface,
       programEnvironmentCodeInfos = grinInterfaceCodeInfos interface
     }
@@ -181,7 +181,7 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, concatMap (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
+      pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
     FcNewtype {} ->
       pure mempty
     FcPrimitive var arity ->
@@ -247,7 +247,8 @@ lowerExpr expr = do
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) ->
       lowerArgumentMany arguments $ \values ->
-        pure (GrinStore (GrinNode (GrinConstructor constructor) values))
+        let remaining = constructorArities Map.! constructor - length arguments
+         in pure (GrinStore (GrinNode (GrinConstructor constructor remaining) values))
     Nothing ->
       case primitiveApplication primitiveArities (Map.keysSet localVars) expr of
         Just ("raise#", [exception]) ->
@@ -276,7 +277,7 @@ lowerNonTupleExpr expr =
       do
         codeInfo <- lookupCodeInfo var
         case codeInfo of
-          Just info -> pure (GrinStore (knownFunctionNode info (codeRuntimeArity info) []))
+          Just info -> pure (GrinStore (knownFunctionNode info 0 []))
           Nothing -> do
             direct <- lowerDirectValues expr
             case direct of
@@ -321,16 +322,10 @@ lowerKnownApplication originalExpr info arguments = do
   lowerArgumentMany entryArguments $ \values ->
     case extraArguments of
       [] ->
-        case compare (length values) runtimeArity of
-          LT -> pure (GrinStore (knownFunctionNode info (runtimeArity - length values) values))
-          EQ
-            | length entryArguments == termArity ->
-                pure (GrinCall (exprRuntimeRep originalExpr) (grinCodeFunctionName info) values)
-            | grinCodeResultRep info == exprRuntimeRep originalExpr ->
-                pure (GrinCall (grinCodeResultRep info) (grinCodeFunctionName info) values)
-            | otherwise ->
-                pure (GrinStore (knownFunctionNode info 0 values))
-          GT -> error "GRIN lowering supplied more runtime arguments than the known function accepts"
+        case compare (length entryArguments) termArity of
+          LT -> pure (GrinStore (knownFunctionNode info (length entryArguments) values))
+          EQ -> pure (GrinCall (exprRuntimeRep originalExpr) (grinCodeFunctionName info) values)
+          GT -> error "GRIN lowering supplied more logical arguments than the known function accepts"
       _ -> do
         let saturatedExpr = dropLastTermApplications (length extraArguments) originalExpr
             saturatedRep = exprRuntimeRep saturatedExpr
@@ -342,7 +337,6 @@ lowerKnownApplication originalExpr info arguments = do
           _ -> error "GRIN lowering expected an overapplied function call to return one function value"
   where
     termArity = length (grinCodeParameterLayouts info)
-    runtimeArity = codeRuntimeArity info
 
 lowerPrimitiveApplication :: FcExpr -> Text -> Int -> [FcExpr] -> LowerM GrinExpr
 lowerPrimitiveApplication originalExpr name arity arguments =
@@ -405,16 +399,9 @@ lowerUnknownApplication expr =
     _ -> error "GRIN lowering expected an application"
 
 knownFunctionNode :: GrinCodeInfo -> Int -> [GrinValue] -> GrinNode
-knownFunctionNode info remainingRuntimeArity =
+knownFunctionNode info suppliedTermArity =
   GrinNode
-    (GrinClosure (grinCodeFunctionName info) remainingRuntimeArity)
-
-codeRuntimeArity :: GrinCodeInfo -> Int
-codeRuntimeArity = length . concat . grinCodeParameterLayouts
-
-runtimeArityAfterTerms :: GrinCodeInfo -> Int -> Int
-runtimeArityAfterTerms info suppliedTermArity =
-  length (concat (drop suppliedTermArity (grinCodeParameterLayouts info)))
+    (GrinClosure (grinCodeFunctionName info) (drop suppliedTermArity (grinCodeParameterLayouts info)))
 
 lowerCase :: FcExpr -> Var -> [FcAlt] -> LowerM GrinExpr
 lowerCase scrutinee binder alternatives =
@@ -484,9 +471,9 @@ makeClosureNode expr = do
   let (binders, lambdaBody) = collectLeadingLambdas expr
   captures <- capturesFor expr
   functionName <- freshFunction "closure"
-  (parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
+  (parameterLayouts, parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
     body' <- lowerExpr lambdaBody
-    pure (concat groups, body')
+    pure (map (map grinVarRuntimeRep) groups, concat groups, body')
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
@@ -495,7 +482,7 @@ makeClosureNode expr = do
         grinFunctionResultRep = exprRuntimeRep lambdaBody,
         grinFunctionBody = loweredBody
       }
-  pure (GrinNode (GrinClosure functionName (length parameters)) (map GrinVarValue captures))
+  pure (GrinNode (GrinClosure functionName parameterLayouts) (map GrinVarValue captures))
 
 lowerLet :: FcBind -> FcExpr -> LowerM GrinExpr
 lowerLet bind body =
@@ -578,7 +565,8 @@ lowerStaticNode expr = do
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) -> do
       values <- mapM lowerStaticValues arguments
-      pure (GrinNode (GrinConstructor constructor) . concat <$> sequence values)
+      let remaining = constructorArities Map.! constructor - length arguments
+      pure (GrinNode (GrinConstructor constructor remaining) . concat <$> sequence values)
     Nothing -> pure Nothing
 
 lowerStaticValues :: FcExpr -> LowerM (Maybe [GrinValue])
@@ -731,16 +719,16 @@ emitFunction function = do
   body <- ensureWhnfResult function (grinFunctionBody function)
   modify' $ \state -> state {lowerFunctionsRev = function {grinFunctionBody = body} : lowerFunctionsRev state}
 
--- A zero-runtime-argument closure whose entry preserves the result layout is
--- a saturated computation, not a WHNF. Enter it at function exits while
--- retaining closures in intermediate positions where they encode delayed
--- source-level application. If entry changes the layout, the closure remains
--- a genuine function value despite having no physical arguments.
+-- A closure with no remaining logical arguments is a saturated computation,
+-- not a WHNF. Enter it at function exits while retaining closures in
+-- intermediate positions where they encode delayed source-level application.
+-- Zero-width arguments remain present as empty layouts and therefore do not
+-- make a closure appear saturated.
 ensureWhnfResult :: GrinFunction -> GrinExpr -> LowerM GrinExpr
 ensureWhnfResult owner expr =
   case expr of
     GrinBind vars valueExpr body -> GrinBind vars valueExpr <$> ensureWhnfResult owner body
-    GrinStore node@(GrinNode (GrinClosure functionName 0) fields) -> do
+    GrinStore node@(GrinNode (GrinClosure functionName []) fields) -> do
       resultRep <- lookupFunctionResultRep owner functionName
       if resultRep == grinFunctionResultRep owner
         then pure (GrinCall resultRep functionName fields)
@@ -996,8 +984,7 @@ knownSaturatedApplication expr =
       codeInfo <- lookupCodeInfo var
       pure $ do
         info <- codeInfo
-        if length arguments <= length (grinCodeParameterLayouts info)
-          && runtimeArityAfterTerms info (length arguments) == 0
+        if length arguments == length (grinCodeParameterLayouts info)
           && isLiftedRuntimeRep (grinCodeResultRep info)
           then Just (info, arguments)
           else Nothing
@@ -1017,7 +1004,7 @@ isWhnfExpr expr =
       pure
         ( case codeInfo of
             Just info ->
-              runtimeArityAfterTerms info 0 > 0
+              not (null (grinCodeParameterLayouts info))
                 || grinCodeResultRep info /= exprRuntimeRep expr
             Nothing -> maybe False (> 0) primitiveArity || maybe False (> 0) constructorArity
         )
@@ -1032,7 +1019,7 @@ isWhnfExpr expr =
               codeInfo <- lookupCodeInfo var
               pure $ case codeInfo of
                 Just info ->
-                  runtimeArityAfterTerms info (length arguments) > 0
+                  length arguments < length (grinCodeParameterLayouts info)
                     || grinCodeResultRep info /= exprRuntimeRep expr
                 Nothing -> False
             _ -> pure False
@@ -1217,7 +1204,9 @@ programConstructors program =
 programWhnfGlobalNames :: FcProgram -> [Text]
 programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds program)
   where
-    constructorArities = Map.fromList (builtinConstructors <> programConstructors program)
+    constructorArities =
+      Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors]
+        <> Map.fromList (programConstructors program)
     topWhnfGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors

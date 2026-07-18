@@ -219,8 +219,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
   LinkLayout
-    { linkConstructors = builtinConstructors,
-      linkGlobalNames = [name | (name, arity) <- builtinConstructors, arity == 0]
+    { linkConstructors = [(name, length layouts) | (name, layouts) <- builtinConstructors],
+      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
     }
 
 programGlobalNames :: GrinProgram -> [Text]
@@ -645,13 +645,12 @@ materializeNode env node = do
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo, Int)
 nodeHeader env node =
   case grinNodeTag node of
-    GrinConstructor name -> do
+    GrinConstructor name remaining -> do
       identifier <- constructorId compileEnv name
-      arity <- constructorArity compileEnv name
-      pure (1, InfoImmediate identifier, arity)
-    GrinClosure functionName argumentCount -> do
+      pure (1, InfoImmediate identifier, remaining)
+    GrinClosure functionName argumentLayouts -> do
       label <- functionCodeLabel compileEnv functionName
-      pure (2, InfoAddress label, argumentCount)
+      pure (2, InfoAddress label, length argumentLayouts)
     GrinThunk functionName -> do
       label <- functionCodeLabel compileEnv functionName
       arity <- functionArity compileEnv functionName
@@ -785,10 +784,6 @@ constructorId :: CompileEnv -> Text -> Either Arm64Error Int
 constructorId env name =
   maybe (Left (Arm64MissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
 
-constructorArity :: CompileEnv -> Text -> Either Arm64Error Int
-constructorArity env name =
-  maybe (Left (Arm64MissingConstructor name)) Right (Map.lookup name (compileConstructorArities env))
-
 functionCodeLabel :: CompileEnv -> FunctionName -> Either Arm64Error Text
 functionCodeLabel env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
@@ -852,7 +847,7 @@ uniqueByName values =
 
 programConstructorArities :: GrinProgram -> [(Text, Int)]
 programConstructorArities program =
-  [(name, length fieldReps) | (name, fieldReps) <- grinConstructors program]
+  [(name, length fieldLayouts) | (name, fieldLayouts) <- grinConstructors program]
 
 validateRuntimeRep :: RuntimeRep -> Either Arm64Error ()
 validateRuntimeRep runtimeRep =
@@ -866,7 +861,7 @@ validateRuntimeRep runtimeRep =
 
 programRuntimeReps :: GrinProgram -> [RuntimeRep]
 programRuntimeReps program =
-  concatMap snd (grinConstructors program)
+  concatMap (concat . snd) (grinConstructors program)
     <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
     <> concatMap globalRuntimeReps (grinWhnfGlobals program)
     <> concatMap cafRuntimeReps (grinCafs program)

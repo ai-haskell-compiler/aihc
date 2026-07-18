@@ -33,15 +33,20 @@ renderExternalFunction info =
     <> " = "
     <> T.unpack (unFunctionName (grinCodeFunctionName info))
 
-renderConstructor :: (T.Text, [RuntimeRep]) -> String
-renderConstructor (name, fieldReps) =
+renderConstructor :: (T.Text, [[RuntimeRep]]) -> String
+renderConstructor (name, fieldLayouts) =
   "constructor "
     <> T.unpack name
     <> "/"
-    <> show (length fieldReps)
+    <> show (length fieldLayouts)
     <> " ["
-    <> intercalate ", " (map show fieldReps)
+    <> intercalate ", " (map renderLayout fieldLayouts)
     <> "]"
+  where
+    renderLayout layout =
+      case layout of
+        [runtimeRep] -> show runtimeRep
+        _ -> "[" <> intercalate ", " (map show layout) <> "]"
 
 renderPrimitive :: (GrinVar, Int) -> String
 renderPrimitive (var, arity) =
@@ -122,7 +127,7 @@ renderExprIndented indentation expr =
         <> show runtimeRep
         <> " "
         <> renderValue function
-        <> renderValues arguments
+        <> renderArgument arguments
     GrinCase scrutinee binder alternatives ->
       indent indentation
         <> "case "
@@ -147,6 +152,9 @@ renderExprIndented indentation expr =
 
 renderValues :: [GrinValue] -> String
 renderValues = concatMap ((" " <>) . renderValue)
+
+renderArgument :: [GrinValue] -> String
+renderArgument values = " (" <> unwords (map renderValue values) <> ")"
 
 renderBinders :: [GrinVar] -> String
 renderBinders vars =
@@ -185,9 +193,10 @@ renderNode node =
 renderNodeTag :: GrinNodeTag -> String
 renderNodeTag nodeTag =
   case nodeTag of
-    GrinConstructor name -> "C" <> T.unpack name
-    GrinClosure functionName argumentCount ->
-      "P" <> T.unpack (unFunctionName functionName) <> "/" <> show argumentCount
+    GrinConstructor name remaining ->
+      "C" <> T.unpack name <> if remaining == 0 then "" else "/" <> show remaining
+    GrinClosure functionName argumentLayouts ->
+      "P" <> T.unpack (unFunctionName functionName) <> "/" <> show (length argumentLayouts)
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
     GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
 
