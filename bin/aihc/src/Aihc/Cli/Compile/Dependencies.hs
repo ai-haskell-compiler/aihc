@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -12,7 +13,11 @@ module Aihc.Cli.Compile.Dependencies
   )
 where
 
+#ifdef AIHC_AMD64
+import Aihc.Amd64 (LinkInterface, LinkLayout, buildLinkLayoutFromInterfaces, compileModule, extractLinkInterface, targetTriple)
+#else
 import Aihc.Arm64 (LinkInterface, LinkLayout, buildLinkLayoutFromInterfaces, compileModule, extractLinkInterface, targetTriple)
+#endif
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface)
 import Aihc.Grin qualified as Grin
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -164,7 +169,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 10
+cacheSchemaVersion = 11
 
 buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies environment usesImplicitPrelude buildNative mainModule = do
@@ -478,7 +483,7 @@ buildObject layout unit = do
     then pure (Right ())
     else do
       case compileModule layout (nativeInitializerSymbol unit) (nativeProgram unit) of
-        Left err -> pure (Left ("ARM64 dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> show err))
+        Left err -> pure (Left ("native dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> show err))
         Right assembly -> do
           createDirectoryIfMissing True directory
           withTemporaryDirectory directory "module-build" $ \temporary -> do
@@ -520,7 +525,13 @@ dependencyGraphHash :: FilePath -> [LoadedModule] -> IO String
 dependencyGraphHash root loaded = do
   let libraries = sort (Set.toList (Set.fromList (map (T.unpack . loadedLibrary) loaded)))
   chunks <- concat <$> mapM libraryChunks libraries
-  pure (stableHash (Text.encodeUtf8 (frameText (T.pack (show cacheSchemaVersion))) : chunks))
+  pure
+    ( stableHash
+        ( Text.encodeUtf8 (frameText (T.pack (show cacheSchemaVersion)))
+            : Text.encodeUtf8 (frameText (T.pack targetTriple))
+            : chunks
+        )
+    )
   where
     libraryChunks library = do
       let libraryRoot = root </> library

@@ -1,7 +1,8 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile a standalone Haskell module through System FC and GRIN to a
--- native Darwin AArch64 executable.
+-- native executable for the host platform.
 module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
@@ -19,7 +20,11 @@ module Aihc.Cli.Compile
   )
 where
 
+#ifdef AIHC_AMD64
+import Aihc.Amd64 (Amd64Error, buildLinkLayoutFromInterfaces, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validatePrimitiveNames)
+#else
 import Aihc.Arm64 (Arm64Error, buildLinkLayoutFromInterfaces, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validatePrimitiveNames)
+#endif
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -66,9 +71,15 @@ data CompileError
   | CompileFrontendError ![String]
   | CompileDependencyError !String
   | CompileCpsGrinError !Grin.CpsGrinError
-  | CompileArm64Error !Arm64Error
+  | CompileNativeError !NativeError
   | CompileClangError !ExitCode !String
   deriving (Eq, Show)
+
+#ifdef AIHC_AMD64
+type NativeError = Amd64Error
+#else
+type NativeError = Arm64Error
+#endif
 
 data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
@@ -266,10 +277,10 @@ compileIncrementalArtifacts dependencies compilation = do
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
       primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
-  either (Left . CompileArm64Error) Right (validatePrimitiveNames primitives)
+  either (Left . CompileNativeError) Right (validatePrimitiveNames primitives)
   assembly <-
     either
-      (Left . CompileArm64Error)
+      (Left . CompileNativeError)
       Right
       (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
   pure
@@ -286,7 +297,7 @@ compileProgramArtifacts sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
-  assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" cpsGrin)
+  assembly <- either (Left . CompileNativeError) Right (compileProgram "main" cpsGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
@@ -414,7 +425,7 @@ renderCompileError compileError =
     CompileFrontendError errors -> "frontend error: " <> unwords errors
     CompileDependencyError err -> "dependency error: " <> err
     CompileCpsGrinError err -> "CPS-GRIN error: " <> show err
-    CompileArm64Error err -> "ARM64 code generation error: " <> show err
+    CompileNativeError err -> "native code generation error: " <> show err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 
 assemble :: FilePath -> FilePath -> [FilePath] -> IO ()

@@ -24,6 +24,7 @@ library
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
+    aihc-amd64,
     aihc-arm64,
     aihc-cpp,
     aihc-fc,
@@ -43,6 +44,8 @@ library
     process,
     text >=1.2.3 && <2.2,
 
+  if os(linux) && arch(x86_64)
+    cpp-options: -DAIHC_AMD64
   default-extensions: OverloadedStrings
   ghc-options: -Wall
   default-language: GHC2021

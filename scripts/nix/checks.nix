@@ -72,6 +72,11 @@
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
+  amd64Tests = mkEvalPackageTest (
+    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
+      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+    })
+  );
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
@@ -168,6 +173,7 @@
 in {
   parser-tests = parserTests;
   cpp-tests = cppTests;
+  amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
   fc-tests = fcTests;
   grin-tests = grinTests;
@@ -198,6 +204,10 @@ in {
     {
       name = "cpp-tests";
       path = cppTests;
+    }
+    {
+      name = "amd64-tests";
+      path = amd64Tests;
     }
     {
       name = "arm64-tests";

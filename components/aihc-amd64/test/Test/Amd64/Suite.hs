@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.Arm64.Suite
+module Test.Amd64.Suite
   ( tests,
   )
 where
 
-import Aihc.Arm64
-  ( Arm64Error (..),
+import Aihc.Amd64
+  ( Amd64Error (..),
     ObservedProgram (..),
     buildLinkLayout,
     compileModule,
@@ -17,9 +17,9 @@ import Aihc.Arm64
     targetTriple,
     validateProgramPrimitives,
   )
-import Aihc.Arm64.Emit (renderAllocatedBlock)
-import Aihc.Arm64.Lir
-import Aihc.Arm64.RegisterAllocate
+import Aihc.Amd64.Emit (renderAllocatedBlock)
+import Aihc.Amd64.Lir
+import Aihc.Amd64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
@@ -44,25 +44,25 @@ import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 tests :: TestTree
 tests =
   testGroup
-    "aihc-arm64"
+    "aihc-amd64"
     [ testCase "linear scan reuses an expired register" $ do
         let first = VirtualReg 0
             second = VirtualReg 1
             allocation =
               allocateBlock
                 [ MoveImmediate (Virtual first) 1,
-                  Move (Physical X0) (Virtual first),
+                  Move (Physical Rax) (Virtual first),
                   MoveImmediate (Virtual second) 2,
-                  Move (Physical X1) (Virtual second)
+                  Move (Physical Rdi) (Virtual second)
                 ]
         assertEqual
           "locations"
-          (Map.fromList [(first, InRegister X9), (second, InRegister X9)])
+          (Map.fromList [(first, InRegister Rax), (second, InRegister Rax)])
           (allocationLocations allocation),
       testCase "linear scan spills into a heap-frame slot" $ do
         let registers = map VirtualReg [0 .. 7]
             definitions = [MoveImmediate (Virtual register) (fromIntegral index) | (index, register) <- zip [0 :: Int ..] registers]
-            uses = [Move (Physical X0) (Virtual register) | register <- registers]
+            uses = [Move (Physical Rax) (Virtual register) | register <- registers]
             instructions = definitions <> uses
             allocation = allocateBlock instructions
         assertEqual "one spill" 1 (allocationSpillCount allocation)
@@ -71,15 +71,15 @@ tests =
           Left err -> assertFailure ("failed to emit allocated block: " <> show err)
           Right (assembly, spillCount) -> do
             assertEqual "emitted spill count" 1 spillCount
-            assertBool "spill stored in heap frame" ("  str x8, [x19, #80]" `elem` assembly)
-            assertBool "spill loaded from heap frame" ("  ldr x8, [x19, #80]" `elem` assembly),
+            assertBool "spill stored in heap frame" ("  mov QWORD PTR [r14 + 80], r10" `elem` assembly)
+            assertBool "spill loaded from heap frame" ("  mov r10, QWORD PTR [r14 + 80]" `elem` assembly),
       testCase "linear scan spills values live across C calls" $ do
         let register = VirtualReg 0
             allocation =
               allocateBlock
                 [ MoveImmediate (Virtual register) 1,
-                  Call "_external",
-                  Move (Physical X0) (Virtual register)
+                  Call "external",
+                  Move (Physical Rax) (Virtual register)
                 ]
         assertEqual "call-spanning location" (Just (InHeapSpill 0)) (Map.lookup register (allocationLocations allocation)),
       testCase "rejects unresolved representation-polymorphic native layouts" $ do
@@ -97,7 +97,7 @@ tests =
                 }
         assertEqual
           "native representation diagnostic"
-          (Left (Arm64UnsupportedRuntimeRep runtimeRep))
+          (Left (Amd64UnsupportedRuntimeRep runtimeRep))
           (compileProgram "missing" (expectCpsGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
         let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
@@ -112,11 +112,11 @@ tests =
                   grinCafs = [],
                   grinFunctions = []
                 }
-        assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
+        assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
         case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectCpsGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
-      testCase "canonicalizes narrow signed literals in machine-word slots" $ do
+      testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
               GrinProgram
@@ -132,14 +132,21 @@ tests =
                         { grinFunctionName = functionName,
                           grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
-                          grinFunctionResultRep = Int8Rep,
-                          grinFunctionBody = GrinConstant [GrinLitValue (GrinLitInt Int8Rep 255)]
+                          grinFunctionResultRep = TupleRep [Int8Rep, Word64Rep],
+                          grinFunctionBody =
+                            GrinConstant
+                              [ GrinLitValue (GrinLitInt Int8Rep 255),
+                                GrinLitValue (GrinLitInt Word64Rep 18446744073709551615)
+                              ]
                         }
                     ]
                 }
         case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
+          Right assembly -> do
+            assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
+            assertBool "maxBound :: Word64# remains unsigned" ("mov rax, 18446744073709551615" `T.isInfixOf` assembly)
+            assertAssemblyAccepted assembly,
       testCase "returns unboxed tuples as direct machine values" $ do
         let functionName = FunctionName "pair_code"
             program =
@@ -168,9 +175,9 @@ tests =
         case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "returns two values" ("ldr x1, =2" `T.isInfixOf` assembly)
-            assertBool "uses the multi-value return ABI" ("bl _aihc_return_values" `T.isInfixOf` assembly)
-            assertBool "does not allocate an aggregate node" (not ("bl _aihc_make_node" `T.isInfixOf` assembly)),
+            assertBool "returns two values" ("mov rax, 2" `T.isInfixOf` assembly)
+            assertBool "uses the multi-value return ABI" ("call aihc_return_values" `T.isInfixOf` assembly)
+            assertBool "does not allocate an aggregate node" (not ("call aihc_make_node" `T.isInfixOf` assembly)),
       testCase "exports stable entries and branches directly to dependency code" $ do
         let identityName = FunctionName "$entry$identity"
             callerName = FunctionName "$entry$caller"
@@ -204,20 +211,20 @@ tests =
         case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
-            assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
+            assertBool "exports caller entry" (".globl aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
+            assertBool "branches to dependency entry" ("jmp aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
-            assertBool "generated case and apply contain no eval call" (not ("bl _aihc_eval" `T.isInfixOf` assembly))
+            assertBool "generated case and apply contain no eval call" (not ("call aihc_eval" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
         assertBool
           "runtime apply does not enter its function"
           (not ("aihc_eval_value(machine, function" `isInfixOf` runtime)),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
-        withTempDirectory "aihc-arm64-runtime" $ \directory -> do
+        withTempDirectory "aihc-amd64-runtime" $ \directory -> do
           runtime <- runtimeSourcePath
           snapshotRuntime <- snapshotSourcePath
           let executable = directory </> "runtime-check"
@@ -240,7 +247,7 @@ tests =
               ]
               "int main(void) { return 0; }\n"
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
-      testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
+      testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld
     ]
 
 data SnapshotCase = SnapshotCase
@@ -301,7 +308,7 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry cps of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
-    when (arch == "aarch64" && os == "darwin") $ do
+    when (arch == "x86_64" && os == "linux") $ do
       native <- runObservedProgram observed
       assertEqual "native snapshot" expected (T.stripEnd native)
 
@@ -351,7 +358,7 @@ snapshotFixtureRoot = getCurrentDirectory >>= findRoot
 
 runObservedProgram :: ObservedProgram -> IO T.Text
 runObservedProgram observed =
-  withTempDirectory "aihc-arm64-snapshot" $ \directory -> do
+  withTempDirectory "aihc-amd64-snapshot" $ \directory -> do
     runtime <- runtimeSourcePath
     snapshotRuntime <- snapshotSourcePath
     let assemblyPath = directory </> "snapshot.s"
@@ -437,12 +444,13 @@ testNativeHelloWorld = do
   assembly <-
     case compileProgram evalBindingName (expectCpsGrin grinProgram) of
       Right value -> pure value
-      Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
+      Left err -> assertFailure ("AMD64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("br x9" `isInfixOf` rendered)
-  assertBool "never calls a generated Haskell entry" (not ("bl .Laihc_function_" `isInfixOf` rendered))
-  assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
-  when (arch == "aarch64" && os == "darwin") $
+  assertBool "emits indirect Haskell tail transfers" ("jmp r11" `isInfixOf` rendered)
+  assertBool "never calls a generated Haskell entry" (not ("call .Laihc_function_" `isInfixOf` rendered))
+  assertBool "emits unboxed literals as raw words" (not ("aihc_make_literal" `isInfixOf` rendered))
+  assertAssemblyAccepted assembly
+  when (arch == "x86_64" && os == "linux") $
     runHelloWorldAssembly assembly
 
 expectCpsGrin :: GrinProgram -> CpsGrinProgram
@@ -451,9 +459,22 @@ expectCpsGrin program =
     Right cpsProgram -> cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
 
+assertAssemblyAccepted :: T.Text -> IO ()
+assertAssemblyAccepted assembly =
+  withTempDirectory "aihc-amd64-assemble" $ \directory -> do
+    let assemblyPath = directory </> "program.s"
+        objectPath = directory </> "program.o"
+    TIO.writeFile assemblyPath assembly
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath]
+        ""
+    assertEqual ("clang rejected Linux AMD64 assembly:\n" <> clangErr) ExitSuccess clangExit
+
 runHelloWorldAssembly :: T.Text -> IO ()
 runHelloWorldAssembly assembly =
-  withTempDirectory "aihc-arm64-hello" $ \directory -> do
+  withTempDirectory "aihc-amd64-hello" $ \directory -> do
     runtime <- runtimeSourcePath
     let assemblyPath = directory </> "hello.s"
         executablePath = directory </> "hello"

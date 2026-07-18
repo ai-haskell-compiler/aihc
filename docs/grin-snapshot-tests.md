@@ -1,11 +1,12 @@
 # GRIN heap snapshot tests
 
 GRIN snapshot fixtures execute the same hand-written program with the reference
-interpreter and the native AArch64 backend. Each fixture independently asserts
-the returned values and the reachable abstract GRIN heap.
+interpreter and both native backends: Apple AArch64 and Linux AMD64. Each
+fixture independently asserts the returned values and the reachable abstract
+GRIN heap. Native execution runs in the test suite matching the host platform.
 
-Fixtures live under
-`components/aihc-arm64/test/Test/Fixtures/snapshot`:
+Fixtures shared by both native backends live under
+`test/Test/Fixtures/grin-snapshot`:
 
 ```yaml
 entry: $entry

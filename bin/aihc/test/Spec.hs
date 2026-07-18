@@ -862,7 +862,7 @@ test_dryRunPlannerDoesNotGenerateSourceFiles =
 
 test_compileExecutable :: Assertion
 test_compileExecutable =
-  when (arch == "aarch64" && os == "darwin") $
+  when (isNativeCodegenHost arch os) $
     withTempDir "aihc-compile" $ \root -> do
       sourcePath <- helloWorldExamplePath
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
@@ -899,6 +899,11 @@ test_compileExecutable =
         assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
+
+isNativeCodegenHost :: String -> String -> Bool
+isNativeCodegenHost hostArch hostOs =
+  (hostArch == "aarch64" && hostOs == "darwin")
+    || (hostArch == "x86_64" && hostOs == "linux")
 
 test_compileDefaultEnvironment :: Assertion
 test_compileDefaultEnvironment =
