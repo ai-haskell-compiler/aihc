@@ -105,6 +105,16 @@ grinUnitTests =
               (GrinStore (GrinNode (GrinConstructor "I32#") [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
+      testCase "FC lowering returns a tail constructor store directly" $ do
+        let program = lowerProgram tailStoredTupleProgram
+        assertEqual "lint" [] (lintProgram program)
+        case grinFunctions program of
+          [function] ->
+            assertEqual
+              "function body"
+              (GrinStore (GrinNode (GrinConstructor "Box") [GrinVarValue (GrinVar "value" 81 IntRep)]))
+              (grinFunctionBody function)
+          functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
         let program = lowerProgram foreignProgram
             rendered = renderProgram program
@@ -724,6 +734,49 @@ saturatedConstructorProgram =
   where
     int32WrapperVar = Var "wrapInt32" (Unique 60) (TcFunTy int32Ty boxedInt32Ty)
     int32ConstructorVar = Var "I32#" (Unique 61) (TcFunTy int32Ty boxedInt32Ty)
+
+tailStoredTupleProgram :: FcProgram
+tailStoredTupleProgram =
+  FcProgram
+    [ FcData "Box" [] [("Box", [intTy])],
+      FcPrimitive tailStoredStateVar 0,
+      FcTopBind
+        ( FcNonRec
+            tailStoredFunctionVar
+            ( FcLam
+                tailStoredValueVar
+                ( FcApp
+                    (FcApp (FcVar tailStoredTupleConstructorVar) (FcVar tailStoredStateVar))
+                    (FcApp (FcVar tailStoredBoxConstructorVar) (FcVar tailStoredValueVar))
+                )
+            )
+        )
+    ]
+
+tailStoredFunctionVar :: Var
+tailStoredFunctionVar = Var "tailStored" (Unique 80) (TcFunTy intTy tailStoredTupleTy)
+
+tailStoredValueVar :: Var
+tailStoredValueVar = Var "value" (Unique 81) intTy
+
+tailStoredStateVar :: Var
+tailStoredStateVar = Var "realWorld#" (Unique 82) tailStoredStateTy
+
+tailStoredBoxConstructorVar :: Var
+tailStoredBoxConstructorVar = Var "Box" (Unique 83) (TcFunTy intTy tailStoredBoxTy)
+
+tailStoredTupleConstructorVar :: Var
+tailStoredTupleConstructorVar =
+  Var "(#,#)" (Unique 84) (TcFunTy tailStoredStateTy (TcFunTy tailStoredBoxTy tailStoredTupleTy))
+
+tailStoredStateTy :: TcType
+tailStoredStateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+
+tailStoredBoxTy :: TcType
+tailStoredBoxTy = TcTyCon (TyCon "Box" 0) []
+
+tailStoredTupleTy :: TcType
+tailStoredTupleTy = TcTyCon (TyCon "(#,#)" 2) [tailStoredStateTy, tailStoredBoxTy]
 
 boxedInt32Ty :: TcType
 boxedInt32Ty = TcTyCon (TyCon "Int32" 0) []

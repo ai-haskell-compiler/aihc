@@ -333,12 +333,7 @@ lowerKnownApplication originalExpr info arguments =
         case resultVars of
           [resultVar] -> do
             rest <- lowerRemainingApplications saturatedExpr (GrinVarValue resultVar) extraArguments
-            pure
-              ( GrinBind
-                  resultVars
-                  (GrinCall saturatedRep (grinCodeFunctionName info) values)
-                  rest
-              )
+            pure (bindExpr resultVars (GrinCall saturatedRep (grinCodeFunctionName info) values) rest)
           _ -> error "GRIN lowering expected an overapplied function call to return one function value"
   where
     suppliedArity = length arguments
@@ -363,12 +358,7 @@ lowerPrimitiveApplication originalExpr name arity arguments =
         case resultVars of
           [resultVar] -> do
             rest <- lowerRemainingApplications saturatedExpr (GrinVarValue resultVar) extraArguments
-            pure
-              ( GrinBind
-                  resultVars
-                  (GrinPrimitiveCall saturatedRep name values)
-                  rest
-              )
+            pure (bindExpr resultVars (GrinPrimitiveCall saturatedRep name values) rest)
           _ -> error "GRIN lowering expected an overapplied primitive to return one function value"
   where
     suppliedArity = length arguments
@@ -398,7 +388,7 @@ lowerRemainingApplications functionExpr functionValue arguments =
             case resultVars of
               [resultVar] -> do
                 body <- lowerRemainingApplications appliedExpr (GrinVarValue resultVar) rest
-                pure (GrinBind resultVars (GrinApply resultRep functionValue argumentValues) body)
+                pure (bindExpr resultVars (GrinApply resultRep functionValue argumentValues) body)
               _ -> error "GRIN lowering expected an intermediate application to return one function value"
 
 lowerUnknownApplication :: FcExpr -> LowerM GrinExpr
@@ -427,7 +417,7 @@ lowerCase scrutinee binder alternatives =
           ((binder, []) : [(fieldBinder, []) | fieldBinder <- altBinders alternative])
           (lowerExpr (altRhs alternative))
       scrutineeExpr <- lowerExpr scrutinee
-      pure (GrinBind [] scrutineeExpr rhs)
+      pure (bindExpr [] scrutineeExpr rhs)
     (_, TupleRep _, [alternative])
       | DataAlt constructor <- altCon alternative,
         isUnboxedTupleConstructor constructor ->
@@ -458,7 +448,7 @@ lowerUnboxedTupleCase scrutinee binder alternative = do
           ((binder, resultVars) : zip fieldBinders fieldGroups)
           (lowerExpr (altRhs alternative))
       scrutineeExpr <- lowerExpr scrutinee
-      pure (GrinBind resultVars scrutineeExpr rhs)
+      pure (bindExpr resultVars scrutineeExpr rhs)
 
 splitWidths :: [Int] -> [value] -> [[value]]
 splitWidths widths values =
@@ -467,6 +457,15 @@ splitWidths widths values =
     width : rest ->
       let (field, remaining) = splitAt width values
        in field : splitWidths rest remaining
+
+-- | Sequence an expression only when its results are used by the body.
+-- Forwarding every bound result unchanged is exactly the value expression.
+bindExpr :: [GrinVar] -> GrinExpr -> GrinExpr -> GrinExpr
+bindExpr vars valueExpr body =
+  case body of
+    GrinConstant values
+      | values == map GrinVarValue vars -> valueExpr
+    _ -> GrinBind vars valueExpr body
 
 lowerLambda :: Var -> FcExpr -> LowerM GrinExpr
 lowerLambda binder body =
@@ -506,16 +505,16 @@ lowerLet bind body =
               if rhsIsWhnf
                 then do
                   loweredRhs <- lowerExpr rhs
-                  pure (GrinBind vars loweredRhs loweredBody)
+                  pure (bindExpr vars loweredRhs loweredBody)
                 else do
                   node <- makeThunk rhs
-                  pure (GrinBind vars (GrinStore node) loweredBody)
+                  pure (bindExpr vars (GrinStore node) loweredBody)
       | otherwise -> do
           (vars, loweredBody) <- withFreshLocalVars [var] $ \groups -> do
             body' <- lowerExpr body
             pure (concat groups, body')
           loweredRhs <- lowerExpr rhs
-          pure (GrinBind vars loweredRhs loweredBody)
+          pure (bindExpr vars loweredRhs loweredBody)
     FcRec bindings -> do
       withFreshLocalVars (map fst bindings) $ \groups -> do
         nodes <-
@@ -607,7 +606,7 @@ lowerStrict hint expr continuation = do
       valueVars <- freshVars hint (exprRuntimeRep expr)
       valueExpr <- lowerExpr expr
       rest <- continuation (map GrinVarValue valueVars)
-      pure (GrinBind valueVars valueExpr rest)
+      pure (bindExpr valueVars valueExpr rest)
 
 -- | Lower an operand for an operation that performs its own forcing. Variables
 -- are passed as their existing lazy pointers; non-atomic computations are
@@ -621,7 +620,7 @@ lowerOperand hint expr continuation = do
       valueVars <- freshVars hint (exprRuntimeRep expr)
       valueExpr <- lowerExpr expr
       rest <- continuation (map GrinVarValue valueVars)
-      pure (GrinBind valueVars valueExpr rest)
+      pure (bindExpr valueVars valueExpr rest)
 
 lowerSingleOperand :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerSingleOperand hint expr continuation =
@@ -641,7 +640,7 @@ lowerDelayed expr continuation = do
     storeDelayedNode node = do
       pointerVar <- freshVar "thunk" liftedRuntimeRep
       rest <- continuation [GrinVarValue pointerVar]
-      pure (GrinBind [pointerVar] (GrinStore node) rest)
+      pure (bindExpr [pointerVar] (GrinStore node) rest)
 
 lowerArgument :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument expr continuation = do
