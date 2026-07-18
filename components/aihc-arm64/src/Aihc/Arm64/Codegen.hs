@@ -26,6 +26,15 @@ import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
 import Aihc.Grin.Cps (CpsGrinProgram, cpsGrinProgram)
 import Aihc.Grin.Syntax
+import Aihc.Native
+  ( LinkInterface,
+    LinkLayout (..),
+    buildLinkLayout,
+    buildLinkLayoutFromInterfaces,
+    extendLinkLayout,
+    extendLinkLayoutWithInterface,
+    extractLinkInterface,
+  )
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
@@ -33,7 +42,6 @@ import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Numeric (showHex)
@@ -64,24 +72,6 @@ data ObservedProgram = ObservedProgram
     observedMetadataSource :: !Text
   }
   deriving (Eq, Show)
-
--- | The process-wide constructor tags and global table slots shared by all
--- native compilation units in one executable. Extending a dependency layout
--- appends user-program entries, so cached dependency objects keep the same
--- assignments regardless of the program that links them.
-data LinkLayout = LinkLayout
-  { linkConstructors :: ![(Text, Int)],
-    linkGlobalNames :: ![Text]
-  }
-  deriving (Eq, Show)
-
--- | Constructor and global-table metadata exported by a native compilation
--- unit. Code generation for another unit never needs its GRIN bodies.
-data LinkInterface = LinkInterface
-  { linkInterfaceConstructors :: ![(Text, Int)],
-    linkInterfaceGlobalNames :: ![Text]
-  }
-  deriving (Eq, Show, Read)
 
 data Block = Block
   { blockLabel :: !Text,
@@ -180,32 +170,6 @@ validateProgramPrimitives program =
 validatePrimitiveNames :: [Text] -> Either Arm64Error ()
 validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 
--- | Build the stable layout for a dependency closure in dependency order.
-buildLinkLayout :: [GrinProgram] -> LinkLayout
-buildLinkLayout = buildLinkLayoutFromInterfaces . map extractLinkInterface
-
-buildLinkLayoutFromInterfaces :: [LinkInterface] -> LinkLayout
-buildLinkLayoutFromInterfaces = foldl extendLinkLayoutWithInterface emptyLinkLayout
-
-extractLinkInterface :: GrinProgram -> LinkInterface
-extractLinkInterface program =
-  LinkInterface
-    { linkInterfaceConstructors = programConstructorArities program,
-      linkInterfaceGlobalNames = programGlobalNames program
-    }
-
--- | Append a compilation unit to an existing layout without renumbering any
--- existing constructor or global.
-extendLinkLayout :: LinkLayout -> GrinProgram -> LinkLayout
-extendLinkLayout layout = extendLinkLayoutWithInterface layout . extractLinkInterface
-
-extendLinkLayoutWithInterface :: LinkLayout -> LinkInterface -> LinkLayout
-extendLinkLayoutWithInterface layout interface =
-  LinkLayout
-    { linkConstructors = uniqueByName (linkConstructors layout <> linkInterfaceConstructors interface),
-      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> linkInterfaceGlobalNames interface)
-    }
-
 -- | Compile a library SCC to relocatable assembly. The exported initializer
 -- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
@@ -286,19 +250,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
       [ "  mov x0, x22",
         "  bl " <> symbol
       ]
-
-emptyLinkLayout :: LinkLayout
-emptyLinkLayout =
-  LinkLayout
-    { linkConstructors = [(name, length layouts) | (name, layouts) <- builtinConstructors],
-      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
-    }
-
-programGlobalNames :: GrinProgram -> [Text]
-programGlobalNames program =
-  [name | (name, arity) <- programConstructorArities program, arity == 0]
-    <> map (grinVarName . fst) (grinWhnfGlobals program)
-    <> map (grinVarName . fst) (grinCafs program)
 
 compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
 compileEnvironment = compileEnvironmentWith False
@@ -881,24 +832,6 @@ boundVarGroups expression =
     GrinForeignCallExpr {} -> []
   where
     altBoundVarGroups alternative = grinAltBinders alternative : boundVarGroups (grinAltRhs alternative)
-
-uniqueTexts :: [Text] -> [Text]
-uniqueTexts = reverse . snd . foldl' step (Set.empty, [])
-  where
-    step (seen, values) value
-      | value `Set.member` seen = (seen, values)
-      | otherwise = (Set.insert value seen, value : values)
-
-uniqueByName :: [(Text, Int)] -> [(Text, Int)]
-uniqueByName values =
-  [ (name, arity)
-  | name <- uniqueTexts (map fst values),
-    Just arity <- [lookup name values]
-  ]
-
-programConstructorArities :: GrinProgram -> [(Text, Int)]
-programConstructorArities program =
-  [(name, length fieldLayouts) | (name, fieldLayouts) <- grinConstructors program]
 
 validateRuntimeRep :: RuntimeRep -> Either Arm64Error ()
 validateRuntimeRep runtimeRep =

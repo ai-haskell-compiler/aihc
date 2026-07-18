@@ -25,6 +25,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-native = {
+      src = sources.nativeSrc;
+      disableProfiling = true;
+      optimizeForChecks = false;
+      supportsDocs = true;
+      supportsCoverage = true;
+    };
     aihc-parser = {
       src = sources.parserSrc;
       disableProfiling = true;

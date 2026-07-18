@@ -10,6 +10,7 @@ module Aihc.Cli.Options
   )
 where
 
+import Aihc.Native (NativeTarget, parseNativeTarget)
 import Options.Applicative qualified as OA
 
 data Command
@@ -24,7 +25,8 @@ data CompileOptions = CompileOptions
     compileKeepCore :: !Bool,
     compileKeepGrin :: !Bool,
     compileKeepAsm :: !Bool,
-    compileWholeProgram :: !Bool
+    compileWholeProgram :: !Bool,
+    compileTarget :: !(Maybe NativeTarget)
   }
   deriving (Eq, Show)
 
@@ -76,7 +78,7 @@ commandParser =
         "compile"
         ( OA.info
             (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Compile a Haskell source file to a native ARM64 executable")
+            (OA.progDesc "Compile a Haskell source file to a native executable")
         )
         <> OA.command
           "install"
@@ -122,6 +124,14 @@ compileOptionsParser =
     <*> OA.switch
       ( OA.long "whole-program"
           <> OA.help "After incremental module compilation, merge Core units for whole-program DCE and code generation"
+      )
+    <*> OA.optional
+      ( OA.option
+          (OA.eitherReader parseNativeTarget)
+          ( OA.long "target"
+              <> OA.metavar "TARGET"
+              <> OA.help "Native target: apple-arm64 or linux-amd64 (default: host)"
+          )
       )
 
 replOptionsParser :: OA.Parser ReplOptions

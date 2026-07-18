@@ -1,4 +1,21 @@
-# ARM64 runtime objects
+# Native runtime objects
+
+The Apple ARM64 and Linux AMD64 backends share the runtime ABI, C runtime,
+constructor/global link layout, and snapshot support from `aihc-native`. Only
+instruction selection, register allocation, and assembly emission belong to
+the architecture packages.
+
+Both backends are built on every platform. `aihc compile` defaults to the host
+target on supported hosts and accepts an explicit target for cross-compilation:
+
+```text
+aihc compile Main.hs --target apple-arm64
+aihc compile Main.hs --target linux-amd64
+```
+
+The selected LLVM target triple is passed to Clang for dependency objects, the
+shared runtime, and the final executable. Cross-linking therefore requires a
+Clang installation with the corresponding target linker and sysroot.
 
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining

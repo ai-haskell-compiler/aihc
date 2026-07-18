@@ -77,6 +77,13 @@ in rec {
     ".yml"
   ];
 
+  nativeSrc = mkComponentSrc "/components/aihc-native" [
+    ".hs"
+    ".cabal"
+    ".c"
+    ".h"
+  ];
+
   grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
     ".hs"
     ".cabal"

@@ -9,6 +9,7 @@ packages:
   components/aihc-tc
   components/aihc-fc
   components/aihc-grin
+  components/aihc-native
   components/aihc-amd64
   components/aihc-arm64
   bin/aihc-fmt

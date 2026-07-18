@@ -23,30 +23,28 @@ where
 
 import Aihc.Arm64.Codegen
   ( Arm64Error (..),
-    LinkInterface,
-    LinkLayout,
     ObservedProgram (..),
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
     compileModule,
     compileObservedFunction,
     compileProgram,
     compileProgramWithDependencies,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
-import Paths_aihc_arm64 (getDataFileName)
-
--- | Locate the C runtime used by generated assembly.
-runtimeSourcePath :: IO FilePath
-runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
-
-snapshotSourcePath :: IO FilePath
-snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
+import Aihc.Native
+  ( LinkInterface,
+    LinkLayout,
+    NativeTarget (AppleArm64),
+    buildLinkLayout,
+    buildLinkLayoutFromInterfaces,
+    extendLinkLayout,
+    extendLinkLayoutWithInterface,
+    extractLinkInterface,
+    nativeTargetTriple,
+    runtimeSourcePath,
+    snapshotSourcePath,
+  )
 
 -- | LLVM target triple for the assembly emitted by this backend.
 targetTriple :: String
-targetTriple = "arm64-apple-darwin"
+targetTriple = nativeTargetTriple AppleArm64
