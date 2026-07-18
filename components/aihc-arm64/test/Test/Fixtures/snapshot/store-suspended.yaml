@@ -1,0 +1,14 @@
+entry: $entry
+program: |
+  constructor I32#/1 [Int32Rep]
+
+  $delayed -> BoxedRep Lifted =
+    store (CI32# (99 :: Int32Rep))
+
+  $entry -> BoxedRep Lifted =
+    store (F$delayed)
+return: "@0"
+heap: |
+  @0 = F$delayed
+status: pass
+reason: observing a stored thunk symbolizes its code pointer without entering the thunk

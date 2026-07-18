@@ -157,6 +157,12 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
+      testCase "FC lowering wraps partially applied primitives in ordinary closures" $ do
+        let program = lowerProgram partialPrimitiveProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "allocates an ordinary closure" ("P$grin_primitive_" `isInfixOf` rendered)
+        assertBool "wrapper makes a saturated primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered),
       testCase "FC lowering counts zero-width arguments in closure arity" $ do
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
@@ -601,6 +607,21 @@ primitiveCallProgram =
     addVar = Var "+#" (Unique 29) (TcFunTy intTy (TcFunTy intTy intTy))
     addOneVar = Var "addOne" (Unique 30) (TcFunTy intTy intTy)
     argumentVar = Var "argument" (Unique 31) intTy
+
+partialPrimitiveProgram :: FcProgram
+partialPrimitiveProgram =
+  FcProgram
+    [ FcPrimitive addVar 2,
+      FcTopBind
+        ( FcNonRec
+            makeAdderVar
+            (FcLam firstVar (FcApp (FcVar addVar) (FcVar firstVar)))
+        )
+    ]
+  where
+    addVar = Var "+#" (Unique 130) (TcFunTy intTy (TcFunTy intTy intTy))
+    makeAdderVar = Var "makeAdder" (Unique 131) (TcFunTy intTy (TcFunTy intTy intTy))
+    firstVar = Var "first" (Unique 132) intTy
 
 zeroWidthSaturatedApplicationProgram :: FcProgram
 zeroWidthSaturatedApplicationProgram =

@@ -202,7 +202,6 @@ renderNodeTag nodeTag =
     GrinClosure functionName argumentLayouts ->
       "P" <> T.unpack (unFunctionName functionName) <> "/" <> show (length argumentLayouts)
     GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
-    GrinPrimitive name arity -> "Prim[" <> T.unpack name <> "/" <> show arity <> "]"
 
 renderLiteral :: GrinLiteral -> String
 renderLiteral literal =

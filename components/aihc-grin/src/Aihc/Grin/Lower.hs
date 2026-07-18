@@ -342,8 +342,8 @@ lowerPrimitiveApplication :: FcExpr -> Text -> Int -> [FcExpr] -> LowerM GrinExp
 lowerPrimitiveApplication originalExpr name arity arguments =
   case compare suppliedArity arity of
     LT ->
-      lowerArgumentMany arguments $ \values ->
-        pure (GrinStore (GrinNode (GrinPrimitive name (arity - suppliedArity)) values))
+      lowerArgumentMany arguments $
+        fmap GrinStore . makePrimitiveClosure originalExpr name (arity - suppliedArity)
     EQ ->
       lowerArgumentMany arguments $ \values ->
         pure (GrinPrimitiveCall (exprRuntimeRep originalExpr) name values)
@@ -360,6 +360,40 @@ lowerPrimitiveApplication originalExpr name arity arguments =
           _ -> error "GRIN lowering expected an overapplied primitive to return one function value"
   where
     suppliedArity = length arguments
+
+-- Primitive operations have no heap representation. Under-application is
+-- represented by an ordinary closure whose generated entry makes the direct,
+-- saturated primitive call once all remaining logical arguments arrive.
+makePrimitiveClosure :: FcExpr -> Text -> Int -> [GrinValue] -> LowerM GrinNode
+makePrimitiveClosure originalExpr name remaining captured = do
+  (argumentTypes, resultType) <-
+    case exprType originalExpr >>= splitFunctionTypes remaining of
+      Just wrapperType -> pure wrapperType
+      Nothing -> error ("GRIN lowering could not construct primitive wrapper for " <> show name)
+  captureParameters <- mapM (freshVar "primitive_capture" . grinValueRuntimeRep) captured
+  argumentGroups <- mapM (freshVars "primitive_argument" . typeRuntimeRep) argumentTypes
+  functionName <- freshFunction "primitive"
+  let argumentLayouts = map (map grinVarRuntimeRep) argumentGroups
+      arguments = map GrinVarValue (captureParameters <> concat argumentGroups)
+      resultRep = typeRuntimeRep resultType
+  emitFunction
+    GrinFunction
+      { grinFunctionName = functionName,
+        grinFunctionLinkName = Nothing,
+        grinFunctionParameters = captureParameters <> concat argumentGroups,
+        grinFunctionResultRep = resultRep,
+        grinFunctionBody = GrinPrimitiveCall resultRep name arguments
+      }
+  pure (GrinNode (GrinClosure functionName argumentLayouts) captured)
+
+splitFunctionTypes :: Int -> TcType -> Maybe ([TcType], TcType)
+splitFunctionTypes count ty
+  | count == 0 = Just ([], ty)
+splitFunctionTypes count (TcFunTy argument result) = do
+  (arguments, finalResult) <- splitFunctionTypes (count - 1) result
+  pure (argument : arguments, finalResult)
+splitFunctionTypes count (TcQualTy [] body) = splitFunctionTypes count body
+splitFunctionTypes _ _ = Nothing
 
 dropLastTermApplications :: Int -> FcExpr -> FcExpr
 dropLastTermApplications count expr

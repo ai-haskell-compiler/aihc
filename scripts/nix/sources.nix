@@ -63,6 +63,7 @@ in rec {
     ".hs"
     ".cabal"
     ".c"
+    ".h"
     ".yaml"
     ".yml"
   ];

@@ -28,6 +28,7 @@ module Aihc.Grin.Syntax
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
+    builtinConstructorLayouts,
     builtinConstructors,
   )
 where
@@ -152,7 +153,6 @@ data GrinNodeTag
   | -- | A suspended computation. Its target function must return exactly
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
-  | GrinPrimitive !Text !Int
   deriving (Eq, Show, Read)
 
 data GrinAlt = GrinAlt
@@ -216,6 +216,13 @@ builtinConstructors =
     ("()", []),
     ("(,)", [[liftedRuntimeRep], [liftedRuntimeRep]])
   ]
+
+-- | Flattened storage layouts for runtime-supplied constructors. Source-level
+-- argument boundaries matter for arity, while heap snapshots describe the
+-- individual machine values stored in each node.
+builtinConstructorLayouts :: [(Text, [RuntimeRep])]
+builtinConstructorLayouts =
+  [(name, concat argumentLayouts) | (name, argumentLayouts) <- builtinConstructors]
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,

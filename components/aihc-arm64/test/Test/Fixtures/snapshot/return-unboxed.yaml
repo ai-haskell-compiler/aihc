@@ -1,0 +1,8 @@
+entry: $entry
+program: |
+  $entry -> Int32Rep =
+    constant (42 :: Int32Rep)
+return: "42"
+heap: "[]"
+status: pass
+reason: a native function may return an unboxed machine value without allocating

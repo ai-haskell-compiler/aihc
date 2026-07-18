@@ -1,22 +1,7 @@
-#include <stdint.h>
+#include "aihc_runtime.h"
+
 #include <stdio.h>
 #include <stdlib.h>
-
-enum {
-  AIHC_LITERAL_INT = 0,
-  AIHC_CONSTRUCTOR = 1,
-  AIHC_CLOSURE = 2,
-  AIHC_THUNK = 3,
-  AIHC_PRIMITIVE = 4,
-  AIHC_CELL = 5,
-  AIHC_STATE_TOKEN = 6,
-};
-
-enum {
-  AIHC_CELL_SUSPENDED = 0,
-  AIHC_CELL_VALUE = 1,
-  AIHC_CELL_BLACKHOLE = 2,
-};
 
 enum {
   AIHC_CONT_NORMAL = 0,
@@ -25,23 +10,7 @@ enum {
   AIHC_CONT_FINAL = 3,
 };
 
-enum {
-  AIHC_PRIM_REAL_WORLD = 1,
-};
-
-typedef struct AihcValue AihcValue;
 typedef struct AihcContinuation AihcContinuation;
-/* Every runtime location is one machine word. Static RuntimeRep metadata says
- * whether that word is a heap pointer or an unboxed payload. */
-typedef uintptr_t AihcSlot;
-
-struct AihcValue {
-  uint64_t kind;
-  uintptr_t info;
-  uint64_t arity;
-  uint64_t count;
-  AihcSlot fields[];
-};
 
 struct AihcContinuation {
   uint64_t kind;
@@ -54,7 +23,7 @@ struct AihcContinuation {
       uint64_t count;
     } normal;
     struct {
-      AihcValue *cell;
+      AihcValue *object;
     } update;
   } payload;
 };
@@ -94,19 +63,63 @@ static AihcContinuation *aihc_push_special(AihcMachine *machine,
   return continuation;
 }
 
-static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t count,
+static uintptr_t aihc_make_header(uint64_t tag, uintptr_t info) {
+  switch (tag) {
+  case AIHC_TAG_CLOSURE:
+  case AIHC_TAG_THUNK:
+    if ((info & AIHC_TAG_MASK) != 0) {
+      aihc_fail("function entry is not aligned for pointer tagging");
+    }
+    return info | tag;
+  case AIHC_TAG_NODE:
+  case AIHC_TAG_PARTIAL_CONSTRUCTOR:
+    return (info << AIHC_TAG_BITS) | tag;
+  default:
+    aihc_fail("attempted to allocate an invalid object tag");
+  }
+  return 0;
+}
+
+static AihcSlot aihc_make_shape(uint64_t arity, uint64_t count) {
+  if (arity > UINT32_MAX || count > UINT32_MAX) {
+    aihc_fail("object shape exceeds 32-bit limits");
+  }
+  return (arity << AIHC_SHAPE_ARITY_SHIFT) | count;
+}
+
+AihcValue *aihc_make_node(uint64_t tag, uintptr_t info, uint64_t arity,
+                          uint64_t count) {
+  uint64_t shape_words =
+      tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ? 1 : 0;
+  uint64_t object_words = 1 + shape_words + count;
+  if (object_words < 2) {
+    object_words = 2;
+  }
+  AihcValue *value = aihc_allocate(sizeof(AihcSlot) * object_words);
+  value->header = aihc_make_header(tag, info);
+  if (shape_words != 0) {
+    value->fields[0] = aihc_make_shape(arity, count);
+  } else if (arity != 0) {
+    aihc_fail("only partial applications may carry dynamic arity");
+  }
+  return value;
+}
+
+static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t result_tag,
+                                        uint64_t result_arity,
+                                        uint64_t count,
                                         const AihcSlot *fields) {
-  AihcValue *copy = aihc_allocate(
-      sizeof(*copy) + sizeof(AihcSlot) * (value->count + count));
-  copy->kind = value->kind;
-  copy->info = value->info;
-  copy->arity = value->arity;
-  copy->count = value->count + count;
-  for (uint64_t index = 0; index < value->count; ++index) {
-    copy->fields[index] = value->fields[index];
+  uint64_t original_count = aihc_value_count(value);
+  AihcValue *copy =
+      aihc_make_node(result_tag, aihc_value_info(value), result_arity,
+                     original_count + count);
+  AihcSlot *original_fields = aihc_value_fields(value);
+  AihcSlot *copy_fields = aihc_value_fields(copy);
+  for (uint64_t index = 0; index < original_count; ++index) {
+    copy_fields[index] = original_fields[index];
   }
   for (uint64_t index = 0; index < count; ++index) {
-    copy->fields[value->count + index] = fields[index];
+    copy_fields[original_count + index] = fields[index];
   }
   return copy;
 }
@@ -114,14 +127,16 @@ static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t count,
 static AihcSlot *aihc_arguments_with_fields(AihcValue *function,
                                              uint64_t count,
                                              const AihcSlot *fields) {
-  uint64_t total = function->count + count;
+  uint64_t field_count = aihc_value_count(function);
+  uint64_t total = field_count + count;
   AihcSlot *arguments =
       aihc_allocate(sizeof(*arguments) * (total == 0 ? 1 : total));
-  for (uint64_t index = 0; index < function->count; ++index) {
-    arguments[index] = function->fields[index];
+  AihcSlot *function_fields = aihc_value_fields(function);
+  for (uint64_t index = 0; index < field_count; ++index) {
+    arguments[index] = function_fields[index];
   }
   for (uint64_t index = 0; index < count; ++index) {
-    arguments[function->count + index] = fields[index];
+    arguments[field_count + index] = fields[index];
   }
   return arguments;
 }
@@ -132,34 +147,8 @@ static void aihc_return_value(AihcMachine *machine, AihcSlot value);
 static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
                             uint64_t result_is_lifted);
 
-AihcValue *aihc_make_node(uint64_t kind, uintptr_t info, uint64_t arity,
-                          uint64_t count) {
-  AihcValue *value = aihc_allocate(sizeof(*value) + sizeof(AihcSlot) * count);
-  value->kind = kind;
-  value->info = info;
-  value->arity = arity;
-  value->count = count;
-  return value;
-}
-
-AihcValue *aihc_make_cell(void) {
-  return aihc_make_node(AIHC_CELL, AIHC_CELL_SUSPENDED, 1, 1);
-}
-
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
-  if (index >= value->count) {
-    aihc_fail("field index out of bounds");
-  }
-  value->fields[index] = field;
-}
-
-void aihc_set_cell(AihcValue *cell, AihcValue *value) {
-  if (cell->kind != AIHC_CELL) {
-    aihc_fail("attempted to initialize a non-cell");
-  }
-  cell->info =
-      value->kind == AIHC_THUNK ? AIHC_CELL_SUSPENDED : AIHC_CELL_VALUE;
-  cell->fields[0] = (AihcSlot)value;
+  aihc_value_fields(value)[index] = field;
 }
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
@@ -185,7 +174,7 @@ void aihc_push_normal(AihcMachine *machine, void *code, AihcSlot *locals,
 
 static void aihc_schedule_function(AihcMachine *machine, AihcValue *function,
                                    AihcSlot *arguments) {
-  machine->next = (void *)function->info;
+  machine->next = (void *)aihc_value_info(function);
   machine->args = arguments;
   machine->locals = NULL;
 }
@@ -193,38 +182,40 @@ static void aihc_schedule_function(AihcMachine *machine, AihcValue *function,
 static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                               uint64_t count,
                               const AihcSlot *arguments) {
-  switch (function->kind) {
-  case AIHC_CLOSURE:
-    if (function->arity > 1) {
-      AihcValue *applied = aihc_copy_with_fields(function, count, arguments);
-      applied->arity -= 1;
+  switch (aihc_value_tag(function)) {
+  case AIHC_TAG_CLOSURE: {
+    uint64_t arity = aihc_value_arity(function);
+    if (arity > 1) {
+      AihcValue *applied = aihc_copy_with_fields(
+          function, AIHC_TAG_CLOSURE, arity - 1, count, arguments);
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
-    if (function->arity == 0) {
+    if (arity == 0) {
       aihc_fail("saturated closure was applied");
     }
     aihc_schedule_function(machine, function,
                            aihc_arguments_with_fields(function, count,
                                                       arguments));
     return;
-  case AIHC_CONSTRUCTOR: {
-    AihcValue *applied = aihc_copy_with_fields(function, count, arguments);
-    if (function->arity > 1) {
-      applied->arity -= 1;
+  }
+  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
+    uint64_t arity = aihc_value_arity(function);
+    if (arity > 1) {
+      AihcValue *applied = aihc_copy_with_fields(
+          function, AIHC_TAG_PARTIAL_CONSTRUCTOR, arity - 1, count,
+          arguments);
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
-    if (function->arity == 0) {
+    if (arity == 0) {
       aihc_fail("saturated constructor was applied");
     }
-    applied->arity = 0;
+    AihcValue *applied = aihc_copy_with_fields(
+        function, AIHC_TAG_NODE, 0, count, arguments);
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
-  case AIHC_PRIMITIVE:
-    aihc_fail("primitive is not implemented by the native runtime");
-    return;
   default:
     aihc_fail("attempted to apply a non-function value");
   }
@@ -235,39 +226,30 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
   if (value == NULL) {
     aihc_fail("attempted to evaluate null");
   }
-  if (value->kind == AIHC_CELL) {
-    switch (value->info) {
-    case AIHC_CELL_SUSPENDED: {
-      AihcValue *thunk = (AihcValue *)value->fields[0];
-      if (thunk == NULL || thunk->kind != AIHC_THUNK) {
-        aihc_fail("suspended cell does not contain a thunk");
-      }
-      value->info = AIHC_CELL_BLACKHOLE;
-      AihcContinuation *continuation =
-          aihc_push_special(machine, AIHC_CONT_UPDATE);
-      continuation->payload.update.cell = value;
-      aihc_schedule_function(machine, thunk, thunk->fields);
-      return;
-    }
-    case AIHC_CELL_VALUE:
-      if (result_is_lifted) {
-        aihc_eval_value(machine, (AihcValue *)value->fields[0], 1);
-      } else {
-        aihc_return_value(machine, value->fields[0]);
-      }
-      return;
-    case AIHC_CELL_BLACKHOLE:
-      aihc_fail("blackholed thunk re-entered");
-    default:
-      aihc_fail("unknown cell state");
-    }
+  switch (aihc_value_tag(value)) {
+  case AIHC_TAG_THUNK: {
+    uintptr_t entry = aihc_value_info(value);
+    AihcSlot *arguments = aihc_value_fields(value);
+    value->header = AIHC_TAG_BLACKHOLE;
+    AihcContinuation *continuation =
+        aihc_push_special(machine, AIHC_CONT_UPDATE);
+    continuation->payload.update.object = value;
+    machine->next = (void *)entry;
+    machine->args = arguments;
+    machine->locals = NULL;
+    return;
   }
-  if (value->kind == AIHC_PRIMITIVE && value->arity == 0) {
-    if (value->info == AIHC_PRIM_REAL_WORLD) {
-      aihc_return_value(machine, 0);
-      return;
+  case AIHC_TAG_INDIRECTION:
+    if (result_is_lifted) {
+      aihc_eval_value(machine, (AihcValue *)value->fields[0], 1);
+    } else {
+      aihc_return_value(machine, value->fields[0]);
     }
-    aihc_fail("unknown zero-arity primitive");
+    return;
+  case AIHC_TAG_BLACKHOLE:
+    aihc_fail("blackholed thunk re-entered");
+  default:
+    break;
   }
   aihc_return_value(machine, (AihcSlot)value);
 }
@@ -301,11 +283,10 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
     if (count != 1) {
       aihc_fail("attempted to update a thunk with multiple values");
     }
-    continuation->payload.update.cell->info = AIHC_CELL_VALUE;
-    continuation->payload.update.cell->fields[0] = values[0];
-    /* A stored constructor is itself represented by a value cell. Continue
-     * forcing the thunk result so the awaiting continuation receives the
-     * constructor node rather than that intermediate heap location. */
+    continuation->payload.update.object->fields[0] = values[0];
+    continuation->payload.update.object->header = AIHC_TAG_INDIRECTION;
+    /* Continue forcing through the freshly installed indirection so the
+     * awaiting continuation receives the result in weak-head normal form. */
     aihc_eval_value(machine, (AihcValue *)values[0], 1);
     return;
   case AIHC_CONT_TOP:

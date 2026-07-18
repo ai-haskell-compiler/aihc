@@ -1,0 +1,13 @@
+entry: $entry
+program: |
+  constructor Loop/1 [BoxedRep Lifted]
+
+  $entry -> BoxedRep Lifted =
+    store-rec
+      (self%1 :: BoxedRep Lifted) = (CLoop (self%1 :: BoxedRep Lifted))
+    constant (self%1 :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CLoop @0
+status: pass
+reason: snapshot object identifiers preserve a self-reference without traversing forever

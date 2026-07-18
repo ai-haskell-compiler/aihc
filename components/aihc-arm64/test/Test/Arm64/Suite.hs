@@ -5,21 +5,36 @@ module Test.Arm64.Suite
   )
 where
 
-import Aihc.Arm64 (Arm64Error (..), buildLinkLayout, compileModule, compileProgram, runtimeSourcePath, validateProgramPrimitives)
+import Aihc.Arm64
+  ( Arm64Error (..),
+    ObservedProgram (..),
+    buildLinkLayout,
+    compileModule,
+    compileObservedFunction,
+    compileProgram,
+    runtimeSourcePath,
+    snapshotSourcePath,
+    targetTriple,
+    validateProgramPrimitives,
+  )
 import Aihc.Arm64.Emit (renderAllocatedBlock)
 import Aihc.Arm64.Lir
 import Aihc.Arm64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
+import Aihc.Testing.GrinProgram (parseProgram)
 import Control.Exception (bracket)
 import Control.Monad (when)
+import Data.Aeson (FromJSON (..), withObject, (.:))
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
+import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 import System.Info (arch, os)
 import System.Process (readProcessWithExitCode)
@@ -191,6 +206,7 @@ tests =
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
             assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
+      testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
@@ -200,8 +216,173 @@ tests =
         assertBool
           "runtime apply does not enter its function"
           (not ("aihc_eval_value(machine, function" `isInfixOf` runtime)),
+      testCase "runtime object ABI compiles cleanly on the host C compiler" $
+        withTempDirectory "aihc-arm64-runtime" $ \directory -> do
+          runtime <- runtimeSourcePath
+          snapshotRuntime <- snapshotSourcePath
+          let executable = directory </> "runtime-check"
+          (compilerExit, _compilerOut, compilerErr) <-
+            readProcessWithExitCode
+              "cc"
+              [ "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                takeDirectory runtime,
+                runtime,
+                snapshotRuntime,
+                "-x",
+                "c",
+                "-",
+                "-o",
+                executable
+              ]
+              "int main(void) { return 0; }\n"
+          assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
+
+data SnapshotCase = SnapshotCase
+  { snapshotCaseName :: !String,
+    snapshotCaseProgram :: !GrinProgram,
+    snapshotCaseEntry :: !FunctionName,
+    snapshotCaseExpected :: !T.Text
+  }
+
+data SnapshotFixture = SnapshotFixture
+  { snapshotFixtureEntry :: !T.Text,
+    snapshotFixtureProgram :: !T.Text,
+    snapshotFixtureReturn :: !T.Text,
+    snapshotFixtureHeap :: !T.Text,
+    snapshotFixtureStatus :: !T.Text,
+    snapshotFixtureReason :: !T.Text
+  }
+
+instance FromJSON SnapshotFixture where
+  parseJSON =
+    withObject "GRIN snapshot fixture" $ \object ->
+      SnapshotFixture
+        <$> object .: "entry"
+        <*> object .: "program"
+        <*> object .: "return"
+        <*> object .: "heap"
+        <*> object .: "status"
+        <*> object .: "reason"
+
+snapshotCases :: [(String, FilePath)]
+snapshotCases =
+  [ ("stores one value", "store-one.yaml"),
+    ("preserves a suspended thunk", "store-suspended.yaml"),
+    ("stores linked values", "store-linked.yaml"),
+    ("stores a self-referential value", "store-self-referential.yaml"),
+    ("returns an unboxed value", "return-unboxed.yaml"),
+    ("evaluates only through GrinEval", "eval.yaml"),
+    ("applies a stored closure", "apply.yaml")
+  ]
+
+snapshotTest :: (String, FilePath) -> TestTree
+snapshotTest (name, fixtureName) =
+  testCase name $ do
+    snapshotCase <- loadSnapshotCase name fixtureName
+    let program = snapshotCaseProgram snapshotCase
+        entry = snapshotCaseEntry snapshotCase
+        expected = T.stripEnd (snapshotCaseExpected snapshotCase)
+    assertEqual "direct GRIN lint" [] (lintProgram program)
+    interpreted <- interpretProgramFunctionSnapshot entry program
+    snapshot <-
+      case interpreted of
+        Left err -> assertFailure ("GRIN interpreter failed: " <> show err)
+        Right value -> pure value
+    assertEqual "interpreter snapshot" expected (T.stripEnd (renderHeapSnapshot snapshot))
+    let cps = expectCpsGrin program
+    assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+    observed <-
+      case compileObservedFunction entry cps of
+        Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
+        Right value -> pure value
+    when (arch == "aarch64" && os == "darwin") $ do
+      native <- runObservedProgram observed
+      assertEqual "native snapshot" expected (T.stripEnd native)
+
+loadSnapshotCase :: String -> FilePath -> IO SnapshotCase
+loadSnapshotCase name fixtureName = do
+  root <- snapshotFixtureRoot
+  result <- Y.decodeFileEither (root </> fixtureName)
+  fixture <-
+    case result of
+      Left err -> assertFailure ("invalid GRIN snapshot fixture: " <> Y.prettyPrintParseException err)
+      Right value -> pure value
+  assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
+  assertBool "fixture reason is present" (not (T.null (T.strip (snapshotFixtureReason fixture))))
+  program <-
+    case parseProgram (snapshotFixtureProgram fixture) of
+      Left err -> assertFailure ("invalid GRIN program: " <> err)
+      Right value -> pure value
+  let heap = T.stripEnd (snapshotFixtureHeap fixture)
+      expected
+        | heap == "[]" = "return: " <> snapshotFixtureReturn fixture <> "\nheap: []"
+        | otherwise =
+            "return: "
+              <> snapshotFixtureReturn fixture
+              <> "\nheap:\n"
+              <> T.unlines (map ("  " <>) (T.lines heap))
+  pure
+    SnapshotCase
+      { snapshotCaseName = name,
+        snapshotCaseProgram = program,
+        snapshotCaseEntry = FunctionName (snapshotFixtureEntry fixture),
+        snapshotCaseExpected = expected
+      }
+
+snapshotFixtureRoot :: IO FilePath
+snapshotFixtureRoot = getCurrentDirectory >>= findRoot
+  where
+    findRoot directory = do
+      let candidate = directory </> "components" </> "aihc-arm64" </> "test" </> "Test" </> "Fixtures" </> "snapshot"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure "GRIN snapshot fixture root is missing"
+            else findRoot parent
+
+runObservedProgram :: ObservedProgram -> IO T.Text
+runObservedProgram observed =
+  withTempDirectory "aihc-arm64-snapshot" $ \directory -> do
+    runtime <- runtimeSourcePath
+    snapshotRuntime <- snapshotSourcePath
+    let assemblyPath = directory </> "snapshot.s"
+        metadataPath = directory </> "snapshot_metadata.c"
+        executablePath = directory </> "snapshot"
+    TIO.writeFile assemblyPath (observedAssembly observed)
+    TIO.writeFile metadataPath (observedMetadataSource observed)
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        [ "--target=" <> targetTriple,
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          takeDirectory runtime,
+          runtime,
+          snapshotRuntime,
+          metadataPath,
+          assemblyPath,
+          "-o",
+          executablePath
+        ]
+        ""
+    case clangExit of
+      ExitSuccess -> pure ()
+      ExitFailure _ -> assertFailure ("clang failed to assemble observed GRIN:\n" <> clangErr)
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
+    pure (T.pack programOut)
 
 explicitEvaluationProgram :: GrinProgram
 explicitEvaluationProgram =
