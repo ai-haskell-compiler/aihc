@@ -276,7 +276,7 @@ lowerNonTupleExpr expr =
       do
         codeInfo <- lookupCodeInfo var
         case codeInfo of
-          Just info -> pure (GrinStore (knownFunctionNode info 0 []))
+          Just info -> pure (GrinStore (knownFunctionNode info (codeRuntimeArity info) []))
           Nothing -> do
             direct <- lowerDirectValues expr
             case direct of
@@ -316,22 +316,24 @@ lowerApplication expr =
     _ -> lowerUnknownApplication expr
 
 lowerKnownApplication :: FcExpr -> GrinCodeInfo -> [FcExpr] -> LowerM GrinExpr
-lowerKnownApplication originalExpr info arguments =
-  case compare suppliedArity termArity of
-    LT ->
-      lowerArgumentMany arguments $ \values ->
-        if remainingRuntimeArity info suppliedArity == 0
-          && grinCodeResultRep info == exprRuntimeRep originalExpr
-          then pure (GrinCall (grinCodeResultRep info) (grinCodeFunctionName info) values)
-          else pure (GrinStore (knownFunctionNode info suppliedArity values))
-    EQ ->
-      lowerArgumentMany arguments $ \values ->
-        pure (GrinCall (exprRuntimeRep appliedExpr) (grinCodeFunctionName info) values)
-    GT -> do
-      let (saturatedArguments, extraArguments) = splitAt termArity arguments
-          saturatedExpr = dropLastTermApplications (suppliedArity - termArity) originalExpr
-          saturatedRep = exprRuntimeRep saturatedExpr
-      lowerArgumentMany saturatedArguments $ \values -> do
+lowerKnownApplication originalExpr info arguments = do
+  let (entryArguments, extraArguments) = splitAt termArity arguments
+  lowerArgumentMany entryArguments $ \values ->
+    case extraArguments of
+      [] ->
+        case compare (length values) runtimeArity of
+          LT -> pure (GrinStore (knownFunctionNode info (runtimeArity - length values) values))
+          EQ
+            | length entryArguments == termArity ->
+                pure (GrinCall (exprRuntimeRep originalExpr) (grinCodeFunctionName info) values)
+            | grinCodeResultRep info == exprRuntimeRep originalExpr ->
+                pure (GrinCall (grinCodeResultRep info) (grinCodeFunctionName info) values)
+            | otherwise ->
+                pure (GrinStore (knownFunctionNode info 0 values))
+          GT -> error "GRIN lowering supplied more runtime arguments than the known function accepts"
+      _ -> do
+        let saturatedExpr = dropLastTermApplications (length extraArguments) originalExpr
+            saturatedRep = exprRuntimeRep saturatedExpr
         resultVars <- freshVars "call" saturatedRep
         case resultVars of
           [resultVar] -> do
@@ -339,9 +341,8 @@ lowerKnownApplication originalExpr info arguments =
             pure (bindExpr resultVars (GrinCall saturatedRep (grinCodeFunctionName info) values) rest)
           _ -> error "GRIN lowering expected an overapplied function call to return one function value"
   where
-    suppliedArity = length arguments
     termArity = length (grinCodeParameterLayouts info)
-    appliedExpr = originalExpr
+    runtimeArity = codeRuntimeArity info
 
 lowerPrimitiveApplication :: FcExpr -> Text -> Int -> [FcExpr] -> LowerM GrinExpr
 lowerPrimitiveApplication originalExpr name arity arguments =
@@ -404,12 +405,15 @@ lowerUnknownApplication expr =
     _ -> error "GRIN lowering expected an application"
 
 knownFunctionNode :: GrinCodeInfo -> Int -> [GrinValue] -> GrinNode
-knownFunctionNode info suppliedTermArity =
+knownFunctionNode info remainingRuntimeArity =
   GrinNode
-    (GrinClosure (grinCodeFunctionName info) (remainingRuntimeArity info suppliedTermArity))
+    (GrinClosure (grinCodeFunctionName info) remainingRuntimeArity)
 
-remainingRuntimeArity :: GrinCodeInfo -> Int -> Int
-remainingRuntimeArity info suppliedTermArity =
+codeRuntimeArity :: GrinCodeInfo -> Int
+codeRuntimeArity = length . concat . grinCodeParameterLayouts
+
+runtimeArityAfterTerms :: GrinCodeInfo -> Int -> Int
+runtimeArityAfterTerms info suppliedTermArity =
   length (concat (drop suppliedTermArity (grinCodeParameterLayouts info)))
 
 lowerCase :: FcExpr -> Var -> [FcAlt] -> LowerM GrinExpr
@@ -993,7 +997,7 @@ knownSaturatedApplication expr =
       pure $ do
         info <- codeInfo
         if length arguments <= length (grinCodeParameterLayouts info)
-          && remainingRuntimeArity info (length arguments) == 0
+          && runtimeArityAfterTerms info (length arguments) == 0
           && isLiftedRuntimeRep (grinCodeResultRep info)
           then Just (info, arguments)
           else Nothing
@@ -1013,7 +1017,7 @@ isWhnfExpr expr =
       pure
         ( case codeInfo of
             Just info ->
-              remainingRuntimeArity info 0 > 0
+              runtimeArityAfterTerms info 0 > 0
                 || grinCodeResultRep info /= exprRuntimeRep expr
             Nothing -> maybe False (> 0) primitiveArity || maybe False (> 0) constructorArity
         )
@@ -1028,7 +1032,7 @@ isWhnfExpr expr =
               codeInfo <- lookupCodeInfo var
               pure $ case codeInfo of
                 Just info ->
-                  remainingRuntimeArity info (length arguments) > 0
+                  runtimeArityAfterTerms info (length arguments) > 0
                     || grinCodeResultRep info /= exprRuntimeRep expr
                 Nothing -> False
             _ -> pure False
