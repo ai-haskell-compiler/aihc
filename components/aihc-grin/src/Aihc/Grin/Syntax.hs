@@ -38,7 +38,7 @@ import Data.Text (Text)
 
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
-  { grinConstructors :: ![(Text, [RuntimeRep])],
+  { grinConstructors :: ![(Text, [[RuntimeRep]])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
     -- | Global slots supplied by dependency units and referenced by this unit.
@@ -119,8 +119,12 @@ data GrinExpr
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
-  | GrinApply !RuntimeRep !GrinValue ![GrinValue]
-  | GrinCase !GrinValue !GrinVar ![GrinAlt]
+  | -- | Apply exactly one logical argument to a function already in weak-head
+    -- normal form. The list contains that argument's runtime values and may be
+    -- empty for a zero-width argument such as @State# RealWorld@.
+    GrinApply !RuntimeRep !GrinValue ![GrinValue]
+  | -- | Match a value that is already in weak-head normal form.
+    GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
   | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
@@ -140,8 +144,12 @@ data GrinNode = GrinNode
   deriving (Eq, Show, Read)
 
 data GrinNodeTag
-  = GrinConstructor !Text
-  | GrinClosure !FunctionName !Int
+  = -- | A constructor with its remaining logical field count.
+    GrinConstructor !Text !Int
+  | -- | A function closure with the runtime layout of every remaining logical
+    -- argument. Empty layouts are retained because they still count toward
+    -- semantic arity even though they carry no runtime values.
+    GrinClosure !FunctionName ![[RuntimeRep]]
   | -- | A suspended computation. Its target function must return exactly
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
@@ -201,18 +209,21 @@ isPointerRuntimeRep runtimeRep =
 -- Keeping their arities with the shared GRIN syntax makes lowering,
 -- interpretation, linting, and native code generation agree on which global
 -- constructor values exist before the program starts.
-builtinConstructorLayouts :: [(Text, [RuntimeRep])]
-builtinConstructorLayouts =
-  [ ("C#", [WordRep]),
+builtinConstructors :: [(Text, [[RuntimeRep]])]
+builtinConstructors =
+  [ ("C#", [[WordRep]]),
     ("[]", []),
-    (":", [liftedRuntimeRep, liftedRuntimeRep]),
+    (":", [[liftedRuntimeRep], [liftedRuntimeRep]]),
     ("()", []),
-    ("(,)", [liftedRuntimeRep, liftedRuntimeRep])
+    ("(,)", [[liftedRuntimeRep], [liftedRuntimeRep]])
   ]
 
-builtinConstructors :: [(Text, Int)]
-builtinConstructors =
-  [(name, length fields) | (name, fields) <- builtinConstructorLayouts]
+-- | Flattened storage layouts for runtime-supplied constructors. Source-level
+-- argument boundaries matter for arity, while heap snapshots describe the
+-- individual machine values stored in each node.
+builtinConstructorLayouts :: [(Text, [RuntimeRep])]
+builtinConstructorLayouts =
+  [(name, concat argumentLayouts) | (name, argumentLayouts) <- builtinConstructors]
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,

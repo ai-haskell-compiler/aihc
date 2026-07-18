@@ -10,7 +10,7 @@ module Aihc.Testing.GrinProgram
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep)
+import Aihc.Tc.Types (RuntimeRep, liftedRuntimeRep)
 import Control.Monad (unless, when)
 import Data.Char (isDigit)
 import Data.Text (Text)
@@ -44,7 +44,7 @@ sourceLine line = do
   let indentation = T.length (T.takeWhile (== ' ') line)
   pure SourceLine {sourceIndent = indentation, sourceText = T.strip line}
 
-parseDeclarations :: [SourceLine] -> Either String ([(Text, [RuntimeRep])], [GrinFunction])
+parseDeclarations :: [SourceLine] -> Either String ([(Text, [[RuntimeRep]])], [GrinFunction])
 parseDeclarations = go [] []
   where
     go constructors functions [] = pure (reverse constructors, reverse functions)
@@ -58,7 +58,7 @@ parseDeclarations = go [] []
           function <- parseFunction (sourceText line) bodyLines
           go constructors (function : functions) remaining
 
-parseConstructor :: Text -> Either String (Text, [RuntimeRep])
+parseConstructor :: Text -> Either String (Text, [[RuntimeRep]])
 parseConstructor text = do
   let (headText, layoutTextWithSpace) = T.breakOn " [" text
   unless (not (T.null layoutTextWithSpace) && T.last layoutTextWithSpace == ']') $
@@ -71,7 +71,7 @@ parseConstructor text = do
   reps <- traverse (readRuntimeRep "constructor field") repTexts
   unless (arity == length reps) $
     Left ("constructor arity does not match its layout: " <> T.unpack text)
-  pure (name, reps)
+  pure (name, map pure reps)
 
 parseFunction :: Text -> [SourceLine] -> Either String GrinFunction
 parseFunction header bodyLines = do
@@ -190,9 +190,13 @@ parseNodeTag tag
       let (nameWithSlash, arityText) = T.breakOnEnd "/" closure
       when (T.null nameWithSlash) (Left ("closure tag has no arity: " <> T.unpack tag))
       arity <- readText "closure arity" arityText
-      pure (GrinClosure (FunctionName (T.dropEnd 1 nameWithSlash)) arity)
+      pure (GrinClosure (FunctionName (T.dropEnd 1 nameWithSlash)) (replicate arity [liftedRuntimeRep]))
   | Just thunk <- T.stripPrefix "F" tag = pure (GrinThunk (FunctionName thunk))
-  | Just constructor <- T.stripPrefix "C" tag = pure (GrinConstructor constructor)
+  | Just constructor <- T.stripPrefix "C" tag = do
+      let (nameWithSlash, remainingText) = T.breakOnEnd "/" constructor
+      if T.null nameWithSlash
+        then pure (GrinConstructor constructor 0)
+        else GrinConstructor (T.dropEnd 1 nameWithSlash) <$> readText "constructor remaining arity" remainingText
   | otherwise = Left ("unsupported node tag: " <> T.unpack tag)
 
 parseVarAtoms :: Text -> Either String [GrinVar]

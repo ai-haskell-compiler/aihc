@@ -41,7 +41,7 @@ data LintEnv = LintEnv
     lintPrimitiveArities :: !(Map Text Int),
     lintGlobalVars :: !(Set GrinVar),
     lintGlobalNames :: !(Set Text),
-    lintConstructorLayouts :: !(Map Text [RuntimeRep]),
+    lintConstructorLayouts :: !(Map Text [[RuntimeRep]]),
     lintForeignCalls :: !(Map Text GrinForeignCall)
   }
 
@@ -83,7 +83,7 @@ lintProgram program =
           lintGlobalVars = Set.fromList (globalVars <> cafVars),
           lintGlobalNames =
             Set.fromList
-              ( [name | (name, arity) <- builtinConstructors, arity == 0]
+              ( [name | (name, layouts) <- builtinConstructors, null layouts]
                   <> [name | (name, fields) <- grinConstructors program, null fields]
                   <> grinExternalGlobals program
                   <> map grinVarName globalVars
@@ -126,7 +126,7 @@ lintFunctionResult :: LintEnv -> RuntimeRep -> GrinExpr -> [GrinLintError]
 lintFunctionResult env resultRep expr =
   case expr of
     GrinBind _ _ body -> lintFunctionResult env resultRep body
-    GrinStore (GrinNode (GrinClosure functionName 0) _) ->
+    GrinStore (GrinNode (GrinClosure functionName []) _) ->
       [ GrinLintSaturatedClosure functionName
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
       ]
@@ -232,11 +232,13 @@ lintNode env bound node =
 lintConstructorFields :: LintEnv -> GrinNode -> [GrinLintError]
 lintConstructorFields env node =
   case grinNodeTag node of
-    GrinConstructor name ->
+    GrinConstructor name remaining ->
       case Map.lookup name (lintConstructorLayouts env) of
-        Just expected
-          | actual /= take (length actual) expected || length actual > length expected ->
-              [GrinLintConstructorLayout name expected actual]
+        Just layouts
+          | let suppliedCount = length layouts - remaining,
+            suppliedCount < 0
+              || actual /= concat (take suppliedCount layouts) ->
+              [GrinLintConstructorLayout name (concat layouts) actual]
         _ -> []
     _ -> []
   where
@@ -246,7 +248,7 @@ lintNodeFunction :: LintEnv -> GrinNode -> [GrinLintError]
 lintNodeFunction env node =
   case grinNodeTag node of
     GrinThunk functionName -> checkFunctionArity functionName fieldCount <> checkThunkResult functionName
-    GrinClosure functionName argumentCount -> checkClosureArity functionName argumentCount
+    GrinClosure functionName argumentLayouts -> checkClosureArity functionName argumentLayouts
     _ -> []
   where
     fieldCount = length (grinNodeFields node)
@@ -256,8 +258,8 @@ lintNodeFunction env node =
         Just expected
           | expected == actual -> []
           | otherwise -> [GrinLintFunctionArity functionName expected actual]
-    checkClosureArity functionName argumentCount =
-      checkFunctionArity functionName (fieldCount + argumentCount)
+    checkClosureArity functionName argumentLayouts =
+      checkFunctionArity functionName (fieldCount + length (concat argumentLayouts))
     checkThunkResult functionName =
       case Map.lookup functionName (lintFunctionResults env) of
         Just runtimeRep

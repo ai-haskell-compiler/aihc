@@ -291,8 +291,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
   LinkLayout
-    { linkConstructors = builtinConstructors,
-      linkGlobalNames = [name | (name, arity) <- builtinConstructors, arity == 0]
+    { linkConstructors = [(name, length layouts) | (name, layouts) <- builtinConstructors],
+      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
     }
 
 programGlobalNames :: GrinProgram -> [Text]
@@ -564,31 +564,13 @@ compileCase env prefix label scrutinee binder alternatives = do
   resultSlot <- freshSlot
   dispatchLabel <- freshLabel label "case_dispatch"
   scrutineeLines <- liftEither (materializeValue env scrutinee)
-  let scrutineeRep = grinValueRuntimeRep scrutinee
-      scrutineeIsLifted = isLiftedRuntimeRep scrutineeRep
-      scrutineeIsPointer = isPointerRuntimeRep scrutineeRep
-  if scrutineeIsLifted
-    then
-      addBlock
-        label
-        ( prefix
-            <> scrutineeLines
-            <> ["  mov x20, x0"]
-            <> pushNormalLines dispatchLabel resultSlot 1
-            <> [ "  mov x1, x20",
-                 immediate "x2" (1 :: Int),
-                 "  mov x0, x22",
-                 "  bl _aihc_eval"
-               ]
-            <> dispatchLines
-        )
-    else
-      addBlock
-        label
-        ( prefix
-            <> scrutineeLines
-            <> [storeAt "x0" "x19" resultSlot, "  b " <> dispatchLabel]
-        )
+  let scrutineeIsPointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
+  addBlock
+    label
+    ( prefix
+        <> scrutineeLines
+        <> [storeAt "x0" "x19" resultSlot, "  b " <> dispatchLabel]
+    )
   binderSlot <- localSlot env binder
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"
@@ -739,13 +721,12 @@ materializeNode env node = do
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo, Int)
 nodeHeader env node =
   case grinNodeTag node of
-    GrinConstructor name -> do
+    GrinConstructor name remaining -> do
       identifier <- constructorId compileEnv name
-      arity <- constructorArity compileEnv name
-      pure (1, InfoImmediate identifier, arity)
-    GrinClosure functionName argumentCount -> do
+      pure (1, InfoImmediate identifier, remaining)
+    GrinClosure functionName argumentLayouts -> do
       label <- functionCodeLabel compileEnv functionName
-      pure (2, InfoAddress label, argumentCount)
+      pure (2, InfoAddress label, length argumentLayouts)
     GrinThunk functionName -> do
       label <- functionCodeLabel compileEnv functionName
       arity <- functionArity compileEnv functionName
@@ -879,10 +860,6 @@ constructorId :: CompileEnv -> Text -> Either Arm64Error Int
 constructorId env name =
   maybe (Left (Arm64MissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
 
-constructorArity :: CompileEnv -> Text -> Either Arm64Error Int
-constructorArity env name =
-  maybe (Left (Arm64MissingConstructor name)) Right (Map.lookup name (compileConstructorArities env))
-
 functionCodeLabel :: CompileEnv -> FunctionName -> Either Arm64Error Text
 functionCodeLabel env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
@@ -946,7 +923,7 @@ uniqueByName values =
 
 programConstructorArities :: GrinProgram -> [(Text, Int)]
 programConstructorArities program =
-  [(name, length fieldReps) | (name, fieldReps) <- grinConstructors program]
+  [(name, length fieldLayouts) | (name, fieldLayouts) <- grinConstructors program]
 
 validateRuntimeRep :: RuntimeRep -> Either Arm64Error ()
 validateRuntimeRep runtimeRep =
@@ -960,7 +937,7 @@ validateRuntimeRep runtimeRep =
 
 programRuntimeReps :: GrinProgram -> [RuntimeRep]
 programRuntimeReps program =
-  concatMap snd (grinConstructors program)
+  concatMap (concat . snd) (grinConstructors program)
     <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
     <> concatMap globalRuntimeReps (grinWhnfGlobals program)
     <> concatMap cafRuntimeReps (grinCafs program)
@@ -1046,7 +1023,11 @@ renderObservedMetadata env program resultReps = do
            "}"
          ]
   where
-    layouts = Map.fromList (builtinConstructorLayouts <> grinConstructors program)
+    layouts =
+      Map.fromList
+        ( builtinConstructorLayouts
+            <> [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
+        )
     constructorEntries =
       [ (identifier, name, fields)
       | (name, identifier) <- Map.toAscList (compileConstructorIds env),

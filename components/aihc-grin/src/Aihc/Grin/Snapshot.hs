@@ -91,8 +91,10 @@ renderNode nested tag fields =
 renderNodeTag :: GrinNodeTag -> Text
 renderNodeTag tag =
   case tag of
-    GrinConstructor name -> "C" <> name
-    GrinClosure functionName arity -> "P" <> unFunctionName functionName <> "/" <> tshow arity
+    GrinConstructor name remaining ->
+      "C" <> name <> if remaining == 0 then "" else "/" <> tshow remaining
+    GrinClosure functionName argumentLayouts ->
+      "P" <> unFunctionName functionName <> "/" <> tshow (length argumentLayouts)
     GrinThunk functionName -> "F" <> unFunctionName functionName
     GrinPrimitive name arity -> "Prim[" <> name <> "/" <> tshow arity <> "]"
 

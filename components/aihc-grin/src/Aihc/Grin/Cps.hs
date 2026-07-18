@@ -2,13 +2,15 @@
 
 -- | Reify direct-style GRIN continuations as ordinary GRIN closures.
 --
--- This pass deliberately keeps the GRIN syntax. Each source 'GrinBind' is
--- rewritten so its body lives in a generated function. A closure for that
--- function is allocated with 'GrinStore' and invoked with 'GrinApply' after
--- the bound expression produces its values. The introduced administrative
--- binds retain the current runtime-operation protocol; future suspension
--- lowering can transfer ownership of the explicit closure instead of
--- returning through them.
+-- This pass deliberately keeps the GRIN syntax. Each potentially suspending
+-- source 'GrinBind' is rewritten so its body lives in a generated function. A
+-- closure for that function is allocated with 'GrinStore', entered with
+-- 'GrinEval', and invoked with 'GrinApply' after the bound expression produces
+-- its values. Only 'GrinEval', 'GrinCall', 'GrinPrimitiveCall', and 'GrinApply'
+-- can suspend; all other binds remain in direct style. The introduced
+-- administrative binds retain the current runtime-operation protocol; future
+-- suspension lowering can transfer ownership of the explicit closure instead
+-- of returning through them.
 module Aihc.Grin.Cps
   ( CpsGrinProgram,
     CpsGrinError (..),
@@ -80,11 +82,17 @@ transformExpr :: FunctionName -> Set GrinVar -> RuntimeRep -> GrinExpr -> CpsM G
 transformExpr parent bound resultRep expression =
   case expression of
     GrinConstant {} -> pure expression
+    GrinBind resultVars valueExpression body
+      | not (requiresContinuation valueExpression) -> do
+          transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
+          transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
+          pure (GrinBind resultVars transformedValue transformedBody)
     GrinBind resultVars valueExpression body -> do
       transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
       transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
       continuationName <- freshContinuationName parent
-      continuationVar <- freshContinuationVar
+      continuationPointer <- freshContinuationVar "$cps_continuation_pointer"
+      continuation <- freshContinuationVar "$cps_continuation"
       let captures = Set.toAscList (freeExprVars transformedBody `Set.intersection` bound)
           continuationFunction =
             GrinFunction
@@ -96,19 +104,23 @@ transformExpr parent bound resultRep expression =
               }
           continuationNode =
             GrinNode
-              (GrinClosure continuationName (length resultVars))
+              (GrinClosure continuationName [map grinVarRuntimeRep resultVars])
               (map GrinVarValue captures)
           invokeContinuation =
             GrinApply
               resultRep
-              (GrinVarValue continuationVar)
+              (GrinVarValue continuation)
               (map GrinVarValue resultVars)
       addGeneratedFunction continuationFunction
       pure
         ( GrinBind
-            [continuationVar]
+            [continuationPointer]
             (GrinStore continuationNode)
-            (GrinBind resultVars transformedValue invokeContinuation)
+            ( GrinBind
+                [continuation]
+                (GrinEval liftedRuntimeRep (GrinVarValue continuationPointer))
+                (GrinBind resultVars transformedValue invokeContinuation)
+            )
         )
     GrinStore {} -> pure expression
     GrinStoreRec bindings body -> do
@@ -131,6 +143,15 @@ transformExpr parent bound resultRep expression =
     GrinCatch {} -> lift (Left (CpsGrinUnexpectedCatch parent))
     GrinForeignCallExpr {} -> pure expression
 
+requiresContinuation :: GrinExpr -> Bool
+requiresContinuation expression =
+  case expression of
+    GrinEval {} -> True
+    GrinCall {} -> True
+    GrinPrimitiveCall {} -> True
+    GrinApply {} -> True
+    _ -> False
+
 freshContinuationName :: FunctionName -> CpsM FunctionName
 freshContinuationName parent = do
   state <- get
@@ -149,12 +170,12 @@ freshContinuationName parent = do
       modify' $ \current -> current {cpsUsedFunctionNames = Set.insert candidate (cpsUsedFunctionNames current)}
       pure candidate
 
-freshContinuationVar :: CpsM GrinVar
-freshContinuationVar = do
+freshContinuationVar :: T.Text -> CpsM GrinVar
+freshContinuationVar name = do
   state <- get
   let unique = cpsNextVarUnique state
   put state {cpsNextVarUnique = unique + 1}
-  pure (GrinVar "$cps_continuation" unique liftedRuntimeRep)
+  pure (GrinVar name unique liftedRuntimeRep)
 
 addGeneratedFunction :: GrinFunction -> CpsM ()
 addGeneratedFunction function =
