@@ -1,0 +1,12 @@
+entry: $entry
+program: |
+  $loop (self%1 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (self%1 :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    store-rec
+      (self%2 :: BoxedRep Lifted) = (F$loop (self%2 :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (self%2 :: BoxedRep Lifted)
+error: blackholed thunk re-entered
+status: pass
+reason: re-entering a thunk while its evaluation is in progress reports the blackhole instead of recursing indefinitely
