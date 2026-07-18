@@ -26,9 +26,10 @@ import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName
 import Aihc.Testing.GrinProgram (parseProgram)
 import Control.Exception (bracket)
 import Control.Monad (when)
-import Data.Aeson (FromJSON (..), withObject, (.:))
+import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
@@ -254,14 +255,19 @@ data SnapshotCase = SnapshotCase
   { snapshotCaseName :: !String,
     snapshotCaseProgram :: !GrinProgram,
     snapshotCaseEntry :: !FunctionName,
-    snapshotCaseExpected :: !T.Text
+    snapshotCaseExpectation :: !SnapshotExpectation
   }
+
+data SnapshotExpectation
+  = SnapshotSuccess !T.Text
+  | SnapshotFailure !T.Text
 
 data SnapshotFixture = SnapshotFixture
   { snapshotFixtureEntry :: !T.Text,
     snapshotFixtureProgram :: !T.Text,
-    snapshotFixtureReturn :: !T.Text,
-    snapshotFixtureHeap :: !T.Text,
+    snapshotFixtureReturn :: !(Maybe T.Text),
+    snapshotFixtureHeap :: !(Maybe T.Text),
+    snapshotFixtureError :: !(Maybe T.Text),
     snapshotFixtureStatus :: !T.Text,
     snapshotFixtureReason :: !T.Text
   }
@@ -272,8 +278,9 @@ instance FromJSON SnapshotFixture where
       SnapshotFixture
         <$> object .: "entry"
         <*> object .: "program"
-        <*> object .: "return"
-        <*> object .: "heap"
+        <*> object .:? "return"
+        <*> object .:? "heap"
+        <*> object .:? "error"
         <*> object .: "status"
         <*> object .: "reason"
 
@@ -285,6 +292,7 @@ snapshotCases =
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
     ("evaluates only through GrinEval", "eval.yaml"),
+    ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
     ("applies a stored closure", "apply.yaml")
   ]
 
@@ -294,14 +302,10 @@ snapshotTest (name, fixtureName) =
     snapshotCase <- loadSnapshotCase name fixtureName
     let program = snapshotCaseProgram snapshotCase
         entry = snapshotCaseEntry snapshotCase
-        expected = T.stripEnd (snapshotCaseExpected snapshotCase)
+        expectation = snapshotCaseExpectation snapshotCase
     assertEqual "direct GRIN lint" [] (lintProgram program)
     interpreted <- interpretProgramFunctionSnapshot entry program
-    snapshot <-
-      case interpreted of
-        Left err -> assertFailure ("GRIN interpreter failed: " <> show err)
-        Right value -> pure value
-    assertEqual "interpreter snapshot" expected (T.stripEnd (renderHeapSnapshot snapshot))
+    assertInterpretedExpectation expectation interpreted
     let cps = expectCpsGrin program
     assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
     observed <-
@@ -310,7 +314,37 @@ snapshotTest (name, fixtureName) =
         Right value -> pure value
     when (arch == "x86_64" && os == "linux") $ do
       native <- runObservedProgram observed
-      assertEqual "native snapshot" expected (T.stripEnd native)
+      assertNativeExpectation expectation native
+
+assertInterpretedExpectation :: SnapshotExpectation -> Either InterpretError HeapSnapshot -> IO ()
+assertInterpretedExpectation expectation interpreted =
+  case (expectation, interpreted) of
+    (SnapshotSuccess expected, Right snapshot) ->
+      assertEqual "interpreter snapshot" (T.stripEnd expected) (T.stripEnd (renderHeapSnapshot snapshot))
+    (SnapshotFailure expected, Left err) ->
+      assertEqual "interpreter error" expected (renderInterpretFailure err)
+    (SnapshotSuccess _, Left err) ->
+      assertFailure ("GRIN interpreter failed: " <> show err)
+    (SnapshotFailure _, Right snapshot) ->
+      assertFailure ("GRIN interpreter unexpectedly succeeded:\n" <> T.unpack (renderHeapSnapshot snapshot))
+
+assertNativeExpectation :: SnapshotExpectation -> Either T.Text T.Text -> IO ()
+assertNativeExpectation expectation native =
+  case (expectation, native) of
+    (SnapshotSuccess expected, Right snapshot) ->
+      assertEqual "native snapshot" (T.stripEnd expected) (T.stripEnd snapshot)
+    (SnapshotFailure expected, Left err) ->
+      assertEqual "native error" expected err
+    (SnapshotSuccess _, Left err) ->
+      assertFailure ("native snapshot failed: " <> T.unpack err)
+    (SnapshotFailure _, Right snapshot) ->
+      assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
+
+renderInterpretFailure :: InterpretError -> T.Text
+renderInterpretFailure err =
+  case err of
+    InterpretBlackhole _ -> "blackholed thunk re-entered"
+    _ -> T.pack (show err)
 
 loadSnapshotCase :: String -> FilePath -> IO SnapshotCase
 loadSnapshotCase name fixtureName = do
@@ -326,20 +360,27 @@ loadSnapshotCase name fixtureName = do
     case parseProgram (snapshotFixtureProgram fixture) of
       Left err -> assertFailure ("invalid GRIN program: " <> err)
       Right value -> pure value
-  let heap = T.stripEnd (snapshotFixtureHeap fixture)
-      expected
-        | heap == "[]" = "return: " <> snapshotFixtureReturn fixture <> "\nheap: []"
-        | otherwise =
-            "return: "
-              <> snapshotFixtureReturn fixture
-              <> "\nheap:\n"
-              <> T.unlines (map ("  " <>) (T.lines heap))
+  expectation <-
+    case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture) of
+      (Just returnValue, Just heapValue, Nothing) -> do
+        let heap = T.stripEnd heapValue
+            expected
+              | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
+              | otherwise =
+                  "return: "
+                    <> returnValue
+                    <> "\nheap:\n"
+                    <> T.unlines (map ("  " <>) (T.lines heap))
+        pure (SnapshotSuccess expected)
+      (Nothing, Nothing, Just err)
+        | not (T.null (T.strip err)) -> pure (SnapshotFailure (T.strip err))
+      _ -> assertFailure "snapshot fixture must define either return and heap, or a non-empty error"
   pure
     SnapshotCase
       { snapshotCaseName = name,
         snapshotCaseProgram = program,
         snapshotCaseEntry = FunctionName (snapshotFixtureEntry fixture),
-        snapshotCaseExpected = expected
+        snapshotCaseExpectation = expectation
       }
 
 snapshotFixtureRoot :: IO FilePath
@@ -356,7 +397,7 @@ snapshotFixtureRoot = getCurrentDirectory >>= findRoot
             then assertFailure "GRIN snapshot fixture root is missing"
             else findRoot parent
 
-runObservedProgram :: ObservedProgram -> IO T.Text
+runObservedProgram :: ObservedProgram -> IO (Either T.Text T.Text)
 runObservedProgram observed =
   withTempDirectory "aihc-amd64-snapshot" $ \directory -> do
     runtime <- runtimeSourcePath
@@ -388,8 +429,18 @@ runObservedProgram observed =
       ExitSuccess -> pure ()
       ExitFailure _ -> assertFailure ("clang failed to assemble observed GRIN:\n" <> clangErr)
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
-    assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
-    pure (T.pack programOut)
+    case programExit of
+      ExitSuccess -> do
+        assertEqual "native stderr" "" programErr
+        pure (Right (T.pack programOut))
+      ExitFailure _ -> do
+        assertEqual "native stdout" "" programOut
+        pure (Left (renderNativeFailure (T.pack programErr)))
+
+renderNativeFailure :: T.Text -> T.Text
+renderNativeFailure stderr =
+  let message = T.strip stderr
+   in fromMaybe message (T.stripPrefix "aihc runtime: " message)
 
 explicitEvaluationProgram :: GrinProgram
 explicitEvaluationProgram =
