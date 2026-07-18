@@ -139,7 +139,7 @@ main =
         ],
       testGroup
         "compile"
-        [ testCase "lowers the aihc-base HelloWorld example to ARM64 assembly" $
+        [ testCase "lowers the aihc-base HelloWorld example to native assembly" $
             withTempDir "aihc-compile-example" $ \root -> do
               sourcePath <- helloWorldExamplePath
               source <- TIO.readFile sourcePath
@@ -149,9 +149,9 @@ main =
               case result of
                 Left err -> assertFailure ("expected compile success, got: " <> show err)
                 Right assembly -> do
-                  assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
-                  assertBool "dependency initializer call" ("bl _aihc_init_" `T.isInfixOf` assembly)
-                  assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
+                  assertBool "native entry" (nativeMainDirective `T.isInfixOf` assembly)
+                  assertBool "dependency initializer call" (nativeInitializerCall `T.isInfixOf` assembly)
+                  assertBool "Haskell tail transfer" (nativeTailTransfer `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
@@ -1050,7 +1050,22 @@ expectCompileSuccess :: Either CompileError T.Text -> Assertion
 expectCompileSuccess result =
   case result of
     Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
-    Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+    Right assembly -> assertBool "native entry" (nativeMainDirective `T.isInfixOf` assembly)
+
+nativeMainDirective :: T.Text
+nativeMainDirective
+  | arch == "x86_64" && os == "linux" = ".globl main"
+  | otherwise = ".globl _main"
+
+nativeInitializerCall :: T.Text
+nativeInitializerCall
+  | arch == "x86_64" && os == "linux" = "call _aihc_init_"
+  | otherwise = "bl _aihc_init_"
+
+nativeTailTransfer :: T.Text
+nativeTailTransfer
+  | arch == "x86_64" && os == "linux" = "jmp r11"
+  | otherwise = "br x9"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =
