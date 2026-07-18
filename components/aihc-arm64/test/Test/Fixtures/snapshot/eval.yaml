@@ -12,8 +12,8 @@ program: |
     store (CPair (thunk%1 :: BoxedRep Lifted) (evaluated%2 :: BoxedRep Lifted))
 return: "@0"
 heap: |
-  @0 = CPair @1 (CI32# 7)
-  @1 = @2
+  @0 = CPair @1 @2
+  @1 = Indirection @2
   @2 = CI32# 7
 status: pass
-reason: only the explicit GrinEval enters the thunk and updates its heap cell
+reason: only explicit GrinEval enters the thunk, preserving its heap-pointer result and exposing the update as an indirection

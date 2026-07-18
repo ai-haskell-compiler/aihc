@@ -37,6 +37,7 @@ data SnapshotValue
 
 data SnapshotCell
   = SnapshotSuspended !FunctionName ![SnapshotValue]
+  | SnapshotIndirection !Int
   | SnapshotValue !SnapshotValue
   | SnapshotRaised !SnapshotValue
   | SnapshotBlackhole
@@ -70,6 +71,7 @@ renderCell :: SnapshotCell -> Text
 renderCell cell =
   case cell of
     SnapshotSuspended functionName fields -> renderNode False (GrinThunk functionName) fields
+    SnapshotIndirection location -> "Indirection @" <> tshow location
     SnapshotValue value -> renderValue False value
     SnapshotRaised exception -> "<raised " <> renderValue False exception <> ">"
     SnapshotBlackhole -> "<blackhole>"

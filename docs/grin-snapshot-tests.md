@@ -31,6 +31,18 @@ heap:
   @0 = CLoop @0
 ```
 
+Nodes owned by reachable value cells are rendered through their heap location,
+even when evaluation also returns the node pointer directly. Updated thunk
+cells name their target explicitly:
+
+```text
+return: @0
+heap:
+  @0 = CPair @1 @2
+  @1 = Indirection @2
+  @2 = CI32# 7
+```
+
 Snapshotting reads heap cells but never enters them. A suspended thunk remains
 `F$function`, and a closure remains `P$function/arity`. Only an explicit
 `GrinEval` executed by the fixture may evaluate a thunk. Native code pointers

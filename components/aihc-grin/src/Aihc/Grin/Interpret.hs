@@ -95,6 +95,7 @@ type EvalM = ExceptT EvalFailure (StateT Machine IO)
 
 data SnapshotBuild = SnapshotBuild
   { snapshotBuildSource :: !(IntMap HeapCell),
+    snapshotBuildValueSources :: ![(RuntimeValue, Int)],
     snapshotBuildLocations :: !(IntMap Int),
     snapshotBuildSources :: !(IntMap Int),
     snapshotBuildNextLocation :: !Int,
@@ -657,9 +658,18 @@ modifyMachine = lift . modify'
 
 buildHeapSnapshot :: IntMap HeapCell -> [RuntimeValue] -> HeapSnapshot
 buildHeapSnapshot source values =
-  let initial =
+  let indirectionTargets =
+        [ target
+        | HeapValue (RuntimeLocation target) <- IntMap.elems source
+        ]
+      initial =
         SnapshotBuild
           { snapshotBuildSource = source,
+            snapshotBuildValueSources =
+              [ (value, location)
+              | (location, HeapValue value@RuntimeNode {}) <- IntMap.toAscList source,
+                location `elem` indirectionTargets
+              ],
             snapshotBuildLocations = IntMap.empty,
             snapshotBuildSources = IntMap.empty,
             snapshotBuildNextLocation = 0,
@@ -689,7 +699,8 @@ snapshotHeapCell :: HeapCell -> State SnapshotBuild SnapshotCell
 snapshotHeapCell cell =
   case cell of
     HeapSuspended functionName fields -> SnapshotSuspended functionName <$> mapM snapshotRuntimeValue fields
-    HeapValue value -> SnapshotValue <$> snapshotRuntimeValue value
+    HeapValue (RuntimeLocation sourceLocation) -> SnapshotIndirection <$> snapshotLocation sourceLocation
+    HeapValue value -> SnapshotValue <$> snapshotStoredValue value
     HeapRaised exception -> SnapshotRaised <$> snapshotRuntimeValue exception
     HeapBlackhole -> pure SnapshotBlackhole
 
@@ -697,10 +708,23 @@ snapshotRuntimeValue :: RuntimeValue -> State SnapshotBuild SnapshotValue
 snapshotRuntimeValue value =
   case value of
     RuntimeLit literal -> pure (SnapshotLiteral literal)
-    RuntimeNode tag fields -> SnapshotNode tag <$> mapM snapshotRuntimeValue fields
+    RuntimeNode {} -> do
+      valueSources <- gets snapshotBuildValueSources
+      case lookup value valueSources of
+        Just sourceLocation -> SnapshotLocation <$> snapshotLocation sourceLocation
+        Nothing -> snapshotStoredValue value
     RuntimeLocation sourceLocation -> SnapshotLocation <$> snapshotLocation sourceLocation
     RuntimeMutVar {} -> pure SnapshotMutVar
     RuntimeStateToken -> pure SnapshotStateToken
+
+-- Heap-cell payloads define locations and therefore render their node inline.
+-- The same node encountered elsewhere is rendered as a pointer back to this
+-- owning value cell.
+snapshotStoredValue :: RuntimeValue -> State SnapshotBuild SnapshotValue
+snapshotStoredValue value =
+  case value of
+    RuntimeNode tag fields -> SnapshotNode tag <$> mapM snapshotRuntimeValue fields
+    _ -> snapshotRuntimeValue value
 
 snapshotLocation :: Int -> State SnapshotBuild Int
 snapshotLocation sourceLocation = do
