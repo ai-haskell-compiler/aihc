@@ -25,7 +25,37 @@ grinUnitTests :: TestTree
 grinUnitTests =
   testGroup
     "GRIN"
-    [ testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
+    [ testCase "pretty printer parenthesizes compound applications" $ do
+        let first = GrinVar "$grin_tuple_2720" 2720 (BoxedRep Lifted)
+            second = GrinVar "$grin_tuple_2721" 2721 (BoxedRep Lifted)
+            function =
+              GrinFunction
+                { grinFunctionName = FunctionName "$grin_thunk_4",
+                  grinFunctionLinkName = Nothing,
+                  grinFunctionParameters = [first, second],
+                  grinFunctionResultRep = BoxedRep Lifted,
+                  grinFunctionBody = GrinApply (BoxedRep Lifted) (GrinVarValue first) [GrinVarValue second]
+                }
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions = [function]
+                }
+        assertEqual
+          "rendered program"
+          ( unlines
+              [ "$grin_thunk_4 ($grin_tuple_2720%2720 :: BoxedRep Lifted) ($grin_tuple_2721%2721 :: BoxedRep Lifted) -> BoxedRep Lifted =",
+                "  apply @(BoxedRep Lifted) ($grin_tuple_2720%2720 :: BoxedRep Lifted) ($grin_tuple_2721%2721 :: BoxedRep Lifted)"
+              ]
+          )
+          (renderProgram program <> "\n"),
+      testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
@@ -67,7 +97,7 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "transformed lint" [] (lintProgram program)
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
-        assertBool "invokes a continuation closure" ("apply @BoxedRep Lifted $cps_continuation" `isInfixOf` rendered)
+        assertBool "invokes a continuation closure" ("apply @(BoxedRep Lifted) ($cps_continuation" `isInfixOf` rendered)
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
       testCase "CPS-GRIN preserves evaluation semantics" $ do
         cps <- expectCpsGrin heapProgram
@@ -99,7 +129,7 @@ grinUnitTests =
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "direct call" ("call @BoxedRep Lifted $entry$zeroWidthTarget" `isInfixOf` rendered)
+        assertBool "direct call" ("call @(BoxedRep Lifted) $entry$zeroWidthTarget" `isInfixOf` rendered)
         assertBool "no saturated closure" (not ("P$entry$zeroWidthTarget/0" `isInfixOf` rendered)),
       testCase "lint rejects saturated closure nodes" $ do
         let target = FunctionName "target"
@@ -160,13 +190,13 @@ grinUnitTests =
         let program = lowerProgram shadowingProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "raw local is emitted as a constant" ("constant answer%2 :: IntRep" `isInfixOf` rendered)
-        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep answer%2" `isInfixOf` rendered)),
+        assertBool "raw local is emitted as a constant" ("constant (answer%2 :: IntRep)" `isInfixOf` rendered)
+        assertBool "raw local is not treated as a global cell" (not ("eval @IntRep (answer%2" `isInfixOf` rendered)),
       testCase "FC lowering still evaluates CAF references" $ do
         let program = lowerProgram cafReferenceProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "CAF reference is evaluated" ("eval @BoxedRep Lifted source%" `isInfixOf` rendered),
+        assertBool "CAF reference is evaluated" ("eval @(BoxedRep Lifted) (source%" `isInfixOf` rendered),
       testCase "FC lowering initializes static constructor values without CAF cells" $ do
         let program = lowerProgram staticConstructorProgram
         assertEqual "lint" [] (lintProgram program)
@@ -225,7 +255,7 @@ grinUnitTests =
                 rendered = renderProgram consumer
             assertEqual "lint" [] (lintProgram consumer)
             assertEqual "external code" ["identity"] (map grinCodeSourceName (grinExternalFunctions consumer))
-            assertBool "direct dependency call" ("call @BoxedRep Lifted $entry$identity" `isInfixOf` rendered)
+            assertBool "direct dependency call" ("call @(BoxedRep Lifted) $entry$identity" `isInfixOf` rendered)
             assertBool "dependency function has no global slot" (not ("global identity" `isInfixOf` rendered))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
       testCase "separate FC units store saturated dependency constructors directly" $ do
