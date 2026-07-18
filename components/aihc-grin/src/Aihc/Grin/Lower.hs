@@ -276,7 +276,7 @@ lowerNonTupleExpr expr =
       do
         codeInfo <- lookupCodeInfo var
         case codeInfo of
-          Just info -> pure (GrinStore (knownFunctionNode info 0 []))
+          Just info -> pure (GrinStore (knownFunctionNode info (codeRuntimeArity info) []))
           Nothing -> do
             direct <- lowerDirectValues expr
             case direct of
@@ -316,19 +316,24 @@ lowerApplication expr =
     _ -> lowerUnknownApplication expr
 
 lowerKnownApplication :: FcExpr -> GrinCodeInfo -> [FcExpr] -> LowerM GrinExpr
-lowerKnownApplication originalExpr info arguments =
-  case compare suppliedArity termArity of
-    LT ->
-      lowerArgumentMany arguments $ \values ->
-        pure (GrinStore (knownFunctionNode info suppliedArity values))
-    EQ ->
-      lowerArgumentMany arguments $ \values ->
-        pure (GrinCall (exprRuntimeRep appliedExpr) (grinCodeFunctionName info) values)
-    GT -> do
-      let (saturatedArguments, extraArguments) = splitAt termArity arguments
-          saturatedExpr = dropLastTermApplications (suppliedArity - termArity) originalExpr
-          saturatedRep = exprRuntimeRep saturatedExpr
-      lowerArgumentMany saturatedArguments $ \values -> do
+lowerKnownApplication originalExpr info arguments = do
+  let (entryArguments, extraArguments) = splitAt termArity arguments
+  lowerArgumentMany entryArguments $ \values ->
+    case extraArguments of
+      [] ->
+        case compare (length values) runtimeArity of
+          LT -> pure (GrinStore (knownFunctionNode info (runtimeArity - length values) values))
+          EQ
+            | length entryArguments == termArity ->
+                pure (GrinCall (exprRuntimeRep originalExpr) (grinCodeFunctionName info) values)
+            | grinCodeResultRep info == exprRuntimeRep originalExpr ->
+                pure (GrinCall (grinCodeResultRep info) (grinCodeFunctionName info) values)
+            | otherwise ->
+                pure (GrinStore (knownFunctionNode info 0 values))
+          GT -> error "GRIN lowering supplied more runtime arguments than the known function accepts"
+      _ -> do
+        let saturatedExpr = dropLastTermApplications (length extraArguments) originalExpr
+            saturatedRep = exprRuntimeRep saturatedExpr
         resultVars <- freshVars "call" saturatedRep
         case resultVars of
           [resultVar] -> do
@@ -336,9 +341,8 @@ lowerKnownApplication originalExpr info arguments =
             pure (bindExpr resultVars (GrinCall saturatedRep (grinCodeFunctionName info) values) rest)
           _ -> error "GRIN lowering expected an overapplied function call to return one function value"
   where
-    suppliedArity = length arguments
     termArity = length (grinCodeParameterLayouts info)
-    appliedExpr = originalExpr
+    runtimeArity = codeRuntimeArity info
 
 lowerPrimitiveApplication :: FcExpr -> Text -> Int -> [FcExpr] -> LowerM GrinExpr
 lowerPrimitiveApplication originalExpr name arity arguments =
@@ -401,12 +405,16 @@ lowerUnknownApplication expr =
     _ -> error "GRIN lowering expected an application"
 
 knownFunctionNode :: GrinCodeInfo -> Int -> [GrinValue] -> GrinNode
-knownFunctionNode info suppliedTermArity =
+knownFunctionNode info remainingRuntimeArity =
   GrinNode
     (GrinClosure (grinCodeFunctionName info) remainingRuntimeArity)
-  where
-    remainingRuntimeArity =
-      length (concat (drop suppliedTermArity (grinCodeParameterLayouts info)))
+
+codeRuntimeArity :: GrinCodeInfo -> Int
+codeRuntimeArity = length . concat . grinCodeParameterLayouts
+
+runtimeArityAfterTerms :: GrinCodeInfo -> Int -> Int
+runtimeArityAfterTerms info suppliedTermArity =
+  length (concat (drop suppliedTermArity (grinCodeParameterLayouts info)))
 
 lowerCase :: FcExpr -> Var -> [FcAlt] -> LowerM GrinExpr
 lowerCase scrutinee binder alternatives =
@@ -719,8 +727,44 @@ freshFunction kind = do
   pure (FunctionName ("$grin_" <> kind <> "_" <> T.pack (show index)))
 
 emitFunction :: GrinFunction -> LowerM ()
-emitFunction function =
-  modify' $ \state -> state {lowerFunctionsRev = function : lowerFunctionsRev state}
+emitFunction function = do
+  body <- ensureWhnfResult function (grinFunctionBody function)
+  modify' $ \state -> state {lowerFunctionsRev = function {grinFunctionBody = body} : lowerFunctionsRev state}
+
+-- A zero-runtime-argument closure whose entry preserves the result layout is
+-- a saturated computation, not a WHNF. Enter it at function exits while
+-- retaining closures in intermediate positions where they encode delayed
+-- source-level application. If entry changes the layout, the closure remains
+-- a genuine function value despite having no physical arguments.
+ensureWhnfResult :: GrinFunction -> GrinExpr -> LowerM GrinExpr
+ensureWhnfResult owner expr =
+  case expr of
+    GrinBind vars valueExpr body -> GrinBind vars valueExpr <$> ensureWhnfResult owner body
+    GrinStore node@(GrinNode (GrinClosure functionName 0) fields) -> do
+      resultRep <- lookupFunctionResultRep owner functionName
+      if resultRep == grinFunctionResultRep owner
+        then pure (GrinCall resultRep functionName fields)
+        else pure (GrinStore node)
+    GrinStore {} -> pure expr
+    GrinStoreRec bindings body -> GrinStoreRec bindings <$> ensureWhnfResult owner body
+    GrinCase scrutinee binder alternatives ->
+      GrinCase scrutinee binder <$> mapM lowerResultAlt alternatives
+    _ -> pure expr
+  where
+    lowerResultAlt alternative = do
+      rhs <- ensureWhnfResult owner (grinAltRhs alternative)
+      pure alternative {grinAltRhs = rhs}
+
+lookupFunctionResultRep :: GrinFunction -> FunctionName -> LowerM RuntimeRep
+lookupFunctionResultRep owner functionName
+  | functionName == grinFunctionName owner = pure (grinFunctionResultRep owner)
+  | otherwise = do
+      localFunctions <- gets lowerFunctionsRev
+      codeInfos <- gets lowerCodeInfos
+      case [grinFunctionResultRep function | function <- localFunctions, grinFunctionName function == functionName]
+        <> [grinCodeResultRep info | info <- Map.elems codeInfos, grinCodeFunctionName info == functionName] of
+        resultRep : _ -> pure resultRep
+        [] -> error ("GRIN lowering could not find saturated closure target " <> show functionName)
 
 primitiveApplication :: Map Text Int -> Set (Text, Unique) -> FcExpr -> Maybe (Text, [FcExpr])
 primitiveApplication primitiveArities localVars expr =
@@ -952,7 +996,9 @@ knownSaturatedApplication expr =
       codeInfo <- lookupCodeInfo var
       pure $ do
         info <- codeInfo
-        if length arguments == length (grinCodeParameterLayouts info)
+        if length arguments <= length (grinCodeParameterLayouts info)
+          && runtimeArityAfterTerms info (length arguments) == 0
+          && isLiftedRuntimeRep (grinCodeResultRep info)
           then Just (info, arguments)
           else Nothing
     _ -> pure Nothing
@@ -970,7 +1016,9 @@ isWhnfExpr expr =
       constructorArity <- lookupConstructorArity var
       pure
         ( case codeInfo of
-            Just _ -> True
+            Just info ->
+              runtimeArityAfterTerms info 0 > 0
+                || grinCodeResultRep info /= exprRuntimeRep expr
             Nothing -> maybe False (> 0) primitiveArity || maybe False (> 0) constructorArity
         )
     FcApp {} -> do
@@ -983,7 +1031,9 @@ isWhnfExpr expr =
             (FcVar var, arguments) -> do
               codeInfo <- lookupCodeInfo var
               pure $ case codeInfo of
-                Just info -> length arguments < length (grinCodeParameterLayouts info)
+                Just info ->
+                  runtimeArityAfterTerms info (length arguments) > 0
+                    || grinCodeResultRep info /= exprRuntimeRep expr
                 Nothing -> False
             _ -> pure False
     _ -> pure False
