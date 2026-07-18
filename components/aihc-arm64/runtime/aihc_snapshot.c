@@ -5,9 +5,9 @@
 #include <stdlib.h>
 
 typedef struct {
-  AihcValue **cells;
-  uint64_t cell_count;
-  uint64_t cell_capacity;
+  AihcValue **objects;
+  uint64_t object_count;
+  uint64_t object_capacity;
   uint64_t constructor_count;
   const AihcSnapshotConstructor *constructors;
   uint64_t function_count;
@@ -39,46 +39,26 @@ static const AihcSnapshotFunction *find_function(const SnapshotState *state,
   return NULL;
 }
 
-static uint64_t location_for_cell(SnapshotState *state, AihcValue *cell) {
-  for (uint64_t index = 0; index < state->cell_count; ++index) {
-    if (state->cells[index] == cell) {
+static uint64_t location_for_object(SnapshotState *state, AihcValue *object) {
+  for (uint64_t index = 0; index < state->object_count; ++index) {
+    if (state->objects[index] == object) {
       return index;
     }
   }
-  if (state->cell_count == state->cell_capacity) {
-    uint64_t capacity = state->cell_capacity == 0 ? 8 : state->cell_capacity * 2;
-    AihcValue **cells = realloc(state->cells, sizeof(*cells) * capacity);
-    if (cells == NULL) {
+  if (state->object_count == state->object_capacity) {
+    uint64_t capacity =
+        state->object_capacity == 0 ? 8 : state->object_capacity * 2;
+    AihcValue **objects =
+        realloc(state->objects, sizeof(*objects) * capacity);
+    if (objects == NULL) {
       snapshot_fail("out of memory");
     }
-    state->cells = cells;
-    state->cell_capacity = capacity;
+    state->objects = objects;
+    state->object_capacity = capacity;
   }
-  uint64_t location = state->cell_count++;
-  state->cells[location] = cell;
+  uint64_t location = state->object_count++;
+  state->objects[location] = object;
   return location;
-}
-
-static int location_for_stored_value(const SnapshotState *state,
-                                     const AihcValue *value,
-                                     uint64_t *location) {
-  for (uint64_t index = 0; index < state->cell_count; ++index) {
-    AihcValue *cell = state->cells[index];
-    if (cell->info != AIHC_CELL_VALUE ||
-        (AihcValue *)cell->fields[0] != value) {
-      continue;
-    }
-    for (uint64_t owner_index = 0; owner_index < state->cell_count;
-         ++owner_index) {
-      AihcValue *owner = state->cells[owner_index];
-      if (owner->info == AIHC_CELL_VALUE &&
-          (AihcValue *)owner->fields[0] == cell) {
-        *location = index;
-        return 1;
-      }
-    }
-  }
-  return 0;
 }
 
 static void print_scalar(AihcSlot value, AihcSnapshotRep rep) {
@@ -133,207 +113,161 @@ static void print_scalar(AihcSlot value, AihcSnapshotRep rep) {
   snapshot_fail("unknown runtime representation");
 }
 
-static void print_value(SnapshotState *state, AihcSlot slot,
-                        AihcSnapshotRep rep, int nested);
-
 static void discover_value(SnapshotState *state, AihcSlot slot,
                            AihcSnapshotRep rep);
 
-static void discover_fields(SnapshotState *state, const AihcValue *value,
-                            uint64_t rep_count,
+static void discover_fields(SnapshotState *state, const AihcSlot *fields,
+                            uint64_t count, uint64_t rep_count,
                             const AihcSnapshotRep *field_reps) {
-  if (value->count > rep_count) {
+  if (count > rep_count) {
     snapshot_fail("node contains more fields than its descriptor");
   }
-  for (uint64_t index = 0; index < value->count; ++index) {
-    discover_value(state, value->fields[index], field_reps[index]);
+  for (uint64_t index = 0; index < count; ++index) {
+    discover_value(state, fields[index], field_reps[index]);
   }
 }
 
-static void discover_node(SnapshotState *state, const AihcValue *value) {
-  switch (value->kind) {
-  case AIHC_CONSTRUCTOR: {
+static void discover_object(SnapshotState *state, AihcValue *object) {
+  uint64_t previous_count = state->object_count;
+  location_for_object(state, object);
+  if (previous_count == state->object_count) {
+    return;
+  }
+
+  uint64_t tag = aihc_value_tag(object);
+  switch (tag) {
+  case AIHC_TAG_NODE:
+  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
     const AihcSnapshotConstructor *constructor =
-        find_constructor(state, value->info);
+        find_constructor(state, aihc_value_info(object));
     if (constructor == NULL) {
       snapshot_fail("constructor descriptor is missing");
     }
-    discover_fields(state, value, constructor->field_count,
-                    constructor->field_reps);
+    uint64_t count = tag == AIHC_TAG_NODE ? constructor->field_count
+                                          : aihc_value_count(object);
+    discover_fields(state, aihc_value_fields_const(object), count,
+                    constructor->field_count, constructor->field_reps);
     return;
   }
-  case AIHC_CLOSURE:
-  case AIHC_THUNK: {
-    const AihcSnapshotFunction *function = find_function(state, value->info);
+  case AIHC_TAG_CLOSURE:
+  case AIHC_TAG_THUNK: {
+    const AihcSnapshotFunction *function =
+        find_function(state, aihc_value_info(object));
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
-    discover_fields(state, value, function->parameter_count,
-                    function->parameter_reps);
+    uint64_t count = tag == AIHC_TAG_CLOSURE
+                         ? aihc_value_count(object)
+                         : function->parameter_count;
+    discover_fields(state, aihc_value_fields_const(object), count,
+                    function->parameter_count, function->parameter_reps);
     return;
   }
-  case AIHC_PRIMITIVE:
-    if (value->count != 0) {
+  case AIHC_TAG_PRIMITIVE:
+    if (aihc_value_count(object) != 0) {
       snapshot_fail("captured primitive fields are not yet describable");
     }
     return;
-  case AIHC_STATE_TOKEN:
-  case AIHC_LITERAL_INT:
+  case AIHC_TAG_INDIRECTION:
+    discover_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
-  case AIHC_CELL:
-    snapshot_fail("cell reached node discovery");
+  case AIHC_TAG_BLACKHOLE:
+    return;
   default:
-    snapshot_fail("unknown heap object kind");
+    snapshot_fail("unknown heap object tag");
   }
 }
 
 static void discover_value(SnapshotState *state, AihcSlot slot,
                            AihcSnapshotRep rep) {
-  if (rep != AIHC_SNAPSHOT_POINTER || slot == 0) {
-    return;
-  }
-  AihcValue *value = (AihcValue *)slot;
-  if (value->kind != AIHC_CELL) {
-    discover_node(state, value);
-    return;
-  }
-  uint64_t previous_count = state->cell_count;
-  location_for_cell(state, value);
-  if (state->cell_count == previous_count) {
-    return;
-  }
-  switch (value->info) {
-  case AIHC_CELL_SUSPENDED:
-  case AIHC_CELL_VALUE:
-    discover_value(state, value->fields[0], AIHC_SNAPSHOT_POINTER);
-    return;
-  case AIHC_CELL_BLACKHOLE:
-    return;
-  default:
-    snapshot_fail("unknown cell state");
-  }
-}
-
-static void print_fields(SnapshotState *state, const AihcValue *value,
-                         uint64_t rep_count,
-                         const AihcSnapshotRep *field_reps) {
-  if (value->count > rep_count) {
-    snapshot_fail("node contains more fields than its descriptor");
-  }
-  for (uint64_t index = 0; index < value->count; ++index) {
-    putchar(' ');
-    print_value(state, value->fields[index], field_reps[index], 1);
-  }
-}
-
-static void print_node(SnapshotState *state, const AihcValue *value,
-                       int nested) {
-  int parenthesized = nested && value->count != 0;
-  if (parenthesized) {
-    putchar('(');
-  }
-  switch (value->kind) {
-  case AIHC_CONSTRUCTOR: {
-    const AihcSnapshotConstructor *constructor =
-        find_constructor(state, value->info);
-    if (constructor == NULL) {
-      snapshot_fail("constructor descriptor is missing");
-    }
-    printf("C%s", constructor->name);
-    print_fields(state, value, constructor->field_count,
-                 constructor->field_reps);
-    break;
-  }
-  case AIHC_CLOSURE: {
-    const AihcSnapshotFunction *function = find_function(state, value->info);
-    if (function == NULL) {
-      snapshot_fail("closure function descriptor is missing");
-    }
-    printf("P%s/%" PRIu64, function->name, value->arity);
-    print_fields(state, value, function->parameter_count,
-                 function->parameter_reps);
-    break;
-  }
-  case AIHC_THUNK: {
-    const AihcSnapshotFunction *function = find_function(state, value->info);
-    if (function == NULL) {
-      snapshot_fail("thunk function descriptor is missing");
-    }
-    printf("F%s", function->name);
-    print_fields(state, value, function->parameter_count,
-                 function->parameter_reps);
-    break;
-  }
-  case AIHC_PRIMITIVE:
-    printf("Prim[%" PRIuPTR "/%" PRIu64 "]", value->info, value->arity);
-    if (value->count != 0) {
-      snapshot_fail("captured primitive fields are not yet describable");
-    }
-    break;
-  case AIHC_STATE_TOKEN:
-    fputs("<state>", stdout);
-    break;
-  case AIHC_LITERAL_INT:
-    printf("%" PRIuPTR, value->info);
-    break;
-  case AIHC_CELL:
-    snapshot_fail("cell reached node printer");
-    break;
-  default:
-    snapshot_fail("unknown heap object kind");
-  }
-  if (parenthesized) {
-    putchar(')');
+  if (rep == AIHC_SNAPSHOT_POINTER && slot != 0) {
+    discover_object(state, (AihcValue *)slot);
   }
 }
 
 static void print_value(SnapshotState *state, AihcSlot slot,
-                        AihcSnapshotRep rep, int nested) {
+                        AihcSnapshotRep rep) {
   if (rep != AIHC_SNAPSHOT_POINTER) {
     print_scalar(slot, rep);
     return;
   }
-  AihcValue *value = (AihcValue *)slot;
-  if (value == NULL) {
+  if (slot == 0) {
     fputs("<null>", stdout);
-  } else if (value->kind == AIHC_CELL) {
-    printf("@%" PRIu64, location_for_cell(state, value));
-  } else {
-    uint64_t location;
-    if (location_for_stored_value(state, value, &location)) {
-      printf("@%" PRIu64, location);
-    } else {
-      print_node(state, value, nested);
-    }
+    return;
+  }
+  printf("@%" PRIu64, location_for_object(state, (AihcValue *)slot));
+}
+
+static void print_fields(SnapshotState *state, const AihcSlot *fields,
+                         uint64_t count, uint64_t rep_count,
+                         const AihcSnapshotRep *field_reps) {
+  if (count > rep_count) {
+    snapshot_fail("node contains more fields than its descriptor");
+  }
+  for (uint64_t index = 0; index < count; ++index) {
+    putchar(' ');
+    print_value(state, fields[index], field_reps[index]);
   }
 }
 
-static void print_cell(SnapshotState *state, AihcValue *cell) {
-  switch (cell->info) {
-  case AIHC_CELL_SUSPENDED: {
-    AihcValue *value = (AihcValue *)cell->fields[0];
-    if (value == NULL || value->kind == AIHC_CELL) {
-      snapshot_fail("suspended cell does not contain a thunk");
+static void print_object(SnapshotState *state, const AihcValue *object) {
+  uint64_t tag = aihc_value_tag(object);
+  switch (tag) {
+  case AIHC_TAG_NODE:
+  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
+    const AihcSnapshotConstructor *constructor =
+        find_constructor(state, aihc_value_info(object));
+    if (constructor == NULL) {
+      snapshot_fail("constructor descriptor is missing");
     }
-    print_node(state, value, 0);
-    return;
-  }
-  case AIHC_CELL_VALUE: {
-    AihcValue *value = (AihcValue *)cell->fields[0];
-    if (value != NULL && value->kind == AIHC_CELL) {
-      printf("Indirection @%" PRIu64, location_for_cell(state, value));
-    } else if (value != NULL) {
-      print_node(state, value, 0);
+    fputs("C", stdout);
+    fputs(constructor->name, stdout);
+    uint64_t count;
+    if (tag == AIHC_TAG_PARTIAL_CONSTRUCTOR) {
+      printf("/%" PRIu64, aihc_value_arity(object));
+      count = aihc_value_count(object);
     } else {
-      fputs("<null>", stdout);
+      count = constructor->field_count;
     }
+    print_fields(state, aihc_value_fields_const(object), count,
+                 constructor->field_count, constructor->field_reps);
     return;
   }
-  case AIHC_CELL_BLACKHOLE:
+  case AIHC_TAG_CLOSURE:
+  case AIHC_TAG_THUNK: {
+    const AihcSnapshotFunction *function =
+        find_function(state, aihc_value_info(object));
+    if (function == NULL) {
+      snapshot_fail("function descriptor is missing");
+    }
+    uint64_t count;
+    if (tag == AIHC_TAG_CLOSURE) {
+      printf("P%s/%" PRIu64, function->name, aihc_value_arity(object));
+      count = aihc_value_count(object);
+    } else {
+      printf("F%s", function->name);
+      count = function->parameter_count;
+    }
+    print_fields(state, aihc_value_fields_const(object), count,
+                 function->parameter_count, function->parameter_reps);
+    return;
+  }
+  case AIHC_TAG_PRIMITIVE:
+    printf("Prim[%" PRIuPTR "/%" PRIu64 "]", aihc_value_info(object),
+           aihc_value_arity(object));
+    if (aihc_value_count(object) != 0) {
+      snapshot_fail("captured primitive fields are not yet describable");
+    }
+    return;
+  case AIHC_TAG_INDIRECTION:
+    fputs("Indirection ", stdout);
+    print_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
+    return;
+  case AIHC_TAG_BLACKHOLE:
     fputs("<blackhole>", stdout);
     return;
   default:
-    snapshot_fail("unknown cell state");
+    snapshot_fail("unknown heap object tag");
   }
 }
 
@@ -358,27 +292,27 @@ void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
   if (result_count == 0) {
     fputs("()", stdout);
   } else if (result_count == 1) {
-    print_value(&state, results[0], result_reps[0], 0);
+    print_value(&state, results[0], result_reps[0]);
   } else {
     putchar('(');
     for (uint64_t index = 0; index < result_count; ++index) {
       if (index != 0) {
         fputs(", ", stdout);
       }
-      print_value(&state, results[index], result_reps[index], 0);
+      print_value(&state, results[index], result_reps[index]);
     }
     putchar(')');
   }
 
-  if (state.cell_count == 0) {
+  if (state.object_count == 0) {
     fputs("\nheap: []\n", stdout);
   } else {
     fputs("\nheap:\n", stdout);
-    for (uint64_t location = 0; location < state.cell_count; ++location) {
+    for (uint64_t location = 0; location < state.object_count; ++location) {
       printf("  @%" PRIu64 " = ", location);
-      print_cell(&state, state.cells[location]);
+      print_object(&state, state.objects[location]);
       putchar('\n');
     }
   }
-  free(state.cells);
+  free(state.objects);
 }

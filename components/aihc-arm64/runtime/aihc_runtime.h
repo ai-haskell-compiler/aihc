@@ -4,31 +4,72 @@
 #include <stdint.h>
 
 enum {
-  AIHC_LITERAL_INT = 0,
-  AIHC_CONSTRUCTOR = 1,
-  AIHC_CLOSURE = 2,
-  AIHC_THUNK = 3,
-  AIHC_PRIMITIVE = 4,
-  AIHC_CELL = 5,
-  AIHC_STATE_TOKEN = 6,
+  AIHC_TAG_NODE = 0,
+  AIHC_TAG_CLOSURE = 1,
+  AIHC_TAG_THUNK = 2,
+  AIHC_TAG_PARTIAL_CONSTRUCTOR = 3,
+  AIHC_TAG_PRIMITIVE = 4,
+  AIHC_TAG_INDIRECTION = 5,
+  AIHC_TAG_BLACKHOLE = 6,
 };
 
-enum {
-  AIHC_CELL_SUSPENDED = 0,
-  AIHC_CELL_VALUE = 1,
-  AIHC_CELL_BLACKHOLE = 2,
-};
+#define AIHC_TAG_BITS 3
+#define AIHC_TAG_MASK ((uintptr_t)((1U << AIHC_TAG_BITS) - 1U))
+#define AIHC_SHAPE_ARITY_SHIFT 32
+#define AIHC_SHAPE_COUNT_MASK UINT32_MAX
 
 typedef struct AihcValue AihcValue;
 typedef uintptr_t AihcSlot;
 
 struct AihcValue {
-  uint64_t kind;
-  uintptr_t info;
-  uint64_t arity;
-  uint64_t count;
+  /* Low AIHC_TAG_BITS select the physical shape. Remaining bits carry info. */
+  uintptr_t header;
   AihcSlot fields[];
 };
+
+_Static_assert(sizeof(AihcValue) == sizeof(uintptr_t),
+               "AIHC objects must have a one-word base header");
+
+static inline uint64_t aihc_value_tag(const AihcValue *value) {
+  return value->header & AIHC_TAG_MASK;
+}
+
+static inline uintptr_t aihc_value_info(const AihcValue *value) {
+  switch (aihc_value_tag(value)) {
+  case AIHC_TAG_CLOSURE:
+  case AIHC_TAG_THUNK:
+    return value->header & ~AIHC_TAG_MASK;
+  case AIHC_TAG_NODE:
+  case AIHC_TAG_PARTIAL_CONSTRUCTOR:
+  case AIHC_TAG_PRIMITIVE:
+    return value->header >> AIHC_TAG_BITS;
+  default:
+    return 0;
+  }
+}
+
+static inline int aihc_value_has_shape(const AihcValue *value) {
+  uint64_t tag = aihc_value_tag(value);
+  return tag == AIHC_TAG_CLOSURE ||
+         tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ||
+         tag == AIHC_TAG_PRIMITIVE;
+}
+
+static inline uint64_t aihc_value_arity(const AihcValue *value) {
+  return value->fields[0] >> AIHC_SHAPE_ARITY_SHIFT;
+}
+
+static inline uint64_t aihc_value_count(const AihcValue *value) {
+  return value->fields[0] & AIHC_SHAPE_COUNT_MASK;
+}
+
+static inline AihcSlot *aihc_value_fields(AihcValue *value) {
+  return value->fields + (aihc_value_has_shape(value) ? 1 : 0);
+}
+
+static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
+  return value->fields + (aihc_value_has_shape(value) ? 1 : 0);
+}
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

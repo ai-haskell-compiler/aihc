@@ -55,7 +55,6 @@ data CompileEnv = CompileEnv
     compileConstructorArities :: !(Map Text Int),
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
-    compileFunctionArities :: !(Map FunctionName Int),
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
@@ -319,15 +318,6 @@ compileEnvironmentWith exposeAllFunctions layout program =
                  | (index, function) <- zip [0 ..] (grinFunctions program)
                  ]
           ),
-      compileFunctionArities =
-        Map.fromList
-          ( [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
-            | info <- grinExternalFunctions program
-            ]
-              <> [ (grinFunctionName function, length (grinFunctionParameters function))
-                 | function <- grinFunctions program
-                 ]
-          ),
       compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
@@ -338,7 +328,7 @@ compileConstructorInitializers :: CompileEnv -> Either Arm64Error [Text]
 compileConstructorInitializers env =
   fmap concat . forM nullaryConstructors $ \(name, constructor) -> do
     slot <- globalSlot env name
-    pure $ makeNodeLines 1 (InfoImmediate constructor) 0 0 <> storeGlobal slot
+    pure $ makeNodeLines runtimeTagNode (InfoImmediate constructor) 0 0 <> storeGlobal slot
   where
     nullaryConstructors =
       [ (name, constructor)
@@ -352,21 +342,17 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     nodeLines <- materializeNode (ValueEnv env Map.empty) node
     pure (nodeLines <> storeGlobal slot)
-  cafCellLines <- fmap concat . forM (grinCafs program) $ \(var, _) -> do
+  cafAllocationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    pure (["  bl _aihc_make_cell"] <> storeGlobal slot)
-  cafValueLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
+    allocationLines <- allocateNode (ValueEnv env Map.empty) node
+    pure (allocationLines <> storeGlobal slot)
+  cafInitializationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    nodeLines <- materializeNode (ValueEnv env Map.empty) node
+    fieldLines <- initializeNodeFields (ValueEnv env Map.empty) node
     pure $
-      nodeLines
-        <> [ "  mov x20, x0",
-             "  ldr x9, [x22, #24]",
-             loadAt "x0" "x9" slot,
-             "  mov x1, x20",
-             "  bl _aihc_set_cell"
-           ]
-  pure (cafCellLines <> whnfGlobalLines <> cafValueLines)
+      ["  ldr x9, [x22, #24]", loadAt "x20" "x9" slot]
+        <> fieldLines
+  pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
 compileFunction env function = do
@@ -383,7 +369,8 @@ compileFunction env function = do
   let slotCount = max 1 (spillBase + spillCount)
       entry =
         exportLines env function label
-          <> [ label <> ":",
+          <> [ ".p2align 3",
+               label <> ":",
                immediate "x0" slotCount,
                "  bl _aihc_alloc_locals",
                "  mov x19, x0",
@@ -438,35 +425,18 @@ compileExpr env prefix label expression =
       compileExpr env [] bodyLabel body
     GrinStore node -> do
       nodeLines <- liftEither (materializeNode env node)
-      addBlock
-        label
-        ( prefix
-            <> nodeLines
-            <> [ "  mov x20, x0",
-                 "  bl _aihc_make_cell",
-                 "  mov x21, x0",
-                 "  mov x1, x20",
-                 "  bl _aihc_set_cell",
-                 "  mov x0, x21"
-               ]
-            <> returnLines
-        )
+      addBlock label (prefix <> nodeLines <> returnLines)
     GrinStoreRec bindings body -> do
       allocationLines <-
-        fmap concat . forM bindings $ \(var, _) -> do
+        fmap concat . forM bindings $ \(var, node) -> do
           slot <- localSlot env var
-          pure ["  bl _aihc_make_cell", storeAt "x0" "x19" slot]
+          nodeLines <- liftEither (allocateNode env node)
+          pure (nodeLines <> [storeAt "x0" "x19" slot])
       initializationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
           slot <- localSlot env var
-          nodeLines <- liftEither (materializeNode env node)
-          pure $
-            nodeLines
-              <> [ "  mov x20, x0",
-                   loadAt "x0" "x19" slot,
-                   "  mov x1, x20",
-                   "  bl _aihc_set_cell"
-                 ]
+          fieldLines <- liftEither (initializeNodeFields env node)
+          pure ([loadAt "x20" "x19" slot] <> fieldLines)
       compileExpr env (prefix <> allocationLines <> initializationLines) label body
     GrinFetch {} -> unsupportedExpression "fetch"
     GrinUpdate {} -> unsupportedExpression "update"
@@ -594,7 +564,7 @@ alternativePrefix env resultSlot alternative =
         slot <- localSlot env binder
         pure
           [ loadAt "x9" "x19" resultSlot,
-            loadByteOffset "x10" "x9" (32 + index * 8),
+            loadByteOffset "x10" "x9" (8 + index * 8),
             storeAt "x10" "x19" slot
           ]
     GrinLitAlt _ -> pure []
@@ -619,12 +589,9 @@ caseChecks env resultSlot scrutineeIsPointer targets = do
             pure
               [ loadAt "x9" "x19" resultSlot,
                 "  ldr x10, [x9, #0]",
-                "  cmp x10, #1",
-                "  b.ne 1f",
-                "  ldr x10, [x9, #8]",
-                "  cmp x10, #" <> tshow identifier,
-                "  b.eq " <> target,
-                "1:"
+                immediate "x11" (identifier * 8),
+                "  cmp x10, x11",
+                "  b.eq " <> target
               ]
           else lift (Left (Arm64UnsupportedExpression "constructor case on an unboxed value"))
       GrinLitAlt literal ->
@@ -702,8 +669,22 @@ literalInteger literal =
 
 materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 materializeNode env node = do
-  (kind, info, arity) <- nodeHeader env node
-  fieldLines <- fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
+  allocationLines <- allocateNode env node
+  fieldLines <- initializeNodeFields env node
+  pure $
+    allocationLines
+      <> ["  mov x20, x0"]
+      <> fieldLines
+      <> ["  mov x0, x20"]
+
+allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNode env node = do
+  (tag, info, arity) <- nodeHeader env node
+  pure (makeNodeLines tag info arity (length (grinNodeFields node)))
+
+initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+initializeNodeFields env node =
+  fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
     pure $
       valueLines
@@ -712,28 +693,26 @@ materializeNode env node = do
              immediate "x1" index,
              "  bl _aihc_set_field"
            ]
-  pure $
-    makeNodeLines kind info arity (length (grinNodeFields node))
-      <> ["  mov x20, x0"]
-      <> fieldLines
-      <> ["  mov x0, x20"]
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo, Int)
 nodeHeader env node =
   case grinNodeTag node of
     GrinConstructor name remaining -> do
       identifier <- constructorId compileEnv name
-      pure (1, InfoImmediate identifier, remaining)
+      pure
+        ( if remaining == 0 then runtimeTagNode else runtimeTagPartialConstructor,
+          InfoImmediate identifier,
+          remaining
+        )
     GrinClosure functionName argumentLayouts -> do
       label <- functionCodeLabel compileEnv functionName
-      pure (2, InfoAddress label, length argumentLayouts)
+      pure (runtimeTagClosure, InfoAddress label, length argumentLayouts)
     GrinThunk functionName -> do
       label <- functionCodeLabel compileEnv functionName
-      arity <- functionArity compileEnv functionName
-      pure (3, InfoAddress label, arity)
+      pure (runtimeTagThunk, InfoAddress label, 0)
     GrinPrimitive name arity -> do
       identifier <- primitiveId compileEnv name
-      pure (4, InfoImmediate identifier, arity)
+      pure (runtimeTagPrimitive, InfoImmediate identifier, arity)
   where
     compileEnv = valueCompileEnv env
 
@@ -754,6 +733,13 @@ makeNodeLines kind info arity count =
       case nodeInfo of
         InfoImmediate integer -> immediate "x1" integer
         InfoAddress label -> address "x1" label
+
+runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor, runtimeTagPrimitive :: Int
+runtimeTagNode = 0
+runtimeTagClosure = 1
+runtimeTagThunk = 2
+runtimeTagPartialConstructor = 3
+runtimeTagPrimitive = 4
 
 loadVariable :: ValueEnv -> GrinVar -> Either Arm64Error [Text]
 loadVariable env var =
@@ -863,10 +849,6 @@ constructorId env name =
 functionCodeLabel :: CompileEnv -> FunctionName -> Either Arm64Error Text
 functionCodeLabel env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
-
-functionArity :: CompileEnv -> FunctionName -> Either Arm64Error Int
-functionArity env name =
-  maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionArities env))
 
 primitiveId :: CompileEnv -> Text -> Either Arm64Error Int
 primitiveId env = primitiveIdentifier (compileAllowUnsupportedPrimitives env)
