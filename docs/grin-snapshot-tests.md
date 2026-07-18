@@ -48,6 +48,15 @@ Snapshotting reads heap objects but never enters them. A suspended thunk remains
 are recovered through descriptor tables generated beside the assembly, so
 snapshot output does not depend on debug symbols or raw addresses.
 
+Fixtures may replace `return` and `heap` with an `error` expectation. These
+cases assert the same stable runtime diagnostic from the interpreter and native
+execution. For example, a thunk that re-enters itself while it is marked as a
+blackhole uses:
+
+```yaml
+error: blackholed thunk re-entered
+```
+
 The focused fixture parser currently accepts constructor and function
 declarations plus `constant`, `store`, `store-rec`, `eval`, `apply`,
 `call`, and inline binds. Variables and literals carry explicit runtime
