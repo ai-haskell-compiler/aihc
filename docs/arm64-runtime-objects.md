@@ -13,10 +13,14 @@ indirection:           [header] [target]
 blackhole:             [header] [unused]
 ```
 
-The shape word exists only for closures, partial constructors, and primitives.
+The shape word exists only for closures and partial constructors.
 It packs the remaining logical arity and current field count into one word.
 Saturated constructors derive their field count from constructor metadata;
 thunks derive it from their function signature.
+
+Primitive operations have no heap-object tag. A partially applied primitive is
+lowered to an ordinary closure whose generated entry makes the saturated
+primitive call.
 
 Every updateable object reserves at least two words. Evaluating a thunk changes
 its header to `BLACKHOLE`, executes the entry encoded by its old header, then

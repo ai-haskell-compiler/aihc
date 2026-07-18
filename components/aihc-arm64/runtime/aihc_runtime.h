@@ -8,9 +8,8 @@ enum {
   AIHC_TAG_CLOSURE = 1,
   AIHC_TAG_THUNK = 2,
   AIHC_TAG_PARTIAL_CONSTRUCTOR = 3,
-  AIHC_TAG_PRIMITIVE = 4,
-  AIHC_TAG_INDIRECTION = 5,
-  AIHC_TAG_BLACKHOLE = 6,
+  AIHC_TAG_INDIRECTION = 4,
+  AIHC_TAG_BLACKHOLE = 5,
 };
 
 #define AIHC_TAG_BITS 3
@@ -41,7 +40,6 @@ static inline uintptr_t aihc_value_info(const AihcValue *value) {
     return value->header & ~AIHC_TAG_MASK;
   case AIHC_TAG_NODE:
   case AIHC_TAG_PARTIAL_CONSTRUCTOR:
-  case AIHC_TAG_PRIMITIVE:
     return value->header >> AIHC_TAG_BITS;
   default:
     return 0;
@@ -50,9 +48,7 @@ static inline uintptr_t aihc_value_info(const AihcValue *value) {
 
 static inline int aihc_value_has_shape(const AihcValue *value) {
   uint64_t tag = aihc_value_tag(value);
-  return tag == AIHC_TAG_CLOSURE ||
-         tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ||
-         tag == AIHC_TAG_PRIMITIVE;
+  return tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR;
 }
 
 static inline uint64_t aihc_value_arity(const AihcValue *value) {

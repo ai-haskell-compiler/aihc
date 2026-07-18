@@ -163,11 +163,6 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
                     function->parameter_count, function->parameter_reps);
     return;
   }
-  case AIHC_TAG_PRIMITIVE:
-    if (aihc_value_count(object) != 0) {
-      snapshot_fail("captured primitive fields are not yet describable");
-    }
-    return;
   case AIHC_TAG_INDIRECTION:
     discover_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
@@ -252,13 +247,6 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
                  function->parameter_count, function->parameter_reps);
     return;
   }
-  case AIHC_TAG_PRIMITIVE:
-    printf("Prim[%" PRIuPTR "/%" PRIu64 "]", aihc_value_info(object),
-           aihc_value_arity(object));
-    if (aihc_value_count(object) != 0) {
-      snapshot_fail("captured primitive fields are not yet describable");
-    }
-    return;
   case AIHC_TAG_INDIRECTION:
     fputs("Indirection ", stdout);
     print_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);

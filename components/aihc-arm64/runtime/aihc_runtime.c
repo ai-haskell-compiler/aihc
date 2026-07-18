@@ -10,10 +10,6 @@ enum {
   AIHC_CONT_FINAL = 3,
 };
 
-enum {
-  AIHC_PRIM_REAL_WORLD = 1,
-};
-
 typedef struct AihcContinuation AihcContinuation;
 
 struct AihcContinuation {
@@ -77,7 +73,6 @@ static uintptr_t aihc_make_header(uint64_t tag, uintptr_t info) {
     return info | tag;
   case AIHC_TAG_NODE:
   case AIHC_TAG_PARTIAL_CONSTRUCTOR:
-  case AIHC_TAG_PRIMITIVE:
     return (info << AIHC_TAG_BITS) | tag;
   default:
     aihc_fail("attempted to allocate an invalid object tag");
@@ -95,10 +90,7 @@ static AihcSlot aihc_make_shape(uint64_t arity, uint64_t count) {
 AihcValue *aihc_make_node(uint64_t tag, uintptr_t info, uint64_t arity,
                           uint64_t count) {
   uint64_t shape_words =
-      tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ||
-              tag == AIHC_TAG_PRIMITIVE
-          ? 1
-          : 0;
+      tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ? 1 : 0;
   uint64_t object_words = 1 + shape_words + count;
   if (object_words < 2) {
     object_words = 2;
@@ -224,9 +216,6 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
-  case AIHC_TAG_PRIMITIVE:
-    aihc_fail("primitive is not implemented by the native runtime");
-    return;
   default:
     aihc_fail("attempted to apply a non-function value");
   }
@@ -261,14 +250,6 @@ static void aihc_eval_value(AihcMachine *machine, AihcValue *value,
     aihc_fail("blackholed thunk re-entered");
   default:
     break;
-  }
-  if (aihc_value_tag(value) == AIHC_TAG_PRIMITIVE &&
-      aihc_value_arity(value) == 0) {
-    if (aihc_value_info(value) == AIHC_PRIM_REAL_WORLD) {
-      aihc_return_value(machine, 0);
-      return;
-    }
-    aihc_fail("unknown zero-arity primitive");
   }
   aihc_return_value(machine, (AihcSlot)value);
 }

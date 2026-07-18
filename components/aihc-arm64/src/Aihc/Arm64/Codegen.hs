@@ -178,7 +178,7 @@ validateProgramPrimitives program =
   validatePrimitiveNames (map (grinVarName . fst) (grinPrimitives program))
 
 validatePrimitiveNames :: [Text] -> Either Arm64Error ()
-validatePrimitiveNames = mapM_ (primitiveIdentifier False)
+validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 
 -- | Build the stable layout for a dependency closure in dependency order.
 buildLinkLayout :: [GrinProgram] -> LinkLayout
@@ -710,9 +710,6 @@ nodeHeader env node =
     GrinThunk functionName -> do
       label <- functionCodeLabel compileEnv functionName
       pure (runtimeTagThunk, InfoAddress label, 0)
-    GrinPrimitive name arity -> do
-      identifier <- primitiveId compileEnv name
-      pure (runtimeTagPrimitive, InfoImmediate identifier, arity)
   where
     compileEnv = valueCompileEnv env
 
@@ -734,12 +731,11 @@ makeNodeLines kind info arity count =
         InfoImmediate integer -> immediate "x1" integer
         InfoAddress label -> address "x1" label
 
-runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor, runtimeTagPrimitive :: Int
+runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor :: Int
 runtimeTagNode = 0
 runtimeTagClosure = 1
 runtimeTagThunk = 2
 runtimeTagPartialConstructor = 3
-runtimeTagPrimitive = 4
 
 loadVariable :: ValueEnv -> GrinVar -> Either Arm64Error [Text]
 loadVariable env var =
@@ -850,13 +846,10 @@ functionCodeLabel :: CompileEnv -> FunctionName -> Either Arm64Error Text
 functionCodeLabel env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
 
-primitiveId :: CompileEnv -> Text -> Either Arm64Error Int
-primitiveId env = primitiveIdentifier (compileAllowUnsupportedPrimitives env)
-
-primitiveIdentifier :: Bool -> Text -> Either Arm64Error Int
-primitiveIdentifier allowUnsupported name
-  | name == "realWorld#" = Right 1
-  | allowUnsupported = Right 0
+validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
+validatePrimitiveName allowUnsupported name
+  | name == "realWorld#" = Right ()
+  | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 
 functionLocalSlots :: GrinFunction -> Map GrinVar Int

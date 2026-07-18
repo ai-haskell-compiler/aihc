@@ -153,7 +153,6 @@ data GrinNodeTag
   | -- | A suspended computation. Its target function must return exactly
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
-  | GrinPrimitive !Text !Int
   deriving (Eq, Show, Read)
 
 data GrinAlt = GrinAlt

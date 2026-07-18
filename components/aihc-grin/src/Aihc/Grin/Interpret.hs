@@ -391,8 +391,6 @@ applyValue function arguments =
         GT -> pure [RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)]
         EQ -> pure [RuntimeNode (GrinConstructor name 0) (fields <> arguments)]
         LT -> throwInterpret (InterpretConstructorArity name 0 1)
-    RuntimeNode (GrinPrimitive name arity) fields ->
-      applyPrimitive name arity fields arguments
     other -> throwInterpret (InterpretApplyNonFunction other)
 
 callFunction :: FunctionName -> [RuntimeValue] -> EvalM [RuntimeValue]
@@ -418,12 +416,6 @@ isLiftedRuntimeValue value =
     RuntimeLocation {} -> True
     RuntimeMutVar {} -> False
     RuntimeStateToken -> False
-
-applyPrimitive :: Text -> Int -> [RuntimeValue] -> [RuntimeValue] -> EvalM [RuntimeValue]
-applyPrimitive name remaining captured arguments
-  | remaining > 1 = pure [RuntimeNode (GrinPrimitive name (remaining - 1)) (captured <> arguments)]
-  | remaining == 1 = evalPrimitive name (captured <> arguments)
-  | otherwise = throwInterpret (InterpretPrimitiveArity name 1)
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
@@ -605,7 +597,6 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArguments))
     RuntimeNode GrinConstructor {} _ -> pure "<function>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
-    RuntimeNode GrinPrimitive {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
     RuntimeLocation _ -> renderRawValueM forced
     RuntimeMutVar {} -> pure "<mutvar>"
