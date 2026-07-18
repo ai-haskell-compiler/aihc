@@ -4,7 +4,7 @@ expected: |-
   caf value%1003 :: BoxedRep Lifted = (F$grin_thunk_0)
 
   $grin_thunk_0 -> BoxedRep Lifted =
-    return (CIS 42)
+    store (CIS 42)
 extensions:
   - MagicHash
 reason: erases newtype constructors and casts before producing runtime GRIN

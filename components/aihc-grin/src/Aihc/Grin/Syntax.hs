@@ -101,11 +101,13 @@ instance Ord GrinVar where
       (grinVarName left, grinVarUnique left)
       (grinVarName right, grinVarUnique right)
 
--- | Strict expressions return zero or more register values. 'GrinBind' names
--- those values for the following expression. In particular, an unboxed tuple
--- is represented by its flattened components, never by a heap node.
+-- | Strict expressions produce zero or more register values. 'GrinBind' names
+-- those values for the following expression. 'GrinConstant' can only forward
+-- atomic variables and literals; every dynamic node enters the heap explicitly
+-- through 'GrinStore' or 'GrinStoreRec'. In particular, an unboxed tuple is
+-- represented by its flattened components, never by a heap node.
 data GrinExpr
-  = GrinReturn ![GrinValue]
+  = GrinConstant ![GrinValue]
   | GrinBind ![GrinVar] !GrinExpr !GrinExpr
   | GrinStore !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
@@ -128,7 +130,6 @@ data GrinExpr
 data GrinValue
   = GrinVarValue !GrinVar
   | GrinLitValue !GrinLiteral
-  | GrinNodeValue !GrinNode
   deriving (Eq, Show, Read)
 
 data GrinNode = GrinNode
@@ -174,7 +175,6 @@ grinValueRuntimeRep value =
         GrinLitInt runtimeRep _ -> runtimeRep
         GrinLitChar runtimeRep _ -> runtimeRep
         GrinLitString {} -> liftedRuntimeRep
-    GrinNodeValue {} -> liftedRuntimeRep
 
 isLiftedRuntimeRep :: RuntimeRep -> Bool
 isLiftedRuntimeRep runtimeRep = runtimeRep == liftedRuntimeRep

@@ -77,7 +77,7 @@ renderExpr = renderExprIndented 0
 renderExprIndented :: Int -> GrinExpr -> String
 renderExprIndented indentation expr =
   case expr of
-    GrinReturn values -> indent indentation <> "return" <> renderValues values
+    GrinConstant values -> indent indentation <> "constant" <> renderValues values
     GrinBind vars valueExpr body ->
       indent indentation
         <> renderBinders vars
@@ -174,7 +174,6 @@ renderValue value =
   case value of
     GrinVarValue var -> renderVar var
     GrinLitValue literal -> renderLiteral literal
-    GrinNodeValue node -> renderNode node
 
 renderNode :: GrinNode -> String
 renderNode node =

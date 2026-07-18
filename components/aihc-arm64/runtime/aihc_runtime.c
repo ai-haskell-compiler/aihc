@@ -319,7 +319,10 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
     }
     continuation->payload.update.cell->info = AIHC_CELL_VALUE;
     continuation->payload.update.cell->fields[0] = values[0];
-    aihc_return_values_internal(machine, 1, values);
+    /* A stored constructor is itself represented by a value cell. Continue
+     * forcing the thunk result so the awaiting continuation receives the
+     * constructor node rather than that intermediate heap location. */
+    aihc_eval_value(machine, (AihcValue *)values[0], 1);
     return;
   case AIHC_CONT_APPLY:
     if (count != 1) {

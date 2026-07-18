@@ -79,7 +79,7 @@ transformFunction function = do
 transformExpr :: FunctionName -> Set GrinVar -> RuntimeRep -> GrinExpr -> CpsM GrinExpr
 transformExpr parent bound resultRep expression =
   case expression of
-    GrinReturn {} -> pure expression
+    GrinConstant {} -> pure expression
     GrinBind resultVars valueExpression body -> do
       transformedValue <- transformExpr parent bound (varsRuntimeRep resultVars) valueExpression
       transformedBody <- transformExpr parent (bound <> Set.fromList resultVars) resultRep body
@@ -172,7 +172,7 @@ varsRuntimeRep vars =
 freeExprVars :: GrinExpr -> Set GrinVar
 freeExprVars expression =
   case expression of
-    GrinReturn values -> foldMap freeValueVars values
+    GrinConstant values -> foldMap freeValueVars values
     GrinBind vars valueExpression body ->
       freeExprVars valueExpression
         <> (freeExprVars body `Set.difference` Set.fromList vars)
@@ -204,7 +204,6 @@ freeValueVars value =
   case value of
     GrinVarValue var -> Set.singleton var
     GrinLitValue {} -> Set.empty
-    GrinNodeValue node -> freeNodeVars node
 
 freeNodeVars :: GrinNode -> Set GrinVar
 freeNodeVars = foldMap freeValueVars . grinNodeFields
@@ -227,7 +226,7 @@ maximumProgramVarUnique program =
 exprUniques :: GrinExpr -> [Int]
 exprUniques expression =
   case expression of
-    GrinReturn values -> concatMap valueUniques values
+    GrinConstant values -> concatMap valueUniques values
     GrinBind vars valueExpression body ->
       map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
     GrinStore node -> nodeUniques node
@@ -258,7 +257,6 @@ valueUniques value =
   case value of
     GrinVarValue var -> [grinVarUnique var]
     GrinLitValue {} -> []
-    GrinNodeValue node -> nodeUniques node
 
 nodeUniques :: GrinNode -> [Int]
 nodeUniques = concatMap valueUniques . grinNodeFields

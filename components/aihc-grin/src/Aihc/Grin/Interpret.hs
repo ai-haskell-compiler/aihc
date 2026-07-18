@@ -171,12 +171,11 @@ initialMachine program =
             Just runtimeValue -> runtimeValue
             Nothing -> error ("GRIN interpreter found an unbound static global " <> T.unpack (grinVarName var))
         GrinLitValue literal -> RuntimeLit literal
-        GrinNodeValue node -> staticNode node
 
 evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
 evalExpr env expr =
   case expr of
-    GrinReturn values -> mapM (materializeValue env) values
+    GrinConstant values -> mapM (materializeValue env) values
     GrinBind vars valueExpr body -> do
       values <- evalExpr env valueExpr
       if length vars == length values
@@ -252,7 +251,6 @@ materializeValue env value =
             Just runtimeValue -> pure runtimeValue
             Nothing -> throwInterpret (InterpretUnboundVariable var)
     GrinLitValue literal -> pure (RuntimeLit literal)
-    GrinNodeValue node -> materializeNode env node
 
 materializeNode :: Env -> GrinNode -> EvalM RuntimeValue
 materializeNode env node =
