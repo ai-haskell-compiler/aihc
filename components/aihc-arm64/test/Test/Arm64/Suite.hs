@@ -216,24 +216,30 @@ tests =
         assertBool
           "runtime apply does not enter its function"
           (not ("aihc_eval_value(machine, function" `isInfixOf` runtime)),
-      testCase "runtime object ABI is warning-free on the host compiler" $ do
-        runtime <- runtimeSourcePath
-        snapshotRuntime <- snapshotSourcePath
-        (clangExit, _clangOut, clangErr) <-
-          readProcessWithExitCode
-            "clang"
-            [ "-std=c11",
-              "-Wall",
-              "-Wextra",
-              "-Werror",
-              "-I",
-              takeDirectory runtime,
-              "-fsyntax-only",
-              runtime,
-              snapshotRuntime
-            ]
-            ""
-        assertEqual ("clang runtime diagnostics:\n" <> clangErr) ExitSuccess clangExit,
+      testCase "runtime object ABI compiles cleanly on the host C compiler" $
+        withTempDirectory "aihc-arm64-runtime" $ \directory -> do
+          runtime <- runtimeSourcePath
+          snapshotRuntime <- snapshotSourcePath
+          let executable = directory </> "runtime-check"
+          (compilerExit, _compilerOut, compilerErr) <-
+            readProcessWithExitCode
+              "cc"
+              [ "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                takeDirectory runtime,
+                runtime,
+                snapshotRuntime,
+                "-x",
+                "c",
+                "-",
+                "-o",
+                executable
+              ]
+              "int main(void) { return 0; }\n"
+          assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld
     ]
 
