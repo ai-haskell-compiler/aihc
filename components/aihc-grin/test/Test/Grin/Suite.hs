@@ -95,6 +95,36 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
+      testCase "FC lowering calls functions when only zero-width arguments remain" $ do
+        let program = lowerProgram zeroWidthSaturatedApplicationProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "direct call" ("call @BoxedRep Lifted $entry$zeroWidthTarget" `isInfixOf` rendered)
+        assertBool "no saturated closure" (not ("P$entry$zeroWidthTarget/0" `isInfixOf` rendered)),
+      testCase "lint rejects saturated closure nodes" $ do
+        let target = FunctionName "target"
+            wrapper = FunctionName "wrapper"
+            program =
+              heapProgram
+                { grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = target,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = BoxedRep Lifted,
+                          grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box") [GrinLitValue (GrinLitInt IntRep 1)])
+                        },
+                      GrinFunction
+                        { grinFunctionName = wrapper,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = BoxedRep Lifted,
+                          grinFunctionBody = GrinStore (GrinNode (GrinClosure target 0) [])
+                        }
+                    ]
+                }
+        assertBool "saturated closure" (GrinLintSaturatedClosure target `elem` lintProgram program),
       testCase "FC lowering stores saturated constructor nodes" $ do
         let program = lowerProgram saturatedConstructorProgram
         assertEqual "lint" [] (lintProgram program)
@@ -457,6 +487,28 @@ primitiveCallProgram =
     addVar = Var "+#" (Unique 29) (TcFunTy intTy (TcFunTy intTy intTy))
     addOneVar = Var "addOne" (Unique 30) (TcFunTy intTy intTy)
     argumentVar = Var "argument" (Unique 31) intTy
+
+zeroWidthSaturatedApplicationProgram :: FcProgram
+zeroWidthSaturatedApplicationProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            targetVar
+            (FcLam targetValueVar (FcLam stateVar (FcVar targetValueVar)))
+        ),
+      FcTopBind
+        ( FcNonRec
+            callerVar
+            (FcLam callerValueVar (FcApp (FcVar targetVar) (FcVar callerValueVar)))
+        )
+    ]
+  where
+    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    targetVar = Var "zeroWidthTarget" (Unique 32) (TcFunTy boxedIntTy (TcFunTy stateTy boxedIntTy))
+    callerVar = Var "zeroWidthCaller" (Unique 33) (TcFunTy boxedIntTy (TcFunTy stateTy boxedIntTy))
+    targetValueVar = Var "targetValue" (Unique 34) boxedIntTy
+    stateVar = Var "state" (Unique 35) stateTy
+    callerValueVar = Var "callerValue" (Unique 36) boxedIntTy
 
 functionClassificationProgram :: FcProgram
 functionClassificationProgram =

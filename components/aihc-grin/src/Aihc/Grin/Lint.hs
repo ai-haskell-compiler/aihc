@@ -23,6 +23,7 @@ data GrinLintError
   | GrinLintUnknownFunction !FunctionName
   | GrinLintUnknownPrimitive !Text
   | GrinLintFunctionArity !FunctionName !Int !Int
+  | GrinLintSaturatedClosure !FunctionName
   | GrinLintThunkResult !FunctionName !RuntimeRep
   | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
   | GrinLintResultLayout !String ![RuntimeRep] ![RuntimeRep]
@@ -109,6 +110,7 @@ lintCaf env (var, node) =
 lintFunction :: LintEnv -> GrinFunction -> [GrinLintError]
 lintFunction env function =
   resultErrors
+    <> lintFunctionResult env (grinFunctionResultRep function) (grinFunctionBody function)
     <> lintExpr env bound (grinFunctionBody function)
   where
     bound = Set.fromList (grinFunctionParameters function) <> lintGlobalVars env
@@ -119,6 +121,19 @@ lintFunction env function =
               [GrinLintResultLayout "function result" expected actual]
         _ -> []
     expected = runtimeRepComponents (grinFunctionResultRep function)
+
+lintFunctionResult :: LintEnv -> RuntimeRep -> GrinExpr -> [GrinLintError]
+lintFunctionResult env resultRep expr =
+  case expr of
+    GrinBind _ _ body -> lintFunctionResult env resultRep body
+    GrinStore (GrinNode (GrinClosure functionName 0) _) ->
+      [ GrinLintSaturatedClosure functionName
+      | Map.lookup functionName (lintFunctionResults env) == Just resultRep
+      ]
+    GrinStore {} -> []
+    GrinStoreRec _ body -> lintFunctionResult env resultRep body
+    GrinCase _ _ alternatives -> concatMap (lintFunctionResult env resultRep . grinAltRhs) alternatives
+    _ -> []
 
 lintExpr :: LintEnv -> Set GrinVar -> GrinExpr -> [GrinLintError]
 lintExpr env bound expr =
