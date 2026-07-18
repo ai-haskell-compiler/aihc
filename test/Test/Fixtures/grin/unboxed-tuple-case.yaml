@@ -7,8 +7,8 @@ expected: |-
     $grin_argument_1006%1006 :: IntRep <-
       $grin_tuple_1007%1007 :: IntRep, $grin_tuple_1008%1008 :: WordRep <-
         constant 1 2
-      constant $grin_tuple_1007%1007 :: IntRep
-    store (CBox $grin_argument_1006%1006 :: IntRep)
+      constant ($grin_tuple_1007%1007 :: IntRep)
+    store (CBox ($grin_argument_1006%1006 :: IntRep))
 extensions:
 - MagicHash
 - UnboxedTuples

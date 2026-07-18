@@ -8,7 +8,7 @@ expected: |-
   $grin_thunk_0 -> BoxedRep Lifted =
     $grin_argument_1008%1008 :: IntRep <-
       constant 42
-    store (CBox $grin_argument_1008%1008 :: IntRep)
+    store (CBox ($grin_argument_1008%1008 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash
