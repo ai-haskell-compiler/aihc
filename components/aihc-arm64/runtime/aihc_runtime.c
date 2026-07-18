@@ -195,14 +195,14 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
                               const AihcSlot *arguments) {
   switch (function->kind) {
   case AIHC_CLOSURE:
-    if (count < function->arity) {
+    if (function->arity > 1) {
       AihcValue *applied = aihc_copy_with_fields(function, count, arguments);
-      applied->arity -= count;
+      applied->arity -= 1;
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
-    if (count > function->arity) {
-      aihc_fail("closure received the wrong number of values");
+    if (function->arity == 0) {
+      aihc_fail("saturated closure was applied");
     }
     aihc_schedule_function(machine, function,
                            aihc_arguments_with_fields(function, count,
@@ -210,13 +210,15 @@ static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
     return;
   case AIHC_CONSTRUCTOR: {
     AihcValue *applied = aihc_copy_with_fields(function, count, arguments);
-    if (applied->count < applied->arity) {
+    if (function->arity > 1) {
+      applied->arity -= 1;
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
-    if (applied->count > applied->arity) {
-      aihc_fail("overapplication is not implemented");
+    if (function->arity == 0) {
+      aihc_fail("saturated constructor was applied");
     }
+    applied->arity = 0;
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }

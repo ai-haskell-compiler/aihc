@@ -10,7 +10,7 @@ module Aihc.Grin.Interpret
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -35,6 +35,7 @@ data InterpretError
   | InterpretMissingBinding !Text
   | InterpretUnknownFunction !FunctionName
   | InterpretFunctionArity !FunctionName !Int !Int
+  | InterpretConstructorArity !Text !Int !Int
   | InterpretApplyNonFunction !RuntimeValue
   | InterpretNoMatchingAlternative !RuntimeValue
   | InterpretPrimitiveArity !Text !Int
@@ -158,9 +159,9 @@ initialMachine program =
         [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
           staticGlobals,
           Map.fromList
-            [ (constructor, RuntimeNode (GrinConstructor constructor) [])
-            | (constructor, arity) <- builtinConstructors <> [(name, length fields) | (name, fields) <- grinConstructors program],
-              arity == 0
+            [ (constructor, RuntimeNode (GrinConstructor constructor 0) [])
+            | (constructor, layouts) <- builtinConstructors <> grinConstructors program,
+              null layouts
             ]
         ]
     staticNode (GrinNode tag fields) = RuntimeNode tag (map staticValue fields)
@@ -345,29 +346,27 @@ forceLocation location = do
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
 
 applyValue :: RuntimeValue -> [RuntimeValue] -> EvalM [RuntimeValue]
-applyValue function arguments = do
+applyValue function arguments =
   case function of
-    RuntimeNode (GrinClosure functionName argumentCount) fields ->
-      let runtimeArguments
-            | argumentCount == length arguments = arguments
-            -- Synthetic evaluator fixtures may leave an ignored State#
-            -- lambda binder lifted even though the call site correctly has
-            -- no runtime component for it.
-            | null arguments,
-              argumentCount == 1 =
-                [RuntimeStateToken]
-            | otherwise = arguments
-       in case compare (length runtimeArguments) argumentCount of
-            LT ->
-              pure
-                [ RuntimeNode
-                    (GrinClosure functionName (argumentCount - length runtimeArguments))
-                    (fields <> runtimeArguments)
-                ]
-            EQ -> callFunction functionName (fields <> runtimeArguments)
-            GT -> throwInterpret (InterpretFunctionArity functionName argumentCount (length arguments))
-    RuntimeNode constructor@(GrinConstructor _) fields ->
-      pure [RuntimeNode constructor (fields <> arguments)]
+    RuntimeNode (GrinClosure functionName remainingLayouts) fields ->
+      case remainingLayouts of
+        [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
+        layout : rest ->
+          let normalizedArguments
+                -- Synthetic evaluator fixtures can leave an ignored State#
+                -- binder lifted. The logical zero-width argument is still
+                -- present; only its fixture-local placeholder needs restoring.
+                | layout == [BoxedRep Lifted], null arguments = [RuntimeStateToken]
+                | otherwise = arguments
+              appliedFields = fields <> normalizedArguments
+           in case rest of
+                [] -> callFunction functionName appliedFields
+                _ -> pure [RuntimeNode (GrinClosure functionName rest) appliedFields]
+    RuntimeNode (GrinConstructor name remaining) fields ->
+      case compare remaining 1 of
+        GT -> pure [RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)]
+        EQ -> pure [RuntimeNode (GrinConstructor name 0) (fields <> arguments)]
+        LT -> throwInterpret (InterpretConstructorArity name 0 1)
     RuntimeNode (GrinPrimitive name arity) fields ->
       applyPrimitive name arity fields arguments
     other -> throwInterpret (InterpretApplyNonFunction other)
@@ -400,7 +399,7 @@ applyPrimitive :: Text -> Int -> [RuntimeValue] -> [RuntimeValue] -> EvalM [Runt
 applyPrimitive name remaining captured arguments
   | remaining > 1 = pure [RuntimeNode (GrinPrimitive name (remaining - 1)) (captured <> arguments)]
   | remaining == 1 = evalPrimitive name (captured <> arguments)
-  | otherwise = throwInterpret (InterpretPrimitiveArity name (length captured))
+  | otherwise = throwInterpret (InterpretPrimitiveArity name 1)
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
@@ -554,7 +553,7 @@ matchAlt value alt =
       Just (Map.fromList [(var, value) | var <- grinAltBinders alt])
     (GrinLitAlt expected, RuntimeLit actual)
       | expected == actual -> Just Map.empty
-    (GrinDataAlt expected, RuntimeNode (GrinConstructor actual) fields)
+    (GrinDataAlt expected, RuntimeNode (GrinConstructor actual 0) fields)
       | expected == actual,
         length fields == length (grinAltBinders alt) ->
           Just (Map.fromList (zip (grinAltBinders alt) fields))
@@ -571,15 +570,16 @@ renderRawValueM value = do
   forced <- forceValue value
   case forced of
     RuntimeLit literal -> pure (renderLiteral literal)
-    RuntimeNode (GrinConstructor "C#") [char] -> renderBoxedChar char
-    RuntimeNode (GrinConstructor name) [] -> pure name
-    RuntimeNode (GrinConstructor name) arguments
+    RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
+    RuntimeNode (GrinConstructor name 0) [] -> pure name
+    RuntimeNode (GrinConstructor name 0) arguments
       | isTupleConstructor name (length arguments) -> do
           renderedArguments <- mapM renderRawArgument arguments
           pure ("(" <> T.intercalate "," renderedArguments <> ")")
-    RuntimeNode (GrinConstructor name) arguments -> do
+    RuntimeNode (GrinConstructor name 0) arguments -> do
       renderedArguments <- mapM renderRawArgument arguments
       pure (T.unwords (name : renderedArguments))
+    RuntimeNode GrinConstructor {} _ -> pure "<function>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode GrinPrimitive {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
@@ -593,10 +593,10 @@ renderRawArgument value = do
   rendered <- renderRawValueM forced
   pure $
     case forced of
-      RuntimeNode (GrinConstructor name) arguments
+      RuntimeNode (GrinConstructor name 0) arguments
         | isTupleConstructor name (length arguments) -> rendered
-      RuntimeNode (GrinConstructor "C#") [_] -> rendered
-      RuntimeNode (GrinConstructor _) (_ : _) -> "(" <> rendered <> ")"
+      RuntimeNode (GrinConstructor "C#" 0) [_] -> rendered
+      RuntimeNode (GrinConstructor _ 0) (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 
 renderLiteral :: GrinLiteral -> Text
