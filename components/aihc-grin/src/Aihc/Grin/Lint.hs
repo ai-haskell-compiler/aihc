@@ -14,6 +14,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 
 data GrinLintError
   = GrinLintDuplicateFunction !FunctionName
@@ -103,10 +104,12 @@ lintProgram program =
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
     semanticFunctionArity function =
-      case reverse (grinFunctionParameters function) of
-        continuation : rest
-          | grinVarName continuation == "$cps_return" -> length rest
-        _ -> length (grinFunctionParameters function)
+      if "$cps$" `T.isPrefixOf` unFunctionName (grinFunctionName function)
+        then length (grinFunctionParameters function)
+        else case reverse (grinFunctionParameters function) of
+          continuation : rest
+            | grinVarName continuation == "$cps_return" -> length rest
+          _ -> length (grinFunctionParameters function)
     semanticExternalArity info =
       case reverse (grinCodeParameterLayouts info) of
         [BoxedRep Lifted] : rest -> length (concat (reverse rest))
@@ -189,6 +192,10 @@ lintExpr env bound expr =
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue env bound) arguments
+    GrinCpsPrimitiveCall _ name arguments continuation ->
+      [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
+        <> concatMap (lintValue env bound) arguments
+        <> lintValue env bound continuation
     GrinApply _ function arguments -> lintValue env bound function <> concatMap (lintValue env bound) arguments
     GrinCpsApply _ function arguments continuation ->
       lintValue env bound function
@@ -323,6 +330,7 @@ exprRuntimeReps expr =
     GrinCpsEval {} -> Nothing
     GrinCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCpsPrimitiveCall {} -> Nothing
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsApply {} -> Nothing
     GrinContinue {} -> Nothing

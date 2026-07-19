@@ -24,6 +24,7 @@ import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.GrinProgram (parseProgram)
+import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
@@ -249,7 +250,9 @@ tests =
               ]
               "int main(void) { return 0; }\n"
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
-      testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld
+      testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld,
+      testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
+      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler
     ]
 
 data SnapshotCase = SnapshotCase
@@ -506,6 +509,34 @@ testNativeHelloWorld = do
   when (arch == "x86_64" && os == "linux") $
     runHelloWorldAssembly assembly
 
+testNativeScheduler :: IO ()
+testNativeScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
+  let cps = expectCpsGrin schedulerProgram
+  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  assembly <-
+    case compileProgram "main" cps of
+      Right value -> pure value
+      Left err -> assertFailure ("AMD64 scheduler lowering failed: " <> show err)
+  assertBool "emits fork runtime transfer" ("call aihc_fork_cps" `T.isInfixOf` assembly)
+  assertBool "emits yield runtime transfer" ("call aihc_yield_cps" `T.isInfixOf` assembly)
+  assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` assembly)
+  assertAssemblyAccepted assembly
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "PCAB" assembly
+
+testNativeBlackholeScheduler :: IO ()
+testNativeBlackholeScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
+  let cps = expectCpsGrin blackholeSchedulerProgram
+  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  assembly <-
+    case compileProgram "main" cps of
+      Right value -> pure value
+      Left err -> assertFailure ("AMD64 blackhole scheduler lowering failed: " <> show err)
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "TA" assembly
+
 expectCpsGrin :: GrinProgram -> CpsGrinProgram
 expectCpsGrin program =
   case toCpsGrin program of
@@ -540,6 +571,20 @@ runHelloWorldAssembly assembly =
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
     assertEqual "native stdout" "Hello, world!\n" programOut
+
+runSchedulerAssembly :: String -> T.Text -> IO ()
+runSchedulerAssembly expected assembly =
+  withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
+    runtime <- runtimeSourcePath
+    let assemblyPath = directory </> "scheduler.s"
+        executablePath = directory </> "scheduler"
+    TIO.writeFile assemblyPath assembly
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+    assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
+    assertEqual "scheduler stdout" expected programOut
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive

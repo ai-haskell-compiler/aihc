@@ -261,6 +261,7 @@ fixedTyConKind name =
   case name of
     "State#" -> Just (KFun liftedTypeKind (KTYPE (TupleRep [])))
     "MutVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
+    "ThreadId#" -> Just (KTYPE (BoxedRep Unlifted))
     _
       | Just runtimeRep <- primitiveRuntimeRep name -> Just (KTYPE runtimeRep)
       | isPromotedRuntimeRep name -> Just KRuntimeRep

@@ -508,6 +508,7 @@ builtinTypeNames =
     "MutableByteArray#",
     "RealWorld",
     "State#",
+    "ThreadId#",
     "TYPE",
     "RuntimeRep",
     "LiftedRep",

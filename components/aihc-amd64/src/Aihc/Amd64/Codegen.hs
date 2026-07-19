@@ -256,13 +256,17 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov rdi, r14",
            "  mov esi, 1",
            "  mov rdx, r12",
-           "  call aihc_set_field",
+           "  call aihc_set_field"
+         ]
+      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+      <> [ "  mov r10, rax",
            loadByteOffset "r11" "r15" 8,
            loadAt "rsi" "r11" rootSlot,
            "  mov rdi, r15",
            "  mov rdx, r12",
            "  mov rcx, r14",
-           address "r8" ".Laihc_exit",
+           "  mov r8, r10",
+           address "r9" ".Laihc_exit",
            "  call aihc_start"
          ]
       <> tailDispatchLines
@@ -275,6 +279,12 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  xor edx, edx",
            "  xor ecx, ecx",
            "  call aihc_apply_cps"
+         ]
+      <> tailDispatchLines
+      <> [ ".p2align 3",
+           ".Laihc_thread_done_continuation:",
+           "  mov rdi, r15",
+           "  call aihc_thread_done"
          ]
       <> tailDispatchLines
       <> [ ".p2align 3",
@@ -475,6 +485,8 @@ compileExpr env prefix label expression =
             <> [slotPointer "r12" argumentSlots, storeByteOffset "r12" "r15" 0, "  jmp " <> target]
         )
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
+    GrinCpsPrimitiveCall _ name arguments continuation ->
+      compileCpsPrimitive env prefix label name arguments continuation
     GrinApply {} -> unsupportedExpression "direct-style apply after CPS"
     GrinCpsApply _ function arguments continuation -> do
       scratch <- freshSlot
@@ -537,6 +549,42 @@ compileExpr env prefix label expression =
   where
     unsupportedExpression name = lift (Left (Amd64UnsupportedExpression name))
 
+compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
+compileCpsPrimitive env prefix label name arguments continuation = do
+  continuationSlot <- freshSlot
+  continuationLines <- liftEither (materializeValue env continuation)
+  case (name, arguments) of
+    ("fork#", [action]) -> do
+      actionSlot <- freshSlot
+      actionLines <- liftEither (materializeValue env action)
+      addBlock
+        label
+        ( prefix
+            <> actionLines
+            <> [storeAt "rax" "r14" actionSlot]
+            <> continuationLines
+            <> [ storeAt "rax" "r14" continuationSlot,
+                 loadAt "rsi" "r14" actionSlot,
+                 loadAt "rdx" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_fork_cps"
+               ]
+            <> tailDispatchLines
+        )
+    ("yield#", []) ->
+      addBlock
+        label
+        ( prefix
+            <> continuationLines
+            <> [ storeAt "rax" "r14" continuationSlot,
+                 loadAt "rsi" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_yield_cps"
+               ]
+            <> tailDispatchLines
+        )
+    _ -> lift (Left (Amd64UnsupportedExpression ("CPS primitive call " <> name)))
+
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
   case expression of
@@ -552,8 +600,8 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> do
       pointerLines <- liftEither (materializeValue env pointer)
       storeSingleResult vars pointerLines
-    GrinUpdate pointer value -> compileUpdateBinding "aihc_update" pointer value
-    GrinUpdateBlackhole pointer value -> compileUpdateBinding "aihc_update_blackhole" pointer value
+    GrinUpdate pointer value -> compileUpdateBinding False "aihc_update" pointer value
+    GrinUpdateBlackhole pointer value -> compileUpdateBinding True "aihc_update_blackhole" pointer value
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -574,7 +622,7 @@ compileDirectBinding env vars expression =
           slot <- localSlot env var
           pure (lines' <> [storeAt "rax" "r14" slot])
         _ -> lift (Left (Amd64UnsupportedExpression "direct expression result arity"))
-    compileUpdateBinding symbol pointer value = do
+    compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot
       pointerLines <- liftEither (materializeValue env pointer)
@@ -585,9 +633,11 @@ compileDirectBinding env vars expression =
             <> [storeAt "rax" "r14" pointerSlot]
             <> valueLines
             <> [ storeAt "rax" "r14" valueSlot,
-                 loadAt "rdi" "r14" pointerSlot,
-                 loadAt "rsi" "r14" valueSlot,
-                 "  call " <> symbol
+                 loadAt (if passMachine then "rsi" else "rdi") "r14" pointerSlot,
+                 loadAt (if passMachine then "rdx" else "rsi") "r14" valueSlot
+               ]
+            <> ["  mov rdi, r15" | passMachine]
+            <> [ "  call " <> symbol
                ]
             <> resultLines
         )
@@ -898,7 +948,7 @@ functionCodeLabel env name =
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name
-  | name == "realWorld#" = Right ()
+  | name `elem` ["fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Amd64UnsupportedPrimitive name)
 
@@ -926,6 +976,7 @@ boundVarGroups expression =
     GrinCpsEval {} -> []
     GrinCall {} -> []
     GrinPrimitiveCall {} -> []
+    GrinCpsPrimitiveCall {} -> []
     GrinApply {} -> []
     GrinCpsApply {} -> []
     GrinContinue {} -> []
@@ -983,6 +1034,8 @@ exprRuntimeReps expression =
       runtimeRep : concatMap valueRuntimeReps arguments
     GrinPrimitiveCall runtimeRep _ arguments ->
       runtimeRep : concatMap valueRuntimeReps arguments
+    GrinCpsPrimitiveCall runtimeRep _ arguments continuation ->
+      runtimeRep : concatMap valueRuntimeReps arguments <> valueRuntimeReps continuation
     GrinApply runtimeRep function arguments ->
       runtimeRep : valueRuntimeReps function <> concatMap valueRuntimeReps arguments
     GrinCpsApply runtimeRep function arguments continuation ->

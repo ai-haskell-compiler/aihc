@@ -166,6 +166,16 @@ grinUnitTests =
           "primitive calls stay direct"
           Set.empty
           (cpsContinuationFunctions primitiveCps `Set.difference` Set.singleton (cpsUpdateFunction primitiveCps)),
+      testCase "CPS-GRIN reifies scheduler primitive continuations" $ do
+        forM_ ["fork#", "yield#"] $ \name -> do
+          cps <- expectCpsGrin (controlPrimitiveBindProgram name)
+          let program = cpsGrinProgram cps
+          assertEqual "transformed lint" [] (lintProgram program)
+          assertBool ("missing CPS primitive " <> T.unpack name) (any (containsCpsPrimitive name . grinFunctionBody) (grinFunctions program))
+          assertEqual
+            "one reified continuation"
+            1
+            (Set.size (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps))),
       testCase "CPS-GRIN keeps non-call binds in direct style" $ do
         cps <- expectCpsGrin directBindProgram
         let rendered = renderProgram (cpsGrinProgram cps)
@@ -1237,6 +1247,7 @@ transferringExpressions =
 cpsOnlyExpressions :: [GrinExpr]
 cpsOnlyExpressions =
   [ GrinCpsEval lifted string string string,
+    GrinCpsPrimitiveCall lifted "fork#" [string] string,
     GrinCpsApply lifted string [] string,
     GrinContinue string [],
     GrinUpdateBlackhole string string,
@@ -1245,6 +1256,47 @@ cpsOnlyExpressions =
   where
     lifted = BoxedRep Lifted
     string = GrinLitValue (GrinLitString "continuation")
+
+controlPrimitiveBindProgram :: Text -> GrinProgram
+controlPrimitiveBindProgram name =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar name 1 lifted, primitiveArity)],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "control_primitive",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinBind resultVars primitiveCall (GrinConstant [string])
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    string = GrinLitValue (GrinLitString "result")
+    (primitiveArity, resultVars, primitiveCall) =
+      case name of
+        "fork#" ->
+          ( 2,
+            [GrinVar "thread_id" 2 (BoxedRep Unlifted)],
+            GrinPrimitiveCall (TupleRep [TupleRep [], BoxedRep Unlifted]) name [GrinLitValue (GrinLitString "action")]
+          )
+        _ -> (1, [], GrinPrimitiveCall (TupleRep []) name [])
+
+containsCpsPrimitive :: Text -> GrinExpr -> Bool
+containsCpsPrimitive name expression =
+  case expression of
+    GrinCpsPrimitiveCall _ actual _ _ -> actual == name
+    GrinBind _ value body -> containsCpsPrimitive name value || containsCpsPrimitive name body
+    GrinStoreRec _ body -> containsCpsPrimitive name body
+    GrinCase _ _ alternatives -> any (containsCpsPrimitive name . grinAltRhs) alternatives
+    _ -> False
 
 cpsOnlyFunction :: FunctionName
 cpsOnlyFunction = FunctionName "cps_only"

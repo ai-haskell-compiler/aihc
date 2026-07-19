@@ -226,6 +226,7 @@ evalExpr env expr =
       callFunction functionName =<< mapM (materializeValue env) arguments
     GrinPrimitiveCall _ name arguments ->
       evalPrimitive name =<< mapM (materializeValue env) arguments
+    GrinCpsPrimitiveCall {} -> rejectCpsExpression
     GrinApply _ function arguments -> do
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments

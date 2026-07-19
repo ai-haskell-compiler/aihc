@@ -444,9 +444,11 @@ primitiveImportSpecs =
       ("raise#", PrimitiveSpec 1 isRaisePrimType),
       ("realWorld#", PrimitiveSpec 0 (typesEqual statePrimRealWorldTy)),
       ("catch#", PrimitiveSpec 3 isCatchPrimType),
+      ("fork#", PrimitiveSpec 2 isForkPrimType),
       ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
       ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
-      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType)
+      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType),
+      ("yield#", PrimitiveSpec 1 (typesEqual yieldPrimTy))
     ]
 
 intBinaryPrim :: PrimitiveSpec
@@ -500,6 +502,24 @@ isCatchPrimBody resultVar exceptionVar ty =
   where
     resultTupleTy =
       unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]
+
+isForkPrimType :: TcType -> Bool
+isForkPrimType ty =
+  case collectForAlls ty of
+    ([resultVar], body) ->
+      typesEqual
+        ( TcFunTy
+            (TcFunTy statePrimRealWorldTy (unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]))
+            (TcFunTy statePrimRealWorldTy (unboxedTupleTy [statePrimRealWorldTy, threadIdPrimTy]))
+        )
+        body
+    _ -> False
+
+yieldPrimTy :: TcType
+yieldPrimTy = TcFunTy statePrimRealWorldTy statePrimRealWorldTy
+
+threadIdPrimTy :: TcType
+threadIdPrimTy = TcTyCon (TyCon "ThreadId#" 0) []
 
 isNewMutVarPrimType :: TcType -> Bool
 isNewMutVarPrimType ty =

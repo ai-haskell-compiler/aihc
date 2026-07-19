@@ -223,7 +223,8 @@ kindTests =
           ("Addr#", AddrRep),
           ("Float#", FloatRep),
           ("Double#", DoubleRep),
-          ("Char#", WordRep)
+          ("Char#", WordRep),
+          ("ThreadId#", BoxedRep Unlifted)
         ],
     testCase "records source-level constructor field representations" $ do
       let result =

@@ -164,6 +164,7 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     discover_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
   case AIHC_TAG_BLACKHOLE:
+  case AIHC_TAG_THREAD:
     return;
   default:
     snapshot_fail("unknown heap object tag");
@@ -250,6 +251,9 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     return;
   case AIHC_TAG_BLACKHOLE:
     fputs("<blackhole>", stdout);
+    return;
+  case AIHC_TAG_THREAD:
+    fputs("ThreadId#", stdout);
     return;
   default:
     snapshot_fail("unknown heap object tag");
