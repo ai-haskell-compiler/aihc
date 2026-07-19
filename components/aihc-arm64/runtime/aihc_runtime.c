@@ -55,7 +55,7 @@ static void *aihc_allocate(size_t bytes) {
 }
 
 static AihcContinuation *aihc_push_special(AihcMachine *machine,
-                                            uint64_t kind) {
+                                           uint64_t kind) {
   AihcContinuation *continuation = aihc_allocate(sizeof(*continuation));
   continuation->kind = kind;
   continuation->parent = machine->continuation;
@@ -106,13 +106,11 @@ AihcValue *aihc_make_node(uint64_t tag, uintptr_t info, uint64_t arity,
 }
 
 static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t result_tag,
-                                        uint64_t result_arity,
-                                        uint64_t count,
+                                        uint64_t result_arity, uint64_t count,
                                         const AihcSlot *fields) {
   uint64_t original_count = aihc_value_count(value);
-  AihcValue *copy =
-      aihc_make_node(result_tag, aihc_value_info(value), result_arity,
-                     original_count + count);
+  AihcValue *copy = aihc_make_node(result_tag, aihc_value_info(value),
+                                   result_arity, original_count + count);
   AihcSlot *original_fields = aihc_value_fields(value);
   AihcSlot *copy_fields = aihc_value_fields(copy);
   for (uint64_t index = 0; index < original_count; ++index) {
@@ -124,9 +122,8 @@ static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t result_tag,
   return copy;
 }
 
-static AihcSlot *aihc_arguments_with_fields(AihcValue *function,
-                                             uint64_t count,
-                                             const AihcSlot *fields) {
+static AihcSlot *aihc_arguments_with_fields(AihcValue *function, uint64_t count,
+                                            const AihcSlot *fields) {
   uint64_t field_count = aihc_value_count(function);
   uint64_t total = field_count + count;
   AihcSlot *arguments =
@@ -180,39 +177,37 @@ static void aihc_schedule_function(AihcMachine *machine, AihcValue *function,
 }
 
 static void aihc_apply_forced(AihcMachine *machine, AihcValue *function,
-                              uint64_t count,
-                              const AihcSlot *arguments) {
+                              uint64_t count, const AihcSlot *arguments) {
   switch (aihc_value_tag(function)) {
   case AIHC_TAG_CLOSURE: {
     uint64_t arity = aihc_value_arity(function);
     if (arity > 1) {
-      AihcValue *applied = aihc_copy_with_fields(
-          function, AIHC_TAG_CLOSURE, arity - 1, count, arguments);
+      AihcValue *applied = aihc_copy_with_fields(function, AIHC_TAG_CLOSURE,
+                                                 arity - 1, count, arguments);
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
     if (arity == 0) {
       aihc_fail("saturated closure was applied");
     }
-    aihc_schedule_function(machine, function,
-                           aihc_arguments_with_fields(function, count,
-                                                      arguments));
+    aihc_schedule_function(
+        machine, function,
+        aihc_arguments_with_fields(function, count, arguments));
     return;
   }
   case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
     uint64_t arity = aihc_value_arity(function);
     if (arity > 1) {
       AihcValue *applied = aihc_copy_with_fields(
-          function, AIHC_TAG_PARTIAL_CONSTRUCTOR, arity - 1, count,
-          arguments);
+          function, AIHC_TAG_PARTIAL_CONSTRUCTOR, arity - 1, count, arguments);
       aihc_return_value(machine, (AihcSlot)applied);
       return;
     }
     if (arity == 0) {
       aihc_fail("saturated constructor was applied");
     }
-    AihcValue *applied = aihc_copy_with_fields(
-        function, AIHC_TAG_NODE, 0, count, arguments);
+    AihcValue *applied =
+        aihc_copy_with_fields(function, AIHC_TAG_NODE, 0, count, arguments);
     aihc_return_value(machine, (AihcSlot)applied);
     return;
   }
@@ -272,8 +267,8 @@ static void aihc_return_values_internal(AihcMachine *machine, uint64_t count,
       aihc_fail("continuation received the wrong number of values");
     }
     for (uint64_t index = 0; index < count; ++index) {
-      continuation->payload.normal.locals
-          [continuation->payload.normal.slot + index] = values[index];
+      continuation->payload.normal
+          .locals[continuation->payload.normal.slot + index] = values[index];
     }
     machine->locals = continuation->payload.normal.locals;
     machine->next = continuation->payload.normal.code;
@@ -325,8 +320,7 @@ void aihc_eval(AihcMachine *machine, AihcValue *value,
   aihc_eval_value(machine, value, result_is_lifted);
 }
 
-void aihc_apply(AihcMachine *machine, AihcValue *function,
-                AihcSlot argument) {
+void aihc_apply(AihcMachine *machine, AihcValue *function, AihcSlot argument) {
   aihc_apply_forced(machine, function, 1, &argument);
 }
 

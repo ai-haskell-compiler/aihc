@@ -9,6 +9,7 @@ in {
       pkgs.haskellPackages.cabal-gild
       pkgs.alejandra
       pkgs.hlint
+      pkgs.clang-tools
     ];
   };
 }
