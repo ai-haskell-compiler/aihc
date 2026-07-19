@@ -1,0 +1,17 @@
+entry: $fork_snapshot_main
+program: |
+  constructor ChildResult/0 []
+  primitive fork#%1 :: BoxedRep Lifted/2
+  global child%2 :: BoxedRep Lifted = (P$fork_snapshot_child/[[]])
+
+  $fork_snapshot_main -> BoxedRep Unlifted =
+    (thread_id%3 :: BoxedRep Unlifted) <- primitive-call @(TupleRep [TupleRep [], BoxedRep Unlifted]) fork# (child%2 :: BoxedRep Lifted)
+    constant (thread_id%3 :: BoxedRep Unlifted)
+
+  $fork_snapshot_child -> BoxedRep Lifted =
+    store (CChildResult)
+return: "@0"
+heap: |
+  @0 = ThreadId#
+status: pass
+reason: fork# returns an opaque heap-resident ThreadId# that both snapshot implementations can traverse and render

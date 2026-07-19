@@ -24,14 +24,7 @@ import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.GrinProgram (parseProgram)
-import Aihc.Testing.SchedulerProgram
-  ( blackholeSchedulerProgram,
-    forkSnapshotEntry,
-    forkSnapshotProgram,
-    schedulerProgram,
-    yieldSnapshotEntry,
-    yieldSnapshotProgram,
-  )
+import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
@@ -259,22 +252,7 @@ tests =
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld,
       testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
-      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler,
-      testGroup
-        "scheduler heap snapshots"
-        [ testCase "snapshots the ThreadId# returned by fork#" $
-            testNativeSchedulerSnapshot
-              forkSnapshotEntry
-              forkSnapshotProgram
-              ["aihc_fork_cps"]
-              "return: @0\nheap:\n  @0 = ThreadId#",
-          testCase "snapshots child evaluation after yield#" $
-            testNativeSchedulerSnapshot
-              yieldSnapshotEntry
-              yieldSnapshotProgram
-              ["aihc_fork_cps", "aihc_yield_cps"]
-              "return: @0\nheap:\n  @0 = CSchedulerSnapshot @1 @2\n  @1 = ThreadId#\n  @2 = Indirection @3\n  @3 = CChildResult"
-        ]
+      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler
     ]
 
 data SnapshotCase = SnapshotCase
@@ -320,7 +298,9 @@ snapshotCases =
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
-    ("applies a stored closure", "apply.yaml")
+    ("applies a stored closure", "apply.yaml"),
+    ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
+    ("snapshots child evaluation after yield#", "yield.yaml")
   ]
 
 snapshotTest :: (String, FilePath) -> TestTree
@@ -558,21 +538,6 @@ testNativeBlackholeScheduler = do
       Left err -> assertFailure ("AMD64 blackhole scheduler lowering failed: " <> show err)
   when (arch == "x86_64" && os == "linux") $
     runSchedulerAssembly "TA" assembly
-
-testNativeSchedulerSnapshot :: FunctionName -> GrinProgram -> [T.Text] -> T.Text -> IO ()
-testNativeSchedulerSnapshot entry program runtimeTransfers expected = do
-  assertEqual "direct GRIN lint" [] (lintProgram program)
-  let cps = expectCpsGrin program
-  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
-  observed <-
-    case compileObservedFunction entry cps of
-      Right value -> pure value
-      Left err -> assertFailure ("AMD64 scheduler snapshot lowering failed: " <> show err)
-  forM_ runtimeTransfers $ \transfer ->
-    assertBool ("emits " <> T.unpack transfer) (transfer `T.isInfixOf` observedAssembly observed)
-  when (arch == "x86_64" && os == "linux") $ do
-    native <- runObservedProgram observed
-    assertNativeExpectation (SnapshotSuccess expected) native
 
 expectCpsGrin :: GrinProgram -> CpsGrinProgram
 expectCpsGrin program =

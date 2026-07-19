@@ -24,6 +24,8 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Sequence (Seq, ViewL (..), (|>))
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -52,6 +54,7 @@ data InterpretError
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
+  | InterpretNoRunnableThreads
   | InterpretCpsExpression !GrinExpr
   | InterpretRaisedException !Text
   deriving (Eq, Show)
@@ -79,13 +82,15 @@ data HeapCell
   | HeapValue !RuntimeValue
   | HeapRaised !RuntimeValue
   | HeapBlackhole
+  | HeapThread
 
 data Machine = Machine
   { machineProgram :: !GrinProgram,
     machineFunctions :: !(Map FunctionName GrinFunction),
     machineGlobals :: !(Map Text RuntimeValue),
     machineHeap :: !(IntMap HeapCell),
-    machineNextLocation :: !Int
+    machineNextLocation :: !Int,
+    machineRunQueue :: !(Seq ThreadAction)
   }
 
 data EvalFailure
@@ -93,6 +98,13 @@ data EvalFailure
   | EvalRaised !RuntimeValue
 
 type EvalM = ExceptT EvalFailure (StateT Machine IO)
+
+-- | A suspended direct-style continuation. Keeping the continuation as an
+-- interpreter action lets yield# switch threads without relying on the host
+-- call stack to represent the resumed computation.
+newtype ThreadAction = ThreadAction (EvalM [RuntimeValue])
+
+type ScheduledContinuation = [RuntimeValue] -> EvalM [RuntimeValue]
 
 data SnapshotBuild = SnapshotBuild
   { snapshotBuildSource :: !(IntMap HeapCell),
@@ -166,7 +178,8 @@ initialMachine program =
           [ (location, storedCell (staticNode node))
           | ((_, node), location) <- zip globalNodes [0 ..]
           ],
-      machineNextLocation = length globalNodes
+      machineNextLocation = length globalNodes,
+      machineRunQueue = Seq.empty
     }
   where
     globalNodes = Map.toAscList globalNodeMap
@@ -194,49 +207,55 @@ initialMachine program =
             Nothing -> error ("GRIN interpreter found an unbound static global " <> T.unpack (grinVarName var))
         GrinLitValue literal -> RuntimeLit literal
 
-evalExpr :: Env -> GrinExpr -> EvalM [RuntimeValue]
-evalExpr env expr =
+evalScheduledExpr :: Env -> GrinExpr -> ScheduledContinuation -> EvalM [RuntimeValue]
+evalScheduledExpr env expr continue =
   case expr of
-    GrinConstant values -> mapM (materializeValue env) values
-    GrinBind vars valueExpr body -> do
-      values <- evalExpr env valueExpr
-      if length vars == length values
-        then evalExpr (Map.fromList (zip vars values) `Map.union` env) body
-        else throwInterpret (InterpretResultArity (length vars) (length values))
-    GrinStore node ->
-      pure <$> (materializeNode env node >>= allocateCell . storedCell)
+    GrinConstant values -> continue =<< mapM (materializeValue env) values
+    GrinBind vars valueExpr body ->
+      evalScheduledExpr env valueExpr $ \values ->
+        if length vars == length values
+          then evalScheduledExpr (Map.fromList (zip vars values) `Map.union` env) body continue
+          else throwInterpret (InterpretResultArity (length vars) (length values))
+    GrinStore node -> do
+      value <- materializeNode env node >>= allocateCell . storedCell
+      continue [value]
     GrinStoreRec bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
           recursiveEnv = Map.fromList recursiveBindings `Map.union` env
       runtimeNodes <- mapM (materializeNode recursiveEnv . snd) bindings
       mapM_ (uncurry writeCell) (zip locations (map storedCell runtimeNodes))
-      evalExpr recursiveEnv body
-    GrinFetch _ pointer ->
-      (: []) <$> (materializeValue env pointer >>= fetchValue)
+      evalScheduledExpr recursiveEnv body continue
+    GrinFetch _ pointer -> do
+      value <- materializeValue env pointer >>= fetchValue
+      continue [value]
     GrinUpdate pointer value -> do
       pointerValue <- materializeValue env pointer
       updatedValue <- materializeValue env value
-      pure <$> updateValue pointerValue updatedValue
+      result <- updateValue pointerValue updatedValue
+      continue [result]
     GrinUpdateBlackhole {} -> rejectCpsExpression
-    GrinEval _ value ->
-      (: []) <$> (materializeValue env value >>= forceValue)
+    GrinEval _ value -> do
+      runtimeValue <- materializeValue env value
+      forceScheduledValue runtimeValue (continue . (: []))
     GrinCpsEval {} -> rejectCpsExpression
-    GrinCall _ functionName arguments ->
-      callFunction functionName =<< mapM (materializeValue env) arguments
-    GrinPrimitiveCall _ name arguments ->
-      evalPrimitive name =<< mapM (materializeValue env) arguments
+    GrinCall _ functionName arguments -> do
+      argumentValues <- mapM (materializeValue env) arguments
+      callScheduledFunction functionName argumentValues continue
+    GrinPrimitiveCall _ name arguments -> do
+      argumentValues <- mapM (materializeValue env) arguments
+      evalScheduledPrimitive name argumentValues continue
     GrinCpsPrimitiveCall {} -> rejectCpsExpression
     GrinApply _ function arguments -> do
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments
-      applyValue functionValue argumentValues
+      applyScheduledValue functionValue argumentValues continue
     GrinCpsApply {} -> rejectCpsExpression
     GrinContinue {} -> rejectCpsExpression
     GrinHalt {} -> rejectCpsExpression
     GrinCase scrutinee binder alternatives -> do
       value <- materializeValue env scrutinee
-      matchAlternative (Map.insert binder value env) value alternatives
+      matchScheduledAlternative (Map.insert binder value env) value alternatives continue
     GrinThrow exception -> do
       exceptionValue <- materializeValue env exception
       throwE (EvalRaised exceptionValue)
@@ -244,19 +263,144 @@ evalExpr env expr =
       actionValue <- materializeValue env action
       handlerValue <- materializeValue env handler
       stateValues <- mapM (materializeValue env) state
-      results <- applyValue actionValue stateValues `catchE` handleRaised handlerValue stateValues
-      let expectedCount = length (runtimeRepComponents runtimeRep)
-      case length results - expectedCount of
-        0 -> pure results
-        -- Shared evaluator fixtures type the otherwise zero-width State#
-        -- result as lifted. Its delayed placeholder is the one leading value.
-        1 -> pure (drop 1 results)
-        _ -> throwInterpret (InterpretResultArity expectedCount (length results))
+      let receive results = do
+            let expectedCount = length (runtimeRepComponents runtimeRep)
+            case length results - expectedCount of
+              0 -> continue results
+              1 -> continue (drop 1 results)
+              _ -> throwInterpret (InterpretResultArity expectedCount (length results))
+      applyScheduledValue actionValue stateValues receive
+        `catchE` handleScheduledRaised handlerValue stateValues receive
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
-      executeForeignCall foreignCall argumentValues
+      continue =<< executeForeignCall foreignCall argumentValues
   where
     rejectCpsExpression = throwInterpret (InterpretCpsExpression expr)
+
+evalScheduledPrimitive :: Text -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
+evalScheduledPrimitive "fork#" [action] continue = do
+  threadId <- allocateCell HeapThread
+  enqueueThread
+    ( applyScheduledValue action [] (const scheduleNextThread)
+        `catchE` finishChild
+    )
+  continue [threadId]
+evalScheduledPrimitive "yield#" [] continue = do
+  enqueueThread (continue [])
+  scheduleNextThread
+evalScheduledPrimitive name arguments continue =
+  continue =<< evalPrimitive name arguments
+
+finishChild :: EvalFailure -> EvalM [RuntimeValue]
+finishChild failure =
+  case failure of
+    -- An uncaught Haskell exception terminates only the forked thread.
+    EvalRaised _ -> scheduleNextThread
+    EvalInterpret _ -> throwE failure
+
+enqueueThread :: EvalM [RuntimeValue] -> EvalM ()
+enqueueThread action =
+  modifyMachine $ \machine ->
+    machine {machineRunQueue = machineRunQueue machine |> ThreadAction action}
+
+scheduleNextThread :: EvalM [RuntimeValue]
+scheduleNextThread = do
+  queue <- getsMachine machineRunQueue
+  case Seq.viewl queue of
+    EmptyL -> throwInterpret InterpretNoRunnableThreads
+    ThreadAction action :< remaining -> do
+      modifyMachine $ \machine -> machine {machineRunQueue = remaining}
+      action
+
+callScheduledFunction :: FunctionName -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
+callScheduledFunction functionName arguments continue = do
+  function <- lookupFunction functionName
+  let parameters = grinFunctionParameters function
+  if length parameters == length arguments
+    then evalScheduledExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function) continue
+    else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
+
+applyScheduledValue :: RuntimeValue -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
+applyScheduledValue function arguments continue = do
+  (tag, fields) <- appliedNode function
+  case tag of
+    GrinClosure functionName remainingLayouts ->
+      case remainingLayouts of
+        [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
+        layout : rest ->
+          let normalizedArguments
+                | layout == [BoxedRep Lifted], null arguments = [RuntimeStateToken]
+                | otherwise = arguments
+              appliedFields = fields <> normalizedArguments
+           in case rest of
+                [] -> callScheduledFunction functionName appliedFields continue
+                _ -> do
+                  applied <- allocateCell (HeapValue (RuntimeNode (GrinClosure functionName rest) appliedFields))
+                  continue [applied]
+    GrinConstructor name remaining ->
+      case compare remaining 1 of
+        GT -> do
+          applied <- allocateCell (HeapValue (RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)))
+          continue [applied]
+        EQ -> do
+          applied <- allocateCell (HeapValue (RuntimeNode (GrinConstructor name 0) (fields <> arguments)))
+          continue [applied]
+        LT -> throwInterpret (InterpretConstructorArity name 0 1)
+    GrinThunk _ -> throwInterpret (InterpretApplyNonFunction function)
+
+forceScheduledValue :: RuntimeValue -> (RuntimeValue -> EvalM [RuntimeValue]) -> EvalM [RuntimeValue]
+forceScheduledValue value continue =
+  case value of
+    RuntimeLocation location -> forceScheduledLocation location continue
+    _ -> continue value
+
+forceScheduledLocation :: Int -> (RuntimeValue -> EvalM [RuntimeValue]) -> EvalM [RuntimeValue]
+forceScheduledLocation location continue = do
+  cell <- readCell location
+  case cell of
+    HeapSuspended functionName fields -> do
+      function <- lookupFunction functionName
+      let resultRep = grinFunctionResultRep function
+      if isLiftedRuntimeRep resultRep
+        then pure ()
+        else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
+      writeCell location HeapBlackhole
+      callScheduledFunction functionName fields (updateThunk cell)
+        `catchE` \failure -> writeCell location cell >> throwE failure
+    HeapValue (RuntimeLocation target) -> forceScheduledLocation target continue
+    HeapValue _ -> continue (RuntimeLocation location)
+    HeapRaised exception -> throwE (EvalRaised exception)
+    HeapBlackhole -> throwInterpret (InterpretBlackhole location)
+    HeapThread -> continue (RuntimeLocation location)
+  where
+    updateThunk original values =
+      case values of
+        [value] -> do
+          writeCell location (HeapValue value)
+          forceScheduledLocation location continue
+        _ -> do
+          writeCell location original
+          throwInterpret (InterpretInvalidThunkResult values)
+
+matchScheduledAlternative :: Env -> RuntimeValue -> [GrinAlt] -> ScheduledContinuation -> EvalM [RuntimeValue]
+matchScheduledAlternative env value alternatives continue = do
+  inspected <- inspectCaseValue value
+  go inspected alternatives
+  where
+    go _ [] = throwInterpret (InterpretNoMatchingAlternative value)
+    go inspected (alt : rest) =
+      case matchAlt value inspected alt of
+        Just bindings -> evalScheduledExpr (bindings `Map.union` env) (grinAltRhs alt) continue
+        Nothing -> go inspected rest
+
+handleScheduledRaised :: RuntimeValue -> [RuntimeValue] -> ScheduledContinuation -> EvalFailure -> EvalM [RuntimeValue]
+handleScheduledRaised handler state continue failure =
+  case failure of
+    EvalRaised exception ->
+      applyScheduledValue handler [exception] $ \values -> do
+        handlerWithException <- expectSingle values
+        applyScheduledValue handlerWithException state continue
+    EvalInterpret err -> throwE (EvalInterpret err)
 
 handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
 handleRaised handler state failure =
@@ -329,6 +473,7 @@ fetchValue value =
         HeapValue result -> pure result
         HeapRaised exception -> throwE (EvalRaised exception)
         HeapBlackhole -> throwInterpret (InterpretBlackhole location)
+        HeapThread -> pure (RuntimeLocation location)
     other -> throwInterpret (InterpretExpectedLocation other)
 
 updateValue :: RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
@@ -340,65 +485,10 @@ updateValue pointer value =
     else throwInterpret (InterpretInvalidUpdateValue value)
 
 forceValue :: RuntimeValue -> EvalM RuntimeValue
-forceValue value =
-  case value of
-    RuntimeLocation location -> forceLocation location
-    _ -> pure value
-
-forceLocation :: Int -> EvalM RuntimeValue
-forceLocation location = do
-  cell <- readCell location
-  case cell of
-    HeapSuspended functionName fields -> do
-      function <- lookupFunction functionName
-      let resultRep = grinFunctionResultRep function
-      if isLiftedRuntimeRep resultRep
-        then pure ()
-        else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
-      writeCell location HeapBlackhole
-      result <- (Right <$> callFunction functionName fields) `catchE` (pure . Left)
-      case result of
-        Right [value] -> do
-          writeCell location (HeapValue value)
-          forceLocation location
-        Right values -> do
-          writeCell location cell
-          throwInterpret (InterpretInvalidThunkResult values)
-        Left failure@(EvalRaised exception) -> do
-          writeCell location (HeapRaised exception)
-          throwE failure
-        Left failure@(EvalInterpret _) -> do
-          writeCell location cell
-          throwE failure
-    HeapValue (RuntimeLocation target) -> forceLocation target
-    HeapValue _ -> pure (RuntimeLocation location)
-    HeapRaised exception -> throwE (EvalRaised exception)
-    HeapBlackhole -> throwInterpret (InterpretBlackhole location)
+forceValue value = expectSingle =<< forceScheduledValue value (pure . (: []))
 
 applyValue :: RuntimeValue -> [RuntimeValue] -> EvalM [RuntimeValue]
-applyValue function arguments = do
-  (tag, fields) <- appliedNode function
-  case tag of
-    GrinClosure functionName remainingLayouts ->
-      case remainingLayouts of
-        [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
-        layout : rest ->
-          let normalizedArguments
-                -- Synthetic evaluator fixtures can leave an ignored State#
-                -- binder lifted. The logical zero-width argument is still
-                -- present; only its fixture-local placeholder needs restoring.
-                | layout == [BoxedRep Lifted], null arguments = [RuntimeStateToken]
-                | otherwise = arguments
-              appliedFields = fields <> normalizedArguments
-           in case rest of
-                [] -> callFunction functionName appliedFields
-                _ -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinClosure functionName rest) appliedFields))
-    GrinConstructor name remaining ->
-      case compare remaining 1 of
-        GT -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)))
-        EQ -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinConstructor name 0) (fields <> arguments)))
-        LT -> throwInterpret (InterpretConstructorArity name 0 1)
-    GrinThunk _ -> throwInterpret (InterpretApplyNonFunction function)
+applyValue function arguments = applyScheduledValue function arguments pure
 
 appliedNode :: RuntimeValue -> EvalM (GrinNodeTag, [RuntimeValue])
 appliedNode function =
@@ -411,12 +501,7 @@ appliedNode function =
     _ -> throwInterpret (InterpretApplyNonFunction function)
 
 callFunction :: FunctionName -> [RuntimeValue] -> EvalM [RuntimeValue]
-callFunction functionName arguments = do
-  function <- lookupFunction functionName
-  let parameters = grinFunctionParameters function
-  if length parameters == length arguments
-    then evalExpr (Map.fromList (zip parameters arguments)) (grinFunctionBody function)
-    else throwInterpret (InterpretFunctionArity functionName (length parameters) (length arguments))
+callFunction functionName arguments = callScheduledFunction functionName arguments pure
 
 lookupFunction :: FunctionName -> EvalM GrinFunction
 lookupFunction functionName = do
@@ -570,17 +655,6 @@ runIOValue action = do
     [ioResult] -> pure ioResult
     _ -> throwInterpret (InterpretResultArity 1 (length results))
 
-matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM [RuntimeValue]
-matchAlternative env value alternatives = do
-  inspected <- inspectCaseValue value
-  go inspected alternatives
-  where
-    go _ [] = throwInterpret (InterpretNoMatchingAlternative value)
-    go inspected (alt : rest) =
-      case matchAlt value inspected alt of
-        Just bindings -> evalExpr (bindings `Map.union` env) (grinAltRhs alt)
-        Nothing -> go inspected rest
-
 inspectCaseValue :: RuntimeValue -> EvalM RuntimeValue
 inspectCaseValue value =
   case value of
@@ -730,6 +804,7 @@ snapshotHeapCell cell =
     HeapValue value -> SnapshotValue <$> snapshotStoredValue value
     HeapRaised exception -> SnapshotRaised <$> snapshotRuntimeValue exception
     HeapBlackhole -> pure SnapshotBlackhole
+    HeapThread -> pure SnapshotThreadId
 
 snapshotRuntimeValue :: RuntimeValue -> State SnapshotBuild SnapshotValue
 snapshotRuntimeValue value =
