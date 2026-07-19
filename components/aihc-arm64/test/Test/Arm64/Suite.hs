@@ -77,7 +77,7 @@ tests =
         assertEqual
           "native representation diagnostic"
           (Left (Arm64UnsupportedRuntimeRep runtimeRep))
-          (compileProgram "missing" (expectCpsGrin program)),
+          (compileProgram "missing" (expectGcGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
         let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
             program =
@@ -92,7 +92,7 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
-        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
@@ -116,7 +116,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "passes static Addr# literals to native foreign calls" $ do
@@ -151,7 +151,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "loads the static string address" ("adrp x0, .Laihc_addr_0@PAGE" `T.isInfixOf` assembly)
@@ -182,7 +182,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("ldr x2, =2" `T.isInfixOf` assembly)
@@ -217,14 +217,14 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
             assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("bl _aihc_eval\n" `T.isInfixOf` assembly))
@@ -233,7 +233,7 @@ tests =
           "runtime apply does not enter its function"
           (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectCpsGrin explicitEvaluationProgram) of
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool
@@ -281,6 +281,104 @@ tests =
               ]
               "int main(void) { return 0; }\n"
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
+      testCase "semispace collector relocates a transitive global root" $
+        withTempDirectory "aihc-arm64-semispace" $ \directory -> do
+          runtime <- runtimeSourcePath
+          let executable = directory </> "semispace-check"
+              source =
+                unlines
+                  [ "#include \"aihc_runtime.h\"",
+                    "_Static_assert(sizeof(AihcValue) == sizeof(uintptr_t), \"one-word object header\");",
+                    "static const uint8_t pointer_field[] = {1};",
+                    "static const uint8_t pointer_then_scalar[] = {1, 0};",
+                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0};",
+                    "static const AihcInfo box_info = {2, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo partial_final_info = {3, 2, 0, pointer_then_scalar, 0};",
+                    "static const AihcInfo partial_one_info = {3, 1, 1, pointer_then_scalar, &partial_final_info};",
+                    "static const AihcInfo partial_info = {3, 0, 2, 0, &partial_one_info};",
+                    "static const AihcInfo continuation_final_info = {8, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo continuation_info = {8, 0, 1, 0, &continuation_final_info};",
+                    "static const AihcInfo action_final_info = {9, 0, 0, 0, 0};",
+                    "static const AihcInfo action_info = {9, 0, 1, 0, &action_final_info};",
+                    "static const AihcInfo thread_done_final_info = {10, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo thread_done_info = {10, 0, 1, 0, &thread_done_final_info};",
+                    "static const AihcInfo parent_final_info = {11, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo parent_info = {11, 0, 1, 0, &parent_final_info};",
+                    "static const AihcInfo yield_final_info = {12, 0, 0, 0, 0};",
+                    "static const AihcInfo yield_info = {12, 0, 1, 0, &yield_final_info};",
+                    "static int test_apply_roots(void) {",
+                    "  AihcMachine *machine = aihc_machine_new(0);",
+                    "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  AihcValue *partial = aihc_make_node(machine, AIHC_TAG_PARTIAL_CONSTRUCTOR, &partial_info);",
+                    "  AihcValue *continuation = aihc_make_node(machine, AIHC_TAG_CLOSURE, &continuation_info);",
+                    "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  AihcSlot argument = (AihcSlot)leaf;",
+                    "  if (aihc_apply_cps(machine, partial, 1, &argument, continuation) != (void *)8) return 0;",
+                    "  AihcValue *result = (AihcValue *)machine->args[0];",
+                    "  return aihc_value_tag(result) == AIHC_TAG_PARTIAL_CONSTRUCTOR &&",
+                    "         aihc_value_arity(result) == 1 && aihc_value_count(result) == 1 &&",
+                    "         aihc_value_info_table(result) == &partial_one_info &&",
+                    "         aihc_value_info((AihcValue *)result->fields[0]) == 1;",
+                    "}",
+                    "static int test_scheduler_roots(void) {",
+                    "  AihcMachine *machine = aihc_machine_new(1);",
+                    "  AihcValue *thread_done = aihc_make_node(machine, AIHC_TAG_CLOSURE, &thread_done_info);",
+                    "  AihcValue *action = aihc_make_node(machine, AIHC_TAG_CLOSURE, &action_info);",
+                    "  AihcValue *parent = aihc_make_node(machine, AIHC_TAG_CLOSURE, &parent_info);",
+                    "  AihcValue *yield = aihc_make_node(machine, AIHC_TAG_CLOSURE, &yield_info);",
+                    "  aihc_set_thread_done_continuation(machine, thread_done);",
+                    "  machine->globals[0] = (AihcSlot)yield;",
+                    "  if (aihc_fork_cps(machine, action, parent) != (void *)11) return 0;",
+                    "  for (int index = 0; index < 5; ++index) {",
+                    "    (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  }",
+                    "  yield = (AihcValue *)machine->globals[0];",
+                    "  if (aihc_yield_cps(machine, yield) != (void *)9) return 0;",
+                    "  thread_done = machine->thread_done_continuation;",
+                    "  return machine->args[0] == (AihcSlot)thread_done &&",
+                    "         aihc_value_info(thread_done) == 10;",
+                    "}",
+                    "int main(void) {",
+                    "  if (!test_apply_roots()) return 1;",
+                    "  if (!test_scheduler_roots()) return 1;",
+                    "  AihcMachine *machine = aihc_machine_new(1);",
+                    "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  AihcValue *box = aihc_make_node(machine, AIHC_TAG_NODE, &box_info);",
+                    "  aihc_set_field(box, 0, (AihcSlot)leaf);",
+                    "  machine->globals[0] = (AihcSlot)box;",
+                    "  for (int index = 0; index < 100; ++index) {",
+                    "    (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
+                    "  }",
+                    "  box = (AihcValue *)machine->globals[0];",
+                    "  leaf = (AihcValue *)box->fields[0];",
+                    "  return aihc_value_info(box) == 2 && aihc_value_info(leaf) == 1 ? 0 : 1;",
+                    "}"
+                  ]
+          (compilerExit, _compilerOut, compilerErr) <-
+            readProcessWithExitCode
+              "cc"
+              [ "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-DAIHC_GC=AIHC_GC_SEMISPACE",
+                "-DAIHC_SEMISPACE_BYTES=64",
+                "-I",
+                takeDirectory runtime,
+                runtime,
+                "-x",
+                "c",
+                "-",
+                "-o",
+                executable
+              ]
+              source
+          assertEqual ("C compiler semispace diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
+          (programExit, _programOut, programErr) <- readProcessWithExitCode executable [] ""
+          assertEqual ("semispace runtime diagnostics:\n" <> programErr) ExitSuccess programExit,
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld,
       testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
       testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler
@@ -344,10 +442,10 @@ snapshotTest (name, fixtureName) =
     assertEqual "direct GRIN lint" [] (lintProgram program)
     interpreted <- interpretProgramFunctionSnapshot entry program
     assertInterpretedExpectation expectation interpreted
-    let cps = expectCpsGrin program
-    assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+    let gc = expectGcGrin program
+    assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
     observed <-
-      case compileObservedFunction entry cps of
+      case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
     when (arch == "aarch64" && os == "darwin") $ do
@@ -531,7 +629,7 @@ testNativeHelloWorld = do
   let grinProgram = lowerProgram fcProgram
   assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
   assembly <-
-    case compileProgram evalBindingName (expectCpsGrin grinProgram) of
+    case compileProgram evalBindingName (expectGcGrin grinProgram) of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
@@ -544,10 +642,10 @@ testNativeHelloWorld = do
 testNativeScheduler :: IO ()
 testNativeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
-  let cps = expectCpsGrin schedulerProgram
-  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  let gc = expectGcGrin schedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
   assembly <-
-    case compileProgram "main" cps of
+    case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 scheduler lowering failed: " <> show err)
   assertBool "emits fork runtime transfer" ("bl _aihc_fork_cps" `T.isInfixOf` assembly)
@@ -559,19 +657,19 @@ testNativeScheduler = do
 testNativeBlackholeScheduler :: IO ()
 testNativeBlackholeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
-  let cps = expectCpsGrin blackholeSchedulerProgram
-  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  let gc = expectGcGrin blackholeSchedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
   assembly <-
-    case compileProgram "main" cps of
+    case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 blackhole scheduler lowering failed: " <> show err)
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "TA" assembly
 
-expectCpsGrin :: GrinProgram -> CpsGrinProgram
-expectCpsGrin program =
+expectGcGrin :: GrinProgram -> GcGrinProgram
+expectGcGrin program =
   case toCpsGrin program of
-    Right cpsProgram -> cpsProgram
+    Right cpsProgram -> lowerGc cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
 
 runHelloWorldAssembly :: T.Text -> IO ()

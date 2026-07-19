@@ -21,6 +21,7 @@ module Aihc.Native
 where
 
 import Aihc.Grin.Syntax
+import Aihc.Tc.Types (RuntimeRep)
 import Data.ByteString (ByteString)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -64,7 +65,7 @@ nativeTargetTriple target =
 -- | The process-wide constructor tags and global table slots shared by all
 -- native compilation units in one executable.
 data LinkLayout = LinkLayout
-  { linkConstructors :: ![(Text, Int)],
+  { linkConstructors :: ![(Text, [[RuntimeRep]])],
     linkGlobalNames :: ![Text]
   }
   deriving (Eq, Show)
@@ -72,7 +73,7 @@ data LinkLayout = LinkLayout
 -- | Constructor and global-table metadata exported by a native compilation
 -- unit. Code generation for another unit never needs its GRIN bodies.
 data LinkInterface = LinkInterface
-  { linkInterfaceConstructors :: ![(Text, Int)],
+  { linkInterfaceConstructors :: ![(Text, [[RuntimeRep]])],
     linkInterfaceGlobalNames :: ![Text]
   }
   deriving (Eq, Show, Read)
@@ -95,7 +96,7 @@ buildAddrLiteralPool program =
 extractLinkInterface :: GrinProgram -> LinkInterface
 extractLinkInterface program =
   LinkInterface
-    { linkInterfaceConstructors = programConstructorArities program,
+    { linkInterfaceConstructors = grinConstructors program,
       linkInterfaceGlobalNames = programGlobalNames program
     }
 
@@ -118,7 +119,7 @@ snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
   LinkLayout
-    { linkConstructors = [(name, length layouts) | (name, layouts) <- builtinConstructors],
+    { linkConstructors = builtinConstructors,
       linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
     }
 
@@ -139,7 +140,7 @@ uniqueTexts = reverse . snd . foldl' step (Set.empty, [])
       | value `Set.member` seen = (seen, values)
       | otherwise = (Set.insert value seen, value : values)
 
-uniqueByName :: [(Text, Int)] -> [(Text, Int)]
+uniqueByName :: [(Text, value)] -> [(Text, value)]
 uniqueByName values =
   [ (name, arity)
   | name <- uniqueTexts (map fst values),

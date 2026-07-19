@@ -31,7 +31,7 @@ import Aihc.Cli.Install
     renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), CompileOptions (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -82,36 +82,41 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "parses a cross-compilation target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64))))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
+          testCase "selects the semispace collector" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace)))
+              (parseCommandPure ["compile", "Main.hs", "--gc", "semispace"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -878,21 +883,25 @@ test_compileExecutable =
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing GcSemispace
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing GcCalloc
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
         assertFileExists (keptOutput <> ".core")
         assertFileExists (keptOutput <> ".grin")
         assertFileExists (keptOutput <> ".cps.grin")
+        assertFileExists (keptOutput <> ".gc.grin")
         assertFileExists (keptOutput <> ".s")
         core <- TIO.readFile (keptOutput <> ".core")
         grin <- TIO.readFile (keptOutput <> ".grin")
         cpsGrin <- TIO.readFile (keptOutput <> ".cps.grin")
+        gcGrin <- TIO.readFile (keptOutput <> ".gc.grin")
         assertBool "core contains main" ("main" `T.isInfixOf` core)
         assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
         assertBool "CPS-GRIN contains allocated continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
+        assertBool "GC-GRIN contains explicit heap reservations" ("ensure-heap " `T.isInfixOf` gcGrin)
+        assertBool "GC-GRIN contains unchecked allocations" ("store-unchecked " `T.isInfixOf` gcGrin)
         assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
         assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
         assertBool "GRIN does not allocate putchar globally" (not ("global putchar" `T.isInfixOf` grin || "caf putchar" `T.isInfixOf` grin))
@@ -906,6 +915,7 @@ test_compileExecutable =
         assertFileDoesNotExist (temporaryOutput <> ".core")
         assertFileDoesNotExist (temporaryOutput <> ".grin")
         assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
+        assertFileDoesNotExist (temporaryOutput <> ".gc.grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput "Hello, world!\n" temporaryOutput
 
@@ -917,7 +927,7 @@ test_compileGreenThreadsExample =
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
           output = root </> "green-threads"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          options = CompileOptions sourcePath (Just output) False False False False Nothing
+          options = CompileOptions sourcePath (Just output) False False False False Nothing GcCalloc
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment options
         assertNativeOutput

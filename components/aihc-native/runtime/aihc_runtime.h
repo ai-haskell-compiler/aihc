@@ -3,6 +3,17 @@
 
 #include <stdint.h>
 
+#define AIHC_GC_CALLOC 0
+#define AIHC_GC_SEMISPACE 1
+
+#ifndef AIHC_GC
+#define AIHC_GC AIHC_GC_CALLOC
+#endif
+
+#ifndef AIHC_SEMISPACE_BYTES
+#define AIHC_SEMISPACE_BYTES (1024U * 1024U)
+#endif
+
 enum {
   AIHC_TAG_NODE = 0,
   AIHC_TAG_CLOSURE = 1,
@@ -11,20 +22,51 @@ enum {
   AIHC_TAG_INDIRECTION = 4,
   AIHC_TAG_BLACKHOLE = 5,
   AIHC_TAG_THREAD = 6,
+  AIHC_TAG_FORWARDING = 7,
 };
 
 #define AIHC_TAG_BITS 3
 #define AIHC_TAG_MASK ((uintptr_t)((1U << AIHC_TAG_BITS) - 1U))
-#define AIHC_SHAPE_ARITY_SHIFT 32
-#define AIHC_SHAPE_COUNT_MASK UINT32_MAX
 
 typedef struct AihcValue AihcValue;
+typedef struct AihcMachine AihcMachine;
+typedef struct AihcInfo AihcInfo;
+typedef struct AihcThread AihcThread;
+typedef struct AihcBlackhole AihcBlackhole;
 typedef uintptr_t AihcSlot;
 
+struct AihcInfo {
+  uintptr_t identity;
+  uint64_t field_count;
+  uint64_t remaining_arity;
+  const uint8_t *field_is_pointer;
+  const AihcInfo *next;
+};
+
 struct AihcValue {
-  /* Low AIHC_TAG_BITS select the physical shape. Remaining bits carry info. */
+  /* Low AIHC_TAG_BITS select the runtime state. Remaining bits point to the
+     static info table, or to the copied object for a forwarding header. */
   uintptr_t header;
   AihcSlot fields[];
+};
+
+struct AihcMachine {
+  AihcSlot *args;
+  AihcSlot *globals;
+  uint64_t global_count;
+  void *exit_code;
+  uint8_t *heap_next;
+  uint8_t *heap_limit;
+  uint8_t *heap_start;
+  uint8_t *other_space;
+  uint64_t semispace_bytes;
+  const AihcInfo *args_info;
+  uint64_t args_trailing_pointers;
+  AihcValue *thread_done_continuation;
+  AihcThread *current_thread;
+  AihcThread *run_queue_head;
+  AihcThread *run_queue_tail;
+  AihcBlackhole *blackholes;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(uintptr_t),
@@ -34,40 +76,59 @@ static inline uint64_t aihc_value_tag(const AihcValue *value) {
   return value->header & AIHC_TAG_MASK;
 }
 
-static inline uintptr_t aihc_value_info(const AihcValue *value) {
-  switch (aihc_value_tag(value)) {
-  case AIHC_TAG_CLOSURE:
-  case AIHC_TAG_THUNK:
-    return value->header & ~AIHC_TAG_MASK;
-  case AIHC_TAG_NODE:
-  case AIHC_TAG_PARTIAL_CONSTRUCTOR:
-    return value->header >> AIHC_TAG_BITS;
-  default:
-    return 0;
-  }
+static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
+  return (const AihcInfo *)(value->header & ~AIHC_TAG_MASK);
 }
 
-static inline int aihc_value_has_shape(const AihcValue *value) {
-  uint64_t tag = aihc_value_tag(value);
-  return tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_THUNK ||
-         tag == AIHC_TAG_PARTIAL_CONSTRUCTOR;
+static inline uintptr_t aihc_value_info(const AihcValue *value) {
+  return aihc_value_info_table(value)->identity;
 }
 
 static inline uint64_t aihc_value_arity(const AihcValue *value) {
-  return value->fields[0] >> AIHC_SHAPE_ARITY_SHIFT;
+  return aihc_value_info_table(value)->remaining_arity;
 }
 
 static inline uint64_t aihc_value_count(const AihcValue *value) {
-  return value->fields[0] & AIHC_SHAPE_COUNT_MASK;
+  return aihc_value_info_table(value)->field_count;
 }
 
 static inline AihcSlot *aihc_value_fields(AihcValue *value) {
-  return value->fields + (aihc_value_has_shape(value) ? 1 : 0);
+  return value->fields;
 }
 
 static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
-  return value->fields + (aihc_value_has_shape(value) ? 1 : 0);
+  return value->fields;
 }
+
+AihcValue *aihc_make_node(AihcMachine *machine, uint64_t tag,
+                          const AihcInfo *info);
+AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
+                                    const AihcInfo *info);
+void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                      AihcSlot *roots);
+AihcMachine *aihc_machine_new(uint64_t global_count);
+AihcSlot *aihc_alloc_locals(uint64_t count);
+void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
+void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
+                     const AihcSlot *arguments, AihcValue *continuation);
+void *aihc_eval_cps(AihcMachine *machine, AihcValue *value,
+                    uint64_t result_is_lifted, AihcValue *continuation,
+                    AihcValue *update_continuation);
+void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
+                           uint64_t count, const AihcSlot *values);
+void aihc_update(AihcValue *object, AihcValue *value);
+void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
+                           AihcValue *value);
+void *aihc_fork_cps(AihcMachine *machine, AihcValue *action,
+                    AihcValue *continuation);
+void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
+void *aihc_thread_done(AihcMachine *machine);
+void aihc_set_thread_done_continuation(AihcMachine *machine,
+                                       AihcValue *thread_done_continuation);
+void *aihc_halt(AihcMachine *machine);
+void *aihc_start(AihcMachine *machine, AihcValue *root, AihcValue *continuation,
+                 AihcValue *update_continuation,
+                 AihcValue *thread_done_continuation, void *exit_code);
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

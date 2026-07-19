@@ -113,7 +113,16 @@ data GrinExpr
   = GrinConstant ![GrinValue]
   | GrinBind ![GrinVar] !GrinExpr !GrinExpr
   | GrinStore !GrinNode
+  | -- | Post-CPS heap reservation. The values are precisely the live GC
+    -- roots at the following allocation and are returned, possibly relocated,
+    -- in the same order.
+    GrinEnsureHeap !Int ![GrinValue]
+  | -- | A node allocation covered by a preceding 'GrinEnsureHeap'.
+    GrinStoreUnchecked !GrinNode
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
+  | -- | A recursive allocation group covered by one preceding
+    -- 'GrinEnsureHeap'.
+    GrinStoreRecUnchecked ![(GrinVar, GrinNode)] !GrinExpr
   | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | -- | Enter a heap pointer until it points to a node in weak-head normal
@@ -215,7 +224,10 @@ grinProgramLiterals program =
         GrinConstant values -> concatMap valueLiterals values
         GrinBind _ valueExpression body -> exprLiterals valueExpression <> exprLiterals body
         GrinStore node -> nodeLiterals node
+        GrinEnsureHeap _ roots -> concatMap valueLiterals roots
+        GrinStoreUnchecked node -> nodeLiterals node
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
+        GrinStoreRecUnchecked bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinFetch _ pointer -> valueLiterals pointer
         GrinUpdate pointer value -> valueLiterals pointer <> valueLiterals value
         GrinEval _ value -> valueLiterals value

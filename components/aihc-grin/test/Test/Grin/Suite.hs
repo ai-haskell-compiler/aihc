@@ -185,6 +185,23 @@ grinUnitTests =
           "case does not allocate a continuation"
           Set.empty
           (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)),
+      testCase "GC lowering returns relocated live pointer roots in SSA" $ do
+        cps <- expectCpsGrin gcRootProgram
+        let gc = lowerGc cps
+            gcProgram = gcGrinProgram gc
+            reservations = concatMap (ensureHeapReservations . grinFunctionBody) (grinFunctions gcProgram)
+            roots = map snd reservations
+            rendered = renderProgram gcProgram
+        assertEqual "preserves continuation entries" (cpsContinuationFunctions cps) (gcContinuationFunctions gc)
+        assertEqual "preserves computation continuations" (cpsFunctionContinuations cps) (gcFunctionContinuations gc)
+        assertEqual "preserves update entry" (cpsUpdateFunction cps) (gcUpdateFunction gc)
+        assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
+        assertBool "contains an explicit reservation" (not (null reservations))
+        assertBool "uses a one-word header for a one-field node" (2 `elem` map fst reservations)
+        assertBool "roots contain only pointer representations" (all (all (isPointerRuntimeRep . grinValueRuntimeRep)) roots)
+        assertBool "renames relocated roots" ("$gc" `isInfixOf` rendered)
+        assertBool "uses unchecked stores" ("store-unchecked " `isInfixOf` rendered)
+        assertBool "eliminates checked function stores" (not ("\n  store " `isInfixOf` rendered)),
       testCase "CPS-GRIN gives every computation entry a return continuation" $ do
         cps <- expectCpsGrin callBindProgram
         forM_ (Map.toList (cpsFunctionContinuations cps)) $ \(name, continuation) ->
@@ -416,6 +433,16 @@ expectCpsGrin program =
   case toCpsGrin program of
     Left err -> assertFailure ("expected CPS-GRIN conversion to succeed, got " <> show err)
     Right cps -> pure cps
+
+ensureHeapReservations :: GrinExpr -> [(Int, [GrinValue])]
+ensureHeapReservations expression =
+  case expression of
+    GrinBind _ valueExpression body -> ensureHeapReservations valueExpression <> ensureHeapReservations body
+    GrinEnsureHeap requiredWords roots -> [(requiredWords, roots)]
+    GrinStoreRec _ body -> ensureHeapReservations body
+    GrinStoreRecUnchecked _ body -> ensureHeapReservations body
+    GrinCase _ _ alternatives -> concatMap (ensureHeapReservations . grinAltRhs) alternatives
+    _ -> []
 
 continuationHasCaptures :: GrinFunction -> Bool
 continuationHasCaptures function =
@@ -1203,6 +1230,30 @@ directBindProgram =
           grinAltBinders = [],
           grinAltRhs = GrinConstant [GrinVarValue pointer]
         }
+
+gcRootProgram :: GrinProgram
+gcRootProgram =
+  heapProgram
+    { grinConstructors = [("Box", [[BoxedRep Lifted]])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "gc_roots",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [root, scalar],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [result]
+                  (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue root]))
+                  (GrinConstant [GrinVarValue result])
+            }
+        ]
+    }
+  where
+    root = GrinVar "root" 201 (BoxedRep Lifted)
+    scalar = GrinVar "scalar" 202 IntRep
+    result = GrinVar "result" 203 (BoxedRep Lifted)
 
 callBindProgram :: GrinProgram
 callBindProgram =

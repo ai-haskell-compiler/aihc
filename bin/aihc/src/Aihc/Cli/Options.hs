@@ -1,6 +1,7 @@
 module Aihc.Cli.Options
   ( Command (..),
     CompileOptions (..),
+    GarbageCollector (..),
     InstallErrorFormat (..),
     InstallOptions (..),
     ReplOptions (..),
@@ -26,8 +27,14 @@ data CompileOptions = CompileOptions
     compileKeepGrin :: !Bool,
     compileKeepAsm :: !Bool,
     compileWholeProgram :: !Bool,
-    compileTarget :: !(Maybe NativeTarget)
+    compileTarget :: !(Maybe NativeTarget),
+    compileGarbageCollector :: !GarbageCollector
   }
+  deriving (Eq, Show)
+
+data GarbageCollector
+  = GcCalloc
+  | GcSemispace
   deriving (Eq, Show)
 
 newtype ReplOptions = ReplOptions
@@ -133,6 +140,21 @@ compileOptionsParser =
               <> OA.help "Native target: apple-arm64 or linux-amd64 (default: host)"
           )
       )
+    <*> OA.option
+      (OA.eitherReader parseGarbageCollector)
+      ( OA.long "gc"
+          <> OA.metavar "calloc|semispace"
+          <> OA.value GcCalloc
+          <> OA.showDefaultWith (const "calloc")
+          <> OA.help "Select the garbage collector compiled into the executable"
+      )
+
+parseGarbageCollector :: String -> Either String GarbageCollector
+parseGarbageCollector value =
+  case value of
+    "calloc" -> Right GcCalloc
+    "semispace" -> Right GcSemispace
+    _ -> Left "expected calloc or semispace"
 
 replOptionsParser :: OA.Parser ReplOptions
 replOptionsParser =

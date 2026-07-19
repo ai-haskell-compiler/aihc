@@ -24,11 +24,11 @@ where
 
 import Aihc.Amd64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Amd64.Lir qualified as Lir
-import Aihc.Grin.Cps
-  ( CpsGrinProgram,
-    cpsFunctionContinuations,
-    cpsGrinProgram,
-    cpsUpdateFunction,
+import Aihc.Grin.Gc
+  ( GcGrinProgram,
+    gcFunctionContinuations,
+    gcGrinProgram,
+    gcUpdateFunction,
   )
 import Aihc.Grin.Syntax
 import Aihc.Native
@@ -41,7 +41,7 @@ import Aihc.Native
     extendLinkLayoutWithInterface,
     extractLinkInterface,
   )
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
@@ -49,6 +49,8 @@ import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Numeric (showHex)
@@ -71,6 +73,8 @@ data CompileEnv = CompileEnv
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
+    compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
+    compileRuntimeInfos :: ![RuntimeInfo],
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
@@ -96,27 +100,42 @@ type FunctionM = StateT FunctionState (Either Amd64Error)
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocalSlots :: !(Map GrinVar Int)
+    valueLocalSlots :: !(Map GrinVar Int),
+    valueLabelPrefix :: !Text
   }
 
-compileProgram :: Text -> CpsGrinProgram -> Either Amd64Error Text
-compileProgram entryName cpsProgram =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName cpsProgram
+data RuntimeInfo = RuntimeInfo
+  { runtimeInfoLabel :: !Text,
+    runtimeInfoIdentity :: !NodeInfo,
+    runtimeInfoFields :: ![RuntimeRep],
+    runtimeInfoRemainingArity :: !Int,
+    runtimeInfoNext :: !(Maybe Text)
+  }
+
+data RuntimeInfoKey
+  = ConstructorRuntimeInfo !Text !Int
+  | ClosureRuntimeInfo !FunctionName ![RuntimeRep] ![[RuntimeRep]]
+  | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
+  deriving (Eq, Ord, Show)
+
+compileProgram :: Text -> GcGrinProgram -> Either Amd64Error Text
+compileProgram entryName gcProgram =
+  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName gcProgram
   where
-    program = cpsGrinProgram cpsProgram
+    program = gcGrinProgram gcProgram
 
 -- | Compile a nullary function with a driver that snapshots its raw return
 -- values. The driver supports cooperative scheduling but exits when the
 -- observed function returns; it does not evaluate returned objects or drain
 -- other runnable threads.
-compileObservedFunction :: FunctionName -> CpsGrinProgram -> Either Amd64Error ObservedProgram
-compileObservedFunction entryName cpsProgram = do
+compileObservedFunction :: FunctionName -> GcGrinProgram -> Either Amd64Error ObservedProgram
+compileObservedFunction entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
   entryFunction <-
     maybe (Left (Amd64MissingFunction entryName)) Right $
       findFunction entryName (grinFunctions program)
-  case Map.lookup entryName (cpsFunctionContinuations cpsProgram) of
+  case Map.lookup entryName (gcFunctionContinuations gcProgram) of
     Just continuation
       | grinFunctionParameters entryFunction == [continuation] -> pure ()
     _ -> Left (Amd64UnsupportedExpression "observed entry function must have only its CPS continuation")
@@ -145,12 +164,12 @@ compileObservedFunction entryName cpsProgram = do
           ]
             <> constructorLines
             <> initLines
-            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
             <> [ "  mov rdi, r15",
                  "  mov rsi, rax",
                  "  call aihc_set_thread_done_continuation"
                ]
-            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_result") 1 0
+            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_info")
             <> [ "  mov r13, rax",
                  immediate "rdi" (1 :: Int),
                  "  call aihc_alloc_locals",
@@ -173,10 +192,18 @@ compileObservedFunction entryName cpsProgram = do
             <> tailDispatchLines
             <> concat functions
             <> renderAddrLiteralPool compileEnv
+            <> renderRuntimeInfos
+              ( compileRuntimeInfos compileEnv
+                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info"),
+                       RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing,
+                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info"),
+                       RuntimeInfo ".Laihc_snapshot_applied_info" (InfoAddress ".Laihc_snapshot_result") resultReps 0 Nothing
+                     ]
+              )
             <> nonExecutableStack
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
   where
-    program = cpsGrinProgram cpsProgram
+    program = gcGrinProgram gcProgram
     layout = buildLinkLayout [program]
     compileEnv = compileEnvironmentWith True layout program
     globalNames = linkGlobalNames layout
@@ -197,8 +224,8 @@ validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 -- | Compile a library SCC to relocatable assembly. The exported initializer
 -- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
-compileModule :: LinkLayout -> Text -> CpsGrinProgram -> Either Amd64Error Text
-compileModule layout initializerSymbol cpsProgram = do
+compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either Amd64Error Text
+compileModule layout initializerSymbol gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -220,22 +247,23 @@ compileModule layout initializerSymbol cpsProgram = do
       <> mainEpilogue
       <> concat functions
       <> renderAddrLiteralPool compileEnv
+      <> renderRuntimeInfos (compileRuntimeInfos compileEnv)
       <> nonExecutableStack
   where
-    program = cpsGrinProgram cpsProgram
+    program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
 
 -- | Compile the user program entry unit against cached dependency modules.
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> CpsGrinProgram -> Either Amd64Error Text
-compileProgramWithDependencies layout dependencyInitializers entryName cpsProgram = do
+compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
+compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Amd64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  updateLabel <- functionCodeLabel compileEnv (cpsUpdateFunction cpsProgram)
+  updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure . T.unlines $
     [ ".intel_syntax noprefix",
       ".text",
@@ -255,16 +283,22 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
       <> constructorLines
       <> concatMap callInitializer dependencyInitializers
       <> initLines
-      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_final_continuation") 1 0
+      <> [ "  mov rdi, r15",
+           immediate "rsi" (7 :: Int),
+           "  xor edx, edx",
+           "  xor ecx, ecx",
+           "  call aihc_ensure_heap"
+         ]
+      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_final_info")
       <> ["  mov r13, rax"]
-      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_top_continuation") 1 1
+      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_top_info")
       <> [ "  mov r12, rax",
            "  mov rdi, r12",
            "  xor esi, esi",
            "  mov rdx, r13",
            "  call aihc_set_field"
          ]
-      <> makeNodeLines runtimeTagClosure (InfoAddress updateLabel) 1 2
+      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_update_info")
       <> [ "  mov r14, rax",
            loadByteOffset "r11" "r15" 8,
            loadAt "rdx" "r11" rootSlot,
@@ -276,7 +310,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov rdx, r12",
            "  call aihc_set_field"
          ]
-      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
       <> [ "  mov r10, rax",
            loadByteOffset "r11" "r15" 8,
            loadAt "rsi" "r11" rootSlot,
@@ -317,9 +351,21 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
       <> mainEpilogue
       <> concat functions
       <> renderAddrLiteralPool compileEnv
+      <> renderRuntimeInfos
+        ( compileRuntimeInfos compileEnv
+            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info"),
+                 RuntimeInfo ".Laihc_final_applied_info" (InfoAddress ".Laihc_final_continuation") [BoxedRep Lifted] 0 Nothing,
+                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info"),
+                 RuntimeInfo ".Laihc_top_applied_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
+                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info"),
+                 RuntimeInfo ".Laihc_update_applied_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
+                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info"),
+                 RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing
+               ]
+        )
       <> nonExecutableStack
   where
-    program = cpsGrinProgram cpsProgram
+    program = gcGrinProgram gcProgram
     compileEnv = compileEnvironment layout program
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
@@ -350,28 +396,69 @@ compileEnvironmentWith exposeAllFunctions layout program =
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
       compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
-      compileFunctionLabels =
-        Map.fromList
-          ( [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
-            | info <- grinExternalFunctions program
-            ]
-              <> [ (grinFunctionName function, localFunctionLabelWith exposeAllFunctions index function)
-                 | (index, function) <- zip [0 ..] (grinFunctions program)
-                 ]
-          ),
+      compileFunctionLabels = functionLabelMap,
       compileAddrLiteralLabels =
         Map.fromList (buildAddrLiteralPool program),
+      compileNodeInfoLabels = constructorInfoLabels <> functionInfoLabels,
+      compileRuntimeInfos = map third constructorInfoEntries <> functionInfos,
       compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
   where
-    constructors = linkConstructors layout
+    constructorLayouts = linkConstructors layout
+    constructors = [(name, length layouts) | (name, layouts) <- constructorLayouts]
+    constructorIdentifiers = zip (map fst constructors) [1 ..]
+    constructorInfoEntries =
+      [ ( key,
+          label,
+          RuntimeInfo label (InfoImmediate identifier) fields remaining next
+        )
+      | ((name, layouts), (_, identifier)) <- zip constructorLayouts constructorIdentifiers,
+        let arity = length layouts,
+        remaining <- [arity, arity - 1 .. 0],
+        let key = ConstructorRuntimeInfo name remaining
+            label = constructorStageLabel identifier remaining
+            fields = concat (take (arity - remaining) layouts)
+            next = if remaining == 0 then Nothing else Just (constructorStageLabel identifier (remaining - 1))
+      ]
+    constructorInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorInfoEntries]
+    functionLabels =
+      [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
+      | info <- grinExternalFunctions program
+      ]
+        <> [ (grinFunctionName function, localFunctionLabelWith exposeAllFunctions index function)
+           | (index, function) <- zip [0 ..] (grinFunctions program)
+           ]
+    functionLabelMap = Map.fromList functionLabels
+    functionInfoKeys =
+      [ (key, functionName)
+      | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
+        Just functionName <- [runtimeInfoFunctionName key],
+        functionName `Map.member` functionLabelMap
+      ]
+    functionInfoLabels =
+      Map.fromList
+        [ (key, ".Laihc_function_info_" <> tshow index)
+        | (index, (key, _)) <- zip [0 :: Int ..] functionInfoKeys
+        ]
+    functionInfos =
+      [ RuntimeInfo
+          label
+          (InfoAddress (functionLabelMap Map.! functionName))
+          (runtimeInfoKeyFields key)
+          (runtimeInfoKeyRemainingArity key)
+          (runtimeInfoKeyNext key >>= (`Map.lookup` functionInfoLabels))
+      | (key, functionName) <- functionInfoKeys,
+        let label = functionInfoLabels Map.! key
+      ]
+    third (_, _, value) = value
 
 compileConstructorInitializers :: CompileEnv -> Either Amd64Error [Text]
 compileConstructorInitializers env =
-  fmap concat . forM nullaryConstructors $ \(name, constructor) -> do
+  fmap concat . forM nullaryConstructors $ \(name, _) -> do
     slot <- globalSlot env name
-    pure $ makeNodeLines runtimeTagNode (InfoImmediate constructor) 0 0 <> storeGlobal slot
+    info <- lookupRuntimeInfoLabel env (ConstructorRuntimeInfo name 0)
+    pure $ makeNodeLines runtimeTagNode (InfoAddress info) <> storeGlobal slot
   where
     nullaryConstructors =
       [ (name, constructor)
@@ -383,15 +470,15 @@ compileInitializers :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
 compileInitializers env program = do
   whnfGlobalLines <- fmap concat . forM (grinWhnfGlobals program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    nodeLines <- materializeNode (ValueEnv env Map.empty) node
+    nodeLines <- materializeNode (ValueEnv env Map.empty ".Laihc_initializer") node
     pure (nodeLines <> storeGlobal slot)
   cafAllocationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    allocationLines <- allocateNode (ValueEnv env Map.empty) node
+    allocationLines <- allocateNode (ValueEnv env Map.empty ".Laihc_initializer") node
     pure (allocationLines <> storeGlobal slot)
   cafInitializationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    fieldLines <- initializeNodeFields (ValueEnv env Map.empty) node
+    fieldLines <- initializeNodeFields (ValueEnv env Map.empty ".Laihc_initializer") node
     pure $
       [loadByteOffset "r11" "r15" 8, loadAt "r13" "r11" slot]
         <> fieldLines
@@ -404,7 +491,7 @@ compileFunction env function = do
       firstScratch = Map.size localSlots
       bodyLabel = label <> "_body"
       initialState = FunctionState 0 firstScratch []
-      valueEnv = ValueEnv env localSlots
+      valueEnv = ValueEnv env localSlots label
   finalState <- execStateT (compileExpr valueEnv [] bodyLabel (grinFunctionBody function)) initialState
   let spillBase = functionNextSlot finalState
   (parameterCopies, spillCount) <-
@@ -451,11 +538,25 @@ compileExpr env prefix label expression =
       directLines <- compileDirectBinding env vars valueExpression
       compileExpr env (prefix <> directLines) label body
     GrinStore {} -> unsupportedExpression "direct-style store return after CPS"
+    GrinEnsureHeap {} -> unsupportedExpression "unbound heap reservation"
+    GrinStoreUnchecked {} -> unsupportedExpression "unbound unchecked store"
     GrinStoreRec bindings body -> do
       allocationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
           slot <- localSlot env var
           nodeLines <- liftEither (allocateNode env node)
+          pure (nodeLines <> [storeAt "rax" "r14" slot])
+      initializationLines <-
+        fmap concat . forM bindings $ \(var, node) -> do
+          slot <- localSlot env var
+          fieldLines <- liftEither (initializeNodeFields env node)
+          pure ([loadAt "r13" "r14" slot] <> fieldLines)
+      compileExpr env (prefix <> allocationLines <> initializationLines) label body
+    GrinStoreRecUnchecked bindings body -> do
+      allocationLines <-
+        fmap concat . forM bindings $ \(var, node) -> do
+          slot <- localSlot env var
+          nodeLines <- liftEither (allocateNodeUnchecked env node)
           pure (nodeLines <> [storeAt "rax" "r14" slot])
       initializationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
@@ -618,6 +719,35 @@ compileDirectBinding env vars expression =
     GrinStore node -> do
       nodeLines <- liftEither (materializeNode env node)
       storeSingleResult vars nodeLines
+    GrinEnsureHeap requiredWords roots
+      | length vars == length roots -> do
+          rootLines <-
+            fmap concat . forM (zip vars roots) $ \(var, root) -> do
+              slot <- localSlot env var
+              valueLines <- liftEither (materializeValue env root)
+              pure (valueLines <> [storeAt "rax" "r14" slot])
+          rootSlots <- mapM (localSlot env) vars
+          readyLabel <- freshLabel (valueLabelPrefix env) "heap_ready"
+          pure
+            ( rootLines
+                <> [ loadByteOffset "r10" "r15" 32,
+                     loadByteOffset "r11" "r15" 40,
+                     immediate "rax" (requiredWords * 8),
+                     "  add rax, r10",
+                     "  cmp rax, r11",
+                     "  jbe " <> readyLabel,
+                     "  mov rdi, r15",
+                     immediate "rsi" requiredWords,
+                     immediate "rdx" (length roots),
+                     slotPointer "rcx" rootSlots,
+                     "  call aihc_ensure_heap",
+                     readyLabel <> ":"
+                   ]
+            )
+      | otherwise -> lift (Left (Amd64UnsupportedExpression "heap reservation result arity"))
+    GrinStoreUnchecked node -> do
+      nodeLines <- liftEither (materializeNodeUnchecked env node)
+      storeSingleResult vars nodeLines
     GrinFetch _ pointer -> do
       pointerLines <- liftEither (materializeValue env pointer)
       storeSingleResult vars pointerLines
@@ -761,7 +891,8 @@ caseChecks env resultSlot scrutineeIsPointer targets = do
             pure
               [ loadAt "r11" "r14" resultSlot,
                 loadByteOffset "r10" "r11" 0,
-                immediate "r9" (identifier * 8),
+                loadByteOffset "r10" "r10" 0,
+                immediate "r9" identifier,
                 "  cmp r10, r9",
                 "  je " <> target
               ]
@@ -860,10 +991,25 @@ materializeNode env node = do
       <> fieldLines
       <> ["  mov rax, r13"]
 
+materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+materializeNodeUnchecked env node = do
+  allocationLines <- allocateNodeUnchecked env node
+  fieldLines <- initializeNodeFields env node
+  pure $
+    allocationLines
+      <> ["  mov r13, rax"]
+      <> fieldLines
+      <> ["  mov rax, r13"]
+
 allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
 allocateNode env node = do
-  (tag, info, arity) <- nodeHeader env node
-  pure (makeNodeLines tag info arity (length (grinNodeFields node)))
+  (tag, info) <- nodeHeader env node
+  pure (makeNodeLines tag info)
+
+allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+allocateNodeUnchecked env node = do
+  (tag, info) <- nodeHeader env node
+  pure (makeNodeUncheckedLines tag info)
 
 initializeNodeFields :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
 initializeNodeFields env node =
@@ -877,42 +1023,74 @@ initializeNodeFields env node =
              "  call aihc_set_field"
            ]
 
-nodeHeader :: ValueEnv -> GrinNode -> Either Amd64Error (Int, NodeInfo, Int)
+nodeHeader :: ValueEnv -> GrinNode -> Either Amd64Error (Int, NodeInfo)
 nodeHeader env node =
   case grinNodeTag node of
     GrinConstructor name remaining -> do
-      identifier <- constructorId compileEnv name
+      label <- lookupRuntimeInfoLabel compileEnv (ConstructorRuntimeInfo name remaining)
       pure
         ( if remaining == 0 then runtimeTagNode else runtimeTagPartialConstructor,
-          InfoImmediate identifier,
-          remaining
+          InfoAddress label
         )
     GrinClosure functionName argumentLayouts -> do
-      label <- functionCodeLabel compileEnv functionName
-      pure (runtimeTagClosure, InfoAddress label, length argumentLayouts)
+      label <- lookupRuntimeInfoLabel compileEnv (ClosureRuntimeInfo functionName fields argumentLayouts)
+      pure (runtimeTagClosure, InfoAddress label)
     GrinThunk functionName -> do
-      label <- functionCodeLabel compileEnv functionName
-      pure (runtimeTagThunk, InfoAddress label, 0)
+      label <- lookupRuntimeInfoLabel compileEnv (ThunkRuntimeInfo functionName fields)
+      pure (runtimeTagThunk, InfoAddress label)
   where
     compileEnv = valueCompileEnv env
+    fields = map grinValueRuntimeRep (grinNodeFields node)
 
 data NodeInfo
   = InfoImmediate !Int
   | InfoAddress !Text
 
-makeNodeLines :: Int -> NodeInfo -> Int -> Int -> [Text]
-makeNodeLines kind info arity count =
-  [ immediate "rdi" kind,
+makeNodeLines :: Int -> NodeInfo -> [Text]
+makeNodeLines kind info =
+  [ "  mov rdi, r15",
+    immediate "rsi" kind,
     infoLine info,
-    immediate "rdx" arity,
-    immediate "rcx" count,
     "  call aihc_make_node"
   ]
   where
     infoLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> immediate "rsi" integer
-        InfoAddress label -> address "rsi" label
+        InfoImmediate integer -> immediate "rdx" integer
+        InfoAddress label -> address "rdx" label
+
+makeNodeUncheckedLines :: Int -> NodeInfo -> [Text]
+makeNodeUncheckedLines kind info =
+  init (makeNodeLines kind info) <> ["  call aihc_make_node_unchecked"]
+
+renderRuntimeInfos :: [RuntimeInfo] -> [Text]
+renderRuntimeInfos infos =
+  [".section .rodata"] <> concatMap renderInfo infos
+  where
+    renderInfo info =
+      bitmapLines
+        <> [ ".p2align 3",
+             runtimeInfoLabel info <> ":",
+             identityLine (runtimeInfoIdentity info),
+             "  .quad " <> tshow (length fields),
+             "  .quad " <> tshow (runtimeInfoRemainingArity info),
+             "  .quad " <> if null fields then "0" else bitmapLabel,
+             "  .quad " <> fromMaybe "0" (runtimeInfoNext info)
+           ]
+      where
+        fields = runtimeInfoFields info
+        bitmapLabel = runtimeInfoLabel info <> "_bitmap"
+        bitmapLines =
+          if null fields
+            then []
+            else
+              [ bitmapLabel <> ":",
+                "  .byte " <> T.intercalate ", " [if isPointerRuntimeRep runtimeRep then "1" else "0" | runtimeRep <- fields]
+              ]
+    identityLine nodeInfo =
+      case nodeInfo of
+        InfoImmediate integer -> "  .quad " <> tshow integer
+        InfoAddress label -> "  .quad " <> label
 
 runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor :: Int
 runtimeTagNode = 0
@@ -975,9 +1153,70 @@ constructorId :: CompileEnv -> Text -> Either Amd64Error Int
 constructorId env name =
   maybe (Left (Amd64MissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
 
+lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Amd64Error Text
+lookupRuntimeInfoLabel env key =
+  case Map.lookup key (compileNodeInfoLabels env) of
+    Just label -> Right label
+    Nothing ->
+      case key of
+        ConstructorRuntimeInfo name _ -> Left (Amd64MissingConstructor name)
+        ClosureRuntimeInfo functionName _ _ -> Left (Amd64MissingFunction functionName)
+        ThunkRuntimeInfo functionName _ -> Left (Amd64MissingFunction functionName)
+
 functionCodeLabel :: CompileEnv -> FunctionName -> Either Amd64Error Text
 functionCodeLabel env name =
   maybe (Left (Amd64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
+
+constructorStageLabel :: Int -> Int -> Text
+constructorStageLabel identifier remaining =
+  ".Laihc_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow remaining
+
+runtimeInfoKeyStages :: GrinNode -> [RuntimeInfoKey]
+runtimeInfoKeyStages node =
+  case grinNodeTag node of
+    GrinConstructor name remaining -> [ConstructorRuntimeInfo name remaining]
+    GrinClosure functionName argumentLayouts -> closureStages fields argumentLayouts
+      where
+        closureStages current remainingLayouts =
+          ClosureRuntimeInfo functionName current remainingLayouts
+            : case remainingLayouts of
+              [] -> []
+              layout : rest -> closureStages (current <> layout) rest
+    GrinThunk functionName -> [ThunkRuntimeInfo functionName fields]
+  where
+    fields = map grinValueRuntimeRep (grinNodeFields node)
+
+runtimeInfoFunctionName :: RuntimeInfoKey -> Maybe FunctionName
+runtimeInfoFunctionName key =
+  case key of
+    ConstructorRuntimeInfo {} -> Nothing
+    ClosureRuntimeInfo functionName _ _ -> Just functionName
+    ThunkRuntimeInfo functionName _ -> Just functionName
+
+runtimeInfoKeyFields :: RuntimeInfoKey -> [RuntimeRep]
+runtimeInfoKeyFields key =
+  case key of
+    ConstructorRuntimeInfo {} -> []
+    ClosureRuntimeInfo _ fields _ -> fields
+    ThunkRuntimeInfo _ fields -> fields
+
+runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
+runtimeInfoKeyRemainingArity key =
+  case key of
+    ConstructorRuntimeInfo _ remaining -> remaining
+    ClosureRuntimeInfo _ _ argumentLayouts -> length argumentLayouts
+    ThunkRuntimeInfo {} -> 0
+
+runtimeInfoKeyNext :: RuntimeInfoKey -> Maybe RuntimeInfoKey
+runtimeInfoKeyNext key =
+  case key of
+    ConstructorRuntimeInfo name remaining
+      | remaining > 0 -> Just (ConstructorRuntimeInfo name (remaining - 1))
+    ConstructorRuntimeInfo {} -> Nothing
+    ClosureRuntimeInfo functionName fields (layout : rest) ->
+      Just (ClosureRuntimeInfo functionName (fields <> layout) rest)
+    ClosureRuntimeInfo {} -> Nothing
+    ThunkRuntimeInfo {} -> Nothing
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name
@@ -1001,7 +1240,10 @@ boundVarGroups expression =
     GrinConstant _ -> []
     GrinBind vars valueExpression body -> vars : boundVarGroups valueExpression <> boundVarGroups body
     GrinStore _ -> []
+    GrinEnsureHeap {} -> []
+    GrinStoreUnchecked _ -> []
     GrinStoreRec bindings body -> map (pure . fst) bindings <> boundVarGroups body
+    GrinStoreRecUnchecked bindings body -> map (pure . fst) bindings <> boundVarGroups body
     GrinFetch _ _ -> []
     GrinUpdate _ _ -> []
     GrinUpdateBlackhole _ _ -> []
@@ -1046,6 +1288,39 @@ programRuntimeReps program =
         : map grinVarRuntimeRep (grinFunctionParameters function)
           <> exprRuntimeReps (grinFunctionBody function)
 
+programNodes :: GrinProgram -> [GrinNode]
+programNodes program =
+  map snd (grinWhnfGlobals program)
+    <> map snd (grinCafs program)
+    <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
+
+exprNodes :: GrinExpr -> [GrinNode]
+exprNodes expression =
+  case expression of
+    GrinBind _ valueExpression body -> exprNodes valueExpression <> exprNodes body
+    GrinStore node -> [node]
+    GrinStoreUnchecked node -> [node]
+    GrinStoreRec bindings body -> map snd bindings <> exprNodes body
+    GrinStoreRecUnchecked bindings body -> map snd bindings <> exprNodes body
+    GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
+    GrinConstant {} -> []
+    GrinEnsureHeap {} -> []
+    GrinFetch {} -> []
+    GrinUpdate {} -> []
+    GrinUpdateBlackhole {} -> []
+    GrinEval {} -> []
+    GrinCpsEval {} -> []
+    GrinCall {} -> []
+    GrinPrimitiveCall {} -> []
+    GrinCpsPrimitiveCall {} -> []
+    GrinApply {} -> []
+    GrinCpsApply {} -> []
+    GrinContinue {} -> []
+    GrinHalt {} -> []
+    GrinThrow {} -> []
+    GrinCatch {} -> []
+    GrinForeignCallExpr {} -> []
+
 exprRuntimeReps :: GrinExpr -> [RuntimeRep]
 exprRuntimeReps expression =
   case expression of
@@ -1053,7 +1328,12 @@ exprRuntimeReps expression =
     GrinBind vars valueExpression body ->
       map grinVarRuntimeRep vars <> exprRuntimeReps valueExpression <> exprRuntimeReps body
     GrinStore node -> nodeRuntimeReps node
+    GrinEnsureHeap _ roots -> concatMap valueRuntimeReps roots
+    GrinStoreUnchecked node -> nodeRuntimeReps node
     GrinStoreRec bindings body ->
+      concatMap (\(var, node) -> grinVarRuntimeRep var : nodeRuntimeReps node) bindings
+        <> exprRuntimeReps body
+    GrinStoreRecUnchecked bindings body ->
       concatMap (\(var, node) -> grinVarRuntimeRep var : nodeRuntimeReps node) bindings
         <> exprRuntimeReps body
     GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer

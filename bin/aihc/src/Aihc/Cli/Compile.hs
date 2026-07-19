@@ -29,7 +29,7 @@ import Aihc.Cli.Compile.Dependencies
     DependencyUnit (..),
     buildDependencies,
   )
-import Aihc.Cli.Options (CompileOptions (..))
+import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -92,6 +92,7 @@ data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
     compiledGrin :: !Text,
     compiledCpsGrin :: !Text,
+    compiledGcGrin :: !Text,
     compiledAssembly :: !Text,
     compiledArchives :: ![FilePath]
   }
@@ -134,11 +135,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> ".s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program.s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -147,6 +148,7 @@ writeIntermediateArtifacts output options artifacts = do
   when (compileKeepGrin options) $ do
     TIO.writeFile (output <> ".grin") (compiledGrin artifacts)
     TIO.writeFile (output <> ".cps.grin") (compiledCpsGrin artifacts)
+    TIO.writeFile (output <> ".gc.grin") (compiledGcGrin artifacts)
 
 -- | The project-local core libraries and shared compiled-library cache used by
 -- the command-line compiler.
@@ -294,6 +296,7 @@ compileIncrementalArtifacts target dependencies compilation = do
       mainCore = incrementalUnitCore mainUnit
       mainGrin = incrementalUnitGrin mainUnit
       mainCpsGrin = incrementalUnitCpsGrin mainUnit
+      mainGcGrin = Grin.lowerGc mainCpsGrin
       dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
@@ -303,12 +306,13 @@ compileIncrementalArtifacts target dependencies compilation = do
     either
       (Left . CompileNativeError)
       Right
-      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
+      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainGcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
         compiledGrin = renderGrin mainGrin,
         compiledCpsGrin = renderCpsGrin mainCpsGrin,
+        compiledGcGrin = renderGcGrin mainGcGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
@@ -318,12 +322,14 @@ compileProgramArtifacts target sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
-  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" cpsGrin)
+  let gcGrin = Grin.lowerGc cpsGrin
+  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" gcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
         compiledGrin = renderGrin grin,
         compiledCpsGrin = renderCpsGrin cpsGrin,
+        compiledGcGrin = renderGcGrin gcGrin,
         compiledAssembly = assembly,
         compiledArchives = []
       }
@@ -334,13 +340,13 @@ validateNativePrimitiveNames target names =
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.validatePrimitiveNames names)
     LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.validatePrimitiveNames names)
 
-compileNativeProgram :: NativeTarget -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgram :: NativeTarget -> Text -> Grin.GcGrinProgram -> Either NativeError Text
 compileNativeProgram target entry program =
   case target of
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgram entry program)
     LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgram entry program)
 
-compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either NativeError Text
 compileNativeProgramWithDependencies target layout initializers entry program =
   case target of
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
@@ -354,6 +360,9 @@ renderGrin = withFinalNewline . Grin.renderProgram
 
 renderCpsGrin :: Grin.CpsGrinProgram -> Text
 renderCpsGrin = renderGrin . Grin.cpsGrinProgram
+
+renderGcGrin :: Grin.GcGrinProgram -> Text
+renderGcGrin = renderGrin . Grin.gcGrinProgram
 
 withFinalNewline :: String -> Text
 withFinalNewline rendered = T.pack rendered <> "\n"
@@ -471,17 +480,34 @@ renderCompileError compileError =
 defaultCompileTarget :: NativeTarget
 defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 
-assemble :: NativeTarget -> FilePath -> FilePath -> [FilePath] -> IO ()
-assemble target output assemblyPath archives = do
+assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble target garbageCollector output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       "clang"
-      (["--target=" <> nativeTargetTriple target, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
+      ( [ "--target=" <> nativeTargetTriple target,
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          garbageCollectorDefine garbageCollector,
+          runtime,
+          assemblyPath
+        ]
+          <> archives
+          <> ["-o", output]
+      )
       ""
   case exitCode of
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
+
+garbageCollectorDefine :: GarbageCollector -> String
+garbageCollectorDefine garbageCollector =
+  case garbageCollector of
+    GcCalloc -> "-DAIHC_GC=AIHC_GC_CALLOC"
+    GcSemispace -> "-DAIHC_GC=AIHC_GC_SEMISPACE"
 
 withTemporaryDirectory :: String -> (FilePath -> IO value) -> IO value
 withTemporaryDirectory template = bracket acquire removeDirectoryRecursive
