@@ -223,6 +223,8 @@ grinProgramLiterals program =
           valueLiterals value <> valueLiterals continuation <> valueLiterals updateContinuation
         GrinCall _ _ arguments -> concatMap valueLiterals arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
+        GrinCpsPrimitiveCall _ _ arguments continuation ->
+          concatMap valueLiterals arguments <> valueLiterals continuation
         GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
         GrinCpsApply _ function arguments continuation ->
           valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
