@@ -216,6 +216,20 @@ tests =
         assertBool
           "runtime apply does not enter its function"
           (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
+      testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectCpsGrin explicitEvaluationProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool
+              "apply tail-branches to the returned entry"
+              ("bl _aihc_apply_cps\n  br x0" `T.isInfixOf` assembly)
+            assertBool
+              "generated code does not reload a scheduled entry"
+              (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
+        runtime <- readFile =<< runtimeSourcePath
+        assertBool "apply returns its selected entry" ("void *aihc_apply_cps" `isInfixOf` runtime)
+        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+          assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
         forM_
@@ -500,7 +514,7 @@ testNativeHelloWorld = do
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("br x9" `isInfixOf` rendered)
+  assertBool "emits indirect Haskell tail transfers" ("br x0" `isInfixOf` rendered)
   assertBool "never calls a generated Haskell entry" (not ("bl .Laihc_function_" `isInfixOf` rendered))
   assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
   when (arch == "aarch64" && os == "darwin") $

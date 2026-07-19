@@ -35,15 +35,15 @@ Find more information here:
 ```
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
-| aihc-arm64         |   1638 |     260 |    1898 |
+| aihc-arm64         |   2166 |     625 |    2791 |
 | aihc-cpp           |   1820 |     790 |    2610 |
 | aihc-fc            |   3676 |     803 |    4479 |
-| aihc-grin          |   2691 |     940 |    3631 |
+| aihc-grin          |   3025 |    1428 |    4453 |
 | aihc-parser        |  13536 |   17769 |   31305 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2303 |    1328 |    3631 |
 | aihc-tc            |   6080 |    2463 |    8543 |
-| **Total**          |  33505 |   25089 |   58594 |
+| **Total**          |  34367 |   25942 |   60309 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

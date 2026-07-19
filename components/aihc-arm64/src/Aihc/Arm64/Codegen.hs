@@ -152,11 +152,11 @@ compileObservedFunction entryName cpsProgram = do
                  immediate "x0" (1 :: Int),
                  "  bl _aihc_alloc_locals",
                  "  str x21, [x0]",
-                 "  str x0, [x22, #8]",
+                 "  str x0, [x22, #0]",
                  "  b " <> entryLabel,
                  ".p2align 3",
                  ".Laihc_snapshot_result:",
-                 "  ldr x1, [x22, #8]",
+                 "  ldr x1, [x22, #0]",
                  immediate "x0" resultCount,
                  "  bl _aihc_snapshot_dump_result",
                  "  mov w0, #0",
@@ -279,7 +279,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
          ]
       <> makeNodeLines runtimeTagClosure (InfoAddress updateLabel) 1 2
       <> [ "  mov x19, x0",
-           "  ldr x9, [x22, #16]",
+           "  ldr x9, [x22, #8]",
            loadAt "x2" "x9" rootSlot,
            "  mov x0, x19",
            "  mov x1, #0",
@@ -288,7 +288,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov x1, #1",
            "  mov x2, x20",
            "  bl _aihc_set_field",
-           "  ldr x9, [x22, #16]",
+           "  ldr x9, [x22, #8]",
            loadAt "x1" "x9" rootSlot,
            "  mov x0, x22",
            "  mov x2, x20",
@@ -296,10 +296,10 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  adr x4, .Laihc_exit",
            "  bl _aihc_start"
          ]
-      <> dispatchLines
+      <> tailDispatchLines
       <> [ ".p2align 3",
            ".Laihc_top_continuation:",
-           "  ldr x9, [x22, #8]",
+           "  ldr x9, [x22, #0]",
            "  ldr x4, [x9]",
            "  ldr x1, [x9, #8]",
            "  mov x0, x22",
@@ -307,13 +307,13 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov x3, xzr",
            "  bl _aihc_apply_cps"
          ]
-      <> dispatchLines
+      <> tailDispatchLines
       <> [ ".p2align 3",
            ".Laihc_final_continuation:",
            "  mov x0, x22",
            "  bl _aihc_halt"
          ]
-      <> dispatchLines
+      <> tailDispatchLines
       <> [ ".Laihc_exit:",
            "  mov w0, #0",
            "  ldp x21, x22, [sp, #32]",
@@ -395,7 +395,7 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     fieldLines <- initializeNodeFields (ValueEnv env Map.empty) node
     pure $
-      ["  ldr x9, [x22, #16]", loadAt "x20" "x9" slot]
+      ["  ldr x9, [x22, #8]", loadAt "x20" "x9" slot]
         <> fieldLines
   pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
 
@@ -419,8 +419,7 @@ compileFunction env function = do
                immediate "x0" slotCount,
                "  bl _aihc_alloc_locals",
                "  mov x19, x0",
-               "  str x19, [x22, #24]",
-               "  ldr x8, [x22, #8]"
+               "  ldr x8, [x22, #0]"
              ]
           <> parameterCopies
           <> ["  b " <> bodyLabel]
@@ -493,7 +492,7 @@ compileExpr env prefix label expression =
                  "  mov x0, x22",
                  "  bl _aihc_eval_cps"
                ]
-            <> dispatchLines
+            <> tailDispatchLines
         )
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
@@ -506,7 +505,7 @@ compileExpr env prefix label expression =
         label
         ( prefix
             <> argumentLines
-            <> [slotPointer "x8" argumentSlots, "  str x8, [x22, #8]", "  b " <> target]
+            <> [slotPointer "x8" argumentSlots, "  str x8, [x22, #0]", "  b " <> target]
         )
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
     GrinApply {} -> unsupportedExpression "direct-style apply after CPS"
@@ -535,7 +534,7 @@ compileExpr env prefix label expression =
                  "  mov x0, x22",
                  "  bl _aihc_apply_cps"
                ]
-            <> dispatchLines
+            <> tailDispatchLines
         )
     GrinContinue continuation values -> do
       continuationSlot <- freshSlot
@@ -557,12 +556,12 @@ compileExpr env prefix label expression =
                  "  mov x0, x22",
                  "  bl _aihc_continue_values"
                ]
-            <> dispatchLines
+            <> tailDispatchLines
         )
     GrinHalt _ ->
       addBlock
         label
-        (prefix <> ["  mov x0, x22", "  bl _aihc_halt"] <> dispatchLines)
+        (prefix <> ["  mov x0, x22", "  bl _aihc_halt"] <> tailDispatchLines)
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
     GrinThrow {} -> unsupportedExpression "throw"
@@ -874,7 +873,7 @@ loadVariable env var =
     Just slot -> Right [loadAt "x0" "x19" slot]
     Nothing -> do
       slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-      pure ["  ldr x9, [x22, #16]", loadAt "x0" "x9" slot]
+      pure ["  ldr x9, [x22, #8]", loadAt "x0" "x9" slot]
 
 localSlot :: ValueEnv -> GrinVar -> FunctionM Int
 localSlot env var =
@@ -912,12 +911,8 @@ slotPointer register slots =
     first : _ -> "  add " <> register <> ", x19, #" <> tshow (first * 8)
     [] -> "  mov " <> register <> ", xzr"
 
-dispatchLines :: [Text]
-dispatchLines =
-  [ "  ldr x19, [x22, #24]",
-    "  ldr x9, [x22, #0]",
-    "  br x9"
-  ]
+tailDispatchLines :: [Text]
+tailDispatchLines = ["  br x0"]
 
 globalSlot :: CompileEnv -> Text -> Either Arm64Error Int
 globalSlot env name =
@@ -1247,7 +1242,7 @@ linkedFunctionLabel name =
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =
-  [ "  ldr x9, [x22, #16]",
+  [ "  ldr x9, [x22, #8]",
     storeAt "x0" "x9" slot
   ]
 

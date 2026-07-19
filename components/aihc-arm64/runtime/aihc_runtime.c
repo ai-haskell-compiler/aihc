@@ -4,10 +4,8 @@
 #include <stdlib.h>
 
 typedef struct {
-  void *next;
   AihcSlot *args;
   AihcSlot *globals;
-  AihcSlot *locals;
   void *exit_code;
 } AihcMachine;
 
@@ -76,9 +74,8 @@ static AihcValue *aihc_copy_with_fields(AihcValue *value, uint64_t result_tag,
                                         uint64_t result_arity, uint64_t count,
                                         const AihcSlot *fields) {
   uint64_t original_count = aihc_value_count(value);
-  AihcValue *copy =
-      aihc_make_node(result_tag, aihc_value_info(value), result_arity,
-                     original_count + count);
+  AihcValue *copy = aihc_make_node(result_tag, aihc_value_info(value),
+                                   result_arity, original_count + count);
   AihcSlot *original_fields = aihc_value_fields(value);
   AihcSlot *copy_fields = aihc_value_fields(copy);
   for (uint64_t index = 0; index < original_count; ++index) {
@@ -111,11 +108,10 @@ static AihcSlot *aihc_arguments(AihcValue *function, uint64_t count,
   return arguments;
 }
 
-static void aihc_schedule(AihcMachine *machine, AihcValue *function,
-                          AihcSlot *arguments) {
-  machine->next = (void *)aihc_value_info(function);
+static void *aihc_prepare_entry(AihcMachine *machine, void *entry,
+                                AihcSlot *arguments) {
   machine->args = arguments;
-  machine->locals = NULL;
+  return entry;
 }
 
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
@@ -134,25 +130,26 @@ AihcSlot *aihc_alloc_locals(uint64_t count) {
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
-void aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
-                          uint64_t count, const AihcSlot *values) {
-  if (continuation == NULL || aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
+void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
+                           uint64_t count, const AihcSlot *values) {
+  if (continuation == NULL ||
+      aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
     aihc_fail("attempted to invoke a non-continuation value");
   }
   if (aihc_value_arity(continuation) != 1) {
     aihc_fail("continuation closure does not accept exactly one result");
   }
-  aihc_schedule(machine, continuation,
-                aihc_arguments(continuation, count, values, NULL));
+  return aihc_prepare_entry(machine, (void *)aihc_value_info(continuation),
+                            aihc_arguments(continuation, count, values, NULL));
 }
 
-static void aihc_continue_value(AihcMachine *machine,
-                                AihcValue *continuation, AihcSlot value) {
-  aihc_continue_values(machine, continuation, 1, &value);
+static void *aihc_continue_value(AihcMachine *machine, AihcValue *continuation,
+                                 AihcSlot value) {
+  return aihc_continue_values(machine, continuation, 1, &value);
 }
 
-void aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
-                    const AihcSlot *arguments, AihcValue *continuation) {
+void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
+                     const AihcSlot *arguments, AihcValue *continuation) {
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
@@ -160,70 +157,60 @@ void aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
   case AIHC_TAG_CLOSURE: {
     uint64_t arity = aihc_value_arity(function);
     if (arity > 1) {
-      AihcValue *applied = aihc_copy_with_fields(
-          function, AIHC_TAG_CLOSURE, arity - 1, count, arguments);
-      aihc_continue_value(machine, continuation, (AihcSlot)applied);
-      return;
+      AihcValue *applied = aihc_copy_with_fields(function, AIHC_TAG_CLOSURE,
+                                                 arity - 1, count, arguments);
+      return aihc_continue_value(machine, continuation, (AihcSlot)applied);
     }
     if (arity == 0) {
       aihc_fail("saturated closure was applied");
     }
-    aihc_schedule(machine, function,
-                  aihc_arguments(function, count, arguments, continuation));
-    return;
+    return aihc_prepare_entry(
+        machine, (void *)aihc_value_info(function),
+        aihc_arguments(function, count, arguments, continuation));
   }
   case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
     uint64_t arity = aihc_value_arity(function);
     if (arity > 1) {
       AihcValue *applied = aihc_copy_with_fields(
-          function, AIHC_TAG_PARTIAL_CONSTRUCTOR, arity - 1, count,
-          arguments);
-      aihc_continue_value(machine, continuation, (AihcSlot)applied);
-      return;
+          function, AIHC_TAG_PARTIAL_CONSTRUCTOR, arity - 1, count, arguments);
+      return aihc_continue_value(machine, continuation, (AihcSlot)applied);
     }
     if (arity == 0) {
       aihc_fail("saturated constructor was applied");
     }
-    AihcValue *applied = aihc_copy_with_fields(
-        function, AIHC_TAG_NODE, 0, count, arguments);
-    aihc_continue_value(machine, continuation, (AihcSlot)applied);
-    return;
+    AihcValue *applied =
+        aihc_copy_with_fields(function, AIHC_TAG_NODE, 0, count, arguments);
+    return aihc_continue_value(machine, continuation, (AihcSlot)applied);
   }
   default:
     aihc_fail("attempted to apply a non-function value");
   }
 }
 
-void aihc_eval_cps(AihcMachine *machine, AihcValue *value,
-                   uint64_t result_is_lifted, AihcValue *continuation,
-                   AihcValue *update_continuation) {
+void *aihc_eval_cps(AihcMachine *machine, AihcValue *value,
+                    uint64_t result_is_lifted, AihcValue *continuation,
+                    AihcValue *update_continuation) {
   if (value == NULL) {
     aihc_fail("attempted to evaluate null");
   }
   switch (aihc_value_tag(value)) {
   case AIHC_TAG_THUNK: {
-    AihcSlot *arguments =
-        aihc_arguments(value, 0, NULL, update_continuation);
+    AihcSlot *arguments = aihc_arguments(value, 0, NULL, update_continuation);
     void *entry = (void *)aihc_value_info(value);
     value->header = AIHC_TAG_BLACKHOLE;
-    machine->next = entry;
-    machine->args = arguments;
-    machine->locals = NULL;
-    return;
+    return aihc_prepare_entry(machine, entry, arguments);
   }
   case AIHC_TAG_INDIRECTION:
     if (result_is_lifted) {
-      aihc_eval_cps(machine, (AihcValue *)value->fields[0], 1, continuation,
-                    update_continuation);
+      return aihc_eval_cps(machine, (AihcValue *)value->fields[0], 1,
+                           continuation, update_continuation);
     } else {
-      aihc_continue_value(machine, continuation, value->fields[0]);
+      return aihc_continue_value(machine, continuation, value->fields[0]);
     }
-    return;
   case AIHC_TAG_BLACKHOLE:
     aihc_fail("blackholed thunk re-entered");
   default:
-    aihc_continue_value(machine, continuation, (AihcSlot)value);
-    return;
+    return aihc_continue_value(machine, continuation, (AihcSlot)value);
   }
 }
 
@@ -242,14 +229,10 @@ void aihc_update_blackhole(AihcValue *object, AihcValue *value) {
   aihc_update(object, value);
 }
 
-void aihc_halt(AihcMachine *machine) {
-  machine->locals = NULL;
-  machine->next = machine->exit_code;
-}
+void *aihc_halt(AihcMachine *machine) { return machine->exit_code; }
 
-void aihc_start(AihcMachine *machine, AihcValue *root,
-                AihcValue *continuation, AihcValue *update_continuation,
-                void *exit_code) {
+void *aihc_start(AihcMachine *machine, AihcValue *root, AihcValue *continuation,
+                 AihcValue *update_continuation, void *exit_code) {
   machine->exit_code = exit_code;
-  aihc_eval_cps(machine, root, 1, continuation, update_continuation);
+  return aihc_eval_cps(machine, root, 1, continuation, update_continuation);
 }

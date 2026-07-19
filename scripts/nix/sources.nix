@@ -207,6 +207,20 @@ in rec {
         type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
     };
 
+  # Filtered source for C linting/formatting, including tool configuration.
+  cSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        isBuildOutput = relPath == "dist-newstyle" || pkgs.lib.hasPrefix "dist-newstyle/" relPath;
+        isCSource = pkgs.lib.hasSuffix ".c" baseName || pkgs.lib.hasSuffix ".h" baseName;
+        isCConfig = baseName == ".clang-format" || baseName == ".clang-tidy";
+      in
+        !isBuildOutput && (type == "directory" || isCSource || isCConfig);
+    };
+
   # Filtered source for scripts - only shell scripts.
   scriptsSrc = pkgs:
     pkgs.lib.cleanSourceWith {
