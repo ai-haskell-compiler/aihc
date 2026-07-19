@@ -19,8 +19,8 @@ static void snapshot_fail(const char *message) {
   exit(1);
 }
 
-static const AihcSnapshotConstructor *find_constructor(
-    const SnapshotState *state, uintptr_t info) {
+static const AihcSnapshotConstructor *
+find_constructor(const SnapshotState *state, uintptr_t info) {
   for (uint64_t index = 0; index < state->constructor_count; ++index) {
     if (state->constructors[index].info == info) {
       return &state->constructors[index];
@@ -30,7 +30,7 @@ static const AihcSnapshotConstructor *find_constructor(
 }
 
 static const AihcSnapshotFunction *find_function(const SnapshotState *state,
-                                                  uintptr_t info) {
+                                                 uintptr_t info) {
   for (uint64_t index = 0; index < state->function_count; ++index) {
     if (state->functions[index].info == info) {
       return &state->functions[index];
@@ -48,8 +48,7 @@ static uint64_t location_for_object(SnapshotState *state, AihcValue *object) {
   if (state->object_count == state->object_capacity) {
     uint64_t capacity =
         state->object_capacity == 0 ? 8 : state->object_capacity * 2;
-    AihcValue **objects =
-        realloc(state->objects, sizeof(*objects) * capacity);
+    AihcValue **objects = realloc(state->objects, sizeof(*objects) * capacity);
     if (objects == NULL) {
       snapshot_fail("out of memory");
     }
@@ -156,9 +155,8 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
-    uint64_t count = tag == AIHC_TAG_CLOSURE
-                         ? aihc_value_count(object)
-                         : function->parameter_count;
+    uint64_t count = tag == AIHC_TAG_CLOSURE ? aihc_value_count(object)
+                                             : function->parameter_count;
     discover_fields(state, aihc_value_fields_const(object), count,
                     function->parameter_count, function->parameter_reps);
     return;
