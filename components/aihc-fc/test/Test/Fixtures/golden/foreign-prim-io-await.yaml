@@ -1,0 +1,29 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  foreign prim awaitIO#/2 : Addr# → (State# RealWorld) → State# RealWorld
+
+  await : Addr# → (State# RealWorld) → State# RealWorld =
+    λx1002 : Addr#.
+      λy1003 : State# RealWorld.
+        awaitIO# x1002 y1003
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+
+  foreign import prim awaitIO# ::
+    Addr# -> State# RealWorld -> State# RealWorld
+
+  await request state = awaitIO# request state
+reason: the compiler exposes one operation-independent IO suspension primitive
+  while concrete operations remain runtime calls
+status: pass

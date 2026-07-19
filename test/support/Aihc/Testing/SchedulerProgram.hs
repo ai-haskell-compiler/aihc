@@ -3,6 +3,7 @@
 module Aihc.Testing.SchedulerProgram
   ( blackholeSchedulerProgram,
     schedulerProgram,
+    stdioSchedulerProgram,
   )
 where
 
@@ -68,6 +69,57 @@ schedulerProgram =
       GrinForeignCallExpr
         putcharCall
         [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum char)))]
+
+stdioSchedulerProgram :: GrinProgram
+stdioSchedulerProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar "awaitIO#" 30 lifted, 2)],
+      grinForeignCalls = [submitReadCall, submitWriteCall, takeResultCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind [readRequest] (GrinForeignCallExpr submitReadCall []) $
+                  GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue readRequest]) $
+                    GrinBind [byte] (GrinForeignCallExpr takeResultCall [GrinVarValue readRequest]) $
+                      GrinBind [writeRequest] (GrinForeignCallExpr submitWriteCall [GrinVarValue byte]) $
+                        GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue writeRequest]) $
+                          GrinBind [writeResult] (GrinForeignCallExpr takeResultCall [GrinVarValue writeRequest]) $
+                            GrinConstant [GrinVarValue unitValue]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainFunction = FunctionName "$stdio_main"
+    mainClosure = GrinVar "main" 31 lifted
+    readRequest = GrinVar "read_request" 32 AddrRep
+    byte = GrinVar "byte" 33 Int32Rep
+    writeRequest = GrinVar "write_request" 34 AddrRep
+    writeResult = GrinVar "write_result" 35 Int32Rep
+    unitValue = GrinVar "()" 36 lifted
+    submitReadCall = runtimeIoCall "aihc_io_submit_read_stdin" [] GrinForeignAddr
+    submitWriteCall = runtimeIoCall "aihc_io_submit_write_stdout" [GrinForeignInt32] GrinForeignAddr
+    takeResultCall = runtimeIoCall "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt32
+    runtimeIoCall symbol arguments result =
+      GrinForeignCall
+        { grinForeignCallName = "$ffi$" <> symbol,
+          grinForeignCallSymbol = symbol,
+          grinForeignCallSignature =
+            GrinForeignSignature
+              { grinForeignArgumentTypes = arguments,
+                grinForeignResultType = result,
+                grinForeignEffect = GrinForeignRealWorld
+              }
+        }
 
 putcharCall :: GrinForeignCall
 putcharCall =

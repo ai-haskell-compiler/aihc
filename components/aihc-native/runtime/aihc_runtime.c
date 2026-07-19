@@ -1,11 +1,27 @@
 #include "aihc_runtime.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
+
+typedef enum {
+  AIHC_IO_READ_STDIN,
+  AIHC_IO_WRITE_STDOUT,
+} AihcIoKind;
+
+typedef enum {
+  AIHC_IO_SUBMITTED,
+  AIHC_IO_PENDING,
+  AIHC_IO_COMPLETED,
+  AIHC_IO_CONSUMED,
+} AihcIoState;
 
 struct AihcThread {
   uintptr_t header;
@@ -30,6 +46,22 @@ struct AihcBlackhole {
   AihcBlackhole *next;
 };
 
+struct AihcIoRequest {
+  AihcIoKind kind;
+  AihcIoState state;
+  AihcThread *thread;
+  AihcValue *continuation;
+  AihcSlot byte;
+  AihcSlot result;
+  AihcIoRequest *next;
+};
+
+struct AihcIoBackend {
+  int (*prepare)(AihcIoKind kind);
+  int (*try_request)(AihcIoRequest *request, AihcSlot *result);
+  void (*poll)(AihcMachine *machine, int may_block);
+};
+
 _Static_assert(offsetof(AihcMachine, args) == 0, "machine args ABI");
 _Static_assert(offsetof(AihcMachine, globals) == 8, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 32, "machine heap-next ABI");
@@ -40,6 +72,9 @@ static _Noreturn void aihc_fail(const char *message) {
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
 }
+
+static void *aihc_schedule(AihcMachine *machine);
+static const AihcIoBackend *aihc_default_io_backend(void);
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -175,6 +210,11 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
       aihc_forward_value(machine, from_start, &waiter->continuation);
       aihc_forward_thread(machine, from_start, waiter->thread);
     }
+  }
+  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+       request = request->next) {
+    aihc_forward_value(machine, from_start, &request->continuation);
+    aihc_forward_thread(machine, from_start, request->thread);
   }
 
   uint8_t *scan = to_start;
@@ -459,6 +499,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
 #endif
   machine->current_thread = aihc_thread_new();
+  machine->io_backend = aihc_default_io_backend();
   return machine;
 }
 
@@ -487,6 +528,234 @@ void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
 static void *aihc_continue_value(AihcMachine *machine, AihcValue *continuation,
                                  AihcSlot value) {
   return aihc_continue_values(machine, continuation, 1, &value);
+}
+
+static AihcSlot aihc_io_error(int error) {
+  return (AihcSlot)(intptr_t)(-((int64_t)error) - 1);
+}
+
+static int aihc_posix_prepare(AihcIoKind kind) {
+  int descriptor = kind == AIHC_IO_READ_STDIN ? STDIN_FILENO : STDOUT_FILENO;
+  int flags = fcntl(descriptor, F_GETFL);
+  if (flags == -1) {
+    return errno;
+  }
+  if ((flags & O_NONBLOCK) == 0 &&
+      fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == -1) {
+    return errno;
+  }
+  return 0;
+}
+
+static int aihc_posix_try_request(AihcIoRequest *request, AihcSlot *result) {
+  for (;;) {
+    ssize_t transferred;
+    if (request->kind == AIHC_IO_READ_STDIN) {
+      unsigned char byte;
+      transferred = read(STDIN_FILENO, &byte, 1);
+      if (transferred == 1) {
+        *result = (AihcSlot)byte;
+        return 1;
+      }
+      if (transferred == 0) {
+        *result = (AihcSlot)(intptr_t)-1;
+        return 1;
+      }
+    } else {
+      unsigned char byte = (unsigned char)(request->byte & 0xffU);
+      transferred = write(STDOUT_FILENO, &byte, 1);
+      if (transferred == 1) {
+        *result = 0;
+        return 1;
+      }
+      if (transferred == 0) {
+        *result = aihc_io_error(EIO);
+        return 1;
+      }
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return 0;
+    }
+    *result = aihc_io_error(errno);
+    return 1;
+  }
+}
+
+static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+                                   AihcSlot result) {
+  AihcThread *thread = request->thread;
+  AihcValue *continuation = request->continuation;
+  request->state = AIHC_IO_COMPLETED;
+  request->result = result;
+  request->thread = NULL;
+  request->continuation = NULL;
+  request->next = NULL;
+  thread->entry = aihc_continue_values(machine, continuation, 0, NULL);
+  thread->args = machine->args;
+  thread->args_info = machine->args_info;
+  thread->args_trailing_pointers = machine->args_trailing_pointers;
+  aihc_enqueue_thread(machine, thread);
+}
+
+static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
+  AihcIoRequest *request = machine->io_requests_head;
+  machine->io_requests_head = NULL;
+  machine->io_requests_tail = NULL;
+  machine->io_request_count = 0;
+  while (request != NULL) {
+    AihcIoRequest *next = request->next;
+    aihc_resume_io_request(machine, request, aihc_io_error(error));
+    request = next;
+  }
+}
+
+static void aihc_posix_poll(AihcMachine *machine, int may_block) {
+  if (machine->io_request_count == 0) {
+    return;
+  }
+  size_t count = (size_t)machine->io_request_count;
+  struct pollfd *descriptors =
+      aihc_allocate_auxiliary(sizeof(*descriptors) * count);
+  size_t index = 0;
+  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+       request = request->next) {
+    descriptors[index].fd =
+        request->kind == AIHC_IO_READ_STDIN ? STDIN_FILENO : STDOUT_FILENO;
+    descriptors[index].events =
+        request->kind == AIHC_IO_READ_STDIN ? POLLIN : POLLOUT;
+    ++index;
+  }
+  int ready = poll(descriptors, count, may_block ? -1 : 0);
+  if (ready == -1) {
+    int error = errno;
+    free(descriptors);
+    if (error != EINTR) {
+      aihc_complete_all_io_with_error(machine, error);
+    }
+    return;
+  }
+  if (ready == 0) {
+    free(descriptors);
+    return;
+  }
+
+  AihcIoRequest **link = &machine->io_requests_head;
+  AihcIoRequest *tail = NULL;
+  index = 0;
+  while (*link != NULL) {
+    AihcIoRequest *request = *link;
+    short events = descriptors[index++].revents;
+    AihcSlot result = 0;
+    int complete = 0;
+    if ((events & POLLNVAL) != 0) {
+      result = aihc_io_error(EBADF);
+      complete = 1;
+    } else if (events != 0) {
+      complete = aihc_posix_try_request(request, &result);
+    }
+    if (complete) {
+      *link = request->next;
+      --machine->io_request_count;
+      aihc_resume_io_request(machine, request, result);
+    } else {
+      tail = request;
+      link = &request->next;
+    }
+  }
+  machine->io_requests_tail = tail;
+  free(descriptors);
+}
+
+static const AihcIoBackend aihc_posix_io_backend = {
+    aihc_posix_prepare,
+    aihc_posix_try_request,
+    aihc_posix_poll,
+};
+
+static const AihcIoBackend *aihc_default_io_backend(void) {
+  return &aihc_posix_io_backend;
+}
+
+static void *aihc_schedule(AihcMachine *machine) {
+  for (;;) {
+    machine->io_backend->poll(machine, 0);
+    if (machine->run_queue_head != NULL) {
+      return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+    }
+    if (machine->io_request_count != 0) {
+      machine->io_backend->poll(machine, 1);
+      continue;
+    }
+    aihc_fail("no runnable threads");
+  }
+}
+
+static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcSlot byte) {
+  AihcIoRequest *request = aihc_allocate_auxiliary(sizeof(*request));
+  request->kind = kind;
+  request->state = AIHC_IO_SUBMITTED;
+  request->byte = byte;
+  return request;
+}
+
+AihcIoRequest *aihc_io_submit_read_stdin(void) {
+  return aihc_io_submit(AIHC_IO_READ_STDIN, 0);
+}
+
+AihcIoRequest *aihc_io_submit_write_stdout(int32_t byte) {
+  return aihc_io_submit(AIHC_IO_WRITE_STDOUT, (AihcSlot)(intptr_t)byte);
+}
+
+int32_t aihc_io_take_result(AihcIoRequest *request) {
+  if (request == NULL || request->state != AIHC_IO_COMPLETED) {
+    aihc_fail("attempted to consume an incomplete IO request");
+  }
+  int32_t result = (int32_t)(intptr_t)request->result;
+  request->state = AIHC_IO_CONSUMED;
+  free(request);
+  return result;
+}
+
+void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
+                        AihcValue *continuation) {
+  if (request == NULL) {
+    aihc_fail("attempted to await a null IO request");
+  }
+  if (request->state == AIHC_IO_COMPLETED) {
+    return aihc_continue_values(machine, continuation, 0, NULL);
+  }
+  if (request->state != AIHC_IO_SUBMITTED) {
+    aihc_fail("attempted to await an IO request more than once");
+  }
+
+  int error = machine->io_backend->prepare(request->kind);
+  if (error != 0) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(error);
+    return aihc_continue_values(machine, continuation, 0, NULL);
+  }
+
+  AihcSlot result = 0;
+  if (machine->io_backend->try_request(request, &result)) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = result;
+    return aihc_continue_values(machine, continuation, 0, NULL);
+  }
+
+  request->state = AIHC_IO_PENDING;
+  request->thread = machine->current_thread;
+  request->continuation = continuation;
+  if (machine->io_requests_tail == NULL) {
+    machine->io_requests_head = request;
+  } else {
+    machine->io_requests_tail->next = request;
+  }
+  machine->io_requests_tail = request;
+  ++machine->io_request_count;
+  return aihc_schedule(machine);
 }
 
 void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
@@ -556,7 +825,7 @@ void *aihc_eval_cps(AihcMachine *machine, AihcValue *value,
     return aihc_continue_value(machine, continuation, value->fields[0]);
   case AIHC_TAG_BLACKHOLE:
     aihc_block_on_blackhole(machine, value, continuation);
-    return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+    return aihc_schedule(machine);
   default:
     return aihc_continue_value(machine, continuation, (AihcSlot)value);
   }
@@ -618,12 +887,10 @@ void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation) {
   current->args_info = machine->args_info;
   current->args_trailing_pointers = machine->args_trailing_pointers;
   aihc_enqueue_thread(machine, current);
-  return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+  return aihc_schedule(machine);
 }
 
-void *aihc_thread_done(AihcMachine *machine) {
-  return aihc_select_thread(machine, aihc_dequeue_thread(machine));
-}
+void *aihc_thread_done(AihcMachine *machine) { return aihc_schedule(machine); }
 
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation) {

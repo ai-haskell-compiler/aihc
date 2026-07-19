@@ -24,7 +24,8 @@ import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.GrinProgram (parseProgram)
-import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
+import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
+import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
@@ -37,9 +38,9 @@ import Data.Yaml qualified as Y
 import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO (hClose, openTempFile)
+import System.IO (hClose, hFlush, hPutChar, openTempFile)
 import System.Info (arch, os)
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -244,7 +245,7 @@ tests =
               (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
         assertBool "apply returns its selected entry" ("void *aihc_apply_cps" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+        forM_ ["void *next;", "machine->next", "machine->locals"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
@@ -381,7 +382,8 @@ tests =
           assertEqual ("semispace runtime diagnostics:\n" <> programErr) ExitSuccess programExit,
       testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld,
       testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
-      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler
+      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler,
+      testCase "waits for stdin and resumes an async stdio continuation" testNativeStdioScheduler
     ]
 
 data SnapshotCase = SnapshotCase
@@ -666,6 +668,23 @@ testNativeBlackholeScheduler = do
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "TA" assembly
 
+testNativeStdioScheduler :: IO ()
+testNativeStdioScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram stdioSchedulerProgram)
+  let gc = expectGcGrin stdioSchedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+  assembly <-
+    case compileProgram "main" gc of
+      Right value -> pure value
+      Left err -> assertFailure ("ARM64 stdio scheduler lowering failed: " <> show err)
+  assertBool "emits generic IO suspension transfer" ("bl _aihc_await_io_cps" `T.isInfixOf` assembly)
+  assertBool "submits stdin through the runtime ABI" ("bl _aihc_io_submit_read_stdin" `T.isInfixOf` assembly)
+  assertBool "submits stdout through the runtime ABI" ("bl _aihc_io_submit_write_stdout" `T.isInfixOf` assembly)
+  assertBool "consumes results through the runtime ABI" ("bl _aihc_io_take_result" `T.isInfixOf` assembly)
+  assertBool "compiler has no operation-specific CPS transfer" (not ("_aihc_read_stdin_cps" `T.isInfixOf` assembly || "_aihc_write_stdout_cps" `T.isInfixOf` assembly))
+  when (arch == "aarch64" && os == "darwin") $
+    runStdioAssembly assembly
+
 expectGcGrin :: GrinProgram -> GcGrinProgram
 expectGcGrin program =
   case toCpsGrin program of
@@ -701,6 +720,33 @@ runSchedulerAssembly expected assembly =
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
     assertEqual "scheduler stdout" expected programOut
+
+runStdioAssembly :: T.Text -> IO ()
+runStdioAssembly assembly =
+  withTempDirectory "aihc-arm64-stdio" $ \directory -> do
+    runtime <- runtimeSourcePath
+    let assemblyPath = directory </> "stdio.s"
+        executablePath = directory </> "stdio"
+    TIO.writeFile assemblyPath assembly
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+    assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
+    (Just childInput, Just childOutput, Just childError, processHandle) <-
+      createProcess
+        (proc executablePath [])
+          { std_in = CreatePipe,
+            std_out = CreatePipe,
+            std_err = CreatePipe
+          }
+    threadDelay 50000
+    hPutChar childInput 'Z'
+    hFlush childInput
+    hClose childInput
+    programOut <- TIO.hGetContents childOutput
+    programErr <- TIO.hGetContents childError
+    programExit <- waitForProcess processHandle
+    assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
+    assertEqual "async stdout" "Z" programOut
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive

@@ -37,6 +37,7 @@ import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (Scope (..))
+import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when, (>=>))
 import Data.Aeson (object, (.=))
@@ -67,9 +68,9 @@ import System.Directory
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (hClose, openTempFile)
+import System.IO (hClose, hFlush, hPutChar, openTempFile)
 import System.Info (arch, os)
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -167,6 +168,7 @@ main =
                     assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
+          testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -934,6 +936,34 @@ test_compileGreenThreadsExample =
           "Hello world main green thread\nStill in main\nHello from forked thread\nBack in main\n"
           output
 
+test_compileAsyncStdioExample :: Assertion
+test_compileAsyncStdioExample =
+  when (isNativeCodegenHost arch os) $
+    withTempDir "aihc-compile-async-stdio" $ \root -> do
+      sourcePath <- asyncStdioExamplePath
+      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+          output = root </> "async-stdio"
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+          options = CompileOptions sourcePath (Just output) False False False False Nothing GcSemispace
+      withCurrentDirectory repositoryRoot $ do
+        runCompileWithEnvironment environment options
+        (Just childInput, Just childOutput, Just childError, processHandle) <-
+          createProcess
+            (proc output [])
+              { std_in = CreatePipe,
+                std_out = CreatePipe,
+                std_err = CreatePipe
+              }
+        threadDelay 50000
+        hPutChar childInput 'Q'
+        hFlush childInput
+        hClose childInput
+        programOut <- TIO.hGetContents childOutput
+        programErr <- TIO.hGetContents childError
+        exitCode <- waitForProcess processHandle
+        assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess exitCode
+        assertEqual "native stdout" "Q" programOut
+
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
   (hostArch == "aarch64" && hostOs == "darwin")
@@ -1174,6 +1204,9 @@ helloWorldExamplePath = examplePath ("hello-world" </> "Main.hs")
 
 greenThreadsExamplePath :: IO FilePath
 greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
+
+asyncStdioExamplePath :: IO FilePath
+asyncStdioExamplePath = examplePath ("async-stdio" </> "Main.hs")
 
 examplePath :: FilePath -> IO FilePath
 examplePath example = getCurrentDirectory >>= findFrom

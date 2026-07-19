@@ -705,6 +705,23 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                ]
             <> tailDispatchLines
         )
+    ("awaitIO#", [request]) -> do
+      requestSlot <- freshSlot
+      requestLines <- liftEither (materializeValue env request)
+      addBlock
+        label
+        ( prefix
+            <> requestLines
+            <> [storeAt "rax" "r14" requestSlot]
+            <> continuationLines
+            <> [ storeAt "rax" "r14" continuationSlot,
+                 loadAt "rsi" "r14" requestSlot,
+                 loadAt "rdx" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_await_io_cps"
+               ]
+            <> tailDispatchLines
+        )
     _ -> lift (Left (Amd64UnsupportedExpression ("CPS primitive call " <> name)))
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
@@ -1220,7 +1237,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` ["awaitIO#", "fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Amd64UnsupportedPrimitive name)
 

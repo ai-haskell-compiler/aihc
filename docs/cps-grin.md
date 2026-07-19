@@ -67,12 +67,23 @@ single tagged info-table pointer before their payload fields.
 
 ## Cooperative scheduling
 
-`fork#` and `yield#` are CPS primitive calls. The runtime stores their ordinary
-continuation closures and argument vectors in auxiliary thread records, then
-resumes them through the same apply/entry mechanism as other continuations.
-Runnable and blackhole-blocked thread arguments are collector roots; their
-static layouts let a moving collector update them without introducing a native
-stack-scanning convention.
+`fork#`, `yield#`, and the operation-independent `awaitIO#` are CPS primitive
+calls. Concrete IO operations are ordinary foreign calls which submit opaque
+runtime requests and later consume their results. Consequently, adding a file,
+socket, timer, or process operation does not require a new compiler primitive.
+
+The runtime stores ordinary continuation closures and argument vectors in
+auxiliary thread or pending-request records, then resumes them through the same
+apply/entry mechanism as other continuations. Runnable, blackhole-blocked, and
+IO-blocked thread arguments are collector roots; their static layouts let a
+moving collector update them without introducing a native stack-scanning
+convention.
+
+The central scheduler drains ready requests before selecting a runnable thread
+and blocks in the configured IO backend only when requests are pending and no
+green thread can run. The first native backend uses POSIX `poll`; the request
+boundary is intended to admit io-uring, IOCP, kqueue, and WASI implementations
+without changing Haskell code, System FC, or CPS-GRIN.
 
 This first representation is intentionally allocation-heavy. Optimizations
 such as eliminating immediately applied continuations belong after the

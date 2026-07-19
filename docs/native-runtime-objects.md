@@ -49,7 +49,37 @@ before native runtime lowering. The final physical tag is the semispace
 collector's temporary forwarding marker.
 
 The cooperative scheduler keeps thread records, argument vectors, blackhole
-records, and wait queues in auxiliary C allocations. Suspended argument vectors
-carry their static info table plus a count of trailing continuation pointers,
-so the semispace collector can relocate roots held by runnable and blocked
-threads as precisely as roots in the currently executing function.
+records, wait queues, and pending IO requests in auxiliary C allocations.
+Suspended argument vectors carry their static info table plus a count of
+trailing continuation pointers, so the semispace collector can relocate roots
+held by runnable and blocked threads as precisely as roots in the currently
+executing function.
+
+## IO manager
+
+The runtime ABI separates operation submission, scheduler suspension, and
+result consumption:
+
+1. An ordinary foreign call allocates an opaque request in the `submitted`
+   state without blocking.
+2. `awaitIO#` asks the configured backend to make progress. Immediate
+   completions continue directly; otherwise the request becomes `pending` and
+   retains the current green thread and continuation.
+3. Backend polling changes a ready request to `completed` and enqueues its
+   thread. A final ordinary foreign call takes the result, changes the request
+   to `consumed`, and releases it.
+
+Backend workers or readiness mechanisms produce only native completion data;
+Haskell continuations are always reconstructed and enqueued on the scheduler
+thread. This prevents moving-heap pointers from escaping to an asynchronous
+backend. Pending requests are collector roots only for their saved continuation
+and thread arguments. The opaque request pointer itself has `Addr#`
+representation and is not traced as a Haskell heap pointer.
+
+The initial backend sets standard input and output nonblocking and uses POSIX
+`poll` when byte reads or writes report that they would block. The read result
+is a byte from 0 through 255, `-1` for end-of-file, or `-(errno + 1)` for an
+error. A write returns zero on success and the same negative error encoding on
+failure. `GHC.Event` owns only generic suspension; `GHC.IO.StdHandles` is the
+first client and exposes byte operations. Buffering, encoding, locking, and
+`Handle` semantics remain deliberately above this boundary.

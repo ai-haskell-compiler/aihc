@@ -30,6 +30,7 @@ import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Array (newArray0)
 import Foreign.Ptr (FunPtr, Ptr)
+import System.IO (hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data EvalError
@@ -52,6 +53,7 @@ data Value
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
+  | VIORequest EvalIORequest
   | VMutVar EvalMutVar
   | VStateToken
   | VThunk Env FcExpr
@@ -64,6 +66,25 @@ instance Eq EvalMutVar where
 
 instance Show EvalMutVar where
   show _ = "<mutvar>"
+
+data EvalIOOperation
+  = EvalReadStdin
+  | EvalWriteStdout !Integer
+  deriving (Eq, Show)
+
+data EvalIOState
+  = EvalIOSubmitted !EvalIOOperation
+  | EvalIOCompleted !Integer
+  | EvalIOConsumed
+  deriving (Eq, Show)
+
+newtype EvalIORequest = EvalIORequest (IORef EvalIOState)
+
+instance Eq EvalIORequest where
+  EvalIORequest left == EvalIORequest right = left == right
+
+instance Show EvalIORequest where
+  show _ = "<io-request>"
 
 type Env = Map Text Value
 
@@ -226,6 +247,10 @@ evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
   pure state
+evalPrimitive "awaitIO#" [request, state] = do
+  ioRequest <- forceIORequestPrimitiveArg "awaitIO#" request
+  completeIORequest ioRequest
+  pure state
 evalPrimitive name args =
   throwE (EvalPrimitiveArity name (length args))
 
@@ -256,6 +281,33 @@ forceMutVarPrimitiveArg name value = do
     VMutVar mutVar -> pure mutVar
     other -> throwE (EvalPrimitiveTypeError name other)
 
+forceIORequestPrimitiveArg :: Text -> Value -> EvalM EvalIORequest
+forceIORequestPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VIORequest request -> pure request
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+completeIORequest :: EvalIORequest -> EvalM ()
+completeIORequest (EvalIORequest reference) = do
+  state <- lift (readIORef reference)
+  case state of
+    EvalIOSubmitted operation -> do
+      result <- performIOOperation operation
+      lift (writeIORef reference (EvalIOCompleted result))
+    EvalIOCompleted {} -> pure ()
+    EvalIOConsumed -> throwE (EvalPrimitiveTypeError "awaitIO#" (VIORequest (EvalIORequest reference)))
+
+performIOOperation :: EvalIOOperation -> EvalM Integer
+performIOOperation operation =
+  case operation of
+    EvalReadStdin -> do
+      bytes <- lift (BS.hGet stdin 1)
+      pure (if BS.null bytes then -1 else toInteger (BS.head bytes))
+    EvalWriteStdout byte -> do
+      lift (BS.hPut stdout (BS.singleton (fromInteger byte)) >> hFlush stdout)
+      pure 0
+
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
 executeForeignCall foreignCall arguments
   | actualArity /= expectedArity = throwE (EvalForeignArity name expectedArity actualArity)
@@ -275,22 +327,48 @@ executeForeignCall foreignCall arguments
     expectedArity = length (fcForeignOperandTypes signature)
 
 callForeign :: FcForeignCall -> [Value] -> EvalM Value
-callForeign foreignCall args = do
-  marshalledArgs <-
-    zipWithM
-      (marshalForeignArgument (fcForeignCallSymbol foreignCall))
-      (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
-      args
-  functionPointer <- lookupForeignFunction foreignCall
-  case fcForeignResultType (fcForeignCallSignature foreignCall) of
-    FcForeignInt32 -> do
-      CInt result <- lift (callFFI functionPointer retCInt marshalledArgs)
-      pure (VLit (LitInt Int32Rep (toInteger result)))
-    FcForeignWord64 -> do
-      result <- lift (callFFI functionPointer retWord64 marshalledArgs)
-      pure (VLit (LitInt Word64Rep (toInteger result)))
-    FcForeignAddr ->
-      VAddress <$> lift (callFFI functionPointer (retPtr retVoid) marshalledArgs)
+callForeign foreignCall args
+  | symbol == "aihc_io_submit_read_stdin",
+    [] <- args =
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted EvalReadStdin))
+  | symbol == "aihc_io_submit_write_stdout",
+    [byte] <- args = do
+      intValue <- forceInt32 symbol byte
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWriteStdout intValue)))
+  | symbol == "aihc_io_take_result",
+    [request] <- args =
+      takeIOResult symbol request
+  | otherwise = do
+      marshalledArgs <-
+        zipWithM
+          (marshalForeignArgument (fcForeignCallSymbol foreignCall))
+          (fcForeignArgumentTypes (fcForeignCallSignature foreignCall))
+          args
+      functionPointer <- lookupForeignFunction foreignCall
+      case fcForeignResultType (fcForeignCallSignature foreignCall) of
+        FcForeignInt32 -> do
+          CInt result <- lift (callFFI functionPointer retCInt marshalledArgs)
+          pure (VLit (LitInt Int32Rep (toInteger result)))
+        FcForeignWord64 -> do
+          result <- lift (callFFI functionPointer retWord64 marshalledArgs)
+          pure (VLit (LitInt Word64Rep (toInteger result)))
+        FcForeignAddr ->
+          VAddress <$> lift (callFFI functionPointer (retPtr retVoid) marshalledArgs)
+  where
+    symbol = fcForeignCallSymbol foreignCall
+
+takeIOResult :: Text -> Value -> EvalM Value
+takeIOResult symbol value = do
+  forced <- forceValue value
+  case forced of
+    VIORequest (EvalIORequest reference) -> do
+      state <- lift (readIORef reference)
+      case state of
+        EvalIOCompleted result -> do
+          lift (writeIORef reference EvalIOConsumed)
+          pure (VLit (LitInt Int32Rep result))
+        _ -> throwE (EvalForeignTypeError symbol forced)
+    _ -> throwE (EvalForeignTypeError symbol forced)
 
 marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
 marshalForeignArgument symbol FcForeignInt32 argument = do
@@ -424,6 +502,7 @@ renderForcedValue value =
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
@@ -497,6 +576,7 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced

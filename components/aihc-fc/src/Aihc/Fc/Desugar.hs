@@ -446,6 +446,7 @@ primitiveImportSpecs =
       ("realWorld#", PrimitiveSpec 0 (typesEqual statePrimRealWorldTy)),
       ("catch#", PrimitiveSpec 3 isCatchPrimType),
       ("fork#", PrimitiveSpec 2 isForkPrimType),
+      ("awaitIO#", PrimitiveSpec 2 (typesEqual awaitIOPrimTy)),
       ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
       ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
       ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType),
@@ -518,6 +519,12 @@ isForkPrimType ty =
 
 yieldPrimTy :: TcType
 yieldPrimTy = TcFunTy statePrimRealWorldTy statePrimRealWorldTy
+
+awaitIOPrimTy :: TcType
+awaitIOPrimTy = TcFunTy addrHashTy (TcFunTy statePrimRealWorldTy statePrimRealWorldTy)
+
+addrHashTy :: TcType
+addrHashTy = TcTyCon (TyCon "Addr#" 0) []
 
 threadIdPrimTy :: TcType
 threadIdPrimTy = TcTyCon (TyCon "ThreadId#" 0) []

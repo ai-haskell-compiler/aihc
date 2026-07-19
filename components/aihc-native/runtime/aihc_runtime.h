@@ -33,6 +33,8 @@ typedef struct AihcMachine AihcMachine;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
+typedef struct AihcIoRequest AihcIoRequest;
+typedef struct AihcIoBackend AihcIoBackend;
 typedef uintptr_t AihcSlot;
 
 struct AihcInfo {
@@ -67,6 +69,10 @@ struct AihcMachine {
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
+  AihcIoRequest *io_requests_head;
+  AihcIoRequest *io_requests_tail;
+  uint64_t io_request_count;
+  const AihcIoBackend *io_backend;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(uintptr_t),
@@ -122,6 +128,11 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
 void *aihc_fork_cps(AihcMachine *machine, AihcValue *action,
                     AihcValue *continuation);
 void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
+AihcIoRequest *aihc_io_submit_read_stdin(void);
+AihcIoRequest *aihc_io_submit_write_stdout(int32_t byte);
+int32_t aihc_io_take_result(AihcIoRequest *request);
+void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
+                        AihcValue *continuation);
 void *aihc_thread_done(AihcMachine *machine);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);

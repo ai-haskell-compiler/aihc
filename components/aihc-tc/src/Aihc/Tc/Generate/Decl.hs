@@ -559,7 +559,8 @@ checkForeignValueType sourceSpan ty =
     TcTyCon (TyCon "Int32#" 0) [] -> pure (int32Marshal ty [])
     TcTyCon (TyCon "Word64" 0) [] -> pure (word64Marshal ty ["W64#"])
     TcTyCon (TyCon "Word64#" 0) [] -> pure (word64Marshal ty [])
-    TcTyCon (TyCon "Addr#" 0) [] -> pure (addrMarshal ty)
+    TcTyCon (TyCon "Addr#" 0) [] -> pure (addrMarshal ty [])
+    TcTyCon (TyCon "Ptr" 1) [_] -> pure (addrMarshal ty ["Ptr"])
     _ -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
       pure (int32Marshal ty [])
@@ -578,11 +579,11 @@ checkForeignValueType sourceSpan ty =
           tcForeignConstructors = constructors,
           tcForeignAbiType = TcForeignWord64
         }
-    addrMarshal sourceType =
+    addrMarshal sourceType constructors =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
           tcForeignPrimitiveType = TcTyCon (TyCon "Addr#" 0) [],
-          tcForeignConstructors = [],
+          tcForeignConstructors = constructors,
           tcForeignAbiType = TcForeignAddr
         }
 
