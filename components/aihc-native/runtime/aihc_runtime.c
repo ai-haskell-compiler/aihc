@@ -388,12 +388,22 @@ void *aihc_thread_done(AihcMachine *machine) {
   return aihc_select_thread(machine, aihc_dequeue_thread(machine));
 }
 
+void aihc_set_thread_done_continuation(AihcMachine *machine,
+                                       AihcValue *thread_done_continuation) {
+  if (thread_done_continuation == NULL ||
+      aihc_value_tag(thread_done_continuation) != AIHC_TAG_CLOSURE ||
+      aihc_value_arity(thread_done_continuation) != 1) {
+    aihc_fail("invalid thread completion continuation");
+  }
+  machine->thread_done_continuation = thread_done_continuation;
+}
+
 void *aihc_halt(AihcMachine *machine) { return machine->exit_code; }
 
 void *aihc_start(AihcMachine *machine, AihcValue *root, AihcValue *continuation,
                  AihcValue *update_continuation,
                  AihcValue *thread_done_continuation, void *exit_code) {
   machine->exit_code = exit_code;
-  machine->thread_done_continuation = thread_done_continuation;
+  aihc_set_thread_done_continuation(machine, thread_done_continuation);
   return aihc_eval_cps(machine, root, 1, continuation, update_continuation);
 }

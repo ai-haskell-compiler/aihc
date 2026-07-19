@@ -103,7 +103,9 @@ compileProgram entryName cpsProgram =
     program = cpsGrinProgram cpsProgram
 
 -- | Compile a nullary function with a driver that snapshots its raw return
--- values. The driver does not evaluate or apply any returned heap object.
+-- values. The driver supports cooperative scheduling but exits when the
+-- observed function returns; it does not evaluate returned objects or drain
+-- other runnable threads.
 compileObservedFunction :: FunctionName -> CpsGrinProgram -> Either Amd64Error ObservedProgram
 compileObservedFunction entryName cpsProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
@@ -140,6 +142,11 @@ compileObservedFunction entryName cpsProgram = do
           ]
             <> constructorLines
             <> initLines
+            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+            <> [ "  mov rdi, r15",
+                 "  mov rsi, rax",
+                 "  call aihc_set_thread_done_continuation"
+               ]
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_result") 1 0
             <> [ "  mov r13, rax",
                  immediate "rdi" (1 :: Int),
@@ -155,6 +162,12 @@ compileObservedFunction entryName cpsProgram = do
                  "  xor eax, eax"
                ]
             <> mainEpilogue
+            <> [ ".p2align 3",
+                 ".Laihc_thread_done_continuation:",
+                 "  mov rdi, r15",
+                 "  call aihc_thread_done"
+               ]
+            <> tailDispatchLines
             <> concat functions
             <> nonExecutableStack
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}

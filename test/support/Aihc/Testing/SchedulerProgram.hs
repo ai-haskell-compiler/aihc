@@ -2,12 +2,117 @@
 
 module Aihc.Testing.SchedulerProgram
   ( blackholeSchedulerProgram,
+    forkSnapshotEntry,
+    forkSnapshotProgram,
     schedulerProgram,
+    yieldSnapshotEntry,
+    yieldSnapshotProgram,
   )
 where
 
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
+
+forkSnapshotEntry :: FunctionName
+forkSnapshotEntry = FunctionName "$fork_snapshot_main"
+
+forkSnapshotProgram :: GrinProgram
+forkSnapshotProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar "fork#" 30 lifted, 2)],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals =
+        [(childClosure, GrinNode (GrinClosure childFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = forkSnapshotEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Unlifted,
+              grinFunctionBody =
+                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [GrinVarValue childClosure]) $
+                  GrinConstant [GrinVarValue threadId]
+            },
+          GrinFunction
+            { grinFunctionName = childFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinConstant [GrinVarValue unitValue]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    forkResultRep = TupleRep [TupleRep [], BoxedRep Unlifted]
+    childFunction = FunctionName "$fork_snapshot_child"
+    childClosure = GrinVar "fork_snapshot_child" 31 lifted
+    threadId = GrinVar "fork_snapshot_thread_id" 32 (BoxedRep Unlifted)
+    unitValue = GrinVar "()" 33 lifted
+
+yieldSnapshotEntry :: FunctionName
+yieldSnapshotEntry = FunctionName "$yield_snapshot_main"
+
+yieldSnapshotProgram :: GrinProgram
+yieldSnapshotProgram =
+  GrinProgram
+    { grinConstructors =
+        [ ("SchedulerSnapshot", [[BoxedRep Unlifted, lifted]]),
+          ("ChildResult", [])
+        ],
+      grinPrimitives =
+        [ (GrinVar "fork#" 40 lifted, 2),
+          (GrinVar "yield#" 41 lifted, 1)
+        ],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals =
+        [(childClosure, GrinNode (GrinClosure childFunction [[]]) [])],
+      grinCafs = [(sharedThunk, GrinNode (GrinThunk sharedFunction) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = yieldSnapshotEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [GrinVarValue childClosure]) $
+                  GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
+                    GrinStore
+                      ( GrinNode
+                          (GrinConstructor "SchedulerSnapshot" 0)
+                          [GrinVarValue threadId, GrinVarValue sharedThunk]
+                      )
+            },
+          GrinFunction
+            { grinFunctionName = childFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinEval lifted (GrinVarValue sharedThunk)
+            },
+          GrinFunction
+            { grinFunctionName = sharedFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinStore (GrinNode (GrinConstructor "ChildResult" 0) [])
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    forkResultRep = TupleRep [TupleRep [], BoxedRep Unlifted]
+    childFunction = FunctionName "$yield_snapshot_child"
+    sharedFunction = FunctionName "$yield_snapshot_shared"
+    childClosure = GrinVar "yield_snapshot_child" 42 lifted
+    sharedThunk = GrinVar "yield_snapshot_shared" 43 lifted
+    threadId = GrinVar "yield_snapshot_thread_id" 44 (BoxedRep Unlifted)
 
 schedulerProgram :: GrinProgram
 schedulerProgram =
