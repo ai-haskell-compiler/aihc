@@ -286,6 +286,7 @@ snapshotCases =
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
     ("evaluates only through GrinEval", "eval.yaml"),
+    ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
     ("applies a stored closure", "apply.yaml")
   ]
