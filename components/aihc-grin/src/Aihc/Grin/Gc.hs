@@ -2,7 +2,12 @@
 
 -- | Make post-CPS allocation safepoints and relocated roots explicit.
 module Aihc.Grin.Gc
-  ( lowerGc,
+  ( GcGrinProgram,
+    gcContinuationFunctions,
+    gcFunctionContinuations,
+    gcGrinProgram,
+    gcUpdateFunction,
+    lowerGc,
   )
 where
 
@@ -14,16 +19,30 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 
+-- | A CPS-GRIN program whose managed allocations have explicit safepoints.
+-- Keeping this phase distinct prevents native backends from accidentally
+-- consuming CPS-GRIN before roots have been made relocatable.
+data GcGrinProgram = GcGrinProgram
+  { gcGrinProgram :: !GrinProgram,
+    gcContinuationFunctions :: !(Set FunctionName),
+    gcFunctionContinuations :: !(Map FunctionName GrinVar),
+    gcUpdateFunction :: !FunctionName
+  }
+  deriving (Eq, Show, Read)
+
 -- | Replace every managed store with an explicit reservation followed by an
 -- unchecked allocation. The reservation is an identity operation on its fast
 -- path and returns fresh SSA names for roots relocated by its slow path.
-lowerGc :: CpsGrinProgram -> CpsGrinProgram
+lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
-  cps
-    { cpsGrinProgram =
+  GcGrinProgram
+    { gcGrinProgram =
         program
           { grinFunctions = evalState (mapM lowerFunction (grinFunctions program)) nextUnique
-          }
+          },
+      gcContinuationFunctions = cpsContinuationFunctions cps,
+      gcFunctionContinuations = cpsFunctionContinuations cps,
+      gcUpdateFunction = cpsUpdateFunction cps
     }
   where
     program = cpsGrinProgram cps

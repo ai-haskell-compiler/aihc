@@ -77,7 +77,7 @@ tests =
         assertEqual
           "native representation diagnostic"
           (Left (Arm64UnsupportedRuntimeRep runtimeRep))
-          (compileProgram "missing" (expectCpsGrin program)),
+          (compileProgram "missing" (expectGcGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
         let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
             program =
@@ -92,7 +92,7 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
-        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
@@ -116,7 +116,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "passes static Addr# literals to native foreign calls" $ do
@@ -151,7 +151,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "loads the static string address" ("adrp x0, .Laihc_addr_0@PAGE" `T.isInfixOf` assembly)
@@ -182,7 +182,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("ldr x2, =2" `T.isInfixOf` assembly)
@@ -217,14 +217,14 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectCpsGrin program) of
+        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
             assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("bl _aihc_eval\n" `T.isInfixOf` assembly))
@@ -233,7 +233,7 @@ tests =
           "runtime apply does not enter its function"
           (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectCpsGrin explicitEvaluationProgram) of
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool
@@ -442,10 +442,10 @@ snapshotTest (name, fixtureName) =
     assertEqual "direct GRIN lint" [] (lintProgram program)
     interpreted <- interpretProgramFunctionSnapshot entry program
     assertInterpretedExpectation expectation interpreted
-    let cps = expectCpsGrin program
-    assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+    let gc = expectGcGrin program
+    assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
     observed <-
-      case compileObservedFunction entry cps of
+      case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
     when (arch == "aarch64" && os == "darwin") $ do
@@ -629,7 +629,7 @@ testNativeHelloWorld = do
   let grinProgram = lowerProgram fcProgram
   assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
   assembly <-
-    case compileProgram evalBindingName (expectCpsGrin grinProgram) of
+    case compileProgram evalBindingName (expectGcGrin grinProgram) of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
@@ -642,10 +642,10 @@ testNativeHelloWorld = do
 testNativeScheduler :: IO ()
 testNativeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
-  let cps = expectCpsGrin schedulerProgram
-  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  let gc = expectGcGrin schedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
   assembly <-
-    case compileProgram "main" cps of
+    case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 scheduler lowering failed: " <> show err)
   assertBool "emits fork runtime transfer" ("bl _aihc_fork_cps" `T.isInfixOf` assembly)
@@ -657,19 +657,19 @@ testNativeScheduler = do
 testNativeBlackholeScheduler :: IO ()
 testNativeBlackholeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
-  let cps = expectCpsGrin blackholeSchedulerProgram
-  assertEqual "CPS GRIN lint" [] (lintProgram (cpsGrinProgram cps))
+  let gc = expectGcGrin blackholeSchedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
   assembly <-
-    case compileProgram "main" cps of
+    case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 blackhole scheduler lowering failed: " <> show err)
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "TA" assembly
 
-expectCpsGrin :: GrinProgram -> CpsGrinProgram
-expectCpsGrin program =
+expectGcGrin :: GrinProgram -> GcGrinProgram
+expectGcGrin program =
   case toCpsGrin program of
-    Right cpsProgram -> cpsProgram
+    Right cpsProgram -> lowerGc cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
 
 runHelloWorldAssembly :: T.Text -> IO ()

@@ -449,7 +449,7 @@ buildNativeArtifacts target artifactRoot units = do
 
 data NativeUnit = NativeUnit
   { nativeDependencyUnit :: !DependencyUnit,
-    nativeProgram :: !Grin.CpsGrinProgram,
+    nativeProgram :: !Grin.GcGrinProgram,
     nativeInitializerSymbol :: !Text,
     nativeObjectPath :: !FilePath
   }
@@ -458,7 +458,7 @@ nativeUnit :: FilePath -> DependencyUnit -> NativeUnit
 nativeUnit objectRoot unit =
   NativeUnit
     { nativeDependencyUnit = unit,
-      nativeProgram = dependencyUnitCpsGrin unit,
+      nativeProgram = Grin.lowerGc (dependencyUnitCpsGrin unit),
       nativeInitializerSymbol = initializer,
       nativeObjectPath = objectRoot </> T.unpack library </> T.unpack unitName <> ".o"
     }
@@ -499,7 +499,7 @@ buildObject target layout unit = do
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
               ExitFailure _ -> pure (Left ("failed to assemble dependency unit " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> stderr))
 
-compileNativeModule :: NativeTarget -> LinkLayout -> Text -> Grin.CpsGrinProgram -> Either String Text
+compileNativeModule :: NativeTarget -> LinkLayout -> Text -> Grin.GcGrinProgram -> Either String Text
 compileNativeModule target layout initializer program =
   case target of
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)

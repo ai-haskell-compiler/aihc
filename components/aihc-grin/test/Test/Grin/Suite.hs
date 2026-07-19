@@ -187,10 +187,14 @@ grinUnitTests =
           (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)),
       testCase "GC lowering returns relocated live pointer roots in SSA" $ do
         cps <- expectCpsGrin gcRootProgram
-        let gcProgram = cpsGrinProgram (lowerGc cps)
+        let gc = lowerGc cps
+            gcProgram = gcGrinProgram gc
             reservations = concatMap (ensureHeapReservations . grinFunctionBody) (grinFunctions gcProgram)
             roots = map snd reservations
             rendered = renderProgram gcProgram
+        assertEqual "preserves continuation entries" (cpsContinuationFunctions cps) (gcContinuationFunctions gc)
+        assertEqual "preserves computation continuations" (cpsFunctionContinuations cps) (gcFunctionContinuations gc)
+        assertEqual "preserves update entry" (cpsUpdateFunction cps) (gcUpdateFunction gc)
         assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
         assertBool "contains an explicit reservation" (not (null reservations))
         assertBool "uses a one-word header for a one-field node" (2 `elem` map fst reservations)

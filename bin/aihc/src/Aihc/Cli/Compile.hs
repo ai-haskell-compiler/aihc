@@ -296,6 +296,7 @@ compileIncrementalArtifacts target dependencies compilation = do
       mainCore = incrementalUnitCore mainUnit
       mainGrin = incrementalUnitGrin mainUnit
       mainCpsGrin = incrementalUnitCpsGrin mainUnit
+      mainGcGrin = Grin.lowerGc mainCpsGrin
       dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
@@ -305,13 +306,13 @@ compileIncrementalArtifacts target dependencies compilation = do
     either
       (Left . CompileNativeError)
       Right
-      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
+      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainGcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
         compiledGrin = renderGrin mainGrin,
         compiledCpsGrin = renderCpsGrin mainCpsGrin,
-        compiledGcGrin = renderCpsGrin (Grin.lowerGc mainCpsGrin),
+        compiledGcGrin = renderGcGrin mainGcGrin,
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
@@ -321,13 +322,14 @@ compileProgramArtifacts target sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
-  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" cpsGrin)
+  let gcGrin = Grin.lowerGc cpsGrin
+  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" gcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
         compiledGrin = renderGrin grin,
         compiledCpsGrin = renderCpsGrin cpsGrin,
-        compiledGcGrin = renderCpsGrin (Grin.lowerGc cpsGrin),
+        compiledGcGrin = renderGcGrin gcGrin,
         compiledAssembly = assembly,
         compiledArchives = []
       }
@@ -338,13 +340,13 @@ validateNativePrimitiveNames target names =
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.validatePrimitiveNames names)
     LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.validatePrimitiveNames names)
 
-compileNativeProgram :: NativeTarget -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgram :: NativeTarget -> Text -> Grin.GcGrinProgram -> Either NativeError Text
 compileNativeProgram target entry program =
   case target of
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgram entry program)
     LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgram entry program)
 
-compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either NativeError Text
 compileNativeProgramWithDependencies target layout initializers entry program =
   case target of
     AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
@@ -358,6 +360,9 @@ renderGrin = withFinalNewline . Grin.renderProgram
 
 renderCpsGrin :: Grin.CpsGrinProgram -> Text
 renderCpsGrin = renderGrin . Grin.cpsGrinProgram
+
+renderGcGrin :: Grin.GcGrinProgram -> Text
+renderGcGrin = renderGrin . Grin.gcGrinProgram
 
 withFinalNewline :: String -> Text
 withFinalNewline rendered = T.pack rendered <> "\n"

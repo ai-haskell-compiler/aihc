@@ -24,13 +24,12 @@ where
 
 import Aihc.Arm64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Arm64.Lir qualified as Lir
-import Aihc.Grin.Cps
-  ( CpsGrinProgram,
-    cpsFunctionContinuations,
-    cpsGrinProgram,
-    cpsUpdateFunction,
+import Aihc.Grin.Gc
+  ( GcGrinProgram,
+    gcFunctionContinuations,
+    gcGrinProgram,
+    gcUpdateFunction,
   )
-import Aihc.Grin.Gc (lowerGc)
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkInterface,
@@ -119,24 +118,24 @@ data RuntimeInfoKey
   | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
   deriving (Eq, Ord, Show)
 
-compileProgram :: Text -> CpsGrinProgram -> Either Arm64Error Text
-compileProgram entryName cpsProgram =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName cpsProgram
+compileProgram :: Text -> GcGrinProgram -> Either Arm64Error Text
+compileProgram entryName gcProgram =
+  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName gcProgram
   where
-    program = cpsGrinProgram (lowerGc cpsProgram)
+    program = gcGrinProgram gcProgram
 
 -- | Compile a nullary function with a driver that snapshots its raw return
 -- values. The driver supports cooperative scheduling but exits when the
 -- observed function returns; it does not evaluate returned objects or drain
 -- other runnable threads.
-compileObservedFunction :: FunctionName -> CpsGrinProgram -> Either Arm64Error ObservedProgram
-compileObservedFunction entryName cpsProgram = do
+compileObservedFunction :: FunctionName -> GcGrinProgram -> Either Arm64Error ObservedProgram
+compileObservedFunction entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
   entryFunction <-
     maybe (Left (Arm64MissingFunction entryName)) Right $
       findFunction entryName (grinFunctions program)
-  case Map.lookup entryName (cpsFunctionContinuations cpsProgram) of
+  case Map.lookup entryName (gcFunctionContinuations gcProgram) of
     Just continuation
       | grinFunctionParameters entryFunction == [continuation] -> pure ()
     _ -> Left (Arm64UnsupportedExpression "observed entry function must have only its CPS continuation")
@@ -203,7 +202,7 @@ compileObservedFunction entryName cpsProgram = do
               )
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
   where
-    program = cpsGrinProgram (lowerGc cpsProgram)
+    program = gcGrinProgram gcProgram
     layout = buildLinkLayout [program]
     compileEnv = compileEnvironmentWith True layout program
     globalNames = linkGlobalNames layout
@@ -224,8 +223,8 @@ validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 -- | Compile a library SCC to relocatable assembly. The exported initializer
 -- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
-compileModule :: LinkLayout -> Text -> CpsGrinProgram -> Either Arm64Error Text
-compileModule layout initializerSymbol cpsProgram = do
+compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either Arm64Error Text
+compileModule layout initializerSymbol gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -250,20 +249,20 @@ compileModule layout initializerSymbol cpsProgram = do
       <> renderAddrLiteralPool compileEnv
       <> renderRuntimeInfos (compileRuntimeInfos compileEnv)
   where
-    program = cpsGrinProgram (lowerGc cpsProgram)
+    program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
 
 -- | Compile the user program entry unit against cached dependency modules.
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> CpsGrinProgram -> Either Arm64Error Text
-compileProgramWithDependencies layout dependencyInitializers entryName cpsProgram = do
+compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Arm64Error Text
+compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Arm64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  updateLabel <- functionCodeLabel compileEnv (cpsUpdateFunction cpsProgram)
+  updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure . T.unlines $
     [ ".section __TEXT,__text,regular,pure_instructions",
       ".p2align 2",
@@ -363,7 +362,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
                ]
         )
   where
-    program = cpsGrinProgram (lowerGc cpsProgram)
+    program = gcGrinProgram gcProgram
     compileEnv = compileEnvironment layout program
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
