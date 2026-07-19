@@ -115,6 +115,10 @@ data GrinExpr
   | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | GrinEval !RuntimeRep !GrinValue
+  | -- | CPS-only evaluation. The first continuation receives a value already
+    -- in weak-head normal form. The second continuation receives the result
+    -- of an entered thunk and is responsible for updating its blackhole.
+    GrinCpsEval !RuntimeRep !GrinValue !GrinValue !GrinValue
   | -- | A saturated call to a statically known code entry.
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
@@ -123,6 +127,21 @@ data GrinExpr
     -- normal form. The list contains that argument's runtime values and may be
     -- empty for a zero-width argument such as @State# RealWorld@.
     GrinApply !RuntimeRep !GrinValue ![GrinValue]
+  | -- | CPS-only application. Partial applications and saturated
+    -- constructors transfer their result to the continuation; saturated
+    -- closures enter their code with the continuation as the hidden final
+    -- argument.
+    GrinCpsApply !RuntimeRep !GrinValue ![GrinValue] !GrinValue
+  | -- | Invoke an ordinary continuation closure with one logical result.
+    -- Unlike 'GrinCpsApply', continuation entries do not themselves receive a
+    -- return continuation.
+    GrinContinue !GrinValue ![GrinValue]
+  | -- | Update a cell that was blackholed by 'GrinCpsEval'. This is separate
+    -- from an ordinary explicit heap update so the runtime can enforce the
+    -- thunk-update protocol.
+    GrinUpdateBlackhole !GrinValue !GrinValue
+  | -- | Terminate CPS execution with the supplied observable result values.
+    GrinHalt ![GrinValue]
   | -- | Match a value that is already in weak-head normal form.
     GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue

@@ -3,7 +3,10 @@ module Aihc.Grin
   ( module Aihc.Grin.Syntax,
     CpsGrinProgram,
     CpsGrinError (..),
+    cpsContinuationFunctions,
+    cpsFunctionContinuations,
     cpsGrinProgram,
+    cpsUpdateFunction,
     toCpsGrin,
     lowerProgram,
     GrinInterface,
@@ -27,7 +30,15 @@ module Aihc.Grin
   )
 where
 
-import Aihc.Grin.Cps (CpsGrinError (..), CpsGrinProgram, cpsGrinProgram, toCpsGrin)
+import Aihc.Grin.Cps
+  ( CpsGrinError (..),
+    CpsGrinProgram,
+    cpsContinuationFunctions,
+    cpsFunctionContinuations,
+    cpsGrinProgram,
+    cpsUpdateFunction,
+    toCpsGrin,
+  )
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (GrinInterface, extractGrinInterface, lowerProgram, lowerProgramWithInterface)

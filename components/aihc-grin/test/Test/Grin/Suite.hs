@@ -14,6 +14,7 @@ import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -84,6 +85,10 @@ grinUnitTests =
       testCase "interpreter rejects unlifted heap updates" $ do
         result <- interpretProgramBinding "answer" invalidUpdateProgram
         assertEqual "result" (Left (InterpretInvalidUpdateValue (RuntimeLit (GrinLitInt IntRep 2)))) result,
+      testCase "direct interpreter rejects CPS-only expressions" $
+        forM_ cpsOnlyExpressions $ \expression -> do
+          result <- interpretProgramFunctionSnapshot cpsOnlyFunction (cpsOnlyProgram expression)
+          assertEqual (show expression) (Left (InterpretCpsExpression expression)) result,
       testCase "lint rejects unlifted thunk results and heap updates" $
         forM_ unliftedRuntimeReps $ \runtimeRep ->
           let errors = lintProgram (unliftedHeapProgram runtimeRep)
@@ -111,31 +116,53 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "transformed lint" [] (lintProgram program)
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
-        assertBool "evaluates a continuation closure explicitly" ("eval @(BoxedRep Lifted) ($cps_continuation_pointer" `isInfixOf` rendered)
-        assertBool "invokes a continuation closure" ("apply @(BoxedRep Lifted) ($cps_continuation" `isInfixOf` rendered)
+        assertBool "invokes a continuation closure" ("continue ($cps_return" `isInfixOf` rendered)
+        assertBool "passes an explicit continuation to the call" (any callEndsInContinuation (grinFunctions program))
         assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
       testCase "CPS-GRIN treats a multi-value result as one logical argument" $ do
         cps <- expectCpsGrin multiValueContinuationProgram
         case grinFunctions (cpsGrinProgram cps) of
-          function : _callee : [_continuation] ->
+          function : _ ->
             case grinFunctionBody function of
-              GrinBind _ (GrinStore (GrinNode (GrinClosure _ layouts) [])) _ ->
+              GrinBind _ (GrinStore (GrinNode (GrinClosure _ layouts) _)) _ ->
                 assertEqual "one multi-value argument layout" [[IntRep, WordRep]] layouts
               body -> assertFailure ("expected a stored continuation closure, got " <> show body)
-          functions -> assertFailure ("expected source and continuation functions, got " <> show (length functions)),
-      testCase "CPS-GRIN reifies every function-call bind" $
-        forM_ functionCallExpressions $ \valueExpression -> do
+          [] -> assertFailure "expected transformed functions",
+      testCase "CPS-GRIN reifies only transferring binds" $ do
+        forM_ transferringExpressions $ \valueExpression -> do
           let source = singleBindProgram valueExpression
           cps <- expectCpsGrin source
-          assertEqual (show valueExpression) 2 (length (grinFunctions (cpsGrinProgram cps))),
+          assertEqual (show valueExpression) 1 (Set.size (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)))
+        primitiveCps <- expectCpsGrin (singleBindProgram (GrinPrimitiveCall (BoxedRep Lifted) "primitive" []))
+        assertEqual
+          "primitive calls stay direct"
+          Set.empty
+          (cpsContinuationFunctions primitiveCps `Set.difference` Set.singleton (cpsUpdateFunction primitiveCps)),
       testCase "CPS-GRIN keeps non-call binds in direct style" $ do
         cps <- expectCpsGrin directBindProgram
-        assertEqual "transformed program" directBindProgram (cpsGrinProgram cps),
-      testCase "CPS-GRIN preserves evaluation semantics" $ do
+        let rendered = renderProgram (cpsGrinProgram cps)
+        assertBool "constant bind remains direct" ("constant" `isInfixOf` rendered)
+        assertBool "store bind remains direct" ("store (CBox" `isInfixOf` rendered)
+        assertEqual
+          "case does not allocate a continuation"
+          Set.empty
+          (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)),
+      testCase "CPS-GRIN gives every computation entry a return continuation" $ do
+        cps <- expectCpsGrin callBindProgram
+        forM_ (Map.toList (cpsFunctionContinuations cps)) $ \(name, continuation) ->
+          case [function | function <- grinFunctions (cpsGrinProgram cps), grinFunctionName function == name] of
+            [function] ->
+              assertEqual "hidden final parameter" (Just continuation) (lastMaybe (grinFunctionParameters function))
+            _ -> assertFailure ("missing computation entry " <> show name),
+      testCase "CPS-GRIN makes thunk update an explicit continuation" $ do
         cps <- expectCpsGrin heapProgram
-        directResult <- interpretProgramBinding "answer" heapProgram
-        cpsResult <- interpretProgramBinding "answer" (cpsGrinProgram cps)
-        assertEqual "result" directResult cpsResult,
+        let program = cpsGrinProgram cps
+            updateName = cpsUpdateFunction cps
+        case [function | function <- grinFunctions program, grinFunctionName function == updateName] of
+          [function] -> do
+            assertBool "updates only a blackhole" (containsUpdateBlackhole (grinFunctionBody function))
+            assertBool "re-forces the updated result" (containsCpsEval (grinFunctionBody function))
+          _ -> assertFailure "missing unique update continuation",
       testCase "CPS-GRIN requires exception control to be eliminated" $ do
         assertEqual
           "throw"
@@ -474,6 +501,40 @@ isIOType ty =
     TcForAllTy _ body -> isIOType body
     TcQualTy _ body -> isIOType body
     _ -> False
+
+callEndsInContinuation :: GrinFunction -> Bool
+callEndsInContinuation function =
+  case grinFunctionBody function of
+    GrinBind _ _ body -> callEndsInContinuation function {grinFunctionBody = body}
+    GrinCall _ _ arguments ->
+      case reverse arguments of
+        GrinVarValue continuation : _ -> grinVarName continuation == "$cps_continuation"
+        _ -> False
+    _ -> False
+
+containsUpdateBlackhole :: GrinExpr -> Bool
+containsUpdateBlackhole expression =
+  case expression of
+    GrinUpdateBlackhole {} -> True
+    GrinBind _ value body -> containsUpdateBlackhole value || containsUpdateBlackhole body
+    GrinStoreRec _ body -> containsUpdateBlackhole body
+    GrinCase _ _ alternatives -> any (containsUpdateBlackhole . grinAltRhs) alternatives
+    _ -> False
+
+containsCpsEval :: GrinExpr -> Bool
+containsCpsEval expression =
+  case expression of
+    GrinCpsEval {} -> True
+    GrinBind _ value body -> containsCpsEval value || containsCpsEval body
+    GrinStoreRec _ body -> containsCpsEval body
+    GrinCase _ _ alternatives -> any (containsCpsEval . grinAltRhs) alternatives
+    _ -> False
+
+lastMaybe :: [value] -> Maybe value
+lastMaybe values =
+  case reverse values of
+    value : _ -> Just value
+    [] -> Nothing
 
 evalResultConstructor :: Int -> Text
 evalResultConstructor componentCount
@@ -1011,16 +1072,44 @@ callBindProgram =
     result = GrinVar "result" 2 (BoxedRep Lifted)
     box = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
 
-functionCallExpressions :: [GrinExpr]
-functionCallExpressions =
+transferringExpressions :: [GrinExpr]
+transferringExpressions =
   [ GrinEval lifted string,
     GrinCall lifted (FunctionName "callee") [],
-    GrinPrimitiveCall lifted "primitive" [],
     GrinApply lifted string []
   ]
   where
     lifted = BoxedRep Lifted
     string = GrinLitValue (GrinLitString "function")
+
+cpsOnlyExpressions :: [GrinExpr]
+cpsOnlyExpressions =
+  [ GrinCpsEval lifted string string string,
+    GrinCpsApply lifted string [] string,
+    GrinContinue string [],
+    GrinUpdateBlackhole string string,
+    GrinHalt []
+  ]
+  where
+    lifted = BoxedRep Lifted
+    string = GrinLitValue (GrinLitString "continuation")
+
+cpsOnlyFunction :: FunctionName
+cpsOnlyFunction = FunctionName "cps_only"
+
+cpsOnlyProgram :: GrinExpr -> GrinProgram
+cpsOnlyProgram expression =
+  directBindProgram
+    { grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = cpsOnlyFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = expression
+            }
+        ]
+    }
 
 singleBindProgram :: GrinExpr -> GrinProgram
 singleBindProgram valueExpression =

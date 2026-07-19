@@ -52,6 +52,7 @@ data InterpretError
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
+  | InterpretCpsExpression !GrinExpr
   | InterpretRaisedException !Text
   deriving (Eq, Show)
 
@@ -221,8 +222,10 @@ evalExpr env expr =
       pointerValue <- materializeValue env pointer
       updatedValue <- materializeValue env value
       pure <$> updateValue pointerValue updatedValue
+    GrinUpdateBlackhole {} -> rejectCpsExpression
     GrinEval _ value ->
       (: []) <$> (materializeValue env value >>= forceValue)
+    GrinCpsEval {} -> rejectCpsExpression
     GrinCall _ functionName arguments ->
       callFunction functionName =<< mapM (materializeValue env) arguments
     GrinPrimitiveCall _ name arguments ->
@@ -231,6 +234,9 @@ evalExpr env expr =
       functionValue <- materializeValue env function
       argumentValues <- mapM (materializeValue env) arguments
       applyValue functionValue argumentValues
+    GrinCpsApply {} -> rejectCpsExpression
+    GrinContinue {} -> rejectCpsExpression
+    GrinHalt {} -> rejectCpsExpression
     GrinCase scrutinee binder alternatives -> do
       value <- materializeValue env scrutinee
       matchAlternative (Map.insert binder value env) value alternatives
@@ -252,6 +258,8 @@ evalExpr env expr =
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
       executeForeignCall foreignCall argumentValues
+  where
+    rejectCpsExpression = throwInterpret (InterpretCpsExpression expr)
 
 handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
 handleRaised handler state failure =

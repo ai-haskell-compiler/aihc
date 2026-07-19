@@ -8,7 +8,7 @@ module Aihc.Grin.Lint
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep, liftedRuntimeRep)
+import Aihc.Tc.Types (Levity (..), RuntimeRep (..), liftedRuntimeRep)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -37,6 +37,7 @@ data GrinLintError
 
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
+    lintFunctionNodeArities :: !(Map FunctionName Int),
     lintFunctionResults :: !(Map FunctionName RuntimeRep),
     lintPrimitiveArities :: !(Map Text Int),
     lintGlobalVars :: !(Set GrinVar),
@@ -79,6 +80,15 @@ lintProgram program =
               ( [(grinFunctionName function, grinFunctionResultRep function) | function <- functions]
                   <> [(grinCodeFunctionName info, grinCodeResultRep info) | info <- grinExternalFunctions program]
               ),
+          lintFunctionNodeArities =
+            Map.fromList
+              ( [ (grinFunctionName function, semanticFunctionArity function)
+                | function <- functions
+                ]
+                  <> [ (grinCodeFunctionName info, semanticExternalArity info)
+                     | info <- grinExternalFunctions program
+                     ]
+              ),
           lintPrimitiveArities = Map.fromList [(grinVarName var, arity) | (var, arity) <- grinPrimitives program],
           lintGlobalVars = Set.fromList (globalVars <> cafVars),
           lintGlobalNames =
@@ -92,6 +102,15 @@ lintProgram program =
           lintConstructorLayouts = Map.fromList (grinConstructors program),
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
+    semanticFunctionArity function =
+      case reverse (grinFunctionParameters function) of
+        continuation : rest
+          | grinVarName continuation == "$cps_return" -> length rest
+        _ -> length (grinFunctionParameters function)
+    semanticExternalArity info =
+      case reverse (grinCodeParameterLayouts info) of
+        [BoxedRep Lifted] : rest -> length (concat (reverse rest))
+        _ -> length (concat (grinCodeParameterLayouts info))
 
 lintWhnfGlobal :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
 lintWhnfGlobal env (var, node) =
@@ -153,15 +172,31 @@ lintExpr env bound expr =
       [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
         <> lintValue env bound pointer
         <> lintValue env bound value
+    GrinUpdateBlackhole pointer value ->
+      [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
+        <> lintValue env bound pointer
+        <> lintValue env bound value
     GrinEval _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
         <> lintValue env bound value
+    GrinCpsEval _ value continuation updateContinuation ->
+      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
+        <> lintValue env bound value
+        <> lintValue env bound continuation
+        <> lintValue env bound updateContinuation
     GrinCall runtimeRep functionName arguments ->
       lintKnownCall env bound runtimeRep functionName arguments
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue env bound) arguments
     GrinApply _ function arguments -> lintValue env bound function <> concatMap (lintValue env bound) arguments
+    GrinCpsApply _ function arguments continuation ->
+      lintValue env bound function
+        <> concatMap (lintValue env bound) arguments
+        <> lintValue env bound continuation
+    GrinContinue continuation values ->
+      lintValue env bound continuation <> concatMap (lintValue env bound) values
+    GrinHalt values -> concatMap (lintValue env bound) values
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
@@ -253,7 +288,7 @@ lintNodeFunction env node =
   where
     fieldCount = length (grinNodeFields node)
     checkFunctionArity functionName actual =
-      case Map.lookup functionName (lintFunctionArities env) of
+      case Map.lookup functionName (lintFunctionNodeArities env) of
         Nothing -> [GrinLintUnknownFunction functionName]
         Just expected
           | expected == actual -> []
@@ -283,10 +318,15 @@ exprRuntimeReps expr =
     GrinStoreRec _ body -> exprRuntimeReps body
     GrinFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinUpdate _ value -> Just [grinValueRuntimeRep value]
+    GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
     GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCpsEval {} -> Nothing
     GrinCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCpsApply {} -> Nothing
+    GrinContinue {} -> Nothing
+    GrinHalt {} -> Nothing
     GrinCase _ _ alternatives ->
       case alternatives of
         first : _ -> exprRuntimeReps (grinAltRhs first)

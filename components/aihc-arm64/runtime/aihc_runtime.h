@@ -48,7 +48,8 @@ static inline uintptr_t aihc_value_info(const AihcValue *value) {
 
 static inline int aihc_value_has_shape(const AihcValue *value) {
   uint64_t tag = aihc_value_tag(value);
-  return tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR;
+  return tag == AIHC_TAG_CLOSURE || tag == AIHC_TAG_THUNK ||
+         tag == AIHC_TAG_PARTIAL_CONSTRUCTOR;
 }
 
 static inline uint64_t aihc_value_arity(const AihcValue *value) {

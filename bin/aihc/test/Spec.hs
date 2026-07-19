@@ -151,7 +151,7 @@ main =
                 Right assembly -> do
                   assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
                   assertBool "dependency initializer call" ("bl _aihc_init_" `T.isInfixOf` assembly)
-                  assertBool "Haskell tail transfer" ("br x9" `T.isInfixOf` assembly),
+                  assertBool "Haskell tail transfer" ("br x0" `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
