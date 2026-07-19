@@ -222,7 +222,18 @@ evalScheduledExpr env expr continue =
     GrinStore node -> do
       value <- materializeNode env node >>= allocateCell . storedCell
       continue [value]
+    GrinEnsureHeap _ roots -> continue =<< mapM (materializeValue env) roots
+    GrinStoreUnchecked node -> do
+      value <- materializeNode env node >>= allocateCell . storedCell
+      continue [value]
     GrinStoreRec bindings body -> do
+      locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
+      let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
+          recursiveEnv = Map.fromList recursiveBindings `Map.union` env
+      runtimeNodes <- mapM (materializeNode recursiveEnv . snd) bindings
+      mapM_ (uncurry writeCell) (zip locations (map storedCell runtimeNodes))
+      evalScheduledExpr recursiveEnv body continue
+    GrinStoreRecUnchecked bindings body -> do
       locations <- mapM (const (allocateLocation HeapBlackhole)) bindings
       let recursiveBindings = zip (map fst bindings) (map RuntimeLocation locations)
           recursiveEnv = Map.fromList recursiveBindings `Map.union` env

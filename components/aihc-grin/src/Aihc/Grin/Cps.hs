@@ -169,10 +169,13 @@ transformTail updateName parent bound resultRep continuation expression =
               valueExpression
           pure (GrinBind [nextVar] (GrinStore nextNode) transformedValue)
     GrinStore node -> continueDirect resultRep continuation (GrinStore node)
+    GrinEnsureHeap {} -> alreadyTransformed
+    GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
       GrinStoreRec bindings
         <$> transformTail updateName parent (bound <> recursiveVars) resultRep continuation body
+    GrinStoreRecUnchecked {} -> alreadyTransformed
     GrinFetch runtimeRep value ->
       continueDirect runtimeRep continuation (GrinFetch runtimeRep value)
     GrinUpdate pointer value ->
@@ -368,7 +371,12 @@ freeExprVars expression =
       freeExprVars valueExpression
         <> (freeExprVars body `Set.difference` Set.fromList vars)
     GrinStore node -> freeNodeVars node
+    GrinEnsureHeap _ roots -> foldMap freeValueVars roots
+    GrinStoreUnchecked node -> freeNodeVars node
     GrinStoreRec bindings body ->
+      (foldMap (freeNodeVars . snd) bindings <> freeExprVars body)
+        `Set.difference` Set.fromList (map fst bindings)
+    GrinStoreRecUnchecked bindings body ->
       (foldMap (freeNodeVars . snd) bindings <> freeExprVars body)
         `Set.difference` Set.fromList (map fst bindings)
     GrinFetch _ pointer -> freeValueVars pointer
@@ -430,7 +438,12 @@ exprUniques expression =
     GrinBind vars valueExpression body ->
       map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
     GrinStore node -> nodeUniques node
+    GrinEnsureHeap _ roots -> concatMap valueUniques roots
+    GrinStoreUnchecked node -> nodeUniques node
     GrinStoreRec bindings body ->
+      concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings
+        <> exprUniques body
+    GrinStoreRecUnchecked bindings body ->
       concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings
         <> exprUniques body
     GrinFetch _ pointer -> valueUniques pointer

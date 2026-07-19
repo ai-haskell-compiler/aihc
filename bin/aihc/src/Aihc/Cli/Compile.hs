@@ -29,7 +29,7 @@ import Aihc.Cli.Compile.Dependencies
     DependencyUnit (..),
     buildDependencies,
   )
-import Aihc.Cli.Options (CompileOptions (..))
+import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -92,6 +92,7 @@ data CompileArtifacts = CompileArtifacts
   { compiledCore :: !Text,
     compiledGrin :: !Text,
     compiledCpsGrin :: !Text,
+    compiledGcGrin :: !Text,
     compiledAssembly :: !Text,
     compiledArchives :: ![FilePath]
   }
@@ -134,11 +135,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> ".s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program.s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -147,6 +148,7 @@ writeIntermediateArtifacts output options artifacts = do
   when (compileKeepGrin options) $ do
     TIO.writeFile (output <> ".grin") (compiledGrin artifacts)
     TIO.writeFile (output <> ".cps.grin") (compiledCpsGrin artifacts)
+    TIO.writeFile (output <> ".gc.grin") (compiledGcGrin artifacts)
 
 -- | The project-local core libraries and shared compiled-library cache used by
 -- the command-line compiler.
@@ -309,6 +311,7 @@ compileIncrementalArtifacts target dependencies compilation = do
       { compiledCore = renderCore mainCore,
         compiledGrin = renderGrin mainGrin,
         compiledCpsGrin = renderCpsGrin mainCpsGrin,
+        compiledGcGrin = renderCpsGrin (Grin.lowerGc mainCpsGrin),
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
@@ -324,6 +327,7 @@ compileProgramArtifacts target sourceCore = do
       { compiledCore = renderCore core,
         compiledGrin = renderGrin grin,
         compiledCpsGrin = renderCpsGrin cpsGrin,
+        compiledGcGrin = renderCpsGrin (Grin.lowerGc cpsGrin),
         compiledAssembly = assembly,
         compiledArchives = []
       }
@@ -471,17 +475,34 @@ renderCompileError compileError =
 defaultCompileTarget :: NativeTarget
 defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 
-assemble :: NativeTarget -> FilePath -> FilePath -> [FilePath] -> IO ()
-assemble target output assemblyPath archives = do
+assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble target garbageCollector output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       "clang"
-      (["--target=" <> nativeTargetTriple target, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
+      ( [ "--target=" <> nativeTargetTriple target,
+          "-std=c11",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          garbageCollectorDefine garbageCollector,
+          runtime,
+          assemblyPath
+        ]
+          <> archives
+          <> ["-o", output]
+      )
       ""
   case exitCode of
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
+
+garbageCollectorDefine :: GarbageCollector -> String
+garbageCollectorDefine garbageCollector =
+  case garbageCollector of
+    GcCalloc -> "-DAIHC_GC=AIHC_GC_CALLOC"
+    GcSemispace -> "-DAIHC_GC=AIHC_GC_SEMISPACE"
 
 withTemporaryDirectory :: String -> (FilePath -> IO value) -> IO value
 withTemporaryDirectory template = bracket acquire removeDirectoryRecursive

@@ -93,16 +93,16 @@ renderExprIndented indentation expr =
         <> "\n"
         <> renderExprIndented indentation body
     GrinStore node -> indent indentation <> "store " <> renderNode node
-    GrinStoreRec bindings body ->
+    GrinEnsureHeap requiredWords roots ->
       indent indentation
-        <> "store-rec\n"
-        <> intercalate
-          "\n"
-          [ indent (indentation + 2) <> renderVar var <> " = " <> renderNode node
-          | (var, node) <- bindings
-          ]
-        <> "\n"
-        <> renderExprIndented indentation body
+        <> "ensure-heap "
+        <> show requiredWords
+        <> renderValues roots
+    GrinStoreUnchecked node -> indent indentation <> "store-unchecked " <> renderNode node
+    GrinStoreRec bindings body ->
+      renderStoreRec indentation "store-rec" bindings body
+    GrinStoreRecUnchecked bindings body ->
+      renderStoreRec indentation "store-rec-unchecked" bindings body
     GrinFetch runtimeRep pointer ->
       indent indentation <> "fetch @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue pointer
     GrinUpdate pointer value ->
@@ -183,6 +183,19 @@ renderExprIndented indentation expr =
         <> "foreign-call "
         <> T.unpack (grinForeignCallName foreignCall)
         <> concatMap ((" " <>) . renderValue) arguments
+
+renderStoreRec :: Int -> String -> [(GrinVar, GrinNode)] -> GrinExpr -> String
+renderStoreRec indentation name bindings body =
+  indent indentation
+    <> name
+    <> "\n"
+    <> intercalate
+      "\n"
+      [ indent (indentation + 2) <> renderVar var <> " = " <> renderNode node
+      | (var, node) <- bindings
+      ]
+    <> "\n"
+    <> renderExprIndented indentation body
 
 renderValues :: [GrinValue] -> String
 renderValues = concatMap ((" " <>) . renderValue)

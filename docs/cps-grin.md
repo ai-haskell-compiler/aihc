@@ -4,7 +4,7 @@ AIHC represents continuations with ordinary GRIN values instead of adding a
 second intermediate language. The compilation pipeline is:
 
 ```text
-Haskell -> System FC -> GRIN -> CPS-GRIN -> native backend
+Haskell -> System FC -> GRIN -> CPS-GRIN -> GC-GRIN -> native backend
 ```
 
 `CPS-GRIN` is GRIN satisfying an additional invariant. Every continuation
@@ -51,18 +51,28 @@ CPS-GRIN's continuation model singular instead of retaining an implicit second
 exception continuation.
 
 The ordinary `.grin` artifact remains the direct-style input to the pass. When
-`--keep-grin` is used, AIHC also writes `.cps.grin`, the exact program consumed
-by the native backend.
+`--keep-grin` is used, AIHC also writes `.cps.grin` and `.gc.grin`. The latter
+is the exact program consumed by the native backend: each managed `store` is
+preceded by `ensure-heap`, whose live pointer operands are returned under fresh
+SSA names, and is then represented by `store-unchecked`. A recursive store
+group receives one reservation covering the complete group.
 
-## Scheduler direction
+The native runtime is compiled with either `--gc calloc` (the default dummy
+collector, which never frees nodes) or `--gc semispace` (a stop-the-world
+copying collector). Static constructor and function info tables describe object
+identity, populated pointer fields, and the next application stage to both
+collectors; only the semispace collector uses the tracing layout. Application
+advances the header to the next static info table, so heap objects need only a
+single tagged info-table pointer before their payload fields.
 
-The pass does not implement suspension or scheduling. It establishes the
-representation needed to do that without scheduler-specific compiler
-primitives: a later lowering can detach the stored continuation closure at an
-asynchronous boundary, return it to ordinary scheduler code, and resume it by
-using the existing apply mechanism. Forking, queues, MVars, and timers can then
-be libraries built around ownership and resumption of this value rather than
-distinct control-flow nodes in the compiler IR.
+## Cooperative scheduling
+
+`fork#` and `yield#` are CPS primitive calls. The runtime stores their ordinary
+continuation closures and argument vectors in auxiliary thread records, then
+resumes them through the same apply/entry mechanism as other continuations.
+Runnable and blackhole-blocked thread arguments are collector roots; their
+static layouts let a moving collector update them without introducing a native
+stack-scanning convention.
 
 This first representation is intentionally allocation-heavy. Optimizations
 such as eliminating immediately applied continuations belong after the

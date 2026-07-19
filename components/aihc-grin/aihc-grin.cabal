@@ -13,6 +13,7 @@ library
   exposed-modules:
     Aihc.Grin
     Aihc.Grin.Cps
+    Aihc.Grin.Gc
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
     Aihc.Grin.Lower

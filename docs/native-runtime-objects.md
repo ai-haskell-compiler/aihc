@@ -19,21 +19,21 @@ Clang installation with the corresponding target linker and sysroot.
 
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
-bits contain either an aligned function entry address or an immediate info
-identifier.
+bits point to an aligned, statically emitted info table.
 
 ```text
 saturated constructor: [header] [fields...]
 thunk:                 [header] [environment...]
-partial application:   [header] [shape] [fields...]
+partial application:   [header] [fields...]
 indirection:           [header] [target]
-blackhole:             [header] [unused]
+blackhole:             [header] [environment / reserved target...]
 ```
 
-The shape word exists only for closures and partial constructors.
-It packs the remaining logical arity and current field count into one word.
-Saturated constructors derive their field count from constructor metadata;
-thunks derive it from their function signature.
+Each info table records the object's identity, populated field count, remaining
+logical arity, pointer bitmap, and next application-stage table. Application
+changes the header to the statically known next table. Consequently every
+managed object pays only for its tagged header and payload; arity and tracing
+metadata consume no per-object shape word.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated
@@ -45,4 +45,11 @@ changes the same object to `INDIRECTION` and writes the returned heap pointer
 into its first payload word. There is no separate cell allocation.
 
 Exceptions have no native heap tag or object representation. They are removed
-before native runtime lowering. Unused tag values remain reserved.
+before native runtime lowering. The final physical tag is the semispace
+collector's temporary forwarding marker.
+
+The cooperative scheduler keeps thread records, argument vectors, blackhole
+records, and wait queues in auxiliary C allocations. Suspended argument vectors
+carry their static info table plus a count of trailing continuation pointers,
+so the semispace collector can relocate roots held by runnable and blocked
+threads as precisely as roots in the currently executing function.

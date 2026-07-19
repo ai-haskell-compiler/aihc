@@ -153,7 +153,14 @@ lintFunctionResult env resultRep expr =
       | Map.lookup functionName (lintFunctionResults env) == Just resultRep
       ]
     GrinStore {} -> []
+    GrinEnsureHeap {} -> []
+    GrinStoreUnchecked (GrinNode (GrinClosure functionName []) _) ->
+      [ GrinLintSaturatedClosure functionName
+      | Map.lookup functionName (lintFunctionResults env) == Just resultRep
+      ]
+    GrinStoreUnchecked {} -> []
     GrinStoreRec _ body -> lintFunctionResult env resultRep body
+    GrinStoreRecUnchecked _ body -> lintFunctionResult env resultRep body
     GrinCase _ _ alternatives -> concatMap (lintFunctionResult env resultRep . grinAltRhs) alternatives
     _ -> []
 
@@ -166,7 +173,13 @@ lintExpr env bound expr =
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
+    GrinEnsureHeap _ roots -> concatMap (lintValue env bound) roots
+    GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
+      let recursiveBound = Set.fromList (map fst bindings) <> bound
+       in concatMap (lintNode env recursiveBound . snd) bindings
+            <> lintExpr env recursiveBound body
+    GrinStoreRecUnchecked bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound
        in concatMap (lintNode env recursiveBound . snd) bindings
             <> lintExpr env recursiveBound body
@@ -322,7 +335,10 @@ exprRuntimeReps expr =
     GrinConstant values -> Just (map grinValueRuntimeRep values)
     GrinBind _ _ body -> exprRuntimeReps body
     GrinStore {} -> Just [liftedRuntimeRep]
+    GrinEnsureHeap _ roots -> Just (map grinValueRuntimeRep roots)
+    GrinStoreUnchecked {} -> Just [liftedRuntimeRep]
     GrinStoreRec _ body -> exprRuntimeReps body
+    GrinStoreRecUnchecked _ body -> exprRuntimeReps body
     GrinFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinUpdate _ value -> Just [grinValueRuntimeRep value]
     GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
