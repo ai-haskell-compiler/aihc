@@ -164,30 +164,26 @@ initialMachine program =
       machineHeap =
         IntMap.fromList
           [ (location, storedCell (staticNode node))
-          | ((_, node), location) <- zip cafs [0 ..]
+          | ((_, node), location) <- zip globalNodes [0 ..]
           ],
-      machineNextLocation = length cafs
+      machineNextLocation = length globalNodes
     }
   where
-    cafs = grinCafs program
-    cafLocations =
-      [ (var, RuntimeLocation location)
-      | ((var, _), location) <- zip cafs [0 ..]
-      ]
-    staticGlobals =
-      Map.fromList
-        [ (grinVarName var, staticNode node)
-        | (var, node) <- grinWhnfGlobals program
-        ]
-    globals =
+    globalNodes = Map.toAscList globalNodeMap
+    globalNodeMap =
       Map.unions
-        [ Map.fromList [(grinVarName var, value) | (var, value) <- cafLocations],
-          staticGlobals,
+        [ Map.fromList [(grinVarName var, node) | (var, node) <- grinCafs program],
+          Map.fromList [(grinVarName var, node) | (var, node) <- grinWhnfGlobals program],
           Map.fromList
-            [ (constructor, RuntimeNode (GrinConstructor constructor 0) [])
+            [ (constructor, GrinNode (GrinConstructor constructor 0) [])
             | (constructor, layouts) <- builtinConstructors <> grinConstructors program,
               null layouts
             ]
+        ]
+    globals =
+      Map.fromList
+        [ (name, RuntimeLocation location)
+        | ((name, _), location) <- zip globalNodes [0 ..]
         ]
     staticNode (GrinNode tag fields) = RuntimeNode tag (map staticValue fields)
     staticValue value =
@@ -363,7 +359,7 @@ forceLocation location = do
       case result of
         Right [value] -> do
           writeCell location (HeapValue value)
-          forceValue value
+          forceLocation location
         Right values -> do
           writeCell location cell
           throwInterpret (InterpretInvalidThunkResult values)
@@ -373,14 +369,16 @@ forceLocation location = do
         Left failure@(EvalInterpret _) -> do
           writeCell location cell
           throwE failure
-    HeapValue result -> forceValue result
+    HeapValue (RuntimeLocation target) -> forceLocation target
+    HeapValue _ -> pure (RuntimeLocation location)
     HeapRaised exception -> throwE (EvalRaised exception)
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
 
 applyValue :: RuntimeValue -> [RuntimeValue] -> EvalM [RuntimeValue]
-applyValue function arguments =
-  case function of
-    RuntimeNode (GrinClosure functionName remainingLayouts) fields ->
+applyValue function arguments = do
+  (tag, fields) <- appliedNode function
+  case tag of
+    GrinClosure functionName remainingLayouts ->
       case remainingLayouts of
         [] -> throwInterpret (InterpretFunctionArity functionName 0 1)
         layout : rest ->
@@ -393,13 +391,23 @@ applyValue function arguments =
               appliedFields = fields <> normalizedArguments
            in case rest of
                 [] -> callFunction functionName appliedFields
-                _ -> pure [RuntimeNode (GrinClosure functionName rest) appliedFields]
-    RuntimeNode (GrinConstructor name remaining) fields ->
+                _ -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinClosure functionName rest) appliedFields))
+    GrinConstructor name remaining ->
       case compare remaining 1 of
-        GT -> pure [RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)]
-        EQ -> pure [RuntimeNode (GrinConstructor name 0) (fields <> arguments)]
+        GT -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinConstructor name (remaining - 1)) (fields <> arguments)))
+        EQ -> pure <$> allocateCell (HeapValue (RuntimeNode (GrinConstructor name 0) (fields <> arguments)))
         LT -> throwInterpret (InterpretConstructorArity name 0 1)
-    other -> throwInterpret (InterpretApplyNonFunction other)
+    GrinThunk _ -> throwInterpret (InterpretApplyNonFunction function)
+
+appliedNode :: RuntimeValue -> EvalM (GrinNodeTag, [RuntimeValue])
+appliedNode function =
+  case function of
+    RuntimeLocation location -> do
+      cell <- readCell location
+      case cell of
+        HeapValue (RuntimeNode tag fields) -> pure (tag, fields)
+        _ -> throwInterpret (InterpretApplyNonFunction function)
+    _ -> throwInterpret (InterpretApplyNonFunction function)
 
 callFunction :: FunctionName -> [RuntimeValue] -> EvalM [RuntimeValue]
 callFunction functionName arguments = do
@@ -562,19 +570,31 @@ runIOValue action = do
     _ -> throwInterpret (InterpretResultArity 1 (length results))
 
 matchAlternative :: Env -> RuntimeValue -> [GrinAlt] -> EvalM [RuntimeValue]
-matchAlternative env value alternatives =
-  case alternatives of
-    [] -> throwInterpret (InterpretNoMatchingAlternative value)
-    alt : rest ->
-      case matchAlt value alt of
+matchAlternative env value alternatives = do
+  inspected <- inspectCaseValue value
+  go inspected alternatives
+  where
+    go _ [] = throwInterpret (InterpretNoMatchingAlternative value)
+    go inspected (alt : rest) =
+      case matchAlt value inspected alt of
         Just bindings -> evalExpr (bindings `Map.union` env) (grinAltRhs alt)
-        Nothing -> matchAlternative env value rest
+        Nothing -> go inspected rest
 
-matchAlt :: RuntimeValue -> GrinAlt -> Maybe Env
-matchAlt value alt =
-  case (grinAltCon alt, value) of
+inspectCaseValue :: RuntimeValue -> EvalM RuntimeValue
+inspectCaseValue value =
+  case value of
+    RuntimeLocation location -> do
+      cell <- readCell location
+      case cell of
+        HeapValue node@RuntimeNode {} -> pure node
+        _ -> throwInterpret (InterpretNoMatchingAlternative value)
+    _ -> pure value
+
+matchAlt :: RuntimeValue -> RuntimeValue -> GrinAlt -> Maybe Env
+matchAlt original inspected alt =
+  case (grinAltCon alt, inspected) of
     (GrinDefaultAlt, _) ->
-      Just (Map.fromList [(var, value) | var <- grinAltBinders alt])
+      Just (Map.fromList [(var, original) | var <- grinAltBinders alt])
     (GrinLitAlt expected, RuntimeLit actual)
       | expected == actual -> Just Map.empty
     (GrinDataAlt expected, RuntimeNode (GrinConstructor actual 0) fields)
@@ -591,8 +611,8 @@ expectSingle values =
 
 renderRawValueM :: RuntimeValue -> EvalM Text
 renderRawValueM value = do
-  forced <- forceValue value
-  case forced of
+  exposed <- exposeWhnfValue value
+  case exposed of
     RuntimeLit literal -> pure (renderLiteral literal)
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
     RuntimeNode (GrinConstructor name 0) [] -> pure name
@@ -606,21 +626,28 @@ renderRawValueM value = do
     RuntimeNode GrinConstructor {} _ -> pure "<function>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
-    RuntimeLocation _ -> renderRawValueM forced
+    RuntimeLocation location -> throwInterpret (InterpretInvalidLocation location)
     RuntimeMutVar {} -> pure "<mutvar>"
     RuntimeStateToken -> pure "<state>"
 
 renderRawArgument :: RuntimeValue -> EvalM Text
 renderRawArgument value = do
-  forced <- forceValue value
-  rendered <- renderRawValueM forced
+  exposed <- exposeWhnfValue value
+  rendered <- renderRawValueM exposed
   pure $
-    case forced of
+    case exposed of
       RuntimeNode (GrinConstructor name 0) arguments
         | isTupleConstructor name (length arguments) -> rendered
       RuntimeNode (GrinConstructor "C#" 0) [_] -> rendered
       RuntimeNode (GrinConstructor _ 0) (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
+
+exposeWhnfValue :: RuntimeValue -> EvalM RuntimeValue
+exposeWhnfValue value = do
+  forced <- forceValue value
+  case forced of
+    RuntimeLocation _ -> fetchValue forced
+    _ -> pure forced
 
 renderLiteral :: GrinLiteral -> Text
 renderLiteral literal =
