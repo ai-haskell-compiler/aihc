@@ -7,6 +7,8 @@ where
 
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep (..))
+import Data.ByteString qualified as BS
+import Data.Char (chr)
 import Data.List (intercalate)
 import Data.Text qualified as T
 
@@ -241,6 +243,7 @@ renderLiteral literal =
     GrinLitInt _ value -> show value
     GrinLitChar _ value -> show value
     GrinLitString value -> show (T.unpack value)
+    GrinLitAddr value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#"
 
 renderVar :: GrinVar -> String
 renderVar var =

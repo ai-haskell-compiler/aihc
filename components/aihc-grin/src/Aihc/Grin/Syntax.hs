@@ -25,6 +25,7 @@ module Aihc.Grin.Syntax
     runtimeRepComponents,
     grinForeignOperandReps,
     grinForeignCallResultReps,
+    grinProgramLiterals,
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
@@ -34,6 +35,7 @@ module Aihc.Grin.Syntax
 where
 
 import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 
 -- | A whole GRIN program.
@@ -198,7 +200,50 @@ data GrinLiteral
   = GrinLitInt !RuntimeRep !Integer
   | GrinLitChar !RuntimeRep !Char
   | GrinLitString !Text
+  | GrinLitAddr !ByteString
   deriving (Eq, Show, Read)
+
+-- | Every literal embedded in a program, including node fields and case
+-- alternatives. Native backends use this to build static literal pools.
+grinProgramLiterals :: GrinProgram -> [GrinLiteral]
+grinProgramLiterals program =
+  concatMap (nodeLiterals . snd) (grinWhnfGlobals program <> grinCafs program)
+    <> concatMap (exprLiterals . grinFunctionBody) (grinFunctions program)
+  where
+    exprLiterals expression =
+      case expression of
+        GrinConstant values -> concatMap valueLiterals values
+        GrinBind _ valueExpression body -> exprLiterals valueExpression <> exprLiterals body
+        GrinStore node -> nodeLiterals node
+        GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
+        GrinFetch _ pointer -> valueLiterals pointer
+        GrinUpdate pointer value -> valueLiterals pointer <> valueLiterals value
+        GrinEval _ value -> valueLiterals value
+        GrinCpsEval _ value continuation updateContinuation ->
+          valueLiterals value <> valueLiterals continuation <> valueLiterals updateContinuation
+        GrinCall _ _ arguments -> concatMap valueLiterals arguments
+        GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
+        GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
+        GrinCpsApply _ function arguments continuation ->
+          valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
+        GrinContinue continuation values -> valueLiterals continuation <> concatMap valueLiterals values
+        GrinUpdateBlackhole pointer value -> valueLiterals pointer <> valueLiterals value
+        GrinHalt values -> concatMap valueLiterals values
+        GrinCase scrutinee _ alternatives -> valueLiterals scrutinee <> concatMap altLiterals alternatives
+        GrinThrow exception -> valueLiterals exception
+        GrinCatch _ action handler state ->
+          valueLiterals action <> valueLiterals handler <> concatMap valueLiterals state
+        GrinForeignCallExpr _ arguments -> concatMap valueLiterals arguments
+    altLiterals alternative = altConLiterals (grinAltCon alternative) <> exprLiterals (grinAltRhs alternative)
+    altConLiterals altCon =
+      case altCon of
+        GrinLitAlt literal -> [literal]
+        _ -> []
+    nodeLiterals = concatMap valueLiterals . grinNodeFields
+    valueLiterals value =
+      case value of
+        GrinLitValue literal -> [literal]
+        GrinVarValue {} -> []
 
 grinValueRuntimeRep :: GrinValue -> RuntimeRep
 grinValueRuntimeRep value =
@@ -209,6 +254,7 @@ grinValueRuntimeRep value =
         GrinLitInt runtimeRep _ -> runtimeRep
         GrinLitChar runtimeRep _ -> runtimeRep
         GrinLitString {} -> liftedRuntimeRep
+        GrinLitAddr {} -> AddrRep
 
 isLiftedRuntimeRep :: RuntimeRep -> Bool
 isLiftedRuntimeRep runtimeRep = runtimeRep == liftedRuntimeRep
@@ -272,6 +318,7 @@ data GrinForeignEffect
 data GrinForeignType
   = GrinForeignInt32
   | GrinForeignWord64
+  | GrinForeignAddr
   deriving (Eq, Show, Read)
 
 grinForeignOperandReps :: GrinForeignSignature -> [RuntimeRep]
@@ -287,3 +334,4 @@ foreignTypeRuntimeRep foreignType =
   case foreignType of
     GrinForeignInt32 -> Int32Rep
     GrinForeignWord64 -> Word64Rep
+    GrinForeignAddr -> AddrRep

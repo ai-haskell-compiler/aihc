@@ -29,6 +29,7 @@ library
     aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
+    bytestring,
     containers,
     libffi >=0.2 && <0.3,
     text >=1.2,

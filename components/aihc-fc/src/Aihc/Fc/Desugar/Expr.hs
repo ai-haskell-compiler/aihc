@@ -59,6 +59,8 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify')
+import Data.ByteString qualified as BS
+import Data.Char (ord)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -473,6 +475,7 @@ dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericTy
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
 dsExpr (EString s _) = dsStringLiteral s
+dsExpr (EStringHash s _) = FcLit . LitAddr <$> primitiveStringBytes s
 dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
 dsExpr (EInfix lhs op rhs) =
@@ -901,6 +904,16 @@ dsLocalGroup var group =
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
   pure (T.foldr consChar (nilList charTy) text)
+
+primitiveStringBytes :: Text -> DsM BS.ByteString
+primitiveStringBytes text =
+  case traverse toLatin1Byte (T.unpack text) of
+    Just bytes -> pure (BS.pack bytes)
+    Nothing -> desugarBug "primitive string literal escaped parser Latin-1 validation"
+  where
+    toLatin1Byte character
+      | ord character < 256 = Just (fromIntegral (ord character))
+      | otherwise = Nothing
 
 dsList :: TcAnnotation -> [Expr] -> DsM FcExpr
 dsList tcAnn elems =

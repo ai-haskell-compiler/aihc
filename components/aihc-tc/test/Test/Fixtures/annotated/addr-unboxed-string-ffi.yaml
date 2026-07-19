@@ -1,0 +1,31 @@
+annotated:
+- |-
+  module Test where
+
+  data CInt
+       └─ type: *
+  data IO a
+       └─ type: * → *
+
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
+  └─ type: Addr# → IO CInt
+
+  main :: IO CInt
+  main = puts "hello world\n"#
+  └─ type: IO CInt
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  data CInt
+  data IO a
+
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
+
+  main :: IO CInt
+  main = puts "hello world\n"#
+reason: infers unboxed strings as Addr# and accepts Addr# as an unsafe ccall argument
+status: pass

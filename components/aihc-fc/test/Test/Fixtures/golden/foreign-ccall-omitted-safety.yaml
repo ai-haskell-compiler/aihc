@@ -1,0 +1,13 @@
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
+
+  foreign import ccall puts :: Addr# -> CInt
+status: fail
+reason: ccalls must be marked explicitly unsafe

@@ -34,6 +34,7 @@ import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkInterface,
     LinkLayout (..),
+    buildAddrLiteralPool,
     buildLinkLayout,
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
@@ -44,6 +45,7 @@ import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
+import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -68,6 +70,7 @@ data CompileEnv = CompileEnv
     compileConstructorArities :: !(Map Text Int),
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
+    compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
@@ -169,6 +172,7 @@ compileObservedFunction entryName cpsProgram = do
                ]
             <> tailDispatchLines
             <> concat functions
+            <> renderAddrLiteralPool compileEnv
             <> nonExecutableStack
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
   where
@@ -215,6 +219,7 @@ compileModule layout initializerSymbol cpsProgram = do
       <> initLines
       <> mainEpilogue
       <> concat functions
+      <> renderAddrLiteralPool compileEnv
       <> nonExecutableStack
   where
     program = cpsGrinProgram cpsProgram
@@ -311,6 +316,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
          ]
       <> mainEpilogue
       <> concat functions
+      <> renderAddrLiteralPool compileEnv
       <> nonExecutableStack
   where
     program = cpsGrinProgram cpsProgram
@@ -353,6 +359,8 @@ compileEnvironmentWith exposeAllFunctions layout program =
                  | (index, function) <- zip [0 ..] (grinFunctions program)
                  ]
           ),
+      compileAddrLiteralLabels =
+        Map.fromList (buildAddrLiteralPool program),
       compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
@@ -688,6 +696,7 @@ normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt32 -> ["  movsxd rax, eax"]
     GrinForeignWord64 -> []
+    GrinForeignAddr -> []
 
 foreignArgumentRegisters :: [Text]
 foreignArgumentRegisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
@@ -781,13 +790,22 @@ materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Text]
 materializeValue env value =
   case value of
     GrinVarValue var -> loadVariable env var
-    GrinLitValue literal -> materializeLiteral literal
+    GrinLitValue literal -> materializeLiteral (valueCompileEnv env) literal
 
-materializeLiteral :: GrinLiteral -> Either Amd64Error [Text]
-materializeLiteral literal =
-  case normalizedLiteralInteger literal of
-    Just integer -> Right [immediate "rax" integer]
-    Nothing -> Left (Amd64UnsupportedValue "string literal")
+materializeLiteral :: CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
+materializeLiteral env literal =
+  case literal of
+    GrinLitAddr value -> do
+      label <-
+        maybe
+          (Left (Amd64UnsupportedValue "unregistered Addr# literal"))
+          Right
+          (Map.lookup value (compileAddrLiteralLabels env))
+      pure [address "rax" label]
+    _ ->
+      case normalizedLiteralInteger literal of
+        Just integer -> Right [immediate "rax" integer]
+        Nothing -> Left (Amd64UnsupportedValue "string literal")
 
 normalizedLiteralInteger :: GrinLiteral -> Maybe Integer
 normalizedLiteralInteger literal = do
@@ -797,6 +815,7 @@ normalizedLiteralInteger literal = do
       GrinLitInt runtimeRep _ -> normalizeScalar runtimeRep integer
       GrinLitChar {} -> normalizeUnsigned 64 integer
       GrinLitString {} -> integer
+      GrinLitAddr {} -> integer
 
 normalizeScalar :: RuntimeRep -> Integer -> Integer
 normalizeScalar runtimeRep integer =
@@ -829,6 +848,7 @@ literalInteger literal =
     GrinLitInt _ integer -> Just integer
     GrinLitChar _ character -> Just (fromIntegral (ord character))
     GrinLitString _ -> Nothing
+    GrinLitAddr _ -> Nothing
 
 materializeNode :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
 materializeNode env node = do
@@ -1240,6 +1260,19 @@ cString value = "\"" <> T.concatMap escape value <> "\""
     escape '\r' = "\\r"
     escape '\t' = "\\t"
     escape character = T.singleton character
+
+renderAddrLiteralPool :: CompileEnv -> [Text]
+renderAddrLiteralPool env =
+  case Map.toAscList (compileAddrLiteralLabels env) of
+    [] -> []
+    literals ->
+      [".section .rodata"]
+        <> concatMap renderLiteral literals
+  where
+    renderLiteral (value, label) =
+      [ label <> ":",
+        "  .byte " <> T.intercalate ", " (map tshow (BS.unpack value <> [0]))
+      ]
 
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index

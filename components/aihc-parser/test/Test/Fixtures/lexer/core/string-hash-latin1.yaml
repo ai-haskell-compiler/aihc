@@ -1,0 +1,6 @@
+extensions: [MagicHash]
+input: '"\xFF\0bar"#'
+tokens:
+  - 'TkStringHash "\255\NULbar" "\"\\xFF\\0bar\"#"'
+  - 'TkEOF'
+status: pass

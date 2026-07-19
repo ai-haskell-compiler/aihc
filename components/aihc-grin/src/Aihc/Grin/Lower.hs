@@ -1165,6 +1165,7 @@ lowerLiteral literal =
     LitInt runtimeRep value -> GrinLitInt runtimeRep value
     LitChar runtimeRep value -> GrinLitChar runtimeRep value
     LitString value -> GrinLitString value
+    LitAddr value -> GrinLitAddr value
 
 lowerAltCon :: FcAltCon -> GrinAltCon
 lowerAltCon altCon =
@@ -1200,6 +1201,7 @@ lowerForeignType foreignType =
   case foreignType of
     FcForeignInt32 -> GrinForeignInt32
     FcForeignWord64 -> GrinForeignWord64
+    FcForeignAddr -> GrinForeignAddr
 
 exprRuntimeRep :: FcExpr -> RuntimeRep
 exprRuntimeRep expr =
