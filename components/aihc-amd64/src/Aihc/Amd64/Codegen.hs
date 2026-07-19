@@ -24,7 +24,12 @@ where
 
 import Aihc.Amd64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Amd64.Lir qualified as Lir
-import Aihc.Grin.Cps (CpsGrinProgram, cpsGrinProgram)
+import Aihc.Grin.Cps
+  ( CpsGrinProgram,
+    cpsFunctionContinuations,
+    cpsGrinProgram,
+    cpsUpdateFunction,
+  )
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkInterface,
@@ -106,9 +111,10 @@ compileObservedFunction entryName cpsProgram = do
   entryFunction <-
     maybe (Left (Amd64MissingFunction entryName)) Right $
       findFunction entryName (grinFunctions program)
-  if null (grinFunctionParameters entryFunction)
-    then pure ()
-    else Left (Amd64UnsupportedExpression "observed entry function must be nullary")
+  case Map.lookup entryName (cpsFunctionContinuations cpsProgram) of
+    Just continuation
+      | grinFunctionParameters entryFunction == [continuation] -> pure ()
+    _ -> Left (Amd64UnsupportedExpression "observed entry function must have only its CPS continuation")
   entryLabel <- functionCodeLabel compileEnv entryName
   constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
@@ -134,16 +140,16 @@ compileObservedFunction entryName cpsProgram = do
           ]
             <> constructorLines
             <> initLines
-            <> [ immediate "rdi" (max 1 resultCount),
+            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_result") 1 0
+            <> [ "  mov r13, rax",
+                 immediate "rdi" (1 :: Int),
                  "  call aihc_alloc_locals",
-                 "  mov r14, rax",
-                 storeByteOffset "r14" "r15" 32
-               ]
-            <> pushNormalLines ".Laihc_snapshot_result" 0 resultCount
-            <> [ storeByteOffset "0" "r15" 8,
+                 storeByteOffset "r13" "rax" 0,
+                 storeByteOffset "rax" "r15" 0,
                  "  jmp " <> entryLabel,
+                 ".p2align 3",
                  ".Laihc_snapshot_result:",
-                 loadByteOffset "rsi" "r15" 32,
+                 loadByteOffset "rsi" "r15" 0,
                  immediate "rdi" resultCount,
                  "  call aihc_snapshot_dump_result",
                  "  xor eax, eax"
@@ -211,6 +217,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
   constructorLines <- compileConstructorInitializers compileEnv
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
+  updateLabel <- functionCodeLabel compileEnv (cpsUpdateFunction cpsProgram)
   pure . T.unlines $
     [ ".intel_syntax noprefix",
       ".text",
@@ -230,13 +237,52 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
       <> constructorLines
       <> concatMap callInitializer dependencyInitializers
       <> initLines
-      <> [ loadByteOffset "r11" "r15" 24,
+      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_final_continuation") 1 0
+      <> ["  mov r13, rax"]
+      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_top_continuation") 1 1
+      <> [ "  mov r12, rax",
+           "  mov rdi, r12",
+           "  xor esi, esi",
+           "  mov rdx, r13",
+           "  call aihc_set_field"
+         ]
+      <> makeNodeLines runtimeTagClosure (InfoAddress updateLabel) 1 2
+      <> [ "  mov r14, rax",
+           loadByteOffset "r11" "r15" 8,
+           loadAt "rdx" "r11" rootSlot,
+           "  mov rdi, r14",
+           "  xor esi, esi",
+           "  call aihc_set_field",
+           "  mov rdi, r14",
+           "  mov esi, 1",
+           "  mov rdx, r12",
+           "  call aihc_set_field",
+           loadByteOffset "r11" "r15" 8,
            loadAt "rsi" "r11" rootSlot,
            "  mov rdi, r15",
-           address "rdx" ".Laihc_exit",
+           "  mov rdx, r12",
+           "  mov rcx, r14",
+           address "r8" ".Laihc_exit",
            "  call aihc_start"
          ]
-      <> dispatchLines
+      <> tailDispatchLines
+      <> [ ".p2align 3",
+           ".Laihc_top_continuation:",
+           loadByteOffset "r11" "r15" 0,
+           loadByteOffset "r8" "r11" 0,
+           loadByteOffset "rsi" "r11" 8,
+           "  mov rdi, r15",
+           "  xor edx, edx",
+           "  xor ecx, ecx",
+           "  call aihc_apply_cps"
+         ]
+      <> tailDispatchLines
+      <> [ ".p2align 3",
+           ".Laihc_final_continuation:",
+           "  mov rdi, r15",
+           "  call aihc_halt"
+         ]
+      <> tailDispatchLines
       <> [ ".Laihc_exit:",
            "  xor eax, eax"
          ]
@@ -316,7 +362,7 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     fieldLines <- initializeNodeFields (ValueEnv env Map.empty) node
     pure $
-      [loadByteOffset "r11" "r15" 24, loadAt "r13" "r11" slot]
+      [loadByteOffset "r11" "r15" 8, loadAt "r13" "r11" slot]
         <> fieldLines
   pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
 
@@ -340,8 +386,7 @@ compileFunction env function = do
                immediate "rdi" slotCount,
                "  call aihc_alloc_locals",
                "  mov r14, rax",
-               storeByteOffset "r14" "r15" 32,
-               loadByteOffset "r12" "r15" 8
+               loadByteOffset "r12" "r15" 0
              ]
           <> parameterCopies
           <> ["  jmp " <> bodyLabel]
@@ -370,28 +415,11 @@ parameterCopyLir slots parameters =
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
   case expression of
-    GrinConstant values -> do
-      valueSlots <- freshSlots (length values)
-      valueLines <-
-        fmap concat . forM (zip values valueSlots) $ \(value, slot) -> do
-          lines' <- liftEither (materializeValue env value)
-          pure (lines' <> [storeAt "rax" "r14" slot])
-      addBlock label (prefix <> valueLines <> returnValuesLines valueSlots)
+    GrinConstant {} -> unsupportedExpression "direct-style constant return after CPS"
     GrinBind vars valueExpression body -> do
-      valueLabel <- freshLabel label "bind_value"
-      bodyLabel <- freshLabel label "bind_body"
-      slot <- contiguousLocalSlots env vars
-      addBlock
-        label
-        ( prefix
-            <> pushNormalLines bodyLabel slot (length vars)
-            <> ["  jmp " <> valueLabel]
-        )
-      compileExpr env [] valueLabel valueExpression
-      compileExpr env [] bodyLabel body
-    GrinStore node -> do
-      nodeLines <- liftEither (materializeNode env node)
-      addBlock label (prefix <> nodeLines <> returnLines)
+      directLines <- compileDirectBinding env vars valueExpression
+      compileExpr env (prefix <> directLines) label body
+    GrinStore {} -> unsupportedExpression "direct-style store return after CPS"
     GrinStoreRec bindings body -> do
       allocationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
@@ -404,11 +432,35 @@ compileExpr env prefix label expression =
           fieldLines <- liftEither (initializeNodeFields env node)
           pure ([loadAt "r13" "r14" slot] <> fieldLines)
       compileExpr env (prefix <> allocationLines <> initializationLines) label body
-    GrinFetch {} -> unsupportedExpression "fetch"
-    GrinUpdate {} -> unsupportedExpression "update"
-    GrinEval runtimeRep value -> do
+    GrinFetch {} -> unsupportedExpression "direct-style fetch return after CPS"
+    GrinUpdate {} -> unsupportedExpression "direct-style update return after CPS"
+    GrinUpdateBlackhole {} -> unsupportedExpression "unbound blackhole update"
+    GrinEval {} -> unsupportedExpression "direct-style eval after CPS"
+    GrinCpsEval runtimeRep value continuation updateContinuation -> do
+      valueSlot <- freshSlot
+      continuationSlot <- freshSlot
+      updateSlot <- freshSlot
       valueLines <- liftEither (materializeValue env value)
-      addBlock label (prefix <> valueLines <> evalLines runtimeRep)
+      continuationLines <- liftEither (materializeValue env continuation)
+      updateLines <- liftEither (materializeValue env updateContinuation)
+      addBlock
+        label
+        ( prefix
+            <> valueLines
+            <> [storeAt "rax" "r14" valueSlot]
+            <> continuationLines
+            <> [storeAt "rax" "r14" continuationSlot]
+            <> updateLines
+            <> [ storeAt "rax" "r14" updateSlot,
+                 loadAt "rsi" "r14" valueSlot,
+                 immediate "rdx" (fromEnum (isLiftedRuntimeRep runtimeRep)),
+                 loadAt "rcx" "r14" continuationSlot,
+                 loadAt "r8" "r14" updateSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_eval_cps"
+               ]
+            <> tailDispatchLines
+        )
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
       argumentSlots <- freshSlots (length arguments)
@@ -420,19 +472,15 @@ compileExpr env prefix label expression =
         label
         ( prefix
             <> argumentLines
-            <> [slotPointer "r12" argumentSlots, storeByteOffset "r12" "r15" 8, "  jmp " <> target]
+            <> [slotPointer "r12" argumentSlots, storeByteOffset "r12" "r15" 0, "  jmp " <> target]
         )
-    GrinPrimitiveCall runtimeRep name arguments
-      | name == "realWorld#",
-        null arguments,
-        null (runtimeRepComponents runtimeRep) ->
-          addBlock label (prefix <> returnValuesLines [])
-      | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
-          addBlock label (prefix <> ["  call aihc_unsupported_primitive", "  jmp " <> label])
-      | otherwise -> unsupportedExpression ("primitive call " <> name)
-    GrinApply _ function arguments -> do
+    GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
+    GrinApply {} -> unsupportedExpression "direct-style apply after CPS"
+    GrinCpsApply _ function arguments continuation -> do
       scratch <- freshSlot
+      continuationSlot <- freshSlot
       functionLines <- liftEither (materializeValue env function)
+      continuationLines <- liftEither (materializeValue env continuation)
       argumentSlots <- freshSlots (length arguments)
       argumentLines <-
         fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
@@ -443,26 +491,109 @@ compileExpr env prefix label expression =
         ( prefix
             <> functionLines
             <> [storeAt "rax" "r14" scratch]
+            <> continuationLines
+            <> [storeAt "rax" "r14" continuationSlot]
             <> argumentLines
             <> [ loadAt "rsi" "r14" scratch,
                  immediate "rdx" (length arguments),
                  slotPointer "rcx" argumentSlots,
+                 loadAt "r8" "r14" continuationSlot,
                  "  mov rdi, r15",
-                 "  call aihc_apply_values"
+                 "  call aihc_apply_cps"
                ]
-            <> dispatchLines
+            <> tailDispatchLines
         )
+    GrinContinue continuation values -> do
+      continuationSlot <- freshSlot
+      valueSlots <- freshSlots (length values)
+      continuationLines <- liftEither (materializeValue env continuation)
+      valueLines <-
+        fmap concat . forM (zip values valueSlots) $ \(value, slot) -> do
+          lines' <- liftEither (materializeValue env value)
+          pure (lines' <> [storeAt "rax" "r14" slot])
+      addBlock
+        label
+        ( prefix
+            <> continuationLines
+            <> [storeAt "rax" "r14" continuationSlot]
+            <> valueLines
+            <> [ loadAt "rsi" "r14" continuationSlot,
+                 immediate "rdx" (length values),
+                 slotPointer "rcx" valueSlots,
+                 "  mov rdi, r15",
+                 "  call aihc_continue_values"
+               ]
+            <> tailDispatchLines
+        )
+    GrinHalt _ ->
+      addBlock
+        label
+        (prefix <> ["  mov rdi, r15", "  call aihc_halt"] <> tailDispatchLines)
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
     GrinThrow {} -> unsupportedExpression "throw"
     GrinCatch {} -> unsupportedExpression "catch"
-    GrinForeignCallExpr foreignCall arguments ->
-      compileForeignCall env prefix label foreignCall arguments
+    GrinForeignCallExpr {} -> unsupportedExpression "unbound foreign call after CPS"
   where
     unsupportedExpression name = lift (Left (Amd64UnsupportedExpression name))
 
-compileForeignCall :: ValueEnv -> [Text] -> Text -> GrinForeignCall -> [GrinValue] -> FunctionM ()
-compileForeignCall env prefix label foreignCall arguments = do
+compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
+compileDirectBinding env vars expression =
+  case expression of
+    GrinConstant values
+      | length vars == length values ->
+          fmap concat . forM (zip vars values) $ \(var, value) -> do
+            slot <- localSlot env var
+            valueLines <- liftEither (materializeValue env value)
+            pure (valueLines <> [storeAt "rax" "r14" slot])
+    GrinStore node -> do
+      nodeLines <- liftEither (materializeNode env node)
+      storeSingleResult vars nodeLines
+    GrinFetch _ pointer -> do
+      pointerLines <- liftEither (materializeValue env pointer)
+      storeSingleResult vars pointerLines
+    GrinUpdate pointer value -> compileUpdateBinding "aihc_update" pointer value
+    GrinUpdateBlackhole pointer value -> compileUpdateBinding "aihc_update_blackhole" pointer value
+    GrinPrimitiveCall runtimeRep name arguments
+      | name == "realWorld#",
+        null arguments,
+        null vars,
+        null (runtimeRepComponents runtimeRep) ->
+          pure []
+      | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
+          pure ["  call aihc_unsupported_primitive"]
+      | otherwise -> lift (Left (Amd64UnsupportedExpression ("primitive call " <> name)))
+    GrinForeignCallExpr foreignCall arguments -> do
+      callLines <- compileForeignCallLines env foreignCall arguments
+      storeSingleResult vars callLines
+    _ -> lift (Left (Amd64UnsupportedExpression "non-direct expression remained in a CPS bind"))
+  where
+    storeSingleResult resultVars lines' =
+      case resultVars of
+        [var] -> do
+          slot <- localSlot env var
+          pure (lines' <> [storeAt "rax" "r14" slot])
+        _ -> lift (Left (Amd64UnsupportedExpression "direct expression result arity"))
+    compileUpdateBinding symbol pointer value = do
+      pointerSlot <- freshSlot
+      valueSlot <- freshSlot
+      pointerLines <- liftEither (materializeValue env pointer)
+      valueLines <- liftEither (materializeValue env value)
+      resultLines <- storeSingleResult vars [loadAt "rax" "r14" valueSlot]
+      pure
+        ( pointerLines
+            <> [storeAt "rax" "r14" pointerSlot]
+            <> valueLines
+            <> [ storeAt "rax" "r14" valueSlot,
+                 loadAt "rdi" "r14" pointerSlot,
+                 loadAt "rsi" "r14" valueSlot,
+                 "  call " <> symbol
+               ]
+            <> resultLines
+        )
+
+compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
+compileForeignCallLines env foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
       abiArity = length (grinForeignArgumentTypes signature)
       expectedArity = length (grinForeignOperandReps signature)
@@ -487,7 +618,7 @@ compileForeignCall env prefix label foreignCall arguments = do
                   <> loadAbiArguments
                   <> ["  call " <> grinForeignCallSymbol foreignCall]
                   <> normalizeForeignResult (grinForeignResultType signature)
-          addBlock label (prefix <> callLines <> returnLines)
+          pure callLines
 
 normalizeForeignResult :: GrinForeignType -> [Text]
 normalizeForeignResult foreignType =
@@ -712,7 +843,7 @@ loadVariable env var =
     Just slot -> Right [loadAt "rax" "r14" slot]
     Nothing -> do
       slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-      pure [loadByteOffset "r11" "r15" 24, loadAt "rax" "r11" slot]
+      pure [loadByteOffset "r11" "r15" 8, loadAt "rax" "r11" slot]
 
 localSlot :: ValueEnv -> GrinVar -> FunctionM Int
 localSlot env var =
@@ -730,16 +861,6 @@ freshSlot = do
 freshSlots :: Int -> FunctionM [Int]
 freshSlots count = replicateM count freshSlot
 
-contiguousLocalSlots :: ValueEnv -> [GrinVar] -> FunctionM Int
-contiguousLocalSlots _ [] = pure 0
-contiguousLocalSlots env vars = do
-  slots <- mapM (localSlot env) vars
-  case slots of
-    first : rest
-      | rest == [first + 1 .. first + length rest] -> pure first
-      | otherwise -> lift (Left (Amd64UnsupportedExpression "non-contiguous multi-value bind"))
-    [] -> pure 0
-
 freshLabel :: Text -> Text -> FunctionM Text
 freshLabel parent kind = do
   state <- get
@@ -754,54 +875,14 @@ addBlock label lines' =
 renderBlock :: Block -> [Text]
 renderBlock block = blockLabel block <> ":" : blockLines block
 
-pushNormalLines :: Text -> Int -> Int -> [Text]
-pushNormalLines code slot count =
-  [ "  mov rdi, r15",
-    address "rsi" code,
-    "  mov rdx, r14",
-    immediate "rcx" slot,
-    immediate "r8" count,
-    "  call aihc_push_normal"
-  ]
-
-returnValuesLines :: [Int] -> [Text]
-returnValuesLines slots =
-  [ "  mov rdi, r15",
-    immediate "rsi" (length slots),
-    slotPointer "rdx" slots,
-    "  call aihc_return_values"
-  ]
-    <> dispatchLines
-
 slotPointer :: Text -> [Int] -> Text
 slotPointer register slots =
   case slots of
     first : _ -> "  lea " <> register <> ", [r14" <> offsetText (first * 8) <> "]"
     [] -> "  xor " <> register <> ", " <> register
 
-returnLines :: [Text]
-returnLines =
-  [ "  mov rsi, rax",
-    "  mov rdi, r15",
-    "  call aihc_return"
-  ]
-    <> dispatchLines
-
-evalLines :: RuntimeRep -> [Text]
-evalLines runtimeRep =
-  [ "  mov rsi, rax",
-    immediate "rdx" (fromEnum (isLiftedRuntimeRep runtimeRep)),
-    "  mov rdi, r15",
-    "  call aihc_eval"
-  ]
-    <> dispatchLines
-
-dispatchLines :: [Text]
-dispatchLines =
-  [ loadByteOffset "r14" "r15" 32,
-    loadByteOffset "r11" "r15" 0,
-    "  jmp r11"
-  ]
+tailDispatchLines :: [Text]
+tailDispatchLines = ["  jmp rax"]
 
 globalSlot :: CompileEnv -> Text -> Either Amd64Error Int
 globalSlot env name =
@@ -840,10 +921,15 @@ boundVarGroups expression =
     GrinStoreRec bindings body -> map (pure . fst) bindings <> boundVarGroups body
     GrinFetch _ _ -> []
     GrinUpdate _ _ -> []
+    GrinUpdateBlackhole _ _ -> []
     GrinEval _ _ -> []
+    GrinCpsEval {} -> []
     GrinCall {} -> []
     GrinPrimitiveCall {} -> []
     GrinApply {} -> []
+    GrinCpsApply {} -> []
+    GrinContinue {} -> []
+    GrinHalt {} -> []
     GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
     GrinThrow _ -> []
     GrinCatch {} -> []
@@ -888,13 +974,25 @@ exprRuntimeReps expression =
         <> exprRuntimeReps body
     GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer
     GrinUpdate pointer value -> valueRuntimeReps pointer <> valueRuntimeReps value
+    GrinUpdateBlackhole pointer value -> valueRuntimeReps pointer <> valueRuntimeReps value
     GrinEval runtimeRep value -> runtimeRep : valueRuntimeReps value
+    GrinCpsEval runtimeRep value continuation updateContinuation ->
+      runtimeRep
+        : concatMap valueRuntimeReps [value, continuation, updateContinuation]
     GrinCall runtimeRep _ arguments ->
       runtimeRep : concatMap valueRuntimeReps arguments
     GrinPrimitiveCall runtimeRep _ arguments ->
       runtimeRep : concatMap valueRuntimeReps arguments
     GrinApply runtimeRep function arguments ->
       runtimeRep : valueRuntimeReps function <> concatMap valueRuntimeReps arguments
+    GrinCpsApply runtimeRep function arguments continuation ->
+      runtimeRep
+        : valueRuntimeReps function
+          <> concatMap valueRuntimeReps arguments
+          <> valueRuntimeReps continuation
+    GrinContinue continuation values ->
+      valueRuntimeReps continuation <> concatMap valueRuntimeReps values
+    GrinHalt values -> concatMap valueRuntimeReps values
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)
@@ -1096,7 +1194,7 @@ linkedFunctionLabel name =
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =
-  [ loadByteOffset "r11" "r15" 24,
+  [ loadByteOffset "r11" "r15" 8,
     storeAt "rax" "r11" slot
   ]
 

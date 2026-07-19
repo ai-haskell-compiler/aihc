@@ -4,6 +4,12 @@
   mkHsPkgsForChecks,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
+  cTidyCompilerFlags =
+    ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
+    ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+      "-isysroot"
+      "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+    ];
 
   addHiddenSuccesses = old: {
     # Hide passing tests so failures are visible in Nix's truncated output.
@@ -120,6 +126,17 @@
       | xargs -0 -r ormolu --mode check
   '';
 
+  cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
+    while IFS= read -r -d "" file; do
+      clang-tidy --quiet "$file" -- ${pkgs.lib.escapeShellArgs cTidyCompilerFlags}
+    done < <(find . -type f -name '*.c' -print0)
+  '';
+
+  cFormat = mkSourceCheck "aihc-c-format" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
+    find . -type f \( -name '*.c' -o -name '*.h' \) -print0 \
+      | xargs -0 -r clang-format --dry-run --Werror
+  '';
+
   cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
     failed=0
     while IFS= read -r -d "" file; do
@@ -194,6 +211,8 @@ in {
   nix-format = nixFormat;
   haskell-lint = haskellLint;
   haskell-format = haskellFormat;
+  c-lint = cLint;
+  c-format = cFormat;
   cabal-format = cabalFormat;
 
   all-tests = pkgs.linkFarm "aihc-all-tests" [
@@ -288,6 +307,14 @@ in {
     {
       name = "haskell-format";
       path = haskellFormat;
+    }
+    {
+      name = "c-lint";
+      path = cLint;
+    }
+    {
+      name = "c-format";
+      path = cFormat;
     }
     {
       name = "cabal-format";

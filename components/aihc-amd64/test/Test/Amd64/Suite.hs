@@ -25,7 +25,7 @@ import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.GrinProgram (parseProgram)
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
@@ -176,9 +176,8 @@ tests =
         case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectCpsGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "returns two values" ("mov rax, 2" `T.isInfixOf` assembly)
-            assertBool "uses the multi-value return ABI" ("call aihc_return_values" `T.isInfixOf` assembly)
-            assertBool "does not allocate an aggregate node" (not ("call aihc_make_node" `T.isInfixOf` assembly)),
+            assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
+            assertBool "uses the explicit continuation ABI" ("call aihc_continue_values" `T.isInfixOf` assembly),
       testCase "exports stable entries and branches directly to dependency code" $ do
         let identityName = FunctionName "$entry$identity"
             callerName = FunctionName "$entry$caller"
@@ -219,11 +218,36 @@ tests =
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectCpsGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
-            assertBool "generated case and apply contain no eval call" (not ("call aihc_eval" `T.isInfixOf` assembly))
+            assertBool "generated case and apply contain no direct-style eval call" (not ("call aihc_eval\n" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
         assertBool
           "runtime apply does not enter its function"
-          (not ("aihc_eval_value(machine, function" `isInfixOf` runtime)),
+          (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
+      testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
+        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectCpsGrin explicitEvaluationProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool
+              "apply tail-branches to the returned entry"
+              ("call aihc_apply_cps\n  jmp rax" `T.isInfixOf` assembly)
+            assertBool
+              "generated code does not reload a scheduled entry"
+              (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
+        runtime <- readFile =<< runtimeSourcePath
+        assertBool "apply returns its selected entry" ("void *aihc_apply_cps" `isInfixOf` runtime)
+        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+          assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
+      testCase "runtime has no built-in continuation stack" $ do
+        runtime <- readFile =<< runtimeSourcePath
+        forM_
+          [ "AihcContinuation",
+            "AIHC_CONT_",
+            "aihc_push_normal",
+            "aihc_return_values",
+            "aihc_return("
+          ]
+          $ \forbidden ->
+            assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
         withTempDirectory "aihc-amd64-runtime" $ \directory -> do
           runtime <- runtimeSourcePath
@@ -497,7 +521,7 @@ testNativeHelloWorld = do
       Right value -> pure value
       Left err -> assertFailure ("AMD64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("jmp r11" `isInfixOf` rendered)
+  assertBool "emits indirect Haskell tail transfers" ("jmp rax" `isInfixOf` rendered)
   assertBool "never calls a generated Haskell entry" (not ("call .Laihc_function_" `isInfixOf` rendered))
   assertBool "emits unboxed literals as raw words" (not ("aihc_make_literal" `isInfixOf` rendered))
   assertAssemblyAccepted assembly

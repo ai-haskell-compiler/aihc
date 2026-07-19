@@ -105,8 +105,16 @@ renderExprIndented indentation expr =
       indent indentation <> "fetch @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue pointer
     GrinUpdate pointer value ->
       indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
+    GrinUpdateBlackhole pointer value ->
+      indent indentation <> "update-blackhole " <> renderValue pointer <> " " <> renderValue value
     GrinEval runtimeRep value ->
       indent indentation <> "eval @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue value
+    GrinCpsEval runtimeRep value continuation updateContinuation ->
+      indent indentation
+        <> "cps-eval @"
+        <> renderRuntimeRepArgument runtimeRep
+        <> " "
+        <> unwords (map renderValue [value, continuation, updateContinuation])
     GrinCall runtimeRep functionName arguments ->
       indent indentation
         <> "call @"
@@ -128,6 +136,21 @@ renderExprIndented indentation expr =
         <> " "
         <> renderValue function
         <> renderArgument arguments
+    GrinCpsApply runtimeRep function arguments continuation ->
+      indent indentation
+        <> "cps-apply @"
+        <> renderRuntimeRepArgument runtimeRep
+        <> " "
+        <> renderValue function
+        <> renderArgument arguments
+        <> " -> "
+        <> renderValue continuation
+    GrinContinue continuation values ->
+      indent indentation
+        <> "continue "
+        <> renderValue continuation
+        <> renderArgument values
+    GrinHalt values -> indent indentation <> "halt" <> renderValues values
     GrinCase scrutinee binder alternatives ->
       indent indentation
         <> "case "

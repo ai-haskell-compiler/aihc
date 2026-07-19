@@ -1074,8 +1074,8 @@ targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
-targetTailTransfer AppleArm64 = "br x9"
-targetTailTransfer LinuxAmd64 = "jmp r11"
+targetTailTransfer AppleArm64 = "br x0"
+targetTailTransfer LinuxAmd64 = "jmp rax"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =
