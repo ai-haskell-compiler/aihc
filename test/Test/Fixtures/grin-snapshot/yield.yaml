@@ -1,0 +1,27 @@
+entry: $yield_snapshot_main
+program: |
+  constructor SchedulerSnapshot/2 [BoxedRep Unlifted, BoxedRep Lifted]
+  constructor ChildResult/0 []
+  primitive fork#%1 :: BoxedRep Lifted/2
+  primitive yield#%2 :: BoxedRep Lifted/1
+  global child%3 :: BoxedRep Lifted = (P$yield_snapshot_child/[[]])
+  caf shared%4 :: BoxedRep Lifted = (F$yield_snapshot_shared)
+
+  $yield_snapshot_main -> BoxedRep Lifted =
+    (thread_id%5 :: BoxedRep Unlifted) <- primitive-call @(TupleRep [TupleRep [], BoxedRep Unlifted]) fork# (child%3 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) yield#
+    store (CSchedulerSnapshot (thread_id%5 :: BoxedRep Unlifted) (shared%4 :: BoxedRep Lifted))
+
+  $yield_snapshot_child -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (shared%4 :: BoxedRep Lifted)
+
+  $yield_snapshot_shared -> BoxedRep Lifted =
+    store (CChildResult)
+return: "@0"
+heap: |
+  @0 = CSchedulerSnapshot @1 @2
+  @1 = ThreadId#
+  @2 = Indirection @3
+  @3 = CChildResult
+status: pass
+reason: yield# runs the queued child before resuming the parent, exposing the child's shared-thunk update in the final snapshot

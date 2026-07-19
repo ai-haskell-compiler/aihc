@@ -25,16 +25,16 @@ data SourceLine = SourceLine
 parseProgram :: Text -> Either String GrinProgram
 parseProgram source = do
   lines' <- traverse sourceLine (filter (not . T.null . T.strip) (T.lines source))
-  (constructors, functions) <- parseDeclarations lines'
+  (constructors, primitives, globals, cafs, functions) <- parseDeclarations lines'
   pure
     GrinProgram
       { grinConstructors = constructors,
-        grinPrimitives = [],
+        grinPrimitives = primitives,
         grinForeignCalls = [],
         grinExternalGlobals = [],
         grinExternalFunctions = [],
-        grinWhnfGlobals = [],
-        grinCafs = [],
+        grinWhnfGlobals = globals,
+        grinCafs = cafs,
         grinFunctions = functions
       }
 
@@ -44,19 +44,45 @@ sourceLine line = do
   let indentation = T.length (T.takeWhile (== ' ') line)
   pure SourceLine {sourceIndent = indentation, sourceText = T.strip line}
 
-parseDeclarations :: [SourceLine] -> Either String ([(Text, [[RuntimeRep]])], [GrinFunction])
-parseDeclarations = go [] []
+parseDeclarations :: [SourceLine] -> Either String ([(Text, [[RuntimeRep]])], [(GrinVar, Int)], [(GrinVar, GrinNode)], [(GrinVar, GrinNode)], [GrinFunction])
+parseDeclarations = go [] [] [] [] []
   where
-    go constructors functions [] = pure (reverse constructors, reverse functions)
-    go constructors functions (line : rest)
+    go constructors primitives globals cafs functions [] =
+      pure (reverse constructors, reverse primitives, reverse globals, reverse cafs, reverse functions)
+    go constructors primitives globals cafs functions (line : rest)
       | sourceIndent line /= 0 = Left ("top-level declaration is indented: " <> T.unpack (sourceText line))
       | T.isPrefixOf "constructor " (sourceText line) = do
           constructor <- parseConstructor (T.drop (T.length ("constructor " :: Text)) (sourceText line))
-          go (constructor : constructors) functions rest
+          go (constructor : constructors) primitives globals cafs functions rest
+      | T.isPrefixOf "primitive " (sourceText line) = do
+          primitive <- parsePrimitive (T.drop (T.length ("primitive " :: Text)) (sourceText line))
+          go constructors (primitive : primitives) globals cafs functions rest
+      | T.isPrefixOf "global " (sourceText line) = do
+          global <- parseStaticBinding "global" (T.drop (T.length ("global " :: Text)) (sourceText line))
+          go constructors primitives (global : globals) cafs functions rest
+      | T.isPrefixOf "caf " (sourceText line) = do
+          caf <- parseStaticBinding "CAF" (T.drop (T.length ("caf " :: Text)) (sourceText line))
+          go constructors primitives globals (caf : cafs) functions rest
       | otherwise = do
           let (bodyLines, remaining) = span ((> 0) . sourceIndent) rest
           function <- parseFunction (sourceText line) bodyLines
-          go constructors (function : functions) remaining
+          go constructors primitives globals cafs (function : functions) remaining
+
+parsePrimitive :: Text -> Either String (GrinVar, Int)
+parsePrimitive text = do
+  let (varWithSlash, arityText) = T.breakOnEnd "/" text
+  when (T.null varWithSlash) (Left ("primitive declaration has no arity: " <> T.unpack text))
+  var <- parseBareVar (T.dropEnd 1 varWithSlash)
+  arity <- readText "primitive arity" arityText
+  pure (var, arity)
+
+parseStaticBinding :: String -> Text -> Either String (GrinVar, GrinNode)
+parseStaticBinding context text = do
+  let (varText, nodeWithEquals) = T.breakOn " = " text
+  when (T.null nodeWithEquals) (Left ("invalid " <> context <> " declaration: " <> T.unpack text))
+  var <- parseBareVar varText
+  node <- parseNode (T.drop 3 nodeWithEquals)
+  pure (var, node)
 
 parseConstructor :: Text -> Either String (Text, [[RuntimeRep]])
 parseConstructor text = do
@@ -113,7 +139,10 @@ parseExpr indentation lines' =
           case T.breakOn " <- " (sourceText line) of
             (bindersText, rhsWithArrow)
               | not (T.null rhsWithArrow) -> do
-                  binders <- parseVarAtoms bindersText
+                  binders <-
+                    if T.strip bindersText == "()"
+                      then pure []
+                      else parseVarAtoms bindersText
                   rhs <- parseAtomicExpr (T.drop 4 rhsWithArrow)
                   (body, remaining) <- parseExpr indentation rest
                   pure (GrinBind binders rhs body, remaining)
@@ -155,6 +184,11 @@ parseAtomicExpr text
       case operands of
         function : arguments -> pure (GrinApply runtimeRep function arguments)
         [] -> Left "apply has no function operand"
+  | Just rest <- T.stripPrefix "primitive-call " text = do
+      (runtimeRep, callText) <- parseRuntimeRepArgument rest
+      let (name, argumentsText) = T.break isSpaceChar (T.strip callText)
+      arguments <- parseValueAtoms argumentsText
+      pure (GrinPrimitiveCall runtimeRep name arguments)
   | Just rest <- T.stripPrefix "call " text = do
       (runtimeRep, callText) <- parseRuntimeRepArgument rest
       let (name, argumentsText) = T.break isSpaceChar (T.strip callText)
@@ -187,10 +221,15 @@ parseNode text = do
 parseNodeTag :: Text -> Either String GrinNodeTag
 parseNodeTag tag
   | Just closure <- T.stripPrefix "P" tag = do
-      let (nameWithSlash, arityText) = T.breakOnEnd "/" closure
+      let (nameWithSlash, layoutText) = T.breakOnEnd "/" closure
       when (T.null nameWithSlash) (Left ("closure tag has no arity: " <> T.unpack tag))
-      arity <- readText "closure arity" arityText
-      pure (GrinClosure (FunctionName (T.dropEnd 1 nameWithSlash)) (replicate arity [liftedRuntimeRep]))
+      argumentLayouts <-
+        if T.isPrefixOf "[" layoutText
+          then readText "closure argument layouts" layoutText
+          else do
+            arity <- readText "closure arity" layoutText
+            pure (replicate arity [liftedRuntimeRep])
+      pure (GrinClosure (FunctionName (T.dropEnd 1 nameWithSlash)) argumentLayouts)
   | Just thunk <- T.stripPrefix "F" tag = pure (GrinThunk (FunctionName thunk))
   | Just constructor <- T.stripPrefix "C" tag = do
       let (nameWithSlash, remainingText) = T.breakOnEnd "/" constructor
@@ -222,6 +261,9 @@ parseVarAtom text =
     Right (GrinVarValue var) -> pure var
     Right _ -> Left ("expected variable binder: " <> T.unpack text)
     Left err -> Left err
+
+parseBareVar :: Text -> Either String GrinVar
+parseBareVar text = parseVarAtom ("(" <> T.strip text <> ")")
 
 parseVarParts :: Text -> RuntimeRep -> Either String GrinVar
 parseVarParts text runtimeRep = do

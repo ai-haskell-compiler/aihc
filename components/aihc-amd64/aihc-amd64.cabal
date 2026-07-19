@@ -41,6 +41,7 @@ test-suite spec
   other-modules:
     Aihc.Testing.EvalFixture
     Aihc.Testing.GrinProgram
+    Aihc.Testing.SchedulerProgram
     Test.Amd64.Suite
 
   build-depends:

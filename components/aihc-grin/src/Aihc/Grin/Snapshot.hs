@@ -44,6 +44,7 @@ data SnapshotCell
   | SnapshotValue !SnapshotValue
   | SnapshotRaised !SnapshotValue
   | SnapshotBlackhole
+  | SnapshotThreadId
   deriving (Eq, Show)
 
 renderSnapshotReturn :: HeapSnapshot -> Text
@@ -78,6 +79,7 @@ renderCell cell =
     SnapshotValue value -> renderValue False value
     SnapshotRaised exception -> "<raised " <> renderValue False exception <> ">"
     SnapshotBlackhole -> "<blackhole>"
+    SnapshotThreadId -> "ThreadId#"
 
 renderValue :: Bool -> SnapshotValue -> Text
 renderValue nested value =

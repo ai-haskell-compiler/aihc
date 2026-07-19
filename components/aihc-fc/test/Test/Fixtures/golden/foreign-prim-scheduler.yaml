@@ -1,0 +1,46 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  data ThreadId#
+
+  foreign prim fork#/2 : ∀ a. ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId#
+
+  foreign prim yield#/1 : (State# RealWorld) → State# RealWorld
+
+  spawn : ∀ a. ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId# =
+    Λa.
+      λx1003 : (State# RealWorld) → (#,#) (State# RealWorld) a.
+        λy1004 : State# RealWorld.
+          fork# @a x1003 y1004
+
+  reschedule : (State# RealWorld) → State# RealWorld =
+    λx1007 : State# RealWorld.
+      yield# x1007
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data ThreadId#
+
+  foreign import prim fork# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, ThreadId# #)
+
+  foreign import prim yield# :: State# RealWorld -> State# RealWorld
+
+  spawn action state = fork# action state
+
+  reschedule state = yield# state
+reason: scheduler primitives retain their zero-width state and unlifted thread identity
+  types through FC desugaring
+status: pass

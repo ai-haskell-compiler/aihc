@@ -131,6 +131,15 @@ renderExprIndented indentation expr =
         <> " "
         <> T.unpack name
         <> renderValues arguments
+    GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
+      indent indentation
+        <> "cps-primitive-call @"
+        <> renderRuntimeRepArgument runtimeRep
+        <> " "
+        <> T.unpack name
+        <> renderValues arguments
+        <> " -> "
+        <> renderValue continuation
     GrinApply runtimeRep function arguments ->
       indent indentation
         <> "apply @"

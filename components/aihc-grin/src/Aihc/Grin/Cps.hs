@@ -190,8 +190,12 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinCpsEval {} -> alreadyTransformed
     GrinCall runtimeRep functionName arguments ->
       pure (GrinCall runtimeRep functionName (arguments <> [continuation]))
-    GrinPrimitiveCall runtimeRep name arguments ->
-      continueDirect runtimeRep continuation (GrinPrimitiveCall runtimeRep name arguments)
+    GrinPrimitiveCall runtimeRep name arguments
+      | isControlPrimitive name ->
+          pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
+      | otherwise ->
+          continueDirect runtimeRep continuation (GrinPrimitiveCall runtimeRep name arguments)
+    GrinCpsPrimitiveCall {} -> alreadyTransformed
     GrinApply runtimeRep function arguments ->
       pure (GrinCpsApply runtimeRep function arguments continuation)
     GrinCpsApply {} -> alreadyTransformed
@@ -305,7 +309,8 @@ isDirectExpression expression =
     GrinFetch {} -> True
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
-    GrinPrimitiveCall {} -> True
+    GrinPrimitiveCall _ name _ -> not (isControlPrimitive name)
+    GrinCpsPrimitiveCall {} -> False
     GrinForeignCallExpr {} -> True
     _ -> False
 
@@ -374,6 +379,8 @@ freeExprVars expression =
       freeValueVars value <> freeValueVars continuation <> freeValueVars updateContinuation
     GrinCall _ _ arguments -> foldMap freeValueVars arguments
     GrinPrimitiveCall _ _ arguments -> foldMap freeValueVars arguments
+    GrinCpsPrimitiveCall _ _ arguments continuation ->
+      foldMap freeValueVars arguments <> freeValueVars continuation
     GrinApply _ function arguments -> freeValueVars function <> foldMap freeValueVars arguments
     GrinCpsApply _ function arguments continuation ->
       freeValueVars function <> foldMap freeValueVars arguments <> freeValueVars continuation
@@ -434,6 +441,8 @@ exprUniques expression =
       valueUniques value <> valueUniques continuation <> valueUniques updateContinuation
     GrinCall _ _ arguments -> concatMap valueUniques arguments
     GrinPrimitiveCall _ _ arguments -> concatMap valueUniques arguments
+    GrinCpsPrimitiveCall _ _ arguments continuation ->
+      concatMap valueUniques arguments <> valueUniques continuation
     GrinApply _ function arguments -> valueUniques function <> concatMap valueUniques arguments
     GrinCpsApply _ function arguments continuation ->
       valueUniques function <> concatMap valueUniques arguments <> valueUniques continuation
@@ -446,6 +455,9 @@ exprUniques expression =
     GrinCatch _ action handler state ->
       valueUniques action <> valueUniques handler <> concatMap valueUniques state
     GrinForeignCallExpr _ arguments -> concatMap valueUniques arguments
+
+isControlPrimitive :: T.Text -> Bool
+isControlPrimitive name = name == "fork#" || name == "yield#"
 
 alternativeUniques :: GrinAlt -> [Int]
 alternativeUniques alternative =

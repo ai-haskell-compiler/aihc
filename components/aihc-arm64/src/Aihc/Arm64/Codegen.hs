@@ -106,7 +106,9 @@ compileProgram entryName cpsProgram =
     program = cpsGrinProgram cpsProgram
 
 -- | Compile a nullary function with a driver that snapshots its raw return
--- values. The driver does not evaluate or apply any returned heap object.
+-- values. The driver supports cooperative scheduling but exits when the
+-- observed function returns; it does not evaluate returned objects or drain
+-- other runnable threads.
 compileObservedFunction :: FunctionName -> CpsGrinProgram -> Either Arm64Error ObservedProgram
 compileObservedFunction entryName cpsProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
@@ -140,6 +142,11 @@ compileObservedFunction entryName cpsProgram = do
           ]
             <> constructorLines
             <> initLines
+            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+            <> [ "  mov x1, x0",
+                 "  mov x0, x22",
+                 "  bl _aihc_set_thread_done_continuation"
+               ]
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_result") 1 0
             <> [ "  mov x21, x0",
                  immediate "x0" (1 :: Int),
@@ -158,6 +165,12 @@ compileObservedFunction entryName cpsProgram = do
                  "  ldp x29, x30, [sp], #48",
                  "  ret"
                ]
+            <> [ ".p2align 3",
+                 ".Laihc_thread_done_continuation:",
+                 "  mov x0, x22",
+                 "  bl _aihc_thread_done"
+               ]
+            <> tailDispatchLines
             <> concat functions
             <> renderAddrLiteralPool compileEnv
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
@@ -256,13 +269,17 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov x0, x19",
            "  mov x1, #1",
            "  mov x2, x20",
-           "  bl _aihc_set_field",
+           "  bl _aihc_set_field"
+         ]
+      <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_continuation") 1 0
+      <> [ "  mov x10, x0",
            "  ldr x9, [x22, #8]",
            loadAt "x1" "x9" rootSlot,
            "  mov x0, x22",
            "  mov x2, x20",
            "  mov x3, x19",
-           "  adr x4, .Laihc_exit",
+           "  mov x4, x10",
+           "  adr x5, .Laihc_exit",
            "  bl _aihc_start"
          ]
       <> tailDispatchLines
@@ -275,6 +292,12 @@ compileProgramWithDependencies layout dependencyInitializers entryName cpsProgra
            "  mov x2, #0",
            "  mov x3, xzr",
            "  bl _aihc_apply_cps"
+         ]
+      <> tailDispatchLines
+      <> [ ".p2align 3",
+           ".Laihc_thread_done_continuation:",
+           "  mov x0, x22",
+           "  bl _aihc_thread_done"
          ]
       <> tailDispatchLines
       <> [ ".p2align 3",
@@ -467,6 +490,8 @@ compileExpr env prefix label expression =
             <> [slotPointer "x8" argumentSlots, "  str x8, [x22, #0]", "  b " <> target]
         )
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
+    GrinCpsPrimitiveCall _ name arguments continuation ->
+      compileCpsPrimitive env prefix label name arguments continuation
     GrinApply {} -> unsupportedExpression "direct-style apply after CPS"
     GrinCpsApply _ function arguments continuation -> do
       scratch <- freshSlot
@@ -529,6 +554,42 @@ compileExpr env prefix label expression =
   where
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
 
+compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
+compileCpsPrimitive env prefix label name arguments continuation = do
+  continuationSlot <- freshSlot
+  continuationLines <- liftEither (materializeValue env continuation)
+  case (name, arguments) of
+    ("fork#", [action]) -> do
+      actionSlot <- freshSlot
+      actionLines <- liftEither (materializeValue env action)
+      addBlock
+        label
+        ( prefix
+            <> actionLines
+            <> [storeAt "x0" "x19" actionSlot]
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 loadAt "x1" "x19" actionSlot,
+                 loadAt "x2" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_fork_cps"
+               ]
+            <> tailDispatchLines
+        )
+    ("yield#", []) ->
+      addBlock
+        label
+        ( prefix
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 loadAt "x1" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_yield_cps"
+               ]
+            <> tailDispatchLines
+        )
+    _ -> lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
+
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
   case expression of
@@ -544,8 +605,8 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> do
       pointerLines <- liftEither (materializeValue env pointer)
       storeSingleResult vars pointerLines
-    GrinUpdate pointer value -> compileUpdateBinding "_aihc_update" pointer value
-    GrinUpdateBlackhole pointer value -> compileUpdateBinding "_aihc_update_blackhole" pointer value
+    GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
+    GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -566,7 +627,7 @@ compileDirectBinding env vars expression =
           slot <- localSlot env var
           pure (lines' <> [storeAt "x0" "x19" slot])
         _ -> lift (Left (Arm64UnsupportedExpression "direct expression result arity"))
-    compileUpdateBinding symbol pointer value = do
+    compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot
       pointerLines <- liftEither (materializeValue env pointer)
@@ -577,9 +638,11 @@ compileDirectBinding env vars expression =
             <> [storeAt "x0" "x19" pointerSlot]
             <> valueLines
             <> [ storeAt "x0" "x19" valueSlot,
-                 loadAt "x0" "x19" pointerSlot,
-                 loadAt "x1" "x19" valueSlot,
-                 "  bl " <> symbol
+                 loadAt (if passMachine then "x1" else "x0") "x19" pointerSlot,
+                 loadAt (if passMachine then "x2" else "x1") "x19" valueSlot
+               ]
+            <> ["  mov x0, x22" | passMachine]
+            <> [ "  bl " <> symbol
                ]
             <> resultLines
         )
@@ -899,7 +962,7 @@ functionCodeLabel env name =
 
 validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
 validatePrimitiveName allowUnsupported name
-  | name == "realWorld#" = Right ()
+  | name `elem` ["fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 
@@ -927,6 +990,7 @@ boundVarGroups expression =
     GrinCpsEval {} -> []
     GrinCall {} -> []
     GrinPrimitiveCall {} -> []
+    GrinCpsPrimitiveCall {} -> []
     GrinApply {} -> []
     GrinCpsApply {} -> []
     GrinContinue {} -> []
@@ -984,6 +1048,8 @@ exprRuntimeReps expression =
       runtimeRep : concatMap valueRuntimeReps arguments
     GrinPrimitiveCall runtimeRep _ arguments ->
       runtimeRep : concatMap valueRuntimeReps arguments
+    GrinCpsPrimitiveCall runtimeRep _ arguments continuation ->
+      runtimeRep : concatMap valueRuntimeReps arguments <> valueRuntimeReps continuation
     GrinApply runtimeRep function arguments ->
       runtimeRep : valueRuntimeReps function <> concatMap valueRuntimeReps arguments
     GrinCpsApply runtimeRep function arguments continuation ->

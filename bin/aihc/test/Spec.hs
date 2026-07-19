@@ -161,6 +161,7 @@ main =
                     assertBool "dependency initializer call" (targetInitializerCall target `T.isInfixOf` assembly)
                     assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
+          testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -898,7 +899,7 @@ test_compileExecutable =
         assertBool "GRIN does not allocate char globally" (not ("global char" `T.isInfixOf` grin || "caf char" `T.isInfixOf` grin))
         assertBool "GRIN uses direct known calls" ("call @(BoxedRep Lifted) $entry$>>" `T.isInfixOf` grin)
         assertBool "GRIN makes evaluation explicit" ("eval @" `T.isInfixOf` grin)
-        assertNativeOutput keptOutput
+        assertNativeOutput "Hello, world!\n" keptOutput
 
         runCompileWithEnvironment environment temporaryOptions
         assertFileExists temporaryOutput
@@ -906,7 +907,22 @@ test_compileExecutable =
         assertFileDoesNotExist (temporaryOutput <> ".grin")
         assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
-        assertNativeOutput temporaryOutput
+        assertNativeOutput "Hello, world!\n" temporaryOutput
+
+test_compileGreenThreadsExample :: Assertion
+test_compileGreenThreadsExample =
+  when (isNativeCodegenHost arch os) $
+    withTempDir "aihc-compile-green-threads" $ \root -> do
+      sourcePath <- greenThreadsExamplePath
+      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+          output = root </> "green-threads"
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+          options = CompileOptions sourcePath (Just output) False False False False Nothing
+      withCurrentDirectory repositoryRoot $ do
+        runCompileWithEnvironment environment options
+        assertNativeOutput
+          "Hello world main green thread\nStill in main\nHello from forked thread\nBack in main\n"
+          output
 
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
@@ -1137,16 +1153,22 @@ compileCacheArtifacts extension root = do
         then compileCacheArtifacts extension path
         else pure [path | extension `isSuffixOf` path]
 
-assertNativeOutput :: FilePath -> Assertion
-assertNativeOutput executable = do
+assertNativeOutput :: String -> FilePath -> Assertion
+assertNativeOutput expected executable = do
   (exitCode, stdout, stderr) <- readProcessWithExitCode executable [] ""
   assertEqual ("native stderr: " <> stderr) ExitSuccess exitCode
-  assertEqual "native stdout" "Hello, world!\n" stdout
+  assertEqual "native stdout" expected stdout
 
 helloWorldExamplePath :: IO FilePath
-helloWorldExamplePath = getCurrentDirectory >>= findFrom
+helloWorldExamplePath = examplePath ("hello-world" </> "Main.hs")
+
+greenThreadsExamplePath :: IO FilePath
+greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
+
+examplePath :: FilePath -> IO FilePath
+examplePath example = getCurrentDirectory >>= findFrom
   where
-    relativePath = "examples" </> "hello-world" </> "Main.hs"
+    relativePath = "examples" </> example
     findFrom directory = do
       let candidate = directory </> relativePath
       exists <- doesFileExist candidate

@@ -128,6 +128,9 @@ data GrinExpr
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
+  | -- | A CPS-only primitive that may transfer execution to another thread.
+    -- The continuation receives the primitive's logical result.
+    GrinCpsPrimitiveCall !RuntimeRep !Text ![GrinValue] !GrinValue
   | -- | Apply exactly one logical argument to a heap pointer whose node is
     -- already in weak-head normal form. The list contains that argument's
     -- runtime values and may be empty for a zero-width argument such as
@@ -220,6 +223,8 @@ grinProgramLiterals program =
           valueLiterals value <> valueLiterals continuation <> valueLiterals updateContinuation
         GrinCall _ _ arguments -> concatMap valueLiterals arguments
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
+        GrinCpsPrimitiveCall _ _ arguments continuation ->
+          concatMap valueLiterals arguments <> valueLiterals continuation
         GrinApply _ function arguments -> valueLiterals function <> concatMap valueLiterals arguments
         GrinCpsApply _ function arguments continuation ->
           valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
