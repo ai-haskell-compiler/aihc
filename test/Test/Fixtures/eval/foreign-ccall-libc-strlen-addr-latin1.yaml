@@ -6,7 +6,7 @@ modules:
   - |
     module Test where
 
-    foreign import ccall strlen :: Addr# -> Word64#
+    foreign import ccall unsafe strlen :: Addr# -> Word64#
 output: "1"
 expression: strlen "\xFF\0bar"#
 status: pass

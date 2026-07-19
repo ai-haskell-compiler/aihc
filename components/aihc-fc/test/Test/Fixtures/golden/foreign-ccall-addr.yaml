@@ -35,9 +35,9 @@ modules:
   newtype CInt = CInt Int32
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
-  foreign import ccall puts :: Addr# -> IO CInt
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
 
   main :: IO CInt
   main = puts "hello world\n"#
-reason: lowers Addr# literals and ccall arguments without boxing
+reason: lowers Addr# literals and unsafe ccall arguments without boxing
 status: pass

@@ -7,7 +7,7 @@ annotated:
   data IO a
        └─ type: * → *
 
-  foreign import ccall puts :: Addr# -> IO CInt
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
   └─ type: Addr# → IO CInt
 
   main :: IO CInt
@@ -23,9 +23,9 @@ modules:
   data CInt
   data IO a
 
-  foreign import ccall puts :: Addr# -> IO CInt
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
 
   main :: IO CInt
   main = puts "hello world\n"#
-reason: infers unboxed strings as Addr# and accepts Addr# as a ccall argument
+reason: infers unboxed strings as Addr# and accepts Addr# as an unsafe ccall argument
 status: pass

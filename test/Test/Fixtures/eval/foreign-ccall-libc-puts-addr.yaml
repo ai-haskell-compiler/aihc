@@ -14,7 +14,7 @@ modules:
     newtype CInt = CInt Int32
     newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
-    foreign import ccall puts :: Addr# -> IO CInt
+    foreign import ccall unsafe puts :: Addr# -> IO CInt
 
     main :: IO CInt
     main =
