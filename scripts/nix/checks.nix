@@ -78,7 +78,13 @@
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
+  amd64Tests = mkEvalPackageTest (
+    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
+      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+    })
+  );
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
+  nativeTests = mkPackageTest hsPkgs.aihc-native;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -185,7 +191,9 @@
 in {
   parser-tests = parserTests;
   cpp-tests = cppTests;
+  amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
+  native-tests = nativeTests;
   fc-tests = fcTests;
   grin-tests = grinTests;
   resolve-tests = resolveTests;
@@ -219,8 +227,16 @@ in {
       path = cppTests;
     }
     {
+      name = "amd64-tests";
+      path = amd64Tests;
+    }
+    {
       name = "arm64-tests";
       path = arm64Tests;
+    }
+    {
+      name = "native-tests";
+      path = nativeTests;
     }
     {
       name = "fc-tests";

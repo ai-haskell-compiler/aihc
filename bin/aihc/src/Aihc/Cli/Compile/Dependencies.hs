@@ -12,9 +12,18 @@ module Aihc.Cli.Compile.Dependencies
   )
 where
 
-import Aihc.Arm64 (LinkInterface, LinkLayout, buildLinkLayoutFromInterfaces, compileModule, extractLinkInterface, targetTriple)
+import Aihc.Amd64 qualified as Amd64
+import Aihc.Arm64 qualified as Arm64
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface)
 import Aihc.Grin qualified as Grin
+import Aihc.Native
+  ( LinkInterface,
+    LinkLayout,
+    NativeTarget (..),
+    buildLinkLayoutFromInterfaces,
+    extractLinkInterface,
+    nativeTargetTriple,
+  )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( ImportDecl (importDeclModule),
@@ -164,10 +173,10 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 10
+cacheSchemaVersion = 12
 
-buildDependencies :: CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
-buildDependencies environment usesImplicitPrelude buildNative mainModule = do
+buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
+buildDependencies target environment usesImplicitPrelude buildNative mainModule = do
   let importedRoots = map importDeclModule (moduleImports mainModule)
       defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
       initialRoots = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
@@ -183,14 +192,14 @@ buildDependencies environment usesImplicitPrelude buildNative mainModule = do
           case closureResult of
             Left err -> pure (Left err)
             Right loaded -> do
-              graphHash <- dependencyGraphHash (compileCoreLibraryRoot environment) loaded
+              graphHash <- dependencyGraphHash target (compileCoreLibraryRoot environment) loaded
               let closureHash = stableHash (map (Text.encodeUtf8 . frameText) roots)
                   cacheDirectory = compileCacheRoot environment </> graphHash
                   cachePath = cacheDirectory </> closureHash <> ".cache"
               cached <- readCache cachePath
               case cached of
                 Just artifact
-                  | buildNative -> finishArtifact cacheDirectory closureHash artifact
+                  | buildNative -> finishArtifact target cacheDirectory closureHash artifact
                   | otherwise -> pure (Right artifact)
                 Nothing ->
                   case compileLoadedModules loaded of
@@ -199,12 +208,12 @@ buildDependencies environment usesImplicitPrelude buildNative mainModule = do
                       createDirectoryIfMissing True cacheDirectory
                       writeCache cacheDirectory cachePath artifact
                       if buildNative
-                        then finishArtifact cacheDirectory closureHash artifact
+                        then finishArtifact target cacheDirectory closureHash artifact
                         else pure (Right artifact)
 
-finishArtifact :: FilePath -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
-finishArtifact cacheDirectory closureHash artifact = do
-  native <- buildNativeArtifacts (cacheDirectory </> closureHash) (dependencyUnits artifact)
+finishArtifact :: NativeTarget -> FilePath -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
+finishArtifact target cacheDirectory closureHash artifact = do
+  native <- buildNativeArtifacts target (cacheDirectory </> closureHash) (dependencyUnits artifact)
   pure $
     (\(initializers, archives) -> artifact {dependencyInitializerSymbols = initializers, dependencyArchivePaths = archives})
       <$> native
@@ -417,13 +426,13 @@ loadedModuleSccs = map flatten . stronglyConnComp . map graphNode
 loadedModuleName :: LoadedModule -> Text
 loadedModuleName = fromMaybe "Main" . moduleName . loadedModule
 
-buildNativeArtifacts :: FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
-buildNativeArtifacts artifactRoot units = do
+buildNativeArtifacts :: NativeTarget -> FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
+buildNativeArtifacts target artifactRoot units = do
   let layout = buildLinkLayoutFromInterfaces (map dependencyUnitLinkInterface units)
       objectRoot = artifactRoot </> "objects"
       archiveRoot = artifactRoot </> "archives"
       nativeUnits = map (nativeUnit objectRoot) units
-  objectResults <- mapM (buildObject layout) nativeUnits
+  objectResults <- mapM (buildObject target layout) nativeUnits
   case sequence objectResults of
     Left err -> pure (Left err)
     Right _ -> do
@@ -469,26 +478,32 @@ symbolHex = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
   where
     renderByte byte = T.pack (padLeft 2 '0' (showHex byte ""))
 
-buildObject :: LinkLayout -> NativeUnit -> IO (Either String ())
-buildObject layout unit = do
+buildObject :: NativeTarget -> LinkLayout -> NativeUnit -> IO (Either String ())
+buildObject target layout unit = do
   let destination = nativeObjectPath unit
       directory = takeDirectory destination
   exists <- doesFileExist destination
   if exists
     then pure (Right ())
     else do
-      case compileModule layout (nativeInitializerSymbol unit) (nativeProgram unit) of
-        Left err -> pure (Left ("ARM64 dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> show err))
+      case compileNativeModule target layout (nativeInitializerSymbol unit) (nativeProgram unit) of
+        Left err -> pure (Left ("native dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> err))
         Right assembly -> do
           createDirectoryIfMissing True directory
           withTemporaryDirectory directory "module-build" $ \temporary -> do
             let assemblyPath = temporary </> "module.s"
                 objectPath = temporary </> "module.o"
             TIO.writeFile assemblyPath assembly
-            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath] ""
+            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["--target=" <> nativeTargetTriple target, "-c", assemblyPath, "-o", objectPath] ""
             case exitCode of
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
               ExitFailure _ -> pure (Left ("failed to assemble dependency unit " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> stderr))
+
+compileNativeModule :: NativeTarget -> LinkLayout -> Text -> Grin.CpsGrinProgram -> Either String Text
+compileNativeModule target layout initializer program =
+  case target of
+    AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
+    LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
 
 dependencyUnitLabel :: DependencyUnit -> String
 dependencyUnitLabel = T.unpack . T.intercalate "," . dependencyUnitModules
@@ -516,11 +531,17 @@ withTemporaryDirectory parent template = bracket acquire removeDirectoryRecursiv
       createDirectoryIfMissing True path
       pure path
 
-dependencyGraphHash :: FilePath -> [LoadedModule] -> IO String
-dependencyGraphHash root loaded = do
+dependencyGraphHash :: NativeTarget -> FilePath -> [LoadedModule] -> IO String
+dependencyGraphHash target root loaded = do
   let libraries = sort (Set.toList (Set.fromList (map (T.unpack . loadedLibrary) loaded)))
   chunks <- concat <$> mapM libraryChunks libraries
-  pure (stableHash (Text.encodeUtf8 (frameText (T.pack (show cacheSchemaVersion))) : chunks))
+  pure
+    ( stableHash
+        ( Text.encodeUtf8 (frameText (T.pack (show cacheSchemaVersion)))
+            : Text.encodeUtf8 (frameText (T.pack (nativeTargetTriple target)))
+            : chunks
+        )
+    )
   where
     libraryChunks library = do
       let libraryRoot = root </> library

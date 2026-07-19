@@ -1,16 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Render register-allocated AArch64 LIR. Spills are loaded from and stored
--- into the current Haskell heap frame in @x19@.
-module Aihc.Arm64.Emit
+-- | Render register-allocated AMD64 LIR. Spills are loaded from and stored
+-- into the current Haskell heap frame in @r14@.
+module Aihc.Amd64.Emit
   ( EmitError (..),
     renderAllocatedBlock,
     renderPhysicalReg,
   )
 where
 
-import Aihc.Arm64.Lir
-import Aihc.Arm64.RegisterAllocate
+import Aihc.Amd64.Lir
+import Aihc.Amd64.RegisterAllocate
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -76,15 +76,15 @@ renderCore resolve instruction =
     Move destination source -> binary "mov" <$> resolve destination <*> resolve source
     MoveImmediate destination integer -> do
       destination' <- resolve destination
-      pure ("  ldr " <> renderPhysicalReg destination' <> ", =" <> tshow integer)
+      pure ("  mov " <> renderPhysicalReg destination' <> ", " <> tshow integer)
     Load destination base offset -> do
       destination' <- resolve destination
       base' <- resolve base
-      pure (memory "ldr" destination' base' offset)
+      pure (memory "mov" destination' base' offset)
     Store source base offset -> do
       source' <- resolve source
       base' <- resolve base
-      pure (memory "str" source' base' offset)
+      pure (memoryStore source' base' offset)
     Add destination left right -> do
       destination' <- resolve destination
       left' <- resolve left
@@ -93,12 +93,11 @@ renderCore resolve instruction =
     Compare left right -> binary "cmp" <$> resolve left <*> resolve right
     CompareImmediate value integer -> do
       value' <- resolve value
-      pure ("  cmp " <> renderPhysicalReg value' <> ", #" <> tshow integer)
+      pure ("  cmp " <> renderPhysicalReg value' <> ", " <> tshow integer)
     LoadAddress destination label -> do
       destination' <- resolve destination
-      let rendered = renderPhysicalReg destination'
-      pure ("  adrp " <> rendered <> ", " <> label <> "@PAGE\n  add " <> rendered <> ", " <> rendered <> ", " <> label <> "@PAGEOFF")
-    Call symbol -> pure ("  bl " <> symbol)
+      pure ("  lea " <> renderPhysicalReg destination' <> ", [rip + " <> label <> "]")
+    Call symbol -> pure ("  call " <> symbol)
 
 binary :: Text -> PhysicalReg -> PhysicalReg -> Text
 binary opcode destination source =
@@ -106,44 +105,47 @@ binary opcode destination source =
 
 ternary :: Text -> PhysicalReg -> PhysicalReg -> PhysicalReg -> Text
 ternary opcode destination left right =
-  "  " <> opcode <> " " <> renderPhysicalReg destination <> ", " <> renderPhysicalReg left <> ", " <> renderPhysicalReg right
+  "  mov " <> renderPhysicalReg destination <> ", " <> renderPhysicalReg left <> "\n  " <> opcode <> " " <> renderPhysicalReg destination <> ", " <> renderPhysicalReg right
 
 memory :: Text -> PhysicalReg -> PhysicalReg -> Int -> Text
 memory opcode value base offset =
-  "  " <> opcode <> " " <> renderPhysicalReg value <> ", [" <> renderPhysicalReg base <> ", #" <> tshow offset <> "]"
+  "  " <> opcode <> " " <> renderPhysicalReg value <> ", QWORD PTR [" <> renderPhysicalReg base <> offsetText offset <> "]"
+
+memoryStore :: PhysicalReg -> PhysicalReg -> Int -> Text
+memoryStore source base offset =
+  "  mov QWORD PTR [" <> renderPhysicalReg base <> offsetText offset <> "], " <> renderPhysicalReg source
+
+offsetText :: Int -> Text
+offsetText offset
+  | offset == 0 = ""
+  | offset > 0 = " + " <> tshow offset
+  | otherwise = " - " <> tshow (abs offset)
 
 heapLoad :: PhysicalReg -> Int -> Text
-heapLoad destination slot = memory "ldr" destination X19 (slot * 8)
+heapLoad destination slot = memory "mov" destination R14 (slot * 8)
 
 heapStore :: PhysicalReg -> Int -> Text
-heapStore source slot = memory "str" source X19 (slot * 8)
+heapStore source slot = memoryStore source R14 (slot * 8)
 
 spillScratchRegisters :: [PhysicalReg]
-spillScratchRegisters = [X8, X7, X6]
+spillScratchRegisters = [R10, R11, R12]
 
 renderPhysicalReg :: PhysicalReg -> Text
 renderPhysicalReg register =
   case register of
-    X0 -> "x0"
-    X1 -> "x1"
-    X2 -> "x2"
-    X3 -> "x3"
-    X4 -> "x4"
-    X5 -> "x5"
-    X6 -> "x6"
-    X7 -> "x7"
-    X8 -> "x8"
-    X9 -> "x9"
-    X10 -> "x10"
-    X11 -> "x11"
-    X12 -> "x12"
-    X13 -> "x13"
-    X14 -> "x14"
-    X15 -> "x15"
-    X19 -> "x19"
-    X20 -> "x20"
-    X21 -> "x21"
-    X22 -> "x22"
+    Rax -> "rax"
+    Rdi -> "rdi"
+    Rsi -> "rsi"
+    Rdx -> "rdx"
+    Rcx -> "rcx"
+    R8 -> "r8"
+    R9 -> "r9"
+    R10 -> "r10"
+    R11 -> "r11"
+    R12 -> "r12"
+    R13 -> "r13"
+    R14 -> "r14"
+    R15 -> "r15"
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show

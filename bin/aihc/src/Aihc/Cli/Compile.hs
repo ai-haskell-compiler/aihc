@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile a standalone Haskell module through System FC and GRIN to a
--- native Darwin AArch64 executable.
+-- native executable for the host platform.
 module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
@@ -11,7 +11,9 @@ module Aihc.Cli.Compile
     compileSourceToGrinWithDependencies,
     compileSourceToWholeCoreWithDependencies,
     compileSourceToAssembly,
+    compileSourceToAssemblyFor,
     compileSourceToAssemblyWithDependencies,
+    compileSourceToAssemblyWithDependenciesFor,
     defaultCompileEnvironment,
     renderCompileError,
     runCompile,
@@ -19,7 +21,8 @@ module Aihc.Cli.Compile
   )
 where
 
-import Aihc.Arm64 (Arm64Error, buildLinkLayoutFromInterfaces, compileProgram, compileProgramWithDependencies, extendLinkLayout, runtimeSourcePath, targetTriple, validatePrimitiveNames)
+import Aihc.Amd64 qualified as Amd64
+import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -43,6 +46,15 @@ import Aihc.Fc
   )
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
+import Aihc.Native
+  ( LinkLayout,
+    NativeTarget (..),
+    buildLinkLayoutFromInterfaces,
+    extendLinkLayout,
+    hostNativeTarget,
+    nativeTargetTriple,
+    runtimeSourcePath,
+  )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
@@ -66,8 +78,14 @@ data CompileError
   | CompileFrontendError ![String]
   | CompileDependencyError !String
   | CompileCpsGrinError !Grin.CpsGrinError
-  | CompileArm64Error !Arm64Error
+  | CompileNativeError !NativeError
+  | CompileTargetError !String
   | CompileClangError !ExitCode !String
+  deriving (Eq, Show)
+
+data NativeError
+  = NativeArm64Error !Arm64.Arm64Error
+  | NativeAmd64Error !Amd64.Amd64Error
   deriving (Eq, Show)
 
 data CompileArtifacts = CompileArtifacts
@@ -99,8 +117,16 @@ runCompile options = do
 
 runCompileWithEnvironment :: CompileEnvironment -> CompileOptions -> IO ()
 runCompileWithEnvironment environment options = do
+  target <-
+    case compileTarget options of
+      Just explicitTarget -> pure explicitTarget
+      Nothing ->
+        maybe
+          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target apple-arm64 or --target linux-amd64"))))
+          pure
+          hostNativeTarget
   source <- TIO.readFile (compileSourceFile options)
-  artifactsResult <- compileSourceToArtifactsWithDependencies (compileWholeProgram options) environment (compileSourceFile options) source
+  artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
   writeIntermediateArtifacts output options artifacts
@@ -108,11 +134,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> ".s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble output assemblyPath (compiledArchives artifacts)
+      assemble target output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program.s"
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble output assemblyPath (compiledArchives artifacts)
+      assemble target output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -141,55 +167,61 @@ compileOutputPath options =
       | otherwise = withoutExtension
 
 compileSourceToAssembly :: FilePath -> Text -> Either CompileError Text
-compileSourceToAssembly sourceName source = do
+compileSourceToAssembly = compileSourceToAssemblyFor defaultCompileTarget
+
+compileSourceToAssemblyFor :: NativeTarget -> FilePath -> Text -> Either CompileError Text
+compileSourceToAssemblyFor target sourceName source = do
   parsed <- parseCompileModule sourceName source
   let desugared = desugarModule parsed
   if dsSuccess desugared
-    then compiledAssembly <$> compileProgramArtifacts (dsProgram desugared)
+    then compiledAssembly <$> compileProgramArtifacts target (dsProgram desugared)
     else Left (CompileFrontendError (dsErrors desugared))
 
 compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
-compileSourceToAssemblyWithDependencies environment sourceName source =
-  fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+compileSourceToAssemblyWithDependencies = compileSourceToAssemblyWithDependenciesFor defaultCompileTarget
+
+compileSourceToAssemblyWithDependenciesFor :: NativeTarget -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
+compileSourceToAssemblyWithDependenciesFor target environment sourceName source =
+  fmap (fmap compiledAssembly) (compileSourceToArtifactsWithDependencies target False environment sourceName source)
 
 -- | Compile source to the incremental System FC program rendered by
 -- @--keep-core@. Dependency declarations participate in cross-unit lowering,
 -- but their implementations remain in their separately compiled artifacts.
 compileSourceToCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCoreWithDependencies environment sourceName source =
-  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies defaultCompileTarget False environment sourceName source)
 
 -- | Compile source and its dependencies to the incremental GRIN program
 -- rendered by @--keep-grin@.
 compileSourceToGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToGrinWithDependencies environment sourceName source =
-  fmap (fmap compiledGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+  fmap (fmap compiledGrin) (compileSourceToArtifactsWithDependencies defaultCompileTarget False environment sourceName source)
 
 -- | Compile source to the continuation-reified GRIN consumed by native
 -- backends and rendered as @.cps.grin@ by @--keep-grin@.
 compileSourceToCpsGrinWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToCpsGrinWithDependencies environment sourceName source =
-  fmap (fmap compiledCpsGrin) (compileSourceToArtifactsWithDependencies False environment sourceName source)
+  fmap (fmap compiledCpsGrin) (compileSourceToArtifactsWithDependencies defaultCompileTarget False environment sourceName source)
 
 -- | Compile source incrementally, then merge the resulting Core units and run
 -- whole-program dead-code elimination. This is the Core rendered by
 -- @--whole-program --keep-core@.
 compileSourceToWholeCoreWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToWholeCoreWithDependencies environment sourceName source =
-  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies True environment sourceName source)
+  fmap (fmap compiledCore) (compileSourceToArtifactsWithDependencies defaultCompileTarget True environment sourceName source)
 
-compileSourceToArtifactsWithDependencies :: Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
-compileSourceToArtifactsWithDependencies wholeProgram environment sourceName source =
+compileSourceToArtifactsWithDependencies :: NativeTarget -> Bool -> CompileEnvironment -> FilePath -> Text -> IO (Either CompileError CompileArtifacts)
+compileSourceToArtifactsWithDependencies target wholeProgram environment sourceName source =
   case parseCompileModule sourceName source of
     Left err -> pure (Left err)
     Right parsed -> do
-      dependencies <- buildDependencies environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
+      dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        compileWithDependencies wholeProgram artifact parsed
+        compileWithDependencies target wholeProgram artifact parsed
 
-compileWithDependencies :: Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
-compileWithDependencies wholeProgram dependencies parsed =
+compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
+compileWithDependencies target wholeProgram dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [parsed] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
@@ -211,8 +243,8 @@ compileWithDependencies wholeProgram dependencies parsed =
                        in do
                             incremental <- compileIncrementally dependencies mainProgram
                             if wholeProgram
-                              then compileWholeProgramArtifacts incremental
-                              else compileIncrementalArtifacts dependencies incremental
+                              then compileWholeProgramArtifacts target incremental
+                              else compileIncrementalArtifacts target dependencies incremental
 
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
@@ -253,11 +285,11 @@ reachableLinkedCore = eliminateDeadCode "main" . mergeIncrementalCore
 
 -- | The optional whole-program phase consumes incremental Core; it does not
 -- rerun the frontend or bypass per-SCC GRIN lowering.
-compileWholeProgramArtifacts :: IncrementalCompilation -> Either CompileError CompileArtifacts
-compileWholeProgramArtifacts = compileProgramArtifacts . reachableLinkedCore
+compileWholeProgramArtifacts :: NativeTarget -> IncrementalCompilation -> Either CompileError CompileArtifacts
+compileWholeProgramArtifacts target = compileProgramArtifacts target . reachableLinkedCore
 
-compileIncrementalArtifacts :: DependencyArtifact -> IncrementalCompilation -> Either CompileError CompileArtifacts
-compileIncrementalArtifacts dependencies compilation = do
+compileIncrementalArtifacts :: NativeTarget -> DependencyArtifact -> IncrementalCompilation -> Either CompileError CompileArtifacts
+compileIncrementalArtifacts target dependencies compilation = do
   let mainUnit = incrementalMainUnit compilation
       mainCore = incrementalUnitCore mainUnit
       mainGrin = incrementalUnitGrin mainUnit
@@ -266,12 +298,12 @@ compileIncrementalArtifacts dependencies compilation = do
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
       primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
-  either (Left . CompileArm64Error) Right (validatePrimitiveNames primitives)
+  either (Left . CompileNativeError) Right (validateNativePrimitiveNames target primitives)
   assembly <-
     either
-      (Left . CompileArm64Error)
+      (Left . CompileNativeError)
       Right
-      (compileProgramWithDependencies layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
+      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainCpsGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
@@ -281,12 +313,12 @@ compileIncrementalArtifacts dependencies compilation = do
         compiledArchives = dependencyArchivePaths dependencies
       }
 
-compileProgramArtifacts :: FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts sourceCore = do
+compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
+compileProgramArtifacts target sourceCore = do
   let core = Fc.lowerNewtypes sourceCore
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
-  assembly <- either (Left . CompileArm64Error) Right (compileProgram "main" cpsGrin)
+  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" cpsGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
@@ -295,6 +327,24 @@ compileProgramArtifacts sourceCore = do
         compiledAssembly = assembly,
         compiledArchives = []
       }
+
+validateNativePrimitiveNames :: NativeTarget -> [Text] -> Either NativeError ()
+validateNativePrimitiveNames target names =
+  case target of
+    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.validatePrimitiveNames names)
+    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.validatePrimitiveNames names)
+
+compileNativeProgram :: NativeTarget -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgram target entry program =
+  case target of
+    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgram entry program)
+    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgram entry program)
+
+compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.CpsGrinProgram -> Either NativeError Text
+compileNativeProgramWithDependencies target layout initializers entry program =
+  case target of
+    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
+    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
 
 renderCore :: FcProgram -> Text
 renderCore = withFinalNewline . Fc.renderProgram
@@ -414,16 +464,20 @@ renderCompileError compileError =
     CompileFrontendError errors -> "frontend error: " <> unwords errors
     CompileDependencyError err -> "dependency error: " <> err
     CompileCpsGrinError err -> "CPS-GRIN error: " <> show err
-    CompileArm64Error err -> "ARM64 code generation error: " <> show err
+    CompileNativeError err -> "native code generation error: " <> show err
+    CompileTargetError err -> "native target error: " <> err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 
-assemble :: FilePath -> FilePath -> [FilePath] -> IO ()
-assemble output assemblyPath archives = do
+defaultCompileTarget :: NativeTarget
+defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
+
+assemble :: NativeTarget -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble target output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       "clang"
-      (["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
+      (["--target=" <> nativeTargetTriple target, "-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath] <> archives <> ["-o", output])
       ""
   case exitCode of
     ExitSuccess -> pure ()

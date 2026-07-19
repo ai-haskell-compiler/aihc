@@ -59,13 +59,29 @@ in rec {
     ".yml"
   ];
 
-  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/"] [
+  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
     ".hs"
     ".cabal"
     ".c"
     ".h"
     ".yaml"
     ".yml"
+  ];
+
+  amd64Src = mkRootSubsetSrc ["components/aihc-amd64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
+    ".hs"
+    ".cabal"
+    ".c"
+    ".h"
+    ".yaml"
+    ".yml"
+  ];
+
+  nativeSrc = mkComponentSrc "/components/aihc-native" [
+    ".hs"
+    ".cabal"
+    ".c"
+    ".h"
   ];
 
   grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [

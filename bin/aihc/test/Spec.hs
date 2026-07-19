@@ -7,6 +7,7 @@ import Aihc.Cli.Compile
     CompileError,
     compileOutputPath,
     compileSourceToAssemblyWithDependencies,
+    compileSourceToAssemblyWithDependenciesFor,
     compileSourceToCoreWithDependencies,
     compileSourceToCpsGrinWithDependencies,
     compileSourceToGrinWithDependencies,
@@ -34,9 +35,10 @@ import Aihc.Cli.Options (Command (..), CompileOptions (..), InstallErrorFormat (
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (Scope (..))
 import Control.Exception (bracket)
-import Control.Monad (when, (>=>))
+import Control.Monad (forM_, when, (>=>))
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
@@ -80,31 +82,36 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
+          testCase "parses a cross-compilation target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64))))
+              (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -139,19 +146,20 @@ main =
         ],
       testGroup
         "compile"
-        [ testCase "lowers the aihc-base HelloWorld example to ARM64 assembly" $
+        [ testCase "lowers the aihc-base HelloWorld example to native assembly" $
             withTempDir "aihc-compile-example" $ \root -> do
               sourcePath <- helloWorldExamplePath
               source <- TIO.readFile sourcePath
               let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
                   environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-              result <- compileSourceToAssemblyWithDependencies environment sourcePath source
-              case result of
-                Left err -> assertFailure ("expected compile success, got: " <> show err)
-                Right assembly -> do
-                  assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
-                  assertBool "dependency initializer call" ("bl _aihc_init_" `T.isInfixOf` assembly)
-                  assertBool "Haskell tail transfer" ("br x0" `T.isInfixOf` assembly),
+              forM_ [AppleArm64, LinuxAmd64] $ \target -> do
+                result <- compileSourceToAssemblyWithDependenciesFor target environment sourcePath source
+                case result of
+                  Left err -> assertFailure ("expected " <> show target <> " compile success, got: " <> show err)
+                  Right assembly -> do
+                    assertBool "target entry" (targetMainDirective target `T.isInfixOf` assembly)
+                    assertBool "dependency initializer call" (targetInitializerCall target `T.isInfixOf` assembly)
+                    assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
@@ -862,15 +870,15 @@ test_dryRunPlannerDoesNotGenerateSourceFiles =
 
 test_compileExecutable :: Assertion
 test_compileExecutable =
-  when (arch == "aarch64" && os == "darwin") $
+  when (isNativeCodegenHost arch os) $
     withTempDir "aihc-compile" $ \root -> do
       sourcePath <- helloWorldExamplePath
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
@@ -899,6 +907,11 @@ test_compileExecutable =
         assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
         assertFileDoesNotExist (temporaryOutput <> ".s")
         assertNativeOutput temporaryOutput
+
+isNativeCodegenHost :: String -> String -> Bool
+isNativeCodegenHost hostArch hostOs =
+  (hostArch == "aarch64" && hostOs == "darwin")
+    || (hostArch == "x86_64" && hostOs == "linux")
 
 test_compileDefaultEnvironment :: Assertion
 test_compileDefaultEnvironment =
@@ -1045,7 +1058,24 @@ expectCompileSuccess :: Either CompileError T.Text -> Assertion
 expectCompileSuccess result =
   case result of
     Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
-    Right assembly -> assertBool "native entry" (".globl _main" `T.isInfixOf` assembly)
+    Right assembly -> assertBool "native entry" (nativeMainDirective `T.isInfixOf` assembly)
+
+nativeMainDirective :: T.Text
+nativeMainDirective
+  | arch == "x86_64" && os == "linux" = ".globl main"
+  | otherwise = ".globl _main"
+
+targetMainDirective :: NativeTarget -> T.Text
+targetMainDirective AppleArm64 = ".globl _main"
+targetMainDirective LinuxAmd64 = ".globl main"
+
+targetInitializerCall :: NativeTarget -> T.Text
+targetInitializerCall AppleArm64 = "bl _aihc_init_"
+targetInitializerCall LinuxAmd64 = "call _aihc_init_"
+
+targetTailTransfer :: NativeTarget -> T.Text
+targetTailTransfer AppleArm64 = "br x0"
+targetTailTransfer LinuxAmd64 = "jmp rax"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =

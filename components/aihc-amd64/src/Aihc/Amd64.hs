@@ -1,6 +1,6 @@
--- | Native AArch64 code generation for runtime-explicit GRIN.
-module Aihc.Arm64
-  ( Arm64Error (..),
+-- | Native AMD64 code generation for runtime-explicit GRIN.
+module Aihc.Amd64
+  ( Amd64Error (..),
     LinkLayout,
     LinkInterface,
     buildLinkLayout,
@@ -21,8 +21,8 @@ module Aihc.Arm64
   )
 where
 
-import Aihc.Arm64.Codegen
-  ( Arm64Error (..),
+import Aihc.Amd64.Codegen
+  ( Amd64Error (..),
     ObservedProgram (..),
     compileModule,
     compileObservedFunction,
@@ -34,7 +34,7 @@ import Aihc.Arm64.Codegen
 import Aihc.Native
   ( LinkInterface,
     LinkLayout,
-    NativeTarget (AppleArm64),
+    NativeTarget (LinuxAmd64),
     buildLinkLayout,
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
@@ -47,4 +47,4 @@ import Aihc.Native
 
 -- | LLVM target triple for the assembly emitted by this backend.
 targetTriple :: String
-targetTriple = nativeTargetTriple AppleArm64
+targetTriple = nativeTargetTriple LinuxAmd64
