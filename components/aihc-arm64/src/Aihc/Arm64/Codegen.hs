@@ -385,7 +385,7 @@ exportLines env function label
         Just _ -> [".globl " <> label]
         Nothing -> []
 
-parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction]
+parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction Lir.PhysicalReg]
 parameterCopyLir slots parameters =
   concat
     [ [ Lir.Load (Lir.Virtual register) (Lir.Physical Lir.X8) (argumentIndex * 8),

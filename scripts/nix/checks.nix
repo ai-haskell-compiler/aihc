@@ -84,6 +84,7 @@
     })
   );
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
+  nativeTests = mkPackageTest hsPkgs.aihc-native;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -192,6 +193,7 @@ in {
   cpp-tests = cppTests;
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
+  native-tests = nativeTests;
   fc-tests = fcTests;
   grin-tests = grinTests;
   resolve-tests = resolveTests;
@@ -231,6 +233,10 @@ in {
     {
       name = "arm64-tests";
       path = arm64Tests;
+    }
+    {
+      name = "native-tests";
+      path = nativeTests;
     }
     {
       name = "fc-tests";

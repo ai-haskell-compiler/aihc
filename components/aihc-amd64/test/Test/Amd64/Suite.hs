@@ -46,21 +46,7 @@ tests :: TestTree
 tests =
   testGroup
     "aihc-amd64"
-    [ testCase "linear scan reuses an expired register" $ do
-        let first = VirtualReg 0
-            second = VirtualReg 1
-            allocation =
-              allocateBlock
-                [ MoveImmediate (Virtual first) 1,
-                  Move (Physical Rax) (Virtual first),
-                  MoveImmediate (Virtual second) 2,
-                  Move (Physical Rdi) (Virtual second)
-                ]
-        assertEqual
-          "locations"
-          (Map.fromList [(first, InRegister Rax), (second, InRegister Rax)])
-          (allocationLocations allocation),
-      testCase "linear scan spills into a heap-frame slot" $ do
+    [ testCase "linear scan spills into a heap-frame slot" $ do
         let registers = map VirtualReg [0 .. 7]
             definitions = [MoveImmediate (Virtual register) (fromIntegral index) | (index, register) <- zip [0 :: Int ..] registers]
             uses = [Move (Physical Rax) (Virtual register) | register <- registers]
@@ -74,15 +60,6 @@ tests =
             assertEqual "emitted spill count" 1 spillCount
             assertBool "spill stored in heap frame" ("  mov QWORD PTR [r14 + 80], r10" `elem` assembly)
             assertBool "spill loaded from heap frame" ("  mov r10, QWORD PTR [r14 + 80]" `elem` assembly),
-      testCase "linear scan spills values live across C calls" $ do
-        let register = VirtualReg 0
-            allocation =
-              allocateBlock
-                [ MoveImmediate (Virtual register) 1,
-                  Call "external",
-                  Move (Physical Rax) (Virtual register)
-                ]
-        assertEqual "call-spanning location" (Just (InHeapSpill 0)) (Map.lookup register (allocationLocations allocation)),
       testCase "rejects unresolved representation-polymorphic native layouts" $ do
         let runtimeRep = RuntimeRepVar (Unique 1)
             program =

@@ -18,17 +18,17 @@ import Data.Text qualified as T
 
 data EmitError
   = EmitMissingAllocation !VirtualReg
-  | EmitTooManySpilledOperands !Instruction
+  | EmitTooManySpilledOperands !(Instruction PhysicalReg)
   deriving (Eq, Show)
 
-renderAllocatedBlock :: Int -> [Instruction] -> Either EmitError ([Text], Int)
+renderAllocatedBlock :: Int -> [Instruction PhysicalReg] -> Either EmitError ([Text], Int)
 renderAllocatedBlock spillBase instructions = do
   rendered <- mapM (renderInstruction spillBase allocation) instructions
   pure (concat rendered, allocationSpillCount allocation)
   where
     allocation = allocateBlock instructions
 
-renderInstruction :: Int -> Allocation -> Instruction -> Either EmitError [Text]
+renderInstruction :: Int -> Allocation PhysicalReg -> Instruction PhysicalReg -> Either EmitError [Text]
 renderInstruction spillBase allocation instruction = do
   let virtuals = Set.toAscList (instructionUses instruction <> instructionDefs instruction)
       spilled =
@@ -70,7 +70,7 @@ renderInstruction spillBase allocation instruction = do
         Just InRegister {} -> pure []
         Nothing -> Left (EmitMissingAllocation virtual)
 
-renderCore :: (Register -> Either EmitError PhysicalReg) -> Instruction -> Either EmitError Text
+renderCore :: (Register PhysicalReg -> Either EmitError PhysicalReg) -> Instruction PhysicalReg -> Either EmitError Text
 renderCore resolve instruction =
   case instruction of
     Move destination source -> binary "mov" <$> resolve destination <*> resolve source
