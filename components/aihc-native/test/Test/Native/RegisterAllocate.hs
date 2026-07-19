@@ -17,7 +17,7 @@ data TestReg = First | Second
 tests :: TestTree
 tests =
   testGroup
-    "register allocator"
+    "native support"
     [ testCase "reuses an expired register" $ do
         let first = VirtualReg 0
             second = VirtualReg 1

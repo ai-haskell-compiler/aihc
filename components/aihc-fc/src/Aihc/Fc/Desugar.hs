@@ -346,6 +346,7 @@ lowerForeignAbiType foreignType =
   case foreignType of
     TcForeignInt32 -> FcForeignInt32
     TcForeignWord64 -> FcForeignWord64
+    TcForeignAddr -> FcForeignAddr
 
 lowerForeignEffect :: TcForeignEffect -> FcForeignEffect
 lowerForeignEffect effect =

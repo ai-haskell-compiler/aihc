@@ -71,6 +71,8 @@ inferExprAt ambient expr = case expr of
     pure (expr, charHashTyCon, [])
   EString _ _ ->
     pure (expr, stringTyCon, [])
+  EStringHash _ _ ->
+    pure (expr, addrHashTyCon, [])
   ELambdaPats pats body ->
     inferLambda (exprSpan expr `orSourceSpan` ambient) pats body
   ELambdaCase alts ->
@@ -788,6 +790,9 @@ charTyCon = TcTyCon (TyCon "Char" 0) []
 
 charHashTyCon :: TcType
 charHashTyCon = TcTyCon (TyCon "Char#" 0) []
+
+addrHashTyCon :: TcType
+addrHashTyCon = TcTyCon (TyCon "Addr#" 0) []
 
 stringTyCon :: TcType
 stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]

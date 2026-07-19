@@ -100,6 +100,7 @@ data TcForeignMarshal = TcForeignMarshal
 data TcForeignAbiType
   = TcForeignInt32
   | TcForeignWord64
+  | TcForeignAddr
   deriving (Eq, Show)
 
 -- | Type-checker annotation payload before constraint solving has finished.

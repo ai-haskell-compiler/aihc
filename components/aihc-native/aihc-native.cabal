@@ -25,6 +25,7 @@ library
   build-depends:
     aihc-grin,
     base >=4.16 && <5,
+    bytestring,
     containers,
     text,
 

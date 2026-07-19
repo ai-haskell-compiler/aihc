@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Architecture-neutral support shared by native code generators.
 module Aihc.Native
   ( NativeTarget (..),
@@ -5,6 +7,7 @@ module Aihc.Native
     LinkLayout (..),
     buildLinkLayout,
     buildLinkLayoutFromInterfaces,
+    buildAddrLiteralPool,
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
@@ -18,8 +21,10 @@ module Aihc.Native
 where
 
 import Aihc.Grin.Syntax
+import Data.ByteString (ByteString)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Paths_aihc_native (getDataFileName)
 import System.Info qualified as System
 
@@ -77,6 +82,15 @@ buildLinkLayout = buildLinkLayoutFromInterfaces . map extractLinkInterface
 
 buildLinkLayoutFromInterfaces :: [LinkInterface] -> LinkLayout
 buildLinkLayoutFromInterfaces = foldl extendLinkLayoutWithInterface emptyLinkLayout
+
+-- | Deduplicate address literals and assign short, unit-local assembly labels.
+buildAddrLiteralPool :: GrinProgram -> [(ByteString, Text)]
+buildAddrLiteralPool program =
+  [ (value, ".Laihc_addr_" <> T.pack (show index))
+  | (index, value) <- zip [0 :: Int ..] values
+  ]
+  where
+    values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
 
 extractLinkInterface :: GrinProgram -> LinkInterface
 extractLinkInterface program =

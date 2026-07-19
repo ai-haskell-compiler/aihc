@@ -1,0 +1,43 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  data Int32
+   = I32# Int32#
+
+  newtype CInt = CInt Int32
+
+  newtype IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
+
+  foreign ccall "puts" $ffi$puts : Addr# → (State# RealWorld) → (#,#) (State# RealWorld) Int32#
+
+  puts : Addr# → IO CInt =
+    λ$ffi_arg_0 : Addr#.
+      (λ$ffi_state : State# RealWorld.
+        case foreign-call $ffi$puts $ffi_arg_0 $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
+          (#,#) $ffi_next_state $ffi_raw_result →
+            (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
+
+  main : IO CInt =
+    puts "hello world\n"#
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
+
+  main :: IO CInt
+  main = puts "hello world\n"#
+reason: lowers Addr# literals and unsafe ccall arguments without boxing
+status: pass

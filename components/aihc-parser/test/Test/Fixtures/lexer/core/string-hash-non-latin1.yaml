@@ -1,0 +1,6 @@
+extensions: [MagicHash]
+input: '"\x3B1"#'
+tokens:
+  - 'TkError "primitive string literal contains a character outside Latin-1"'
+  - 'TkEOF'
+status: pass
