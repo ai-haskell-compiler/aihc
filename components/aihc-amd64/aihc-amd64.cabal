@@ -23,6 +23,7 @@ library
     aihc-native,
     aihc-tc,
     base >=4.16 && <5,
+    bytestring,
     containers,
     text,
     transformers,

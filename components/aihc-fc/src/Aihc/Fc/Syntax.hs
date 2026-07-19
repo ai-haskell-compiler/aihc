@@ -53,6 +53,7 @@ import Aihc.Tc.Types
     Unique,
     liftedRuntimeRep,
   )
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 
 -- | A System FC program: a collection of top-level bindings.
@@ -233,8 +234,8 @@ data Literal
   | -- | An unboxed character literal, such as @'x'#@.
     LitChar !RuntimeRep !Char
   | LitString !Text
-  | -- | A null-terminated UTF-8 address literal, such as @"hello"#@.
-    LitAddr !Text
+  | -- | Latin-1 bytes with an implicit trailing NUL, such as @"hello"#@.
+    LitAddr !ByteString
   deriving (Eq, Show, Read)
 
 -- | The runtime representation carried by a Core literal. This is recorded

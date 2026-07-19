@@ -40,12 +40,12 @@ import Aihc.Native
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
-    utf8Bytes,
   )
 import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
+import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -70,7 +70,7 @@ data CompileEnv = CompileEnv
     compileConstructorArities :: !(Map Text Int),
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
-    compileAddrLiteralLabels :: !(Map Text Text),
+    compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
@@ -1186,7 +1186,7 @@ renderAddrLiteralPool env =
   where
     renderLiteral (value, label) =
       [ label <> ":",
-        "  .byte " <> T.intercalate ", " (map tshow (utf8Bytes value <> [0]))
+        "  .byte " <> T.intercalate ", " (map tshow (BS.unpack value <> [0]))
       ]
 
 functionLabel :: Int -> Text

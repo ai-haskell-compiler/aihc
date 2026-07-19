@@ -13,6 +13,8 @@ module Aihc.Grin.Snapshot
 where
 
 import Aihc.Grin.Syntax
+import Data.ByteString qualified as BS
+import Data.Char (chr)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Text (Text)
@@ -107,7 +109,7 @@ renderLiteral literal =
     GrinLitInt _ value -> tshow value
     GrinLitChar _ value -> T.pack (show value) <> "#"
     GrinLitString value -> T.pack (show (T.unpack value))
-    GrinLitAddr value -> T.pack (show (T.unpack value)) <> "#"
+    GrinLitAddr value -> T.pack (show (map (chr . fromIntegral) (BS.unpack value))) <> "#"
 
 parenthesize :: Bool -> Text -> Text
 parenthesize shouldParenthesize value

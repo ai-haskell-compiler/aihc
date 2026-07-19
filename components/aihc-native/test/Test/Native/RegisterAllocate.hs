@@ -5,7 +5,6 @@ module Test.Native.RegisterAllocate
   )
 where
 
-import Aihc.Native (utf8Bytes)
 import Aihc.Native.Lir
 import Aihc.Native.RegisterAllocate
 import Data.Map.Strict qualified as Map
@@ -19,9 +18,7 @@ tests :: TestTree
 tests =
   testGroup
     "native support"
-    [ testCase "encodes literal pools as UTF-8" $
-        assertEqual "UTF-8 bytes" [65, 206, 187, 240, 159, 152, 128] (utf8Bytes "Aλ😀"),
-      testCase "reuses an expired register" $ do
+    [ testCase "reuses an expired register" $ do
         let first = VirtualReg 0
             second = VirtualReg 1
             allocation =

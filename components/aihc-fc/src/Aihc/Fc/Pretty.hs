@@ -20,6 +20,8 @@ where
 
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
+import Data.ByteString qualified as BS
+import Data.Char (chr)
 import Data.List (intercalate)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -187,7 +189,7 @@ renderLiteral :: Literal -> String
 renderLiteral (LitInt _ i) = show i
 renderLiteral (LitChar _ c) = show c <> "#"
 renderLiteral (LitString s) = show (T.unpack s)
-renderLiteral (LitAddr s) = show (T.unpack s) <> "#"
+renderLiteral (LitAddr s) = show (map (chr . fromIntegral) (BS.unpack s)) <> "#"
 
 -- | Render a type.
 renderType :: TcType -> String

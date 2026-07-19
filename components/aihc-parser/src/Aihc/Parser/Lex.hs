@@ -71,7 +71,7 @@ import Aihc.Parser.Lex.Trivia
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
 import Control.Applicative ((<|>))
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, ord)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
@@ -820,8 +820,7 @@ lexString env st =
             Right (body, _) ->
               let raw = "\"\"\"" <> body <> "\"\"\""
                   decoded = T.pack (processMultilineString (T.unpack body))
-                  (tokTxt, tokKind, st') =
-                    withOptionalMagicHashSuffix 1 env st raw (TkString decoded) (TkStringHash decoded)
+                  (tokTxt, tokKind, st') = lexStringKind env st raw decoded
                in Just (mkToken st st' tokTxt tokKind, st')
             Left raw ->
               let full = "\"\"\"" <> raw
@@ -834,14 +833,21 @@ lexString env st =
                 Right (body, _) ->
                   let rawT = "\"" <> body <> "\""
                       decoded = fromMaybe body (decodeStringBody body)
-                      (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix 1 env st rawT (TkString decoded) (TkStringHash decoded)
+                      (tokTxt, tokKind, st') = lexStringKind env st rawT decoded
                    in Just (mkToken st st' tokTxt tokKind, st')
                 Left raw ->
                   let full = "\"" <> raw
                       st' = advanceChars full st
                    in Just (mkErrorToken st st' full "unterminated string literal", st')
             _ -> Nothing
+
+lexStringKind :: LexerEnv -> LexerState -> Text -> Text -> (Text, LexTokenKind, LexerState)
+lexStringKind env st raw decoded =
+  case withOptionalMagicHashSuffix 1 env st raw (TkString decoded) (TkStringHash decoded) of
+    (tokTxt, TkStringHash _ _, st')
+      | T.any ((>= 256) . ord) decoded ->
+          (tokTxt, TkError "primitive string literal contains a character outside Latin-1", st')
+    result -> result
 
 lexQuasiQuote :: LexerState -> Maybe (LexToken, LexerState)
 lexQuasiQuote st =

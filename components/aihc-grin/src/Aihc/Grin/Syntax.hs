@@ -35,6 +35,7 @@ module Aihc.Grin.Syntax
 where
 
 import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 
 -- | A whole GRIN program.
@@ -196,7 +197,7 @@ data GrinLiteral
   = GrinLitInt !RuntimeRep !Integer
   | GrinLitChar !RuntimeRep !Char
   | GrinLitString !Text
-  | GrinLitAddr !Text
+  | GrinLitAddr !ByteString
   deriving (Eq, Show, Read)
 
 -- | Every literal embedded in a program, including node fields and case

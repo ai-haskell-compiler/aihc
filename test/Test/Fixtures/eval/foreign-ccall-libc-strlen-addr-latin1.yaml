@@ -1,0 +1,13 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    foreign import ccall strlen :: Addr# -> Word64#
+output: "1"
+expression: strlen "\xFF\0bar"#
+status: pass
+reason: preserves each Latin-1 code point as one byte and permits embedded NUL bytes

@@ -18,6 +18,7 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
+import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
@@ -26,7 +27,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, argPtr, argString, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.Marshal.Array (newArray0)
 import Foreign.Ptr (FunPtr, Ptr)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -300,7 +302,9 @@ marshalForeignArgument symbol FcForeignWord64 argument = do
 marshalForeignArgument symbol FcForeignAddr argument = do
   forced <- forceValue argument
   case forced of
-    VLit (LitAddr value) -> pure (argString (T.unpack value))
+    VLit (LitAddr value) -> do
+      pointer <- lift (newArray0 0 (BS.unpack value))
+      pure (argPtr pointer)
     VAddress pointer -> pure (argPtr pointer)
     other -> throwE (EvalForeignTypeError symbol other)
 
@@ -465,7 +469,7 @@ renderLiteral lit =
     LitInt _ i -> T.pack (show i)
     LitChar _ c -> T.pack (show c) <> "#"
     LitString s -> T.pack (show (T.unpack s))
-    LitAddr s -> T.pack (show (T.unpack s)) <> "#"
+    LitAddr s -> T.pack (show (map (Char.chr . fromIntegral) (BS.unpack s))) <> "#"
 
 renderBoxedChar :: Value -> EvalM Text
 renderBoxedChar value = do

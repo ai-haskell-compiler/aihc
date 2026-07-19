@@ -153,7 +153,7 @@ tests =
                           grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = Int32Rep,
-                          grinFunctionBody = GrinForeignCallExpr foreignCall [GrinLitValue (GrinLitAddr "hello\n")]
+                          grinFunctionBody = GrinForeignCallExpr foreignCall [GrinLitValue (GrinLitAddr "\xFF\0bar")]
                         }
                     ]
                 }
@@ -161,7 +161,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "loads the static string address" ("lea rax, [rip + .Laihc_addr_0]" `T.isInfixOf` assembly)
-            assertBool "emits NUL-terminated UTF-8" (".byte 104, 101, 108, 108, 111, 10, 0" `T.isInfixOf` assembly)
+            assertBool "emits NUL-terminated Latin-1" (".byte 255, 0, 98, 97, 114, 0" `T.isInfixOf` assembly)
             assertBool "calls puts" ("call puts" `T.isInfixOf` assembly)
             assertAssemblyAccepted assembly,
       testCase "returns unboxed tuples as direct machine values" $ do
