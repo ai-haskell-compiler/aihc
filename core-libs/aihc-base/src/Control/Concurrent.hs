@@ -2,16 +2,20 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module Control.Concurrent
-  ( forkIO,
+  ( ThreadId,
+    forkIO,
     yield,
   )
 where
 
 import GHC.IO (IO (..))
-import GHC.Prim (fork#, yield#)
+import GHC.Prim (ThreadId#, fork#, yield#)
 
--- | Schedule an action on a new green thread, discarding its result.
-forkIO :: IO a -> IO ()
+-- | An opaque green-thread identifier.
+data ThreadId = ThreadId ThreadId#
+
+-- | Schedule an action on a new green thread.
+forkIO :: IO () -> IO ThreadId
 forkIO (IO action) =
   IO
     ( \state ->
@@ -20,7 +24,7 @@ forkIO (IO action) =
         case action of
           forcedAction ->
             case fork# forcedAction state of
-              (# nextState, _ #) -> (# nextState, () #)
+              (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
     )
 
 -- | Cooperatively yield to the next runnable green thread.
