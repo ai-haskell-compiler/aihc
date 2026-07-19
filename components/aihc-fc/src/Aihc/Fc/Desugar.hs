@@ -302,9 +302,10 @@ dsForeignPrim tcAnn foreignDecl = do
 
 dsForeignCcall :: TcAnnotation -> TcForeignImportAnnotation -> ForeignDecl -> DsM [FcTopBind]
 dsForeignCcall tcAnn foreignPlan foreignDecl = do
-  if foreignSafety foreignDecl == Just Unsafe
-    then pure ()
-    else desugarBug "only unsafe foreign imports are supported"
+  case foreignSafety foreignDecl of
+    Nothing -> pure ()
+    Just Unsafe -> pure ()
+    _ -> desugarBug "safe and interruptible foreign imports are not supported"
   symbol <-
     case foreignEntity foreignDecl of
       ForeignEntityNamed name -> pure name
@@ -346,6 +347,7 @@ lowerForeignAbiType foreignType =
   case foreignType of
     TcForeignInt32 -> FcForeignInt32
     TcForeignWord64 -> FcForeignWord64
+    TcForeignAddr -> FcForeignAddr
 
 lowerForeignEffect :: TcForeignEffect -> FcForeignEffect
 lowerForeignEffect effect =

@@ -473,6 +473,7 @@ dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericTy
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
 dsExpr (EString s _) = dsStringLiteral s
+dsExpr (EStringHash s _) = pure (FcLit (LitAddr s))
 dsExpr (EApp fun arg) =
   FcApp <$> dsExpr fun <*> dsExpr arg
 dsExpr (EInfix lhs op rhs) =

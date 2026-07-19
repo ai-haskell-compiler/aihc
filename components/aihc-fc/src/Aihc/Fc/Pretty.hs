@@ -187,6 +187,7 @@ renderLiteral :: Literal -> String
 renderLiteral (LitInt _ i) = show i
 renderLiteral (LitChar _ c) = show c <> "#"
 renderLiteral (LitString s) = show (T.unpack s)
+renderLiteral (LitAddr s) = show (T.unpack s) <> "#"
 
 -- | Render a type.
 renderType :: TcType -> String

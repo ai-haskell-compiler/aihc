@@ -26,8 +26,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, argWord64, callFFI, retCInt, retWord64)
-import Foreign.Ptr (FunPtr)
+import Foreign.LibFFI (Arg, argCInt, argPtr, argString, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.Ptr (FunPtr, Ptr)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data EvalError
@@ -46,6 +46,7 @@ data EvalError
 
 data Value
   = VLit Literal
+  | VAddress !(Ptr ())
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
@@ -286,6 +287,8 @@ callForeign foreignCall args = do
     FcForeignWord64 -> do
       result <- lift (callFFI functionPointer retWord64 marshalledArgs)
       pure (VLit (LitInt Word64Rep (toInteger result)))
+    FcForeignAddr ->
+      VAddress <$> lift (callFFI functionPointer (retPtr retVoid) marshalledArgs)
 
 marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
 marshalForeignArgument symbol FcForeignInt32 argument = do
@@ -294,6 +297,12 @@ marshalForeignArgument symbol FcForeignInt32 argument = do
 marshalForeignArgument symbol FcForeignWord64 argument = do
   argumentValue <- forceWord64 symbol argument
   pure (argWord64 (fromInteger argumentValue :: Word64))
+marshalForeignArgument symbol FcForeignAddr argument = do
+  forced <- forceValue argument
+  case forced of
+    VLit (LitAddr value) -> pure (argString (T.unpack value))
+    VAddress pointer -> pure (argPtr pointer)
+    other -> throwE (EvalForeignTypeError symbol other)
 
 lookupForeignFunction :: FcForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
@@ -396,6 +405,7 @@ renderForcedValue :: Value -> EvalM Text
 renderForcedValue value =
   case value of
     VLit lit -> pure (renderLiteral lit)
+    VAddress address -> pure (T.pack (show address))
     VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor ":" _ -> do
@@ -455,6 +465,7 @@ renderLiteral lit =
     LitInt _ i -> T.pack (show i)
     LitChar _ c -> T.pack (show c) <> "#"
     LitString s -> T.pack (show (T.unpack s))
+    LitAddr s -> T.pack (show (T.unpack s)) <> "#"
 
 renderBoxedChar :: Value -> EvalM Text
 renderBoxedChar value = do
@@ -471,6 +482,7 @@ renderRawValueM value = do
   forced <- forceValue value
   case forced of
     VLit lit -> pure (renderLiteral lit)
+    VAddress address -> pure (T.pack (show address))
     VConstructor "C#" [char] -> renderBoxedChar char
     VConstructor name [] -> pure name
     VConstructor name args | isTupleConstructor name (length args) -> do

@@ -28,8 +28,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, argWord64, callFFI, retCInt, retWord64)
-import Foreign.Ptr (FunPtr)
+import Foreign.LibFFI (Arg, argCInt, argPtr, argString, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.Ptr (FunPtr, Ptr)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data InterpretError
@@ -58,6 +58,7 @@ data InterpretError
 
 data RuntimeValue
   = RuntimeLit !GrinLiteral
+  | RuntimeAddress !(Ptr ())
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
   | RuntimeMutVar !GrinMutVar
@@ -428,6 +429,7 @@ isLiftedRuntimeValue :: RuntimeValue -> Bool
 isLiftedRuntimeValue value =
   case value of
     RuntimeLit literal -> isLiftedRuntimeRep (grinValueRuntimeRep (GrinLitValue literal))
+    RuntimeAddress {} -> False
     RuntimeNode {} -> True
     RuntimeLocation {} -> True
     RuntimeMutVar {} -> False
@@ -526,6 +528,8 @@ callForeign foreignCall arguments = do
     GrinForeignWord64 -> do
       result <- liftEvalIO (callFFI functionPointer retWord64 marshalledArguments)
       pure (RuntimeLit (GrinLitInt Word64Rep (toInteger result)))
+    GrinForeignAddr ->
+      RuntimeAddress <$> liftEvalIO (callFFI functionPointer (retPtr retVoid) marshalledArguments)
 
 marshalForeignArgument :: Text -> GrinForeignType -> RuntimeValue -> EvalM Arg
 marshalForeignArgument symbol GrinForeignInt32 argument = do
@@ -534,6 +538,11 @@ marshalForeignArgument symbol GrinForeignInt32 argument = do
 marshalForeignArgument symbol GrinForeignWord64 argument = do
   argumentValue <- expectWord64 symbol argument
   pure (argWord64 (fromInteger argumentValue :: Word64))
+marshalForeignArgument symbol GrinForeignAddr argument =
+  case argument of
+    RuntimeLit (GrinLitAddr value) -> pure (argString (T.unpack value))
+    RuntimeAddress pointer -> pure (argPtr pointer)
+    other -> throwInterpret (InterpretForeignTypeError symbol other)
 
 lookupForeignFunction :: GrinForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
@@ -614,6 +623,7 @@ renderRawValueM value = do
   exposed <- exposeWhnfValue value
   case exposed of
     RuntimeLit literal -> pure (renderLiteral literal)
+    RuntimeAddress address -> pure (T.pack (show address))
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
     RuntimeNode (GrinConstructor name 0) [] -> pure name
     RuntimeNode (GrinConstructor name 0) arguments
@@ -655,6 +665,7 @@ renderLiteral literal =
     GrinLitInt _ value -> T.pack (show value)
     GrinLitChar _ value -> T.pack (show value) <> "#"
     GrinLitString value -> T.pack (show (T.unpack value))
+    GrinLitAddr value -> T.pack (show (T.unpack value)) <> "#"
 
 renderBoxedChar :: RuntimeValue -> EvalM Text
 renderBoxedChar value = do
@@ -734,6 +745,7 @@ snapshotRuntimeValue :: RuntimeValue -> State SnapshotBuild SnapshotValue
 snapshotRuntimeValue value =
   case value of
     RuntimeLit literal -> pure (SnapshotLiteral literal)
+    RuntimeAddress {} -> pure SnapshotAddress
     RuntimeNode {} -> do
       valueSources <- gets snapshotBuildValueSources
       case lookup value valueSources of

@@ -232,6 +232,7 @@ renderLiteral literal =
     GrinLitInt _ value -> show value
     GrinLitChar _ value -> show value
     GrinLitString value -> show (T.unpack value)
+    GrinLitAddr value -> show (T.unpack value) <> "#"
 
 renderVar :: GrinVar -> String
 renderVar var =

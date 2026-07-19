@@ -44,6 +44,10 @@ fcEvalTests =
         assertEvalExpr "'x'#" (FcLit (LitChar WordRep 'x')),
       testCase "renders int literals" $
         assertEvalExpr "42" (FcLit (LitInt IntRep 42)),
+      testCase "records Addr# literal type and representation" $ do
+        let literal = LitAddr "hello"
+        assertEqual "runtime representation" AddrRep (literalRuntimeRep literal)
+        assertEqual "literal type" (Just (TcTyCon (TyCon "Addr#" 0) [])) (literalType literal),
       testCase "applies lambdas" $
         assertEvalExpr
           "\"ok\""

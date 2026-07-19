@@ -125,6 +125,45 @@ tests =
             assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
             assertBool "maxBound :: Word64# remains unsigned" ("mov rax, 18446744073709551615" `T.isInfixOf` assembly)
             assertAssemblyAccepted assembly,
+      testCase "passes static Addr# literals to native foreign calls" $ do
+        let functionName = FunctionName "puts_addr"
+            foreignCall =
+              GrinForeignCall
+                { grinForeignCallName = "$ffi$puts",
+                  grinForeignCallSymbol = "puts",
+                  grinForeignCallSignature =
+                    GrinForeignSignature
+                      { grinForeignArgumentTypes = [GrinForeignAddr],
+                        grinForeignResultType = GrinForeignInt32,
+                        grinForeignEffect = GrinForeignPure
+                      }
+                }
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [foreignCall],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = Int32Rep,
+                          grinFunctionBody = GrinForeignCallExpr foreignCall [GrinLitValue (GrinLitAddr "hello\n")]
+                        }
+                    ]
+                }
+        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectCpsGrin program) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "loads the static string address" ("lea rax, [rip + .Laihc_addr_0]" `T.isInfixOf` assembly)
+            assertBool "emits NUL-terminated UTF-8" (".byte 104, 101, 108, 108, 111, 10, 0" `T.isInfixOf` assembly)
+            assertBool "calls puts" ("call puts" `T.isInfixOf` assembly)
+            assertAssemblyAccepted assembly,
       testCase "returns unboxed tuples as direct machine values" $ do
         let functionName = FunctionName "pair_code"
             program =

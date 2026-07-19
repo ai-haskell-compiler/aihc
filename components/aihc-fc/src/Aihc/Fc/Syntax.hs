@@ -119,6 +119,7 @@ data FcForeignEffect
 data FcForeignType
   = FcForeignInt32
   | FcForeignWord64
+  | FcForeignAddr
   deriving (Eq, Show, Read)
 
 fcForeignOperandTypes :: FcForeignSignature -> [TcType]
@@ -146,6 +147,7 @@ foreignPrimitiveType foreignType =
   case foreignType of
     FcForeignInt32 -> TcTyCon (TyCon "Int32#" 0) []
     FcForeignWord64 -> TcTyCon (TyCon "Word64#" 0) []
+    FcForeignAddr -> TcTyCon (TyCon "Addr#" 0) []
 
 statePrimRealWorldType :: TcType
 statePrimRealWorldType =
@@ -231,6 +233,8 @@ data Literal
   | -- | An unboxed character literal, such as @'x'#@.
     LitChar !RuntimeRep !Char
   | LitString !Text
+  | -- | A null-terminated UTF-8 address literal, such as @"hello"#@.
+    LitAddr !Text
   deriving (Eq, Show, Read)
 
 -- | The runtime representation carried by a Core literal. This is recorded
@@ -242,6 +246,7 @@ literalRuntimeRep literal =
     LitInt runtimeRep _ -> runtimeRep
     LitChar runtimeRep _ -> runtimeRep
     LitString {} -> liftedRuntimeRep
+    LitAddr {} -> AddrRep
 
 -- | The primitive type denoted by a literal. Unsupported combinations are
 -- deliberately absent so Core Lint can reject them.
@@ -252,6 +257,7 @@ literalType literal =
     LitChar WordRep _ -> Just (primitiveType "Char#")
     LitChar _ _ -> Nothing
     LitString {} -> Just (TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []])
+    LitAddr {} -> Just (primitiveType "Addr#")
   where
     scalarType runtimeRep =
       primitiveType

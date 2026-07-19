@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Architecture-neutral support shared by native code generators.
 module Aihc.Native
   ( NativeTarget (..),
@@ -5,6 +7,7 @@ module Aihc.Native
     LinkLayout (..),
     buildLinkLayout,
     buildLinkLayoutFromInterfaces,
+    buildAddrLiteralPool,
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
@@ -14,12 +17,15 @@ module Aihc.Native
     renderNativeTarget,
     runtimeSourcePath,
     snapshotSourcePath,
+    utf8Bytes,
   )
 where
 
 import Aihc.Grin.Syntax
+import Data.Char (ord)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Paths_aihc_native (getDataFileName)
 import System.Info qualified as System
 
@@ -78,6 +84,15 @@ buildLinkLayout = buildLinkLayoutFromInterfaces . map extractLinkInterface
 buildLinkLayoutFromInterfaces :: [LinkInterface] -> LinkLayout
 buildLinkLayoutFromInterfaces = foldl extendLinkLayoutWithInterface emptyLinkLayout
 
+-- | Deduplicate address literals and assign short, unit-local assembly labels.
+buildAddrLiteralPool :: GrinProgram -> [(Text, Text)]
+buildAddrLiteralPool program =
+  [ (value, ".Laihc_addr_" <> T.pack (show index))
+  | (index, value) <- zip [0 :: Int ..] values
+  ]
+  where
+    values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
+
 extractLinkInterface :: GrinProgram -> LinkInterface
 extractLinkInterface program =
   LinkInterface
@@ -100,6 +115,30 @@ runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
 
 snapshotSourcePath :: IO FilePath
 snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
+
+-- | Encode text as UTF-8 bytes without adding a terminator.
+utf8Bytes :: Text -> [Int]
+utf8Bytes = concatMap encode . T.unpack
+  where
+    encode character
+      | codePoint <= 0x7f = [codePoint]
+      | codePoint <= 0x7ff =
+          [ 0xc0 + codePoint `div` 0x40,
+            0x80 + codePoint `mod` 0x40
+          ]
+      | codePoint <= 0xffff =
+          [ 0xe0 + codePoint `div` 0x1000,
+            0x80 + (codePoint `div` 0x40) `mod` 0x40,
+            0x80 + codePoint `mod` 0x40
+          ]
+      | otherwise =
+          [ 0xf0 + codePoint `div` 0x40000,
+            0x80 + (codePoint `div` 0x1000) `mod` 0x40,
+            0x80 + (codePoint `div` 0x40) `mod` 0x40,
+            0x80 + codePoint `mod` 0x40
+          ]
+      where
+        codePoint = ord character
 
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
