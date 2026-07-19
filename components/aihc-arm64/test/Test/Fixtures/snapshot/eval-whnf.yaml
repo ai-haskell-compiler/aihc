@@ -1,0 +1,24 @@
+entry: $entry
+program: |
+  constructor Box/0 []
+  constructor Value/0 []
+  constructor Result/5 [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  $const (captured%1 :: BoxedRep Lifted) (ignored%2 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (captured%1 :: BoxedRep Lifted)
+
+  $entry -> BoxedRep Lifted =
+    (captured%3 :: BoxedRep Lifted) <- store (CValue)
+    (partial%4 :: BoxedRep Lifted) <- store (P$const/1 (captured%3 :: BoxedRep Lifted))
+    (evaluated-partial%5 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (partial%4 :: BoxedRep Lifted)
+    (constructor%6 :: BoxedRep Lifted) <- store (CBox)
+    (evaluated-constructor%7 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (constructor%6 :: BoxedRep Lifted)
+    store (CResult (partial%4 :: BoxedRep Lifted) (evaluated-partial%5 :: BoxedRep Lifted) (captured%3 :: BoxedRep Lifted) (constructor%6 :: BoxedRep Lifted) (evaluated-constructor%7 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CResult @1 @1 @2 @3 @3
+  @1 = P$const/1 @2
+  @2 = CValue
+  @3 = CBox
+status: pass
+reason: GrinEval returns the original heap pointer for partial applications and saturated data constructors that are already in WHNF

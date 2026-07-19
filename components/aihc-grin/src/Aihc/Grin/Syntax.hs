@@ -114,7 +114,10 @@ data GrinExpr
   | GrinStoreRec ![(GrinVar, GrinNode)] !GrinExpr
   | GrinFetch !RuntimeRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
-  | GrinEval !RuntimeRep !GrinValue
+  | -- | Enter a heap pointer until it points to a node in weak-head normal
+    -- form. The result remains a heap pointer; evaluation never returns the
+    -- fetched node payload directly.
+    GrinEval !RuntimeRep !GrinValue
   | -- | CPS-only evaluation. The first continuation receives a value already
     -- in weak-head normal form. The second continuation receives the result
     -- of an entered thunk and is responsible for updating its blackhole.
@@ -123,9 +126,10 @@ data GrinExpr
     GrinCall !RuntimeRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
-  | -- | Apply exactly one logical argument to a function already in weak-head
-    -- normal form. The list contains that argument's runtime values and may be
-    -- empty for a zero-width argument such as @State# RealWorld@.
+  | -- | Apply exactly one logical argument to a heap pointer whose node is
+    -- already in weak-head normal form. The list contains that argument's
+    -- runtime values and may be empty for a zero-width argument such as
+    -- @State# RealWorld@.
     GrinApply !RuntimeRep !GrinValue ![GrinValue]
   | -- | CPS-only application. Partial applications and saturated
     -- constructors transfer their result to the continuation; saturated

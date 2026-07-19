@@ -8,9 +8,8 @@ program: |
 
   $entry -> BoxedRep Lifted =
     (closure%2 :: BoxedRep Lifted) <- store (P$identity/1)
-    (function%5 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (closure%2 :: BoxedRep Lifted)
     (value%3 :: BoxedRep Lifted) <- store (CI32# (9 :: Int32Rep))
-    (applied%4 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (function%5 :: BoxedRep Lifted) (value%3 :: BoxedRep Lifted)
+    (applied%4 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (closure%2 :: BoxedRep Lifted) (value%3 :: BoxedRep Lifted)
     store (CPair (closure%2 :: BoxedRep Lifted) (applied%4 :: BoxedRep Lifted))
 return: "@0"
 heap: |
@@ -18,4 +17,4 @@ heap: |
   @1 = P$identity/1
   @2 = CI32# 9
 status: pass
-reason: explicit GrinEval loads the stored closure before GrinApply enters it, while the heap snapshot still symbolizes its code pointer
+reason: GrinApply enters a stored closure that is already in WHNF without requiring GrinEval to change its heap pointer

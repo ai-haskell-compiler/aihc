@@ -72,10 +72,38 @@ grinUnitTests =
         assertBool "apply operand is produced by eval" (any (containsExplicitOperand GrinApplyOperand) (grinFunctions applyProgram)),
       testCase "interpreter case does not evaluate its operand" $ do
         result <- interpretProgramBinding "answer" implicitCaseEvaluationProgram
-        assertEqual "result" (Left (InterpretNoMatchingAlternative (RuntimeLocation 1))) result,
+        case result of
+          Left (InterpretNoMatchingAlternative RuntimeLocation {}) -> pure ()
+          other -> assertFailure ("expected a non-matching heap pointer, got " <> show other),
       testCase "interpreter apply does not evaluate its operand" $ do
         result <- interpretProgramBinding "answer" implicitApplyEvaluationProgram
-        assertEqual "result" (Left (InterpretApplyNonFunction (RuntimeLocation 1))) result,
+        case result of
+          Left (InterpretApplyNonFunction RuntimeLocation {}) -> pure ()
+          other -> assertFailure ("expected a non-function heap pointer, got " <> show other),
+      testCase "interpreter eval preserves a stored WHNF pointer" $ do
+        result <- interpretProgramFunctionSnapshot storedWhnfEntry storedWhnfEvalProgram
+        assertEqual
+          "snapshot"
+          (Right "return: @0\nheap:\n  @0 = CBox\n")
+          (renderHeapSnapshot <$> result),
+      testCase "interpreter represents a static WHNF as a heap pointer" $ do
+        result <- interpretProgramFunctionSnapshot staticWhnfEntry staticWhnfProgram
+        assertEqual
+          "snapshot"
+          (Right "return: @0\nheap:\n  @0 = CBox\n")
+          (renderHeapSnapshot <$> result),
+      testCase "interpreter applies a stored WHNF closure" $ do
+        result <- interpretProgramFunctionSnapshot storedClosureEntry storedClosureApplyProgram
+        assertEqual
+          "snapshot"
+          (Right "return: @0\nheap:\n  @0 = CBox\n")
+          (renderHeapSnapshot <$> result),
+      testCase "interpreter matches a stored WHNF constructor" $ do
+        result <- interpretProgramFunctionSnapshot storedWhnfCaseEntry storedWhnfCaseProgram
+        assertEqual
+          "snapshot"
+          (Right "return: @0\nheap:\n  @0 = CBox\n")
+          (renderHeapSnapshot <$> result),
       testCase "interpreter implements fetch and update" $ do
         result <- interpretProgramBinding "answer" heapProgram
         assertEqual "result" (Right "Box 2") result,
@@ -1009,6 +1037,130 @@ implicitAnswerFunction = FunctionName "implicit_answer"
 
 implicitValueFunction :: FunctionName
 implicitValueFunction = FunctionName "implicit_value"
+
+storedWhnfEvalProgram :: GrinProgram
+storedWhnfEvalProgram =
+  emptyGrinProgram
+    { grinConstructors = [("Box", [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = storedWhnfEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [storedWhnfPointer]
+                  (GrinStore (GrinNode (GrinConstructor "Box" 0) []))
+                  (GrinEval (BoxedRep Lifted) (GrinVarValue storedWhnfPointer))
+            }
+        ]
+    }
+
+staticWhnfProgram :: GrinProgram
+staticWhnfProgram =
+  emptyGrinProgram
+    { grinConstructors = [("Box", [])],
+      grinWhnfGlobals = [(staticWhnfGlobal, GrinNode (GrinConstructor "Box" 0) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = staticWhnfEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinEval (BoxedRep Lifted) (GrinVarValue staticWhnfGlobal)
+            }
+        ]
+    }
+
+storedClosureApplyProgram :: GrinProgram
+storedClosureApplyProgram =
+  emptyGrinProgram
+    { grinConstructors = [("Box", [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = storedClosureEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [storedClosurePointer]
+                  (GrinStore (GrinNode (GrinClosure storedClosureTarget [[BoxedRep Lifted]]) []))
+                  ( GrinBind
+                      [storedClosureArgument]
+                      (GrinStore (GrinNode (GrinConstructor "Box" 0) []))
+                      ( GrinApply
+                          (BoxedRep Lifted)
+                          (GrinVarValue storedClosurePointer)
+                          [GrinVarValue storedClosureArgument]
+                      )
+                  )
+            },
+          GrinFunction
+            { grinFunctionName = storedClosureTarget,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [storedClosureParameter],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinConstant [GrinVarValue storedClosureParameter]
+            }
+        ]
+    }
+
+storedWhnfCaseProgram :: GrinProgram
+storedWhnfCaseProgram =
+  emptyGrinProgram
+    { grinConstructors = [("Box", [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = storedWhnfCaseEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [storedWhnfPointer]
+                  (GrinStore (GrinNode (GrinConstructor "Box" 0) []))
+                  ( GrinCase
+                      (GrinVarValue storedWhnfPointer)
+                      storedWhnfBinder
+                      [ GrinAlt
+                          (GrinDataAlt "Box")
+                          []
+                          (GrinConstant [GrinVarValue storedWhnfBinder])
+                      ]
+                  )
+            }
+        ]
+    }
+
+emptyGrinProgram :: GrinProgram
+emptyGrinProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions = []
+    }
+
+storedWhnfEntry, staticWhnfEntry, storedWhnfCaseEntry, storedClosureEntry, storedClosureTarget :: FunctionName
+storedWhnfEntry = FunctionName "stored_whnf"
+staticWhnfEntry = FunctionName "static_whnf"
+storedWhnfCaseEntry = FunctionName "stored_whnf_case"
+storedClosureEntry = FunctionName "stored_closure"
+storedClosureTarget = FunctionName "stored_closure_target"
+
+storedWhnfPointer, staticWhnfGlobal, storedWhnfBinder, storedClosurePointer, storedClosureArgument, storedClosureParameter :: GrinVar
+storedWhnfPointer = GrinVar "stored_whnf_pointer" 104 (BoxedRep Lifted)
+staticWhnfGlobal = GrinVar "static_whnf_global" 105 (BoxedRep Lifted)
+storedWhnfBinder = GrinVar "stored_whnf_binder" 106 (BoxedRep Lifted)
+storedClosurePointer = GrinVar "stored_closure_pointer" 107 (BoxedRep Lifted)
+storedClosureArgument = GrinVar "stored_closure_argument" 108 (BoxedRep Lifted)
+storedClosureParameter = GrinVar "stored_closure_parameter" 109 (BoxedRep Lifted)
 
 directBindProgram :: GrinProgram
 directBindProgram =
