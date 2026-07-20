@@ -21,12 +21,12 @@ Find more information here:
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `234/3427` (`6.83%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `35/3425` (`1.02%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `129/10057` (`1.28%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `131/10057` (`1.30%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `37/38` (`97.36%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
 | Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2371/2371` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
-| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `104/104` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `107/107` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
@@ -35,15 +35,18 @@ Find more information here:
 ```
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
-| aihc-arm64         |   2166 |     625 |    2791 |
+| aihc-amd64         |   1763 |     628 |    2391 |
+| aihc-arm64         |   1761 |     753 |    2514 |
+| aihc-c             |    894 |     289 |    1183 |
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   3676 |     803 |    4479 |
-| aihc-grin          |   3025 |    1428 |    4453 |
-| aihc-parser        |  13536 |   17769 |   31305 |
+| aihc-fc            |   3733 |     886 |    4619 |
+| aihc-grin          |   3846 |    1754 |    5600 |
+| aihc-native        |   1385 |      77 |    1462 |
+| aihc-parser        |  13536 |   17787 |   31323 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
-| aihc-resolve       |   2303 |    1328 |    3631 |
-| aihc-tc            |   6080 |    2463 |    8543 |
-| **Total**          |  34367 |   25942 |   60309 |
+| aihc-resolve       |   2304 |    1328 |    3632 |
+| aihc-tc            |   6094 |    2489 |    8583 |
+| **Total**          |  38897 |   27517 |   66414 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
