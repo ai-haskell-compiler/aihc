@@ -1,11 +1,12 @@
 expected: |-
   constructor Narrow/2 [Int8Rep, Word16Rep]
 
-  global value%1002 :: BoxedRep Lifted = (CNarrow 123 456)
+  global value%1002 :: BoxedRep Lifted = (CNarrow (123 :: Int8Rep) (456 :: Word16Rep))
 extensions:
 - MagicHash
 - ExtendedLiterals
-reason: initializes a static constructor directly while preserving distinct narrow signed and unsigned runtime representations
+reason: initializes a static constructor directly while preserving distinct narrow
+  signed and unsigned runtime representations
 source: |
   module Test where
   data Narrow = Narrow Int8# Word16#

@@ -4,9 +4,9 @@ expected: |-
   caf value%1003 :: BoxedRep Lifted = (Fvalue_thunk)
 
   value_thunk -> BoxedRep Lifted =
-    store (CIS 42)
+    store (CIS (42 :: IntRep))
 extensions:
-  - MagicHash
+- MagicHash
 reason: erases newtype constructors and casts before producing runtime GRIN
 source: |
   module Test where

@@ -7,7 +7,7 @@ expected: |-
 
   value_thunk -> BoxedRep Lifted =
     $grin_argument_1008%1008 :: IntRep <-
-      constant 42
+      constant (42 :: IntRep)
     store (CBox ($grin_argument_1008%1008 :: IntRep))
 extensions:
 - EmptyDataDecls

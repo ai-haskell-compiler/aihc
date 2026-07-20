@@ -15,7 +15,7 @@ program: |
 
   $entry -> IntRep =
     (partial%20 :: BoxedRep Lifted) <- store (P$sum10/[[IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep]] (1 :: IntRep))
-    apply @IntRep (partial%20 :: BoxedRep Lifted) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep)
+    apply @IntRep (partial%20 :: BoxedRep Lifted) ((2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep))
 return: "55"
 heap: "[]"
 allocations:
