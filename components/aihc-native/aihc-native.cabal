@@ -16,7 +16,6 @@ data-files:
 library
   exposed-modules:
     Aihc.Native
-    Aihc.Native.Lir
     Aihc.Native.RegisterAllocate
 
   other-modules: Paths_aihc_native
@@ -39,12 +38,15 @@ test-suite spec
   main-is: Spec.hs
   other-modules: Test.Native.RegisterAllocate
   build-depends:
+    aihc-grin,
     aihc-native,
+    aihc-tc,
     base >=4.16 && <5,
     containers,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021

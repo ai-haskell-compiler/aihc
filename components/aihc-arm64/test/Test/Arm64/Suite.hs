@@ -17,9 +17,6 @@ import Aihc.Arm64
     targetTriple,
     validateProgramPrimitives,
   )
-import Aihc.Arm64.Emit (renderAllocatedBlock)
-import Aihc.Arm64.Lir
-import Aihc.Arm64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
@@ -48,21 +45,7 @@ tests :: TestTree
 tests =
   testGroup
     "aihc-arm64"
-    [ testCase "linear scan spills into a heap-frame slot" $ do
-        let registers = map VirtualReg [0 .. 7]
-            definitions = [MoveImmediate (Virtual register) (fromIntegral index) | (index, register) <- zip [0 :: Int ..] registers]
-            uses = [Move (Physical X0) (Virtual register) | register <- registers]
-            instructions = definitions <> uses
-            allocation = allocateBlock instructions
-        assertEqual "one spill" 1 (allocationSpillCount allocation)
-        assertBool "heap spill assigned" (InHeapSpill 0 `elem` Map.elems (allocationLocations allocation))
-        case renderAllocatedBlock 10 instructions of
-          Left err -> assertFailure ("failed to emit allocated block: " <> show err)
-          Right (assembly, spillCount) -> do
-            assertEqual "emitted spill count" 1 spillCount
-            assertBool "spill stored in heap frame" ("  str x8, [x19, #80]" `elem` assembly)
-            assertBool "spill loaded from heap frame" ("  ldr x8, [x19, #80]" `elem` assembly),
-      testCase "rejects unresolved representation-polymorphic native layouts" $ do
+    [ testCase "rejects unresolved representation-polymorphic native layouts" $ do
         let runtimeRep = RuntimeRepVar (Unique 1)
             program =
               GrinProgram
@@ -136,7 +119,7 @@ tests =
           case compileObservedFunction entryName gc of
             Left err -> assertFailure ("native Int# addition compilation failed: " <> show err)
             Right value -> pure value
-        assertBool "emits a wrapping 64-bit add" ("  add x0, x1, x0" `T.isInfixOf` observedAssembly observed)
+        assertBool "emits a wrapping 64-bit add" ("  add x0, x9, x0" `T.isInfixOf` observedAssembly observed)
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
           assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
@@ -518,8 +501,14 @@ snapshotTest (name, fixtureName) =
       assertBool "reloads supplied register overflow" ("mov x9, sp\n  ldr x8, [x9], #8" `T.isInfixOf` assembly)
     when (fixtureName == "call-register-overflow.yaml") $ do
       let assembly = observedAssembly observed
-      assertBool "spills direct-call register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
+      assertBool "spills direct-call register overflow" ("sub sp, sp, x8\n  mov x10, sp" `T.isInfixOf` assembly)
       assertBool "tail-enters the direct target's register entry" ("_register" `T.isInfixOf` assembly)
+    when (fixtureName == "loop-add.yaml") $ do
+      let assembly = observedAssembly observed
+          loopAndRest = snd (T.breakOn "_aihc_snapshot_function_0:" assembly)
+          loopAssembly = fst (T.breakOn "_aihc_snapshot_function_1:" loopAndRest)
+      assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[x19" `T.isInfixOf` loopAssembly))
+      assertBool "self-tail-calls the allocated body" (T.count "b _aihc_snapshot_function_0_body" loopAssembly >= 2)
     when (arch == "aarch64" && os == "darwin") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native

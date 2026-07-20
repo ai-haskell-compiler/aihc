@@ -13,8 +13,6 @@ library
   exposed-modules:
     Aihc.Amd64
     Aihc.Amd64.Codegen
-    Aihc.Amd64.Emit
-    Aihc.Amd64.Lir
     Aihc.Amd64.RegisterAllocate
 
   hs-source-dirs: src

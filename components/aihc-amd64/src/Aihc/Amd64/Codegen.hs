@@ -22,8 +22,7 @@ module Aihc.Amd64.Codegen
   )
 where
 
-import Aihc.Amd64.Emit (EmitError, renderAllocatedBlock)
-import Aihc.Amd64.Lir qualified as Lir
+import Aihc.Amd64.RegisterAllocate qualified as RegisterAllocate
 import Aihc.Grin.Gc
   ( GcGrinProgram,
     gcContinuationFunctions,
@@ -42,6 +41,7 @@ import Aihc.Native
     extendLinkLayoutWithInterface,
     extractLinkInterface,
   )
+import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
@@ -65,7 +65,6 @@ data Amd64Error
   | Amd64UnsupportedExpression !Text
   | Amd64UnsupportedValue !Text
   | Amd64UnsupportedRuntimeRep !RuntimeRep
-  | Amd64EmitError !EmitError
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
@@ -107,8 +106,11 @@ type FunctionM = StateT FunctionState (Either Amd64Error)
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocalSlots :: !(Map GrinVar Int),
-    valueLabelPrefix :: !Text
+    valueLocations :: !(Map GrinVar (Location Text)),
+    valueLabelPrefix :: !Text,
+    valueFunctionName :: !FunctionName,
+    valueFunctionParameters :: ![GrinVar],
+    valueBodyLabel :: !Text
   }
 
 data RuntimeInfo = RuntimeInfo
@@ -131,6 +133,12 @@ data RuntimeInfoKey
   | ClosureRuntimeInfo !FunctionName ![RuntimeRep] ![[RuntimeRep]]
   | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
   deriving (Eq, Ord, Show)
+
+data MoveSource
+  = MoveRegister !Text
+  | MoveSpill !Int
+  | MoveValue !GrinValue
+  deriving (Eq)
 
 compileProgram :: Text -> GcGrinProgram -> Either Amd64Error Text
 compileProgram entryName gcProgram =
@@ -519,50 +527,61 @@ compileInitializers :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
 compileInitializers env program = do
   whnfGlobalLines <- fmap concat . forM (grinWhnfGlobals program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    nodeLines <- materializeNode (ValueEnv env Map.empty ".Laihc_initializer") node
+    nodeLines <- materializeNode valueEnv node
     pure (nodeLines <> storeGlobal slot)
   cafAllocationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    allocationLines <- allocateNode (ValueEnv env Map.empty ".Laihc_initializer") node
+    allocationLines <- allocateNode valueEnv node
     pure (allocationLines <> storeGlobal slot)
   cafInitializationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- globalSlot env (grinVarName var)
-    fieldLines <- initializeNodeFields (ValueEnv env Map.empty ".Laihc_initializer") node
+    fieldLines <- initializeNodeFields valueEnv node
     pure $
       [loadByteOffset "r11" "r15" 0, loadAt "r13" "r11" slot]
         <> fieldLines
   pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
+  where
+    valueEnv = ValueEnv env Map.empty ".Laihc_initializer" (FunctionName "") [] ".Laihc_initializer"
 
 compileFunction :: CompileEnv -> GrinFunction -> Either Amd64Error CompiledFunction
 compileFunction env function = do
   label <- functionCodeLabel env (grinFunctionName function)
-  let localSlots = functionLocalSlots function
-      firstScratch = Map.size localSlots
-      bodyLabel = label <> "_body"
-      initialState = FunctionState 0 firstScratch []
-      valueEnv = ValueEnv env localSlots label
-  finalState <- execStateT (compileExpr valueEnv [] bodyLabel (grinFunctionBody function)) initialState
-  let spillBase = functionNextSlot finalState
-  (parameterCopies, spillCount) <-
-    either (Left . Amd64EmitError) Right (renderAllocatedBlock spillBase (parameterCopyLir localSlots (grinFunctionParameters function)))
-  let slotCount = max 1 (spillBase + spillCount)
-      parameterCount = length (grinFunctionParameters function)
+  let parameters = grinFunctionParameters function
+      parameterCount = length parameters
       isContinuation = grinFunctionName function `Set.member` compileContinuationFunctions env
       valueParameterCount = if isContinuation then parameterCount else max 0 (parameterCount - 1)
+      fixedOverflowLocations =
+        Map.fromList
+          [ (parameter, InHeapSpill index)
+          | (index, parameter) <- zip [0 :: Int ..] (take valueParameterCount parameters),
+            index >= length applyArgumentRegisters
+          ]
+      allocation = RegisterAllocate.allocateFunction fixedOverflowLocations function
+      locations = RegisterAllocate.allocationLocations allocation
+      firstScratch = RegisterAllocate.allocationSpillCount allocation
+      bodyLabel = label <> "_body"
+      initialState = FunctionState 0 firstScratch []
+      valueEnv = ValueEnv env locations label (grinFunctionName function) parameters bodyLabel
+  finalState <- execStateT (compileExpr valueEnv [] bodyLabel (grinFunctionBody function)) initialState
+  let slotCount = max 1 (functionNextSlot finalState)
       registerParameterCopies =
-        [ storeAt register "r14" index
-        | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters,
-          index < valueParameterCount
-        ]
-          <> [storeAt applyContinuationRegister "r14" valueParameterCount | parameterCount > 0 && not isContinuation]
+        moveEntryParameters
+          [ (source, location)
+          | (parameter, source) <- parameterRegisterPairs,
+            Just location <- [Map.lookup parameter locations]
+          ]
+      parameterRegisterPairs =
+        zip (take valueParameterCount parameters) applyArgumentRegisters
+          <> [ (parameters !! valueParameterCount, applyContinuationRegister)
+             | parameterCount > 0 && not isContinuation
+             ]
       entry =
         exportLines env function label
           <> registerExportLines env function label
           <> [ ".p2align 3",
-               label <> ":"
+               label <> ":",
+               registerEntryLabel label <> ":"
              ]
-          <> parameterCopies
-          <> ["  jmp " <> bodyLabel, ".p2align 4", registerEntryLabel label <> ":"]
           <> registerParameterCopies
           <> ["  jmp " <> bodyLabel]
       blocks = concatMap renderBlock (reverse (functionBlocksRev finalState))
@@ -594,17 +613,6 @@ registerExportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
 registerExportLines env function label =
   [".globl " <> registerEntryLabel label | not (null (exportLines env function label))]
 
-parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction Lir.PhysicalReg]
-parameterCopyLir slots parameters =
-  concat
-    [ [ Lir.Load (Lir.Virtual register) (Lir.Physical Lir.R12) (argumentIndex * 8),
-        Lir.Store (Lir.Virtual register) (Lir.Physical Lir.R14) (slot * 8)
-      ]
-    | (argumentIndex, var) <- zip [0 :: Int ..] parameters,
-      let register = Lir.VirtualReg argumentIndex,
-      Just slot <- [Map.lookup var slots]
-    ]
-
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
   case expression of
@@ -618,26 +626,26 @@ compileExpr env prefix label expression =
     GrinStoreRec bindings body -> do
       allocationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
-          slot <- localSlot env var
+          location <- liftEither (variableLocation env var)
           nodeLines <- liftEither (allocateNode env node)
-          pure (nodeLines <> [storeAt "rax" "r14" slot])
+          pure (nodeLines <> storeLocation "rax" location)
       initializationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
-          slot <- localSlot env var
+          location <- liftEither (variableLocation env var)
           fieldLines <- liftEither (initializeNodeFields env node)
-          pure ([loadAt "r13" "r14" slot] <> fieldLines)
+          pure (loadLocation "r13" location <> fieldLines)
       compileExpr env (prefix <> allocationLines <> initializationLines) label body
     GrinStoreRecUnchecked bindings body -> do
       allocationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
-          slot <- localSlot env var
+          location <- liftEither (variableLocation env var)
           nodeLines <- liftEither (allocateNodeUnchecked env node)
-          pure (nodeLines <> [storeAt "rax" "r14" slot])
+          pure (nodeLines <> storeLocation "rax" location)
       initializationLines <-
         fmap concat . forM bindings $ \(var, node) -> do
-          slot <- localSlot env var
+          location <- liftEither (variableLocation env var)
           fieldLines <- liftEither (initializeNodeFields env node)
-          pure ([loadAt "r13" "r14" slot] <> fieldLines)
+          pure (loadLocation "r13" location <> fieldLines)
       compileExpr env (prefix <> allocationLines <> initializationLines) label body
     GrinFetch {} -> unsupportedExpression "direct-style fetch return after CPS"
     GrinUpdate {} -> unsupportedExpression "direct-style update return after CPS"
@@ -668,36 +676,42 @@ compileExpr env prefix label expression =
         )
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
-      argumentSlots <- freshSlots (length arguments)
-      argumentLines <-
-        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
-          lines' <- liftEither (materializeValue env argument)
-          pure (lines' <> [storeAt "rax" "r14" slot])
-      if functionName `Set.member` compileContinuationFunctions (valueCompileEnv env)
+      if functionName == valueFunctionName env
         then
-          addBlock
-            label
-            ( prefix
-                <> argumentLines
-                <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
-                <> saveApplyOverflowLines "r14" argumentSlots
-                <> moveDirectOverflowLines "r14" (length argumentSlots)
-                <> ["  jmp " <> registerEntryLabel target]
-            )
-        else case reverse argumentSlots of
-          continuationSlot : reversedValueSlots -> do
-            let valueSlots = reverse reversedValueSlots
-            addBlock
-              label
-              ( prefix
-                  <> argumentLines
-                  <> [loadAt applyContinuationRegister "r14" continuationSlot]
-                  <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters valueSlots]
-                  <> saveApplyOverflowLines "r14" valueSlots
-                  <> moveDirectOverflowLines "r14" (length valueSlots)
-                  <> ["  jmp " <> registerEntryLabel target]
-              )
-          [] -> unsupportedExpression "direct CPS call has no continuation"
+          if length arguments == length (valueFunctionParameters env)
+            then do
+              transferLines <- moveValuesToLocations env arguments (map (valueLocations env Map.!) (valueFunctionParameters env))
+              addBlock label (prefix <> transferLines <> ["  jmp " <> valueBodyLabel env])
+            else unsupportedExpression "self tail-call arity mismatch"
+        else
+          if functionName `Set.member` compileContinuationFunctions (valueCompileEnv env)
+            then do
+              overflowLines <- liftEither (saveValueOverflowLines env arguments)
+              registerLines <- liftEither (moveValuesToRegisters env arguments applyArgumentRegisters)
+              addBlock
+                label
+                ( prefix
+                    <> overflowLines
+                    <> registerLines
+                    <> moveDirectOverflowLines "r14" (length arguments)
+                    <> ["  jmp " <> registerEntryLabel target]
+                )
+            else case reverse arguments of
+              continuation : reversedValues -> do
+                let values = reverse reversedValues
+                overflowLines <- liftEither (saveValueOverflowLines env values)
+                continuationLines <- liftEither (materializeValueTo env applyContinuationRegister continuation)
+                registerLines <- liftEither (moveValuesToRegisters env values applyArgumentRegisters)
+                addBlock
+                  label
+                  ( prefix
+                      <> overflowLines
+                      <> continuationLines
+                      <> registerLines
+                      <> moveDirectOverflowLines "r14" (length values)
+                      <> ["  jmp " <> registerEntryLabel target]
+                  )
+              [] -> unsupportedExpression "direct CPS call has no continuation"
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
     GrinCpsPrimitiveCall _ name arguments continuation ->
       compileCpsPrimitive env prefix label name arguments continuation
@@ -750,22 +764,15 @@ compileExpr env prefix label expression =
             <> slowApplyLines
         )
     GrinContinue continuation values -> do
-      continuationSlot <- freshSlot
-      valueSlots <- freshSlots (length values)
-      continuationLines <- liftEither (materializeValue env continuation)
-      valueLines <-
-        fmap concat . forM (zip values valueSlots) $ \(value, slot) -> do
-          lines' <- liftEither (materializeValue env value)
-          pure (lines' <> [storeAt "rax" "r14" slot])
+      overflowLines <- liftEither (saveValueOverflowLines env values)
+      continuationLines <- liftEither (materializeValueTo env applyFunctionRegister continuation)
+      valueLines <- liftEither (moveValuesToRegisters env values applyArgumentRegisters)
       addBlock
         label
         ( prefix
+            <> overflowLines
             <> continuationLines
-            <> [storeAt "rax" "r14" continuationSlot]
             <> valueLines
-            <> [loadAt applyFunctionRegister "r14" continuationSlot]
-            <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters valueSlots]
-            <> saveApplyOverflowLines "r14" valueSlots
             <> ["  jmp .Laihc_enter"]
         )
     GrinHalt _ ->
@@ -822,20 +829,23 @@ compileDirectBinding env vars expression =
     GrinConstant values
       | length vars == length values ->
           fmap concat . forM (zip vars values) $ \(var, value) -> do
-            slot <- localSlot env var
+            location <- liftEither (variableLocation env var)
             valueLines <- liftEither (materializeValue env value)
-            pure (valueLines <> [storeAt "rax" "r14" slot])
+            pure (valueLines <> storeLocation "rax" location)
     GrinStore node -> do
       nodeLines <- liftEither (materializeNode env node)
       storeSingleResult vars nodeLines
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
+          rootSlots <- freshSlots (length roots)
           rootLines <-
-            fmap concat . forM (zip vars roots) $ \(var, root) -> do
-              slot <- localSlot env var
+            fmap concat . forM (zip rootSlots roots) $ \(slot, root) -> do
               valueLines <- liftEither (materializeValue env root)
               pure (valueLines <> [storeAt "rax" "r14" slot])
-          rootSlots <- mapM (localSlot env) vars
+          resultLines <-
+            fmap concat . forM (zip vars rootSlots) $ \(var, slot) -> do
+              location <- liftEither (variableLocation env var)
+              pure ([loadAt "r11" "r14" slot] <> storeLocation "r11" location)
           readyLabel <- freshLabel (valueLabelPrefix env) "heap_ready"
           pure
             ( rootLines
@@ -852,6 +862,7 @@ compileDirectBinding env vars expression =
                      "  call aihc_ensure_heap",
                      readyLabel <> ":"
                    ]
+                <> resultLines
             )
       | otherwise -> lift (Left (Amd64UnsupportedExpression "heap reservation result arity"))
     GrinStoreUnchecked node -> do
@@ -863,15 +874,13 @@ compileDirectBinding env vars expression =
     GrinUpdate pointer value -> compileUpdateBinding False "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "aihc_update_blackhole" pointer value
     GrinPrimitiveCall IntRep "+#" [left, right] -> do
-      leftSlot <- freshSlot
-      leftLines <- liftEither (materializeValue env left)
+      leftLines <- liftEither (materializeValueTo env "r10" left)
       rightLines <- liftEither (materializeValue env right)
       storeSingleResult
         vars
         ( leftLines
-            <> [storeAt "rax" "r14" leftSlot]
             <> rightLines
-            <> [loadAt "r10" "r14" leftSlot, "  add rax, r10"]
+            <> ["  add rax, r10"]
         )
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
@@ -890,8 +899,8 @@ compileDirectBinding env vars expression =
     storeSingleResult resultVars lines' =
       case resultVars of
         [var] -> do
-          slot <- localSlot env var
-          pure (lines' <> [storeAt "rax" "r14" slot])
+          location <- liftEither (variableLocation env var)
+          pure (lines' <> storeLocation "rax" location)
         _ -> lift (Left (Amd64UnsupportedExpression "direct expression result arity"))
     compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
@@ -953,53 +962,64 @@ foreignArgumentRegisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
-  resultSlot <- freshSlot
   dispatchLabel <- freshLabel label "case_dispatch"
-  scrutineeLines <- liftEither (materializeValue env scrutinee)
+  (resultLocation, scrutineeLines) <-
+    case scrutinee of
+      GrinVarValue var ->
+        case Map.lookup var (valueLocations env) of
+          Just location -> pure (location, [])
+          Nothing -> materializedScrutinee
+      GrinLitValue {} -> materializedScrutinee
+  binderLocation <- liftEither (variableLocation env binder)
   let scrutineeIsPointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
   addBlock
     label
     ( prefix
         <> scrutineeLines
-        <> [storeAt "rax" "r14" resultSlot, "  jmp " <> dispatchLabel]
+        <> ["  jmp " <> dispatchLabel]
     )
-  binderSlot <- localSlot env binder
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"
-    prefixLines <- alternativePrefix env resultSlot alternative
-    compileExpr env prefixLines alternativeLabel (grinAltRhs alternative)
+    let rhs = grinAltRhs alternative
+        binderLines =
+          if binder `Set.member` grinExprFreeVariables rhs
+            then loadLocation "r11" resultLocation <> storeLocation "r11" binderLocation
+            else []
+    prefixLines <- alternativePrefix env resultLocation alternative
+    compileExpr env (binderLines <> prefixLines) alternativeLabel rhs
     pure (alternative, alternativeLabel)
-  checks <- caseChecks env resultSlot scrutineeIsPointer alternativeTargets
-  addBlock
-    dispatchLabel
-    ( [ loadAt "r11" "r14" resultSlot,
-        storeAt "r11" "r14" binderSlot
-      ]
-        <> checks
-    )
+  checks <- caseChecks env resultLocation scrutineeIsPointer alternativeTargets
+  addBlock dispatchLabel checks
+  where
+    materializedScrutinee = do
+      slot <- freshSlot
+      lines' <- liftEither (materializeValue env scrutinee)
+      pure (InHeapSpill slot, lines' <> [storeAt "rax" "r14" slot])
 
-alternativePrefix :: ValueEnv -> Int -> GrinAlt -> FunctionM [Text]
-alternativePrefix env resultSlot alternative =
+alternativePrefix :: ValueEnv -> Location Text -> GrinAlt -> FunctionM [Text]
+alternativePrefix env resultLocation alternative =
   case grinAltCon alternative of
     GrinDataAlt _ ->
-      fmap concat . forM (zip [0 ..] (grinAltBinders alternative)) $ \(index, binder) -> do
-        slot <- localSlot env binder
-        pure
-          [ loadAt "r11" "r14" resultSlot,
-            loadByteOffset "r10" "r11" (8 + index * 8),
-            storeAt "r10" "r14" slot
-          ]
+      do
+        fields <-
+          fmap concat . forM (zip [0 ..] (grinAltBinders alternative)) $ \(index, binder) -> do
+            if binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
+              then do
+                location <- liftEither (variableLocation env binder)
+                pure ([loadByteOffset "r10" "r11" (8 + index * 8)] <> storeLocation "r10" location)
+              else pure []
+        pure (if null fields then [] else loadLocation "r11" resultLocation <> fields)
     GrinLitAlt _ -> pure []
     GrinDefaultAlt ->
       fmap concat . forM (grinAltBinders alternative) $ \binder -> do
-        slot <- localSlot env binder
-        pure
-          [ loadAt "r11" "r14" resultSlot,
-            storeAt "r11" "r14" slot
-          ]
+        if binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
+          then do
+            location <- liftEither (variableLocation env binder)
+            pure (loadLocation "r11" resultLocation <> storeLocation "r11" location)
+          else pure []
 
-caseChecks :: ValueEnv -> Int -> Bool -> [(GrinAlt, Text)] -> FunctionM [Text]
-caseChecks env resultSlot scrutineeIsPointer targets = do
+caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM [Text]
+caseChecks env resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->
@@ -1009,13 +1029,14 @@ caseChecks env resultSlot scrutineeIsPointer targets = do
           then do
             identifier <- liftEither (constructorId (valueCompileEnv env) name)
             pure
-              [ loadAt "r11" "r14" resultSlot,
-                loadByteOffset "r10" "r11" 0,
-                loadByteOffset "r10" "r10" 0,
-                immediate "r9" identifier,
-                "  cmp r10, r9",
-                "  je " <> target
-              ]
+              ( loadLocation "r11" resultLocation
+                  <> [ loadByteOffset "r10" "r11" 0,
+                       loadByteOffset "r10" "r10" 0,
+                       immediate "r9" identifier,
+                       "  cmp r10, r9",
+                       "  je " <> target
+                     ]
+              )
           else lift (Left (Amd64UnsupportedExpression "constructor case on an unboxed value"))
       GrinLitAlt literal ->
         case normalizedLiteralInteger literal of
@@ -1024,11 +1045,12 @@ caseChecks env resultSlot scrutineeIsPointer targets = do
               then lift (Left (Amd64UnsupportedExpression "literal case on a lifted value"))
               else
                 pure
-                  [ loadAt "r10" "r14" resultSlot,
-                    immediate "r9" integer,
-                    "  cmp r10, r9",
-                    "  je " <> target
-                  ]
+                  ( loadLocation "r10" resultLocation
+                      <> [ immediate "r9" integer,
+                           "  cmp r10, r9",
+                           "  je " <> target
+                         ]
+                  )
           Nothing -> lift (Left (Amd64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $
@@ -1038,13 +1060,21 @@ caseChecks env resultSlot scrutineeIsPointer targets = do
         [] -> ["  call aihc_no_match", "  ud2"]
 
 materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Text]
-materializeValue env value =
-  case value of
-    GrinVarValue var -> loadVariable env var
-    GrinLitValue literal -> materializeLiteral (valueCompileEnv env) literal
+materializeValue env = materializeValueTo env "rax"
 
-materializeLiteral :: CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
-materializeLiteral env literal =
+materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Amd64Error [Text]
+materializeValueTo env destination value =
+  case value of
+    GrinVarValue var ->
+      case Map.lookup var (valueLocations env) of
+        Just location -> Right (loadLocation destination location)
+        Nothing -> do
+          slot <- globalSlot (valueCompileEnv env) (grinVarName var)
+          pure [loadByteOffset "r11" "r15" 0, loadAt destination "r11" slot]
+    GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
+
+materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
+materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
       label <-
@@ -1052,10 +1082,10 @@ materializeLiteral env literal =
           (Left (Amd64UnsupportedValue "unregistered Addr# literal"))
           Right
           (Map.lookup value (compileAddrLiteralLabels env))
-      pure [address "rax" label]
+      pure [address destination label]
     _ ->
       case normalizedLiteralInteger literal of
-        Just integer -> Right [immediate "rax" integer]
+        Just integer -> Right [immediate destination integer]
         Nothing -> Left (Amd64UnsupportedValue "string literal")
 
 normalizedLiteralInteger :: GrinLiteral -> Maybe Integer
@@ -1248,6 +1278,130 @@ applyStackBytes suppliedCount =
   where
     overflowCount = max 0 (suppliedCount - length applyArgumentRegisters)
 
+moveEntryParameters :: [(Text, Location Text)] -> [Text]
+moveEntryParameters pairs =
+  spillMoves <> renderRegisterMovesWithoutValues registerMoves
+  where
+    spillMoves =
+      concat
+        [ storeLocation source destination
+        | (source, destination@InHeapSpill {}) <- pairs
+        ]
+    registerMoves =
+      [ (destination, MoveRegister source)
+      | (source, InRegister destination) <- pairs,
+        source /= destination
+      ]
+
+moveValuesToRegisters :: ValueEnv -> [GrinValue] -> [Text] -> Either Amd64Error [Text]
+moveValuesToRegisters env values registers =
+  renderRegisterMoves
+    env
+    [ (destination, moveSource env value)
+    | (value, destination) <- zip values registers,
+      moveSource env value /= MoveRegister destination
+    ]
+
+moveValuesToLocations :: ValueEnv -> [GrinValue] -> [Location Text] -> FunctionM [Text]
+moveValuesToLocations env values destinations
+  | and (zipWith alreadyThere values destinations) = pure []
+  | otherwise = do
+      slots <- freshSlots (length values)
+      stores <-
+        fmap concat . forM (zip values slots) $ \(value, slot) -> do
+          lines' <- liftEither (materializeValue env value)
+          pure (lines' <> [storeAt "rax" "r14" slot])
+      let loads =
+            concat
+              [ [loadAt "r11" "r14" slot] <> storeLocation "r11" destination
+              | (slot, destination) <- zip slots destinations
+              ]
+      pure (stores <> loads)
+  where
+    alreadyThere value destination =
+      case value of
+        GrinVarValue var -> Map.lookup var (valueLocations env) == Just destination
+        GrinLitValue {} -> False
+
+moveSource :: ValueEnv -> GrinValue -> MoveSource
+moveSource env value =
+  case value of
+    GrinVarValue var ->
+      case Map.lookup var (valueLocations env) of
+        Just (InRegister register) -> MoveRegister register
+        Just (InHeapSpill slot) -> MoveSpill slot
+        Nothing -> MoveValue value
+    GrinLitValue {} -> MoveValue value
+
+renderRegisterMoves :: ValueEnv -> [(Text, MoveSource)] -> Either Amd64Error [Text]
+renderRegisterMoves env = go
+  where
+    go [] = pure []
+    go moves =
+      case takeSafeMove moves of
+        Just ((destination, source), remaining) -> do
+          line <- emitMove destination source
+          rest <- go remaining
+          pure (line <> rest)
+        Nothing ->
+          case [source | (_, MoveRegister source) <- moves] of
+            source : _ -> do
+              rest <- go (map (replaceSource source "r10") moves)
+              pure (["  mov r10, " <> source] <> rest)
+            [] -> Left (Amd64UnsupportedExpression "unresolvable register transfer")
+    emitMove destination source =
+      case source of
+        MoveRegister register -> pure ["  mov " <> destination <> ", " <> register]
+        MoveSpill slot -> pure [loadAt destination "r14" slot]
+        MoveValue value -> materializeValueTo env destination value
+
+renderRegisterMovesWithoutValues :: [(Text, MoveSource)] -> [Text]
+renderRegisterMovesWithoutValues = go
+  where
+    go [] = []
+    go moves =
+      case takeSafeMove moves of
+        Just ((destination, source), remaining) -> emitMove destination source <> go remaining
+        Nothing ->
+          case [source | (_, MoveRegister source) <- moves] of
+            source : _ ->
+              ["  mov r10, " <> source] <> go (map (replaceSource source "r10") moves)
+            [] -> []
+    emitMove destination source =
+      case source of
+        MoveRegister register -> ["  mov " <> destination <> ", " <> register]
+        MoveSpill slot -> [loadAt destination "r14" slot]
+        MoveValue {} -> []
+
+takeSafeMove :: [(Text, MoveSource)] -> Maybe ((Text, MoveSource), [(Text, MoveSource)])
+takeSafeMove moves = select [] moves
+  where
+    sourceRegisters = Set.fromList [register | (_, MoveRegister register) <- moves]
+    select _ [] = Nothing
+    select previous (move@(destination, _) : rest)
+      | destination `Set.notMember` sourceRegisters = Just (move, reverse previous <> rest)
+      | otherwise = select (move : previous) rest
+
+replaceSource :: Text -> Text -> (Text, MoveSource) -> (Text, MoveSource)
+replaceSource old new (destination, source) =
+  ( destination,
+    case source of
+      MoveRegister register | register == old -> MoveRegister new
+      _ -> source
+  )
+
+saveValueOverflowLines :: ValueEnv -> [GrinValue] -> Either Amd64Error [Text]
+saveValueOverflowLines env values
+  | stackBytes == 0 = pure []
+  | otherwise = do
+      stores <-
+        fmap concat . forM (zip [0 :: Int ..] (drop (length applyArgumentRegisters) values)) $ \(index, value) -> do
+          lines' <- materializeValueTo env "r11" value
+          pure (lines' <> ["  mov QWORD PTR [rsp + " <> tshow (index * 8) <> "], r11"])
+      pure (["  sub rsp, " <> tshow stackBytes] <> stores)
+  where
+    stackBytes = applyStackBytes (length values)
+
 saveApplyOverflowLines :: Text -> [Int] -> [Text]
 saveApplyOverflowLines base slots
   | stackBytes == 0 = []
@@ -1320,19 +1474,28 @@ runtimeTagClosure = 1
 runtimeTagThunk = 2
 runtimeTagPartialConstructor = 3
 
-loadVariable :: ValueEnv -> GrinVar -> Either Amd64Error [Text]
-loadVariable env var =
-  case Map.lookup var (valueLocalSlots env) of
-    Just slot -> Right [loadAt "rax" "r14" slot]
-    Nothing -> do
-      slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-      pure [loadByteOffset "r11" "r15" 0, loadAt "rax" "r11" slot]
+variableLocation :: ValueEnv -> GrinVar -> Either Amd64Error (Location Text)
+variableLocation env var =
+  maybe
+    (Left (Amd64UnsupportedExpression ("missing location for " <> grinVarName var)))
+    Right
+    (Map.lookup var (valueLocations env))
 
-localSlot :: ValueEnv -> GrinVar -> FunctionM Int
-localSlot env var =
-  case Map.lookup var (valueLocalSlots env) of
-    Just slot -> pure slot
-    Nothing -> lift (Left (Amd64UnsupportedExpression ("missing local slot for " <> grinVarName var)))
+loadLocation :: Text -> Location Text -> [Text]
+loadLocation destination location =
+  case location of
+    InRegister source
+      | destination == source -> []
+      | otherwise -> ["  mov " <> destination <> ", " <> source]
+    InHeapSpill slot -> [loadAt destination "r14" slot]
+
+storeLocation :: Text -> Location Text -> [Text]
+storeLocation source location =
+  case location of
+    InRegister destination
+      | destination == source -> []
+      | otherwise -> ["  mov " <> destination <> ", " <> source]
+    InHeapSpill slot -> [storeAt source "r14" slot]
 
 freshSlot :: FunctionM Int
 freshSlot = do
@@ -1524,45 +1687,6 @@ validatePrimitiveName allowUnsupported name
   | name `elem` ["+#", "fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Amd64UnsupportedPrimitive name)
-
-functionLocalSlots :: GrinFunction -> Map GrinVar Int
-functionLocalSlots function = snd (foldl' assignGroup (0, Map.empty) groups)
-  where
-    groups = grinFunctionParameters function : boundVarGroups (grinFunctionBody function)
-    assignGroup = foldl' assignVar
-    assignVar (next, slots) var =
-      case Map.lookup var slots of
-        Just _ -> (next, slots)
-        Nothing -> (next + 1, Map.insert var next slots)
-
-boundVarGroups :: GrinExpr -> [[GrinVar]]
-boundVarGroups expression =
-  case expression of
-    GrinConstant _ -> []
-    GrinBind vars valueExpression body -> vars : boundVarGroups valueExpression <> boundVarGroups body
-    GrinStore _ -> []
-    GrinEnsureHeap {} -> []
-    GrinStoreUnchecked _ -> []
-    GrinStoreRec bindings body -> map (pure . fst) bindings <> boundVarGroups body
-    GrinStoreRecUnchecked bindings body -> map (pure . fst) bindings <> boundVarGroups body
-    GrinFetch _ _ -> []
-    GrinUpdate _ _ -> []
-    GrinUpdateBlackhole _ _ -> []
-    GrinEval _ _ -> []
-    GrinCpsEval {} -> []
-    GrinCall {} -> []
-    GrinPrimitiveCall {} -> []
-    GrinCpsPrimitiveCall {} -> []
-    GrinApply {} -> []
-    GrinCpsApply {} -> []
-    GrinContinue {} -> []
-    GrinHalt {} -> []
-    GrinCase _ binder alternatives -> [binder] : concatMap altBoundVarGroups alternatives
-    GrinThrow _ -> []
-    GrinCatch {} -> []
-    GrinForeignCallExpr {} -> []
-  where
-    altBoundVarGroups alternative = grinAltBinders alternative : boundVarGroups (grinAltRhs alternative)
 
 validateRuntimeRep :: RuntimeRep -> Either Amd64Error ()
 validateRuntimeRep runtimeRep =

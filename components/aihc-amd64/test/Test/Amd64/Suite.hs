@@ -17,9 +17,6 @@ import Aihc.Amd64
     targetTriple,
     validateProgramPrimitives,
   )
-import Aihc.Amd64.Emit (renderAllocatedBlock)
-import Aihc.Amd64.Lir
-import Aihc.Amd64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
@@ -48,21 +45,7 @@ tests :: TestTree
 tests =
   testGroup
     "aihc-amd64"
-    [ testCase "linear scan spills into a heap-frame slot" $ do
-        let registers = map VirtualReg [0 .. 7]
-            definitions = [MoveImmediate (Virtual register) (fromIntegral index) | (index, register) <- zip [0 :: Int ..] registers]
-            uses = [Move (Physical Rax) (Virtual register) | register <- registers]
-            instructions = definitions <> uses
-            allocation = allocateBlock instructions
-        assertEqual "one spill" 1 (allocationSpillCount allocation)
-        assertBool "heap spill assigned" (InHeapSpill 0 `elem` Map.elems (allocationLocations allocation))
-        case renderAllocatedBlock 10 instructions of
-          Left err -> assertFailure ("failed to emit allocated block: " <> show err)
-          Right (assembly, spillCount) -> do
-            assertEqual "emitted spill count" 1 spillCount
-            assertBool "spill stored in heap frame" ("  mov QWORD PTR [r14 + 80], r10" `elem` assembly)
-            assertBool "spill loaded from heap frame" ("  mov r10, QWORD PTR [r14 + 80]" `elem` assembly),
-      testCase "rejects unresolved representation-polymorphic native layouts" $ do
+    [ testCase "rejects unresolved representation-polymorphic native layouts" $ do
         let runtimeRep = RuntimeRepVar (Unique 1)
             program =
               GrinProgram
@@ -169,7 +152,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
-            assertBool "maxBound :: Word64# remains unsigned" ("mov rax, 18446744073709551615" `T.isInfixOf` assembly)
+            assertBool "maxBound :: Word64# remains unsigned" ("mov rdi, 18446744073709551615" `T.isInfixOf` assembly)
             assertAssemblyAccepted assembly,
       testCase "passes static Addr# literals to native foreign calls" $ do
         let functionName = FunctionName "puts_addr"
@@ -430,6 +413,12 @@ snapshotTest (name, fixtureName) =
       assertBool "spills direct-call register overflow" ("sub rsp, 32" `T.isInfixOf` assembly)
       assertBool "tail-enters the direct target's register entry" ("_register" `T.isInfixOf` assembly)
       assertAssemblyAccepted assembly
+    when (fixtureName == "loop-add.yaml") $ do
+      let assembly = observedAssembly observed
+          loopAndRest = snd (T.breakOn "aihc_snapshot_function_0:" assembly)
+          loopAssembly = fst (T.breakOn "aihc_snapshot_function_1:" loopAndRest)
+      assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[r14" `T.isInfixOf` loopAssembly))
+      assertBool "self-tail-calls the allocated body" (T.count "jmp aihc_snapshot_function_0_body" loopAssembly >= 2)
     when (arch == "x86_64" && os == "linux") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native
