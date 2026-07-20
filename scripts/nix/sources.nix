@@ -185,9 +185,15 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/async-stdio/" "examples/green-threads/" "examples/hello-world/" "examples/unboxed-tail-recursion/"] [
+  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/"] [
     ".hs"
     ".cabal"
+  ];
+
+  examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] [
+    ".hs"
+    ".cabal"
+    "stdout"
   ];
 
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [

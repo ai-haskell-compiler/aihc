@@ -770,6 +770,17 @@ compileDirectBinding env vars expression =
       storeSingleResult vars pointerLines
     GrinUpdate pointer value -> compileUpdateBinding False "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "aihc_update_blackhole" pointer value
+    GrinPrimitiveCall IntRep "+#" [left, right] -> do
+      leftSlot <- freshSlot
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult
+        vars
+        ( leftLines
+            <> [storeAt "rax" "r14" leftSlot]
+            <> rightLines
+            <> [loadAt "r10" "r14" leftSlot, "  add rax, r10"]
+        )
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -1242,7 +1253,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["awaitIO#", "fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Amd64UnsupportedPrimitive name)
 
