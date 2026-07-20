@@ -139,7 +139,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add rax, r10" `T.isInfixOf` observedAssembly observed)
         when (arch == "x86_64" && os == "linux") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 2\n") native,
       testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
