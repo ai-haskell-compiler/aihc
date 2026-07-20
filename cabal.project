@@ -12,6 +12,7 @@ packages:
   components/aihc-native
   components/aihc-amd64
   components/aihc-arm64
+  components/aihc-c
   bin/aihc-fmt
   tooling/aihc-hackage
   tooling/aihc-testing

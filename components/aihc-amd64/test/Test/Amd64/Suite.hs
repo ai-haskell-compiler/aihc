@@ -251,7 +251,7 @@ tests =
               "generated code does not reload a scheduled entry"
               (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
-        assertBool "apply returns its selected entry" ("void *aihc_apply_cps" `isInfixOf` runtime)
+        assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
         forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
