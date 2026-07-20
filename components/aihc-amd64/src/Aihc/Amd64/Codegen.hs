@@ -171,7 +171,8 @@ compileObservedFunction entryName gcProgram = do
                ]
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_info")
             <> [ "  mov r13, rax",
-                 immediate "rdi" (1 :: Int),
+                 immediate "rsi" (1 :: Int),
+                 "  mov rdi, r15",
                  "  call aihc_alloc_locals",
                  storeByteOffset "r13" "rax" 0,
                  storeByteOffset "rax" "r15" 0,
@@ -504,7 +505,8 @@ compileFunction env function = do
         exportLines env function label
           <> [ ".p2align 3",
                label <> ":",
-               immediate "rdi" slotCount,
+               immediate "rsi" slotCount,
+               "  mov rdi, r15",
                "  call aihc_alloc_locals",
                "  mov r14, rax",
                loadByteOffset "r12" "r15" 0

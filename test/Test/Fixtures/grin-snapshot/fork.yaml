@@ -14,7 +14,7 @@ return: "@0"
 heap: |
   @0 = ThreadId#
 allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+  macos-arm64: 7
+  linux-amd64: 7
 status: pass
 reason: fork# returns an opaque heap-resident ThreadId# that both snapshot implementations can traverse and render

@@ -24,7 +24,7 @@ heap: |
   @2 = Indirection @3
   @3 = CChildResult
 allocations:
-  macos-arm64: 6
-  linux-amd64: 6
+  macos-arm64: 21
+  linux-amd64: 21
 status: pass
 reason: yield# runs the queued child before resuming the parent, exposing the child's shared-thunk update in the final snapshot

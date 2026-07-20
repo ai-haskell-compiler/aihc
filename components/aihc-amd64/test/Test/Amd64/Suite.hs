@@ -381,7 +381,7 @@ snapshotCases =
     ("stores linked values", "store-linked.yaml"),
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
-    ("loops ten million times without allocating", "loop-add.yaml"),
+    ("loops ten million times", "loop-add.yaml"),
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),

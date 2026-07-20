@@ -19,8 +19,8 @@ return: "@0"
 heap: |
   @0 = CI32# 1
 allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+  macos-arm64: 3
+  linux-amd64: 3
 status: pass
 reason: a stored constructor is returned as a location
 ```
@@ -52,11 +52,11 @@ Snapshotting reads heap objects but never enters them. A suspended thunk remains
 are recovered through descriptor tables generated beside the assembly, so
 snapshot output does not depend on debug symbols or raw addresses.
 
-Successful fixtures also record the number of logical heap objects allocated
-while the observed entry executes. The native harness resets the counter after
-creating its own continuations and initializing globals, then selects the
-expectation for its backend from `allocations`. Collector relocation and
-auxiliary C allocations do not increment this count. Interpreter execution
+Successful fixtures also record every managed-object and auxiliary C allocation
+made while the observed entry executes. The native harness resets the counter
+after creating its own continuations and initializing globals, then selects the
+expectation for its backend from `allocations`. This includes locals, argument
+vectors, thread records, blackhole records, and waiters. Interpreter execution
 does not check allocations.
 
 Fixtures may replace `return` and `heap` with an `error` expectation. These

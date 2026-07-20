@@ -17,7 +17,7 @@ heap: |
   @1 = P$identity/1
   @2 = CI32# 9
 allocations:
-  macos-arm64: 4
-  linux-amd64: 4
+  macos-arm64: 10
+  linux-amd64: 10
 status: pass
 reason: GrinApply enters a stored closure that is already in WHNF without requiring GrinEval to change its heap pointer

@@ -323,7 +323,7 @@ compileFunction env function = do
       blocks = concatMap renderBlock (reverse (functionBlocksRev final))
   pure
     ( [ functionStorage function <> "void " <> label <> "(void) {",
-        "  AihcSlot *locals = aihc_alloc_locals(" <> tshow slotCount <> ");",
+        "  AihcSlot *locals = aihc_alloc_locals(aihc_machine, " <> tshow slotCount <> ");",
         "  AihcSlot aihc_scratch = 0;"
       ]
         <> ["  (void)aihc_scratch;"]
