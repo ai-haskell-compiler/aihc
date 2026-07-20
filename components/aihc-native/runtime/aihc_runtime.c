@@ -12,9 +12,14 @@
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
 
 typedef enum {
-  AIHC_IO_READ_STDIN,
-  AIHC_IO_WRITE_STDOUT,
+  AIHC_IO_READ,
+  AIHC_IO_WRITE,
 } AihcIoKind;
+
+typedef enum {
+  AIHC_IO_READABLE = 1U << 0,
+  AIHC_IO_WRITABLE = 1U << 1,
+} AihcIoCapability;
 
 typedef enum {
   AIHC_IO_SUBMITTED,
@@ -46,9 +51,15 @@ struct AihcBlackhole {
   AihcBlackhole *next;
 };
 
+struct AihcIoHandle {
+  uintptr_t backend_token;
+  uint32_t capabilities;
+};
+
 struct AihcIoRequest {
   AihcIoKind kind;
   AihcIoState state;
+  AihcIoHandle *handle;
   AihcThread *thread;
   AihcValue *continuation;
   int32_t byte;
@@ -57,10 +68,15 @@ struct AihcIoRequest {
 };
 
 struct AihcIoBackend {
-  int (*prepare)(AihcIoKind kind);
+  int (*prepare)(AihcIoRequest *request);
   int (*try_request)(AihcIoRequest *request, int32_t *result);
   void (*poll)(AihcMachine *machine, int may_block);
 };
+
+static AihcIoHandle aihc_standard_input = {(uintptr_t)STDIN_FILENO,
+                                           AIHC_IO_READABLE};
+static AihcIoHandle aihc_standard_output = {(uintptr_t)STDOUT_FILENO,
+                                            AIHC_IO_WRITABLE};
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, args) == 0, "machine args ABI");
@@ -82,11 +98,24 @@ void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
 }
 
-static void *aihc_allocate_auxiliary(size_t bytes) {
+static void aihc_record_allocation(AihcMachine *machine) {
+  if (machine->allocation_count == UINT64_MAX) {
+    aihc_fail("allocation counter overflow");
+  }
+  ++machine->allocation_count;
+}
+
+static void *aihc_allocate_zeroed(size_t bytes) {
   void *pointer = calloc(1, bytes);
   if (pointer == NULL) {
     aihc_fail("out of memory");
   }
+  return pointer;
+}
+
+static void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes) {
+  void *pointer = aihc_allocate_zeroed(bytes);
+  aihc_record_allocation(machine);
   return pointer;
 }
 
@@ -271,8 +300,7 @@ AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
   uint64_t words = aihc_object_words(tag, info);
   AihcValue *value;
 #if AIHC_GC == AIHC_GC_CALLOC
-  (void)machine;
-  value = aihc_allocate_auxiliary(sizeof(AihcSlot) * words);
+  value = aihc_allocate_zeroed(sizeof(AihcSlot) * words);
 #elif AIHC_GC == AIHC_GC_SEMISPACE
   size_t bytes = sizeof(AihcSlot) * words;
   if (machine->heap_next + bytes > machine->heap_limit) {
@@ -284,6 +312,7 @@ AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
 #else
 #error "unknown AIHC_GC selection"
 #endif
+  aihc_record_allocation(machine);
   value->header = aihc_make_header(tag, info);
   return value;
 }
@@ -293,6 +322,14 @@ AihcValue *aihc_make_node(AihcMachine *machine, uint64_t tag,
   uint64_t words = aihc_object_words(tag, info);
   aihc_ensure_heap(machine, words, 0, NULL);
   return aihc_make_node_unchecked(machine, tag, info);
+}
+
+uint64_t aihc_allocation_count(const AihcMachine *machine) {
+  return machine->allocation_count;
+}
+
+void aihc_reset_allocation_count(AihcMachine *machine) {
+  machine->allocation_count = 0;
 }
 
 static const AihcInfo *aihc_next_application_info(const AihcInfo *info,
@@ -355,8 +392,8 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
   return copy;
 }
 
-static AihcSlot *aihc_arguments(AihcValue *function, uint64_t count,
-                                const AihcSlot *values,
+static AihcSlot *aihc_arguments(AihcMachine *machine, AihcValue *function,
+                                uint64_t count, const AihcSlot *values,
                                 AihcValue *continuation) {
   uint64_t field_count = aihc_value_info_table(function)->field_count;
   size_t maximum_count = SIZE_MAX / sizeof(AihcSlot);
@@ -370,8 +407,8 @@ static AihcSlot *aihc_arguments(AihcValue *function, uint64_t count,
     }
     ++total;
   }
-  AihcSlot *arguments =
-      aihc_allocate_auxiliary(sizeof(*arguments) * (total == 0 ? 1 : total));
+  AihcSlot *arguments = aihc_allocate_auxiliary(
+      machine, sizeof(*arguments) * (total == 0 ? 1 : total));
   const AihcSlot *function_fields = aihc_value_fields_const(function);
   for (size_t index = 0; index < (size_t)field_count; ++index) {
     arguments[index] = function_fields[index];
@@ -395,8 +432,8 @@ static AihcEntry aihc_prepare_entry(AihcMachine *machine, AihcEntry entry,
   return entry;
 }
 
-static AihcThread *aihc_thread_new(void) {
-  AihcThread *thread = aihc_allocate_auxiliary(sizeof(*thread));
+static AihcThread *aihc_thread_new(AihcMachine *machine) {
+  AihcThread *thread = aihc_allocate_auxiliary(machine, sizeof(*thread));
   thread->header = AIHC_TAG_THREAD;
   return thread;
 }
@@ -442,7 +479,8 @@ static AihcBlackhole *aihc_find_blackhole(AihcMachine *machine,
       return blackhole;
     }
   }
-  AihcBlackhole *blackhole = aihc_allocate_auxiliary(sizeof(*blackhole));
+  AihcBlackhole *blackhole =
+      aihc_allocate_auxiliary(machine, sizeof(*blackhole));
   blackhole->object = object;
   blackhole->owner = machine->current_thread;
   blackhole->next = machine->blackholes;
@@ -456,7 +494,8 @@ static void aihc_block_on_blackhole(AihcMachine *machine, AihcValue *object,
   if (blackhole->owner == machine->current_thread) {
     aihc_fail("blackholed thunk re-entered");
   }
-  AihcBlackholeWaiter *waiter = aihc_allocate_auxiliary(sizeof(*waiter));
+  AihcBlackholeWaiter *waiter =
+      aihc_allocate_auxiliary(machine, sizeof(*waiter));
   waiter->thread = machine->current_thread;
   waiter->continuation = continuation;
   if (blackhole->waiters_tail == NULL) {
@@ -486,27 +525,32 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
 }
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
-  AihcMachine *machine = aihc_allocate_auxiliary(sizeof(*machine));
+  AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
+  machine->allocation_count = 1;
   machine->global_count = global_count;
   machine->globals = aihc_allocate_auxiliary(
+      machine,
       sizeof(*machine->globals) * (global_count == 0 ? 1 : global_count));
 #if AIHC_GC == AIHC_GC_CALLOC
   machine->heap_next = NULL;
   machine->heap_limit = (uint8_t *)UINTPTR_MAX;
 #elif AIHC_GC == AIHC_GC_SEMISPACE
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
-  machine->heap_start = aihc_allocate_auxiliary(machine->semispace_bytes);
-  machine->other_space = aihc_allocate_auxiliary(machine->semispace_bytes);
+  machine->heap_start =
+      aihc_allocate_auxiliary(machine, machine->semispace_bytes);
+  machine->other_space =
+      aihc_allocate_auxiliary(machine, machine->semispace_bytes);
   machine->heap_next = machine->heap_start;
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
 #endif
-  machine->current_thread = aihc_thread_new();
+  machine->current_thread = aihc_thread_new(machine);
   machine->io_backend = aihc_default_io_backend();
   return machine;
 }
 
-AihcSlot *aihc_alloc_locals(uint64_t count) {
-  return aihc_allocate_auxiliary(sizeof(AihcSlot) * (count == 0 ? 1 : count));
+AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count) {
+  return aihc_allocate_auxiliary(machine,
+                                 sizeof(AihcSlot) * (count == 0 ? 1 : count));
 }
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
@@ -522,9 +566,10 @@ AihcEntry aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
   }
   const AihcInfo *arguments_info =
       aihc_next_application_info(aihc_value_info_table(continuation), count);
-  return aihc_prepare_entry(machine, aihc_value_entry(continuation),
-                            aihc_arguments(continuation, count, values, NULL),
-                            arguments_info, 0);
+  return aihc_prepare_entry(
+      machine, aihc_value_entry(continuation),
+      aihc_arguments(machine, continuation, count, values, NULL),
+      arguments_info, 0);
 }
 
 static AihcEntry aihc_continue_value(AihcMachine *machine,
@@ -536,8 +581,12 @@ static int32_t aihc_io_error(int error) {
   return (int32_t)(-((int64_t)error) - 1);
 }
 
-static int aihc_posix_prepare(AihcIoKind kind) {
-  int descriptor = kind == AIHC_IO_READ_STDIN ? STDIN_FILENO : STDOUT_FILENO;
+static int aihc_posix_descriptor(const AihcIoHandle *handle) {
+  return (int)handle->backend_token;
+}
+
+static int aihc_posix_prepare(AihcIoRequest *request) {
+  int descriptor = aihc_posix_descriptor(request->handle);
   int flags = fcntl(descriptor, F_GETFL);
   if (flags == -1) {
     return errno;
@@ -552,9 +601,9 @@ static int aihc_posix_prepare(AihcIoKind kind) {
 static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
   for (;;) {
     ssize_t transferred;
-    if (request->kind == AIHC_IO_READ_STDIN) {
+    if (request->kind == AIHC_IO_READ) {
       unsigned char byte;
-      transferred = read(STDIN_FILENO, &byte, 1);
+      transferred = read(aihc_posix_descriptor(request->handle), &byte, 1);
       if (transferred == 1) {
         *result = (int32_t)byte;
         return 1;
@@ -565,7 +614,7 @@ static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
       }
     } else {
       unsigned char byte = (unsigned char)(request->byte & 0xffU);
-      transferred = write(STDOUT_FILENO, &byte, 1);
+      transferred = write(aihc_posix_descriptor(request->handle), &byte, 1);
       if (transferred == 1) {
         *result = 0;
         return 1;
@@ -620,14 +669,13 @@ static void aihc_posix_poll(AihcMachine *machine, int may_block) {
   }
   size_t count = (size_t)machine->io_request_count;
   struct pollfd *descriptors =
-      aihc_allocate_auxiliary(sizeof(*descriptors) * count);
+      aihc_allocate_auxiliary(machine, sizeof(*descriptors) * count);
   size_t index = 0;
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
-    descriptors[index].fd =
-        request->kind == AIHC_IO_READ_STDIN ? STDIN_FILENO : STDOUT_FILENO;
+    descriptors[index].fd = aihc_posix_descriptor(request->handle);
     descriptors[index].events =
-        request->kind == AIHC_IO_READ_STDIN ? POLLIN : POLLOUT;
+        request->kind == AIHC_IO_READ ? POLLIN : POLLOUT;
     ++index;
   }
   int ready = poll(descriptors, count, may_block ? -1 : 0);
@@ -695,20 +743,34 @@ static AihcEntry aihc_schedule(AihcMachine *machine) {
   }
 }
 
-static AihcIoRequest *aihc_io_submit(AihcIoKind kind, int32_t byte) {
-  AihcIoRequest *request = aihc_allocate_auxiliary(sizeof(*request));
+static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
+                                     int32_t byte) {
+  if (handle == NULL) {
+    aihc_fail("attempted IO with a null handle");
+  }
+  uint32_t required_capability =
+      kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
+  if ((handle->capabilities & required_capability) == 0) {
+    aihc_fail("attempted unsupported operation on IO handle");
+  }
+  AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
+  request->handle = handle;
   request->byte = byte;
   return request;
 }
 
-void *aihc_io_submit_read_stdin(void) {
-  return aihc_io_submit(AIHC_IO_READ_STDIN, 0);
+void *aihc_io_stdin(void) { return &aihc_standard_input; }
+
+void *aihc_io_stdout(void) { return &aihc_standard_output; }
+
+void *aihc_io_submit_read(void *opaque_handle) {
+  return aihc_io_submit(AIHC_IO_READ, opaque_handle, 0);
 }
 
-void *aihc_io_submit_write_stdout(int32_t byte) {
-  return aihc_io_submit(AIHC_IO_WRITE_STDOUT, byte);
+void *aihc_io_submit_write(void *opaque_handle, int32_t byte) {
+  return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, byte);
 }
 
 int32_t aihc_io_take_result(void *opaque_request) {
@@ -735,7 +797,7 @@ AihcEntry aihc_await_io_cps(AihcMachine *machine, void *opaque_request,
     aihc_fail("attempted to await an IO request more than once");
   }
 
-  int error = machine->io_backend->prepare(request->kind);
+  int error = machine->io_backend->prepare(request);
   if (error != 0) {
     request->state = AIHC_IO_COMPLETED;
     request->result = aihc_io_error(error);
@@ -784,7 +846,7 @@ AihcEntry aihc_apply_cps(AihcMachine *machine, AihcValue *function,
         aihc_next_application_info(aihc_value_info_table(function), count);
     return aihc_prepare_entry(
         machine, aihc_value_entry(function),
-        aihc_arguments(function, count, arguments, continuation),
+        aihc_arguments(machine, function, count, arguments, continuation),
         arguments_info, continuation == NULL ? 0 : 1);
   }
   case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
@@ -815,7 +877,8 @@ AihcEntry aihc_eval_cps(AihcMachine *machine, AihcValue *value,
   }
   switch (aihc_value_tag(value)) {
   case AIHC_TAG_THUNK: {
-    AihcSlot *arguments = aihc_arguments(value, 0, NULL, update_continuation);
+    AihcSlot *arguments =
+        aihc_arguments(machine, value, 0, NULL, update_continuation);
     AihcEntry entry = aihc_value_entry(value);
     const AihcInfo *arguments_info = aihc_value_info_table(value);
     value->header = (value->header & ~AIHC_TAG_MASK) | AIHC_TAG_BLACKHOLE;
@@ -874,7 +937,7 @@ AihcEntry aihc_fork_cps(AihcMachine *machine, AihcValue *action,
   if (machine->thread_done_continuation == NULL) {
     aihc_fail("thread completion continuation is not initialized");
   }
-  AihcThread *child = aihc_thread_new();
+  AihcThread *child = aihc_thread_new(machine);
   child->entry = aihc_apply_cps(machine, action, 0, NULL,
                                 machine->thread_done_continuation);
   child->args = machine->args;

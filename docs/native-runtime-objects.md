@@ -76,10 +76,16 @@ backend. Pending requests are collector roots only for their saved continuation
 and thread arguments. The opaque request pointer itself has `Addr#`
 representation and is not traced as a Haskell heap pointer.
 
-The initial backend sets standard input and output nonblocking and uses POSIX
-`poll` when byte reads or writes report that they would block. The read result
-is a byte from 0 through 255, `-1` for end-of-file, or `-(errno + 1)` for an
-error. A write returns zero on success and the same negative error encoding on
-failure. `GHC.Event` owns only generic suspension; `GHC.IO.StdHandles` is the
-first client and exposes byte operations. Buffering, encoding, locking, and
-`Handle` semantics remain deliberately above this boundary.
+IO operations target opaque runtime-owned handles rather than OS descriptor
+numbers. Standard input and output are the first preopened handles, while each
+backend owns their platform representation. The POSIX backend stores a file
+descriptor in each handle, sets it nonblocking, and uses `poll` when byte reads
+or writes report that they would block. Windows can instead store `HANDLE` or
+`SOCKET` resources without exposing either representation to generated code.
+
+The read result is a byte from 0 through 255, `-1` for end-of-file, or
+`-(errno + 1)` for an error. A write returns zero on success and the same
+negative error encoding on failure. `GHC.Event` owns only generic suspension;
+`GHC.IO.StdHandles` is the first client and exposes generic handle operations
+plus standard-stream convenience wrappers. Buffering, encoding, locking, and
+full `Handle` semantics remain deliberately above this boundary.

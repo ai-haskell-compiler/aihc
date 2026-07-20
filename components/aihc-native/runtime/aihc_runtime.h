@@ -33,6 +33,7 @@ typedef struct AihcMachine AihcMachine;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
+typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
 typedef uint64_t AihcSlot;
@@ -75,6 +76,7 @@ struct AihcMachine {
   AihcIoRequest *io_requests_tail;
   uint64_t io_request_count;
   const AihcIoBackend *io_backend;
+  uint64_t allocation_count;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -121,7 +123,9 @@ AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);
-AihcSlot *aihc_alloc_locals(uint64_t count);
+uint64_t aihc_allocation_count(const AihcMachine *machine);
+void aihc_reset_allocation_count(AihcMachine *machine);
+AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
@@ -142,8 +146,10 @@ AihcEntry aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
 AihcEntry aihc_await_io_cps(AihcMachine *machine, void *request,
                             AihcValue *continuation);
 AihcEntry aihc_thread_done(AihcMachine *machine);
-void *aihc_io_submit_read_stdin(void);
-void *aihc_io_submit_write_stdout(int32_t byte);
+void *aihc_io_stdin(void);
+void *aihc_io_stdout(void);
+void *aihc_io_submit_read(void *handle);
+void *aihc_io_submit_write(void *handle, int32_t byte);
 int32_t aihc_io_take_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
@@ -185,7 +191,7 @@ typedef struct {
 
 void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
                         const AihcSnapshotRep *result_reps,
-                        uint64_t constructor_count,
+                        uint64_t allocation_count, uint64_t constructor_count,
                         const AihcSnapshotConstructor *constructors,
                         uint64_t function_count,
                         const AihcSnapshotFunction *functions);

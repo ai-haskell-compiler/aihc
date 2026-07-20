@@ -34,7 +34,7 @@ import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Array (newArray0)
 import Foreign.Ptr (FunPtr, Ptr)
-import System.IO (hFlush, stdin, stdout)
+import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data InterpretError
@@ -65,6 +65,7 @@ data InterpretError
 data RuntimeValue
   = RuntimeLit !GrinLiteral
   | RuntimeAddress !(Ptr ())
+  | RuntimeIOHandle !GrinIOHandle
   | RuntimeIORequest !GrinIORequest
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
@@ -80,9 +81,17 @@ instance Eq GrinMutVar where
 instance Show GrinMutVar where
   show _ = "<mutvar>"
 
+data GrinIOHandle = GrinIOHandle !Int !Handle
+
+instance Eq GrinIOHandle where
+  GrinIOHandle left _ == GrinIOHandle right _ = left == right
+
+instance Show GrinIOHandle where
+  show _ = "<io-handle>"
+
 data GrinIOOperation
-  = GrinReadStdin
-  | GrinWriteStdout !Integer
+  = GrinRead !GrinIOHandle
+  | GrinWrite !GrinIOHandle !Integer
   deriving (Eq, Show)
 
 data GrinIOState
@@ -553,6 +562,7 @@ isLiftedRuntimeValue value =
   case value of
     RuntimeLit literal -> isLiftedRuntimeRep (grinValueRuntimeRep (GrinLitValue literal))
     RuntimeAddress {} -> False
+    RuntimeIOHandle {} -> False
     RuntimeIORequest {} -> False
     RuntimeNode {} -> True
     RuntimeLocation {} -> True
@@ -639,13 +649,21 @@ executeForeignCall foreignCall arguments
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
 callForeign foreignCall arguments
-  | symbol == "aihc_io_submit_read_stdin",
+  | symbol == "aihc_io_stdin",
     [] <- arguments =
-      RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted GrinReadStdin))
-  | symbol == "aihc_io_submit_write_stdout",
-    [byte] <- arguments = do
+      pure (RuntimeIOHandle (GrinIOHandle 0 stdin))
+  | symbol == "aihc_io_stdout",
+    [] <- arguments =
+      pure (RuntimeIOHandle (GrinIOHandle 1 stdout))
+  | symbol == "aihc_io_submit_read",
+    [handleValue] <- arguments = do
+      handle <- expectIOHandle symbol handleValue
+      RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinRead handle)))
+  | symbol == "aihc_io_submit_write",
+    [handleValue, byte] <- arguments = do
+      handle <- expectIOHandle symbol handleValue
       intValue <- expectInt32 symbol byte
-      RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWriteStdout intValue)))
+      RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle intValue)))
   | symbol == "aihc_io_take_result",
     [request] <- arguments =
       takeIOResult symbol request
@@ -668,6 +686,12 @@ callForeign foreignCall arguments
   where
     symbol = grinForeignCallSymbol foreignCall
 
+expectIOHandle :: Text -> RuntimeValue -> EvalM GrinIOHandle
+expectIOHandle symbol value =
+  case value of
+    RuntimeIOHandle handle -> pure handle
+    _ -> throwInterpret (InterpretForeignTypeError symbol value)
+
 completeIORequest :: GrinIORequest -> EvalM ()
 completeIORequest (GrinIORequest reference) = do
   state <- liftEvalIO (readIORef reference)
@@ -681,11 +705,11 @@ completeIORequest (GrinIORequest reference) = do
 performIOOperation :: GrinIOOperation -> EvalM Integer
 performIOOperation operation =
   case operation of
-    GrinReadStdin -> do
-      bytes <- liftEvalIO (BS.hGet stdin 1)
+    GrinRead (GrinIOHandle _ handle) -> do
+      bytes <- liftEvalIO (BS.hGet handle 1)
       pure (if BS.null bytes then -1 else toInteger (BS.head bytes))
-    GrinWriteStdout byte -> do
-      liftEvalIO (BS.hPut stdout (BS.singleton (fromInteger byte)) >> hFlush stdout)
+    GrinWrite (GrinIOHandle _ handle) byte -> do
+      liftEvalIO (BS.hPut handle (BS.singleton (fromInteger byte)) >> hFlush handle)
       pure 0
 
 takeIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
@@ -784,6 +808,7 @@ renderRawValueM value = do
   case exposed of
     RuntimeLit literal -> pure (renderLiteral literal)
     RuntimeAddress address -> pure (T.pack (show address))
+    RuntimeIOHandle {} -> pure "<io-handle>"
     RuntimeIORequest {} -> pure "<io-request>"
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
     RuntimeNode (GrinConstructor name 0) [] -> pure name
@@ -908,6 +933,7 @@ snapshotRuntimeValue value =
   case value of
     RuntimeLit literal -> pure (SnapshotLiteral literal)
     RuntimeAddress {} -> pure SnapshotAddress
+    RuntimeIOHandle {} -> pure SnapshotAddress
     RuntimeIORequest {} -> pure SnapshotAddress
     RuntimeNode {} -> do
       valueSources <- gets snapshotBuildValueSources

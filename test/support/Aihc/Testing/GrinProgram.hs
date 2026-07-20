@@ -135,6 +135,7 @@ parseExpr indentation lines' =
       | sourceIndent line /= indentation ->
           Left ("unexpected expression indentation: " <> T.unpack (sourceText line))
       | sourceText line == "store-rec" -> parseStoreRec indentation rest
+      | Just caseHeader <- T.stripPrefix "case " (sourceText line) -> parseCase indentation caseHeader rest
       | otherwise ->
           case T.breakOn " <- " (sourceText line) of
             (bindersText, rhsWithArrow)
@@ -147,6 +148,50 @@ parseExpr indentation lines' =
                   (body, remaining) <- parseExpr indentation rest
                   pure (GrinBind binders rhs body, remaining)
             _ -> (,rest) <$> parseAtomicExpr (sourceText line)
+
+parseCase :: Int -> Text -> [SourceLine] -> Either String (GrinExpr, [SourceLine])
+parseCase indentation header lines' = do
+  caseHeader <- maybe (Left "case expression must end with 'of'") pure (T.stripSuffix " of" header)
+  let (scrutineeText, binderWithAs) = T.breakOn " as " caseHeader
+  when (T.null binderWithAs) (Left ("case expression has no binder: " <> T.unpack header))
+  scrutinee <- parseValueAtom scrutineeText
+  binder <- parseBareVar (T.drop 4 binderWithAs)
+  alternativeIndent <-
+    case lines' of
+      line : _
+        | sourceIndent line > indentation -> pure (sourceIndent line)
+      _ -> Left "case expression has no alternatives"
+  (alternatives, remaining) <- parseAlternatives binder alternativeIndent lines'
+  pure (GrinCase scrutinee binder alternatives, remaining)
+
+parseAlternatives :: GrinVar -> Int -> [SourceLine] -> Either String ([GrinAlt], [SourceLine])
+parseAlternatives binder indentation = go []
+  where
+    go alternatives lines' =
+      case lines' of
+        line : rest
+          | sourceIndent line == indentation -> do
+              header <- maybe (Left ("case alternative must end with '->': " <> T.unpack (sourceText line))) pure (T.stripSuffix " ->" (sourceText line))
+              let (constructorText, bindersText) = T.break isSpaceChar header
+              constructor <- parseAltCon binder constructorText
+              binders <- parseVarAtoms bindersText
+              rhsIndent <-
+                case rest of
+                  rhs : _
+                    | sourceIndent rhs > indentation -> pure (sourceIndent rhs)
+                  _ -> Left ("case alternative has no right-hand side: " <> T.unpack header)
+              (rhs, remaining) <- parseExpr rhsIndent rest
+              go (GrinAlt constructor binders rhs : alternatives) remaining
+        _
+          | null alternatives -> Left "case expression has no alternatives"
+          | otherwise -> pure (reverse alternatives, lines')
+
+parseAltCon :: GrinVar -> Text -> Either String GrinAltCon
+parseAltCon binder text
+  | text == "_" = pure GrinDefaultAlt
+  | isInteger text = GrinLitAlt . GrinLitInt (grinVarRuntimeRep binder) <$> readText "case literal" text
+  | T.null text = Left "case alternative has no constructor"
+  | otherwise = pure (GrinDataAlt text)
 
 parseStoreRec :: Int -> [SourceLine] -> Either String (GrinExpr, [SourceLine])
 parseStoreRec indentation lines' = do

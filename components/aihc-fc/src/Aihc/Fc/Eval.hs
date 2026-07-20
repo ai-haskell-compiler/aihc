@@ -31,7 +31,7 @@ import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Array (newArray0)
 import Foreign.Ptr (FunPtr, Ptr)
-import System.IO (hFlush, stdin, stdout)
+import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data EvalError
@@ -54,6 +54,7 @@ data Value
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
+  | VIOHandle EvalIOHandle
   | VIORequest EvalIORequest
   | VMutVar EvalMutVar
   | VStateToken
@@ -68,9 +69,17 @@ instance Eq EvalMutVar where
 instance Show EvalMutVar where
   show _ = "<mutvar>"
 
+data EvalIOHandle = EvalIOHandle !Int !Handle
+
+instance Eq EvalIOHandle where
+  EvalIOHandle left _ == EvalIOHandle right _ = left == right
+
+instance Show EvalIOHandle where
+  show _ = "<io-handle>"
+
 data EvalIOOperation
-  = EvalReadStdin
-  | EvalWriteStdout !Integer
+  = EvalRead !EvalIOHandle
+  | EvalWrite !EvalIOHandle !Integer
   deriving (Eq, Show)
 
 data EvalIOState
@@ -302,11 +311,11 @@ completeIORequest (EvalIORequest reference) = do
 performIOOperation :: EvalIOOperation -> EvalM Integer
 performIOOperation operation =
   case operation of
-    EvalReadStdin -> do
-      bytes <- lift (BS.hGet stdin 1)
+    EvalRead (EvalIOHandle _ handle) -> do
+      bytes <- lift (BS.hGet handle 1)
       pure (if BS.null bytes then -1 else toInteger (BS.head bytes))
-    EvalWriteStdout byte -> do
-      lift (BS.hPut stdout (BS.singleton (fromInteger byte)) >> hFlush stdout)
+    EvalWrite (EvalIOHandle _ handle) byte -> do
+      lift (BS.hPut handle (BS.singleton (fromInteger byte)) >> hFlush handle)
       pure 0
 
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
@@ -329,13 +338,21 @@ executeForeignCall foreignCall arguments
 
 callForeign :: FcForeignCall -> [Value] -> EvalM Value
 callForeign foreignCall args
-  | symbol == "aihc_io_submit_read_stdin",
+  | symbol == "aihc_io_stdin",
     [] <- args =
-      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted EvalReadStdin))
-  | symbol == "aihc_io_submit_write_stdout",
-    [byte] <- args = do
+      pure (VIOHandle (EvalIOHandle 0 stdin))
+  | symbol == "aihc_io_stdout",
+    [] <- args =
+      pure (VIOHandle (EvalIOHandle 1 stdout))
+  | symbol == "aihc_io_submit_read",
+    [handleValue] <- args = do
+      handle <- forceIOHandleForeignArg symbol handleValue
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalRead handle)))
+  | symbol == "aihc_io_submit_write",
+    [handleValue, byte] <- args = do
+      handle <- forceIOHandleForeignArg symbol handleValue
       intValue <- forceInt32 symbol byte
-      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWriteStdout intValue)))
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWrite handle intValue)))
   | symbol == "aihc_io_take_result",
     [request] <- args =
       takeIOResult symbol request
@@ -357,6 +374,13 @@ callForeign foreignCall args
           VAddress <$> lift (callFFI functionPointer (retPtr retVoid) marshalledArgs)
   where
     symbol = fcForeignCallSymbol foreignCall
+
+forceIOHandleForeignArg :: Text -> Value -> EvalM EvalIOHandle
+forceIOHandleForeignArg symbol value = do
+  forced <- forceValue value
+  case forced of
+    VIOHandle handle -> pure handle
+    _ -> throwE (EvalForeignTypeError symbol forced)
 
 takeIOResult :: Text -> Value -> EvalM Value
 takeIOResult symbol value = do
@@ -503,6 +527,7 @@ renderForcedValue value =
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIOHandle {} -> pure "<io-handle>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
@@ -577,6 +602,7 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIOHandle {} -> pure "<io-handle>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"

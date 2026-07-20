@@ -9,5 +9,8 @@ program: |
 return: "@0"
 heap: |
   @0 = CLoop @0
+allocations:
+  macos-arm64: 3
+  linux-amd64: 3
 status: pass
 reason: snapshot object identifiers preserve a self-reference without traversing forever

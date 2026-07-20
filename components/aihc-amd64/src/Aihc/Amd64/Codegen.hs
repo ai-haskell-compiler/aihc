@@ -171,14 +171,18 @@ compileObservedFunction entryName gcProgram = do
                ]
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_info")
             <> [ "  mov r13, rax",
-                 immediate "rdi" (1 :: Int),
+                 immediate "rsi" (1 :: Int),
+                 "  mov rdi, r15",
                  "  call aihc_alloc_locals",
                  storeByteOffset "r13" "rax" 0,
                  storeByteOffset "rax" "r15" 0,
+                 "  mov rdi, r15",
+                 "  call aihc_reset_allocation_count",
                  "  jmp " <> entryLabel,
                  ".p2align 3",
                  ".Laihc_snapshot_result:",
                  loadByteOffset "rsi" "r15" 0,
+                 "  mov rdx, r15",
                  immediate "rdi" resultCount,
                  "  call aihc_snapshot_dump_result",
                  "  xor eax, eax"
@@ -501,7 +505,8 @@ compileFunction env function = do
         exportLines env function label
           <> [ ".p2align 3",
                label <> ":",
-               immediate "rdi" slotCount,
+               immediate "rsi" slotCount,
+               "  mov rdi, r15",
                "  call aihc_alloc_locals",
                "  mov r14, rax",
                loadByteOffset "r12" "r15" 0
@@ -1439,8 +1444,9 @@ renderObservedMetadata env program resultReps = do
       <> renderRepDeclaration "result_reps" renderedResultReps
       <> renderConstructorTable constructors
       <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values) {",
+      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, const AihcMachine *machine) {",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
+           "                     aihc_allocation_count(machine),",
            "                     " <> tshow (length constructors) <> ", " <> tableOrNull constructors "constructors" <> ",",
            "                     " <> tshow (length functions) <> ", " <> tableOrNull functions "functions" <> ");",
            "}"

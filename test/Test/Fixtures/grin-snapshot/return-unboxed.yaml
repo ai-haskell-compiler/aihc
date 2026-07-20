@@ -4,5 +4,8 @@ program: |
     constant (42 :: Int32Rep)
 return: "42"
 heap: "[]"
+allocations:
+  macos-arm64: 2
+  linux-amd64: 2
 status: pass
 reason: a native function may return an unboxed machine value without allocating
