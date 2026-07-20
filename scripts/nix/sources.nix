@@ -193,6 +193,7 @@ in rec {
   examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] [
     ".hs"
     ".cabal"
+    "stdin"
     "stdout"
   ];
 

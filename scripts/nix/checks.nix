@@ -102,12 +102,16 @@
   }: ''
     executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
     actual_stdout="$executable.stdout"
+    stdin_file=/dev/null
+    if [[ -f "$example_directory/stdin" ]]; then
+      stdin_file="$example_directory/stdin"
+    fi
     ${aihcExe} compile "$source" \
       --target ${backend} \
       --gc ${gc} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"
-    "$executable" > "$actual_stdout"
+    "$executable" < "$stdin_file" > "$actual_stdout"
     diff --unified \
       --label "$example_name/expected" \
       --label "$example_name/${backend}-${compilation.name}-${gc}" \
