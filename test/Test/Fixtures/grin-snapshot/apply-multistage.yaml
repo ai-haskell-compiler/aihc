@@ -13,7 +13,7 @@ program: |
 return: "60"
 heap: "[]"
 allocations:
-  macos-arm64: 4
-  linux-amd64: 4
+  macos-arm64: 3
+  linux-amd64: 3
 status: pass
 reason: a non-saturating closure application uses the C allocation path before the final register fast path

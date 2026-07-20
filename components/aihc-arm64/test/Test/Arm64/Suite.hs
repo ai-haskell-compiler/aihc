@@ -139,7 +139,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add x0, x1, x0" `T.isInfixOf` observedAssembly observed)
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 1\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -231,7 +231,8 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("ldr x2, =2" `T.isInfixOf` assembly)
-            assertBool "uses the explicit continuation ABI" ("bl _aihc_continue_values" `T.isInfixOf` assembly),
+            assertBool "enters the continuation through registers" ("b .Laihc_enter" `T.isInfixOf` assembly)
+            assertBool "does not call a C continuation adapter" (not ("_aihc_continue_values" `T.isInfixOf` assembly)),
       testCase "exports stable entries and branches directly to dependency code" $ do
         let identityName = FunctionName "$entry$identity"
             callerName = FunctionName "$entry$caller"
@@ -266,7 +267,8 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
-            assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
+            assertBool "branches to dependency register entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79__register" `T.isInfixOf` assembly)
+            assertBool "does not publish direct-call arguments through the machine" (not ("str x8, [x22, #0]" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
@@ -282,14 +284,14 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool
-              "apply tail-branches to the returned entry"
-              ("bl _aihc_apply_cps\n  br x0" `T.isInfixOf` assembly)
+              "slow apply returns a value that is passed to the continuation in registers"
+              ("bl _aihc_apply_slow" `T.isInfixOf` assembly && "b .Laihc_enter" `T.isInfixOf` assembly)
             assertBool
               "generated code does not reload a scheduled entry"
               (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
-        assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "aihc_schedule"] $ \forbidden ->
+        assertBool "slow apply returns only the allocated value" ("AihcValue *aihc_apply_slow" `isInfixOf` runtime)
+        forM_ ["void *next;", "machine->next", "machine->args", "aihc_schedule"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
@@ -334,11 +336,10 @@ tests =
                 unlines
                   [ "#include \"aihc_runtime.h\"",
                     "_Static_assert(sizeof(AihcValue) == sizeof(AihcSlot), \"one-word object header\");",
-                    "static void entry_8(void) {}",
-                    "static void entry_9(void) {}",
-                    "static void entry_10(void) {}",
-                    "static void entry_11(void) {}",
-                    "static void entry_12(void) {}",
+                    "static void entry_8(AihcSlot *arguments) { (void)arguments; }",
+                    "static void entry_9(AihcSlot *arguments) { (void)arguments; }",
+                    "static void entry_10(AihcSlot *arguments) { (void)arguments; }",
+                    "static void entry_12(AihcSlot *arguments) { (void)arguments; }",
                     "static const uint8_t pointer_field[] = {1};",
                     "static const uint8_t pointer_then_scalar[] = {1, 0};",
                     "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0};",
@@ -352,8 +353,6 @@ tests =
                     "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0};",
                     "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0};",
                     "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0};",
-                    "static const AihcInfo parent_final_info = {11, entry_11, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo parent_info = {11, entry_11, 0, 1, 0, &parent_final_info, 0};",
                     "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0};",
                     "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0};",
                     "static int test_apply_roots(void) {",
@@ -366,29 +365,30 @@ tests =
                     "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  AihcSlot argument = (AihcSlot)leaf;",
-                    "  if (aihc_apply_cps(machine, partial, 1, &argument, continuation) != entry_8) return 0;",
-                    "  AihcValue *result = (AihcValue *)machine->args[0];",
+                    "  AihcValue *result = aihc_apply_slow(machine, partial, 1, &argument, &continuation);",
                     "  return aihc_value_tag(result) == AIHC_TAG_PARTIAL_CONSTRUCTOR &&",
                     "         aihc_value_arity(result) == 1 && aihc_value_count(result) == 1 &&",
                     "         aihc_value_info_table(result) == &partial_one_info &&",
-                    "         aihc_value_info((AihcValue *)result->fields[0]) == 1;",
+                    "         aihc_value_info((AihcValue *)result->fields[0]) == 1 &&",
+                    "         aihc_value_info(continuation) == 8;",
                     "}",
                     "static int test_scheduler_roots(void) {",
                     "  AihcMachine *machine = aihc_machine_new(1);",
                     "  AihcValue *thread_done = aihc_make_node(machine, AIHC_TAG_CLOSURE, &thread_done_info);",
                     "  AihcValue *action = aihc_make_node(machine, AIHC_TAG_CLOSURE, &action_info);",
-                    "  AihcValue *parent = aihc_make_node(machine, AIHC_TAG_CLOSURE, &parent_info);",
                     "  AihcValue *yield = aihc_make_node(machine, AIHC_TAG_CLOSURE, &yield_info);",
                     "  aihc_set_thread_done_continuation(machine, thread_done);",
                     "  machine->globals[0] = (AihcSlot)yield;",
-                    "  if (aihc_fork_cps(machine, action, parent) != entry_11) return 0;",
+                    "  if (aihc_fork(machine, action) == 0) return 0;",
                     "  for (int index = 0; index < 5; ++index) {",
                     "    (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  }",
                     "  yield = (AihcValue *)machine->globals[0];",
-                    "  if (aihc_yield_cps(machine, yield) != entry_9) return 0;",
+                    "  const AihcResume *resume = aihc_yield(machine, yield);",
+                    "  if (resume->kind != AIHC_RESUME_APPLY) return 0;",
                     "  thread_done = machine->thread_done_continuation;",
-                    "  return machine->args[0] == (AihcSlot)thread_done &&",
+                    "  return aihc_value_info(resume->function) == 9 &&",
+                    "         resume->continuation == thread_done &&",
                     "         aihc_value_info(thread_done) == 10;",
                     "}",
                     "int main(void) {",
@@ -484,6 +484,7 @@ snapshotCases =
     ("allocates a multi-stage partial closure", "apply-multistage.yaml"),
     ("saturates a partial closure through registers", "apply-partial.yaml"),
     ("passes excess saturated arguments through the native stack", "apply-register-overflow.yaml"),
+    ("passes direct-call arguments through registers and the native stack", "call-register-overflow.yaml"),
     ("applies a stored closure", "apply.yaml"),
     ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
     ("snapshots child evaluation after yield#", "yield.yaml")
@@ -515,6 +516,10 @@ snapshotTest (name, fixtureName) =
       let assembly = observedAssembly observed
       assertBool "spills supplied register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
       assertBool "reloads supplied register overflow" ("mov x9, sp\n  ldr x8, [x9], #8" `T.isInfixOf` assembly)
+    when (fixtureName == "call-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills direct-call register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
+      assertBool "tail-enters the direct target's register entry" ("_register" `T.isInfixOf` assembly)
     when (arch == "aarch64" && os == "darwin") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native
@@ -709,7 +714,7 @@ testNativeHelloWorld = do
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("br x0" `isInfixOf` rendered)
+  assertBool "emits indirect Haskell tail transfers" ("br x9" `isInfixOf` rendered)
   assertBool "never calls a generated Haskell entry" (not ("bl .Laihc_function_" `isInfixOf` rendered))
   assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
   when (arch == "aarch64" && os == "darwin") $
@@ -724,8 +729,8 @@ testNativeScheduler = do
     case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 scheduler lowering failed: " <> show err)
-  assertBool "emits fork runtime transfer" ("bl _aihc_fork_cps" `T.isInfixOf` assembly)
-  assertBool "emits yield runtime transfer" ("bl _aihc_yield_cps" `T.isInfixOf` assembly)
+  assertBool "emits fork state operation" ("bl _aihc_fork" `T.isInfixOf` assembly)
+  assertBool "emits yield state operation" ("bl _aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("bl _aihc_thread_done" `T.isInfixOf` assembly)
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "PCAB" assembly

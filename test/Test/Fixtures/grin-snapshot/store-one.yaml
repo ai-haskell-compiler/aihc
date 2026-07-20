@@ -8,7 +8,7 @@ return: "@0"
 heap: |
   @0 = CI32# 1
 allocations:
-  macos-arm64: 2
-  linux-amd64: 2
+  macos-arm64: 1
+  linux-amd64: 1
 status: pass
 reason: a stored constructor is returned as a location with its raw scalar field

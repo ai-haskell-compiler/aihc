@@ -14,12 +14,11 @@ program: |
     primitive-call @IntRep +# (abcdefghi%19 :: IntRep) (j%11 :: IntRep)
 
   $entry -> IntRep =
-    (partial%20 :: BoxedRep Lifted) <- store (P$sum10/[[IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep]] (1 :: IntRep))
-    apply @IntRep (partial%20 :: BoxedRep Lifted) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep)
+    call @IntRep $sum10 (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep)
 return: "55"
 heap: "[]"
 allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+  macos-arm64: 0
+  linux-amd64: 0
 status: pass
-reason: saturated closure arguments beyond the native register set use temporary stack overflow slots without heap allocation
+reason: direct calls pass values and the CPS continuation through the native register convention, using temporary stack slots only for register overflow

@@ -26,6 +26,7 @@ import Aihc.Amd64.Emit (EmitError, renderAllocatedBlock)
 import Aihc.Amd64.Lir qualified as Lir
 import Aihc.Grin.Gc
   ( GcGrinProgram,
+    gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
     gcUpdateFunction,
@@ -75,6 +76,7 @@ data CompileEnv = CompileEnv
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
+    compileContinuationFunctions :: !(Set.Set FunctionName),
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
@@ -115,13 +117,13 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
-    runtimeInfoApply :: !(Maybe RuntimeApply)
+    runtimeInfoEnter :: !(Maybe RuntimeEnter)
   }
 
-data RuntimeApply = RuntimeApply
-  { runtimeApplyTarget :: !Text,
-    runtimeApplyStoredCount :: !Int,
-    runtimeApplySuppliedCount :: !Int
+data RuntimeEnter = RuntimeEnter
+  { runtimeEnterTarget :: !Text,
+    runtimeEnterStoredCount :: !Int,
+    runtimeEnterSuppliedCount :: !Int
   }
 
 data RuntimeInfoKey
@@ -184,17 +186,15 @@ compileObservedFunction entryName gcProgram = do
                ]
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_info")
             <> [ "  mov r13, rax",
-                 immediate "rsi" (1 :: Int),
-                 "  mov rdi, r15",
-                 "  call aihc_alloc_locals",
-                 storeByteOffset "r13" "rax" 0,
-                 storeByteOffset "rax" "r15" 0,
                  "  mov rdi, r15",
                  "  call aihc_reset_allocation_count",
-                 "  jmp " <> entryLabel,
+                 "  jmp " <> registerEntryLabel entryLabel,
                  ".p2align 3",
                  ".Laihc_snapshot_result:",
-                 loadByteOffset "rsi" "r15" 0,
+                 ".Laihc_snapshot_result_register:"
+               ]
+            <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
+            <> [ "  mov rsi, r14",
                  "  mov rdx, r15",
                  immediate "rdi" resultCount,
                  "  call aihc_snapshot_dump_result",
@@ -202,19 +202,26 @@ compileObservedFunction entryName gcProgram = do
                ]
             <> mainEpilogue
             <> [ ".p2align 3",
+                 ".Laihc_thread_done_continuation_register:",
                  ".Laihc_thread_done_continuation:",
                  "  mov rdi, r15",
-                 "  call aihc_thread_done"
+                 "  call aihc_thread_done",
+                 "  jmp .Laihc_resume"
                ]
-            <> tailDispatchLines
+            <> renderNativeControl
             <> concatMap compiledFunctionLines functions
-            <> renderApplyStubs (compileRuntimeInfos compileEnv)
+            <> renderEnterStubs
+              ( compileRuntimeInfos compileEnv
+                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") (Just (RuntimeEnter ".Laihc_thread_done_continuation" 0 1)),
+                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info") (Just (RuntimeEnter ".Laihc_snapshot_result" 0 resultCount))
+                     ]
+              )
             <> renderAddrLiteralPool compileEnv
             <> renderRuntimeInfos
               ( compileRuntimeInfos compileEnv
-                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") Nothing,
+                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") (Just (RuntimeEnter ".Laihc_thread_done_continuation" 0 1)),
                        RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing Nothing,
-                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info") Nothing,
+                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info") (Just (RuntimeEnter ".Laihc_snapshot_result" 0 resultCount)),
                        RuntimeInfo ".Laihc_snapshot_applied_info" (InfoAddress ".Laihc_snapshot_result") resultReps 0 Nothing Nothing
                      ]
               )
@@ -223,7 +230,7 @@ compileObservedFunction entryName gcProgram = do
   where
     program = gcGrinProgram gcProgram
     layout = buildLinkLayout [program]
-    compileEnv = compileEnvironmentWith True layout program
+    compileEnv = (compileEnvironmentWith True layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     globalNames = linkGlobalNames layout
     resultReps =
       maybe [] (runtimeRepComponents . grinFunctionResultRep) $
@@ -264,14 +271,19 @@ compileModule layout initializerSymbol gcProgram = do
       <> reserveLocalsLines functions
       <> initLines
       <> mainEpilogue
+      <> renderNativeControl
       <> concatMap compiledFunctionLines functions
-      <> renderApplyStubs (compileRuntimeInfos compileEnv)
+      <> renderEnterStubs (compileRuntimeInfos compileEnv)
       <> renderAddrLiteralPool compileEnv
       <> renderRuntimeInfos (compileRuntimeInfos compileEnv)
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironment layout program) {compileAllowUnsupportedPrimitives = True}
+    compileEnv =
+      (compileEnvironment layout program)
+        { compileAllowUnsupportedPrimitives = True,
+          compileContinuationFunctions = gcContinuationFunctions gcProgram
+        }
 
 -- | Compile the user program entry unit against cached dependency modules.
 -- Dependency initializers are called after constructors are installed and
@@ -300,10 +312,10 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
       "  call aihc_machine_new",
       "  mov r15, rax"
     ]
-      <> reserveLocalsLines functions
       <> constructorLines
       <> concatMap callInitializer dependencyInitializers
       <> initLines
+      <> reserveLocalsLines functions
       <> [ "  mov rdi, r15",
            immediate "rsi" (7 :: Int),
            "  xor edx, edx",
@@ -320,75 +332,81 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  call aihc_set_field"
          ]
       <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_update_info")
-      <> [ "  mov r14, rax",
-           loadByteOffset "r11" "r15" 8,
+      <> [ storeAt "rax" "r14" 0,
+           loadByteOffset "r11" "r15" 0,
            loadAt "rdx" "r11" rootSlot,
-           "  mov rdi, r14",
+           loadAt "rdi" "r14" 0,
            "  xor esi, esi",
            "  call aihc_set_field",
-           "  mov rdi, r14",
+           loadAt "rdi" "r14" 0,
            "  mov esi, 1",
            "  mov rdx, r12",
            "  call aihc_set_field"
          ]
       <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
       <> [ "  mov r10, rax",
-           loadByteOffset "r11" "r15" 8,
-           loadAt "rsi" "r11" rootSlot,
+           "  mov rsi, r10",
            "  mov rdi, r15",
-           "  mov rdx, r12",
-           "  mov rcx, r14",
-           "  mov r8, r10",
-           address "r9" ".Laihc_exit",
-           "  call aihc_start"
-         ]
-      <> tailDispatchLines
-      <> [ ".p2align 3",
-           ".Laihc_top_continuation:",
+           "  call aihc_set_thread_done_continuation",
+           address "r11" ".Laihc_exit",
+           "  mov QWORD PTR [r15 + 16], r11",
            loadByteOffset "r11" "r15" 0,
-           loadByteOffset "r8" "r11" 0,
-           loadByteOffset "rsi" "r11" 8,
-           "  mov rdi, r15",
-           "  xor edx, edx",
-           "  xor ecx, ecx",
-           "  call aihc_apply_cps"
+           loadAt applyFunctionRegister "r11" rootSlot,
+           loadAt "rax" "r14" 0,
+           "  mov r13, QWORD PTR [rax + 16]",
+           "  mov r11, 1",
+           "  jmp .Laihc_eval"
          ]
-      <> tailDispatchLines
       <> [ ".p2align 3",
+           ".Laihc_top_continuation_register:",
+           ".Laihc_top_continuation:",
+           "  mov r13, rax",
+           "  mov r12, rdi",
+           "  jmp .Laihc_enter"
+         ]
+      <> [ ".p2align 3",
+           ".Laihc_thread_done_continuation_register:",
            ".Laihc_thread_done_continuation:",
            "  mov rdi, r15",
-           "  call aihc_thread_done"
+           "  call aihc_thread_done",
+           "  jmp .Laihc_resume"
          ]
-      <> tailDispatchLines
       <> [ ".p2align 3",
+           ".Laihc_final_continuation_register:",
            ".Laihc_final_continuation:",
-           "  mov rdi, r15",
-           "  call aihc_halt"
+           "  jmp .Laihc_exit"
          ]
-      <> tailDispatchLines
       <> [ ".Laihc_exit:",
            "  xor eax, eax"
          ]
       <> mainEpilogue
+      <> renderNativeControl
       <> concatMap compiledFunctionLines functions
-      <> renderApplyStubs (compileRuntimeInfos compileEnv)
+      <> renderEnterStubs
+        ( compileRuntimeInfos compileEnv
+            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info") (Just (RuntimeEnter ".Laihc_final_continuation" 0 1)),
+                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info") (Just (RuntimeEnter ".Laihc_top_continuation" 1 1)),
+                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info") (Just (RuntimeEnter updateLabel 2 1)),
+                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") (Just (RuntimeEnter ".Laihc_thread_done_continuation" 0 1))
+               ]
+        )
       <> renderAddrLiteralPool compileEnv
       <> renderRuntimeInfos
         ( compileRuntimeInfos compileEnv
-            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info") Nothing,
+            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info") (Just (RuntimeEnter ".Laihc_final_continuation" 0 1)),
                  RuntimeInfo ".Laihc_final_applied_info" (InfoAddress ".Laihc_final_continuation") [BoxedRep Lifted] 0 Nothing Nothing,
-                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info") (Just (RuntimeEnter ".Laihc_top_continuation" 1 1)),
                  RuntimeInfo ".Laihc_top_applied_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
-                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info") (Just (RuntimeEnter updateLabel 2 1)),
                  RuntimeInfo ".Laihc_update_applied_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
-                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") (Just (RuntimeEnter ".Laihc_thread_done_continuation" 0 1)),
                  RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing Nothing
                ]
         )
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
-    compileEnv = compileEnvironment layout program
+    compileEnv = (compileEnvironment layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
     callInitializer symbol =
@@ -423,6 +441,7 @@ compileEnvironmentWith exposeAllFunctions layout program =
         Map.fromList (buildAddrLiteralPool program),
       compileNodeInfoLabels = constructorInfoLabels <> functionInfoLabels,
       compileRuntimeInfos = map third constructorInfoEntries <> functionInfos,
+      compileContinuationFunctions = Set.empty,
       compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
@@ -472,7 +491,9 @@ compileEnvironmentWith exposeAllFunctions layout program =
           (runtimeInfoKeyNext key >>= (`Map.lookup` functionInfoLabels))
           ( case key of
               ClosureRuntimeInfo _ fields [supplied] ->
-                Just (RuntimeApply target (length fields) (length supplied))
+                Just (RuntimeEnter target (length fields) (length supplied))
+              ThunkRuntimeInfo _ fields ->
+                Just (RuntimeEnter target (length fields) 0)
               _ -> Nothing
           )
       | (key, functionName) <- functionInfoKeys,
@@ -508,7 +529,7 @@ compileInitializers env program = do
     slot <- globalSlot env (grinVarName var)
     fieldLines <- initializeNodeFields (ValueEnv env Map.empty ".Laihc_initializer") node
     pure $
-      [loadByteOffset "r11" "r15" 8, loadAt "r13" "r11" slot]
+      [loadByteOffset "r11" "r15" 0, loadAt "r13" "r11" slot]
         <> fieldLines
   pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
 
@@ -526,23 +547,19 @@ compileFunction env function = do
     either (Left . Amd64EmitError) Right (renderAllocatedBlock spillBase (parameterCopyLir localSlots (grinFunctionParameters function)))
   let slotCount = max 1 (spillBase + spillCount)
       parameterCount = length (grinFunctionParameters function)
-      valueParameterCount = max 0 (parameterCount - 1)
+      isContinuation = grinFunctionName function `Set.member` compileContinuationFunctions env
+      valueParameterCount = if isContinuation then parameterCount else max 0 (parameterCount - 1)
       registerParameterCopies =
         [ storeAt register "r14" index
         | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters,
           index < valueParameterCount
         ]
-          <> [storeAt applyContinuationRegister "r14" valueParameterCount | parameterCount > 0]
+          <> [storeAt applyContinuationRegister "r14" valueParameterCount | parameterCount > 0 && not isContinuation]
       entry =
         exportLines env function label
           <> registerExportLines env function label
           <> [ ".p2align 3",
-               label <> ":",
-               immediate "rsi" slotCount,
-               "  mov rdi, r15",
-               "  call aihc_alloc_locals",
-               "  mov r14, rax",
-               loadByteOffset "r12" "r15" 0
+               label <> ":"
              ]
           <> parameterCopies
           <> ["  jmp " <> bodyLabel, ".p2align 4", registerEntryLabel label <> ":"]
@@ -563,7 +580,7 @@ reserveLocalsLines functions =
     "  mov r14, rax"
   ]
   where
-    maximumSlots = maximum (1 : map compiledFunctionSlots functions)
+    maximumSlots = maximum (2 : map compiledFunctionSlots functions)
 
 exportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
 exportLines env function label
@@ -642,14 +659,12 @@ compileExpr env prefix label expression =
             <> [storeAt "rax" "r14" continuationSlot]
             <> updateLines
             <> [ storeAt "rax" "r14" updateSlot,
-                 loadAt "rsi" "r14" valueSlot,
-                 immediate "rdx" (fromEnum (isLiftedRuntimeRep runtimeRep)),
-                 loadAt "rcx" "r14" continuationSlot,
-                 loadAt "r8" "r14" updateSlot,
-                 "  mov rdi, r15",
-                 "  call aihc_eval_cps"
+                 loadAt applyFunctionRegister "r14" valueSlot,
+                 loadAt applyContinuationRegister "r14" continuationSlot,
+                 loadAt "rax" "r14" updateSlot,
+                 immediate "r11" (fromEnum (isLiftedRuntimeRep runtimeRep)),
+                 "  jmp .Laihc_eval"
                ]
-            <> tailDispatchLines
         )
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
@@ -658,12 +673,31 @@ compileExpr env prefix label expression =
         fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
           lines' <- liftEither (materializeValue env argument)
           pure (lines' <> [storeAt "rax" "r14" slot])
-      addBlock
-        label
-        ( prefix
-            <> argumentLines
-            <> [slotPointer "r12" argumentSlots, storeByteOffset "r12" "r15" 0, "  jmp " <> target]
-        )
+      if functionName `Set.member` compileContinuationFunctions (valueCompileEnv env)
+        then
+          addBlock
+            label
+            ( prefix
+                <> argumentLines
+                <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
+                <> saveApplyOverflowLines "r14" argumentSlots
+                <> moveDirectOverflowLines "r14" (length argumentSlots)
+                <> ["  jmp " <> registerEntryLabel target]
+            )
+        else case reverse argumentSlots of
+          continuationSlot : reversedValueSlots -> do
+            let valueSlots = reverse reversedValueSlots
+            addBlock
+              label
+              ( prefix
+                  <> argumentLines
+                  <> [loadAt applyContinuationRegister "r14" continuationSlot]
+                  <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters valueSlots]
+                  <> saveApplyOverflowLines "r14" valueSlots
+                  <> moveDirectOverflowLines "r14" (length valueSlots)
+                  <> ["  jmp " <> registerEntryLabel target]
+              )
+          [] -> unsupportedExpression "direct CPS call has no continuation"
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
     GrinCpsPrimitiveCall _ name arguments continuation ->
       compileCpsPrimitive env prefix label name arguments continuation
@@ -686,11 +720,12 @@ compileExpr env prefix label expression =
               <> [ loadAt "rsi" "r14" scratch,
                    immediate "rdx" (length arguments),
                    slotPointer "rcx" argumentSlots,
-                   loadAt "r8" "r14" continuationSlot,
+                   "  lea r8, [r14 + " <> tshow (continuationSlot * 8) <> "]",
                    "  mov rdi, r15",
-                   "  call aihc_apply_cps"
+                   "  call aihc_apply_slow",
+                   loadAt applyFunctionRegister "r14" continuationSlot,
+                   "  jmp .Laihc_enter"
                  ]
-              <> tailDispatchLines
       addBlock
         label
         ( prefix
@@ -728,18 +763,15 @@ compileExpr env prefix label expression =
             <> continuationLines
             <> [storeAt "rax" "r14" continuationSlot]
             <> valueLines
-            <> [ loadAt "rsi" "r14" continuationSlot,
-                 immediate "rdx" (length values),
-                 slotPointer "rcx" valueSlots,
-                 "  mov rdi, r15",
-                 "  call aihc_continue_values"
-               ]
-            <> tailDispatchLines
+            <> [loadAt applyFunctionRegister "r14" continuationSlot]
+            <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters valueSlots]
+            <> saveApplyOverflowLines "r14" valueSlots
+            <> ["  jmp .Laihc_enter"]
         )
     GrinHalt _ ->
       addBlock
         label
-        (prefix <> ["  mov rdi, r15", "  call aihc_halt"] <> tailDispatchLines)
+        (prefix <> ["  mov rdi, r15", "  call aihc_halt", "  jmp rax"])
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
     GrinThrow {} -> unsupportedExpression "throw"
@@ -764,11 +796,11 @@ compileCpsPrimitive env prefix label name arguments continuation = do
             <> continuationLines
             <> [ storeAt "rax" "r14" continuationSlot,
                  loadAt "rsi" "r14" actionSlot,
-                 loadAt "rdx" "r14" continuationSlot,
                  "  mov rdi, r15",
-                 "  call aihc_fork_cps"
+                 "  call aihc_fork",
+                 loadAt applyFunctionRegister "r14" continuationSlot,
+                 "  jmp .Laihc_enter"
                ]
-            <> tailDispatchLines
         )
     ("yield#", []) ->
       addBlock
@@ -778,9 +810,9 @@ compileCpsPrimitive env prefix label name arguments continuation = do
             <> [ storeAt "rax" "r14" continuationSlot,
                  loadAt "rsi" "r14" continuationSlot,
                  "  mov rdi, r15",
-                 "  call aihc_yield_cps"
+                 "  call aihc_yield",
+                 "  jmp .Laihc_resume"
                ]
-            <> tailDispatchLines
         )
     _ -> lift (Left (Amd64UnsupportedExpression ("CPS primitive call " <> name)))
 
@@ -807,8 +839,8 @@ compileDirectBinding env vars expression =
           readyLabel <- freshLabel (valueLabelPrefix env) "heap_ready"
           pure
             ( rootLines
-                <> [ loadByteOffset "r10" "r15" 32,
-                     loadByteOffset "r11" "r15" 40,
+                <> [ loadByteOffset "r10" "r15" 24,
+                     loadByteOffset "r11" "r15" 32,
                      immediate "rax" (requiredWords * 8),
                      "  add rax, r10",
                      "  cmp rax, r11",
@@ -1151,36 +1183,36 @@ makeNodeUncheckedLines :: Int -> NodeInfo -> [Text]
 makeNodeUncheckedLines kind info =
   init (makeNodeLines kind info) <> ["  call aihc_make_node_unchecked"]
 
-renderApplyStubs :: [RuntimeInfo] -> [Text]
-renderApplyStubs = concatMap renderStub
+renderEnterStubs :: [RuntimeInfo] -> [Text]
+renderEnterStubs = concatMap renderStub
   where
     renderStub info =
-      case runtimeInfoApply info of
+      case runtimeInfoEnter info of
         Nothing -> []
         Just apply ->
           [ ".text",
             ".p2align 4",
-            applyEntryLabel info <> ":"
+            enterEntryLabel info <> ":"
           ]
             <> moveSupplied apply
             <> moveSuppliedOverflow apply
             <> loadStored apply
-            <> restoreApplyStackLines (applyStackBytes (runtimeApplySuppliedCount apply))
-            <> ["  jmp " <> registerEntryLabel (runtimeApplyTarget apply)]
+            <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
+            <> ["  jmp " <> registerEntryLabel (runtimeEnterTarget apply)]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
         | (sourceIndex, source) <- reverse (zip [0 :: Int ..] applyArgumentRegisters),
-          sourceIndex < runtimeApplySuppliedCount apply,
-          let targetIndex = runtimeApplyStoredCount apply + sourceIndex
+          sourceIndex < runtimeEnterSuppliedCount apply,
+          let targetIndex = runtimeEnterStoredCount apply + sourceIndex
         ]
     moveSuppliedOverflow apply =
       concat
         [ [ "  mov r11, QWORD PTR [rsp + " <> tshow ((sourceIndex - length applyArgumentRegisters) * 8) <> "]",
             storeAt "r11" "r14" targetIndex
           ]
-        | sourceIndex <- [length applyArgumentRegisters .. runtimeApplySuppliedCount apply - 1],
-          let targetIndex = runtimeApplyStoredCount apply + sourceIndex
+        | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
+          let targetIndex = runtimeEnterStoredCount apply + sourceIndex
         ]
     loadStored apply =
       concat
@@ -1190,15 +1222,15 @@ renderApplyStubs = concatMap renderStub
               [ loadByteOffset "r11" applyFunctionRegister ((targetIndex + 1) * 8),
                 storeAt "r11" "r14" targetIndex
               ]
-        | targetIndex <- [0 .. runtimeApplyStoredCount apply - 1]
+        | targetIndex <- [0 .. runtimeEnterStoredCount apply - 1]
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           ["  mov " <> applyArgumentRegisters !! targetIndex <> ", " <> source]
       | otherwise = [storeAt source "r14" targetIndex]
 
-applyEntryLabel :: RuntimeInfo -> Text
-applyEntryLabel info = runtimeInfoLabel info <> "_apply"
+enterEntryLabel :: RuntimeInfo -> Text
+enterEntryLabel info = runtimeInfoLabel info <> "_enter"
 
 registerEntryLabel :: Text -> Text
 registerEntryLabel label = label <> "_register"
@@ -1233,6 +1265,20 @@ restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
   | otherwise = ["  add rsp, " <> tshow stackBytes]
 
+moveDirectOverflowLines :: Text -> Int -> [Text]
+moveDirectOverflowLines base valueCount
+  | stackBytes == 0 = []
+  | otherwise =
+      concat
+        [ [ "  mov r11, QWORD PTR [rsp + " <> tshow ((targetIndex - length applyArgumentRegisters) * 8) <> "]",
+            storeAt "r11" base targetIndex
+          ]
+        | targetIndex <- [length applyArgumentRegisters .. valueCount - 1]
+        ]
+        <> restoreApplyStackLines stackBytes
+  where
+    stackBytes = applyStackBytes valueCount
+
 renderRuntimeInfos :: [RuntimeInfo] -> [Text]
 renderRuntimeInfos infos =
   [".section .rodata"] <> concatMap renderInfo infos
@@ -1247,7 +1293,7 @@ renderRuntimeInfos infos =
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
              "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (applyEntryLabel info)) (runtimeInfoApply info)
+             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)
            ]
       where
         fields = runtimeInfoFields info
@@ -1280,7 +1326,7 @@ loadVariable env var =
     Just slot -> Right [loadAt "rax" "r14" slot]
     Nothing -> do
       slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-      pure [loadByteOffset "r11" "r15" 8, loadAt "rax" "r11" slot]
+      pure [loadByteOffset "r11" "r15" 0, loadAt "rax" "r11" slot]
 
 localSlot :: ValueEnv -> GrinVar -> FunctionM Int
 localSlot env var =
@@ -1318,8 +1364,87 @@ slotPointer register slots =
     first : _ -> "  lea " <> register <> ", [r14" <> offsetText (first * 8) <> "]"
     [] -> "  xor " <> register <> ", " <> register
 
-tailDispatchLines :: [Text]
-tailDispatchLines = ["  jmp rax"]
+renderNativeControl :: [Text]
+renderNativeControl =
+  [ ".text",
+    ".p2align 4",
+    ".Laihc_enter:",
+    "  mov r11, QWORD PTR [r12]",
+    "  and r11, -8",
+    "  mov r11, QWORD PTR [r11 + 48]",
+    "  test r11, r11",
+    "  jz .Laihc_invalid_enter",
+    "  jmp r11",
+    ".Laihc_resume:",
+    "  mov r11d, DWORD PTR [rax]",
+    "  cmp r11d, 1",
+    "  je .Laihc_resume_apply",
+    "  cmp r11d, 2",
+    "  jne .Laihc_invalid_enter",
+    "  mov r10, QWORD PTR [rax + 24]",
+    "  mov r11, QWORD PTR [rax + 32]",
+    "  mov r12, QWORD PTR [rax + 8]",
+    "  mov QWORD PTR [rax], 0",
+    "  mov QWORD PTR [rax + 8], 0",
+    "  mov QWORD PTR [rax + 16], 0",
+    "  mov QWORD PTR [rax + 24], 0",
+    "  mov QWORD PTR [rax + 32], 0",
+    "  test r11, r11",
+    "  jz .Laihc_enter",
+    "  cmp r11, 1",
+    "  jne .Laihc_invalid_enter",
+    "  mov rax, r10",
+    "  jmp .Laihc_enter",
+    ".Laihc_resume_apply:",
+    "  mov r12, QWORD PTR [rax + 8]",
+    "  mov r13, QWORD PTR [rax + 16]",
+    "  mov QWORD PTR [rax], 0",
+    "  mov QWORD PTR [rax + 8], 0",
+    "  mov QWORD PTR [rax + 16], 0",
+    "  mov QWORD PTR [rax + 24], 0",
+    "  mov QWORD PTR [rax + 32], 0",
+    "  jmp .Laihc_enter",
+    ".Laihc_eval:",
+    "  mov QWORD PTR [r14], rax",
+    "  mov QWORD PTR [r14 + 8], r11",
+    ".Laihc_eval_loop:",
+    "  mov r11, QWORD PTR [r12]",
+    "  mov r10, r11",
+    "  and r10, 7",
+    "  cmp r10, 2",
+    "  je .Laihc_eval_thunk",
+    "  cmp r10, 4",
+    "  je .Laihc_eval_indirection",
+    "  cmp r10, 5",
+    "  je .Laihc_eval_blackhole",
+    "  mov rax, r12",
+    "  mov r12, r13",
+    "  jmp .Laihc_enter",
+    ".Laihc_eval_thunk:",
+    "  mov rsi, r12",
+    "  mov rdi, r15",
+    "  call aihc_begin_blackhole",
+    "  mov r13, QWORD PTR [r14]",
+    "  jmp .Laihc_enter",
+    ".Laihc_eval_indirection:",
+    "  cmp QWORD PTR [r14 + 8], 0",
+    "  je .Laihc_eval_unlifted_indirection",
+    "  mov r12, QWORD PTR [r12 + 8]",
+    "  jmp .Laihc_eval_loop",
+    ".Laihc_eval_unlifted_indirection:",
+    "  mov rax, QWORD PTR [r12 + 8]",
+    "  mov r12, r13",
+    "  jmp .Laihc_enter",
+    ".Laihc_eval_blackhole:",
+    "  mov rdx, r13",
+    "  mov rsi, r12",
+    "  mov rdi, r15",
+    "  call aihc_block_on_blackhole",
+    "  jmp .Laihc_resume",
+    ".Laihc_invalid_enter:",
+    "  call aihc_no_match",
+    "  ud2"
+  ]
 
 globalSlot :: CompileEnv -> Text -> Either Amd64Error Int
 globalSlot env name =
@@ -1750,7 +1875,7 @@ linkedFunctionLabel name =
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =
-  [ loadByteOffset "r11" "r15" 8,
+  [ loadByteOffset "r11" "r15" 0,
     storeAt "rax" "r11" slot
   ]
 
