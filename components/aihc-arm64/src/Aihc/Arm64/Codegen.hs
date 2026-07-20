@@ -738,6 +738,17 @@ compileDirectBinding env vars expression =
       storeSingleResult vars pointerLines
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
+    GrinPrimitiveCall IntRep "+#" [left, right] -> do
+      leftSlot <- freshSlot
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult
+        vars
+        ( leftLines
+            <> [storeAt "x0" "x19" leftSlot]
+            <> rightLines
+            <> [loadAt "x1" "x19" leftSlot, "  add x0, x1, x0"]
+        )
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -1054,6 +1065,7 @@ renderRuntimeInfos infos =
         <> [ ".p2align 3",
              runtimeInfoLabel info <> ":",
              identityLine (runtimeInfoIdentity info),
+             entryLine (runtimeInfoIdentity info),
              "  .quad " <> tshow (length fields),
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
@@ -1072,6 +1084,10 @@ renderRuntimeInfos infos =
     identityLine nodeInfo =
       case nodeInfo of
         InfoImmediate integer -> "  .quad " <> tshow integer
+        InfoAddress label -> "  .quad " <> label
+    entryLine nodeInfo =
+      case nodeInfo of
+        InfoImmediate {} -> "  .quad 0"
         InfoAddress label -> "  .quad " <> label
 
 runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor :: Int
@@ -1202,7 +1218,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` ["+#", "fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 

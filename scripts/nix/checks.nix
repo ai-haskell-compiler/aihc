@@ -84,6 +84,11 @@
     })
   );
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
+  cBackendTests = mkEvalPackageTest (
+    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-c (old: {
+      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+    })
+  );
   nativeTests = mkPackageTest hsPkgs.aihc-native;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
@@ -193,6 +198,7 @@ in {
   cpp-tests = cppTests;
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
+  c-tests = cBackendTests;
   native-tests = nativeTests;
   fc-tests = fcTests;
   grin-tests = grinTests;
@@ -233,6 +239,10 @@ in {
     {
       name = "arm64-tests";
       path = arm64Tests;
+    }
+    {
+      name = "c-tests";
+      path = cBackendTests;
     }
     {
       name = "native-tests";

@@ -1072,6 +1072,7 @@ renderRuntimeInfos infos =
         <> [ ".p2align 3",
              runtimeInfoLabel info <> ":",
              identityLine (runtimeInfoIdentity info),
+             entryLine (runtimeInfoIdentity info),
              "  .quad " <> tshow (length fields),
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
@@ -1090,6 +1091,10 @@ renderRuntimeInfos infos =
     identityLine nodeInfo =
       case nodeInfo of
         InfoImmediate integer -> "  .quad " <> tshow integer
+        InfoAddress label -> "  .quad " <> label
+    entryLine nodeInfo =
+      case nodeInfo of
+        InfoImmediate {} -> "  .quad 0"
         InfoAddress label -> "  .quad " <> label
 
 runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor :: Int

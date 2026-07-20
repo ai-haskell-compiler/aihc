@@ -77,6 +77,11 @@ in rec {
     ".yml"
   ];
 
+  cBackendSrc = mkRootSubsetSrc ["components/aihc-c/" "test/support/"] [
+    ".hs"
+    ".cabal"
+  ];
+
   nativeSrc = mkComponentSrc "/components/aihc-native" [
     ".hs"
     ".cabal"
@@ -180,7 +185,7 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/green-threads/" "examples/hello-world/"] [
+  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/green-threads/" "examples/hello-world/" "examples/unboxed-tail-recursion/"] [
     ".hs"
     ".cabal"
   ];

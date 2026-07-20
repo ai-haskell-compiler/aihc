@@ -85,7 +85,7 @@ commandParser =
         "compile"
         ( OA.info
             (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Compile a Haskell source file to a native executable")
+            (OA.progDesc "Compile a Haskell source file to an executable")
         )
         <> OA.command
           "install"
@@ -126,7 +126,7 @@ compileOptionsParser =
       )
     <*> OA.switch
       ( OA.long "keep-asm"
-          <> OA.help "Keep the generated assembly as OUTPUT.s"
+          <> OA.help "Keep generated backend source as OUTPUT.s (assembly) or OUTPUT.c (portable C)"
       )
     <*> OA.switch
       ( OA.long "whole-program"
@@ -137,7 +137,7 @@ compileOptionsParser =
           (OA.eitherReader parseNativeTarget)
           ( OA.long "target"
               <> OA.metavar "TARGET"
-              <> OA.help "Native target: apple-arm64 or linux-amd64 (default: host)"
+              <> OA.help "Target: apple-arm64, linux-amd64, or portable-c (default: host)"
           )
       )
     <*> OA.option

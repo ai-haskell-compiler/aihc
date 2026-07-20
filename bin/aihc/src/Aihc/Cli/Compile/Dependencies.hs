@@ -3,7 +3,7 @@
 
 -- | Core-library discovery and content-addressed compilation for @aihc compile@.
 -- Each closure cache contains the frontend interfaces and one Core, GRIN, and
--- native object artifact per strongly connected module component.
+-- backend object artifact per strongly connected module component.
 module Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -14,15 +14,18 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.C qualified as C
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface)
 import Aihc.Grin qualified as Grin
 import Aihc.Native
   ( LinkInterface,
     LinkLayout,
     NativeTarget (..),
+    backendCompiler,
     buildLinkLayoutFromInterfaces,
     extractLinkInterface,
     nativeTargetTriple,
+    runtimeSourcePath,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -173,10 +176,10 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 13
+cacheSchemaVersion = 15
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
-buildDependencies target environment usesImplicitPrelude buildNative mainModule = do
+buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
   let importedRoots = map importDeclModule (moduleImports mainModule)
       defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
       initialRoots = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
@@ -199,7 +202,7 @@ buildDependencies target environment usesImplicitPrelude buildNative mainModule 
               cached <- readCache cachePath
               case cached of
                 Just artifact
-                  | buildNative -> finishArtifact target cacheDirectory closureHash artifact
+                  | buildBackend -> finishArtifact target cacheDirectory closureHash artifact
                   | otherwise -> pure (Right artifact)
                 Nothing ->
                   case compileLoadedModules loaded of
@@ -207,16 +210,16 @@ buildDependencies target environment usesImplicitPrelude buildNative mainModule 
                     Right artifact -> do
                       createDirectoryIfMissing True cacheDirectory
                       writeCache cacheDirectory cachePath artifact
-                      if buildNative
+                      if buildBackend
                         then finishArtifact target cacheDirectory closureHash artifact
                         else pure (Right artifact)
 
 finishArtifact :: NativeTarget -> FilePath -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
 finishArtifact target cacheDirectory closureHash artifact = do
-  native <- buildNativeArtifacts target (cacheDirectory </> closureHash) (dependencyUnits artifact)
+  backendArtifacts <- buildBackendArtifacts target (cacheDirectory </> closureHash) (dependencyUnits artifact)
   pure $
     (\(initializers, archives) -> artifact {dependencyInitializerSymbols = initializers, dependencyArchivePaths = archives})
-      <$> native
+      <$> backendArtifacts
 
 emptyDependencyArtifact :: DependencyArtifact
 emptyDependencyArtifact =
@@ -426,49 +429,49 @@ loadedModuleSccs = map flatten . stronglyConnComp . map graphNode
 loadedModuleName :: LoadedModule -> Text
 loadedModuleName = fromMaybe "Main" . moduleName . loadedModule
 
-buildNativeArtifacts :: NativeTarget -> FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
-buildNativeArtifacts target artifactRoot units = do
+buildBackendArtifacts :: NativeTarget -> FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
+buildBackendArtifacts target artifactRoot units = do
   let layout = buildLinkLayoutFromInterfaces (map dependencyUnitLinkInterface units)
       objectRoot = artifactRoot </> "objects"
       archiveRoot = artifactRoot </> "archives"
-      nativeUnits = map (nativeUnit objectRoot) units
-  objectResults <- mapM (buildObject target layout) nativeUnits
+      backendUnits = map (backendUnit objectRoot) units
+  objectResults <- mapM (buildObject target layout) backendUnits
   case sequence objectResults of
     Left err -> pure (Left err)
     Right _ -> do
       createDirectoryIfMissing True archiveRoot
       let archiveMembers =
             foldl'
-              (\archives unit -> Map.insertWith (flip (<>)) (nativeUnitLibrary unit) [nativeObjectPath unit] archives)
+              (\archives unit -> Map.insertWith (flip (<>)) (backendUnitLibrary unit) [backendObjectPath unit] archives)
               Map.empty
-              nativeUnits
+              backendUnits
       archives <- mapM (buildArchive archiveRoot) (Map.toAscList archiveMembers)
       pure $ do
         archivePaths <- sequence archives
-        Right (map nativeInitializerSymbol nativeUnits, archivePaths)
+        Right (map backendInitializerSymbol backendUnits, archivePaths)
 
-data NativeUnit = NativeUnit
-  { nativeDependencyUnit :: !DependencyUnit,
-    nativeProgram :: !Grin.GcGrinProgram,
-    nativeInitializerSymbol :: !Text,
-    nativeObjectPath :: !FilePath
+data BackendUnit = BackendUnit
+  { backendDependencyUnit :: !DependencyUnit,
+    backendProgram :: !Grin.GcGrinProgram,
+    backendInitializerSymbol :: !Text,
+    backendObjectPath :: !FilePath
   }
 
-nativeUnit :: FilePath -> DependencyUnit -> NativeUnit
-nativeUnit objectRoot unit =
-  NativeUnit
-    { nativeDependencyUnit = unit,
-      nativeProgram = Grin.lowerGc (dependencyUnitCpsGrin unit),
-      nativeInitializerSymbol = initializer,
-      nativeObjectPath = objectRoot </> T.unpack library </> T.unpack unitName <> ".o"
+backendUnit :: FilePath -> DependencyUnit -> BackendUnit
+backendUnit objectRoot unit =
+  BackendUnit
+    { backendDependencyUnit = unit,
+      backendProgram = Grin.lowerGc (dependencyUnitCpsGrin unit),
+      backendInitializerSymbol = initializer,
+      backendObjectPath = objectRoot </> T.unpack library </> T.unpack unitName <> ".o"
     }
   where
     library = dependencyUnitPrimaryLibrary unit
     unitName = T.intercalate "+" (dependencyUnitModules unit)
     initializer = "_aihc_init_" <> symbolHex (library <> "\0" <> T.intercalate "\0" (dependencyUnitModules unit))
 
-nativeUnitLibrary :: NativeUnit -> Text
-nativeUnitLibrary = dependencyUnitPrimaryLibrary . nativeDependencyUnit
+backendUnitLibrary :: BackendUnit -> Text
+backendUnitLibrary = dependencyUnitPrimaryLibrary . backendDependencyUnit
 
 dependencyUnitPrimaryLibrary :: DependencyUnit -> Text
 dependencyUnitPrimaryLibrary unit = fromMaybe "dependencies" (listToMaybe (dependencyUnitLibraries unit))
@@ -478,32 +481,66 @@ symbolHex = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
   where
     renderByte byte = T.pack (padLeft 2 '0' (showHex byte ""))
 
-buildObject :: NativeTarget -> LinkLayout -> NativeUnit -> IO (Either String ())
+buildObject :: NativeTarget -> LinkLayout -> BackendUnit -> IO (Either String ())
 buildObject target layout unit = do
-  let destination = nativeObjectPath unit
+  let destination = backendObjectPath unit
       directory = takeDirectory destination
   exists <- doesFileExist destination
   if exists
     then pure (Right ())
     else do
-      case compileNativeModule target layout (nativeInitializerSymbol unit) (nativeProgram unit) of
-        Left err -> pure (Left ("native dependency code generation failed for " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> err))
-        Right assembly -> do
+      case compileBackendModule target layout (backendInitializerSymbol unit) (backendProgram unit) of
+        Left err -> pure (Left ("backend dependency code generation failed for " <> dependencyUnitLabel (backendDependencyUnit unit) <> ": " <> err))
+        Right backendSource -> do
           createDirectoryIfMissing True directory
           withTemporaryDirectory directory "module-build" $ \temporary -> do
-            let assemblyPath = temporary </> "module.s"
+            let sourcePath = temporary </> "module" <> backendSourceExtension target
                 objectPath = temporary </> "module.o"
-            TIO.writeFile assemblyPath assembly
-            (exitCode, _stdout, stderr) <- readProcessWithExitCode "clang" ["--target=" <> nativeTargetTriple target, "-c", assemblyPath, "-o", objectPath] ""
+            TIO.writeFile sourcePath backendSource
+            (compiler, arguments) <- objectCompiler target sourcePath objectPath
+            (exitCode, _stdout, stderr) <- readProcessWithExitCode compiler arguments ""
             case exitCode of
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
-              ExitFailure _ -> pure (Left ("failed to assemble dependency unit " <> dependencyUnitLabel (nativeDependencyUnit unit) <> ": " <> stderr))
+              ExitFailure _ -> pure (Left ("failed to compile dependency unit " <> dependencyUnitLabel (backendDependencyUnit unit) <> ": " <> stderr))
 
-compileNativeModule :: NativeTarget -> LinkLayout -> Text -> Grin.GcGrinProgram -> Either String Text
-compileNativeModule target layout initializer program =
+compileBackendModule :: NativeTarget -> LinkLayout -> Text -> Grin.GcGrinProgram -> Either String Text
+compileBackendModule target layout initializer program =
   case target of
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
+    PortableC -> compileC
+  where
+    compileC = either (Left . show) Right (C.compileModule layout initializer program)
+
+backendSourceExtension :: NativeTarget -> String
+backendSourceExtension PortableC = ".c"
+backendSourceExtension _ = ".s"
+
+objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
+objectCompiler target sourcePath objectPath = do
+  (compiler, targetArguments) <- backendCompiler target
+  case target of
+    PortableC -> cCompiler compiler targetArguments
+    AppleArm64 -> pure (compiler, nativeArguments targetArguments)
+    LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
+  where
+    nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
+    cCompiler compiler targetArguments = do
+      runtime <- runtimeSourcePath
+      pure
+        ( compiler,
+          targetArguments
+            <> [ "-std=c11",
+                 "-Wall",
+                 "-Wextra",
+                 "-Werror",
+                 "-I" <> takeDirectory runtime,
+                 "-c",
+                 sourcePath,
+                 "-o",
+                 objectPath
+               ]
+        )
 
 dependencyUnitLabel :: DependencyUnit -> String
 dependencyUnitLabel = T.unpack . T.intercalate "," . dependencyUnitModules
