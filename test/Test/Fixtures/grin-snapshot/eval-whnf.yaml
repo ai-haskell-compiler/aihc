@@ -20,5 +20,8 @@ heap: |
   @1 = P$const/1 @2
   @2 = CValue
   @3 = CBox
+allocations:
+  macos-arm64: 8
+  linux-amd64: 8
 status: pass
 reason: GrinEval returns the original heap pointer for partial applications and saturated data constructors that are already in WHNF

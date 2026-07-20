@@ -244,6 +244,7 @@ AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
 #else
 #error "unknown AIHC_GC selection"
 #endif
+  ++machine->allocation_count;
   value->header = aihc_make_header(tag, info);
   return value;
 }
@@ -253,6 +254,14 @@ AihcValue *aihc_make_node(AihcMachine *machine, uint64_t tag,
   uint64_t words = aihc_object_words(tag, info);
   aihc_ensure_heap(machine, words, 0, NULL);
   return aihc_make_node_unchecked(machine, tag, info);
+}
+
+uint64_t aihc_allocation_count(const AihcMachine *machine) {
+  return machine->allocation_count;
+}
+
+void aihc_reset_allocation_count(AihcMachine *machine) {
+  machine->allocation_count = 0;
 }
 
 static const AihcInfo *aihc_next_application_info(const AihcInfo *info,

@@ -69,6 +69,7 @@ struct AihcMachine {
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
+  uint64_t allocation_count;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -115,6 +116,8 @@ AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);
+uint64_t aihc_allocation_count(const AihcMachine *machine);
+void aihc_reset_allocation_count(AihcMachine *machine);
 AihcSlot *aihc_alloc_locals(uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
@@ -174,7 +177,7 @@ typedef struct {
 
 void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
                         const AihcSnapshotRep *result_reps,
-                        uint64_t constructor_count,
+                        uint64_t allocation_count, uint64_t constructor_count,
                         const AihcSnapshotConstructor *constructors,
                         uint64_t function_count,
                         const AihcSnapshotFunction *functions);

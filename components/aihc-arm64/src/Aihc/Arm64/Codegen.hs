@@ -172,10 +172,13 @@ compileObservedFunction entryName gcProgram = do
                  "  bl _aihc_alloc_locals",
                  "  str x21, [x0]",
                  "  str x0, [x22, #0]",
+                 "  mov x0, x22",
+                 "  bl _aihc_reset_allocation_count",
                  "  b " <> entryLabel,
                  ".p2align 3",
                  ".Laihc_snapshot_result:",
                  "  ldr x1, [x22, #0]",
+                 "  mov x2, x22",
                  immediate "x0" resultCount,
                  "  bl _aihc_snapshot_dump_result",
                  "  mov w0, #0",
@@ -1404,8 +1407,9 @@ renderObservedMetadata env program resultReps = do
       <> renderRepDeclaration "result_reps" renderedResultReps
       <> renderConstructorTable constructors
       <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values) {",
+      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, const AihcMachine *machine) {",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
+           "                     aihc_allocation_count(machine),",
            "                     " <> tshow (length constructors) <> ", " <> tableOrNull constructors "constructors" <> ",",
            "                     " <> tshow (length functions) <> ", " <> tableOrNull functions "functions" <> ");",
            "}"

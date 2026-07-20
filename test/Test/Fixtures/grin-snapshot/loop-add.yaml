@@ -1,0 +1,21 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $loop (counter%2 :: IntRep) -> IntRep =
+    case (counter%2 :: IntRep) as tested%3 :: IntRep of
+      10000000 ->
+        constant (counter%2 :: IntRep)
+      _ ->
+        (next%4 :: IntRep) <- primitive-call @IntRep +# (counter%2 :: IntRep) (1 :: IntRep)
+        call @IntRep $loop (next%4 :: IntRep)
+
+  $entry -> IntRep =
+    call @IntRep $loop (0 :: IntRep)
+return: "10000000"
+heap: "[]"
+allocations:
+  macos-arm64: 0
+  linux-amd64: 0
+status: pass
+reason: a ten-million-iteration tail loop uses unboxed addition without allocating heap objects

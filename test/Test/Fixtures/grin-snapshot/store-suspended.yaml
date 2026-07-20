@@ -10,5 +10,8 @@ program: |
 return: "@0"
 heap: |
   @0 = F$delayed
+allocations:
+  macos-arm64: 1
+  linux-amd64: 1
 status: pass
 reason: observing a stored thunk symbolizes its code pointer without entering the thunk

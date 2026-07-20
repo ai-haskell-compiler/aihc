@@ -15,5 +15,8 @@ heap: |
   @0 = CPair @1 @2
   @1 = Indirection @2
   @2 = CI32# 7
+allocations:
+  macos-arm64: 6
+  linux-amd64: 6
 status: pass
 reason: only explicit GrinEval enters the thunk, preserving its heap-pointer result and exposing the update as an indirection
