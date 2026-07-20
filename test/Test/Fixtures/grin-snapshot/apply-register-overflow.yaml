@@ -1,0 +1,25 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $sum10 (a%2 :: IntRep) (b%3 :: IntRep) (c%4 :: IntRep) (d%5 :: IntRep) (e%6 :: IntRep) (f%7 :: IntRep) (g%8 :: IntRep) (h%9 :: IntRep) (i%10 :: IntRep) (j%11 :: IntRep) -> IntRep =
+    (ab%12 :: IntRep) <- primitive-call @IntRep +# (a%2 :: IntRep) (b%3 :: IntRep)
+    (abc%13 :: IntRep) <- primitive-call @IntRep +# (ab%12 :: IntRep) (c%4 :: IntRep)
+    (abcd%14 :: IntRep) <- primitive-call @IntRep +# (abc%13 :: IntRep) (d%5 :: IntRep)
+    (abcde%15 :: IntRep) <- primitive-call @IntRep +# (abcd%14 :: IntRep) (e%6 :: IntRep)
+    (abcdef%16 :: IntRep) <- primitive-call @IntRep +# (abcde%15 :: IntRep) (f%7 :: IntRep)
+    (abcdefg%17 :: IntRep) <- primitive-call @IntRep +# (abcdef%16 :: IntRep) (g%8 :: IntRep)
+    (abcdefgh%18 :: IntRep) <- primitive-call @IntRep +# (abcdefg%17 :: IntRep) (h%9 :: IntRep)
+    (abcdefghi%19 :: IntRep) <- primitive-call @IntRep +# (abcdefgh%18 :: IntRep) (i%10 :: IntRep)
+    primitive-call @IntRep +# (abcdefghi%19 :: IntRep) (j%11 :: IntRep)
+
+  $entry -> IntRep =
+    (partial%20 :: BoxedRep Lifted) <- store (P$sum10/[[IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep,IntRep]] (1 :: IntRep))
+    apply @IntRep (partial%20 :: BoxedRep Lifted) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep)
+return: "55"
+heap: "[]"
+allocations:
+  macos-arm64: 2
+  linux-amd64: 2
+status: pass
+reason: saturated closure arguments beyond the native register set use temporary stack overflow slots without heap allocation

@@ -1,0 +1,19 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $sum3 (first%2 :: IntRep) (second%3 :: IntRep) (third%4 :: IntRep) -> IntRep =
+    (partial%5 :: IntRep) <- primitive-call @IntRep +# (first%2 :: IntRep) (second%3 :: IntRep)
+    primitive-call @IntRep +# (partial%5 :: IntRep) (third%4 :: IntRep)
+
+  $entry -> IntRep =
+    (first%6 :: BoxedRep Lifted) <- store (P$sum3/[[IntRep],[IntRep]] (10 :: IntRep))
+    (second%7 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (first%6 :: BoxedRep Lifted) (20 :: IntRep)
+    apply @IntRep (second%7 :: BoxedRep Lifted) (30 :: IntRep)
+return: "60"
+heap: "[]"
+allocations:
+  macos-arm64: 4
+  linux-amd64: 4
+status: pass
+reason: a non-saturating closure application uses the C allocation path before the final register fast path

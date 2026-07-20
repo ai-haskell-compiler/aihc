@@ -96,6 +96,11 @@ data FunctionState = FunctionState
     functionBlocksRev :: ![Block]
   }
 
+data CompiledFunction = CompiledFunction
+  { compiledFunctionSlots :: !Int,
+    compiledFunctionLines :: ![Text]
+  }
+
 type FunctionM = StateT FunctionState (Either Arm64Error)
 
 data ValueEnv = ValueEnv
@@ -109,7 +114,14 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoIdentity :: !NodeInfo,
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
-    runtimeInfoNext :: !(Maybe Text)
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoApply :: !(Maybe RuntimeApply)
+  }
+
+data RuntimeApply = RuntimeApply
+  { runtimeApplyTarget :: !Text,
+    runtimeApplyStoredCount :: !Int,
+    runtimeApplySuppliedCount :: !Int
   }
 
 data RuntimeInfoKey
@@ -159,6 +171,7 @@ compileObservedFunction entryName gcProgram = do
             "  bl _aihc_machine_new",
             "  mov x22, x0"
           ]
+            <> reserveLocalsLines functions
             <> constructorLines
             <> initLines
             <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
@@ -194,14 +207,15 @@ compileObservedFunction entryName gcProgram = do
                  "  bl _aihc_thread_done"
                ]
             <> tailDispatchLines
-            <> concat functions
+            <> concatMap compiledFunctionLines functions
+            <> renderApplyStubs (compileRuntimeInfos compileEnv)
             <> renderAddrLiteralPool compileEnv
             <> renderRuntimeInfos
               ( compileRuntimeInfos compileEnv
-                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info"),
-                       RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing,
-                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info"),
-                       RuntimeInfo ".Laihc_snapshot_applied_info" (InfoAddress ".Laihc_snapshot_result") resultReps 0 Nothing
+                  <> [ RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") Nothing,
+                       RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing Nothing,
+                       RuntimeInfo ".Laihc_snapshot_info" (InfoAddress ".Laihc_snapshot_result") [] 1 (Just ".Laihc_snapshot_applied_info") Nothing,
+                       RuntimeInfo ".Laihc_snapshot_applied_info" (InfoAddress ".Laihc_snapshot_result") resultReps 0 Nothing Nothing
                      ]
               )
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
@@ -243,13 +257,15 @@ compileModule layout initializerSymbol gcProgram = do
       "  stp x21, x22, [sp, #32]",
       "  mov x22, x0"
     ]
+      <> reserveLocalsLines functions
       <> initLines
       <> [ "  ldp x21, x22, [sp, #32]",
            "  ldp x19, x20, [sp, #16]",
            "  ldp x29, x30, [sp], #48",
            "  ret"
          ]
-      <> concat functions
+      <> concatMap compiledFunctionLines functions
+      <> renderApplyStubs (compileRuntimeInfos compileEnv)
       <> renderAddrLiteralPool compileEnv
       <> renderRuntimeInfos (compileRuntimeInfos compileEnv)
   where
@@ -280,6 +296,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
       "  bl _aihc_machine_new",
       "  mov x22, x0"
     ]
+      <> reserveLocalsLines functions
       <> constructorLines
       <> concatMap callInitializer dependencyInitializers
       <> initLines
@@ -351,18 +368,19 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  ldp x29, x30, [sp], #48",
            "  ret"
          ]
-      <> concat functions
+      <> concatMap compiledFunctionLines functions
+      <> renderApplyStubs (compileRuntimeInfos compileEnv)
       <> renderAddrLiteralPool compileEnv
       <> renderRuntimeInfos
         ( compileRuntimeInfos compileEnv
-            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info"),
-                 RuntimeInfo ".Laihc_final_applied_info" (InfoAddress ".Laihc_final_continuation") [BoxedRep Lifted] 0 Nothing,
-                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info"),
-                 RuntimeInfo ".Laihc_top_applied_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info"),
-                 RuntimeInfo ".Laihc_update_applied_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info"),
-                 RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing
+            <> [ RuntimeInfo ".Laihc_final_info" (InfoAddress ".Laihc_final_continuation") [] 1 (Just ".Laihc_final_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_final_applied_info" (InfoAddress ".Laihc_final_continuation") [BoxedRep Lifted] 0 Nothing Nothing,
+                 RuntimeInfo ".Laihc_top_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted] 1 (Just ".Laihc_top_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_top_applied_info" (InfoAddress ".Laihc_top_continuation") [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
+                 RuntimeInfo ".Laihc_update_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted] 1 (Just ".Laihc_update_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_update_applied_info" (InfoAddress updateLabel) [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
+                 RuntimeInfo ".Laihc_thread_done_info" (InfoAddress ".Laihc_thread_done_continuation") [] 1 (Just ".Laihc_thread_done_applied_info") Nothing,
+                 RuntimeInfo ".Laihc_thread_done_applied_info" (InfoAddress ".Laihc_thread_done_continuation") [BoxedRep Lifted] 0 Nothing Nothing
                ]
         )
   where
@@ -400,7 +418,7 @@ compileEnvironmentWith exposeAllFunctions layout program =
     constructorInfoEntries =
       [ ( key,
           label,
-          RuntimeInfo label (InfoImmediate identifier) fields remaining next
+          RuntimeInfo label (InfoImmediate identifier) fields remaining next Nothing
         )
       | ((name, layouts), (_, identifier)) <- zip constructorLayouts constructorIdentifiers,
         let arity = length layouts,
@@ -433,12 +451,18 @@ compileEnvironmentWith exposeAllFunctions layout program =
     functionInfos =
       [ RuntimeInfo
           label
-          (InfoAddress (functionLabelMap Map.! functionName))
+          (InfoAddress target)
           (runtimeInfoKeyFields key)
           (runtimeInfoKeyRemainingArity key)
           (runtimeInfoKeyNext key >>= (`Map.lookup` functionInfoLabels))
+          ( case key of
+              ClosureRuntimeInfo _ fields [supplied] ->
+                Just (RuntimeApply target (length fields) (length supplied))
+              _ -> Nothing
+          )
       | (key, functionName) <- functionInfoKeys,
         let label = functionInfoLabels Map.! key
+            target = functionLabelMap Map.! functionName
       ]
     third (_, _, value) = value
 
@@ -473,7 +497,7 @@ compileInitializers env program = do
         <> fieldLines
   pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
 
-compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error [Text]
+compileFunction :: CompileEnv -> GrinFunction -> Either Arm64Error CompiledFunction
 compileFunction env function = do
   label <- functionCodeLabel env (grinFunctionName function)
   let localSlots = functionLocalSlots function
@@ -486,8 +510,17 @@ compileFunction env function = do
   (parameterCopies, spillCount) <-
     either (Left . Arm64EmitError) Right (renderAllocatedBlock spillBase (parameterCopyLir localSlots (grinFunctionParameters function)))
   let slotCount = max 1 (spillBase + spillCount)
+      parameterCount = length (grinFunctionParameters function)
+      valueParameterCount = max 0 (parameterCount - 1)
+      registerParameterCopies =
+        [ storeAt register "x19" index
+        | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters,
+          index < valueParameterCount
+        ]
+          <> [storeAt applyContinuationRegister "x19" valueParameterCount | parameterCount > 0]
       entry =
         exportLines env function label
+          <> registerExportLines env function label
           <> [ ".p2align 3",
                label <> ":",
                immediate "x1" slotCount,
@@ -497,9 +530,25 @@ compileFunction env function = do
                "  ldr x8, [x22, #0]"
              ]
           <> parameterCopies
+          <> ["  b " <> bodyLabel, ".p2align 3", registerEntryLabel label <> ":"]
+          <> registerParameterCopies
           <> ["  b " <> bodyLabel]
       blocks = concatMap renderBlock (reverse (functionBlocksRev finalState))
-  pure (entry <> blocks)
+  pure
+    CompiledFunction
+      { compiledFunctionSlots = slotCount,
+        compiledFunctionLines = entry <> blocks
+      }
+
+reserveLocalsLines :: [CompiledFunction] -> [Text]
+reserveLocalsLines functions =
+  [ immediate "x1" maximumSlots,
+    "  mov x0, x22",
+    "  bl _aihc_alloc_locals",
+    "  mov x19, x0"
+  ]
+  where
+    maximumSlots = maximum (1 : map compiledFunctionSlots functions)
 
 exportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
 exportLines env function label
@@ -508,6 +557,10 @@ exportLines env function label
       case grinFunctionLinkName function of
         Just _ -> [".globl " <> label]
         Nothing -> []
+
+registerExportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
+registerExportLines env function label =
+  [".globl " <> registerEntryLabel label | not (null (exportLines env function label))]
 
 parameterCopyLir :: Map GrinVar Int -> [GrinVar] -> [Lir.Instruction Lir.PhysicalReg]
 parameterCopyLir slots parameters =
@@ -603,6 +656,7 @@ compileExpr env prefix label expression =
     GrinCpsApply _ function arguments continuation -> do
       scratch <- freshSlot
       continuationSlot <- freshSlot
+      slowLabel <- freshLabel (valueLabelPrefix env) "apply_slow"
       functionLines <- liftEither (materializeValue env function)
       continuationLines <- liftEither (materializeValue env continuation)
       argumentSlots <- freshSlots (length arguments)
@@ -610,6 +664,18 @@ compileExpr env prefix label expression =
         fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
           lines' <- liftEither (materializeValue env argument)
           pure (lines' <> [storeAt "x0" "x19" slot])
+      let stackBytes = applyStackBytes (length arguments)
+          stackRestoreLines = restoreApplyStackLines stackBytes
+          slowApplyLines =
+            stackRestoreLines
+              <> [ loadAt "x1" "x19" scratch,
+                   immediate "x2" (length arguments),
+                   slotPointer "x3" argumentSlots,
+                   loadAt "x4" "x19" continuationSlot,
+                   "  mov x0, x22",
+                   "  bl _aihc_apply_cps"
+                 ]
+              <> tailDispatchLines
       addBlock
         label
         ( prefix
@@ -618,14 +684,19 @@ compileExpr env prefix label expression =
             <> continuationLines
             <> [storeAt "x0" "x19" continuationSlot]
             <> argumentLines
-            <> [ loadAt "x1" "x19" scratch,
-                 immediate "x2" (length arguments),
-                 slotPointer "x3" argumentSlots,
-                 loadAt "x4" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_apply_cps"
+            <> [ loadAt applyFunctionRegister "x19" scratch,
+                 loadAt applyContinuationRegister "x19" continuationSlot
                ]
-            <> tailDispatchLines
+            <> [loadAt register "x19" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
+            <> saveApplyOverflowLines "x19" argumentSlots
+            <> [ "  ldr x8, [" <> applyFunctionRegister <> "]",
+                 "  and x8, x8, #0xfffffffffffffff8",
+                 "  ldr x8, [x8, #48]",
+                 "  cbz x8, " <> slowLabel,
+                 "  br x8",
+                 slowLabel <> ":"
+               ]
+            <> slowApplyLines
         )
     GrinContinue continuation values -> do
       continuationSlot <- freshSlot
@@ -1061,6 +1132,91 @@ makeNodeUncheckedLines :: Int -> NodeInfo -> [Text]
 makeNodeUncheckedLines kind info =
   init (makeNodeLines kind info) <> ["  bl _aihc_make_node_unchecked"]
 
+renderApplyStubs :: [RuntimeInfo] -> [Text]
+renderApplyStubs = concatMap renderStub
+  where
+    renderStub info =
+      case runtimeInfoApply info of
+        Nothing -> []
+        Just apply ->
+          [ ".section __TEXT,__text,regular,pure_instructions",
+            ".p2align 3",
+            applyEntryLabel info <> ":"
+          ]
+            <> moveSupplied apply
+            <> moveSuppliedOverflow apply
+            <> loadStored apply
+            <> restoreApplyStackLines (applyStackBytes (runtimeApplySuppliedCount apply))
+            <> ["  b " <> registerEntryLabel (runtimeApplyTarget apply)]
+    moveSupplied apply =
+      concat
+        [ placeArgument targetIndex source
+        | (sourceIndex, source) <- reverse (zip [0 :: Int ..] applyArgumentRegisters),
+          sourceIndex < runtimeApplySuppliedCount apply,
+          let targetIndex = runtimeApplyStoredCount apply + sourceIndex
+        ]
+    moveSuppliedOverflow apply
+      | runtimeApplySuppliedCount apply <= length applyArgumentRegisters = []
+      | otherwise =
+          ["  mov x9, sp"]
+            <> concat
+              [ [ "  ldr x8, [x9], #8",
+                  storeAt "x8" "x19" targetIndex
+                ]
+              | sourceIndex <- [length applyArgumentRegisters .. runtimeApplySuppliedCount apply - 1],
+                let targetIndex = runtimeApplyStoredCount apply + sourceIndex
+              ]
+    loadStored apply =
+      concat
+        [ if targetIndex < length applyArgumentRegisters
+            then ["  ldr " <> applyArgumentRegisters !! targetIndex <> ", [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]"]
+            else
+              [ "  ldr x8, [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]",
+                storeAt "x8" "x19" targetIndex
+              ]
+        | targetIndex <- [0 .. runtimeApplyStoredCount apply - 1]
+        ]
+    placeArgument targetIndex source
+      | targetIndex < length applyArgumentRegisters =
+          ["  mov " <> applyArgumentRegisters !! targetIndex <> ", " <> source]
+      | otherwise = [storeAt source "x19" targetIndex]
+
+applyEntryLabel :: RuntimeInfo -> Text
+applyEntryLabel info = runtimeInfoLabel info <> "_apply"
+
+registerEntryLabel :: Text -> Text
+registerEntryLabel label = label <> "_register"
+
+applyFunctionRegister, applyContinuationRegister :: Text
+applyFunctionRegister = "x20"
+applyContinuationRegister = "x21"
+
+applyArgumentRegisters :: [Text]
+applyArgumentRegisters = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+
+applyStackBytes :: Int -> Int
+applyStackBytes suppliedCount =
+  ((overflowCount * 8 + 15) `div` 16) * 16
+  where
+    overflowCount = max 0 (suppliedCount - length applyArgumentRegisters)
+
+saveApplyOverflowLines :: Text -> [Int] -> [Text]
+saveApplyOverflowLines base slots
+  | stackBytes == 0 = []
+  | otherwise =
+      [immediate "x8" stackBytes, "  sub sp, sp, x8", "  mov x9, sp"]
+        <> concat
+          [ [loadAt "x8" base slot, "  str x8, [x9], #8"]
+          | slot <- drop (length applyArgumentRegisters) slots
+          ]
+  where
+    stackBytes = applyStackBytes (length slots)
+
+restoreApplyStackLines :: Int -> [Text]
+restoreApplyStackLines stackBytes
+  | stackBytes == 0 = []
+  | otherwise = [immediate "x8" stackBytes, "  add sp, sp, x8"]
+
 renderRuntimeInfos :: [RuntimeInfo] -> [Text]
 renderRuntimeInfos infos =
   [".section __DATA,__const"] <> concatMap renderInfo infos
@@ -1074,7 +1230,8 @@ renderRuntimeInfos infos =
              "  .quad " <> tshow (length fields),
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
-             "  .quad " <> fromMaybe "0" (runtimeInfoNext info)
+             "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
+             "  .quad " <> maybe "0" (const (applyEntryLabel info)) (runtimeInfoApply info)
            ]
       where
         fields = runtimeInfoFields info

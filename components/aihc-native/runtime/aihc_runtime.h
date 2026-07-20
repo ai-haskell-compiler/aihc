@@ -43,6 +43,7 @@ struct AihcInfo {
   uint64_t remaining_arity;
   const uint8_t *field_is_pointer;
   const AihcInfo *next;
+  AihcEntry apply_entry;
 };
 
 struct AihcValue {
@@ -70,6 +71,10 @@ struct AihcMachine {
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
   uint64_t allocation_count;
+  AihcSlot *locals;
+  uint64_t locals_capacity;
+  AihcSlot *args_buffer;
+  uint64_t args_capacity;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),

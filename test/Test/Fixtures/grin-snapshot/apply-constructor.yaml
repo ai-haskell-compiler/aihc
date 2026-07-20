@@ -1,0 +1,15 @@
+entry: $entry
+program: |
+  constructor Pair#/2 [IntRep, IntRep]
+
+  $entry -> BoxedRep Lifted =
+    (partial%1 :: BoxedRep Lifted) <- store (CPair#/1 (10 :: IntRep))
+    apply @(BoxedRep Lifted) (partial%1 :: BoxedRep Lifted) (20 :: IntRep)
+return: "@0"
+heap: |
+  @0 = CPair# 10 20
+allocations:
+  macos-arm64: 3
+  linux-amd64: 3
+status: pass
+reason: saturating a partial constructor stays on the C path because it must allocate the completed node

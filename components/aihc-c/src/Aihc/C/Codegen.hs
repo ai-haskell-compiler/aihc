@@ -615,6 +615,7 @@ renderRuntimeInfos infos = concatMap bitmap infos <> [""] <> map declaration inf
         <> (if null (runtimeInfoFields info) then "NULL" else runtimeInfoLabel info <> "_bitmap")
         <> ", "
         <> maybe "NULL" ("&" <>) (runtimeInfoNext info)
+        <> ", NULL"
         <> "};"
 
 renderForeignDeclarations :: GrinProgram -> [Text]

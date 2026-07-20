@@ -30,10 +30,19 @@ blackhole:             [header] [environment / reserved target...]
 ```
 
 Each info table records the object's identity, populated field count, remaining
-logical arity, pointer bitmap, and next application-stage table. Application
-changes the header to the statically known next table. Consequently every
-managed object pays only for its tagged header and payload; arity and tracing
-metadata consume no per-object shape word.
+logical arity, pointer bitmap, next application-stage table, and an optional
+native apply entry. Application changes the header to the statically known next
+table. Consequently every managed object pays only for its tagged header and
+payload; arity, tracing metadata, and apply code consume no per-object shape
+word.
+
+The native backends give saturated closure stages a generated apply entry.
+Apply sites place the closure, continuation, and supplied values in the AIHC
+register convention and branch through that info-table entry. The stage stub
+loads captured fields directly from the closure, moves the supplied values into
+their final argument registers, and tail-branches to the target function's
+register entry. Non-saturating closures, partial constructors, and invalid
+applications leave the apply entry empty and use the shared C slow path.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated
@@ -48,8 +57,10 @@ Exceptions have no native heap tag or object representation. They are removed
 before native runtime lowering. The final physical tag is the semispace
 collector's temporary forwarding marker.
 
-The cooperative scheduler keeps thread records, argument vectors, blackhole
-records, and wait queues in auxiliary C allocations. Suspended argument vectors
-carry their static info table plus a count of trailing continuation pointers,
-so the semispace collector can relocate roots held by runnable and blocked
-threads as precisely as roots in the currently executing function.
+The cooperative scheduler keeps thread records, blackhole records, and wait
+queues in auxiliary C allocations. Suspended threads retain ordinary action or
+continuation closures, which are expanded into one machine-owned argument area
+only when the scheduler selects them. The machine likewise reuses one locals
+area because CPS transfers discard the preceding function frame. The current
+argument area's static info table and trailing-pointer count let the semispace
+collector relocate its roots precisely.

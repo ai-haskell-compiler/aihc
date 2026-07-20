@@ -139,7 +139,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add x0, x1, x0" `T.isInfixOf` observedAssembly observed)
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 2\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 1\n") native,
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -289,7 +289,7 @@ tests =
               (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
         assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+        forM_ ["void *next;", "machine->next", "aihc_schedule"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
@@ -341,21 +341,21 @@ tests =
                     "static void entry_12(void) {}",
                     "static const uint8_t pointer_field[] = {1};",
                     "static const uint8_t pointer_then_scalar[] = {1, 0};",
-                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0};",
-                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info};",
-                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info};",
-                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info};",
-                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0};",
-                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info};",
-                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info};",
-                    "static const AihcInfo parent_final_info = {11, entry_11, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo parent_info = {11, entry_11, 0, 1, 0, &parent_final_info};",
-                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0};",
-                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info};",
+                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0};",
+                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0, 0};",
+                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0, 0};",
+                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info, 0};",
+                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info, 0};",
+                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0, 0};",
+                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info, 0};",
+                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0, 0};",
+                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0};",
+                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0};",
+                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0};",
+                    "static const AihcInfo parent_final_info = {11, entry_11, 1, 0, pointer_field, 0, 0};",
+                    "static const AihcInfo parent_info = {11, entry_11, 0, 1, 0, &parent_final_info, 0};",
+                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0};",
+                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0};",
                     "static int test_apply_roots(void) {",
                     "  AihcMachine *machine = aihc_machine_new(0);",
                     "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
@@ -480,6 +480,10 @@ snapshotCases =
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
+    ("saturates a partial constructor through C", "apply-constructor.yaml"),
+    ("allocates a multi-stage partial closure", "apply-multistage.yaml"),
+    ("saturates a partial closure through registers", "apply-partial.yaml"),
+    ("passes excess saturated arguments through the native stack", "apply-register-overflow.yaml"),
     ("applies a stored closure", "apply.yaml"),
     ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
     ("snapshots child evaluation after yield#", "yield.yaml")
@@ -501,6 +505,16 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    when (fixtureName == "apply-partial.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "dispatches through the info-table apply entry" ("ldr x8, [x8, #48]" `T.isInfixOf` assembly)
+      assertBool
+        "loads captured and supplied arguments into registers"
+        ("mov x1, x0\n  ldr x0, [x20, #8]\n  b _aihc_snapshot_function_0_register" `T.isInfixOf` assembly)
+    when (fixtureName == "apply-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills supplied register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
+      assertBool "reloads supplied register overflow" ("mov x9, sp\n  ldr x8, [x9], #8" `T.isInfixOf` assembly)
     when (arch == "aarch64" && os == "darwin") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native

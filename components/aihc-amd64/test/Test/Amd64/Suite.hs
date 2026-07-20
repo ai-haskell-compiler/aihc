@@ -139,7 +139,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add rax, r10" `T.isInfixOf` observedAssembly observed)
         when (arch == "x86_64" && os == "linux") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 2\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 1\n") native,
       testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -297,7 +297,7 @@ tests =
               (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
         assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+        forM_ ["void *next;", "machine->next", "aihc_schedule"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
@@ -385,6 +385,10 @@ snapshotCases =
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
+    ("saturates a partial constructor through C", "apply-constructor.yaml"),
+    ("allocates a multi-stage partial closure", "apply-multistage.yaml"),
+    ("saturates a partial closure through registers", "apply-partial.yaml"),
+    ("passes excess saturated arguments through the native stack", "apply-register-overflow.yaml"),
     ("applies a stored closure", "apply.yaml"),
     ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
     ("snapshots child evaluation after yield#", "yield.yaml")
@@ -406,6 +410,18 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    when (fixtureName == "apply-partial.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "dispatches through the info-table apply entry" ("mov r11, QWORD PTR [r11 + 48]" `T.isInfixOf` assembly)
+      assertBool
+        "loads captured and supplied arguments into registers"
+        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  jmp aihc_snapshot_function_0_register" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
+    when (fixtureName == "apply-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills supplied register overflow" ("sub rsp, 16" `T.isInfixOf` assembly)
+      assertBool "reloads supplied register overflow" ("mov r11, QWORD PTR [rsp + 0]" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
     when (arch == "x86_64" && os == "linux") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native
