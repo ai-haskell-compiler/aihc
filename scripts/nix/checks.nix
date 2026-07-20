@@ -68,6 +68,52 @@
       touch "$out"
     '';
 
+  compilationModes = [
+    {
+      name = "incremental";
+      flags = [];
+    }
+    {
+      name = "whole-program";
+      flags = ["--whole-program"];
+    }
+  ];
+  garbageCollectors = ["calloc" "semispace"];
+  nativeBackendBySystem = {
+    "aarch64-darwin" = "apple-arm64";
+    "x86_64-linux" = "linux-amd64";
+  };
+  nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
+  backends = ["portable-c"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  compilationMatrix = builtins.concatLists (
+    map (
+      backend:
+        builtins.concatLists (
+          map (compilation: map (gc: {inherit backend compilation gc;}) garbageCollectors) compilationModes
+        )
+    )
+    backends
+  );
+
+  renderExampleTest = {
+    backend,
+    compilation,
+    gc,
+  }: ''
+    executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
+    actual_stdout="$executable.stdout"
+    ${aihcExe} compile "$source" \
+      --target ${backend} \
+      --gc ${gc} \
+      ${pkgs.lib.escapeShellArgs compilation.flags} \
+      --output "$executable"
+    "$executable" > "$actual_stdout"
+    diff --unified \
+      --label "$example_name/expected" \
+      --label "$example_name/${backend}-${compilation.name}-${gc}" \
+      "$expected_stdout" "$actual_stdout"
+  '';
+
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
@@ -75,6 +121,7 @@
   parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
   lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
+  aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
   parserTests = mkPackageTest hsPkgs.aihc-parser;
   cppTests = mkPackageTest hsPkgs.aihc-cpp;
@@ -151,6 +198,23 @@
     test "$failed" -eq 0
   '';
 
+  examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.llvmPackages.clang] ''
+    set -euo pipefail
+    export XDG_CACHE_HOME="$TMPDIR/cache"
+
+    while IFS= read -r -d "" source; do
+      example_directory=$(dirname "$source")
+      example_name=$(basename "$example_directory")
+      expected_stdout="$example_directory/stdout"
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        exit 1
+      fi
+
+      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}
+    done < <(find examples -mindepth 2 -maxdepth 2 -name Main.hs -print0 | sort -z)
+  '';
+
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
     ${parserProgressExe} --strict
   '';
@@ -222,6 +286,7 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
+  examples-tests = examplesTests;
 
   all-tests = pkgs.linkFarm "aihc-all-tests" [
     {
@@ -335,6 +400,10 @@ in {
     {
       name = "cabal-format";
       path = cabalFormat;
+    }
+    {
+      name = "examples-tests";
+      path = examplesTests;
     }
   ];
 }

@@ -79,7 +79,7 @@ tests =
           (Left (Amd64UnsupportedRuntimeRep runtimeRep))
           (compileProgram "missing" (expectGcGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
-        let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
+        let primitive = GrinVar "unsupported#" 1 (BoxedRep Lifted)
             program =
               GrinProgram
                 { grinConstructors = [],
@@ -91,10 +91,54 @@ tests =
                   grinCafs = [],
                   grinFunctions = []
                 }
-        assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
+        assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
         case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
+      testCase "adds Int# values with wrapping machine arithmetic" $ do
+        let entryName = FunctionName "int_add"
+            result = GrinVar "result" 2 IntRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "+#" 1 IntRep, 2)],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = IntRep,
+                          grinFunctionBody =
+                            GrinBind
+                              [result]
+                              ( GrinPrimitiveCall
+                                  IntRep
+                                  "+#"
+                                  [ GrinLitValue (GrinLitInt IntRep 9223372036854775807),
+                                    GrinLitValue (GrinLitInt IntRep 1)
+                                  ]
+                              )
+                              (GrinConstant [GrinVarValue result])
+                        }
+                    ]
+                }
+        assertEqual "direct GRIN lint" [] (lintProgram program)
+        assertEqual "linked primitive validation" (Right ()) (validateProgramPrimitives program)
+        let gc = expectGcGrin program
+        assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+        observed <-
+          case compileObservedFunction entryName gc of
+            Left err -> assertFailure ("native Int# addition compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits a wrapping 64-bit add" ("  add rax, r10" `T.isInfixOf` observedAssembly observed)
+        when (arch == "x86_64" && os == "linux") $ do
+          native <- runObservedProgram observed
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\n") native,
       testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
