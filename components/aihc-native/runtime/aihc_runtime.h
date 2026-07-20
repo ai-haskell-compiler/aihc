@@ -34,7 +34,29 @@ typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef uint64_t AihcSlot;
-typedef void (*AihcEntry)(void);
+typedef void (*AihcEntry)(AihcSlot *arguments);
+
+/* Only the portable-C trampoline expands a transfer into an argument array.
+   Native backends enter generated code with their register convention. */
+typedef struct {
+  AihcEntry entry;
+  AihcSlot *arguments;
+} AihcPortableTransfer;
+
+enum {
+  AIHC_RESUME_NONE,
+  AIHC_RESUME_APPLY,
+  AIHC_RESUME_CONTINUE,
+};
+typedef uint64_t AihcResumeKind;
+
+typedef struct {
+  AihcResumeKind kind;
+  AihcValue *function;
+  AihcValue *continuation;
+  AihcSlot value;
+  uint64_t count;
+} AihcResume;
 
 struct AihcInfo {
   uintptr_t identity;
@@ -43,6 +65,9 @@ struct AihcInfo {
   uint64_t remaining_arity;
   const uint8_t *field_is_pointer;
   const AihcInfo *next;
+  /* Backend-owned dynamic entry. Native entries unpack captured fields into
+     registers; portable C leaves this null and uses entry plus its buffer. */
+  AihcEntry enter_entry;
 };
 
 struct AihcValue {
@@ -53,7 +78,6 @@ struct AihcValue {
 };
 
 struct AihcMachine {
-  AihcSlot *args;
   AihcSlot *globals;
   uint64_t global_count;
   AihcEntry exit_code;
@@ -62,14 +86,15 @@ struct AihcMachine {
   uint8_t *heap_start;
   uint8_t *other_space;
   uint64_t semispace_bytes;
-  const AihcInfo *args_info;
-  uint64_t args_trailing_pointers;
   AihcValue *thread_done_continuation;
   AihcThread *current_thread;
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
   uint64_t allocation_count;
+  AihcSlot *locals;
+  uint64_t locals_capacity;
+  AihcResume selected_resume;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -122,27 +147,53 @@ AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
-AihcEntry aihc_apply_cps(AihcMachine *machine, AihcValue *function,
-                         uint64_t count, const AihcSlot *arguments,
-                         AihcValue *continuation);
-AihcEntry aihc_eval_cps(AihcMachine *machine, AihcValue *value,
-                        uint64_t result_is_lifted, AihcValue *continuation,
-                        AihcValue *update_continuation);
-AihcEntry aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
-                               uint64_t count, const AihcSlot *values);
+/* State and allocation helpers used by native code. None of these functions
+   transfers control to a generated user function. */
+AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
+                           uint64_t count, const AihcSlot *arguments,
+                           AihcValue **continuation);
+void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value);
+const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
+                                          AihcValue *value,
+                                          AihcValue *continuation);
 void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
-AihcEntry aihc_fork_cps(AihcMachine *machine, AihcValue *action,
-                        AihcValue *continuation);
-AihcEntry aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
-AihcEntry aihc_thread_done(AihcMachine *machine);
+AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
+const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation);
+const AihcResume *aihc_thread_done(AihcMachine *machine);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
-AihcEntry aihc_start(AihcMachine *machine, AihcValue *root,
-                     AihcValue *continuation, AihcValue *update_continuation,
-                     AihcValue *thread_done_continuation, AihcEntry exit_code);
+
+/* Portable-C control operations. The generated backend owns and supplies the
+   reusable buffer; the machine and native backends never contain one. */
+AihcPortableTransfer
+aihc_portable_apply_cps(AihcMachine *machine, AihcSlot *buffer,
+                        AihcValue *function, uint64_t count,
+                        const AihcSlot *arguments, AihcValue *continuation);
+AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
+                                            AihcSlot *buffer, AihcValue *value,
+                                            uint64_t result_is_lifted,
+                                            AihcValue *continuation,
+                                            AihcValue *update_continuation);
+AihcPortableTransfer aihc_portable_continue_values(AihcMachine *machine,
+                                                   AihcSlot *buffer,
+                                                   AihcValue *continuation,
+                                                   uint64_t count,
+                                                   const AihcSlot *values);
+AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
+                                            AihcSlot *buffer, AihcValue *action,
+                                            AihcValue *continuation);
+AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
+                                             AihcSlot *buffer,
+                                             AihcValue *continuation);
+AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine,
+                                               AihcSlot *buffer);
+AihcPortableTransfer
+aihc_portable_start(AihcMachine *machine, AihcSlot *buffer, AihcValue *root,
+                    AihcValue *continuation, AihcValue *update_continuation,
+                    AihcValue *thread_done_continuation, AihcEntry exit_code);
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

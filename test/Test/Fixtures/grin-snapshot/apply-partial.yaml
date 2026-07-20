@@ -1,0 +1,17 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  $add (left%2 :: IntRep) (right%3 :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (left%2 :: IntRep) (right%3 :: IntRep)
+
+  $entry -> IntRep =
+    (partial%4 :: BoxedRep Lifted) <- store (P$add/[[IntRep]] (10 :: IntRep))
+    apply @IntRep (partial%4 :: BoxedRep Lifted) (20 :: IntRep)
+return: "30"
+heap: "[]"
+allocations:
+  macos-arm64: 1
+  linux-amd64: 1
+status: pass
+reason: saturating a closure loads its captured and supplied unboxed arguments into native registers

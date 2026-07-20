@@ -1,21 +1,29 @@
--- | AArch64 policy for the shared native linear-scan allocator.
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | AArch64 policy for shared register allocation over CPS-GRIN.
 module Aihc.Arm64.RegisterAllocate
   ( Location (..),
     Allocation (..),
-    allocateBlock,
+    allocateFunction,
     allocatableRegisters,
   )
 where
 
-import Aihc.Arm64.Lir
+import Aihc.Grin.Syntax (GrinFunction, GrinVar)
 import Aihc.Native.RegisterAllocate (Allocation (..), AllocatorConfig (..), Location (..))
 import Aihc.Native.RegisterAllocate qualified as Native
+import Data.Map.Strict (Map)
+import Data.Text (Text)
 
--- | Registers which are caller-clobbered by C and not reserved for the linker,
--- platform, frame pointer, link register, spill materialization, or runtime
--- state. Values live across a 'Call' are assigned heap spill slots instead.
-allocatableRegisters :: [PhysicalReg]
-allocatableRegisters = [X9, X10, X11, X12, X13, X14, X15]
+-- x9-x11 remain instruction-selection scratch registers. x18 is reserved by
+-- Darwin, and x19-x22 hold AIHC runtime state.
+allocatableRegisters :: [Text]
+allocatableRegisters = ["x12", "x13", "x14", "x15", "x16", "x17"]
 
-allocateBlock :: [Instruction PhysicalReg] -> Allocation PhysicalReg
-allocateBlock = Native.allocateBlock AllocatorConfig {allocatorRegisters = allocatableRegisters}
+allocateFunction :: Map GrinVar (Location Text) -> GrinFunction -> Allocation Text
+allocateFunction fixedLocations =
+  Native.allocateFunction
+    AllocatorConfig
+      { allocatorRegisters = allocatableRegisters,
+        allocatorFixedLocations = fixedLocations
+      }

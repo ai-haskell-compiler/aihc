@@ -17,9 +17,6 @@ import Aihc.Amd64
     targetTriple,
     validateProgramPrimitives,
   )
-import Aihc.Amd64.Emit (renderAllocatedBlock)
-import Aihc.Amd64.Lir
-import Aihc.Amd64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
@@ -47,21 +44,7 @@ tests :: TestTree
 tests =
   testGroup
     "aihc-amd64"
-    [ testCase "linear scan spills into a heap-frame slot" $ do
-        let registers = map VirtualReg [0 .. 7]
-            definitions = [MoveImmediate (Virtual register) (fromIntegral index) | (index, register) <- zip [0 :: Int ..] registers]
-            uses = [Move (Physical Rax) (Virtual register) | register <- registers]
-            instructions = definitions <> uses
-            allocation = allocateBlock instructions
-        assertEqual "one spill" 1 (allocationSpillCount allocation)
-        assertBool "heap spill assigned" (InHeapSpill 0 `elem` Map.elems (allocationLocations allocation))
-        case renderAllocatedBlock 10 instructions of
-          Left err -> assertFailure ("failed to emit allocated block: " <> show err)
-          Right (assembly, spillCount) -> do
-            assertEqual "emitted spill count" 1 spillCount
-            assertBool "spill stored in heap frame" ("  mov QWORD PTR [r14 + 80], r10" `elem` assembly)
-            assertBool "spill loaded from heap frame" ("  mov r10, QWORD PTR [r14 + 80]" `elem` assembly),
-      testCase "rejects unresolved representation-polymorphic native layouts" $ do
+    [ testCase "rejects unresolved representation-polymorphic native layouts" $ do
         let runtimeRep = RuntimeRepVar (Unique 1)
             program =
               GrinProgram
@@ -138,7 +121,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add rax, r10" `T.isInfixOf` observedAssembly observed)
         when (arch == "x86_64" && os == "linux") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 2\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
       testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -168,7 +151,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
-            assertBool "maxBound :: Word64# remains unsigned" ("mov rax, 18446744073709551615" `T.isInfixOf` assembly)
+            assertBool "maxBound :: Word64# remains unsigned" ("mov rdi, 18446744073709551615" `T.isInfixOf` assembly)
             assertAssemblyAccepted assembly,
       testCase "passes static Addr# literals to native foreign calls" $ do
         let functionName = FunctionName "puts_addr"
@@ -238,7 +221,8 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
-            assertBool "uses the explicit continuation ABI" ("call aihc_continue_values" `T.isInfixOf` assembly),
+            assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
+            assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
       testCase "exports stable entries and branches directly to dependency code" $ do
         let identityName = FunctionName "$entry$identity"
             callerName = FunctionName "$entry$caller"
@@ -273,7 +257,8 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
-            assertBool "branches to dependency entry" ("jmp aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly),
+            assertBool "branches to dependency entry" ("jmp aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly)
+            assertBool "does not publish direct-call arguments through the machine" (not ("mov QWORD PTR [r15], r12" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
@@ -289,14 +274,14 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool
-              "apply tail-branches to the returned entry"
-              ("call aihc_apply_cps\n  jmp rax" `T.isInfixOf` assembly)
+              "slow apply returns a value that is passed to the continuation in registers"
+              ("call aihc_apply_slow" `T.isInfixOf` assembly && "jmp .Laihc_enter" `T.isInfixOf` assembly)
             assertBool
               "generated code does not reload a scheduled entry"
               (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
-        assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->locals", "aihc_schedule"] $ \forbidden ->
+        assertBool "slow apply returns only the allocated value" ("AihcValue *aihc_apply_slow" `isInfixOf` runtime)
+        forM_ ["void *next;", "machine->next", "machine->args", "aihc_schedule"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
         runtime <- readFile =<< runtimeSourcePath
@@ -384,6 +369,11 @@ snapshotCases =
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
+    ("saturates a partial constructor through C", "apply-constructor.yaml"),
+    ("allocates a multi-stage partial closure", "apply-multistage.yaml"),
+    ("saturates a partial closure through registers", "apply-partial.yaml"),
+    ("passes excess saturated arguments through the native stack", "apply-register-overflow.yaml"),
+    ("passes direct-call arguments through registers and the native stack", "call-register-overflow.yaml"),
     ("applies a stored closure", "apply.yaml"),
     ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
     ("snapshots child evaluation after yield#", "yield.yaml")
@@ -405,6 +395,31 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    when (fixtureName == "apply-partial.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "dispatches through the info-table apply entry" ("mov r11, QWORD PTR [r11 + 48]" `T.isInfixOf` assembly)
+      assertBool
+        "loads captured and supplied arguments into registers"
+        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  jmp aihc_snapshot_function_0" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
+    when (fixtureName == "apply-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills supplied register overflow" ("sub rsp, 16" `T.isInfixOf` assembly)
+      assertBool "reloads supplied register overflow" ("mov r11, QWORD PTR [rsp + 0]" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
+    when (fixtureName == "call-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills direct-call register overflow" ("sub rsp, 32" `T.isInfixOf` assembly)
+      assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` assembly))
+      assertAssemblyAccepted assembly
+    when (fixtureName == "loop-add.yaml") $ do
+      let assembly = observedAssembly observed
+          loopAndRest = snd (T.breakOn "aihc_snapshot_function_0:" assembly)
+          loopAssembly = fst (T.breakOn "aihc_snapshot_function_1:" loopAndRest)
+      assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[r14" `T.isInfixOf` loopAssembly))
+      assertEqual "only the self-tail-call jumps to the allocated body" 1 (T.count "jmp aihc_snapshot_function_0_body" loopAssembly)
+      assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
+      assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
     when (arch == "x86_64" && os == "linux") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native
@@ -599,7 +614,7 @@ testNativeHelloWorld = do
       Right value -> pure value
       Left err -> assertFailure ("AMD64 lowering failed: " <> show err)
   let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("jmp rax" `isInfixOf` rendered)
+  assertBool "emits indirect Haskell tail transfers" ("jmp r11" `isInfixOf` rendered)
   assertBool "never calls a generated Haskell entry" (not ("call .Laihc_function_" `isInfixOf` rendered))
   assertBool "emits unboxed literals as raw words" (not ("aihc_make_literal" `isInfixOf` rendered))
   assertAssemblyAccepted assembly
@@ -615,8 +630,8 @@ testNativeScheduler = do
     case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("AMD64 scheduler lowering failed: " <> show err)
-  assertBool "emits fork runtime transfer" ("call aihc_fork_cps" `T.isInfixOf` assembly)
-  assertBool "emits yield runtime transfer" ("call aihc_yield_cps" `T.isInfixOf` assembly)
+  assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` assembly)
+  assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` assembly)
   assertAssemblyAccepted assembly
   when (arch == "x86_64" && os == "linux") $

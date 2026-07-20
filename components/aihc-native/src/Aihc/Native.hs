@@ -82,7 +82,8 @@ backendCompiler target =
 -- compilation units in one executable.
 data LinkLayout = LinkLayout
   { linkConstructors :: ![(Text, [[RuntimeRep]])],
-    linkGlobalNames :: ![Text]
+    linkGlobalNames :: ![Text],
+    linkMaximumArgumentSlots :: !Int
   }
   deriving (Eq, Show)
 
@@ -90,7 +91,8 @@ data LinkLayout = LinkLayout
 -- unit. Code generation for another unit never needs its GRIN bodies.
 data LinkInterface = LinkInterface
   { linkInterfaceConstructors :: ![(Text, [[RuntimeRep]])],
-    linkInterfaceGlobalNames :: ![Text]
+    linkInterfaceGlobalNames :: ![Text],
+    linkInterfaceMaximumArgumentSlots :: !Int
   }
   deriving (Eq, Show, Read)
 
@@ -113,7 +115,9 @@ extractLinkInterface :: GrinProgram -> LinkInterface
 extractLinkInterface program =
   LinkInterface
     { linkInterfaceConstructors = grinConstructors program,
-      linkInterfaceGlobalNames = programGlobalNames program
+      linkInterfaceGlobalNames = programGlobalNames program,
+      linkInterfaceMaximumArgumentSlots =
+        maximum (0 : map (length . grinFunctionParameters) (grinFunctions program))
     }
 
 extendLinkLayout :: LinkLayout -> GrinProgram -> LinkLayout
@@ -123,7 +127,8 @@ extendLinkLayoutWithInterface :: LinkLayout -> LinkInterface -> LinkLayout
 extendLinkLayoutWithInterface layout interface =
   LinkLayout
     { linkConstructors = uniqueByName (linkConstructors layout <> linkInterfaceConstructors interface),
-      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> linkInterfaceGlobalNames interface)
+      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> linkInterfaceGlobalNames interface),
+      linkMaximumArgumentSlots = max (linkMaximumArgumentSlots layout) (linkInterfaceMaximumArgumentSlots interface)
     }
 
 runtimeSourcePath :: IO FilePath
@@ -136,7 +141,8 @@ emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
   LinkLayout
     { linkConstructors = builtinConstructors,
-      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
+      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts],
+      linkMaximumArgumentSlots = 0
     }
 
 programGlobalNames :: GrinProgram -> [Text]

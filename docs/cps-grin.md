@@ -67,14 +67,16 @@ single tagged info-table pointer before their payload fields.
 
 ## Cooperative scheduling
 
-`fork#` and `yield#` are CPS primitive calls. The runtime stores their ordinary
-continuation closures and argument vectors in auxiliary thread records, then
-resumes them through the same apply/entry mechanism as other continuations.
-Runnable and blackhole-blocked thread arguments are collector roots; their
-static layouts let a moving collector update them without introducing a native
-stack-scanning convention.
+`fork#` and `yield#` are CPS primitive calls whose suspended computations are
+ordinary continuation closures. When the runtime prepares one for entry, its
+expanded arguments live briefly in the machine's reusable argument area. The
+continuation resumes through the same apply/entry mechanism as any other
+continuation. Runnable and blackhole-blocked threads retain the closure values
+needed to resume, so those ordinary heap pointers are collector roots without
+introducing a native stack-scanning convention.
 
-This first representation is intentionally allocation-heavy. Optimizations
-such as eliminating immediately applied continuations belong after the
-suspension semantics are established, where they can prove that a continuation
-does not escape.
+Native saturated applications bypass that area: the closure's application-stage
+info table selects generated code which loads captured fields and supplied
+values into backend argument registers before tail-entering the function.
+Portable C and allocation-requiring native slow paths reuse the machine's
+argument area instead of allocating a vector for every transfer.
