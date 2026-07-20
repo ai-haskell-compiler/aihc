@@ -10,6 +10,7 @@ module Aihc.Fc.Optimize
 where
 
 import Aihc.Fc.Syntax
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -19,7 +20,7 @@ type CoreOptimization = FcProgram -> FcProgram
 optimizeProgram :: FcProgram -> FcProgram
 optimizeProgram = untilStable runOptimizations
   where
-    runOptimizations program = foldl' (flip ($)) program coreOptimizations
+    runOptimizations program = List.foldl' (flip ($)) program coreOptimizations
 
 -- Keep this list ordered from local canonicalizations to broader rewrites so
 -- later rules see the simplest output available from earlier rules.
