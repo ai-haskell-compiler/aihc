@@ -33,6 +33,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Word (Word64)
 import Data.Yaml qualified as Y
 import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
@@ -138,7 +139,7 @@ tests =
         assertBool "emits a wrapping 64-bit add" ("  add x0, x1, x0" `T.isInfixOf` observedAssembly observed)
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
-          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\n") native,
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 2\n") native,
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -441,7 +442,7 @@ data SnapshotCase = SnapshotCase
   }
 
 data SnapshotExpectation
-  = SnapshotSuccess !T.Text
+  = SnapshotSuccess !T.Text !Word64
   | SnapshotFailure !T.Text
 
 data SnapshotFixture = SnapshotFixture
@@ -450,6 +451,7 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureReturn :: !(Maybe T.Text),
     snapshotFixtureHeap :: !(Maybe T.Text),
     snapshotFixtureError :: !(Maybe T.Text),
+    snapshotFixtureAllocations :: !(Maybe (Map.Map T.Text Word64)),
     snapshotFixtureStatus :: !T.Text,
     snapshotFixtureReason :: !T.Text
   }
@@ -463,6 +465,7 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "return"
         <*> object .:? "heap"
         <*> object .:? "error"
+        <*> object .:? "allocations"
         <*> object .: "status"
         <*> object .: "reason"
 
@@ -473,6 +476,7 @@ snapshotCases =
     ("stores linked values", "store-linked.yaml"),
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
+    ("loops ten million times", "loop-add.yaml"),
     ("evaluates only through GrinEval", "eval.yaml"),
     ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
     ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
@@ -504,11 +508,11 @@ snapshotTest (name, fixtureName) =
 assertInterpretedExpectation :: SnapshotExpectation -> Either InterpretError HeapSnapshot -> IO ()
 assertInterpretedExpectation expectation interpreted =
   case (expectation, interpreted) of
-    (SnapshotSuccess expected, Right snapshot) ->
+    (SnapshotSuccess expected _, Right snapshot) ->
       assertEqual "interpreter snapshot" (T.stripEnd expected) (T.stripEnd (renderHeapSnapshot snapshot))
     (SnapshotFailure expected, Left err) ->
       assertEqual "interpreter error" expected (renderInterpretFailure err)
-    (SnapshotSuccess _, Left err) ->
+    (SnapshotSuccess _ _, Left err) ->
       assertFailure ("GRIN interpreter failed: " <> show err)
     (SnapshotFailure _, Right snapshot) ->
       assertFailure ("GRIN interpreter unexpectedly succeeded:\n" <> T.unpack (renderHeapSnapshot snapshot))
@@ -516,11 +520,14 @@ assertInterpretedExpectation expectation interpreted =
 assertNativeExpectation :: SnapshotExpectation -> Either T.Text T.Text -> IO ()
 assertNativeExpectation expectation native =
   case (expectation, native) of
-    (SnapshotSuccess expected, Right snapshot) ->
-      assertEqual "native snapshot" (T.stripEnd expected) (T.stripEnd snapshot)
+    (SnapshotSuccess expected expectedAllocations, Right snapshot) ->
+      assertEqual
+        "native snapshot"
+        (T.stripEnd expected <> "\nallocations: " <> T.pack (show expectedAllocations))
+        (T.stripEnd snapshot)
     (SnapshotFailure expected, Left err) ->
       assertEqual "native error" expected err
-    (SnapshotSuccess _, Left err) ->
+    (SnapshotSuccess _ _, Left err) ->
       assertFailure ("native snapshot failed: " <> T.unpack err)
     (SnapshotFailure _, Right snapshot) ->
       assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
@@ -556,9 +563,15 @@ loadSnapshotCase name fixtureName = do
                     <> returnValue
                     <> "\nheap:\n"
                     <> T.unlines (map ("  " <>) (T.lines heap))
-        pure (SnapshotSuccess expected)
+        allocations <-
+          case snapshotFixtureAllocations fixture >>= Map.lookup "macos-arm64" of
+            Just count -> pure count
+            Nothing -> assertFailure "successful snapshot fixture must define allocations.macos-arm64"
+        pure (SnapshotSuccess expected allocations)
       (Nothing, Nothing, Just err)
-        | not (T.null (T.strip err)) -> pure (SnapshotFailure (T.strip err))
+        | not (T.null (T.strip err)) -> do
+            assertEqual "failing snapshot allocations" Nothing (snapshotFixtureAllocations fixture)
+            pure (SnapshotFailure (T.strip err))
       _ -> assertFailure "snapshot fixture must define either return and heap, or a non-empty error"
   pure
     SnapshotCase
