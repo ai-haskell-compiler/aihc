@@ -11,6 +11,7 @@ import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWit
 import Aihc.Fc.Syntax
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
+import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
@@ -60,8 +61,9 @@ grinUnitTests =
       testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
+            storedNodes = concatMap (expressionStoredNodes . grinFunctionBody) (grinFunctions program)
         assertEqual "lint" [] (lintProgram program)
-        assertBool "does not allocate a constructor argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered))
+        assertBool "does not allocate a constructor argument thunk" (not (any isThunkNode storedNodes))
         assertBool "contains explicit application" ("apply " `isInfixOf` rendered),
       testCase "FC lowering evaluates case and apply operands explicitly" $ do
         let caseProgram = lowerProgram dictionaryProgram
@@ -230,9 +232,10 @@ grinUnitTests =
       testCase "FC lowering evaluates Int# arguments without allocating thunks" $ do
         let program = lowerProgram unboxedApplicationProgram
             rendered = renderProgram program
+            storedNodes = concatMap (expressionStoredNodes . grinFunctionBody) (grinFunctions program)
         assertEqual "lint" [] (lintProgram program)
         assertBool "records IntRep" ("IntRep" `isInfixOf` rendered)
-        assertBool "does not allocate an argument thunk" (not ("store (F$grin_thunk" `isInfixOf` rendered)),
+        assertBool "does not allocate an argument thunk" (not (any isThunkNode storedNodes)),
       testCase "FC lowering calls saturated primitives without global slots" $ do
         let program = lowerProgram primitiveCallProgram
             rendered = renderProgram program
@@ -243,7 +246,7 @@ grinUnitTests =
         let program = lowerProgram partialPrimitiveProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "allocates an ordinary closure" ("P$grin_primitive_" `isInfixOf` rendered)
+        assertBool "allocates a provenance-named ordinary closure" ("PmakeAdder_primitive_" `isInfixOf` rendered)
         assertBool "wrapper makes a saturated primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered),
       testCase "FC lowering counts zero-width arguments in closure arity" $ do
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
@@ -359,6 +362,72 @@ grinUnitTests =
         case exported of
           [function] -> assertEqual "runtime parameters" 2 (length (grinFunctionParameters function))
           _ -> assertFailure ("expected one exported direct entry, got " <> show (length exported)),
+      testCase "FC lowering names CAF thunks after their source binding" $ do
+        let program = lowerProgram etaExpandedKnownFunctionProgram
+        case grinCafs program of
+          [(caf, GrinNode (GrinThunk thunkName) [])] -> do
+            assertEqual "CAF name" "$fApplicativeIO" (grinVarName caf)
+            assertEqual "source-derived thunk name" (FunctionName "$fApplicativeIO_thunk") thunkName
+          cafs -> assertFailure ("expected one capture-free CAF thunk, got " <> show cafs),
+      testCase "FC lowering eliminates known-function eta wrappers" $ do
+        let program = lowerProgram etaExpandedKnownFunctionProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool
+          "stores the original function with all arguments remaining"
+          ("store (P$entry$pureIO/2)" `isInfixOf` rendered)
+        assertEqual
+          "emits no eta-wrapper entry"
+          [FunctionName "$entry$pureIO", FunctionName "$fApplicativeIO_thunk"]
+          (map grinFunctionName (grinFunctions program)),
+      testCase "FC lowering retains known-function lambdas that are not eta expansions" $ do
+        let program = lowerProgram nonEtaExpandedKnownFunctionProgram
+            generatedNames = map (unFunctionName . grinFunctionName) (grinFunctions program)
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "retains the argument-changing wrapper" (any ("$fApplicativeIO_closure_" `T.isPrefixOf`) generatedNames),
+      testCase "FC lowering names local helpers after their Core provenance" $ do
+        let program = lowerProgram provenanceNamingProgram
+            generatedNames = map (unFunctionName . grinFunctionName) (grinFunctions program)
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "names the returned closure after its owner" (any ("owner_closure_" `T.isPrefixOf`) generatedNames)
+        assertBool "names the local thunk after its binder" (any ("delayed_thunk_" `T.isPrefixOf`) generatedNames)
+        assertBool "names helpers inside the thunk after its binder" (any ("delayed_closure_" `T.isPrefixOf`) generatedNames)
+        assertBool "emits no anonymous closure names" (not (any (T.isPrefixOf "$grin_closure_") generatedNames))
+        assertBool "emits no anonymous thunk names" (not (any (T.isPrefixOf "$grin_thunk_") generatedNames)),
+      testCase "FC lowering flattens lambdas hidden by cast aliases" $ do
+        let program = lowerProgram castAliasClosureProgram
+            closureFunctions = [function | function <- grinFunctions program, "dictionary_closure_" `T.isPrefixOf` unFunctionName (grinFunctionName function)]
+            storedClosures =
+              [ layouts
+              | function <- grinFunctions program,
+                GrinNode (GrinClosure _ layouts) _ <- expressionStoredNodes (grinFunctionBody function)
+              ]
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "one flattened closure entry" 1 (length closureFunctions)
+        assertEqual "two logical arguments" [2] (map length storedClosures),
+      testCase "FC lowering preserves computed-let closure boundaries" $ do
+        let program = lowerProgram computedLetClosureProgram
+            closureFunctions = [function | function <- grinFunctions program, "dictionary_closure_" `T.isPrefixOf` unFunctionName (grinFunctionName function)]
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "two closure entries around computed work" 2 (length closureFunctions),
+      testCase "FC lowering avoids outlining an immediately forced and discarded let" $ do
+        let program = lowerProgram immediatelyForcedLetProgram
+            ownerFunctions = [function | function <- grinFunctions program, grinFunctionLinkName function == Just "forceOnce"]
+            thunkNames = [grinFunctionName function | function <- grinFunctions program, "delayed_thunk_" `T.isPrefixOf` unFunctionName (grinFunctionName function)]
+        assertEqual "lint" [] (lintProgram program)
+        case (ownerFunctions, thunkNames) of
+          ([_], []) -> pure ()
+          _ -> assertFailure ("expected one owner and no local thunk entry, got " <> show (length ownerFunctions, length thunkNames)),
+      testCase "FC lowering retains an immediately forced thunk cell when it remains shared" $ do
+        let program = lowerProgram sharedForcedLetProgram
+            ownerFunctions = [function | function <- grinFunctions program, grinFunctionLinkName function == Just "forceShared"]
+            thunkNames = [grinFunctionName function | function <- grinFunctions program, "delayed_thunk_" `T.isPrefixOf` unFunctionName (grinFunctionName function)]
+        assertEqual "lint" [] (lintProgram program)
+        case (ownerFunctions, thunkNames) of
+          ([owner], [thunkName]) -> do
+            assertBool "retains the shared thunk cell" (any (isNamedThunkNode thunkName) (expressionStoredNodes (grinFunctionBody owner)))
+            assertBool "does not bypass the shared cell" (thunkName `notElem` expressionCalledFunctions (grinFunctionBody owner))
+          _ -> assertFailure ("expected one owner and one local thunk entry, got " <> show (length ownerFunctions, length thunkNames)),
       testCase "recursive function bindings store closures without thunk wrappers" $ do
         let program = lowerProgram recursiveFunctionProgram
             recursiveNodes =
@@ -443,6 +512,39 @@ ensureHeapReservations expression =
     GrinStoreRecUnchecked _ body -> ensureHeapReservations body
     GrinCase _ _ alternatives -> concatMap (ensureHeapReservations . grinAltRhs) alternatives
     _ -> []
+
+expressionStoredNodes :: GrinExpr -> [GrinNode]
+expressionStoredNodes expression =
+  case expression of
+    GrinBind _ valueExpression body -> expressionStoredNodes valueExpression <> expressionStoredNodes body
+    GrinStore node -> [node]
+    GrinStoreUnchecked node -> [node]
+    GrinStoreRec bindings body -> map snd bindings <> expressionStoredNodes body
+    GrinStoreRecUnchecked bindings body -> map snd bindings <> expressionStoredNodes body
+    GrinCase _ _ alternatives -> concatMap (expressionStoredNodes . grinAltRhs) alternatives
+    _ -> []
+
+expressionCalledFunctions :: GrinExpr -> [FunctionName]
+expressionCalledFunctions expression =
+  case expression of
+    GrinBind _ valueExpression body -> expressionCalledFunctions valueExpression <> expressionCalledFunctions body
+    GrinStoreRec _ body -> expressionCalledFunctions body
+    GrinStoreRecUnchecked _ body -> expressionCalledFunctions body
+    GrinCall _ functionName _ -> [functionName]
+    GrinCase _ _ alternatives -> concatMap (expressionCalledFunctions . grinAltRhs) alternatives
+    _ -> []
+
+isThunkNode :: GrinNode -> Bool
+isThunkNode node =
+  case grinNodeTag node of
+    GrinThunk {} -> True
+    _ -> False
+
+isNamedThunkNode :: FunctionName -> GrinNode -> Bool
+isNamedThunkNode expected node =
+  case grinNodeTag node of
+    GrinThunk actual -> actual == expected
+    _ -> False
 
 continuationHasCaptures :: GrinFunction -> Bool
 continuationHasCaptures function =
@@ -630,6 +732,123 @@ applicationProgram =
     answerVar = Var "answer" (Unique 1) boxedIntTy
     argumentVar = Var "argument" (Unique 2) boxedIntTy
     boxConstructorVar = Var "BoxedInt" (Unique 3) (TcFunTy intTy boxedIntTy)
+
+provenanceNamingProgram :: FcProgram
+provenanceNamingProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            ownerVar
+            ( FcLam
+                inputVar
+                ( FcLet
+                    ( FcNonRec
+                        delayedVar
+                        (FcApp (FcLam evaluatedVar (FcVar evaluatedVar)) (FcVar inputVar))
+                    )
+                    (FcLam returnedVar (FcVar returnedVar))
+                )
+            )
+        )
+    ]
+  where
+    functionTy = TcFunTy boxedIntTy boxedIntTy
+    ownerVar = Var "owner" (Unique 160) (TcFunTy boxedIntTy functionTy)
+    inputVar = Var "input" (Unique 161) boxedIntTy
+    delayedVar = Var "delayed" (Unique 162) boxedIntTy
+    evaluatedVar = Var "evaluated" (Unique 163) boxedIntTy
+    returnedVar = Var "returned" (Unique 164) boxedIntTy
+
+castAliasClosureProgram :: FcProgram
+castAliasClosureProgram = hiddenLambdaProgram castAlias
+  where
+    firstVar = Var "first" (Unique 172) boxedIntTy
+    castAlias = FcCast (FcVar firstVar) (AxiomInstCo "FunctionWrapper" [])
+
+computedLetClosureProgram :: FcProgram
+computedLetClosureProgram = hiddenLambdaProgram computed
+  where
+    unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
+    evaluatedVar = Var "evaluated" (Unique 175) unaryFunctionTy
+    parameterVar = Var "parameter" (Unique 176) boxedIntTy
+    computed = FcApp (FcLam evaluatedVar (FcVar evaluatedVar)) (FcLam parameterVar (FcVar parameterVar))
+
+hiddenLambdaProgram :: FcExpr -> FcProgram
+hiddenLambdaProgram aliasRhs =
+  FcProgram
+    [ FcData "Holder" [] [("Holder", [binaryFunctionTy])],
+      FcTopBind
+        ( FcNonRec
+            dictionaryVar
+            (FcApp (FcVar holderVar) castHiddenLambda)
+        )
+    ]
+  where
+    binaryFunctionTy = TcFunTy boxedIntTy (TcFunTy boxedIntTy boxedIntTy)
+    unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
+    holderTy = TcTyCon (TyCon "Holder" 0) []
+    dictionaryVar = Var "dictionary" (Unique 170) holderTy
+    holderVar = Var "Holder" (Unique 171) (TcFunTy binaryFunctionTy holderTy)
+    firstVar = Var "first" (Unique 172) boxedIntTy
+    aliasVar = Var "alias" (Unique 173) unaryFunctionTy
+    secondVar = Var "second" (Unique 174) boxedIntTy
+    castHiddenLambda =
+      FcLam firstVar $
+        FcLet
+          (FcNonRec aliasVar aliasRhs)
+          (FcCast (FcLam secondVar (FcApp (FcVar aliasVar) (FcVar secondVar))) (Refl unaryFunctionTy))
+
+immediatelyForcedLetProgram :: FcProgram
+immediatelyForcedLetProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            ownerVar
+            ( FcLam inputVar $
+                FcLet
+                  (FcNonRec delayedVar computedFunction)
+                  (FcApp (FcVar delayedVar) (FcVar inputVar))
+            )
+        )
+    ]
+  where
+    unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
+    ownerVar = Var "forceOnce" (Unique 180) unaryFunctionTy
+    inputVar = Var "input" (Unique 181) boxedIntTy
+    delayedVar = Var "delayed" (Unique 182) unaryFunctionTy
+    identityVar = Var "identity" (Unique 183) unaryFunctionTy
+    argumentVar = Var "argument" (Unique 184) boxedIntTy
+    computedFunction = FcApp (FcLam identityVar (FcVar identityVar)) (FcLam argumentVar (FcVar argumentVar))
+
+sharedForcedLetProgram :: FcProgram
+sharedForcedLetProgram =
+  FcProgram
+    [ FcData "FunctionPair" [] [("FunctionPair", [unaryFunctionTy, unaryFunctionTy])],
+      FcTopBind
+        ( FcNonRec
+            ownerVar
+            ( FcLam inputVar $
+                FcLet
+                  (FcNonRec delayedVar computedFunction)
+                  ( FcCase
+                      (FcVar delayedVar)
+                      evaluatedVar
+                      [FcAlt DefaultAlt [] (FcApp (FcApp (FcVar pairVar) (FcVar evaluatedVar)) (FcVar delayedVar))]
+                  )
+            )
+        )
+    ]
+  where
+    unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
+    pairTy = TcTyCon (TyCon "FunctionPair" 0) []
+    ownerVar = Var "forceShared" (Unique 185) (TcFunTy boxedIntTy pairTy)
+    inputVar = Var "input" (Unique 186) boxedIntTy
+    delayedVar = Var "delayed" (Unique 187) unaryFunctionTy
+    identityVar = Var "identity" (Unique 188) unaryFunctionTy
+    argumentVar = Var "argument" (Unique 189) boxedIntTy
+    evaluatedVar = Var "evaluated" (Unique 190) unaryFunctionTy
+    pairVar = Var "FunctionPair" (Unique 191) (TcFunTy unaryFunctionTy (TcFunTy unaryFunctionTy pairTy))
+    computedFunction = FcApp (FcLam identityVar (FcVar identityVar)) (FcLam argumentVar (FcVar argumentVar))
 
 unboxedApplicationProgram :: FcProgram
 unboxedApplicationProgram =
@@ -832,6 +1051,44 @@ functionClassificationProgram =
     computedArgumentVar = Var "argument" (Unique 35) boxedIntTy
     computedVar = Var "computed" (Unique 36) (TcFunTy boxedIntTy boxedIntTy)
     boxConstructorVar = Var "BoxedInt" (Unique 37) (TcFunTy intTy boxedIntTy)
+
+etaExpandedKnownFunctionProgram :: FcProgram
+etaExpandedKnownFunctionProgram = knownFunctionWrapperProgram True
+
+nonEtaExpandedKnownFunctionProgram :: FcProgram
+nonEtaExpandedKnownFunctionProgram = knownFunctionWrapperProgram False
+
+knownFunctionWrapperProgram :: Bool -> FcProgram
+knownFunctionWrapperProgram isEtaExpansion =
+  FcProgram
+    [ FcData "Applicative" [] [("$Dict$Applicative", [unaryFunctionTy])],
+      FcTopBind
+        ( FcNonRec
+            pureIoVar
+            (FcLam pureValueVar (FcLam stateVar (FcVar pureValueVar)))
+        ),
+      FcTopBind
+        ( FcNonRec
+            dictionaryVar
+            ( FcApp
+                (FcVar dictionaryConstructorVar)
+                (FcLam valueVar (FcApp (FcVar pureIoVar) argument))
+            )
+        )
+    ]
+  where
+    unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
+    pureIoTy = TcFunTy boxedIntTy unaryFunctionTy
+    dictionaryTy = TcTyCon (TyCon "Applicative" 0) []
+    pureIoVar = Var "pureIO" (Unique 140) pureIoTy
+    pureValueVar = Var "value" (Unique 141) boxedIntTy
+    stateVar = Var "state" (Unique 142) boxedIntTy
+    dictionaryVar = Var "$fApplicativeIO" (Unique 143) dictionaryTy
+    dictionaryConstructorVar = Var "$Dict$Applicative" (Unique 144) (TcFunTy unaryFunctionTy dictionaryTy)
+    valueVar = Var "value" (Unique 145) boxedIntTy
+    argument
+      | isEtaExpansion = FcVar valueVar
+      | otherwise = FcLit (LitString "changed")
 
 dictionaryProgram :: FcProgram
 dictionaryProgram =

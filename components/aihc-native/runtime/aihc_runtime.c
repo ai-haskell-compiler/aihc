@@ -24,8 +24,8 @@ typedef enum {
 } AihcIoState;
 
 struct AihcThread {
-  uintptr_t header;
-  void *entry;
+  AihcSlot header;
+  AihcEntry entry;
   AihcSlot *args;
   const AihcInfo *args_info;
   uint64_t args_trailing_pointers;
@@ -51,29 +51,31 @@ struct AihcIoRequest {
   AihcIoState state;
   AihcThread *thread;
   AihcValue *continuation;
-  AihcSlot byte;
-  AihcSlot result;
+  int32_t byte;
+  int32_t result;
   AihcIoRequest *next;
 };
 
 struct AihcIoBackend {
   int (*prepare)(AihcIoKind kind);
-  int (*try_request)(AihcIoRequest *request, AihcSlot *result);
+  int (*try_request)(AihcIoRequest *request, int32_t *result);
   void (*poll)(AihcMachine *machine, int may_block);
 };
 
+#if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, args) == 0, "machine args ABI");
 _Static_assert(offsetof(AihcMachine, globals) == 8, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 32, "machine heap-next ABI");
 _Static_assert(offsetof(AihcMachine, heap_limit) == 40,
                "machine heap-limit ABI");
+#endif
 
 static _Noreturn void aihc_fail(const char *message) {
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
 }
 
-static void *aihc_schedule(AihcMachine *machine);
+static AihcEntry aihc_schedule(AihcMachine *machine);
 static const AihcIoBackend *aihc_default_io_backend(void);
 
 void aihc_unsupported_primitive(void) {
@@ -88,7 +90,7 @@ static void *aihc_allocate_auxiliary(size_t bytes) {
   return pointer;
 }
 
-static uintptr_t aihc_make_header(uint64_t tag, const AihcInfo *info) {
+static AihcSlot aihc_make_header(uint64_t tag, const AihcInfo *info) {
   uintptr_t address = (uintptr_t)info;
   if (info == NULL || (address & AIHC_TAG_MASK) != 0) {
     aihc_fail("info table is null or insufficiently aligned");
@@ -383,10 +385,10 @@ static AihcSlot *aihc_arguments(AihcValue *function, uint64_t count,
   return arguments;
 }
 
-static void *aihc_prepare_entry(AihcMachine *machine, void *entry,
-                                AihcSlot *arguments,
-                                const AihcInfo *arguments_info,
-                                uint64_t trailing_pointers) {
+static AihcEntry aihc_prepare_entry(AihcMachine *machine, AihcEntry entry,
+                                    AihcSlot *arguments,
+                                    const AihcInfo *arguments_info,
+                                    uint64_t trailing_pointers) {
   machine->args = arguments;
   machine->args_info = arguments_info;
   machine->args_trailing_pointers = trailing_pointers;
@@ -424,7 +426,7 @@ static AihcThread *aihc_dequeue_thread(AihcMachine *machine) {
   return thread;
 }
 
-static void *aihc_select_thread(AihcMachine *machine, AihcThread *thread) {
+static AihcEntry aihc_select_thread(AihcMachine *machine, AihcThread *thread) {
   machine->current_thread = thread;
   machine->args = thread->args;
   machine->args_info = thread->args_info;
@@ -509,8 +511,8 @@ AihcSlot *aihc_alloc_locals(uint64_t count) {
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
-void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
-                           uint64_t count, const AihcSlot *values) {
+AihcEntry aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
+                               uint64_t count, const AihcSlot *values) {
   if (continuation == NULL ||
       aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
     aihc_fail("attempted to invoke a non-continuation value");
@@ -520,18 +522,18 @@ void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
   }
   const AihcInfo *arguments_info =
       aihc_next_application_info(aihc_value_info_table(continuation), count);
-  return aihc_prepare_entry(machine, (void *)aihc_value_info(continuation),
+  return aihc_prepare_entry(machine, aihc_value_entry(continuation),
                             aihc_arguments(continuation, count, values, NULL),
                             arguments_info, 0);
 }
 
-static void *aihc_continue_value(AihcMachine *machine, AihcValue *continuation,
-                                 AihcSlot value) {
+static AihcEntry aihc_continue_value(AihcMachine *machine,
+                                     AihcValue *continuation, AihcSlot value) {
   return aihc_continue_values(machine, continuation, 1, &value);
 }
 
-static AihcSlot aihc_io_error(int error) {
-  return (AihcSlot)(intptr_t)(-((int64_t)error) - 1);
+static int32_t aihc_io_error(int error) {
+  return (int32_t)(-((int64_t)error) - 1);
 }
 
 static int aihc_posix_prepare(AihcIoKind kind) {
@@ -547,18 +549,18 @@ static int aihc_posix_prepare(AihcIoKind kind) {
   return 0;
 }
 
-static int aihc_posix_try_request(AihcIoRequest *request, AihcSlot *result) {
+static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
   for (;;) {
     ssize_t transferred;
     if (request->kind == AIHC_IO_READ_STDIN) {
       unsigned char byte;
       transferred = read(STDIN_FILENO, &byte, 1);
       if (transferred == 1) {
-        *result = (AihcSlot)byte;
+        *result = (int32_t)byte;
         return 1;
       }
       if (transferred == 0) {
-        *result = (AihcSlot)(intptr_t)-1;
+        *result = -1;
         return 1;
       }
     } else {
@@ -585,7 +587,7 @@ static int aihc_posix_try_request(AihcIoRequest *request, AihcSlot *result) {
 }
 
 static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
-                                   AihcSlot result) {
+                                   int32_t result) {
   AihcThread *thread = request->thread;
   AihcValue *continuation = request->continuation;
   request->state = AIHC_IO_COMPLETED;
@@ -648,7 +650,7 @@ static void aihc_posix_poll(AihcMachine *machine, int may_block) {
   while (*link != NULL) {
     AihcIoRequest *request = *link;
     short events = descriptors[index++].revents;
-    AihcSlot result = 0;
+    int32_t result = 0;
     int complete = 0;
     if ((events & POLLNVAL) != 0) {
       result = aihc_io_error(EBADF);
@@ -679,7 +681,7 @@ static const AihcIoBackend *aihc_default_io_backend(void) {
   return &aihc_posix_io_backend;
 }
 
-static void *aihc_schedule(AihcMachine *machine) {
+static AihcEntry aihc_schedule(AihcMachine *machine) {
   for (;;) {
     machine->io_backend->poll(machine, 0);
     if (machine->run_queue_head != NULL) {
@@ -693,7 +695,7 @@ static void *aihc_schedule(AihcMachine *machine) {
   }
 }
 
-static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcSlot byte) {
+static AihcIoRequest *aihc_io_submit(AihcIoKind kind, int32_t byte) {
   AihcIoRequest *request = aihc_allocate_auxiliary(sizeof(*request));
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
@@ -701,26 +703,28 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcSlot byte) {
   return request;
 }
 
-AihcIoRequest *aihc_io_submit_read_stdin(void) {
+void *aihc_io_submit_read_stdin(void) {
   return aihc_io_submit(AIHC_IO_READ_STDIN, 0);
 }
 
-AihcIoRequest *aihc_io_submit_write_stdout(int32_t byte) {
-  return aihc_io_submit(AIHC_IO_WRITE_STDOUT, (AihcSlot)(intptr_t)byte);
+void *aihc_io_submit_write_stdout(int32_t byte) {
+  return aihc_io_submit(AIHC_IO_WRITE_STDOUT, byte);
 }
 
-int32_t aihc_io_take_result(AihcIoRequest *request) {
+int32_t aihc_io_take_result(void *opaque_request) {
+  AihcIoRequest *request = opaque_request;
   if (request == NULL || request->state != AIHC_IO_COMPLETED) {
     aihc_fail("attempted to consume an incomplete IO request");
   }
-  int32_t result = (int32_t)(intptr_t)request->result;
+  int32_t result = request->result;
   request->state = AIHC_IO_CONSUMED;
   free(request);
   return result;
 }
 
-void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
-                        AihcValue *continuation) {
+AihcEntry aihc_await_io_cps(AihcMachine *machine, void *opaque_request,
+                            AihcValue *continuation) {
+  AihcIoRequest *request = opaque_request;
   if (request == NULL) {
     aihc_fail("attempted to await a null IO request");
   }
@@ -738,7 +742,7 @@ void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
     return aihc_continue_values(machine, continuation, 0, NULL);
   }
 
-  AihcSlot result = 0;
+  int32_t result = 0;
   if (machine->io_backend->try_request(request, &result)) {
     request->state = AIHC_IO_COMPLETED;
     request->result = result;
@@ -758,8 +762,9 @@ void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
   return aihc_schedule(machine);
 }
 
-void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
-                     const AihcSlot *arguments, AihcValue *continuation) {
+AihcEntry aihc_apply_cps(AihcMachine *machine, AihcValue *function,
+                         uint64_t count, const AihcSlot *arguments,
+                         AihcValue *continuation) {
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
@@ -778,7 +783,7 @@ void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
     const AihcInfo *arguments_info =
         aihc_next_application_info(aihc_value_info_table(function), count);
     return aihc_prepare_entry(
-        machine, (void *)aihc_value_info(function),
+        machine, aihc_value_entry(function),
         aihc_arguments(function, count, arguments, continuation),
         arguments_info, continuation == NULL ? 0 : 1);
   }
@@ -802,16 +807,16 @@ void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
   }
 }
 
-void *aihc_eval_cps(AihcMachine *machine, AihcValue *value,
-                    uint64_t result_is_lifted, AihcValue *continuation,
-                    AihcValue *update_continuation) {
+AihcEntry aihc_eval_cps(AihcMachine *machine, AihcValue *value,
+                        uint64_t result_is_lifted, AihcValue *continuation,
+                        AihcValue *update_continuation) {
   if (value == NULL) {
     aihc_fail("attempted to evaluate null");
   }
   switch (aihc_value_tag(value)) {
   case AIHC_TAG_THUNK: {
     AihcSlot *arguments = aihc_arguments(value, 0, NULL, update_continuation);
-    void *entry = (void *)aihc_value_info(value);
+    AihcEntry entry = aihc_value_entry(value);
     const AihcInfo *arguments_info = aihc_value_info_table(value);
     value->header = (value->header & ~AIHC_TAG_MASK) | AIHC_TAG_BLACKHOLE;
     aihc_find_blackhole(machine, value);
@@ -864,8 +869,8 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
   free(blackhole);
 }
 
-void *aihc_fork_cps(AihcMachine *machine, AihcValue *action,
-                    AihcValue *continuation) {
+AihcEntry aihc_fork_cps(AihcMachine *machine, AihcValue *action,
+                        AihcValue *continuation) {
   if (machine->thread_done_continuation == NULL) {
     aihc_fail("thread completion continuation is not initialized");
   }
@@ -880,7 +885,7 @@ void *aihc_fork_cps(AihcMachine *machine, AihcValue *action,
   return aihc_continue_values(machine, continuation, 1, &thread_id);
 }
 
-void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation) {
+AihcEntry aihc_yield_cps(AihcMachine *machine, AihcValue *continuation) {
   AihcThread *current = machine->current_thread;
   current->entry = aihc_continue_values(machine, continuation, 0, NULL);
   current->args = machine->args;
@@ -890,7 +895,9 @@ void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation) {
   return aihc_schedule(machine);
 }
 
-void *aihc_thread_done(AihcMachine *machine) { return aihc_schedule(machine); }
+AihcEntry aihc_thread_done(AihcMachine *machine) {
+  return aihc_schedule(machine);
+}
 
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation) {
@@ -902,11 +909,11 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
   machine->thread_done_continuation = thread_done_continuation;
 }
 
-void *aihc_halt(AihcMachine *machine) { return machine->exit_code; }
+AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
 
-void *aihc_start(AihcMachine *machine, AihcValue *root, AihcValue *continuation,
-                 AihcValue *update_continuation,
-                 AihcValue *thread_done_continuation, void *exit_code) {
+AihcEntry aihc_start(AihcMachine *machine, AihcValue *root,
+                     AihcValue *continuation, AihcValue *update_continuation,
+                     AihcValue *thread_done_continuation, AihcEntry exit_code) {
   machine->exit_code = exit_code;
   aihc_set_thread_done_continuation(machine, thread_done_continuation);
   return aihc_eval_cps(machine, root, 1, continuation, update_continuation);

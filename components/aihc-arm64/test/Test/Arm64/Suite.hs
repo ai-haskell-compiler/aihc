@@ -80,7 +80,7 @@ tests =
           (Left (Arm64UnsupportedRuntimeRep runtimeRep))
           (compileProgram "missing" (expectGcGrin program)),
       testCase "keeps unsupported dormant primitives out of linked programs" $ do
-        let primitive = GrinVar "+#" 1 (BoxedRep Lifted)
+        let primitive = GrinVar "unsupported#" 1 (BoxedRep Lifted)
             program =
               GrinProgram
                 { grinConstructors = [],
@@ -92,10 +92,54 @@ tests =
                   grinCafs = [],
                   grinFunctions = []
                 }
-        assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "+#")) (validateProgramPrimitives program)
+        assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
         case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
+      testCase "adds Int# values with wrapping machine arithmetic" $ do
+        let entryName = FunctionName "int_add"
+            result = GrinVar "result" 2 IntRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "+#" 1 IntRep, 2)],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = IntRep,
+                          grinFunctionBody =
+                            GrinBind
+                              [result]
+                              ( GrinPrimitiveCall
+                                  IntRep
+                                  "+#"
+                                  [ GrinLitValue (GrinLitInt IntRep 9223372036854775807),
+                                    GrinLitValue (GrinLitInt IntRep 1)
+                                  ]
+                              )
+                              (GrinConstant [GrinVarValue result])
+                        }
+                    ]
+                }
+        assertEqual "direct GRIN lint" [] (lintProgram program)
+        assertEqual "linked primitive validation" (Right ()) (validateProgramPrimitives program)
+        let gc = expectGcGrin program
+        assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+        observed <-
+          case compileObservedFunction entryName gc of
+            Left err -> assertFailure ("native Int# addition compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits a wrapping 64-bit add" ("  add x0, x1, x0" `T.isInfixOf` observedAssembly observed)
+        when (arch == "aarch64" && os == "darwin") $ do
+          native <- runObservedProgram observed
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\n") native,
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -244,7 +288,7 @@ tests =
               "generated code does not reload a scheduled entry"
               (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
         runtime <- readFile =<< runtimeSourcePath
-        assertBool "apply returns its selected entry" ("void *aihc_apply_cps" `isInfixOf` runtime)
+        assertBool "apply returns its selected entry" ("AihcEntry aihc_apply_cps" `isInfixOf` runtime)
         forM_ ["void *next;", "machine->next", "machine->locals"] $ \forbidden ->
           assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
       testCase "runtime has no built-in continuation stack" $ do
@@ -289,24 +333,29 @@ tests =
               source =
                 unlines
                   [ "#include \"aihc_runtime.h\"",
-                    "_Static_assert(sizeof(AihcValue) == sizeof(uintptr_t), \"one-word object header\");",
+                    "_Static_assert(sizeof(AihcValue) == sizeof(AihcSlot), \"one-word object header\");",
+                    "static void entry_8(void) {}",
+                    "static void entry_9(void) {}",
+                    "static void entry_10(void) {}",
+                    "static void entry_11(void) {}",
+                    "static void entry_12(void) {}",
                     "static const uint8_t pointer_field[] = {1};",
                     "static const uint8_t pointer_then_scalar[] = {1, 0};",
-                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0};",
-                    "static const AihcInfo box_info = {2, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo partial_final_info = {3, 2, 0, pointer_then_scalar, 0};",
-                    "static const AihcInfo partial_one_info = {3, 1, 1, pointer_then_scalar, &partial_final_info};",
-                    "static const AihcInfo partial_info = {3, 0, 2, 0, &partial_one_info};",
-                    "static const AihcInfo continuation_final_info = {8, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo continuation_info = {8, 0, 1, 0, &continuation_final_info};",
-                    "static const AihcInfo action_final_info = {9, 0, 0, 0, 0};",
-                    "static const AihcInfo action_info = {9, 0, 1, 0, &action_final_info};",
-                    "static const AihcInfo thread_done_final_info = {10, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo thread_done_info = {10, 0, 1, 0, &thread_done_final_info};",
-                    "static const AihcInfo parent_final_info = {11, 1, 0, pointer_field, 0};",
-                    "static const AihcInfo parent_info = {11, 0, 1, 0, &parent_final_info};",
-                    "static const AihcInfo yield_final_info = {12, 0, 0, 0, 0};",
-                    "static const AihcInfo yield_info = {12, 0, 1, 0, &yield_final_info};",
+                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0};",
+                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0};",
+                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info};",
+                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info};",
+                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info};",
+                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0};",
+                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info};",
+                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info};",
+                    "static const AihcInfo parent_final_info = {11, entry_11, 1, 0, pointer_field, 0};",
+                    "static const AihcInfo parent_info = {11, entry_11, 0, 1, 0, &parent_final_info};",
+                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0};",
+                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info};",
                     "static int test_apply_roots(void) {",
                     "  AihcMachine *machine = aihc_machine_new(0);",
                     "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
@@ -317,7 +366,7 @@ tests =
                     "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  AihcSlot argument = (AihcSlot)leaf;",
-                    "  if (aihc_apply_cps(machine, partial, 1, &argument, continuation) != (void *)8) return 0;",
+                    "  if (aihc_apply_cps(machine, partial, 1, &argument, continuation) != entry_8) return 0;",
                     "  AihcValue *result = (AihcValue *)machine->args[0];",
                     "  return aihc_value_tag(result) == AIHC_TAG_PARTIAL_CONSTRUCTOR &&",
                     "         aihc_value_arity(result) == 1 && aihc_value_count(result) == 1 &&",
@@ -332,12 +381,12 @@ tests =
                     "  AihcValue *yield = aihc_make_node(machine, AIHC_TAG_CLOSURE, &yield_info);",
                     "  aihc_set_thread_done_continuation(machine, thread_done);",
                     "  machine->globals[0] = (AihcSlot)yield;",
-                    "  if (aihc_fork_cps(machine, action, parent) != (void *)11) return 0;",
+                    "  if (aihc_fork_cps(machine, action, parent) != entry_11) return 0;",
                     "  for (int index = 0; index < 5; ++index) {",
                     "    (void)aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
                     "  }",
                     "  yield = (AihcValue *)machine->globals[0];",
-                    "  if (aihc_yield_cps(machine, yield) != (void *)9) return 0;",
+                    "  if (aihc_yield_cps(machine, yield) != entry_9) return 0;",
                     "  thread_done = machine->thread_done_continuation;",
                     "  return machine->args[0] == (AihcSlot)thread_done &&",
                     "         aihc_value_info(thread_done) == 10;",

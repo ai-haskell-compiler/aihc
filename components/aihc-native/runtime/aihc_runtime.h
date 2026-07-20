@@ -35,10 +35,12 @@ typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
-typedef uintptr_t AihcSlot;
+typedef uint64_t AihcSlot;
+typedef void (*AihcEntry)(void);
 
 struct AihcInfo {
   uintptr_t identity;
+  AihcEntry entry;
   uint64_t field_count;
   uint64_t remaining_arity;
   const uint8_t *field_is_pointer;
@@ -48,7 +50,7 @@ struct AihcInfo {
 struct AihcValue {
   /* Low AIHC_TAG_BITS select the runtime state. Remaining bits point to the
      static info table, or to the copied object for a forwarding header. */
-  uintptr_t header;
+  AihcSlot header;
   AihcSlot fields[];
 };
 
@@ -56,7 +58,7 @@ struct AihcMachine {
   AihcSlot *args;
   AihcSlot *globals;
   uint64_t global_count;
-  void *exit_code;
+  AihcEntry exit_code;
   uint8_t *heap_next;
   uint8_t *heap_limit;
   uint8_t *heap_start;
@@ -75,8 +77,10 @@ struct AihcMachine {
   const AihcIoBackend *io_backend;
 };
 
-_Static_assert(sizeof(AihcValue) == sizeof(uintptr_t),
+_Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
+_Static_assert(_Alignof(AihcInfo) >= (1U << AIHC_TAG_BITS),
+               "AIHC info tables must leave the tag bits clear");
 
 static inline uint64_t aihc_value_tag(const AihcValue *value) {
   return value->header & AIHC_TAG_MASK;
@@ -88,6 +92,10 @@ static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
 
 static inline uintptr_t aihc_value_info(const AihcValue *value) {
   return aihc_value_info_table(value)->identity;
+}
+
+static inline AihcEntry aihc_value_entry(const AihcValue *value) {
+  return aihc_value_info_table(value)->entry;
 }
 
 static inline uint64_t aihc_value_arity(const AihcValue *value) {
@@ -114,32 +122,35 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);
 AihcSlot *aihc_alloc_locals(uint64_t count);
+void aihc_no_match(void);
+void aihc_unsupported_primitive(void);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
-void *aihc_apply_cps(AihcMachine *machine, AihcValue *function, uint64_t count,
-                     const AihcSlot *arguments, AihcValue *continuation);
-void *aihc_eval_cps(AihcMachine *machine, AihcValue *value,
-                    uint64_t result_is_lifted, AihcValue *continuation,
-                    AihcValue *update_continuation);
-void *aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
-                           uint64_t count, const AihcSlot *values);
+AihcEntry aihc_apply_cps(AihcMachine *machine, AihcValue *function,
+                         uint64_t count, const AihcSlot *arguments,
+                         AihcValue *continuation);
+AihcEntry aihc_eval_cps(AihcMachine *machine, AihcValue *value,
+                        uint64_t result_is_lifted, AihcValue *continuation,
+                        AihcValue *update_continuation);
+AihcEntry aihc_continue_values(AihcMachine *machine, AihcValue *continuation,
+                               uint64_t count, const AihcSlot *values);
 void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
-void *aihc_fork_cps(AihcMachine *machine, AihcValue *action,
-                    AihcValue *continuation);
-void *aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
-AihcIoRequest *aihc_io_submit_read_stdin(void);
-AihcIoRequest *aihc_io_submit_write_stdout(int32_t byte);
-int32_t aihc_io_take_result(AihcIoRequest *request);
-void *aihc_await_io_cps(AihcMachine *machine, AihcIoRequest *request,
+AihcEntry aihc_fork_cps(AihcMachine *machine, AihcValue *action,
                         AihcValue *continuation);
-void *aihc_thread_done(AihcMachine *machine);
+AihcEntry aihc_yield_cps(AihcMachine *machine, AihcValue *continuation);
+AihcEntry aihc_await_io_cps(AihcMachine *machine, void *request,
+                            AihcValue *continuation);
+AihcEntry aihc_thread_done(AihcMachine *machine);
+void *aihc_io_submit_read_stdin(void);
+void *aihc_io_submit_write_stdout(int32_t byte);
+int32_t aihc_io_take_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
-void *aihc_halt(AihcMachine *machine);
-void *aihc_start(AihcMachine *machine, AihcValue *root, AihcValue *continuation,
-                 AihcValue *update_continuation,
-                 AihcValue *thread_done_continuation, void *exit_code);
+AihcEntry aihc_halt(AihcMachine *machine);
+AihcEntry aihc_start(AihcMachine *machine, AihcValue *root,
+                     AihcValue *continuation, AihcValue *update_continuation,
+                     AihcValue *thread_done_continuation, AihcEntry exit_code);
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

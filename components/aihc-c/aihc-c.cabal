@@ -1,5 +1,5 @@
 cabal-version: 3.8
-name: aihc-native
+name: aihc-c
 version: 0.1.0.0
 build-type: Simple
 license: Unlicense
@@ -7,44 +7,51 @@ license-file: LICENSE
 author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
-synopsis: Shared backend compilation support for AIHC
-data-files:
-  runtime/aihc_runtime.c
-  runtime/aihc_runtime.h
-  runtime/aihc_snapshot.c
+synopsis: Portable C backend for AIHC GRIN
 
 library
   exposed-modules:
-    Aihc.Native
-    Aihc.Native.Lir
-    Aihc.Native.RegisterAllocate
+    Aihc.C
+    Aihc.C.Codegen
 
-  other-modules: Paths_aihc_native
-  autogen-modules: Paths_aihc_native
   hs-source-dirs: src
   build-depends:
     aihc-grin,
+    aihc-native,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
     containers,
     text,
+    transformers,
 
   ghc-options: -Wall
   default-language: GHC2021
 
 test-suite spec
   type: exitcode-stdio-1.0
-  hs-source-dirs: test
+  hs-source-dirs:
+    test
+    ../../test/support
+
   main-is: Spec.hs
-  other-modules: Test.Native.RegisterAllocate
+  other-modules:
+    Aihc.Testing.SchedulerProgram
+    Test.C.Suite
+
   build-depends:
+    aihc-c,
+    aihc-grin,
     aihc-native,
+    aihc-tc,
     base >=4.16 && <5,
-    containers,
+    directory,
+    filepath,
+    process,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021

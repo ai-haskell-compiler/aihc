@@ -19,6 +19,7 @@ library
     Aihc.Fc.Eval
     Aihc.Fc.Lint
     Aihc.Fc.Newtype
+    Aihc.Fc.Optimize
     Aihc.Fc.Pretty
     Aihc.Fc.Subst
     Aihc.Fc.Syntax

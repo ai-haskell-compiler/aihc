@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Compile a standalone Haskell module through System FC and GRIN to a
--- native executable for the host platform.
+-- | Compile a standalone Haskell module through System FC and GRIN to an
+-- executable through an assembly or portable C backend.
 module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
@@ -23,6 +23,7 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.C qualified as C
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -49,10 +50,10 @@ import Aihc.Grin qualified as Grin
 import Aihc.Native
   ( LinkLayout,
     NativeTarget (..),
+    backendCompiler,
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
     hostNativeTarget,
-    nativeTargetTriple,
     runtimeSourcePath,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -69,7 +70,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, (</>))
+import System.FilePath (dropExtension, takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -78,14 +79,15 @@ data CompileError
   | CompileFrontendError ![String]
   | CompileDependencyError !String
   | CompileCpsGrinError !Grin.CpsGrinError
-  | CompileNativeError !NativeError
+  | CompileBackendError !BackendError
   | CompileTargetError !String
   | CompileClangError !ExitCode !String
   deriving (Eq, Show)
 
-data NativeError
-  = NativeArm64Error !Arm64.Arm64Error
-  | NativeAmd64Error !Amd64.Amd64Error
+data BackendError
+  = BackendArm64Error !Arm64.Arm64Error
+  | BackendAmd64Error !Amd64.Amd64Error
+  | BackendCError !C.CError
   deriving (Eq, Show)
 
 data CompileArtifacts = CompileArtifacts
@@ -123,7 +125,7 @@ runCompileWithEnvironment environment options = do
       Just explicitTarget -> pure explicitTarget
       Nothing ->
         maybe
-          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target apple-arm64 or --target linux-amd64"))))
+          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
           pure
           hostNativeTarget
   source <- TIO.readFile (compileSourceFile options)
@@ -133,11 +135,11 @@ runCompileWithEnvironment environment options = do
   writeIntermediateArtifacts output options artifacts
   if compileKeepAsm options
     then do
-      let assemblyPath = output <> ".s"
+      let assemblyPath = output <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
       assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
-      let assemblyPath = directory </> "program.s"
+      let assemblyPath = directory </> "program" <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
       assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
 
@@ -263,7 +265,7 @@ compileIncrementally dependencies unoptimizedMain =
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin
         }
   where
-    mainCore = Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)
+    mainCore = Fc.optimizeProgram (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain))
     mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
 
 -- | Link already-incremental Core units for whole-program analysis. Unique
@@ -301,12 +303,12 @@ compileIncrementalArtifacts target dependencies compilation = do
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
       primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
-  either (Left . CompileNativeError) Right (validateNativePrimitiveNames target primitives)
+  either (Left . CompileBackendError) Right (validateBackendPrimitiveNames target primitives)
   assembly <-
     either
-      (Left . CompileNativeError)
+      (Left . CompileBackendError)
       Right
-      (compileNativeProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainGcGrin)
+      (compileBackendProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainGcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
@@ -319,11 +321,11 @@ compileIncrementalArtifacts target dependencies compilation = do
 
 compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifacts target sourceCore = do
-  let core = Fc.lowerNewtypes sourceCore
+  let core = Fc.optimizeProgram (Fc.lowerNewtypes sourceCore)
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
   let gcGrin = Grin.lowerGc cpsGrin
-  assembly <- either (Left . CompileNativeError) Right (compileNativeProgram target "main" gcGrin)
+  assembly <- either (Left . CompileBackendError) Right (compileBackendProgram target "main" gcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
@@ -334,23 +336,32 @@ compileProgramArtifacts target sourceCore = do
         compiledArchives = []
       }
 
-validateNativePrimitiveNames :: NativeTarget -> [Text] -> Either NativeError ()
-validateNativePrimitiveNames target names =
+validateBackendPrimitiveNames :: NativeTarget -> [Text] -> Either BackendError ()
+validateBackendPrimitiveNames target names =
   case target of
-    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.validatePrimitiveNames names)
-    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.validatePrimitiveNames names)
+    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.validatePrimitiveNames names)
+    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.validatePrimitiveNames names)
+    PortableC -> validateC
+  where
+    validateC = either (Left . BackendCError) Right (C.validatePrimitiveNames names)
 
-compileNativeProgram :: NativeTarget -> Text -> Grin.GcGrinProgram -> Either NativeError Text
-compileNativeProgram target entry program =
+compileBackendProgram :: NativeTarget -> Text -> Grin.GcGrinProgram -> Either BackendError Text
+compileBackendProgram target entry program =
   case target of
-    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgram entry program)
-    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgram entry program)
+    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgram entry program)
+    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgram entry program)
+    PortableC -> compileC
+  where
+    compileC = either (Left . BackendCError) Right (C.compileProgram entry program)
 
-compileNativeProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either NativeError Text
-compileNativeProgramWithDependencies target layout initializers entry program =
+compileBackendProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either BackendError Text
+compileBackendProgramWithDependencies target layout initializers entry program =
   case target of
-    AppleArm64 -> either (Left . NativeArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
-    LinuxAmd64 -> either (Left . NativeAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
+    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
+    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
+    PortableC -> compileC
+  where
+    compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
 renderCore :: FcProgram -> Text
 renderCore = withFinalNewline . Fc.renderProgram
@@ -473,8 +484,8 @@ renderCompileError compileError =
     CompileFrontendError errors -> "frontend error: " <> unwords errors
     CompileDependencyError err -> "dependency error: " <> err
     CompileCpsGrinError err -> "CPS-GRIN error: " <> show err
-    CompileNativeError err -> "native code generation error: " <> show err
-    CompileTargetError err -> "native target error: " <> err
+    CompileBackendError err -> "backend code generation error: " <> show err
+    CompileTargetError err -> "target error: " <> err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
 
 defaultCompileTarget :: NativeTarget
@@ -483,18 +494,20 @@ defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
 assemble target garbageCollector output assemblyPath archives = do
   runtime <- runtimeSourcePath
+  (compiler, targetArguments) <- backendCompiler target
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
-      "clang"
-      ( [ "--target=" <> nativeTargetTriple target,
-          "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-Werror",
-          garbageCollectorDefine garbageCollector,
-          runtime,
-          assemblyPath
-        ]
+      compiler
+      ( targetArguments
+          <> [ "-std=c11",
+               "-Wall",
+               "-Wextra",
+               "-Werror",
+               "-I" <> takeDirectory runtime,
+               garbageCollectorDefine garbageCollector,
+               runtime,
+               assemblyPath
+             ]
           <> archives
           <> ["-o", output]
       )
@@ -502,6 +515,10 @@ assemble target garbageCollector output assemblyPath archives = do
   case exitCode of
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
+
+backendSourceExtension :: NativeTarget -> String
+backendSourceExtension PortableC = ".c"
+backendSourceExtension _ = ".s"
 
 garbageCollectorDefine :: GarbageCollector -> String
 garbageCollectorDefine garbageCollector =

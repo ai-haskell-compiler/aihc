@@ -110,6 +110,11 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
+          testCase "parses the portable C target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
@@ -158,7 +163,7 @@ main =
               source <- TIO.readFile sourcePath
               let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
                   environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-              forM_ [AppleArm64, LinuxAmd64] $ \target -> do
+              forM_ [AppleArm64, LinuxAmd64, PortableC] $ \target -> do
                 result <- compileSourceToAssemblyWithDependenciesFor target environment sourcePath source
                 case result of
                   Left err -> assertFailure ("expected " <> show target <> " compile success, got: " <> show err)
@@ -167,6 +172,8 @@ main =
                     assertBool "dependency initializer call" (targetInitializerCall target `T.isInfixOf` assembly)
                     assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
+          testCase "assembles an incremental portable C executable" test_compilePortableCExecutable,
+          testCase "lowers every example to portable C" test_compilePortableCExamples,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
           testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
@@ -938,14 +945,18 @@ test_compileGreenThreadsExample =
 
 test_compileAsyncStdioExample :: Assertion
 test_compileAsyncStdioExample =
-  when (isNativeCodegenHost arch os) $
-    withTempDir "aihc-compile-async-stdio" $ \root -> do
-      sourcePath <- asyncStdioExamplePath
-      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-          output = root </> "async-stdio"
-          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          options = CompileOptions sourcePath (Just output) False False False False Nothing GcSemispace
-      withCurrentDirectory repositoryRoot $ do
+  withTempDir "aihc-compile-async-stdio" $ \root -> do
+    sourcePath <- asyncStdioExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+        targets =
+          [PortableC]
+            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
+            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
+    withCurrentDirectory repositoryRoot $
+      forM_ targets $ \target -> do
+        let output = root </> ("async-stdio-" <> show target)
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
         runCompileWithEnvironment environment options
         (Just childInput, Just childOutput, Just childError, processHandle) <-
           createProcess
@@ -961,8 +972,49 @@ test_compileAsyncStdioExample =
         programOut <- TIO.hGetContents childOutput
         programErr <- TIO.hGetContents childError
         exitCode <- waitForProcess processHandle
-        assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess exitCode
-        assertEqual "native stdout" "Q" programOut
+        assertEqual (show target <> " stderr: " <> T.unpack programErr) ExitSuccess exitCode
+        assertEqual (show target <> " stdout") "Q" programOut
+
+test_compilePortableCExecutable :: Assertion
+test_compilePortableCExecutable =
+  withTempDir "aihc-compile-portable-c" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        output = root </> "hello-portable-c"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
+        options = CompileOptions sourcePath (Just output) False False True False (Just PortableC) GcCalloc
+    withCurrentDirectory repositoryRoot $ do
+      runCompileWithEnvironment environment options
+      assertFileExists output
+      assertFileExists (output <> ".c")
+      generatedC <- TIO.readFile (output <> ".c")
+      assertBool "portable C main" ("int main(void)" `T.isInfixOf` generatedC)
+      assertBool "dependency initializer call" ("_aihc_init_" `T.isInfixOf` generatedC)
+      assertNativeOutput "Hello, world!\n" output
+      objectFiles <- compileCacheArtifacts ".o" cacheRoot
+      archiveFiles <- compileCacheArtifacts ".a" cacheRoot
+      assertBool "cached C dependency objects" (not (null objectFiles))
+      assertBool "cached C dependency archives" (not (null archiveFiles))
+      let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
+      mapM_ (`setModificationTime` oldTimestamp) (objectFiles <> archiveFiles)
+      runCompileWithEnvironment environment options
+      mapM_ (getModificationTime >=> assertEqual "cache hit preserves C artifact" oldTimestamp) (objectFiles <> archiveFiles)
+
+test_compilePortableCExamples :: Assertion
+test_compilePortableCExamples =
+  withTempDir "aihc-compile-portable-c-examples" $ \root -> do
+    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, asyncStdioExamplePath, unboxedTailRecursionExamplePath]
+    forM_ sourcePaths $ \sourcePath -> do
+      source <- TIO.readFile sourcePath
+      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+      result <- compileSourceToAssemblyWithDependenciesFor PortableC environment sourcePath source
+      case result of
+        Left err -> assertFailure ("expected portable C compile success for " <> sourcePath <> ", got: " <> show err)
+        Right generatedC -> do
+          assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
+          assertBool "uses trampoline dispatch" ("while (aihc_next_entry != NULL)" `T.isInfixOf` generatedC)
 
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
@@ -1050,7 +1102,7 @@ test_compileExplicitCoreImport =
             "module Demo (identity) where",
             "data UnreachableDependencyType = UnreachableDependencyConstructor",
             "unreachableDependencyFunction = UnreachableDependencyConstructor",
-            "dependencyImplementation x = x",
+            "dependencyImplementation x = let alias = x in alias",
             "identity x = dependencyImplementation x"
           ]
       )
@@ -1066,6 +1118,7 @@ test_compileExplicitCoreImport =
     assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
     assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
     assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)
+    assertBool ("whole-program Core retains a dependency alias:\n" <> T.unpack wholeCore) (not ("alias" `T.isInfixOf` wholeCore))
     assertBool "unreachable dependency function is excluded from Core" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
     assertBool "unreachable dependency type is excluded from Core" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
     assertBool "whole-program DCE excludes unreachable dependency functions" (not ("unreachableDependencyFunction" `T.isInfixOf` wholeCore))
@@ -1124,14 +1177,17 @@ nativeMainDirective
 targetMainDirective :: NativeTarget -> T.Text
 targetMainDirective AppleArm64 = ".globl _main"
 targetMainDirective LinuxAmd64 = ".globl main"
+targetMainDirective PortableC = "int main(void)"
 
 targetInitializerCall :: NativeTarget -> T.Text
 targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
+targetInitializerCall PortableC = "_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
 targetTailTransfer AppleArm64 = "br x0"
 targetTailTransfer LinuxAmd64 = "jmp rax"
+targetTailTransfer PortableC = "aihc_next_entry"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =
@@ -1207,6 +1263,9 @@ greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
 
 asyncStdioExamplePath :: IO FilePath
 asyncStdioExamplePath = examplePath ("async-stdio" </> "Main.hs")
+
+unboxedTailRecursionExamplePath :: IO FilePath
+unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")
 
 examplePath :: FilePath -> IO FilePath
 examplePath example = getCurrentDirectory >>= findFrom
