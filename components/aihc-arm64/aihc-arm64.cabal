@@ -40,7 +40,6 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Aihc.Testing.EvalFixture
-    Aihc.Testing.GrinProgram
     Aihc.Testing.SchedulerProgram
     Test.Arm64.Suite
 

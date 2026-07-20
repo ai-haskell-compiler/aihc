@@ -6,9 +6,9 @@ module Aihc.Grin.Pretty
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Data.ByteString qualified as BS
-import Data.Char (chr)
+import Data.Char (chr, isPrint, isSpace)
 import Data.List (intercalate)
 import Data.Text qualified as T
 
@@ -19,7 +19,7 @@ renderProgram program =
     ( map renderConstructor (grinConstructors program)
         <> map renderPrimitive (grinPrimitives program)
         <> map renderForeign (grinForeignCalls program)
-        <> map (("external global " <>) . T.unpack) (grinExternalGlobals program)
+        <> map (("external global " <>) . renderName) (grinExternalGlobals program)
         <> map renderExternalFunction (grinExternalFunctions program)
         <> map renderGlobal (grinWhnfGlobals program)
         <> map renderCaf (grinCafs program)
@@ -29,16 +29,20 @@ renderProgram program =
 renderExternalFunction :: GrinCodeInfo -> String
 renderExternalFunction info =
   "external "
-    <> T.unpack (grinCodeSourceName info)
+    <> renderName (grinCodeSourceName info)
     <> "/"
     <> show (length (grinCodeParameterLayouts info))
+    <> " "
+    <> renderLayouts (grinCodeParameterLayouts info)
+    <> " -> "
+    <> show (grinCodeResultRep info)
     <> " = "
-    <> T.unpack (unFunctionName (grinCodeFunctionName info))
+    <> renderFunctionName (grinCodeFunctionName info)
 
 renderConstructor :: (T.Text, [[RuntimeRep]]) -> String
 renderConstructor (name, fieldLayouts) =
   "constructor "
-    <> T.unpack name
+    <> renderName name
     <> "/"
     <> show (length fieldLayouts)
     <> " ["
@@ -56,10 +60,7 @@ renderPrimitive (var, arity) =
 
 renderForeign :: GrinForeignCall -> String
 renderForeign foreignCall =
-  "foreign \""
-    <> T.unpack (grinForeignCallSymbol foreignCall)
-    <> "\" "
-    <> T.unpack (grinForeignCallName foreignCall)
+  "foreign " <> renderForeignCall foreignCall
 
 renderGlobal :: (GrinVar, GrinNode) -> String
 renderGlobal (var, node) =
@@ -71,10 +72,11 @@ renderCaf (var, node) =
 
 renderFunction :: GrinFunction -> String
 renderFunction function =
-  T.unpack (unFunctionName (grinFunctionName function))
+  renderFunctionName (grinFunctionName function)
     <> concatMap ((" " <>) . renderVarAtom) (grinFunctionParameters function)
     <> " -> "
     <> show (grinFunctionResultRep function)
+    <> maybe "" ((" link " <>) . renderName) (grinFunctionLinkName function)
     <> " =\n"
     <> renderExprIndented 2 (grinFunctionBody function)
 
@@ -122,21 +124,21 @@ renderExprIndented indentation expr =
         <> "call @"
         <> renderRuntimeRepArgument runtimeRep
         <> " "
-        <> T.unpack (unFunctionName functionName)
+        <> renderFunctionName functionName
         <> renderValues arguments
     GrinPrimitiveCall runtimeRep name arguments ->
       indent indentation
         <> "primitive-call @"
         <> renderRuntimeRepArgument runtimeRep
         <> " "
-        <> T.unpack name
+        <> renderName name
         <> renderValues arguments
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       indent indentation
         <> "cps-primitive-call @"
         <> renderRuntimeRepArgument runtimeRep
         <> " "
-        <> T.unpack name
+        <> renderName name
         <> renderValues arguments
         <> " -> "
         <> renderValue continuation
@@ -181,8 +183,9 @@ renderExprIndented indentation expr =
     GrinForeignCallExpr foreignCall arguments ->
       indent indentation
         <> "foreign-call "
-        <> T.unpack (grinForeignCallName foreignCall)
-        <> concatMap ((" " <>) . renderValue) arguments
+        <> renderForeignCall foreignCall
+        <> " with"
+        <> renderValues arguments
 
 renderStoreRec :: Int -> String -> [(GrinVar, GrinNode)] -> GrinExpr -> String
 renderStoreRec indentation name bindings body =
@@ -224,7 +227,7 @@ renderAlt indentation alt =
 renderAltCon :: GrinAltCon -> String
 renderAltCon altCon =
   case altCon of
-    GrinDataAlt name -> T.unpack name
+    GrinDataAlt name -> "data " <> renderName name
     GrinLitAlt literal -> renderLiteral literal
     GrinDefaultAlt -> "_"
 
@@ -245,22 +248,27 @@ renderNodeTag :: GrinNodeTag -> String
 renderNodeTag nodeTag =
   case nodeTag of
     GrinConstructor name remaining ->
-      "C" <> T.unpack name <> if remaining == 0 then "" else "/" <> show remaining
+      "C" <> renderName name <> if remaining == 0 then "" else "/" <> show remaining
     GrinClosure functionName argumentLayouts ->
-      "P" <> T.unpack (unFunctionName functionName) <> "/" <> show (length argumentLayouts)
-    GrinThunk functionName -> "F" <> T.unpack (unFunctionName functionName)
+      "P"
+        <> renderFunctionName functionName
+        <> "/"
+        <> if all (== [BoxedRep Lifted]) argumentLayouts
+          then show (length argumentLayouts)
+          else show (length argumentLayouts) <> renderLayouts argumentLayouts
+    GrinThunk functionName -> "F" <> renderFunctionName functionName
 
 renderLiteral :: GrinLiteral -> String
 renderLiteral literal =
   case literal of
-    GrinLitInt _ value -> show value
-    GrinLitChar _ value -> show value
+    GrinLitInt runtimeRep value -> "(" <> show value <> " :: " <> show runtimeRep <> ")"
+    GrinLitChar runtimeRep value -> "(" <> show value <> " :: " <> show runtimeRep <> ")"
     GrinLitString value -> show (T.unpack value)
     GrinLitAddr value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#"
 
 renderVar :: GrinVar -> String
 renderVar var =
-  T.unpack (grinVarName var)
+  renderName (grinVarName var)
     <> "%"
     <> show (grinVarUnique var)
     <> " :: "
@@ -281,6 +289,50 @@ renderRuntimeRepArgument runtimeRep =
     _ -> show runtimeRep
   where
     parenthesized = "(" <> show runtimeRep <> ")"
+
+renderLayouts :: [[RuntimeRep]] -> String
+renderLayouts layouts = "[" <> intercalate ", " (map renderLayout layouts) <> "]"
+  where
+    renderLayout layout = "[" <> intercalate ", " (map show layout) <> "]"
+
+renderForeignCall :: GrinForeignCall -> String
+renderForeignCall foreignCall =
+  renderName (grinForeignCallName foreignCall)
+    <> " = "
+    <> show (T.unpack (grinForeignCallSymbol foreignCall))
+    <> " :: "
+    <> renderForeignSignature (grinForeignCallSignature foreignCall)
+
+renderForeignSignature :: GrinForeignSignature -> String
+renderForeignSignature signature =
+  "("
+    <> intercalate ", " (map renderForeignType (grinForeignArgumentTypes signature))
+    <> ") -> "
+    <> renderForeignType (grinForeignResultType signature)
+    <> " ! "
+    <> case grinForeignEffect signature of
+      GrinForeignPure -> "pure"
+      GrinForeignRealWorld -> "real-world"
+
+renderForeignType :: GrinForeignType -> String
+renderForeignType foreignType =
+  case foreignType of
+    GrinForeignInt32 -> "int32"
+    GrinForeignWord64 -> "word64"
+    GrinForeignAddr -> "addr"
+
+renderFunctionName :: FunctionName -> String
+renderFunctionName = renderName . unFunctionName
+
+renderName :: T.Text -> String
+renderName name
+  | not (T.null name) && T.all isBareNameCharacter name = T.unpack name
+  | otherwise = show (T.unpack name)
+  where
+    isBareNameCharacter character =
+      isPrint character
+        && not (isSpace character)
+        && character `notElem` ['"', '(', ')', '[', ']', ',', '=', '/', '%']
 
 indent :: Int -> String
 indent count = replicate count ' '
