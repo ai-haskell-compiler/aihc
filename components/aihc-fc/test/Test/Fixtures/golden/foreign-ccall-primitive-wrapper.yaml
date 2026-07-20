@@ -15,19 +15,15 @@ expected: |-
   putchar : CInt → IO CInt =
     λ$ffi_arg_0 : CInt.
       let
-        $ffi_case : CInt =
-          $ffi_arg_0
+        $ffi_field : Int32 =
+          $ffi_arg_0 ▷ <co>
       in
-        let
-          $ffi_field : Int32 =
-            $ffi_case ▷ <co>
-        in
-          case $ffi_field as $ffi_case : Int32 of
-            I32# $ffi_field →
-              (λ$ffi_state : State# RealWorld.
-                case foreign-call $ffi$putchar $ffi_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
-                  (#,#) $ffi_next_state $ffi_raw_result →
-                    (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
+        case $ffi_field as $ffi_case : Int32 of
+          I32# $ffi_field →
+            (λ$ffi_state : State# RealWorld.
+              case foreign-call $ffi$putchar $ffi_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
+                (#,#) $ffi_next_state $ffi_raw_result →
+                  (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
 extensions:
 - ForeignFunctionInterface
 - MagicHash

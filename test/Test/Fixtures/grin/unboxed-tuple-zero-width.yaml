@@ -3,9 +3,9 @@ expected: |-
 
   primitive realWorld#%1000 :: BoxedRep Lifted/0
 
-  caf value%1007 :: BoxedRep Lifted = (F$grin_thunk_0)
+  caf value%1007 :: BoxedRep Lifted = (Fvalue_thunk)
 
-  $grin_thunk_0 -> BoxedRep Lifted =
+  value_thunk -> BoxedRep Lifted =
     $grin_argument_1008%1008 :: IntRep <-
       constant 42
     store (CBox ($grin_argument_1008%1008 :: IntRep))

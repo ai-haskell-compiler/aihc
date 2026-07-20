@@ -1,9 +1,9 @@
 expected: |-
   constructor IS/1 [IntRep]
 
-  caf value%1003 :: BoxedRep Lifted = (F$grin_thunk_0)
+  caf value%1003 :: BoxedRep Lifted = (Fvalue_thunk)
 
-  $grin_thunk_0 -> BoxedRep Lifted =
+  value_thunk -> BoxedRep Lifted =
     store (CIS 42)
 extensions:
   - MagicHash

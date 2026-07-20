@@ -16,6 +16,7 @@ where
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Newtype (lowerNewtypes)
+import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -106,7 +107,7 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = lowerConstraintProgram (lowerNewtypes (FcProgram binds)),
+                { dsProgram = optimizeProgram (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
                   dsSuccess = True,
                   dsErrors = []
                 }

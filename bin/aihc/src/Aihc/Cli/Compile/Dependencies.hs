@@ -14,7 +14,7 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Native
   ( LinkInterface,
@@ -173,7 +173,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 13
+cacheSchemaVersion = 17
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildNative mainModule = do
@@ -348,7 +348,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                         then Left ("core library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
                           let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
-                              core = lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore
+                              core = optimizeProgram (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore)
                               newtypes = extractNewtypeInterface core
                               grinInterface = Grin.extractGrinInterface core
                               reachabilityInterface = extractReachabilityInterface core

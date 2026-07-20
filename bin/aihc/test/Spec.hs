@@ -1020,7 +1020,7 @@ test_compileExplicitCoreImport =
             "module Demo (identity) where",
             "data UnreachableDependencyType = UnreachableDependencyConstructor",
             "unreachableDependencyFunction = UnreachableDependencyConstructor",
-            "dependencyImplementation x = x",
+            "dependencyImplementation x = let alias = x in alias",
             "identity x = dependencyImplementation x"
           ]
       )
@@ -1036,6 +1036,7 @@ test_compileExplicitCoreImport =
     assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
     assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
     assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)
+    assertBool ("whole-program Core retains a dependency alias:\n" <> T.unpack wholeCore) (not ("alias" `T.isInfixOf` wholeCore))
     assertBool "unreachable dependency function is excluded from Core" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
     assertBool "unreachable dependency type is excluded from Core" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
     assertBool "whole-program DCE excludes unreachable dependency functions" (not ("unreachableDependencyFunction" `T.isInfixOf` wholeCore))

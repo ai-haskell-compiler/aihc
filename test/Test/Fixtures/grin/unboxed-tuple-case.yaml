@@ -1,9 +1,9 @@
 expected: |-
   constructor Box/1 [IntRep]
 
-  caf value%1005 :: BoxedRep Lifted = (F$grin_thunk_0)
+  caf value%1005 :: BoxedRep Lifted = (Fvalue_thunk)
 
-  $grin_thunk_0 -> BoxedRep Lifted =
+  value_thunk -> BoxedRep Lifted =
     $grin_argument_1006%1006 :: IntRep <-
       $grin_tuple_1007%1007 :: IntRep, $grin_tuple_1008%1008 :: WordRep <-
         constant 1 2

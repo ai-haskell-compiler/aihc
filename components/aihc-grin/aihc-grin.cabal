@@ -21,6 +21,9 @@ library
     Aihc.Grin.Snapshot
     Aihc.Grin.Syntax
 
+  other-modules:
+    Aihc.Grin.Analysis
+
   hs-source-dirs: src
   build-depends:
     aihc-fc,
