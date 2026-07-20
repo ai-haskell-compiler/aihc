@@ -75,7 +75,53 @@ fcOptimizationTests :: TestTree
 fcOptimizationTests =
   testGroup
     "FC optimizations"
-    [ testCase "eliminates values and types unreachable from the entry point" $ do
+    [ testCase "copy propagates simple non-recursive lets" $ do
+        let value = Var "value" (Unique 1) stringTy
+            alias = Var "alias" (Unique 2) stringTy
+            consume = Var "consume" (Unique 3) (TcFunTy stringTy stringTy)
+            result = Var "result" (Unique 4) stringTy
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec alias (FcVar value)) (FcApp (FcVar consume) (FcVar alias))))]
+            expected = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar consume) (FcVar value)))]
+        assertEqual "optimized program" expected (optimizeProgram source),
+      testCase "runs the Core optimization set to a fixpoint" $ do
+        let value = Var "value" (Unique 5) stringTy
+            outer = Var "outer" (Unique 6) stringTy
+            inner = Var "inner" (Unique 7) stringTy
+            result = Var "result" (Unique 8) stringTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        ( FcLet
+                            (FcNonRec outer (FcLet (FcNonRec inner (FcVar value)) (FcVar inner)))
+                            (FcVar outer)
+                        )
+                    )
+                ]
+            expected = FcProgram [FcTopBind (FcNonRec result (FcVar value))]
+        assertEqual "optimized program" expected (optimizeProgram source),
+      testCase "copy propagates non-recursive singleton rec groups" $ do
+        let value = Var "value" (Unique 13) stringTy
+            alias = Var "alias" (Unique 14) stringTy
+            result = Var "result" (Unique 15) stringTy
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar value)]) (FcVar alias)))]
+            expected = FcProgram [FcTopBind (FcNonRec result (FcVar value))]
+        assertEqual "optimized program" expected (optimizeProgram source),
+      testCase "retains genuinely recursive singleton aliases" $ do
+        let alias = Var "alias" (Unique 16) stringTy
+            result = Var "result" (Unique 17) stringTy
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar alias)]) (FcVar alias)))]
+        assertEqual "optimized program" source (optimizeProgram source),
+      testCase "retains non-trivial let right-hand sides" $ do
+        let value = Var "value" (Unique 9) stringTy
+            binder = Var "computed" (Unique 10) stringTy
+            identity = Var "identity" (Unique 11) (TcFunTy stringTy stringTy)
+            result = Var "result" (Unique 12) stringTy
+            computed = FcApp (FcVar identity) (FcVar value)
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec binder computed) (FcVar binder)))]
+        assertEqual "optimized program" source (optimizeProgram source),
+      testCase "eliminates values and types unreachable from the entry point" $ do
         let liveTy = ty "Live"
             leafTy = ty "Leaf"
             deadTy = ty "Dead"

@@ -11,8 +11,10 @@ module Aihc.Grin.Lower
 where
 
 import Aihc.Fc.Newtype (lowerNewtypes)
+import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
+import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
   ( RuntimeRep (..),
@@ -24,6 +26,7 @@ import Aihc.Tc.Types
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -42,7 +45,8 @@ data LowerState = LowerState
     lowerReferencedExternalGlobalNames :: !(Set Text),
     lowerGlobalNames :: !(Set Text),
     lowerWhnfGlobalNames :: !(Set Text),
-    lowerLocalVars :: !(Map (Text, Unique) [GrinVar])
+    lowerLocalVars :: !(Map (Text, Unique) [GrinVar]),
+    lowerCurrentProvenance :: !(Maybe Text)
   }
 
 type LowerM = State LowerState
@@ -74,7 +78,7 @@ instance Monoid LoweredTop where
 lowerProgram :: FcProgram -> GrinProgram
 lowerProgram sourceProgram = lowerProgramWithInterface mempty program
   where
-    program = lowerNewtypes sourceProgram
+    program = optimizeProgram (lowerNewtypes sourceProgram)
 
 -- | Runtime facts exported by one compiled unit. Lowering consumers need to
 -- know which external names are globals, already in WHNF, constructors, or
@@ -102,7 +106,7 @@ instance Monoid GrinInterface where
   mempty = GrinInterface Set.empty Set.empty Map.empty Map.empty Map.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
-extractGrinInterface program =
+extractGrinInterface sourceProgram =
   GrinInterface
     { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
       grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
@@ -114,12 +118,16 @@ extractGrinInterface program =
           ],
       grinInterfaceCodeInfos = Map.fromList (programCodeInfos program)
     }
+  where
+    program = optimizeProgram sourceProgram
 
 -- | Lower one SCC using only the exported runtime facts of predecessor SCCs.
 -- The supplied program must already have completed its FC transformations.
 lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
-lowerProgramWithInterface imported program =
+lowerProgramWithInterface imported sourceProgram =
   lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program)) program
+  where
+    program = optimizeProgram sourceProgram
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
@@ -166,7 +174,8 @@ lowerProgramWithEnvironment environment program =
           lowerReferencedExternalGlobalNames = Set.empty,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
-          lowerLocalVars = Map.empty
+          lowerLocalVars = Map.empty,
+          lowerCurrentProvenance = Nothing
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -197,19 +206,20 @@ lowerTopValueBind bind =
     FcRec bindings ->
       mconcat <$> mapM (uncurry lowerBinding) bindings
   where
-    lowerBinding var expr = do
-      if isDirectFunction expr
-        then do
-          emitTopFunction var expr
-          pure mempty
-        else do
-          staticNode <- lowerStaticNode expr
-          topVar <- freshTopVar var
-          case staticNode of
-            Just node -> pure mempty {loweredWhnfGlobals = [(topVar, node)]}
-            Nothing -> do
-              node <- makeThunk expr
-              pure mempty {loweredCafs = [(topVar, node)]}
+    lowerBinding var expr =
+      withProvenance (varName var) $ do
+        if isDirectFunction expr
+          then do
+            emitTopFunction var expr
+            pure mempty
+          else do
+            staticNode <- lowerStaticNode expr
+            topVar <- freshTopVar var
+            case staticNode of
+              Just node -> pure mempty {loweredWhnfGlobals = [(topVar, node)]}
+              Nothing -> do
+                node <- makeTopThunk var expr
+                pure mempty {loweredCafs = [(topVar, node)]}
 
 -- | A top-level RHS is already a function value exactly when reaching its
 -- first runtime construct requires only erasing type abstraction or casts.
@@ -497,27 +507,71 @@ bindExpr vars valueExpr body =
       | values == map GrinVarValue vars -> valueExpr
     _ -> GrinBind vars valueExpr body
 
+-- | A non-recursive lifted binding whose pointer is forced immediately and is
+-- dead afterward needs neither an updateable cell nor an outlined entry. The
+-- caller can lower its right-hand side directly into this continuation.
+discardedImmediateEval :: [GrinVar] -> GrinExpr -> Maybe ([GrinVar], GrinExpr)
+discardedImmediateEval vars body =
+  case (vars, body) of
+    ( [pointer],
+      GrinBind resultVars (GrinEval _ (GrinVarValue evaluatedPointer)) rest
+      )
+        | pointer == evaluatedPointer,
+          pointer `Set.notMember` freeExprVars rest ->
+            Just (resultVars, rest)
+    _ -> Nothing
+
 lowerLambda :: Var -> FcExpr -> LowerM GrinExpr
 lowerLambda binder body =
   GrinStore <$> makeClosureNode (FcLam binder body)
 
 makeClosureNode :: FcExpr -> LowerM GrinNode
 makeClosureNode expr = do
-  let (binders, lambdaBody) = collectLeadingLambdas expr
-  captures <- capturesFor expr
-  functionName <- freshFunction "closure"
-  (parameterLayouts, parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
-    body' <- lowerExpr lambdaBody
-    pure (map (map grinVarRuntimeRep) groups, concat groups, body')
-  emitFunction
-    GrinFunction
-      { grinFunctionName = functionName,
-        grinFunctionLinkName = Nothing,
-        grinFunctionParameters = captures <> parameters,
-        grinFunctionResultRep = exprRuntimeRep lambdaBody,
-        grinFunctionBody = loweredBody
-      }
-  pure (GrinNode (GrinClosure functionName parameterLayouts) (map GrinVarValue captures))
+  etaReduced <- etaReduceKnownFunction expr
+  case etaReduced of
+    Just node -> pure node
+    Nothing -> do
+      let (binders, lambdaBody) = collectLeadingLambdas expr
+      captures <- capturesFor expr
+      functionName <- freshFunction "closure"
+      (parameterLayouts, parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
+        body' <- lowerExpr lambdaBody
+        pure (map (map grinVarRuntimeRep) groups, concat groups, body')
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionLinkName = Nothing,
+            grinFunctionParameters = captures <> parameters,
+            grinFunctionResultRep = exprRuntimeRep lambdaBody,
+            grinFunctionBody = loweredBody
+          }
+      pure (GrinNode (GrinClosure functionName parameterLayouts) (map GrinVarValue captures))
+
+-- A closure such as @\x -> pureIO x@ is only an eta-expanded view of known
+-- code. Pointing at that code directly preserves partial-application behavior
+-- while avoiding both the wrapper entry and an extra closure allocation.
+etaReduceKnownFunction :: FcExpr -> LowerM (Maybe GrinNode)
+etaReduceKnownFunction expr =
+  case collectLeadingLambdas expr of
+    ([], _) -> pure Nothing
+    (binders, body) ->
+      case collectApplications body of
+        (FcVar target, arguments)
+          | map etaArgumentVar arguments == map Just binders -> do
+              codeInfo <- lookupCodeInfo target
+              pure $ do
+                info <- codeInfo
+                let binderLayouts = map (runtimeRepComponents . typeRuntimeRep . varType) binders
+                if binderLayouts == take (length binders) (grinCodeParameterLayouts info)
+                  then Just (knownFunctionNode info 0 [])
+                  else Nothing
+        _ -> pure Nothing
+  where
+    etaArgumentVar argument =
+      case argument of
+        FcVar var -> Just var
+        FcCast inner _ -> etaArgumentVar inner
+        _ -> Nothing
 
 lowerLet :: FcBind -> FcExpr -> LowerM GrinExpr
 lowerLet bind body =
@@ -534,25 +588,30 @@ lowerLet bind body =
                 pure (concat groups, body')
               if rhsIsWhnf
                 then do
-                  loweredRhs <- lowerExpr rhs
+                  loweredRhs <- withProvenance (varName var) (lowerExpr rhs)
                   pure (bindExpr vars loweredRhs loweredBody)
-                else do
-                  node <- makeThunk rhs
-                  pure (bindExpr vars (GrinStore node) loweredBody)
+                else case discardedImmediateEval vars loweredBody of
+                  Just (resultVars, rest) -> do
+                    loweredRhs <- withProvenance (varName var) (lowerExpr rhs)
+                    pure (bindExpr resultVars loweredRhs rest)
+                  Nothing -> do
+                    node <- withProvenance (varName var) (makeThunk rhs)
+                    pure (bindExpr vars (GrinStore node) loweredBody)
       | otherwise -> do
           (vars, loweredBody) <- withFreshLocalVars [var] $ \groups -> do
             body' <- lowerExpr body
             pure (concat groups, body')
-          loweredRhs <- lowerExpr rhs
+          loweredRhs <- withProvenance (varName var) (lowerExpr rhs)
           pure (bindExpr vars loweredRhs loweredBody)
     FcRec bindings -> do
       withFreshLocalVars (map fst bindings) $ \groups -> do
         nodes <-
           mapM
-            ( \(_, rhs) ->
-                if isDirectFunction rhs
-                  then makeClosureNode rhs
-                  else makeThunk rhs
+            ( \(var, rhs) ->
+                withProvenance (varName var) $
+                  if isDirectFunction rhs
+                    then makeClosureNode rhs
+                    else makeThunk rhs
             )
             bindings
         loweredBody <- lowerExpr body
@@ -574,12 +633,18 @@ lowerAlt caseBinding alt = do
       }
 
 makeThunk :: FcExpr -> LowerM GrinNode
-makeThunk expr
+makeThunk = makeThunkNamed Nothing
+
+makeTopThunk :: Var -> FcExpr -> LowerM GrinNode
+makeTopThunk var = makeThunkNamed (Just (FunctionName (varName var <> "_thunk")))
+
+makeThunkNamed :: Maybe FunctionName -> FcExpr -> LowerM GrinNode
+makeThunkNamed requestedName expr
   | not (isLiftedRuntimeRep runtimeRep) =
       error ("GRIN lowering cannot suspend an expression with runtime representation " <> show runtimeRep)
   | otherwise = do
       captures <- capturesFor expr
-      functionName <- freshFunction "thunk"
+      functionName <- maybe (freshFunction "thunk") freshNamedFunction requestedName
       body <- lowerExpr expr
       emitFunction
         GrinFunction
@@ -798,9 +863,28 @@ freshTopVar var = do
 
 freshFunction :: Text -> LowerM FunctionName
 freshFunction kind = do
+  index <- freshFunctionIndex
+  provenance <- gets lowerCurrentProvenance
+  pure
+    ( FunctionName
+        ( fromMaybe "$grin" provenance
+            <> "_"
+            <> kind
+            <> "_"
+            <> T.pack (show index)
+        )
+    )
+
+-- Source-derived names still reserve a generated-name index so introducing a
+-- readable name does not renumber every anonymous function that follows it.
+freshNamedFunction :: FunctionName -> LowerM FunctionName
+freshNamedFunction name = name <$ freshFunctionIndex
+
+freshFunctionIndex :: LowerM Int
+freshFunctionIndex = do
   index <- gets lowerNextFunction
   modify' $ \state -> state {lowerNextFunction = index + 1}
-  pure (FunctionName ("$grin_" <> kind <> "_" <> T.pack (show index)))
+  pure index
 
 emitFunction :: GrinFunction -> LowerM ()
 emitFunction function = do
@@ -1133,6 +1217,14 @@ withBindings bindings action = do
   modify' $ \state -> state {lowerLocalVars = previous}
   pure result
 
+withProvenance :: Text -> LowerM a -> LowerM a
+withProvenance provenance action = do
+  previous <- gets lowerCurrentProvenance
+  modify' $ \state -> state {lowerCurrentProvenance = Just provenance}
+  result <- action
+  modify' $ \state -> state {lowerCurrentProvenance = previous}
+  pure result
+
 binderVars :: Var -> LowerM [GrinVar]
 binderVars var =
   case runtimeRepComponents (typeRuntimeRep (varType var)) of
@@ -1363,7 +1455,25 @@ collectLeadingLambdas expr =
        in (binder : binders, result)
     FcTyLam _ body -> collectLeadingLambdas body
     FcCast inner _ -> collectLeadingLambdas inner
+    FcLet bind@(FcNonRec _ rhs) body
+      | isRuntimeAliasExpression rhs ->
+          case collectLeadingLambdas body of
+            ([], _) -> ([], expr)
+            (binders, result) -> (binders, FcLet bind result)
     _ -> ([], expr)
+
+-- Moving an allocation-free alias into the body of a following lambda exposes
+-- the lambda to closure conversion without duplicating work or changing
+-- sharing. Keep the let itself so its binder continues to carry the cast's
+-- result type; GRIN deliberately does not reconstruct that type from coercion
+-- axioms.
+isRuntimeAliasExpression :: FcExpr -> Bool
+isRuntimeAliasExpression expression =
+  case expression of
+    FcVar {} -> True
+    FcTyApp inner _ -> isRuntimeAliasExpression inner
+    FcCast inner _ -> isRuntimeAliasExpression inner
+    _ -> False
 
 isStaticWhnf :: Map Text Int -> FcExpr -> Bool
 isStaticWhnf constructorArities expr =

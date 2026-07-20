@@ -27,6 +27,7 @@ module Aihc.Fc
 
     -- * Optimization
     eliminateDeadCode,
+    optimizeProgram,
     ReachabilityInterface,
     extractReachabilityInterface,
     reachablePrimitiveNames,
@@ -55,5 +56,6 @@ import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBind
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
+import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax
