@@ -250,7 +250,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "exports caller entry" (".globl _aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
-            assertBool "branches to dependency register entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79__register" `T.isInfixOf` assembly)
+            assertBool "branches to dependency entry" ("b _aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly)
             assertBool "does not publish direct-call arguments through the machine" (not ("str x8, [x22, #0]" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
@@ -494,7 +494,7 @@ snapshotTest (name, fixtureName) =
       assertBool "dispatches through the info-table apply entry" ("ldr x8, [x8, #48]" `T.isInfixOf` assembly)
       assertBool
         "loads captured and supplied arguments into registers"
-        ("mov x1, x0\n  ldr x0, [x20, #8]\n  b _aihc_snapshot_function_0_register" `T.isInfixOf` assembly)
+        ("mov x1, x0\n  ldr x0, [x20, #8]\n  b _aihc_snapshot_function_0" `T.isInfixOf` assembly)
     when (fixtureName == "apply-register-overflow.yaml") $ do
       let assembly = observedAssembly observed
       assertBool "spills supplied register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
@@ -502,13 +502,15 @@ snapshotTest (name, fixtureName) =
     when (fixtureName == "call-register-overflow.yaml") $ do
       let assembly = observedAssembly observed
       assertBool "spills direct-call register overflow" ("sub sp, sp, x8\n  mov x10, sp" `T.isInfixOf` assembly)
-      assertBool "tail-enters the direct target's register entry" ("_register" `T.isInfixOf` assembly)
+      assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` assembly))
     when (fixtureName == "loop-add.yaml") $ do
       let assembly = observedAssembly observed
           loopAndRest = snd (T.breakOn "_aihc_snapshot_function_0:" assembly)
           loopAssembly = fst (T.breakOn "_aihc_snapshot_function_1:" loopAndRest)
       assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[x19" `T.isInfixOf` loopAssembly))
-      assertBool "self-tail-calls the allocated body" (T.count "b _aihc_snapshot_function_0_body" loopAssembly >= 2)
+      assertEqual "only the self-tail-call branches to the allocated body" 1 (T.count "b _aihc_snapshot_function_0_body" loopAssembly)
+      assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
+      assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
     when (arch == "aarch64" && os == "darwin") $ do
       native <- runObservedProgram observed
       assertNativeExpectation expectation native

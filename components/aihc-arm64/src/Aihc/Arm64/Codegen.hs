@@ -41,9 +41,10 @@ import Aihc.Native
     extendLinkLayoutWithInterface,
     extractLinkInterface,
   )
+import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
-import Control.Monad (forM, replicateM)
+import Control.Monad (forM, forM_, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, execStateT, get, modify')
 import Data.ByteString qualified as BS
@@ -86,15 +87,10 @@ data ObservedProgram = ObservedProgram
   }
   deriving (Eq, Show)
 
-data Block = Block
-  { blockLabel :: !Text,
-    blockLines :: ![Text]
-  }
-
 data FunctionState = FunctionState
   { functionNextLabel :: !Int,
     functionNextSlot :: !Int,
-    functionBlocksRev :: ![Block]
+    functionBlocksRev :: ![BlockLayout.Block Text Text]
   }
 
 data CompiledFunction = CompiledFunction
@@ -187,10 +183,9 @@ compileObservedFunction entryName gcProgram = do
             <> [ "  mov x21, x0",
                  "  mov x0, x22",
                  "  bl _aihc_reset_allocation_count",
-                 "  b " <> registerEntryLabel entryLabel,
+                 "  b " <> entryLabel,
                  ".p2align 3",
-                 ".Laihc_snapshot_result:",
-                 ".Laihc_snapshot_result_register:"
+                 ".Laihc_snapshot_result:"
                ]
             <> [storeAt register "x19" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
             <> [ "  mov x1, x19",
@@ -204,7 +199,6 @@ compileObservedFunction entryName gcProgram = do
                  "  ret"
                ]
             <> [ ".p2align 3",
-                 ".Laihc_thread_done_continuation_register:",
                  ".Laihc_thread_done_continuation:",
                  "  mov x0, x22",
                  "  bl _aihc_thread_done",
@@ -355,21 +349,18 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  b .Laihc_eval"
          ]
       <> [ ".p2align 3",
-           ".Laihc_top_continuation_register:",
            ".Laihc_top_continuation:",
            "  mov x21, x0",
            "  mov x20, x1",
            "  b .Laihc_enter"
          ]
       <> [ ".p2align 3",
-           ".Laihc_thread_done_continuation_register:",
            ".Laihc_thread_done_continuation:",
            "  mov x0, x22",
            "  bl _aihc_thread_done",
            "  b .Laihc_resume"
          ]
       <> [ ".p2align 3",
-           ".Laihc_final_continuation_register:",
            ".Laihc_final_continuation:",
            "  b .Laihc_exit"
          ]
@@ -556,14 +547,15 @@ compileFunction env function = do
           ]
       entry =
         exportLines env function label
-          <> registerExportLines env function label
           <> [ ".p2align 3",
-               label <> ":",
-               registerEntryLabel label <> ":"
+               label <> ":"
              ]
           <> registerParameterCopies
-          <> ["  b " <> bodyLabel]
-      blocks = concatMap renderBlock (reverse (functionBlocksRev finalState))
+      blocks =
+        BlockLayout.renderBlocks
+          (<> ":")
+          ("  b " <>)
+          (BlockLayout.layoutBlocks bodyLabel (reverse (functionBlocksRev finalState)))
   pure
     CompiledFunction
       { compiledFunctionSlots = slotCount,
@@ -587,10 +579,6 @@ exportLines env function label
       case grinFunctionLinkName function of
         Just _ -> [".globl " <> label]
         Nothing -> []
-
-registerExportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
-registerExportLines env function label =
-  [".globl " <> registerEntryLabel label | not (null (exportLines env function label))]
 
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
@@ -649,10 +637,10 @@ compileExpr env prefix label expression =
                  loadAt applyFunctionRegister "x19" valueSlot,
                  loadAt applyContinuationRegister "x19" continuationSlot,
                  loadAt "x0" "x19" updateSlot,
-                 immediate "x8" (fromEnum (isLiftedRuntimeRep runtimeRep)),
-                 "  b .Laihc_eval"
+                 immediate "x8" (fromEnum (isLiftedRuntimeRep runtimeRep))
                ]
         )
+        (BlockLayout.Jump ".Laihc_eval")
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
       if functionName == valueFunctionName env
@@ -660,7 +648,7 @@ compileExpr env prefix label expression =
           if length arguments == length (valueFunctionParameters env)
             then do
               transferLines <- moveValuesToLocations env arguments (map (valueLocations env Map.!) (valueFunctionParameters env))
-              addBlock label (prefix <> transferLines <> ["  b " <> valueBodyLabel env])
+              addBlock label (prefix <> transferLines) (BlockLayout.Jump (valueBodyLabel env))
             else unsupportedExpression "self tail-call arity mismatch"
         else
           if functionName `Set.member` compileContinuationFunctions (valueCompileEnv env)
@@ -673,8 +661,8 @@ compileExpr env prefix label expression =
                     <> overflowLines
                     <> registerLines
                     <> moveDirectOverflowLines "x19" (length arguments)
-                    <> ["  b " <> registerEntryLabel target]
                 )
+                (BlockLayout.Jump target)
             else case reverse arguments of
               continuation : reversedValues -> do
                 let values = reverse reversedValues
@@ -688,8 +676,8 @@ compileExpr env prefix label expression =
                       <> continuationLines
                       <> registerLines
                       <> moveDirectOverflowLines "x19" (length values)
-                      <> ["  b " <> registerEntryLabel target]
                   )
+                  (BlockLayout.Jump target)
               [] -> unsupportedExpression "direct CPS call has no continuation"
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
     GrinCpsPrimitiveCall _ name arguments continuation ->
@@ -717,8 +705,7 @@ compileExpr env prefix label expression =
                    "  add x4, x19, x4",
                    "  mov x0, x22",
                    "  bl _aihc_apply_slow",
-                   loadAt applyFunctionRegister "x19" continuationSlot,
-                   "  b .Laihc_enter"
+                   loadAt applyFunctionRegister "x19" continuationSlot
                  ]
       addBlock
         label
@@ -742,6 +729,7 @@ compileExpr env prefix label expression =
                ]
             <> slowApplyLines
         )
+        (BlockLayout.Jump ".Laihc_enter")
     GrinContinue continuation values -> do
       overflowLines <- liftEither (saveValueOverflowLines env values)
       continuationLines <- liftEither (materializeValueTo env applyFunctionRegister continuation)
@@ -752,12 +740,13 @@ compileExpr env prefix label expression =
             <> overflowLines
             <> continuationLines
             <> valueLines
-            <> ["  b .Laihc_enter"]
         )
+        (BlockLayout.Jump ".Laihc_enter")
     GrinHalt _ ->
       addBlock
         label
         (prefix <> ["  mov x0, x22", "  bl _aihc_halt", "  br x0"])
+        BlockLayout.Exit
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
     GrinThrow {} -> unsupportedExpression "throw"
@@ -784,10 +773,10 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                  loadAt "x1" "x19" actionSlot,
                  "  mov x0, x22",
                  "  bl _aihc_fork",
-                 loadAt applyFunctionRegister "x19" continuationSlot,
-                 "  b .Laihc_enter"
+                 loadAt applyFunctionRegister "x19" continuationSlot
                ]
         )
+        (BlockLayout.Jump ".Laihc_enter")
     ("yield#", []) ->
       addBlock
         label
@@ -796,10 +785,10 @@ compileCpsPrimitive env prefix label name arguments continuation = do
             <> [ storeAt "x0" "x19" continuationSlot,
                  loadAt "x1" "x19" continuationSlot,
                  "  mov x0, x22",
-                 "  bl _aihc_yield",
-                 "  b .Laihc_resume"
+                 "  bl _aihc_yield"
                ]
         )
+        (BlockLayout.Jump ".Laihc_resume")
     _ -> lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
@@ -938,7 +927,6 @@ normalizeForeignResult foreignType =
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
-  dispatchLabel <- freshLabel label "case_dispatch"
   (resultLocation, scrutineeLines) <-
     case scrutinee of
       GrinVarValue var ->
@@ -948,14 +936,18 @@ compileCase env prefix label scrutinee binder alternatives = do
       GrinLitValue {} -> materializedScrutinee
   binderLocation <- liftEither (variableLocation env binder)
   let scrutineeIsPointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
+  alternativeTargets <- forM alternatives $ \alternative -> do
+    alternativeLabel <- freshLabel label "case_alt"
+    pure (alternative, alternativeLabel)
+  (checks, successor) <- caseChecks env resultLocation scrutineeIsPointer alternativeTargets
   addBlock
     label
     ( prefix
         <> scrutineeLines
-        <> ["  b " <> dispatchLabel]
+        <> checks
     )
-  alternativeTargets <- forM alternatives $ \alternative -> do
-    alternativeLabel <- freshLabel label "case_alt"
+    successor
+  forM_ alternativeTargets $ \(alternative, alternativeLabel) -> do
     let rhs = grinAltRhs alternative
         binderLines =
           if binder `Set.member` grinExprFreeVariables rhs
@@ -963,9 +955,6 @@ compileCase env prefix label scrutinee binder alternatives = do
             else []
     prefixLines <- alternativePrefix env resultLocation alternative
     compileExpr env (binderLines <> prefixLines) alternativeLabel rhs
-    pure (alternative, alternativeLabel)
-  checks <- caseChecks env resultLocation scrutineeIsPointer alternativeTargets
-  addBlock dispatchLabel checks
   where
     materializedScrutinee = do
       slot <- freshSlot
@@ -994,7 +983,7 @@ alternativePrefix env resultLocation alternative =
             pure (loadLocation "x9" resultLocation <> storeLocation "x9" location)
           else pure []
 
-caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM [Text]
+caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
 caseChecks env resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
@@ -1029,11 +1018,9 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
                   )
           Nothing -> lift (Left (Arm64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
-  pure $
-    checks
-      <> case defaultTarget of
-        target : _ -> ["  b " <> target]
-        [] -> ["  bl _aihc_no_match", "  brk #0"]
+  pure $ case defaultTarget of
+    target : _ -> (checks, BlockLayout.Jump target)
+    [] -> (checks <> ["  bl _aihc_no_match", "  brk #0"], BlockLayout.Exit)
 
 materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Text]
 materializeValue env = materializeValueTo env "x0"
@@ -1204,7 +1191,7 @@ renderEnterStubs = concatMap renderStub
             <> moveSuppliedOverflow apply
             <> loadStored apply
             <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-            <> ["  b " <> registerEntryLabel (runtimeEnterTarget apply)]
+            <> ["  b " <> runtimeEnterTarget apply]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -1240,9 +1227,6 @@ renderEnterStubs = concatMap renderStub
 
 enterEntryLabel :: RuntimeInfo -> Text
 enterEntryLabel info = runtimeInfoLabel info <> "_enter"
-
-registerEntryLabel :: Text -> Text
-registerEntryLabel label = label <> "_register"
 
 applyFunctionRegister, applyContinuationRegister :: Text
 applyFunctionRegister = "x20"
@@ -1406,12 +1390,13 @@ freshLabel parent kind = do
   modify' $ \current -> current {functionNextLabel = identifier + 1}
   pure (parent <> "_" <> kind <> "_" <> tshow identifier)
 
-addBlock :: Text -> [Text] -> FunctionM ()
-addBlock label lines' =
-  modify' $ \state -> state {functionBlocksRev = Block label lines' : functionBlocksRev state}
-
-renderBlock :: Block -> [Text]
-renderBlock block = blockLabel block <> ":" : blockLines block
+addBlock :: Text -> [Text] -> BlockLayout.Terminator Text -> FunctionM ()
+addBlock label instructions terminator =
+  modify' $ \state ->
+    state
+      { functionBlocksRev =
+          BlockLayout.Block label instructions terminator : functionBlocksRev state
+      }
 
 slotPointer :: Text -> [Int] -> Text
 slotPointer register slots =

@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Test.Native.BlockLayout qualified as BlockLayout
 import Test.Native.RegisterAllocate (tests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QC
@@ -9,7 +10,8 @@ main =
   defaultMain
     ( testGroup
         "aihc-native"
-        [ tests,
+        [ BlockLayout.tests,
+          tests,
           QC.testProperty "dummy quickcheck property" prop_dummy
         ]
     )
