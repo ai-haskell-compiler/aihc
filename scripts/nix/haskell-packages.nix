@@ -25,6 +25,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-c = {
+      src = sources.cBackendSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-c";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-native = {
       src = sources.nativeSrc;
       disableProfiling = true;

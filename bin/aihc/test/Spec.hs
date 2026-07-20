@@ -109,6 +109,11 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
+          testCase "parses the portable C target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
@@ -157,7 +162,7 @@ main =
               source <- TIO.readFile sourcePath
               let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
                   environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-              forM_ [AppleArm64, LinuxAmd64] $ \target -> do
+              forM_ [AppleArm64, LinuxAmd64, PortableC] $ \target -> do
                 result <- compileSourceToAssemblyWithDependenciesFor target environment sourcePath source
                 case result of
                   Left err -> assertFailure ("expected " <> show target <> " compile success, got: " <> show err)
@@ -166,6 +171,8 @@ main =
                     assertBool "dependency initializer call" (targetInitializerCall target `T.isInfixOf` assembly)
                     assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
+          testCase "assembles an incremental portable C executable" test_compilePortableCExecutable,
+          testCase "lowers every example to portable C" test_compilePortableCExamples,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
@@ -934,6 +941,47 @@ test_compileGreenThreadsExample =
           "Hello world main green thread\nStill in main\nHello from forked thread\nBack in main\n"
           output
 
+test_compilePortableCExecutable :: Assertion
+test_compilePortableCExecutable =
+  withTempDir "aihc-compile-portable-c" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        output = root </> "hello-portable-c"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
+        options = CompileOptions sourcePath (Just output) False False True False (Just PortableC) GcCalloc
+    withCurrentDirectory repositoryRoot $ do
+      runCompileWithEnvironment environment options
+      assertFileExists output
+      assertFileExists (output <> ".c")
+      generatedC <- TIO.readFile (output <> ".c")
+      assertBool "portable C main" ("int main(void)" `T.isInfixOf` generatedC)
+      assertBool "dependency initializer call" ("_aihc_init_" `T.isInfixOf` generatedC)
+      assertNativeOutput "Hello, world!\n" output
+      objectFiles <- compileCacheArtifacts ".o" cacheRoot
+      archiveFiles <- compileCacheArtifacts ".a" cacheRoot
+      assertBool "cached C dependency objects" (not (null objectFiles))
+      assertBool "cached C dependency archives" (not (null archiveFiles))
+      let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
+      mapM_ (`setModificationTime` oldTimestamp) (objectFiles <> archiveFiles)
+      runCompileWithEnvironment environment options
+      mapM_ (getModificationTime >=> assertEqual "cache hit preserves C artifact" oldTimestamp) (objectFiles <> archiveFiles)
+
+test_compilePortableCExamples :: Assertion
+test_compilePortableCExamples =
+  withTempDir "aihc-compile-portable-c-examples" $ \root -> do
+    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, unboxedTailRecursionExamplePath]
+    forM_ sourcePaths $ \sourcePath -> do
+      source <- TIO.readFile sourcePath
+      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+      result <- compileSourceToAssemblyWithDependenciesFor PortableC environment sourcePath source
+      case result of
+        Left err -> assertFailure ("expected portable C compile success for " <> sourcePath <> ", got: " <> show err)
+        Right generatedC -> do
+          assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
+          assertBool "uses trampoline dispatch" ("while (aihc_next_entry != NULL)" `T.isInfixOf` generatedC)
+
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
   (hostArch == "aarch64" && hostOs == "darwin")
@@ -1095,14 +1143,17 @@ nativeMainDirective
 targetMainDirective :: NativeTarget -> T.Text
 targetMainDirective AppleArm64 = ".globl _main"
 targetMainDirective LinuxAmd64 = ".globl main"
+targetMainDirective PortableC = "int main(void)"
 
 targetInitializerCall :: NativeTarget -> T.Text
 targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
+targetInitializerCall PortableC = "_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
 targetTailTransfer AppleArm64 = "br x0"
 targetTailTransfer LinuxAmd64 = "jmp rax"
+targetTailTransfer PortableC = "aihc_next_entry"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =
@@ -1175,6 +1226,9 @@ helloWorldExamplePath = examplePath ("hello-world" </> "Main.hs")
 
 greenThreadsExamplePath :: IO FilePath
 greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
+
+unboxedTailRecursionExamplePath :: IO FilePath
+unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")
 
 examplePath :: FilePath -> IO FilePath
 examplePath example = getCurrentDirectory >>= findFrom

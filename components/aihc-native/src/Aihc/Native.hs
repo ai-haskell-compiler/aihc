@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Architecture-neutral support shared by native code generators.
+-- | Architecture-neutral support shared by backend code generators.
 module Aihc.Native
   ( NativeTarget (..),
+    backendCompiler,
     LinkInterface (..),
     LinkLayout (..),
     buildLinkLayout,
@@ -29,10 +30,11 @@ import Data.Text qualified as T
 import Paths_aihc_native (getDataFileName)
 import System.Info qualified as System
 
--- | A complete native assembly and executable target.
+-- | A complete backend and executable target.
 data NativeTarget
   = AppleArm64
   | LinuxAmd64
+  | PortableC
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 renderNativeTarget :: NativeTarget -> String
@@ -40,6 +42,7 @@ renderNativeTarget target =
   case target of
     AppleArm64 -> "apple-arm64"
     LinuxAmd64 -> "linux-amd64"
+    PortableC -> "portable-c"
 
 parseNativeTarget :: String -> Either String NativeTarget
 parseNativeTarget value =
@@ -48,7 +51,9 @@ parseNativeTarget value =
     "arm64-apple-darwin" -> Right AppleArm64
     "linux-amd64" -> Right LinuxAmd64
     "x86_64-unknown-linux-gnu" -> Right LinuxAmd64
-    _ -> Left "target must be apple-arm64 or linux-amd64"
+    "portable-c" -> Right PortableC
+    "c" -> Right PortableC
+    _ -> Left "target must be apple-arm64, linux-amd64, or portable-c"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -61,16 +66,27 @@ nativeTargetTriple target =
   case target of
     AppleArm64 -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
+    PortableC -> "portable-c"
+
+-- | Select the C or assembly compiler driver and target arguments.
+backendCompiler :: NativeTarget -> IO (FilePath, [String])
+backendCompiler target =
+  case target of
+    PortableC -> pure ("clang", [])
+    AppleArm64 -> nativeCompiler
+    LinuxAmd64 -> nativeCompiler
+  where
+    nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
 
 -- | The process-wide constructor tags and global table slots shared by all
--- native compilation units in one executable.
+-- compilation units in one executable.
 data LinkLayout = LinkLayout
   { linkConstructors :: ![(Text, [[RuntimeRep]])],
     linkGlobalNames :: ![Text]
   }
   deriving (Eq, Show)
 
--- | Constructor and global-table metadata exported by a native compilation
+-- | Constructor and global-table metadata exported by a compilation
 -- unit. Code generation for another unit never needs its GRIN bodies.
 data LinkInterface = LinkInterface
   { linkInterfaceConstructors :: ![(Text, [[RuntimeRep]])],
