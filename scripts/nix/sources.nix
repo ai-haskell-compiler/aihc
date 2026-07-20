@@ -185,7 +185,7 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/green-threads/" "examples/hello-world/" "examples/unboxed-tail-recursion/"] [
+  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/async-stdio/" "examples/green-threads/" "examples/hello-world/" "examples/unboxed-tail-recursion/"] [
     ".hs"
     ".cabal"
   ];
