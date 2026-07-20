@@ -17,6 +17,7 @@ library
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
     Aihc.Grin.Lower
+    Aihc.Grin.Parser
     Aihc.Grin.Pretty
     Aihc.Grin.Snapshot
     Aihc.Grin.Syntax
@@ -32,6 +33,7 @@ library
     bytestring,
     containers,
     libffi >=0.2 && <0.3,
+    megaparsec >=9.0 && <10,
     text >=1.2,
     transformers,
     unix,
@@ -49,6 +51,7 @@ test-suite spec
   other-modules:
     Aihc.Testing.EvalFixture
     GrinGolden
+    Test.Grin.Arbitrary
     Test.Grin.Suite
 
   build-depends:
@@ -59,6 +62,7 @@ test-suite spec
     aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
+    bytestring,
     containers,
     directory,
     filepath,

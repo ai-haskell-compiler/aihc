@@ -16,7 +16,7 @@ data-files:
 library
   exposed-modules:
     Aihc.Native
-    Aihc.Native.Lir
+    Aihc.Native.BlockLayout
     Aihc.Native.RegisterAllocate
 
   other-modules: Paths_aihc_native
@@ -37,14 +37,20 @@ test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Spec.hs
-  other-modules: Test.Native.RegisterAllocate
+  other-modules:
+    Test.Native.BlockLayout
+    Test.Native.RegisterAllocate
+
   build-depends:
+    aihc-grin,
     aihc-native,
+    aihc-tc,
     base >=4.16 && <5,
     containers,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021

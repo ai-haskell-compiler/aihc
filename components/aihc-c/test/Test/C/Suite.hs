@@ -11,6 +11,7 @@ import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_)
+import Data.List (isInfixOf)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -97,12 +98,16 @@ testTrampoline :: IO ()
 testTrampoline = do
   source <- compile schedulerProgram
   forM_
-    [ "while (aihc_next_entry != NULL)",
-      "aihc_next_entry = aihc_fork_cps",
-      "aihc_next_entry = aihc_yield_cps",
+    [ "while (aihc_next_transfer.entry != NULL)",
+      "aihc_next_transfer = aihc_portable_fork_cps",
+      "aihc_next_transfer = aihc_portable_yield_cps",
       "extern int32_t putchar(int32_t)"
     ]
     (\needle -> assertBool ("missing generated C fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
+  assertBool "generated C does not use a machine argument field" (not ("aihc_machine->args" `T.isInfixOf` source))
+  assertBool "portable C owns a static reusable argument buffer" ("static AihcSlot aihc_arguments[" `T.isInfixOf` source)
+  runtime <- readFile =<< runtimeSourcePath
+  assertBool "runtime does not contain a machine argument field" (not ("machine->args" `isInfixOf` runtime))
 
 testIncrementalProgram :: IO ()
 testIncrementalProgram = do

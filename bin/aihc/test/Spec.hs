@@ -1014,7 +1014,7 @@ test_compilePortableCExamples =
         Left err -> assertFailure ("expected portable C compile success for " <> sourcePath <> ", got: " <> show err)
         Right generatedC -> do
           assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
-          assertBool "uses trampoline dispatch" ("while (aihc_next_entry != NULL)" `T.isInfixOf` generatedC)
+          assertBool "uses trampoline dispatch" ("while (aihc_next_transfer.entry != NULL)" `T.isInfixOf` generatedC)
 
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
@@ -1185,9 +1185,9 @@ targetInitializerCall LinuxAmd64 = "call _aihc_init_"
 targetInitializerCall PortableC = "_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
-targetTailTransfer AppleArm64 = "br x0"
-targetTailTransfer LinuxAmd64 = "jmp rax"
-targetTailTransfer PortableC = "aihc_next_entry"
+targetTailTransfer AppleArm64 = "br x9"
+targetTailTransfer LinuxAmd64 = "jmp r11"
+targetTailTransfer PortableC = "aihc_next_transfer"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =

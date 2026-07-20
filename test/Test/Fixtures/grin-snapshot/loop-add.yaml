@@ -15,7 +15,7 @@ program: |
 return: "10000000"
 heap: "[]"
 allocations:
-  macos-arm64: 10000003
-  linux-amd64: 10000003
+  macos-arm64: 0
+  linux-amd64: 0
 status: pass
-reason: a ten-million-iteration tail loop exposes every auxiliary locals allocation while using unboxed addition
+reason: a ten-million-iteration tail loop uses register calls without runtime allocations

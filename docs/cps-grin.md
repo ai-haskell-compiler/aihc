@@ -72,12 +72,11 @@ calls. Concrete IO operations are ordinary foreign calls which submit opaque
 runtime requests and later consume their results. Consequently, adding a file,
 socket, timer, or process operation does not require a new compiler primitive.
 
-The runtime stores ordinary continuation closures and argument vectors in
-auxiliary thread or pending-request records, then resumes them through the same
-apply/entry mechanism as other continuations. Runnable, blackhole-blocked, and
-IO-blocked thread arguments are collector roots; their static layouts let a
-moving collector update them without introducing a native stack-scanning
-convention.
+Suspended computations remain ordinary continuation closures. Runnable and
+blackhole-blocked threads retain those closure values in runtime resume
+records; pending IO requests retain the blocked thread and continuation until
+the backend reports completion. These ordinary heap pointers are collector
+roots, so scheduling does not introduce a native stack-scanning convention.
 
 The central scheduler drains ready requests before selecting a runnable thread
 and blocks in the configured IO backend only when requests are pending and no
@@ -85,7 +84,8 @@ green thread can run. The first native backend uses POSIX `poll`; the request
 boundary is intended to admit io-uring, IOCP, kqueue, and WASI implementations
 without changing Haskell code, System FC, or CPS-GRIN.
 
-This first representation is intentionally allocation-heavy. Optimizations
-such as eliminating immediately applied continuations belong after the
-suspension semantics are established, where they can prove that a continuation
-does not escape.
+Native saturated applications bypass that area: the closure's application-stage
+info table selects generated code which loads captured fields and supplied
+values into backend argument registers before tail-entering the function.
+Portable C and allocation-requiring native slow paths reuse the machine's
+argument area instead of allocating a vector for every transfer.

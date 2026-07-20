@@ -13,8 +13,6 @@ library
   exposed-modules:
     Aihc.Arm64
     Aihc.Arm64.Codegen
-    Aihc.Arm64.Emit
-    Aihc.Arm64.Lir
     Aihc.Arm64.RegisterAllocate
 
   hs-source-dirs: src
@@ -40,7 +38,6 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Aihc.Testing.EvalFixture
-    Aihc.Testing.GrinProgram
     Aihc.Testing.SchedulerProgram
     Test.Arm64.Suite
 

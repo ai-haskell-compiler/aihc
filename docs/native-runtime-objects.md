@@ -30,10 +30,19 @@ blackhole:             [header] [environment / reserved target...]
 ```
 
 Each info table records the object's identity, populated field count, remaining
-logical arity, pointer bitmap, and next application-stage table. Application
-changes the header to the statically known next table. Consequently every
-managed object pays only for its tagged header and payload; arity and tracing
-metadata consume no per-object shape word.
+logical arity, pointer bitmap, next application-stage table, and an optional
+native apply entry. Application changes the header to the statically known next
+table. Consequently every managed object pays only for its tagged header and
+payload; arity, tracing metadata, and apply code consume no per-object shape
+word.
+
+The native backends give saturated closure stages a generated apply entry.
+Apply sites place the closure, continuation, and supplied values in the AIHC
+register convention and branch through that info-table entry. The stage stub
+loads captured fields directly from the closure, moves the supplied values into
+their final argument registers, and tail-branches to the target function's
+register entry. Non-saturating closures, partial constructors, and invalid
+applications leave the apply entry empty and use the shared C slow path.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated
@@ -48,12 +57,13 @@ Exceptions have no native heap tag or object representation. They are removed
 before native runtime lowering. The final physical tag is the semispace
 collector's temporary forwarding marker.
 
-The cooperative scheduler keeps thread records, argument vectors, blackhole
-records, wait queues, and pending IO requests in auxiliary C allocations.
-Suspended argument vectors carry their static info table plus a count of
-trailing continuation pointers, so the semispace collector can relocate roots
-held by runnable and blocked threads as precisely as roots in the currently
-executing function.
+The cooperative scheduler keeps thread records, blackhole records, wait queues,
+and pending IO requests in auxiliary C allocations. Suspended threads retain
+ordinary action or continuation closures, which portable C expands into its
+reusable argument buffer only when selected. Native backends resume the same
+records through their register convention. The machine reuses one locals area
+because CPS transfers discard the preceding function frame; all retained
+closure values and pending-request continuations are precise collector roots.
 
 ## IO manager
 
@@ -73,7 +83,7 @@ Backend workers or readiness mechanisms produce only native completion data;
 Haskell continuations are always reconstructed and enqueued on the scheduler
 thread. This prevents moving-heap pointers from escaping to an asynchronous
 backend. Pending requests are collector roots only for their saved continuation
-and thread arguments. The opaque request pointer itself has `Addr#`
+and thread resume record. The opaque request pointer itself has `Addr#`
 representation and is not traced as a Haskell heap pointer.
 
 IO operations target opaque runtime-owned handles rather than OS descriptor
