@@ -23,7 +23,6 @@ import Aihc.Amd64.RegisterAllocate
 import Aihc.Grin
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
-import Aihc.Testing.GrinProgram (parseProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
@@ -455,7 +454,7 @@ loadSnapshotCase name fixtureName = do
   assertBool "fixture reason is present" (not (T.null (T.strip (snapshotFixtureReason fixture))))
   program <-
     case parseProgram (snapshotFixtureProgram fixture) of
-      Left err -> assertFailure ("invalid GRIN program: " <> err)
+      Left err -> assertFailure ("invalid GRIN program: " <> renderParseError err)
       Right value -> pure value
   expectation <-
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture) of
