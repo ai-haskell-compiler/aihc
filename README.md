@@ -35,18 +35,18 @@ Find more information here:
 ```
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
-| aihc-amd64         |   1763 |     628 |    2391 |
-| aihc-arm64         |   1761 |     753 |    2514 |
-| aihc-c             |    894 |     289 |    1183 |
+| aihc-amd64         |   2002 |     699 |    2701 |
+| aihc-arm64         |   1892 |     775 |    2667 |
+| aihc-c             |    918 |     294 |    1212 |
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   3733 |     886 |    4619 |
-| aihc-grin          |   3846 |    1754 |    5600 |
-| aihc-native        |   1385 |      77 |    1462 |
+| aihc-fc            |   3818 |     928 |    4746 |
+| aihc-grin          |   4650 |    2188 |    6838 |
+| aihc-native        |   1695 |     194 |    1889 |
 | aihc-parser        |  13536 |   17787 |   31323 |
 | aihc-parser-compat |   1761 |     736 |    2497 |
 | aihc-resolve       |   2304 |    1328 |    3632 |
 | aihc-tc            |   6094 |    2489 |    8583 |
-| **Total**          |  38897 |   27517 |   66414 |
+| **Total**          |  40490 |   28208 |   68698 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
