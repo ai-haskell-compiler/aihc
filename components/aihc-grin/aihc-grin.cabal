@@ -41,6 +41,30 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
+library fuzz
+  visibility: public
+  hs-source-dirs:
+    fuzz
+    test
+
+  exposed-modules:
+    Aihc.Grin.Fuzz
+
+  other-modules:
+    Test.Grin.Arbitrary
+
+  build-depends:
+    QuickCheck,
+    aihc-grin,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    tasty-quickcheck,
+    text,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:

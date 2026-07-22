@@ -17,21 +17,19 @@ module Test.Properties.NoExceptions
   )
 where
 
-import Aihc.Parser.Internal.FromTokens
-  ( parseDeclFromTokens,
+import Aihc.Parser.Internal.Testing
+  ( LexToken (..),
+    LexTokenKind (..),
+    TokenOrigin (..),
+    lexModuleTokens,
+    lexTokens,
+    parseDeclFromTokens,
     parseExprFromTokens,
     parseImportDeclFromTokens,
     parseModuleFromTokens,
     parseModuleHeaderFromTokens,
     parsePatternFromTokens,
     parseTypeFromTokens,
-  )
-import Aihc.Parser.Lex
-  ( LexToken (..),
-    LexTokenKind (..),
-    TokenOrigin (..),
-    lexModuleTokens,
-    lexTokens,
   )
 import Aihc.Parser.Syntax (ExtensionSetting (..), FloatType (..), NumericType (..), SourceSpan (..))
 import Aihc.Parser.Syntax qualified as Syntax

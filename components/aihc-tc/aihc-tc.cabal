@@ -48,6 +48,28 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
+library fuzz
+  visibility: public
+  hs-source-dirs:
+    fuzz
+    test
+
+  exposed-modules:
+    Aihc.Tc.Fuzz
+
+  other-modules:
+    Test.Tc.Properties
+
+  build-depends:
+    QuickCheck,
+    aihc-tc,
+    base >=4.16 && <5,
+    tasty,
+    tasty-quickcheck,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:

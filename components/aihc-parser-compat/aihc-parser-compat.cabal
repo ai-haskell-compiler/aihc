@@ -12,6 +12,7 @@ synopsis: Compatibility conversion from aihc-parser ASTs to ghc-lib-parser ASTs
 library
   exposed-modules:
     Aihc.Parser.Compat
+    Aihc.Parser.Compat.Internal.Testing
 
   other-modules:
     Aihc.Parser.Compat.Internal.Convert
@@ -30,6 +31,37 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
+library fuzz
+  visibility: public
+  hs-source-dirs:
+    fuzz
+    test
+
+  exposed-modules:
+    Aihc.Parser.Compat.Fuzz
+
+  other-modules:
+    Test.Compat.Decl
+    Test.Compat.Expr
+
+  build-depends:
+    QuickCheck,
+    aihc-parser,
+    aihc-parser:fuzz,
+    aihc-parser-compat,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    ghc-lib-parser,
+    prettyprinter,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text >=1.2,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
@@ -42,6 +74,7 @@ test-suite spec
     Aihc.Parser.Compat
     Aihc.Parser.Compat.Internal.Convert
     Aihc.Parser.Compat.Internal.Ghc
+    Aihc.Parser.Compat.Internal.Testing
     Test.Compat.Decl
     Test.Compat.Expr
     Test.Properties.Arb.Decl
