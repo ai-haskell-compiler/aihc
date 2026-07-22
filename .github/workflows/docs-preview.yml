@@ -52,4 +52,3 @@ jobs:
           source-dir: user-guide-preview
           preview-branch: gh-pages
           umbrella-dir: pr-preview
-          pages-base-url: https://ai-haskell-compiler.github.io/aihc/
