@@ -153,6 +153,7 @@ library fuzz
     Aihc.Dev.Fuzz
     Aihc.Dev.Fuzz.CLI
     Aihc.Dev.Fuzz.Registry
+    Aihc.Dev.Fuzz.TUI
 
   build-depends:
     QuickCheck >=2.14 && <2.19,
@@ -165,6 +166,7 @@ library fuzz
     containers >=0.5 && <0.8,
     optparse-applicative >=0.16 && <0.19,
     stm >=2.5 && <2.6,
+    terminal-size >=0.3.2 && <0.4,
     time >=1.9 && <1.15,
 
   ghc-options: -Wall

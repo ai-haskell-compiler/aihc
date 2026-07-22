@@ -10,11 +10,12 @@ where
 
 import Aihc.Dev.Fuzz.CLI (Command (..), Options (..), Selection (..))
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
+import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, race, waitAnyCatch)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket_, displayException, finally, onException)
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, unless, when)
 import Data.Char (toLower)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -22,6 +23,7 @@ import Data.List (groupBy, intercalate, isInfixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Conc (getNumCapabilities)
+import System.Console.Terminal.Size qualified as Terminal
 import System.Exit (exitFailure)
 import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hSetBuffering, stderr)
 import Test.QuickCheck qualified as QC
@@ -187,7 +189,7 @@ withDashboard startedAt propertyCount jobs stats action = do
 enterDashboard :: IO ()
 enterDashboard = do
   hSetBuffering stderr NoBuffering
-  hPutStr stderr "\ESC[?1049h\ESC[?25l"
+  hPutStr stderr "\ESC[?1049h\ESC[2J\ESC[H\ESC[?25l"
 
 leaveDashboard :: BufferMode -> IO ()
 leaveDashboard originalBuffering = do
@@ -195,54 +197,37 @@ leaveDashboard originalBuffering = do
   hSetBuffering stderr originalBuffering
 
 renderLoop :: UTCTime -> Int -> Int -> Stats -> IO ()
-renderLoop startedAt propertyCount jobs stats = go
+renderLoop startedAt propertyCount jobs stats = go []
   where
-    go = do
+    go previousFrame = do
       now <- getCurrentTime
       active <- readTVarIO (statsActive stats)
       successfulCases <- readTVarIO (statsSuccessfulCases stats)
       completedBatches <- readTVarIO (statsCompletedBatches stats)
-      hPutStr stderr "\ESC[H\ESC[2J"
-      hPutStrLn stderr "AIHC fuzz"
-      hPutStrLn stderr (replicate 72 '=')
-      hPutStrLn stderr $
-        intercalate
-          "   "
-          [ "elapsed " <> formatElapsed (diffUTCTime now startedAt),
-            "cases " <> formatInteger successfulCases,
-            "batches " <> formatInteger completedBatches
-          ]
-      hPutStrLn stderr ("properties " <> show propertyCount <> "   jobs " <> show jobs <> "   batch size " <> formatInteger batchSize)
-      hPutStrLn stderr ""
-      hPutStrLn stderr "Active properties"
-      if IntMap.null active
-        then hPutStrLn stderr "  waiting for workers..."
-        else forM_ (IntMap.toAscList active) $ \(workerId, ActiveProperty {activePropertyId, activeSuccessfulCases}) ->
-          hPutStrLn stderr $
-            "  ["
-              <> show workerId
-              <> "] "
-              <> leftPad 6 (formatInteger activeSuccessfulCases)
-              <> " / 10,000  "
-              <> activePropertyId
-      hFlush stderr
-      threadDelay 100000
-      go
-
-formatElapsed :: NominalDiffTime -> String
-formatElapsed elapsed =
-  let totalSeconds = max 0 (floor elapsed :: Int)
-      (hours, afterHours) = totalSeconds `divMod` 3600
-      (minutes, seconds) = afterHours `divMod` 60
-   in pad2 hours <> ":" <> pad2 minutes <> ":" <> pad2 seconds
-
-pad2 :: Int -> String
-pad2 value =
-  let rendered = show value
-   in replicate (max 0 (2 - length rendered)) '0' <> rendered
-
-leftPad :: Int -> String -> String
-leftPad width value = replicate (max 0 (width - length value)) ' ' <> value
+      terminalSize <- Terminal.size
+      let (rows, columns) =
+            case terminalSize of
+              Just window -> (Terminal.height window, Terminal.width window)
+              Nothing -> (24, 80)
+          currentFrame =
+            renderDashboard
+              rows
+              columns
+              Dashboard
+                { dashboardActive =
+                    [ (workerId, activePropertyId, activeSuccessfulCases)
+                    | (workerId, ActiveProperty {activePropertyId, activeSuccessfulCases}) <- IntMap.toAscList active
+                    ],
+                  dashboardBatches = completedBatches,
+                  dashboardCases = successfulCases,
+                  dashboardElapsed = diffUTCTime now startedAt,
+                  dashboardJobs = jobs,
+                  dashboardProperties = propertyCount
+                }
+          update = renderFrameUpdate rows previousFrame currentFrame
+      unless (null update) $ hPutStr stderr update >> hFlush stderr
+      threadDelay 125000
+      go currentFrame
 
 formatInteger :: Int -> String
 formatInteger value =
