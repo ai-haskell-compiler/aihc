@@ -5,12 +5,14 @@
 -- future buffered 'Handle' layer.
 module GHC.IO.StdHandles
   ( IOHandle,
+    IOBuffer,
     stdinHandle,
     stdoutHandle,
-    readByte,
-    writeByte,
-    readStdinByte,
-    writeStdoutByte,
+    newIOBuffer,
+    getIOBufferByte,
+    setIOBufferByte,
+    readIntoBuffer,
+    writeFromBuffer,
   )
 where
 
@@ -23,6 +25,11 @@ import GHC.Ptr (Ptr)
 -- platform-specific: for example, a POSIX descriptor or a Windows handle.
 data IOHandle
 
+-- | Stable byte storage owned by the runtime. The proof-of-concept runtime
+-- does not release this allocation. A submitted request retains the buffer,
+-- and callers must not access its submitted slice before completion.
+data IOBuffer
+
 data IORequest
 
 foreign import ccall unsafe "aihc_io_stdin"
@@ -31,24 +38,41 @@ foreign import ccall unsafe "aihc_io_stdin"
 foreign import ccall unsafe "aihc_io_stdout"
   stdoutHandle :: IO (Ptr IOHandle)
 
+-- | Allocate zero-filled stable storage. The proof-of-concept runtime leaks
+-- the allocation.
+foreign import ccall unsafe "aihc_io_buffer_new"
+  newIOBuffer :: CInt -> IO (Ptr IOBuffer)
+
+-- | Read one byte from a valid buffer index.
+foreign import ccall unsafe "aihc_io_buffer_get"
+  getIOBufferByte :: Ptr IOBuffer -> CInt -> IO CInt
+
+-- | Store the low eight bits at a valid buffer index. The result is zero.
+foreign import ccall unsafe "aihc_io_buffer_set"
+  setIOBufferByte :: Ptr IOBuffer -> CInt -> CInt -> IO CInt
+
 foreign import ccall unsafe "aihc_io_submit_read"
-  submitRead :: Ptr IOHandle -> IO (Ptr IORequest)
+  submitRead :: Ptr IOHandle -> Ptr IOBuffer -> CInt -> CInt -> IO (Ptr IORequest)
 
 foreign import ccall unsafe "aihc_io_submit_write"
-  submitWrite :: Ptr IOHandle -> CInt -> IO (Ptr IORequest)
+  submitWrite :: Ptr IOHandle -> Ptr IOBuffer -> CInt -> CInt -> IO (Ptr IORequest)
 
 foreign import ccall unsafe "aihc_io_take_result"
   takeResult :: Ptr IORequest -> IO CInt
 
--- | Read one byte from an IO resource. Non-negative results are byte values,
--- @-1@ is end-of-file, and lower values are encoded platform errors.
-readByte :: Ptr IOHandle -> IO CInt
-readByte handle = awaitRequest (submitRead handle)
+-- | Read at most the requested number of bytes into a buffer slice. A
+-- non-negative result is the transferred byte count. Zero reports end-of-file
+-- for a non-empty request. Negative values are encoded platform errors.
+readIntoBuffer :: Ptr IOHandle -> Ptr IOBuffer -> CInt -> CInt -> IO CInt
+readIntoBuffer handle buffer offset length =
+  awaitRequest (submitRead handle buffer offset length)
 
--- | Write the low eight bits of a 'CInt' to an IO resource. Zero reports
--- success; negative values are encoded platform errors.
-writeByte :: Ptr IOHandle -> CInt -> IO CInt
-writeByte handle byte = awaitRequest (submitWrite handle byte)
+-- | Write bytes from a buffer slice. A non-negative result is the transferred
+-- byte count and can be smaller than the requested length. Negative values are
+-- encoded platform errors.
+writeFromBuffer :: Ptr IOHandle -> Ptr IOBuffer -> CInt -> CInt -> IO CInt
+writeFromBuffer handle buffer offset length =
+  awaitRequest (submitWrite handle buffer offset length)
 
 awaitRequest :: IO (Ptr IORequest) -> IO CInt
 awaitRequest submission =
@@ -64,32 +88,4 @@ awaitRequest submission =
                       (# completedState, () #) ->
                         case takeResult request of
                           IO take -> take completedState
-    )
-
--- | Read one byte from standard input. Non-negative results are byte values,
--- @-1@ is end-of-file, and lower values are encoded platform errors.
-readStdinByte :: IO CInt
-readStdinByte =
-  IO
-    ( \state ->
-        case stdinHandle of
-          IO getHandle ->
-            case getHandle state of
-              (# handleState, handle #) ->
-                case readByte handle of
-                  IO readFromHandle -> readFromHandle handleState
-    )
-
--- | Write the low eight bits of a 'CInt' to standard output. Zero reports
--- success; negative values are encoded platform errors.
-writeStdoutByte :: CInt -> IO CInt
-writeStdoutByte byte =
-  IO
-    ( \state ->
-        case stdoutHandle of
-          IO getHandle ->
-            case getHandle state of
-              (# handleState, handle #) ->
-                case writeByte handle byte of
-                  IO writeToHandle -> writeToHandle handleState
     )

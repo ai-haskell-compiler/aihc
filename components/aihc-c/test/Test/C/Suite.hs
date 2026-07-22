@@ -106,8 +106,33 @@ testTrampoline = do
     (\needle -> assertBool ("missing generated C fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
   assertBool "generated C does not use a machine argument field" (not ("aihc_machine->args" `T.isInfixOf` source))
   assertBool "portable C owns a static reusable argument buffer" ("static AihcSlot aihc_arguments[" `T.isInfixOf` source)
+  let wideGcProgram = expectGcGrin wideArgumentProgram
+      wideLayout = buildLinkLayout [wideArgumentProgram]
+  wideSource <-
+    case compileProgramWithDependencies wideLayout [] "main" wideGcProgram of
+      Right generated -> pure generated
+      Left err -> assertFailure ("wide-argument C lowering failed: " <> show err)
+  assertBool "argument buffer includes the CPS continuation" ("static AihcSlot aihc_arguments[5];" `T.isInfixOf` wideSource)
   runtime <- readFile =<< runtimeSourcePath
   assertBool "runtime does not contain a machine argument field" (not ("machine->args" `isInfixOf` runtime))
+
+wideArgumentProgram :: GrinProgram
+wideArgumentProgram =
+  schedulerProgram
+    { grinFunctions =
+        grinFunctions schedulerProgram
+          <> [ GrinFunction
+                 { grinFunctionName = FunctionName "$wide_arguments",
+                   grinFunctionLinkName = Nothing,
+                   grinFunctionParameters = parameters,
+                   grinFunctionResultRep = Int32Rep,
+                   grinFunctionBody = GrinConstant [GrinVarValue firstParameter]
+                 }
+             ]
+    }
+  where
+    firstParameter = GrinVar "argument_0" 50 Int32Rep
+    parameters = firstParameter : [GrinVar ("argument_" <> T.pack (show index)) (50 + index) Int32Rep | index <- [1 .. 3]]
 
 testIncrementalProgram :: IO ()
 testIncrementalProgram = do

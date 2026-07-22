@@ -68,7 +68,7 @@ import System.Directory
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (hClose, hFlush, hPutChar, openTempFile)
+import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Info (arch, os)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Tasty (defaultMain, testGroup)
@@ -966,14 +966,14 @@ test_compileAsyncStdioExample =
                 std_err = CreatePipe
               }
         threadDelay 50000
-        hPutChar childInput 'Q'
+        hPutStr childInput "Buffered async IO\n"
         hFlush childInput
         hClose childInput
         programOut <- TIO.hGetContents childOutput
         programErr <- TIO.hGetContents childError
         exitCode <- waitForProcess processHandle
         assertEqual (show target <> " stderr: " <> T.unpack programErr) ExitSuccess exitCode
-        assertEqual (show target <> " stdout") "Q" programOut
+        assertEqual (show target <> " stdout") "Buffered async IO\n" programOut
 
 test_compilePortableCExecutable :: Assertion
 test_compilePortableCExecutable =

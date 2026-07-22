@@ -57,13 +57,20 @@ struct AihcIoHandle {
   uint32_t capabilities;
 };
 
+struct AihcIoBuffer {
+  size_t capacity;
+  unsigned char bytes[];
+};
+
 struct AihcIoRequest {
   AihcIoKind kind;
   AihcIoState state;
   AihcIoHandle *handle;
+  AihcIoBuffer *buffer;
+  size_t offset;
+  size_t length;
   AihcThread *thread;
   AihcValue *continuation;
-  int32_t byte;
   int32_t result;
   AihcIoRequest *next;
 };
@@ -713,28 +720,17 @@ static int aihc_posix_prepare(AihcIoRequest *request) {
 static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
   for (;;) {
     ssize_t transferred;
+    unsigned char *bytes = request->buffer->bytes + request->offset;
     if (request->kind == AIHC_IO_READ) {
-      unsigned char byte;
-      transferred = read(aihc_posix_descriptor(request->handle), &byte, 1);
-      if (transferred == 1) {
-        *result = (int32_t)byte;
-        return 1;
-      }
-      if (transferred == 0) {
-        *result = -1;
-        return 1;
-      }
+      transferred =
+          read(aihc_posix_descriptor(request->handle), bytes, request->length);
     } else {
-      unsigned char byte = (unsigned char)(request->byte & 0xffU);
-      transferred = write(aihc_posix_descriptor(request->handle), &byte, 1);
-      if (transferred == 1) {
-        *result = 0;
-        return 1;
-      }
-      if (transferred == 0) {
-        *result = aihc_io_error(EIO);
-        return 1;
-      }
+      transferred =
+          write(aihc_posix_descriptor(request->handle), bytes, request->length);
+    }
+    if (transferred >= 0) {
+      *result = (int32_t)transferred;
+      return 1;
     }
     if (errno == EINTR) {
       continue;
@@ -853,9 +849,17 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
 }
 
 static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
-                                     int32_t byte) {
+                                     AihcIoBuffer *buffer, int32_t offset,
+                                     int32_t length) {
   if (handle == NULL) {
     aihc_fail("attempted IO with a null handle");
+  }
+  if (buffer == NULL) {
+    aihc_fail("attempted IO with a null buffer");
+  }
+  if (offset < 0 || length < 0 || (size_t)offset > buffer->capacity ||
+      (size_t)length > buffer->capacity - (size_t)offset) {
+    aihc_fail("IO request is outside its buffer");
   }
   uint32_t required_capability =
       kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
@@ -866,7 +870,9 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
   request->handle = handle;
-  request->byte = byte;
+  request->buffer = buffer;
+  request->offset = (size_t)offset;
+  request->length = (size_t)length;
   return request;
 }
 
@@ -874,12 +880,49 @@ void *aihc_io_stdin(void) { return &aihc_standard_input; }
 
 void *aihc_io_stdout(void) { return &aihc_standard_output; }
 
-void *aihc_io_submit_read(void *opaque_handle) {
-  return aihc_io_submit(AIHC_IO_READ, opaque_handle, 0);
+void *aihc_io_buffer_new(int32_t capacity) {
+  if (capacity < 0 || (size_t)capacity > SIZE_MAX - sizeof(AihcIoBuffer)) {
+    aihc_fail("invalid IO buffer capacity");
+  }
+  AihcIoBuffer *buffer =
+      aihc_allocate_zeroed(sizeof(*buffer) + (size_t)capacity);
+  buffer->capacity = (size_t)capacity;
+  return buffer;
 }
 
-void *aihc_io_submit_write(void *opaque_handle, int32_t byte) {
-  return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, byte);
+static size_t aihc_io_buffer_index(AihcIoBuffer *buffer, int32_t index) {
+  if (buffer == NULL) {
+    aihc_fail("attempted to access a null IO buffer");
+  }
+  if (index < 0 || (size_t)index >= buffer->capacity) {
+    aihc_fail("IO buffer index is out of bounds");
+  }
+  return (size_t)index;
+}
+
+int32_t aihc_io_buffer_get(void *opaque_buffer, int32_t index) {
+  AihcIoBuffer *buffer = opaque_buffer;
+  size_t checked_index = aihc_io_buffer_index(buffer, index);
+  return (int32_t)buffer->bytes[checked_index];
+}
+
+int32_t aihc_io_buffer_set(void *opaque_buffer, int32_t index, int32_t byte) {
+  AihcIoBuffer *buffer = opaque_buffer;
+  size_t checked_index = aihc_io_buffer_index(buffer, index);
+  buffer->bytes[checked_index] = (unsigned char)(byte & 0xffU);
+  return 0;
+}
+
+void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
+                          int32_t offset, int32_t length) {
+  return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,
+                        length);
+}
+
+void *aihc_io_submit_write(void *opaque_handle, void *opaque_buffer,
+                           int32_t offset, int32_t length) {
+  return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, opaque_buffer, offset,
+                        length);
 }
 
 int32_t aihc_io_take_result(void *opaque_request) {

@@ -21,7 +21,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -45,6 +45,7 @@ data EvalError
   | EvalForeignTypeError Text Value
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
+  | EvalInvalidIOBufferRange Text Integer Integer Int
   | EvalRaisedException Value
   deriving (Eq, Show)
 
@@ -55,6 +56,7 @@ data Value
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
   | VIOHandle EvalIOHandle
+  | VIOBuffer EvalIOBuffer
   | VIORequest EvalIORequest
   | VMutVar EvalMutVar
   | VStateToken
@@ -77,9 +79,17 @@ instance Eq EvalIOHandle where
 instance Show EvalIOHandle where
   show _ = "<io-handle>"
 
+newtype EvalIOBuffer = EvalIOBuffer (IORef BS.ByteString)
+
+instance Eq EvalIOBuffer where
+  EvalIOBuffer left == EvalIOBuffer right = left == right
+
+instance Show EvalIOBuffer where
+  show _ = "<io-buffer>"
+
 data EvalIOOperation
-  = EvalRead !EvalIOHandle
-  | EvalWrite !EvalIOHandle !Integer
+  = EvalRead !EvalIOHandle !EvalIOBuffer !Int !Int
+  | EvalWrite !EvalIOHandle !EvalIOBuffer !Int !Int
   deriving (Eq, Show)
 
 data EvalIOState
@@ -311,12 +321,14 @@ completeIORequest (EvalIORequest reference) = do
 performIOOperation :: EvalIOOperation -> EvalM Integer
 performIOOperation operation =
   case operation of
-    EvalRead (EvalIOHandle _ handle) -> do
-      bytes <- lift (BS.hGet handle 1)
-      pure (if BS.null bytes then -1 else toInteger (BS.head bytes))
-    EvalWrite (EvalIOHandle _ handle) byte -> do
-      lift (BS.hPut handle (BS.singleton (fromInteger byte)) >> hFlush handle)
-      pure 0
+    EvalRead (EvalIOHandle _ handle) (EvalIOBuffer reference) offset byteCount -> do
+      input <- lift (BS.hGet handle byteCount)
+      lift $ modifyIORef' reference $ \buffer -> BS.take offset buffer <> input <> BS.drop (offset + BS.length input) buffer
+      pure (toInteger (BS.length input))
+    EvalWrite (EvalIOHandle _ handle) (EvalIOBuffer reference) offset byteCount -> do
+      buffer <- lift (readIORef reference)
+      lift (BS.hPut handle (BS.take byteCount (BS.drop offset buffer)) >> hFlush handle)
+      pure (toInteger byteCount)
 
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
 executeForeignCall foreignCall arguments
@@ -344,15 +356,43 @@ callForeign foreignCall args
   | symbol == "aihc_io_stdout",
     [] <- args =
       pure (VIOHandle (EvalIOHandle 1 stdout))
+  | symbol == "aihc_io_buffer_new",
+    [capacityValue] <- args = do
+      capacity <- forceInt32 symbol capacityValue
+      if capacity < 0
+        then throwE (EvalInvalidIOBufferRange symbol 0 capacity 0)
+        else VIOBuffer . EvalIOBuffer <$> lift (newIORef (BS.replicate (fromInteger capacity) 0))
+  | symbol == "aihc_io_buffer_get",
+    [bufferValue, indexValue] <- args = do
+      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
+      index <- forceInt32 symbol indexValue
+      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
+      bytes <- lift (readIORef reference)
+      pure (VLit (LitInt Int32Rep (toInteger (BS.index bytes checkedIndex))))
+  | symbol == "aihc_io_buffer_set",
+    [bufferValue, indexValue, byteValue] <- args = do
+      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
+      index <- forceInt32 symbol indexValue
+      byte <- forceInt32 symbol byteValue
+      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
+      lift $ modifyIORef' reference $ \bytes -> BS.take checkedIndex bytes <> BS.singleton (fromInteger byte) <> BS.drop (checkedIndex + 1) bytes
+      pure (VLit (LitInt Int32Rep 0))
   | symbol == "aihc_io_submit_read",
-    [handleValue] <- args = do
+    [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
-      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalRead handle)))
+      buffer <- forceIOBufferForeignArg symbol bufferValue
+      offset <- forceInt32 symbol offsetValue
+      byteCount <- forceInt32 symbol lengthValue
+      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalRead handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_submit_write",
-    [handleValue, byte] <- args = do
+    [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
-      intValue <- forceInt32 symbol byte
-      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWrite handle intValue)))
+      buffer <- forceIOBufferForeignArg symbol bufferValue
+      offset <- forceInt32 symbol offsetValue
+      byteCount <- forceInt32 symbol lengthValue
+      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- args =
       takeIOResult symbol request
@@ -381,6 +421,20 @@ forceIOHandleForeignArg symbol value = do
   case forced of
     VIOHandle handle -> pure handle
     _ -> throwE (EvalForeignTypeError symbol forced)
+
+forceIOBufferForeignArg :: Text -> Value -> EvalM EvalIOBuffer
+forceIOBufferForeignArg symbol value = do
+  forced <- forceValue value
+  case forced of
+    VIOBuffer buffer -> pure buffer
+    _ -> throwE (EvalForeignTypeError symbol forced)
+
+checkedIOBufferRange :: Text -> EvalIOBuffer -> Integer -> Integer -> EvalM (Int, Int)
+checkedIOBufferRange symbol (EvalIOBuffer reference) offset byteCount = do
+  capacity <- BS.length <$> lift (readIORef reference)
+  if offset < 0 || byteCount < 0 || offset > toInteger capacity || byteCount > toInteger capacity - offset
+    then throwE (EvalInvalidIOBufferRange symbol offset byteCount capacity)
+    else pure (fromInteger offset, fromInteger byteCount)
 
 takeIOResult :: Text -> Value -> EvalM Value
 takeIOResult symbol value = do
@@ -528,6 +582,7 @@ renderForcedValue value =
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VIOHandle {} -> pure "<io-handle>"
+    VIOBuffer {} -> pure "<io-buffer>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
@@ -603,6 +658,7 @@ renderRawValueM value = do
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VIOHandle {} -> pure "<io-handle>"
+    VIOBuffer {} -> pure "<io-buffer>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"

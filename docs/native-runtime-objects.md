@@ -89,13 +89,22 @@ representation and is not traced as a Haskell heap pointer.
 IO operations target opaque runtime-owned handles rather than OS descriptor
 numbers. Standard input and output are the first preopened handles, while each
 backend owns their platform representation. The POSIX backend stores a file
-descriptor in each handle, sets it nonblocking, and uses `poll` when byte reads
-or writes report that they would block. Windows can instead store `HANDLE` or
+descriptor in each handle, sets it nonblocking, and uses `poll` when buffer
+reads or writes report that they would block. Windows can instead store `HANDLE` or
 `SOCKET` resources without exposing either representation to generated code.
 
-The read result is a byte from 0 through 255, `-1` for end-of-file, or
-`-(errno + 1)` for an error. A write returns zero on success and the same
-negative error encoding on failure. `GHC.Event` owns only generic suspension;
-`GHC.IO.StdHandles` is the first client and exposes generic handle operations
-plus standard-stream convenience wrappers. Buffering, encoding, locking, and
-full `Handle` semantics remain deliberately above this boundary.
+Reads and writes operate on an offset and length within an opaque `IOBuffer`.
+The proof-of-concept runtime allocates each buffer outside the Haskell heap and
+does not release it. A request retains that stable allocation through
+completion. Callers must not access the submitted slice while the request is
+pending. A later pinned `MutableByteArray#` implementation can replace this
+allocation without changing `awaitIO#` or the backend request model.
+
+A non-negative request result is the number of transferred bytes. A non-empty
+read returns zero at end-of-file. Either operation can return fewer bytes than
+requested, so the future `Handle` layer must resubmit the remaining slice when
+it requires a complete transfer. Errors use `-(errno + 1)` in the POSIX proof
+of concept. `GHC.Event` owns only generic suspension. `GHC.IO.StdHandles`
+exposes buffer allocation, indexed byte access, handle operations, and the
+standard handles. Text encoding, locking, transfer loops, and full `Handle`
+semantics remain above this boundary.

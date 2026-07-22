@@ -69,14 +69,18 @@ single tagged info-table pointer before their payload fields.
 
 `fork#`, `yield#`, and the operation-independent `awaitIO#` are CPS primitive
 calls. Concrete IO operations are ordinary foreign calls which submit opaque
-runtime requests and later consume their results. Consequently, adding a file,
-socket, timer, or process operation does not require a new compiler primitive.
+runtime requests over stable `IOBuffer` slices and later consume their results.
+Consequently, adding a file, socket, timer, or process operation does not
+require a new compiler primitive.
 
 Suspended computations remain ordinary continuation closures. Runnable and
 blackhole-blocked threads retain those closure values in runtime resume
 records; pending IO requests retain the blocked thread and continuation until
 the backend reports completion. These ordinary heap pointers are collector
 roots, so scheduling does not introduce a native stack-scanning convention.
+Each request also retains its unmanaged buffer allocation and slice. That
+allocation cannot move while a backend owns its address and is not a collector
+root.
 
 The central scheduler drains ready requests before selecting a runnable thread
 and blocks in the configured IO backend only when requests are pending and no

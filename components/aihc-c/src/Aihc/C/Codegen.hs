@@ -272,7 +272,7 @@ compileEnvironment unitKind layout program =
     third (_, _, value) = value
 
 portableArgumentCapacity :: LinkLayout -> Int
-portableArgumentCapacity layout = max 3 (linkMaximumArgumentSlots layout)
+portableArgumentCapacity layout = max 3 (linkMaximumArgumentSlots layout + 1)
 
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
 requiredNodeConstructorInfos node =

@@ -35,7 +35,7 @@ import Data.Yaml qualified as Y
 import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO (hClose, hFlush, hPutChar, openTempFile)
+import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Info (arch, os)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Tasty (TestTree, testGroup)
@@ -661,6 +661,9 @@ testNativeStdioScheduler = do
       Right value -> pure value
       Left err -> assertFailure ("AMD64 stdio scheduler lowering failed: " <> show err)
   assertBool "emits generic IO suspension transfer" ("call aihc_await_io" `T.isInfixOf` assembly)
+  assertBool "allocates a stable IO buffer" ("call aihc_io_buffer_new" `T.isInfixOf` assembly)
+  assertBool "reads an IO buffer byte" ("call aihc_io_buffer_get" `T.isInfixOf` assembly)
+  assertBool "writes an IO buffer byte" ("call aihc_io_buffer_set" `T.isInfixOf` assembly)
   assertBool "obtains stdin through the runtime ABI" ("call aihc_io_stdin" `T.isInfixOf` assembly)
   assertBool "obtains stdout through the runtime ABI" ("call aihc_io_stdout" `T.isInfixOf` assembly)
   assertBool "submits a generic read through the runtime ABI" ("call aihc_io_submit_read" `T.isInfixOf` assembly)
@@ -738,14 +741,14 @@ runStdioAssembly assembly =
             std_err = CreatePipe
           }
     threadDelay 50000
-    hPutChar childInput 'Z'
+    hPutStr childInput "Buffered async IO\n"
     hFlush childInput
     hClose childInput
     programOut <- TIO.hGetContents childOutput
     programErr <- TIO.hGetContents childError
     programExit <- waitForProcess processHandle
     assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
-    assertEqual "async stdout" "Z" programOut
+    assertEqual "async stdout" "Buffered async IO\n" programOut
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive

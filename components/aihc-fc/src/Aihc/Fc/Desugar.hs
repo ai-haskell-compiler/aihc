@@ -360,10 +360,10 @@ unboxForeignArguments arguments continuation = go arguments []
   where
     go [] values = continuation (reverse values)
     go ((var, marshal) : rest) values =
-      unboxForeignValue marshal (FcVar var) $ \value -> go rest (value : values)
+      unboxForeignValue (varName var) marshal (FcVar var) $ \value -> go rest (value : values)
 
-unboxForeignValue :: TcForeignMarshal -> FcExpr -> (FcExpr -> DsM FcExpr) -> DsM FcExpr
-unboxForeignValue marshal expression continuation =
+unboxForeignValue :: Text -> TcForeignMarshal -> FcExpr -> (FcExpr -> DsM FcExpr) -> DsM FcExpr
+unboxForeignValue binderName marshal expression continuation =
   go (tcForeignSourceType marshal) (tcForeignConstructors marshal) expression
   where
     go _ [] value = continuation value
@@ -373,8 +373,8 @@ unboxForeignValue marshal expression continuation =
         case constructorType of
           TcFunTy field _ -> pure field
           _ -> desugarBug ("foreign marshalling constructor is not unary: " <> T.unpack constructor)
-      caseBinder <- freshVar "$ffi_case" valueType
-      fieldBinder <- freshVar "$ffi_field" fieldType
+      caseBinder <- freshVar (binderName <> "_case") valueType
+      fieldBinder <- freshVar (binderName <> "_field") fieldType
       rhs <- go fieldType constructors (FcVar fieldBinder)
       pure
         ( FcCase

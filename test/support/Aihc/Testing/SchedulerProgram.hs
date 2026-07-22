@@ -75,7 +75,7 @@ stdioSchedulerProgram =
   GrinProgram
     { grinConstructors = [],
       grinPrimitives = [(GrinVar "awaitIO#" 30 lifted, 2)],
-      grinForeignCalls = [stdinCall, stdoutCall, submitReadCall, submitWriteCall, takeResultCall],
+      grinForeignCalls = [newBufferCall, getBufferCall, setBufferCall, stdinCall, stdoutCall, submitReadCall, submitWriteCall, takeResultCall],
       grinExternalGlobals = [],
       grinExternalFunctions = [],
       grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
@@ -87,15 +87,18 @@ stdioSchedulerProgram =
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
-                GrinBind [stdinIOHandle] (GrinForeignCallExpr stdinCall []) $
-                  GrinBind [readRequest] (GrinForeignCallExpr submitReadCall [GrinVarValue stdinIOHandle]) $
-                    GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue readRequest]) $
-                      GrinBind [byte] (GrinForeignCallExpr takeResultCall [GrinVarValue readRequest]) $
-                        GrinBind [stdoutIOHandle] (GrinForeignCallExpr stdoutCall []) $
-                          GrinBind [writeRequest] (GrinForeignCallExpr submitWriteCall [GrinVarValue stdoutIOHandle, GrinVarValue byte]) $
-                            GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue writeRequest]) $
-                              GrinBind [writeResult] (GrinForeignCallExpr takeResultCall [GrinVarValue writeRequest]) $
-                                GrinConstant [GrinVarValue unitValue]
+                GrinBind [ioBuffer] (GrinForeignCallExpr newBufferCall [int32 64]) $
+                  GrinBind [stdinIOHandle] (GrinForeignCallExpr stdinCall []) $
+                    GrinBind [readRequest] (GrinForeignCallExpr submitReadCall [GrinVarValue stdinIOHandle, GrinVarValue ioBuffer, int32 0, int32 64]) $
+                      GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue readRequest]) $
+                        GrinBind [readCount] (GrinForeignCallExpr takeResultCall [GrinVarValue readRequest]) $
+                          GrinBind [firstByte] (GrinForeignCallExpr getBufferCall [GrinVarValue ioBuffer, int32 0]) $
+                            GrinBind [setResult] (GrinForeignCallExpr setBufferCall [GrinVarValue ioBuffer, int32 0, GrinVarValue firstByte]) $
+                              GrinBind [stdoutIOHandle] (GrinForeignCallExpr stdoutCall []) $
+                                GrinBind [writeRequest] (GrinForeignCallExpr submitWriteCall [GrinVarValue stdoutIOHandle, GrinVarValue ioBuffer, int32 0, GrinVarValue readCount]) $
+                                  GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue writeRequest]) $
+                                    GrinBind [writeResult] (GrinForeignCallExpr takeResultCall [GrinVarValue writeRequest]) $
+                                      GrinConstant [GrinVarValue unitValue]
             }
         ]
     }
@@ -103,18 +106,25 @@ stdioSchedulerProgram =
     lifted = BoxedRep Lifted
     mainFunction = FunctionName "$stdio_main"
     mainClosure = GrinVar "main" 31 lifted
-    stdinIOHandle = GrinVar "stdin_handle" 32 AddrRep
-    readRequest = GrinVar "read_request" 33 AddrRep
-    byte = GrinVar "byte" 34 Int32Rep
-    stdoutIOHandle = GrinVar "stdout_handle" 35 AddrRep
-    writeRequest = GrinVar "write_request" 36 AddrRep
-    writeResult = GrinVar "write_result" 37 Int32Rep
-    unitValue = GrinVar "()" 38 lifted
+    ioBuffer = GrinVar "io_buffer" 32 AddrRep
+    stdinIOHandle = GrinVar "stdin_handle" 33 AddrRep
+    readRequest = GrinVar "read_request" 34 AddrRep
+    readCount = GrinVar "read_count" 35 Int32Rep
+    firstByte = GrinVar "first_byte" 36 Int32Rep
+    setResult = GrinVar "set_result" 37 Int32Rep
+    stdoutIOHandle = GrinVar "stdout_handle" 38 AddrRep
+    writeRequest = GrinVar "write_request" 39 AddrRep
+    writeResult = GrinVar "write_result" 40 Int32Rep
+    unitValue = GrinVar "()" 41 lifted
+    newBufferCall = runtimeIoCall "aihc_io_buffer_new" [GrinForeignInt32] GrinForeignAddr
+    getBufferCall = runtimeIoCall "aihc_io_buffer_get" [GrinForeignAddr, GrinForeignInt32] GrinForeignInt32
+    setBufferCall = runtimeIoCall "aihc_io_buffer_set" [GrinForeignAddr, GrinForeignInt32, GrinForeignInt32] GrinForeignInt32
     stdinCall = runtimeIoCall "aihc_io_stdin" [] GrinForeignAddr
     stdoutCall = runtimeIoCall "aihc_io_stdout" [] GrinForeignAddr
-    submitReadCall = runtimeIoCall "aihc_io_submit_read" [GrinForeignAddr] GrinForeignAddr
-    submitWriteCall = runtimeIoCall "aihc_io_submit_write" [GrinForeignAddr, GrinForeignInt32] GrinForeignAddr
+    submitReadCall = runtimeIoCall "aihc_io_submit_read" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt32, GrinForeignInt32] GrinForeignAddr
+    submitWriteCall = runtimeIoCall "aihc_io_submit_write" [GrinForeignAddr, GrinForeignAddr, GrinForeignInt32, GrinForeignInt32] GrinForeignAddr
     takeResultCall = runtimeIoCall "aihc_io_take_result" [GrinForeignAddr] GrinForeignInt32
+    int32 = GrinLitValue . GrinLitInt Int32Rep
     runtimeIoCall symbol arguments result =
       GrinForeignCall
         { grinForeignCallName = "$ffi$" <> symbol,

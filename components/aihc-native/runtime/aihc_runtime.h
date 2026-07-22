@@ -34,6 +34,7 @@ typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoHandle AihcIoHandle;
+typedef struct AihcIoBuffer AihcIoBuffer;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
 typedef uint64_t AihcSlot;
@@ -173,8 +174,15 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
 const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
-void *aihc_io_submit_read(void *handle);
-void *aihc_io_submit_write(void *handle, int32_t byte);
+/* Proof-of-concept buffers are stable auxiliary allocations and are not
+   released. A submitted request retains its buffer through completion. */
+void *aihc_io_buffer_new(int32_t capacity);
+int32_t aihc_io_buffer_get(void *buffer, int32_t index);
+int32_t aihc_io_buffer_set(void *buffer, int32_t index, int32_t byte);
+void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
+                          int32_t length);
+void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,
+                           int32_t length);
 int32_t aihc_io_take_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);

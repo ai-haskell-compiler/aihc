@@ -1,12 +1,29 @@
+{-# LANGUAGE ExtendedLiterals #-}
+{-# LANGUAGE MagicHash #-}
+
 module Main where
 
-import GHC.IO.StdHandles (readStdinByte, writeStdoutByte)
-import Foreign.C.Types (CInt)
+import Data.Int (Int32 (..))
+import Foreign.C.Types (CInt (..))
+import GHC.IO.StdHandles
+  ( getIOBufferByte,
+    newIOBuffer,
+    readIntoBuffer,
+    setIOBufferByte,
+    stdinHandle,
+    stdoutHandle,
+    writeFromBuffer,
+  )
 
--- This example deliberately uses the byte-level layer below Handle. It echoes
--- one byte while allowing the green-thread scheduler to run during either IO
--- operation.
+-- This example uses one stable buffer below the future Handle layer. It echoes
+-- one input block while the green-thread scheduler can run during each IO
+-- request. The get/set pair also demonstrates direct buffer access.
 main :: IO CInt
 main = do
-  byte <- readStdinByte
-  writeStdoutByte byte
+  buffer <- newIOBuffer (CInt (I32# 64#Int32))
+  input <- stdinHandle
+  count <- readIntoBuffer input buffer (CInt (I32# 0#Int32)) (CInt (I32# 64#Int32))
+  firstByte <- getIOBufferByte buffer (CInt (I32# 0#Int32))
+  setIOBufferByte buffer (CInt (I32# 0#Int32)) firstByte
+  output <- stdoutHandle
+  writeFromBuffer output buffer (CInt (I32# 0#Int32)) count
