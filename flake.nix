@@ -26,7 +26,7 @@
       inherit (haskell) mkHsPkgsWithCoverage;
     };
     mkPackages = import ./scripts/nix/packages.nix {
-      inherit (docs) mkCombinedDocs;
+      inherit (docs) mkApiDocs mkCombinedDocs mkUserGuide;
       inherit (coverage) mkCoverageReport;
     };
     mkApps = import ./scripts/nix/apps.nix {

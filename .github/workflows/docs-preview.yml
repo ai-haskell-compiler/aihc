@@ -1,0 +1,55 @@
+name: Documentation Preview
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+    paths:
+      - .github/workflows/docs-preview.yml
+      - docs/aihc-users-guide/**
+      - flake.lock
+      - flake.nix
+      - scripts/nix/docs.nix
+      - scripts/nix/packages.nix
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: documentation-content
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        if: github.event.action != 'closed'
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Build user guide
+        if: github.event.action != 'closed'
+        run: |
+          nix build .#user-guide --out-link user-guide-result
+          cp -rL user-guide-result user-guide-preview
+
+      - name: Publish preview
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
+        with:
+          source-dir: user-guide-preview
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pages-base-url: https://ai-haskell-compiler.github.io/aihc/

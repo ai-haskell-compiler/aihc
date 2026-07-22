@@ -10,6 +10,7 @@ in {
       pkgs.alejandra
       pkgs.hlint
       pkgs.clang-tools
+      pkgs.python3Packages.mkdocs-material
     ];
   };
 }
