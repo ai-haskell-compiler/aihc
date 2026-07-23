@@ -1,0 +1,50 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Prim
+      ( getSizeofMutableByteArray#,
+        isByteArrayPinned#,
+        isMutableByteArrayPinned#,
+        newAlignedPinnedByteArray#,
+        newByteArray#,
+        newPinnedByteArray#,
+        resizeMutableByteArray#,
+        shrinkMutableByteArray#,
+        sizeofByteArray#,
+        unsafeFreezeByteArray#,
+        unsafeThawByteArray#,
+      )
+    import System.IO.Unsafe (unsafePerformIO)
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    test = IO (\state -> case newByteArray# 4# state of
+      (# state1, unpinned #) -> case newPinnedByteArray# 5# state1 of
+        (# state2, pinned #) -> case newAlignedPinnedByteArray# 6# 16# state2 of
+          (# state3, aligned #) -> case resizeMutableByteArray# unpinned 8# state3 of
+            (# state4, resized #) -> case shrinkMutableByteArray# resized 3# state4 of
+              state5 -> case getSizeofMutableByteArray# resized state5 of
+                (# state6, mutableSize #) -> case unsafeFreezeByteArray# aligned state6 of
+                  (# state7, frozen #) -> case unsafeThawByteArray# frozen state7 of
+                    (# state8, thawed #) ->
+                      (# state8,
+                         isMutableByteArrayPinned# unpinned
+                           +# isMutableByteArrayPinned# pinned
+                           +# isByteArrayPinned# frozen
+                           +# mutableSize
+                           +# sizeofByteArray# frozen
+                           +# isMutableByteArrayPinned# thawed #))
+output: |
+  12
+expression: |
+  unsafePerformIO test
+status: pass
+reason: tracks byte-array size, pinning, resize, shrink, freeze, and thaw through the GHC primitive API

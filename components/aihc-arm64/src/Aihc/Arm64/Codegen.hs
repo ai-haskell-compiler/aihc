@@ -40,6 +40,8 @@ import Aihc.Native
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
+    nativeRuntimePrimitiveCall,
+    supportedNativePrimitiveNames,
   )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
@@ -873,6 +875,17 @@ compileDirectBinding env vars expression =
         null vars,
         null (runtimeRepComponents runtimeRep) ->
           pure []
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
+          valueLines <- liftEither (materializeValue env value)
+          storeSingleResult vars valueLines
+    GrinPrimitiveCall _ name arguments
+      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
+          callLines <- compileForeignCallLines env foreignCall arguments
+          case vars of
+            [] -> pure callLines
+            [_] -> storeSingleResult vars callLines
+            _ -> lift (Left (Arm64UnsupportedExpression ("byte array primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure ["  bl _aihc_unsupported_primitive"]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
@@ -1571,7 +1584,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` supportedNativePrimitiveNames = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 

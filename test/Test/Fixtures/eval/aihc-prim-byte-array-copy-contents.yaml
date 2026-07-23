@@ -1,0 +1,36 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int32(..))
+    import Foreign.C.Types (CInt(..))
+    import GHC.IO (IO(..))
+    import GHC.Prim
+      ( byteArrayContents#,
+        copyAddrToByteArray#,
+        newPinnedByteArray#,
+        unsafeFreezeByteArray#,
+      )
+    import System.IO.Unsafe (unsafePerformIO)
+
+    foreign import ccall unsafe memcmp :: Addr# -> Addr# -> CInt -> CInt
+
+    test = IO (\state -> case newPinnedByteArray# 3# state of
+      (# state1, mutable #) -> case copyAddrToByteArray# "ABC"# mutable 0# 3# state1 of
+        state2 -> case unsafeFreezeByteArray# mutable state2 of
+          (# state3, frozen #) ->
+            (# state3, memcmp (byteArrayContents# frozen) "ABC"# (CInt (I32# 3#Int32)) #))
+output: |
+  I32# 0
+expression: |
+  unsafePerformIO test
+status: pass
+reason: copies bytes from an Addr# and exposes the frozen payload address to foreign code

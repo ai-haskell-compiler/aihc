@@ -93,17 +93,18 @@ descriptor in each handle, sets it nonblocking, and uses `poll` when buffer
 reads or writes report that they would block. Windows can instead store `HANDLE` or
 `SOCKET` resources without exposing either representation to generated code.
 
-Reads and writes operate on an offset and length within an opaque `IOBuffer`.
-The proof-of-concept runtime allocates each buffer outside the Haskell heap and
-does not release it. A request retains that stable allocation through
-completion. Callers must not access the submitted slice while the request is
-pending. A later pinned `MutableByteArray#` implementation can replace this
-allocation without changing `awaitIO#` or the backend request model.
+Reads and writes operate on an offset and length within the payload of a pinned
+`MutableByteArray#`. The proof-of-concept runtime allocates each byte array
+outside the Haskell heap and does not release it. A request retains that stable
+allocation through completion. Callers must not access the submitted slice
+while the request is pending. A future garbage collector can own the same
+descriptor and payload layout without changing `awaitIO#` or the backend
+request model.
 
-`copyAddrToIOBuffer` copies an explicit number of bytes from an `Addr#` into a
+`copyAddrToByteArray#` copies an explicit number of bytes from an `Addr#` into a
 bounds-checked destination slice. It does not scan for a terminating zero. The
 source address must remain valid until the synchronous copy returns; only the
-stable `IOBuffer` is retained by later asynchronous requests.
+stable byte-array payload is retained by later asynchronous requests.
 
 A non-negative request result is the number of transferred bytes. A non-empty
 read returns zero at end-of-file. Either operation can return fewer bytes than

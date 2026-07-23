@@ -19,9 +19,10 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -29,8 +30,10 @@ import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
-import Foreign.Marshal.Array (newArray0, peekArray, withArray0)
-import Foreign.Ptr (FunPtr, Ptr, castPtr)
+import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
+import Foreign.Marshal.Utils (copyBytes, fillBytes)
+import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -45,7 +48,7 @@ data EvalError
   | EvalForeignTypeError Text Value
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
-  | EvalInvalidIOBufferRange Text Integer Integer Int
+  | EvalInvalidByteArrayRange Text Integer Integer Int
   | EvalRaisedException Value
   deriving (Eq, Show)
 
@@ -55,8 +58,8 @@ data Value
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
+  | VByteArray EvalByteArray
   | VIOHandle EvalIOHandle
-  | VIOBuffer EvalIOBuffer
   | VIORequest EvalIORequest
   | VMutVar EvalMutVar
   | VStateToken
@@ -71,6 +74,19 @@ instance Eq EvalMutVar where
 instance Show EvalMutVar where
   show _ = "<mutvar>"
 
+data EvalByteArray = EvalByteArray
+  { evalByteArraySize :: !(IORef Int),
+    evalByteArrayContents :: !(Ptr ()),
+    evalByteArrayPinned :: !Bool,
+    evalByteArrayAlignment :: !Int
+  }
+
+instance Eq EvalByteArray where
+  left == right = evalByteArraySize left == evalByteArraySize right
+
+instance Show EvalByteArray where
+  show _ = "<byte-array>"
+
 data EvalIOHandle = EvalIOHandle !Int !Handle
 
 instance Eq EvalIOHandle where
@@ -79,17 +95,9 @@ instance Eq EvalIOHandle where
 instance Show EvalIOHandle where
   show _ = "<io-handle>"
 
-newtype EvalIOBuffer = EvalIOBuffer (IORef BS.ByteString)
-
-instance Eq EvalIOBuffer where
-  EvalIOBuffer left == EvalIOBuffer right = left == right
-
-instance Show EvalIOBuffer where
-  show _ = "<io-buffer>"
-
 data EvalIOOperation
-  = EvalRead !EvalIOHandle !EvalIOBuffer !Int !Int
-  | EvalWrite !EvalIOHandle !EvalIOBuffer !Int !Int
+  = EvalRead !EvalIOHandle !(Ptr ()) !Int !Int
+  | EvalWrite !EvalIOHandle !(Ptr ()) !Int !Int
   deriving (Eq, Show)
 
 data EvalIOState
@@ -267,12 +275,119 @@ evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
   pure state
+evalPrimitive "newByteArray#" [size, state] = do
+  byteArray <- allocateByteArray "newByteArray#" False 8 =<< forceIntPrimitiveArg "newByteArray#" size
+  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+evalPrimitive "newPinnedByteArray#" [size, state] = do
+  byteArray <- allocateByteArray "newPinnedByteArray#" True 8 =<< forceIntPrimitiveArg "newPinnedByteArray#" size
+  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+evalPrimitive "newAlignedPinnedByteArray#" [size, alignment, state] = do
+  byteCount <- forceIntPrimitiveArg "newAlignedPinnedByteArray#" size
+  byteAlignment <- forceIntPrimitiveArg "newAlignedPinnedByteArray#" alignment
+  checkedAlignment <- checkedByteArrayAlignment "newAlignedPinnedByteArray#" byteAlignment
+  byteArray <- allocateByteArray "newAlignedPinnedByteArray#" True checkedAlignment byteCount
+  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+evalPrimitive "isMutableByteArrayPinned#" [value] = do
+  byteArray <- forceByteArrayPrimitiveArg "isMutableByteArrayPinned#" value
+  pure (VLit (LitInt IntRep (if evalByteArrayPinned byteArray then 1 else 0)))
+evalPrimitive "isByteArrayPinned#" [value] = do
+  byteArray <- forceByteArrayPrimitiveArg "isByteArrayPinned#" value
+  pure (VLit (LitInt IntRep (if evalByteArrayPinned byteArray then 1 else 0)))
+evalPrimitive "byteArrayContents#" [value] = do
+  byteArray <- forceByteArrayPrimitiveArg "byteArrayContents#" value
+  pure (VAddress (evalByteArrayContents byteArray))
+evalPrimitive "mutableByteArrayContents#" [value] = do
+  byteArray <- forceByteArrayPrimitiveArg "mutableByteArrayContents#" value
+  pure (VAddress (evalByteArrayContents byteArray))
+evalPrimitive "shrinkMutableByteArray#" [value, newSize, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "shrinkMutableByteArray#" value
+  byteCount <- checkedByteArraySize "shrinkMutableByteArray#" =<< forceIntPrimitiveArg "shrinkMutableByteArray#" newSize
+  oldSize <- lift (readIORef (evalByteArraySize byteArray))
+  if byteCount > oldSize
+    then throwE (EvalInvalidByteArrayRange "shrinkMutableByteArray#" 0 (toInteger byteCount) oldSize)
+    else lift (writeIORef (evalByteArraySize byteArray) byteCount)
+  pure state
+evalPrimitive "resizeMutableByteArray#" [value, newSize, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "resizeMutableByteArray#" value
+  byteCount <- forceIntPrimitiveArg "resizeMutableByteArray#" newSize
+  resized <- resizeByteArray "resizeMutableByteArray#" byteArray byteCount
+  pure (VConstructor "(#,#)" [state, VByteArray resized])
+evalPrimitive "unsafeFreezeByteArray#" [value, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "unsafeFreezeByteArray#" value
+  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+evalPrimitive "unsafeThawByteArray#" [value, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "unsafeThawByteArray#" value
+  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+evalPrimitive "sizeofByteArray#" [value] = do
+  byteArray <- forceByteArrayPrimitiveArg "sizeofByteArray#" value
+  VLit . LitInt IntRep . toInteger <$> lift (readIORef (evalByteArraySize byteArray))
+evalPrimitive "getSizeofMutableByteArray#" [value, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "getSizeofMutableByteArray#" value
+  size <- lift (readIORef (evalByteArraySize byteArray))
+  pure (VConstructor "(#,#)" [state, VLit (LitInt IntRep (toInteger size))])
+evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "copyAddrToByteArray#" value
+  checkedOffset <- forceIntPrimitiveArg "copyAddrToByteArray#" offset
+  checkedLength <- forceIntPrimitiveArg "copyAddrToByteArray#" byteCount
+  (destinationOffset, destinationLength) <- checkedByteArrayRange "copyAddrToByteArray#" byteArray checkedOffset checkedLength
+  sourceBytes <- readAddressBytes "copyAddrToByteArray#" destinationLength source
+  lift (pokeArray (castPtr (evalByteArrayContents byteArray `plusPtr` destinationOffset)) (BS.unpack sourceBytes))
+  pure state
 evalPrimitive "awaitIO#" [request, state] = do
   ioRequest <- forceIORequestPrimitiveArg "awaitIO#" request
   completeIORequest ioRequest
   pure state
 evalPrimitive name args =
   throwE (EvalPrimitiveArity name (length args))
+
+allocateByteArray :: Text -> Bool -> Int -> Integer -> EvalM EvalByteArray
+allocateByteArray symbol pinned alignment requestedSize = do
+  size <- checkedByteArraySize symbol requestedSize
+  raw <- lift (mallocBytes (max 1 size + alignment - 1))
+  let contents = alignPtr raw alignment
+  lift (fillBytes contents 0 size)
+  sizeReference <- lift (newIORef size)
+  pure
+    EvalByteArray
+      { evalByteArraySize = sizeReference,
+        evalByteArrayContents = contents,
+        evalByteArrayPinned = pinned,
+        evalByteArrayAlignment = alignment
+      }
+
+resizeByteArray :: Text -> EvalByteArray -> Integer -> EvalM EvalByteArray
+resizeByteArray symbol byteArray requestedSize = do
+  resized <- allocateByteArray symbol (evalByteArrayPinned byteArray) (evalByteArrayAlignment byteArray) requestedSize
+  oldSize <- lift (readIORef (evalByteArraySize byteArray))
+  newSize <- lift (readIORef (evalByteArraySize resized))
+  lift (copyBytes (evalByteArrayContents resized) (evalByteArrayContents byteArray) (min oldSize newSize))
+  pure resized
+
+checkedByteArraySize :: Text -> Integer -> EvalM Int
+checkedByteArraySize symbol size
+  | size < 0 || size > toInteger (maxBound :: Int) =
+      throwE (EvalInvalidByteArrayRange symbol 0 size 0)
+  | otherwise = pure (fromInteger size)
+
+checkedByteArrayAlignment :: Text -> Integer -> EvalM Int
+checkedByteArrayAlignment symbol alignment
+  | alignment <= 0 || alignment > toInteger (maxBound :: Int) || alignment .&. (alignment - 1) /= 0 =
+      throwE (EvalInvalidByteArrayRange symbol 0 alignment 0)
+  | otherwise = pure (fromInteger alignment)
+
+forceByteArrayPrimitiveArg :: Text -> Value -> EvalM EvalByteArray
+forceByteArrayPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VByteArray byteArray -> pure byteArray
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+checkedByteArrayRange :: Text -> EvalByteArray -> Integer -> Integer -> EvalM (Int, Int)
+checkedByteArrayRange symbol byteArray offset byteCount = do
+  size <- lift (readIORef (evalByteArraySize byteArray))
+  if offset < 0 || byteCount < 0 || offset > toInteger size || byteCount > toInteger size - offset
+    then throwE (EvalInvalidByteArrayRange symbol offset byteCount size)
+    else pure (fromInteger offset, fromInteger byteCount)
 
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =
@@ -321,13 +436,13 @@ completeIORequest (EvalIORequest reference) = do
 performIOOperation :: EvalIOOperation -> EvalM Integer
 performIOOperation operation =
   case operation of
-    EvalRead (EvalIOHandle _ handle) (EvalIOBuffer reference) offset byteCount -> do
+    EvalRead (EvalIOHandle _ handle) buffer offset byteCount -> do
       input <- lift (BS.hGet handle byteCount)
-      lift $ modifyIORef' reference $ \buffer -> BS.take offset buffer <> input <> BS.drop (offset + BS.length input) buffer
+      lift (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
       pure (toInteger (BS.length input))
-    EvalWrite (EvalIOHandle _ handle) (EvalIOBuffer reference) offset byteCount -> do
-      buffer <- lift (readIORef reference)
-      lift (BS.hPut handle (BS.take byteCount (BS.drop offset buffer)) >> hFlush handle)
+    EvalWrite (EvalIOHandle _ handle) buffer offset byteCount -> do
+      bytes <- lift (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
+      lift (BS.hPut handle bytes >> hFlush handle)
       pure (toInteger byteCount)
 
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
@@ -356,51 +471,21 @@ callForeign foreignCall args
   | symbol == "aihc_io_stdout",
     [] <- args =
       pure (VIOHandle (EvalIOHandle 1 stdout))
-  | symbol == "aihc_io_buffer_new",
-    [capacityValue] <- args = do
-      capacity <- forceInt32 symbol capacityValue
-      if capacity < 0
-        then throwE (EvalInvalidIOBufferRange symbol 0 capacity 0)
-        else VIOBuffer . EvalIOBuffer <$> lift (newIORef (BS.replicate (fromInteger capacity) 0))
-  | symbol == "aihc_io_buffer_get",
-    [bufferValue, indexValue] <- args = do
-      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
-      index <- forceInt32 symbol indexValue
-      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
-      bytes <- lift (readIORef reference)
-      pure (VLit (LitInt Int32Rep (toInteger (BS.index bytes checkedIndex))))
-  | symbol == "aihc_io_buffer_set",
-    [bufferValue, indexValue, byteValue] <- args = do
-      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
-      index <- forceInt32 symbol indexValue
-      byte <- forceInt32 symbol byteValue
-      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
-      lift $ modifyIORef' reference $ \bytes -> BS.take checkedIndex bytes <> BS.singleton (fromInteger byte) <> BS.drop (checkedIndex + 1) bytes
-      pure (VLit (LitInt Int32Rep 0))
-  | symbol == "aihc_io_buffer_copy_from_addr",
-    [sourceValue, bufferValue, offsetValue, lengthValue] <- args = do
-      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
-      offset <- forceInt32 symbol offsetValue
-      byteCount <- forceInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
-      sourceBytes <- readAddressBytes symbol checkedLength sourceValue
-      lift $ modifyIORef' reference $ \bytes -> BS.take checkedOffset bytes <> sourceBytes <> BS.drop (checkedOffset + checkedLength) bytes
-      pure (VLit (LitInt Int32Rep 0))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
-      buffer <- forceIOBufferForeignArg symbol bufferValue
+      buffer <- forceAddressForeignArg symbol bufferValue
       offset <- forceInt32 symbol offsetValue
       byteCount <- forceInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalRead handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_submit_write",
     [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
-      buffer <- forceIOBufferForeignArg symbol bufferValue
+      buffer <- forceAddressForeignArg symbol bufferValue
       offset <- forceInt32 symbol offsetValue
       byteCount <- forceInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- args =
@@ -431,19 +516,20 @@ forceIOHandleForeignArg symbol value = do
     VIOHandle handle -> pure handle
     _ -> throwE (EvalForeignTypeError symbol forced)
 
-forceIOBufferForeignArg :: Text -> Value -> EvalM EvalIOBuffer
-forceIOBufferForeignArg symbol value = do
+forceAddressForeignArg :: Text -> Value -> EvalM (Ptr ())
+forceAddressForeignArg symbol value = do
   forced <- forceValue value
   case forced of
-    VIOBuffer buffer -> pure buffer
+    VAddress address -> pure address
     _ -> throwE (EvalForeignTypeError symbol forced)
 
-checkedIOBufferRange :: Text -> EvalIOBuffer -> Integer -> Integer -> EvalM (Int, Int)
-checkedIOBufferRange symbol (EvalIOBuffer reference) offset byteCount = do
-  capacity <- BS.length <$> lift (readIORef reference)
-  if offset < 0 || byteCount < 0 || offset > toInteger capacity || byteCount > toInteger capacity - offset
-    then throwE (EvalInvalidIOBufferRange symbol offset byteCount capacity)
+checkedAddressRange :: Text -> Integer -> Integer -> EvalM (Int, Int)
+checkedAddressRange symbol offset byteCount =
+  if offset < 0 || byteCount < 0 || offset > intLimit || byteCount > intLimit - offset
+    then throwE (EvalInvalidByteArrayRange symbol offset byteCount 0)
     else pure (fromInteger offset, fromInteger byteCount)
+  where
+    intLimit = toInteger (maxBound :: Int)
 
 readAddressBytes :: Text -> Int -> Value -> EvalM BS.ByteString
 readAddressBytes symbol byteCount value = do
@@ -600,7 +686,7 @@ renderForcedValue value =
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VIOHandle {} -> pure "<io-handle>"
-    VIOBuffer {} -> pure "<io-buffer>"
+    VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
@@ -676,7 +762,7 @@ renderRawValueM value = do
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VIOHandle {} -> pure "<io-handle>"
-    VIOBuffer {} -> pure "<io-buffer>"
+    VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"

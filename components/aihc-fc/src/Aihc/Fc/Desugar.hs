@@ -472,6 +472,20 @@ primitiveImportSpecs =
       primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive "newByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "newPinnedByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "newAlignedPinnedByteArray#" "Int# -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "isMutableByteArrayPinned#" "MutableByteArray# d -> Int#",
+      primitive "isByteArrayPinned#" "ByteArray# -> Int#",
+      primitive "byteArrayContents#" "ByteArray# -> Addr#",
+      primitive "mutableByteArrayContents#" "MutableByteArray# d -> Addr#",
+      primitive "shrinkMutableByteArray#" "MutableByteArray# d -> Int# -> State# d -> State# d",
+      primitive "resizeMutableByteArray#" "MutableByteArray# d -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "unsafeFreezeByteArray#" "MutableByteArray# d -> State# d -> (# State# d, ByteArray# #)",
+      primitive "unsafeThawByteArray#" "ByteArray# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "sizeofByteArray#" "ByteArray# -> Int#",
+      primitive "getSizeofMutableByteArray#" "MutableByteArray# d -> State# d -> (# State# d, Int# #)",
+      primitive "copyAddrToByteArray#" "Addr# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d",
       primitive "yield#" "State# RealWorld -> State# RealWorld"
     ]
 
