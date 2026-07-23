@@ -137,7 +137,7 @@ compileOptionsParser =
           (OA.eitherReader parseNativeTarget)
           ( OA.long "target"
               <> OA.metavar "TARGET"
-              <> OA.help "Target: apple-arm64, linux-amd64, or portable-c (default: host)"
+              <> OA.help "Target: apple-arm64, linux-amd64, portable-c, or wasm32-wasip3 (default: host)"
           )
       )
     <*> OA.option

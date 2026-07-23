@@ -115,6 +115,11 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
+          testCase "parses the WASI P3 target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3"]),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
@@ -1196,16 +1201,19 @@ targetMainDirective :: NativeTarget -> T.Text
 targetMainDirective AppleArm64 = ".globl _main"
 targetMainDirective LinuxAmd64 = ".globl main"
 targetMainDirective PortableC = "int main(void)"
+targetMainDirective Wasm32Wasip3 = "aihc_wasm_program_initialize:"
 
 targetInitializerCall :: NativeTarget -> T.Text
 targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
 targetInitializerCall PortableC = "_aihc_init_"
+targetInitializerCall Wasm32Wasip3 = "call\t_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
 targetTailTransfer AppleArm64 = "br x9"
 targetTailTransfer LinuxAmd64 = "jmp r11"
 targetTailTransfer PortableC = "aihc_next_transfer"
+targetTailTransfer Wasm32Wasip3 = "call\taihc_wasm_transfer_"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =
