@@ -2,14 +2,22 @@ name: Deploy Documentation
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy-docs.yml
+      - docs/aihc-users-guide/**
+      - flake.lock
+      - flake.nix
+      - scripts/nix/docs.nix
+      - scripts/nix/packages.nix
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: documentation-content
   cancel-in-progress: false
 
 jobs:
@@ -41,21 +49,39 @@ jobs:
           echo "=== Site structure ==="
           find docs-output -type f | head -50
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
+      - name: Publish generated site
+        run: |
+          set -euo pipefail
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: docs-output
+          publish_dir=$(mktemp -d)
+          trap 'git worktree remove --force "$publish_dir"' EXIT
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-24.04
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch origin gh-pages
+            git worktree add --detach "$publish_dir" origin/gh-pages
+          else
+            git worktree add --detach "$publish_dir" HEAD
+            git -C "$publish_dir" switch --orphan gh-pages
+            git -C "$publish_dir" rm -rf .
+          fi
+
+          find "$publish_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            ! -name .git \
+            ! -name pr-preview \
+            -exec rm -rf {} +
+          cp -r docs-output/. "$publish_dir/"
+          touch "$publish_dir/.nojekyll"
+
+          git -C "$publish_dir" config user.name github-actions[bot]
+          git -C "$publish_dir" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C "$publish_dir" add --all
+
+          if git -C "$publish_dir" diff --cached --quiet; then
+            echo "Documentation site is already current."
+            exit 0
+          fi
+
+          git -C "$publish_dir" commit -m "docs: deploy $GITHUB_SHA"
+          git -C "$publish_dir" push origin HEAD:gh-pages
