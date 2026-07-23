@@ -40,11 +40,13 @@ jobs:
           echo "=== Building Haddock documentation ==="
           nix build .#docs --print-out-paths
           cp -rL result docs-output
-          chmod -R u+w docs-output
 
           echo "=== Building coverage report ==="
           nix build .#coverage --print-out-paths
           cp -rL result docs-output/coverage
+
+          # Nix outputs are read-only; the publishing worktree must be removable.
+          chmod -R u+w docs-output
 
           echo "=== Site structure ==="
           find docs-output -type f | head -50
