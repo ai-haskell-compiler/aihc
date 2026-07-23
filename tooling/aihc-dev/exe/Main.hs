@@ -3,6 +3,8 @@ module Main (main) where
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.Fuzz qualified as Fuzz
+import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
 import Aihc.Dev.Golden.Update qualified as GoldenUpdate
 import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
 import Aihc.Dev.Parser.Bench.CLI qualified as ParserBenchCLI
@@ -46,6 +48,7 @@ data Command
   | CompareHiSubset CompareHiSubsetOpts
   | CoreLibsProgress
   | ExtractResolveIface ExtractResolveIfaceOpts
+  | Fuzz FuzzCLI.Command
   | Snippet SnippetOpts
   | Parser ParserRun.Options
   | ParserBench ParserBenchCLI.Options
@@ -101,6 +104,12 @@ commandParser =
           ( info
               (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
               (progDesc "Extract minimal resolver interface (names only) from .hi files")
+          )
+        <> command
+          "fuzz"
+          ( info
+              (Fuzz <$> FuzzCLI.commandParser <**> helper)
+              (progDesc "Continuously run QuickCheck properties in parallel")
           )
         <> command
           "snippet"
@@ -251,6 +260,8 @@ runCommand (ExtractResolveIface opts) = do
       outputPath = eriOutput opts
   createDirectoryIfMissing True (takeDirectory outputPath)
   BL.writeFile outputPath (encodePretty resolveIface)
+runCommand (Fuzz fuzzCommand) =
+  Fuzz.runCommand fuzzCommand
 runCommand (Snippet opts) =
   runSnippet opts
 runCommand (Parser opts) =

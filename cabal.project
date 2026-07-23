@@ -20,4 +20,16 @@ packages:
   tooling/aihc-resolve-tooling-common
   tooling/aihc-dev
 
+package aihc-parser
+  flags: +fuzz
+
+package aihc-parser-compat
+  flags: +fuzz
+
+package aihc-tc
+  flags: +fuzz
+
+package aihc-grin
+  flags: +fuzz
+
 tests: True

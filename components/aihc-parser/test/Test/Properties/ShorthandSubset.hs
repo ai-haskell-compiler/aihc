@@ -9,9 +9,9 @@ module Test.Properties.ShorthandSubset
   )
 where
 
-import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Shorthand (Shorthand (shorthand))
 import Aihc.Parser.Syntax
+import Aihc.Parser.Token (LexToken)
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (isSubsequenceOf)
 import Test.Properties.Arb.Decl ()

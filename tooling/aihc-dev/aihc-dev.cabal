@@ -147,6 +147,32 @@ library golden-tools
   ghc-options: -Wall
   default-language: GHC2021
 
+library fuzz
+  hs-source-dirs: src
+  exposed-modules:
+    Aihc.Dev.Fuzz
+    Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Registry
+    Aihc.Dev.Fuzz.TUI
+
+  build-depends:
+    QuickCheck >=2.14 && <2.19,
+    aihc-grin:fuzz,
+    aihc-parser:fuzz,
+    aihc-parser-compat:fuzz,
+    aihc-tc:fuzz,
+    async >=2.2 && <2.3,
+    base >=4.16 && <5,
+    containers >=0.5 && <0.8,
+    optparse-applicative >=0.16 && <0.19,
+    stm >=2.5 && <2.6,
+    terminal-size >=0.3.2 && <0.4,
+    time >=1.9 && <1.15,
+    unix >=2.7 && <2.9,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
 executable aihc-dev
   main-is: Main.hs
   hs-source-dirs:
@@ -178,6 +204,7 @@ executable aihc-dev
     aihc,
     aihc-cpp,
     aihc-dev:extract-hi,
+    aihc-dev:fuzz,
     aihc-dev:golden-tools,
     aihc-dev:parser-tools,
     aihc-dev:snippet,
@@ -235,6 +262,7 @@ test-suite spec
     StackageProgress.Snapshot
     TcStackageProgress
     Test.ExtractHiCompare
+    Test.Fuzz
     Test.GoldenUpdate
     Test.ParserBenchReport
     Test.ParserCLI.Golden
@@ -252,6 +280,7 @@ test-suite spec
     aihc,
     aihc-cpp,
     aihc-dev:extract-hi,
+    aihc-dev:fuzz,
     aihc-dev:golden-tools,
     aihc-dev:parser-tools,
     aihc-dev:snippet,
