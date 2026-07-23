@@ -17,6 +17,7 @@ import Aihc.Arm64 qualified as Arm64
 import Aihc.C qualified as C
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
+import Aihc.Llvm qualified as Llvm
 import Aihc.Native
   ( LinkInterface,
     LinkLayout,
@@ -509,11 +510,13 @@ compileBackendModule target layout initializer program =
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
     PortableC -> compileC
+    Llvm -> either (Left . show) Right (Llvm.compileModule layout initializer program)
   where
     compileC = either (Left . show) Right (C.compileModule layout initializer program)
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
+backendSourceExtension Llvm = ".ll"
 backendSourceExtension _ = ".s"
 
 objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
@@ -521,6 +524,7 @@ objectCompiler target sourcePath objectPath = do
   (compiler, targetArguments) <- backendCompiler target
   case target of
     PortableC -> cCompiler compiler targetArguments
+    Llvm -> pure (compiler, targetArguments <> ["-Wno-override-module", "-c", sourcePath, "-o", objectPath])
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
   where

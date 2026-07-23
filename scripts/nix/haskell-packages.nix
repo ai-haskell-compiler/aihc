@@ -36,6 +36,17 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-llvm = {
+      src = sources.llvmSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-llvm";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-native = {
       src = sources.nativeSrc;
       disableProfiling = true;

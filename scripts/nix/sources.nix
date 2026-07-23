@@ -82,6 +82,11 @@ in rec {
     ".cabal"
   ];
 
+  llvmSrc = mkRootSubsetSrc ["components/aihc-llvm/" "test/support/"] [
+    ".hs"
+    ".cabal"
+  ];
+
   nativeSrc = mkComponentSrc "/components/aihc-native" [
     ".hs"
     ".cabal"
