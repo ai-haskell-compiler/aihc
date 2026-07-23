@@ -3,7 +3,7 @@ module Test.Fuzz
   )
 where
 
-import Aihc.Dev.Fuzz (batchSize, dashboardRefreshMicroseconds, selectProperties)
+import Aihc.Dev.Fuzz (batchSize, cycleProperties, dashboardRefreshMicroseconds, resolveJobCount, selectProperties)
 import Aihc.Dev.Fuzz.CLI (Command (..), Selection (..), commandParser, parseDuration)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
@@ -21,6 +21,15 @@ fuzzTests =
         assertEqual "batch size" 10000 batchSize,
       testCase "refreshes the dashboard at most every five seconds" $
         assertEqual "refresh interval" (5 * 1000000) dashboardRefreshMicroseconds,
+      testCase "feeds one selected property to every worker" $
+        assertEqual "assignments" (replicate 10 "only") (take 10 (cycleProperties ["only"])),
+      testCase "cycles property assignments without tracking active work" $
+        assertEqual
+          "assignments"
+          ["one", "two", "three", "one", "two", "three", "one"]
+          (take 7 (cycleProperties ["one", "two", "three"])),
+      testCase "does not cap jobs at the selected property count" $
+        assertEqual "jobs" 10 (resolveJobCount 4 (Just 10)),
       testCase "parses supported time-limit units" $ do
         assertEqual "milliseconds" (Right 0.25) (parseDuration "250ms")
         assertEqual "seconds" (Right 30) (parseDuration "30s")

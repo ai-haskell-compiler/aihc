@@ -3,7 +3,9 @@
 -- | Parallel, round-robin QuickCheck fuzz runner with a terminal dashboard.
 module Aihc.Dev.Fuzz
   ( batchSize,
+    cycleProperties,
     dashboardRefreshMicroseconds,
+    resolveJobCount,
     runCommand,
     selectProperties,
   )
@@ -93,13 +95,11 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
     hPutStrLn stderr "aihc-dev fuzz: no properties matched the selection"
     exitFailure
   capabilities <- getNumCapabilities
-  let requestedJobs = fromMaybe capabilities optionsJobs
-      jobs = min requestedJobs (length selected)
-  queue <- newTQueueIO
-  atomically (forM_ selected (writeTQueue queue))
+  let jobs = resolveJobCount capabilities optionsJobs
+  scheduler <- newTVarIO (cycleProperties selected)
   stats <- Stats <$> newTVarIO IntMap.empty <*> newTVarIO 0 <*> newTVarIO 0
   startedAt <- getCurrentTime
-  workers <- forM [1 .. jobs] $ \workerId -> async (worker queue stats workerId)
+  workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats workerId)
   interactive <- hIsTerminalDevice stderr
   let run = awaitOutcome optionsTimeLimit workers
   outcome <-
@@ -148,19 +148,35 @@ durationMicroseconds :: NominalDiffTime -> Int
 durationMicroseconds duration =
   max 1 (floor (realToFrac duration * (1000000 :: Double)))
 
-worker :: TQueue FuzzProperty -> Stats -> Int -> IO WorkerFailure
-worker queue stats workerId = do
-  fuzzProperty <- atomically (readTQueue queue)
+-- | Repeat the selected properties forever in stable registry order.
+cycleProperties :: [property] -> [property]
+cycleProperties [] = []
+cycleProperties properties = cycle properties
+
+-- | Honor the requested parallelism even when fewer properties are selected.
+resolveJobCount :: Int -> Maybe Int -> Int
+resolveJobCount = fromMaybe
+
+nextProperty :: TVar [FuzzProperty] -> STM FuzzProperty
+nextProperty scheduler = do
+  scheduled <- readTVar scheduler
+  case scheduled of
+    fuzzProperty : remaining -> do
+      writeTVar scheduler remaining
+      pure fuzzProperty
+    [] -> retry
+
+worker :: TVar [FuzzProperty] -> Stats -> Int -> IO WorkerFailure
+worker scheduler stats workerId = do
+  fuzzProperty <- atomically (nextProperty scheduler)
   let propertyId = fuzzPropertyId fuzzProperty
       clearActive = atomically (modifyTVar' (statsActive stats) (IntMap.delete workerId))
   atomically $ modifyTVar' (statsActive stats) (IntMap.insert workerId (ActiveProperty propertyId 0))
   result <- runBatch stats workerId fuzzProperty `finally` clearActive
   case result of
     QC.Success {} -> do
-      atomically $ do
-        modifyTVar' (statsCompletedBatches stats) (+ 1)
-        writeTQueue queue fuzzProperty
-      worker queue stats workerId
+      atomically $ modifyTVar' (statsCompletedBatches stats) (+ 1)
+      worker scheduler stats workerId
     _ -> pure (WorkerFailure fuzzProperty result)
 
 runBatch :: Stats -> Int -> FuzzProperty -> IO QC.Result
