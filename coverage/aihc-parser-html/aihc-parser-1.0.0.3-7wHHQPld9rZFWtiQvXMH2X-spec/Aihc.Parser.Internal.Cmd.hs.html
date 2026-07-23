@@ -169,7 +169,7 @@ span.spaces    { background: white }
 <span class="lineno">  150 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt; MP.try cmdLetStmtParser &lt;|&gt; <span class="nottickedoff">cmdBodyStmtParser</span></span>
 <span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordRec -&gt; cmdRecStmtParser</span>
 <span class="lineno">  152 </span><span class="spaces">    </span><span class="istickedoff">-- Keyword commands: parse as command body statements.</span>
-<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; cmdBodyStmtParser</span>
+<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; <span class="nottickedoff">cmdBodyStmtParser</span></span>
 <span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; cmdBodyStmtParser</span>
 <span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; cmdBodyStmtParser</span>
 <span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">TkReservedBackslash -&gt; <span class="nottickedoff">cmdBodyStmtParser</span></span>
@@ -201,9 +201,9 @@ span.spaces    { background: white }
 <span class="lineno">  182 </span><span class="spaces">      </span><span class="istickedoff">case mArrTail of</span>
 <span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">Just (appType, rhs) -&gt;</span>
 <span class="lineno">  184 </span><span class="spaces">          </span><span class="istickedoff">pure (DoExpr (CmdArrApp expr appType rhs))</span>
-<span class="lineno">  185 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">do</span></span>
-<span class="lineno">  186 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">mTok &lt;- MP.optional (lookAhead anySingle)</span></span>
-<span class="lineno">  187 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">MP.customFailure</span></span>
+<span class="lineno">  185 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  186 </span><span class="spaces">          </span><span class="istickedoff">mTok &lt;- MP.optional (lookAhead anySingle)</span>
+<span class="lineno">  187 </span><span class="spaces">          </span><span class="istickedoff">MP.customFailure</span>
 <span class="lineno">  188 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">UnexpectedTokenExpecting</span></span>
 <span class="lineno">  189 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">{ unexpectedFound = mkFoundToken &lt;$&gt; mTok,</span></span>
 <span class="lineno">  190 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">unexpectedExpecting = &quot;arrow command (-&lt; or -&lt;&lt;) in do statement&quot;,</span></span>

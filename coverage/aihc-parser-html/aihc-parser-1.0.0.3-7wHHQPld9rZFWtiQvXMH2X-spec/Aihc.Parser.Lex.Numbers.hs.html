@@ -285,7 +285,7 @@ span.spaces    { background: white }
 <span class="lineno">  266 </span><span class="spaces">                  </span><span class="istickedoff">sign :&lt; more | sign `elem` (&quot;+-&quot; :: String) -&gt; (<span class="nottickedoff">T.singleton sign</span>, more)</span>
 <span class="lineno">  267 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; (<span class="nottickedoff">&quot;&quot;</span>, rest)</span>
 <span class="lineno">  268 </span><span class="spaces">              </span><span class="istickedoff">(digits, _) = T.span isDigit rest1</span>
-<span class="lineno">  269 </span><span class="spaces">           </span><span class="istickedoff">in if T.null digits then Nothing else Just (T.take (T.length chars - T.length rest1 + T.length digits) chars)</span>
+<span class="lineno">  269 </span><span class="spaces">           </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null digits</span> then <span class="nottickedoff">Nothing</span> else Just (T.take (T.length chars - T.length rest1 + T.length digits) chars)</span>
 <span class="lineno">  270 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
 <span class="lineno">  271 </span>
 <span class="lineno">  272 </span>readBaseLiteral :: String -&gt; (String -&gt; [(Integer, String)]) -&gt; Text -&gt; Integer

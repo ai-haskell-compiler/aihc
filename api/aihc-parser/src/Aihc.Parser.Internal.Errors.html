@@ -21,8 +21,8 @@
 </span><span id="line-21"></span><span>
 </span><span id="line-22"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#parseErrorBundleToSpannedText"><span class="hs-identifier hs-type">parseErrorBundleToSpannedText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParseErrorBundle"><span class="hs-identifier hs-type">ParseErrorBundle</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
 </span><span id="line-23"></span><span id="parseErrorBundleToSpannedText"><span class="annot"><span class="annottext">parseErrorBundleToSpannedText :: ParseErrorBundle -&gt; [(SourceSpan, Text)]
-</span><a href="Aihc.Parser.Internal.Errors.html#parseErrorBundleToSpannedText"><span class="hs-identifier hs-var hs-var">parseErrorBundleToSpannedText</span></a></span></span><span> </span><span id="local-6989586621679406789"><span class="annot"><span class="annottext">ParseErrorBundle
-</span><a href="#local-6989586621679406789"><span class="hs-identifier hs-var">bundle</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#parseErrorBundleToSpannedText"><span class="hs-identifier hs-var hs-var">parseErrorBundleToSpannedText</span></a></span></span><span> </span><span id="local-6989586621679406794"><span class="annot"><span class="annottext">ParseErrorBundle
+</span><a href="#local-6989586621679406794"><span class="hs-identifier hs-var">bundle</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-24"></span><span>  </span><span class="annot"><span class="annottext">[ParseError TokStream ParserErrorComponent] -&gt; [(SourceSpan, Text)]
 </span><a href="Aihc.Parser.Internal.Errors.html#parseErrorsToSpannedText"><span class="hs-identifier hs-var">parseErrorsToSpannedText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmpty (ParseError TokStream ParserErrorComponent)
 -&gt; [ParseError TokStream ParserErrorComponent]
@@ -31,62 +31,62 @@ forall a. NonEmpty a -&gt; [a]
 -&gt; NonEmpty (ParseError TokStream ParserErrorComponent)
 forall s e. ParseErrorBundle s e -&gt; NonEmpty (ParseError s e)
 </span><span class="hs-identifier hs-var">MPE.bundleErrors</span></span><span> </span><span class="annot"><span class="annottext">ParseErrorBundle
-</span><a href="#local-6989586621679406789"><span class="hs-identifier hs-var">bundle</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406794"><span class="hs-identifier hs-var">bundle</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
 </span><span id="line-25"></span><span>
 </span><span id="line-26"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#parseErrorsToSpannedText"><span class="hs-identifier hs-type">parseErrorsToSpannedText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">MPE.ParseError</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
 </span><span id="line-27"></span><span id="parseErrorsToSpannedText"><span class="annot"><span class="annottext">parseErrorsToSpannedText :: [ParseError TokStream ParserErrorComponent] -&gt; [(SourceSpan, Text)]
-</span><a href="Aihc.Parser.Internal.Errors.html#parseErrorsToSpannedText"><span class="hs-identifier hs-var hs-var">parseErrorsToSpannedText</span></a></span></span><span> </span><span id="local-6989586621679406792"><span class="annot"><span class="annottext">[ParseError TokStream ParserErrorComponent]
-</span><a href="#local-6989586621679406792"><span class="hs-identifier hs-var">errs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#parseErrorsToSpannedText"><span class="hs-identifier hs-var hs-var">parseErrorsToSpannedText</span></a></span></span><span> </span><span id="local-6989586621679406797"><span class="annot"><span class="annottext">[ParseError TokStream ParserErrorComponent]
+</span><a href="#local-6989586621679406797"><span class="hs-identifier hs-var">errs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-28"></span><span>  </span><span class="hs-special">[</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">SourceSpan -&gt; Maybe SourceSpan -&gt; SourceSpan
 forall a. a -&gt; Maybe a -&gt; a
 </span><span class="hs-identifier hs-var">fromMaybe</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan
 </span><a href="Aihc.Parser.Syntax.html#NoSourceSpan"><span class="hs-identifier hs-var">NoSourceSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe SourceSpan
-</span><a href="#local-6989586621679406794"><span class="hs-identifier hs-var">mSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">SimpleDocStream (ZonkAny 0) -&gt; Text
+</span><a href="#local-6989586621679406799"><span class="hs-identifier hs-var">mSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">SimpleDocStream (ZonkAny 0) -&gt; Text
 forall ann. SimpleDocStream ann -&gt; Text
 </span><span class="hs-identifier hs-var">RText.renderStrict</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LayoutOptions -&gt; Doc (ZonkAny 0) -&gt; SimpleDocStream (ZonkAny 0)
 forall ann. LayoutOptions -&gt; Doc ann -&gt; SimpleDocStream ann
 </span><span class="hs-identifier hs-var">layoutPretty</span></span><span> </span><span class="annot"><span class="annottext">LayoutOptions
 </span><span class="hs-identifier hs-var">defaultLayoutOptions</span></span><span> </span><span class="annot"><span class="annottext">Doc (ZonkAny 0)
-</span><a href="#local-6989586621679406796"><span class="hs-identifier hs-var">doc</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
-</span><span id="line-29"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679406797"><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
-</span><a href="#local-6989586621679406797"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(ParseError TokStream ParserErrorComponent -&gt; Int)
+</span><a href="#local-6989586621679406801"><span class="hs-identifier hs-var">doc</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679406802"><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+</span><a href="#local-6989586621679406802"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(ParseError TokStream ParserErrorComponent -&gt; Int)
 -&gt; [ParseError TokStream ParserErrorComponent]
 -&gt; [ParseError TokStream ParserErrorComponent]
 forall b a. Ord b =&gt; (a -&gt; b) -&gt; [a] -&gt; [a]
 </span><span class="hs-identifier hs-var">List.sortOn</span></span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent -&gt; Int
 forall s e. ParseError s e -&gt; Int
 </span><span class="hs-identifier hs-var">MP.errorOffset</span></span><span> </span><span class="annot"><span class="annottext">[ParseError TokStream ParserErrorComponent]
-</span><a href="#local-6989586621679406792"><span class="hs-identifier hs-var">errs</span></a></span><span class="hs-special">,</span><span>
-</span><span id="line-30"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679406794"><span class="annot"><span class="annottext">Maybe SourceSpan
-</span><a href="#local-6989586621679406794"><span class="hs-identifier hs-var">mSpan</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679406796"><span class="annot"><span class="annottext">Doc (ZonkAny 0)
-</span><a href="#local-6989586621679406796"><span class="hs-identifier hs-var">doc</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+</span><a href="#local-6989586621679406797"><span class="hs-identifier hs-var">errs</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-30"></span><span>    </span><span class="hs-special">(</span><span id="local-6989586621679406799"><span class="annot"><span class="annottext">Maybe SourceSpan
+</span><a href="#local-6989586621679406799"><span class="hs-identifier hs-var">mSpan</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679406801"><span class="annot"><span class="annottext">Doc (ZonkAny 0)
+</span><a href="#local-6989586621679406801"><span class="hs-identifier hs-var">doc</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
 -&gt; [(Maybe SourceSpan, Doc (ZonkAny 0))]
 forall ann.
 ParseError TokStream ParserErrorComponent
 -&gt; [(Maybe SourceSpan, Doc ann)]
 </span><a href="Aihc.Parser.Internal.Errors.html#renderParseErrors"><span class="hs-identifier hs-var">renderParseErrors</span></a></span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
-</span><a href="#local-6989586621679406797"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><a href="#local-6989586621679406802"><span class="hs-identifier hs-var">err</span></a></span><span>
 </span><span id="line-31"></span><span>  </span><span class="hs-special">]</span><span>
 </span><span id="line-32"></span><span>
-</span><span id="line-33"></span><span id="local-6989586621679406730"><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderParseErrors"><span class="hs-identifier hs-type">renderParseErrors</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MPE.ParseError</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Doc</span></span><span> </span><span class="annot"><a href="#local-6989586621679406730"><span class="hs-identifier hs-type">ann</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span></span><span>
+</span><span id="line-33"></span><span id="local-6989586621679406735"><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderParseErrors"><span class="hs-identifier hs-type">renderParseErrors</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MPE.ParseError</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Doc</span></span><span> </span><span class="annot"><a href="#local-6989586621679406735"><span class="hs-identifier hs-type">ann</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span></span><span>
 </span><span id="line-34"></span><span id="renderParseErrors"><span class="annot"><span class="annottext">renderParseErrors :: forall ann.
 ParseError TokStream ParserErrorComponent
 -&gt; [(Maybe SourceSpan, Doc ann)]
-</span><a href="Aihc.Parser.Internal.Errors.html#renderParseErrors"><span class="hs-identifier hs-var hs-var">renderParseErrors</span></a></span></span><span> </span><span id="local-6989586621679406809"><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
-</span><a href="#local-6989586621679406809"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#renderParseErrors"><span class="hs-identifier hs-var hs-var">renderParseErrors</span></a></span></span><span> </span><span id="local-6989586621679406814"><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+</span><a href="#local-6989586621679406814"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-35"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
-</span><a href="#local-6989586621679406809"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><a href="#local-6989586621679406814"><span class="hs-identifier hs-var">err</span></a></span><span> </span><span class="hs-keyword">of</span><span>
 </span><span id="line-36"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">MPE.TrivialError</span></span><span> </span><span class="annot"><span class="annottext">Int
-</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406811"><span class="annot"><span class="annottext">Maybe (ErrorItem (Token TokStream))
-</span><a href="#local-6989586621679406811"><span class="hs-identifier hs-var">mUnexpected</span></a></span></span><span> </span><span id="local-6989586621679406812"><span class="annot"><span class="annottext">Set (ErrorItem (Token TokStream))
-</span><a href="#local-6989586621679406812"><span class="hs-identifier hs-var">expected</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
-</span><span id="line-37"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679406813"><span class="annot"><span class="annottext">mSpan :: Maybe SourceSpan
-</span><a href="#local-6989586621679406813"><span class="hs-identifier hs-var hs-var">mSpan</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken) -&gt; Maybe SourceSpan
-</span><a href="#local-6989586621679406814"><span class="hs-identifier hs-var">trivialUnexpectedSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406816"><span class="annot"><span class="annottext">Maybe (ErrorItem (Token TokStream))
+</span><a href="#local-6989586621679406816"><span class="hs-identifier hs-var">mUnexpected</span></a></span></span><span> </span><span id="local-6989586621679406817"><span class="annot"><span class="annottext">Set (ErrorItem (Token TokStream))
+</span><a href="#local-6989586621679406817"><span class="hs-identifier hs-var">expected</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-37"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679406818"><span class="annot"><span class="annottext">mSpan :: Maybe SourceSpan
+</span><a href="#local-6989586621679406818"><span class="hs-identifier hs-var hs-var">mSpan</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken) -&gt; Maybe SourceSpan
+</span><a href="#local-6989586621679406819"><span class="hs-identifier hs-var">trivialUnexpectedSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
 Maybe (ErrorItem (Token TokStream))
-</span><a href="#local-6989586621679406811"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span>
+</span><a href="#local-6989586621679406816"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span>
 </span><span id="line-38"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe SourceSpan
-</span><a href="#local-6989586621679406813"><span class="hs-identifier hs-var">mSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Doc ann] -&gt; Doc ann
+</span><a href="#local-6989586621679406818"><span class="hs-identifier hs-var">mSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">[Doc ann] -&gt; Doc ann
 forall ann. [Doc ann] -&gt; Doc ann
 </span><span class="hs-identifier hs-var">vcat</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(String -&gt; Doc ann) -&gt; [String] -&gt; [Doc ann]
 forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
@@ -96,12 +96,12 @@ forall a ann. Pretty a =&gt; a -&gt; Doc ann
 </span><span class="hs-identifier hs-var">pretty</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken) -&gt; Set (ErrorItem LexToken) -&gt; [String]
 </span><a href="Aihc.Parser.Internal.Errors.html#renderTrivialError"><span class="hs-identifier hs-var">renderTrivialError</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
 Maybe (ErrorItem (Token TokStream))
-</span><a href="#local-6989586621679406811"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span> </span><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
+</span><a href="#local-6989586621679406816"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span> </span><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
 Set (ErrorItem (Token TokStream))
-</span><a href="#local-6989586621679406812"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><a href="#local-6989586621679406817"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">]</span><span>
 </span><span id="line-39"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">MPE.FancyError</span></span><span> </span><span class="annot"><span class="annottext">Int
-</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406817"><span class="annot"><span class="annottext">Set (ErrorFancy ParserErrorComponent)
-</span><a href="#local-6989586621679406817"><span class="hs-identifier hs-var">fancySet</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406822"><span class="annot"><span class="annottext">Set (ErrorFancy ParserErrorComponent)
+</span><a href="#local-6989586621679406822"><span class="hs-identifier hs-var">fancySet</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
 </span><span id="line-40"></span><span>      </span><span class="annot"><span class="annottext">(ErrorFancy ParserErrorComponent -&gt; (Maybe SourceSpan, Doc ann))
 -&gt; [ErrorFancy ParserErrorComponent]
 -&gt; [(Maybe SourceSpan, Doc ann)]
@@ -109,43 +109,43 @@ forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
 </span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent -&gt; (Maybe SourceSpan, Doc ann)
 forall ann.
 ErrorFancy ParserErrorComponent -&gt; (Maybe SourceSpan, Doc ann)
-</span><a href="#local-6989586621679406818"><span class="hs-identifier hs-var">renderFancyError</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set (ErrorFancy ParserErrorComponent)
+</span><a href="#local-6989586621679406823"><span class="hs-identifier hs-var">renderFancyError</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set (ErrorFancy ParserErrorComponent)
 -&gt; [ErrorFancy ParserErrorComponent]
 forall a. Set a -&gt; [a]
 </span><span class="hs-identifier hs-var">Set.toAscList</span></span><span> </span><span class="annot"><span class="annottext">Set (ErrorFancy ParserErrorComponent)
-</span><a href="#local-6989586621679406817"><span class="hs-identifier hs-var">fancySet</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406822"><span class="hs-identifier hs-var">fancySet</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-41"></span><span>  </span><span class="hs-keyword">where</span><span>
-</span><span id="line-42"></span><span>    </span><span class="annot"><a href="#local-6989586621679406814"><span class="hs-identifier hs-type">trivialUnexpectedSpan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span>
-</span><span id="line-43"></span><span>    </span><span id="local-6989586621679406814"><span class="annot"><span class="annottext">trivialUnexpectedSpan :: Maybe (ErrorItem LexToken) -&gt; Maybe SourceSpan
-</span><a href="#local-6989586621679406814"><span class="hs-identifier hs-var hs-var">trivialUnexpectedSpan</span></a></span></span><span> </span><span id="local-6989586621679406820"><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
-</span><a href="#local-6989586621679406820"><span class="hs-identifier hs-var">mItem</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-42"></span><span>    </span><span class="annot"><a href="#local-6989586621679406819"><span class="hs-identifier hs-type">trivialUnexpectedSpan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span>
+</span><span id="line-43"></span><span>    </span><span id="local-6989586621679406819"><span class="annot"><span class="annottext">trivialUnexpectedSpan :: Maybe (ErrorItem LexToken) -&gt; Maybe SourceSpan
+</span><a href="#local-6989586621679406819"><span class="hs-identifier hs-var hs-var">trivialUnexpectedSpan</span></a></span></span><span> </span><span id="local-6989586621679406825"><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
+</span><a href="#local-6989586621679406825"><span class="hs-identifier hs-var">mItem</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-44"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
-</span><a href="#local-6989586621679406820"><span class="hs-identifier hs-var">mItem</span></a></span><span> </span><span class="hs-keyword">of</span><span>
-</span><span id="line-45"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Tokens</span></span><span> </span><span id="local-6989586621679406822"><span class="annot"><span class="annottext">NonEmpty LexToken
-</span><a href="#local-6989586621679406822"><span class="hs-identifier hs-var">ts</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Maybe SourceSpan
+</span><a href="#local-6989586621679406825"><span class="hs-identifier hs-var">mItem</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-45"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Tokens</span></span><span> </span><span id="local-6989586621679406827"><span class="annot"><span class="annottext">NonEmpty LexToken
+</span><a href="#local-6989586621679406827"><span class="hs-identifier hs-var">ts</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Maybe SourceSpan
 forall a. a -&gt; Maybe a
 </span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexToken -&gt; SourceSpan
 </span><a href="Aihc.Parser.Lex.Types.html#lexTokenSpan"><span class="hs-identifier hs-var">lexTokenSpan</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmpty LexToken -&gt; LexToken
 forall a. NonEmpty a -&gt; a
 </span><span class="hs-identifier hs-var">NE.head</span></span><span> </span><span class="annot"><span class="annottext">NonEmpty LexToken
-</span><a href="#local-6989586621679406822"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406827"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
 </span><span id="line-46"></span><span>        </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
 </span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe SourceSpan
 forall a. Maybe a
 </span><span class="hs-identifier hs-var">Nothing</span></span><span>
 </span><span id="line-47"></span><span>
-</span><span id="line-48"></span><span>    </span><span id="local-6989586621679406745"><span class="annot"><a href="#local-6989586621679406818"><span class="hs-identifier hs-type">renderFancyError</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ErrorFancy</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Doc</span></span><span> </span><span class="annot"><a href="#local-6989586621679406745"><span class="hs-identifier hs-type">ann</span></a></span><span class="hs-special">)</span></span><span>
-</span><span id="line-49"></span><span>    </span><span id="local-6989586621679406818"><span class="annot"><span class="annottext">renderFancyError :: forall ann.
+</span><span id="line-48"></span><span>    </span><span id="local-6989586621679406750"><span class="annot"><a href="#local-6989586621679406823"><span class="hs-identifier hs-type">renderFancyError</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ErrorFancy</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Doc</span></span><span> </span><span class="annot"><a href="#local-6989586621679406750"><span class="hs-identifier hs-type">ann</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-49"></span><span>    </span><span id="local-6989586621679406823"><span class="annot"><span class="annottext">renderFancyError :: forall ann.
 ErrorFancy ParserErrorComponent -&gt; (Maybe SourceSpan, Doc ann)
-</span><a href="#local-6989586621679406818"><span class="hs-identifier hs-var hs-var">renderFancyError</span></a></span></span><span> </span><span id="local-6989586621679406832"><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent
-</span><a href="#local-6989586621679406832"><span class="hs-identifier hs-var">fancy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="#local-6989586621679406823"><span class="hs-identifier hs-var hs-var">renderFancyError</span></a></span></span><span> </span><span id="local-6989586621679406837"><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent
+</span><a href="#local-6989586621679406837"><span class="hs-identifier hs-var">fancy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-50"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent
-</span><a href="#local-6989586621679406832"><span class="hs-identifier hs-var">fancy</span></a></span><span> </span><span class="hs-keyword">of</span><span>
-</span><span id="line-51"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">ErrorCustom</span></span><span> </span><span id="local-6989586621679406834"><span class="annot"><span class="annottext">ParserErrorComponent
-</span><a href="#local-6989586621679406834"><span class="hs-identifier hs-var">custom</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><a href="#local-6989586621679406837"><span class="hs-identifier hs-var">fancy</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-51"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">ErrorCustom</span></span><span> </span><span id="local-6989586621679406839"><span class="annot"><span class="annottext">ParserErrorComponent
+</span><a href="#local-6989586621679406839"><span class="hs-identifier hs-var">custom</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
 </span><span id="line-52"></span><span>          </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent -&gt; Maybe SourceSpan
-</span><a href="#local-6989586621679406835"><span class="hs-identifier hs-var">customFoundSpan</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
-</span><a href="#local-6989586621679406834"><span class="hs-identifier hs-var">custom</span></a></span><span class="hs-special">,</span><span>
+</span><a href="#local-6989586621679406840"><span class="hs-identifier hs-var">customFoundSpan</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
+</span><a href="#local-6989586621679406839"><span class="hs-identifier hs-var">custom</span></a></span><span class="hs-special">,</span><span>
 </span><span id="line-53"></span><span>            </span><span class="annot"><span class="annottext">[Doc ann] -&gt; Doc ann
 forall ann. [Doc ann] -&gt; Doc ann
 </span><span class="hs-identifier hs-var">vcat</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(String -&gt; Doc ann) -&gt; [String] -&gt; [Doc ann]
@@ -154,17 +154,17 @@ forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
 forall ann. String -&gt; Doc ann
 forall a ann. Pretty a =&gt; a -&gt; Doc ann
 </span><span class="hs-identifier hs-var">pretty</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ParserErrorComponent -&gt; [String]
-</span><a href="#local-6989586621679406836"><span class="hs-identifier hs-var">customMessageLines</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
-</span><a href="#local-6989586621679406834"><span class="hs-identifier hs-var">custom</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406841"><span class="hs-identifier hs-var">customMessageLines</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
+</span><a href="#local-6989586621679406839"><span class="hs-identifier hs-var">custom</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
 </span><span id="line-54"></span><span>          </span><span class="hs-special">)</span><span>
-</span><span id="line-55"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">ErrorFail</span></span><span> </span><span id="local-6989586621679406838"><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406838"><span class="hs-identifier hs-var">message</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe SourceSpan
+</span><span id="line-55"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">ErrorFail</span></span><span> </span><span id="local-6989586621679406843"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406843"><span class="hs-identifier hs-var">message</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe SourceSpan
 forall a. Maybe a
 </span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">String -&gt; Doc ann
 forall ann. String -&gt; Doc ann
 forall a ann. Pretty a =&gt; a -&gt; Doc ann
 </span><span class="hs-identifier hs-var">pretty</span></span><span> </span><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406838"><span class="hs-identifier hs-var">message</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406843"><span class="hs-identifier hs-var">message</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-56"></span><span>        </span><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent
 </span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
 </span><span id="line-57"></span><span>          </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">Maybe SourceSpan
@@ -176,72 +176,72 @@ forall a ann. Pretty a =&gt; a -&gt; Doc ann
 </span><span class="hs-identifier hs-var">pretty</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent -&gt; String
 forall a. Show a =&gt; a -&gt; String
 </span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="annot"><span class="annottext">ErrorFancy ParserErrorComponent
-</span><a href="#local-6989586621679406832"><span class="hs-identifier hs-var">fancy</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621679406837"><span class="hs-identifier hs-var">fancy</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-59"></span><span>          </span><span class="hs-special">)</span><span>
 </span><span id="line-60"></span><span>
-</span><span id="line-61"></span><span>    </span><span class="annot"><a href="#local-6989586621679406835"><span class="hs-identifier hs-type">customFoundSpan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span>
-</span><span id="line-62"></span><span>    </span><span id="local-6989586621679406835"><span class="annot"><span class="annottext">customFoundSpan :: ParserErrorComponent -&gt; Maybe SourceSpan
-</span><a href="#local-6989586621679406835"><span class="hs-identifier hs-var hs-var">customFoundSpan</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679406841"><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406841"><span class="hs-identifier hs-var">found</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span id="line-61"></span><span>    </span><span class="annot"><a href="#local-6989586621679406840"><span class="hs-identifier hs-type">customFoundSpan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span>
+</span><span id="line-62"></span><span>    </span><span id="local-6989586621679406840"><span class="annot"><span class="annottext">customFoundSpan :: ParserErrorComponent -&gt; Maybe SourceSpan
+</span><a href="#local-6989586621679406840"><span class="hs-identifier hs-var hs-var">customFoundSpan</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679406846"><span class="annot"><span class="annottext">FoundToken
+</span><a href="#local-6989586621679406846"><span class="hs-identifier hs-var">found</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">[Text]
 </span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-63"></span><span>      </span><span class="annot"><span class="annottext">SourceSpan -&gt; Maybe SourceSpan
 forall a. a -&gt; Maybe a
 </span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FoundToken -&gt; SourceSpan
 </span><a href="Aihc.Parser.Types.html#foundTokenSpan"><span class="hs-identifier hs-var">foundTokenSpan</span></a></span><span> </span><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406841"><span class="hs-identifier hs-var">found</span></a></span><span class="hs-special">)</span><span>
-</span><span id="line-64"></span><span>    </span><span class="annot"><a href="#local-6989586621679406835"><span class="hs-identifier hs-var">customFoundSpan</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
+</span><a href="#local-6989586621679406846"><span class="hs-identifier hs-var">found</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>    </span><span class="annot"><a href="#local-6989586621679406840"><span class="hs-identifier hs-var">customFoundSpan</span></a></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
 </span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe SourceSpan
 forall a. Maybe a
 </span><span class="hs-identifier hs-var">Nothing</span></span><span>
 </span><span id="line-65"></span><span>
-</span><span id="line-66"></span><span>    </span><span class="annot"><a href="#local-6989586621679406836"><span class="hs-identifier hs-type">customMessageLines</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span>
-</span><span id="line-67"></span><span>    </span><span id="local-6989586621679406836"><span class="annot"><span class="annottext">customMessageLines :: ParserErrorComponent -&gt; [String]
-</span><a href="#local-6989586621679406836"><span class="hs-identifier hs-var hs-var">customMessageLines</span></a></span></span><span> </span><span id="local-6989586621679406843"><span class="annot"><span class="annottext">e :: ParserErrorComponent
-</span><a href="#local-6989586621679406843"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span> </span><span id="local-6989586621679406844"><span class="annot"><span class="annottext">Maybe FoundToken
-</span><a href="#local-6989586621679406844"><span class="hs-identifier hs-var">mFound</span></a></span></span><span> </span><span class="annot"><span class="annottext">Text
-</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406845"><span class="annot"><span class="annottext">[Text]
-</span><a href="#local-6989586621679406845"><span class="hs-identifier hs-var">contexts</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-66"></span><span>    </span><span class="annot"><a href="#local-6989586621679406841"><span class="hs-identifier hs-type">customMessageLines</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span>
+</span><span id="line-67"></span><span>    </span><span id="local-6989586621679406841"><span class="annot"><span class="annottext">customMessageLines :: ParserErrorComponent -&gt; [String]
+</span><a href="#local-6989586621679406841"><span class="hs-identifier hs-var hs-var">customMessageLines</span></a></span></span><span> </span><span id="local-6989586621679406848"><span class="annot"><span class="annottext">e :: ParserErrorComponent
+</span><a href="#local-6989586621679406848"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span> </span><span id="local-6989586621679406849"><span class="annot"><span class="annottext">Maybe FoundToken
+</span><a href="#local-6989586621679406849"><span class="hs-identifier hs-var">mFound</span></a></span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679406850"><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679406850"><span class="hs-identifier hs-var">contexts</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-68"></span><span>      </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String -&gt; (FoundToken -&gt; String) -&gt; Maybe FoundToken -&gt; String
 forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
 </span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;unexpected end of input&quot;</span></span><span> </span><span class="annot"><span class="annottext">FoundToken -&gt; String
 </span><a href="Aihc.Parser.Internal.Errors.html#renderUnexpectedToken"><span class="hs-identifier hs-var">renderUnexpectedToken</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe FoundToken
-</span><a href="#local-6989586621679406844"><span class="hs-identifier hs-var">mFound</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent -&gt; String
+</span><a href="#local-6989586621679406849"><span class="hs-identifier hs-var">mFound</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent -&gt; String
 forall a. ShowErrorComponent a =&gt; a -&gt; String
 </span><span class="hs-identifier hs-var">MPE.showErrorComponent</span></span><span> </span><span class="annot"><span class="annottext">ParserErrorComponent
-</span><a href="#local-6989586621679406843"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">]</span><span>
+</span><a href="#local-6989586621679406848"><span class="hs-identifier hs-var">e</span></a></span><span class="hs-special">]</span><span>
 </span><span id="line-69"></span><span>        </span><span class="annot"><span class="annottext">[String] -&gt; [String] -&gt; [String]
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; String) -&gt; [Text] -&gt; [String]
 forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
-</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679406849"><span class="annot"><span class="annottext">Text
-</span><a href="#local-6989586621679406849"><span class="hs-identifier hs-var">context</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679406854"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679406854"><span class="hs-identifier hs-var">context</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;context: &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; String
 </span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="annot"><span class="annottext">Text
-</span><a href="#local-6989586621679406849"><span class="hs-identifier hs-var">context</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Text]
-</span><a href="#local-6989586621679406845"><span class="hs-identifier hs-var">contexts</span></a></span><span>
+</span><a href="#local-6989586621679406854"><span class="hs-identifier hs-var">context</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679406850"><span class="hs-identifier hs-var">contexts</span></a></span><span>
 </span><span id="line-70"></span><span>
 </span><span id="line-71"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderTrivialError"><span class="hs-identifier hs-type">renderTrivialError</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Set.Set</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">]</span><span>
 </span><span id="line-72"></span><span id="renderTrivialError"><span class="annot"><span class="annottext">renderTrivialError :: Maybe (ErrorItem LexToken) -&gt; Set (ErrorItem LexToken) -&gt; [String]
-</span><a href="Aihc.Parser.Internal.Errors.html#renderTrivialError"><span class="hs-identifier hs-var hs-var">renderTrivialError</span></a></span></span><span> </span><span id="local-6989586621679406851"><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
-</span><a href="#local-6989586621679406851"><span class="hs-identifier hs-var">mUnexpected</span></a></span></span><span> </span><span id="local-6989586621679406852"><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
-</span><a href="#local-6989586621679406852"><span class="hs-identifier hs-var">expected</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#renderTrivialError"><span class="hs-identifier hs-var hs-var">renderTrivialError</span></a></span></span><span> </span><span id="local-6989586621679406856"><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
+</span><a href="#local-6989586621679406856"><span class="hs-identifier hs-var">mUnexpected</span></a></span></span><span> </span><span id="local-6989586621679406857"><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
+</span><a href="#local-6989586621679406857"><span class="hs-identifier hs-var">expected</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-73"></span><span>  </span><span class="annot"><span class="annottext">[String]
 -&gt; (ErrorItem LexToken -&gt; [String])
 -&gt; Maybe (ErrorItem LexToken)
 -&gt; [String]
 forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
-</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679406853"><span class="annot"><span class="annottext">ErrorItem LexToken
-</span><a href="#local-6989586621679406853"><span class="hs-identifier hs-var">item</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679406858"><span class="annot"><span class="annottext">ErrorItem LexToken
+</span><a href="#local-6989586621679406858"><span class="hs-identifier hs-var">item</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;unexpected &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">ErrorItem LexToken -&gt; String
 </span><a href="Aihc.Parser.Internal.Errors.html#renderErrorItem"><span class="hs-identifier hs-var">renderErrorItem</span></a></span><span> </span><span class="annot"><span class="annottext">ErrorItem LexToken
-</span><a href="#local-6989586621679406853"><span class="hs-identifier hs-var">item</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
-</span><a href="#local-6989586621679406851"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span>
+</span><a href="#local-6989586621679406858"><span class="hs-identifier hs-var">item</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe (ErrorItem LexToken)
+</span><a href="#local-6989586621679406856"><span class="hs-identifier hs-var">mUnexpected</span></a></span><span>
 </span><span id="line-74"></span><span>    </span><span class="annot"><span class="annottext">[String] -&gt; [String] -&gt; [String]
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">String
@@ -251,20 +251,20 @@ forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><a href="Aihc.Parser.Internal.Errors.html#renderExpectedItems"><span class="hs-identifier hs-var">renderExpectedItems</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set (ErrorItem LexToken) -&gt; [ErrorItem LexToken]
 forall a. Set a -&gt; [a]
 </span><span class="hs-identifier hs-var">Set.toAscList</span></span><span> </span><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
-</span><a href="#local-6989586621679406852"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><a href="#local-6989586621679406857"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
 </span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Set (ErrorItem LexToken) -&gt; Bool
 forall a. Set a -&gt; Bool
 </span><span class="hs-identifier hs-var">Set.null</span></span><span> </span><span class="annot"><span class="annottext">Set (ErrorItem LexToken)
-</span><a href="#local-6989586621679406852"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><a href="#local-6989586621679406857"><span class="hs-identifier hs-var">expected</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
 </span><span id="line-75"></span><span>
 </span><span id="line-76"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderErrorItem"><span class="hs-identifier hs-type">renderErrorItem</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
 </span><span id="line-77"></span><span id="renderErrorItem"><span class="annot"><span class="annottext">renderErrorItem :: ErrorItem LexToken -&gt; String
-</span><a href="Aihc.Parser.Internal.Errors.html#renderErrorItem"><span class="hs-identifier hs-var hs-var">renderErrorItem</span></a></span></span><span> </span><span id="local-6989586621679406858"><span class="annot"><span class="annottext">ErrorItem LexToken
-</span><a href="#local-6989586621679406858"><span class="hs-identifier hs-var">item</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#renderErrorItem"><span class="hs-identifier hs-var hs-var">renderErrorItem</span></a></span></span><span> </span><span id="local-6989586621679406863"><span class="annot"><span class="annottext">ErrorItem LexToken
+</span><a href="#local-6989586621679406863"><span class="hs-identifier hs-var">item</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-78"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ErrorItem LexToken
-</span><a href="#local-6989586621679406858"><span class="hs-identifier hs-var">item</span></a></span><span> </span><span class="hs-keyword">of</span><span>
-</span><span id="line-79"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Tokens</span></span><span> </span><span id="local-6989586621679406859"><span class="annot"><span class="annottext">NonEmpty LexToken
-</span><a href="#local-6989586621679406859"><span class="hs-identifier hs-var">toks</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
+</span><a href="#local-6989586621679406863"><span class="hs-identifier hs-var">item</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-79"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Tokens</span></span><span> </span><span id="local-6989586621679406864"><span class="annot"><span class="annottext">NonEmpty LexToken
+</span><a href="#local-6989586621679406864"><span class="hs-identifier hs-var">toks</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
 </span><span class="hs-identifier hs-var">unwords</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(LexToken -&gt; String) -&gt; [LexToken] -&gt; [String]
 forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
 </span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; String
@@ -274,48 +274,48 @@ forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="Aihc.Parser.Lex.Types.html#lexTokenText"><span class="hs-identifier hs-var">lexTokenText</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NonEmpty LexToken -&gt; [LexToken]
 forall a. NonEmpty a -&gt; [a]
 </span><span class="hs-identifier hs-var">NE.toList</span></span><span> </span><span class="annot"><span class="annottext">NonEmpty LexToken
-</span><a href="#local-6989586621679406859"><span class="hs-identifier hs-var">toks</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
-</span><span id="line-80"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Label</span></span><span> </span><span id="local-6989586621679406864"><span class="annot"><span class="annottext">NonEmpty Char
-</span><a href="#local-6989586621679406864"><span class="hs-keyword hs-var">label</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">NonEmpty Char -&gt; String
+</span><a href="#local-6989586621679406864"><span class="hs-identifier hs-var">toks</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Label</span></span><span> </span><span id="local-6989586621679406869"><span class="annot"><span class="annottext">NonEmpty Char
+</span><a href="#local-6989586621679406869"><span class="hs-keyword hs-var">label</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">NonEmpty Char -&gt; String
 forall a. NonEmpty a -&gt; [a]
 </span><span class="hs-identifier hs-var">NE.toList</span></span><span> </span><span class="annot"><span class="annottext">NonEmpty Char
-</span><a href="#local-6989586621679406864"><span class="hs-keyword hs-var">label</span></a></span><span>
+</span><a href="#local-6989586621679406869"><span class="hs-keyword hs-var">label</span></a></span><span>
 </span><span id="line-81"></span><span>    </span><span class="annot"><span class="annottext">ErrorItem LexToken
 </span><span class="hs-identifier hs-var">EndOfInput</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;end of input&quot;</span></span><span>
 </span><span id="line-82"></span><span>
 </span><span id="line-83"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderExpectedItems"><span class="hs-identifier hs-type">renderExpectedItems</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">ErrorItem</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
 </span><span id="line-84"></span><span id="renderExpectedItems"><span class="annot"><span class="annottext">renderExpectedItems :: [ErrorItem LexToken] -&gt; String
-</span><a href="Aihc.Parser.Internal.Errors.html#renderExpectedItems"><span class="hs-identifier hs-var hs-var">renderExpectedItems</span></a></span></span><span> </span><span id="local-6989586621679406866"><span class="annot"><span class="annottext">[ErrorItem LexToken]
-</span><a href="#local-6989586621679406866"><span class="hs-identifier hs-var">items</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#renderExpectedItems"><span class="hs-identifier hs-var hs-var">renderExpectedItems</span></a></span></span><span> </span><span id="local-6989586621679406871"><span class="annot"><span class="annottext">[ErrorItem LexToken]
+</span><a href="#local-6989586621679406871"><span class="hs-identifier hs-var">items</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-85"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">(ErrorItem LexToken -&gt; String) -&gt; [ErrorItem LexToken] -&gt; [String]
 forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
 </span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">ErrorItem LexToken -&gt; String
 </span><a href="Aihc.Parser.Internal.Errors.html#renderErrorItem"><span class="hs-identifier hs-var">renderErrorItem</span></a></span><span> </span><span class="annot"><span class="annottext">[ErrorItem LexToken]
-</span><a href="#local-6989586621679406866"><span class="hs-identifier hs-var">items</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><a href="#local-6989586621679406871"><span class="hs-identifier hs-var">items</span></a></span><span> </span><span class="hs-keyword">of</span><span>
 </span><span id="line-86"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;&quot;</span></span><span>
-</span><span id="line-87"></span><span>    </span><span class="hs-special">[</span><span id="local-6989586621679406867"><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406867"><span class="hs-identifier hs-var">item</span></a></span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406867"><span class="hs-identifier hs-var">item</span></a></span><span>
-</span><span id="line-88"></span><span>    </span><span class="hs-special">[</span><span id="local-6989586621679406868"><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406868"><span class="hs-identifier hs-var">itemA</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679406869"><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406869"><span class="hs-identifier hs-var">itemB</span></a></span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406868"><span class="hs-identifier hs-var">itemA</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><span id="line-87"></span><span>    </span><span class="hs-special">[</span><span id="local-6989586621679406872"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406872"><span class="hs-identifier hs-var">item</span></a></span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406872"><span class="hs-identifier hs-var">item</span></a></span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-special">[</span><span id="local-6989586621679406873"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406873"><span class="hs-identifier hs-var">itemA</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679406874"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406874"><span class="hs-identifier hs-var">itemB</span></a></span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679406873"><span class="hs-identifier hs-var">itemA</span></a></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot; or &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
-</span><a href="#local-6989586621679406869"><span class="hs-identifier hs-var">itemB</span></a></span><span>
-</span><span id="line-89"></span><span>    </span><span id="local-6989586621679406870"><span class="annot"><span class="annottext">[String]
-</span><a href="#local-6989586621679406870"><span class="hs-identifier hs-var">rendered</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
+</span><a href="#local-6989586621679406874"><span class="hs-identifier hs-var">itemB</span></a></span><span>
+</span><span id="line-89"></span><span>    </span><span id="local-6989586621679406875"><span class="annot"><span class="annottext">[String]
+</span><a href="#local-6989586621679406875"><span class="hs-identifier hs-var">rendered</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String -&gt; [String] -&gt; String
 forall a. [a] -&gt; [[a]] -&gt; [a]
 </span><span class="hs-identifier hs-var">List.intercalate</span></span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;, &quot;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[String] -&gt; [String]
 forall a. HasCallStack =&gt; [a] -&gt; [a]
 </span><span class="hs-identifier hs-var">init</span></span><span> </span><span class="annot"><span class="annottext">[String]
-</span><a href="#local-6989586621679406870"><span class="hs-identifier hs-var">rendered</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="#local-6989586621679406875"><span class="hs-identifier hs-var">rendered</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;, or &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
@@ -323,26 +323,26 @@ forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">[String] -&gt; String
 forall a. HasCallStack =&gt; [a] -&gt; a
 </span><span class="hs-identifier hs-var">last</span></span><span> </span><span class="annot"><span class="annottext">[String]
-</span><a href="#local-6989586621679406870"><span class="hs-identifier hs-var">rendered</span></a></span><span>
+</span><a href="#local-6989586621679406875"><span class="hs-identifier hs-var">rendered</span></a></span><span>
 </span><span id="line-90"></span><span>
 </span><span id="line-91"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#renderUnexpectedToken"><span class="hs-identifier hs-type">renderUnexpectedToken</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-type">FoundToken</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
 </span><span id="line-92"></span><span id="renderUnexpectedToken"><span class="annot"><span class="annottext">renderUnexpectedToken :: FoundToken -&gt; String
-</span><a href="Aihc.Parser.Internal.Errors.html#renderUnexpectedToken"><span class="hs-identifier hs-var hs-var">renderUnexpectedToken</span></a></span></span><span> </span><span id="local-6989586621679406874"><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406874"><span class="hs-identifier hs-var">found</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#renderUnexpectedToken"><span class="hs-identifier hs-var hs-var">renderUnexpectedToken</span></a></span></span><span> </span><span id="local-6989586621679406879"><span class="annot"><span class="annottext">FoundToken
+</span><a href="#local-6989586621679406879"><span class="hs-identifier hs-var">found</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-93"></span><span>  </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;unexpected &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">FoundToken -&gt; String
 </span><a href="Aihc.Parser.Internal.Errors.html#tokenDescriptor"><span class="hs-identifier hs-var">tokenDescriptor</span></a></span><span> </span><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406874"><span class="hs-identifier hs-var">found</span></a></span><span>
+</span><a href="#local-6989586621679406879"><span class="hs-identifier hs-var">found</span></a></span><span>
 </span><span id="line-94"></span><span>
 </span><span id="line-95"></span><span class="annot"><a href="Aihc.Parser.Internal.Errors.html#tokenDescriptor"><span class="hs-identifier hs-type">tokenDescriptor</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-type">FoundToken</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span>
 </span><span id="line-96"></span><span id="tokenDescriptor"><span class="annot"><span class="annottext">tokenDescriptor :: FoundToken -&gt; String
-</span><a href="Aihc.Parser.Internal.Errors.html#tokenDescriptor"><span class="hs-identifier hs-var hs-var">tokenDescriptor</span></a></span></span><span> </span><span id="local-6989586621679406876"><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406876"><span class="hs-identifier hs-var">found</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><a href="Aihc.Parser.Internal.Errors.html#tokenDescriptor"><span class="hs-identifier hs-var hs-var">tokenDescriptor</span></a></span></span><span> </span><span id="local-6989586621679406881"><span class="annot"><span class="annottext">FoundToken
+</span><a href="#local-6989586621679406881"><span class="hs-identifier hs-var">found</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-97"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FoundToken -&gt; TokenOrigin
 </span><a href="Aihc.Parser.Types.html#foundTokenOrigin"><span class="hs-identifier hs-var">foundTokenOrigin</span></a></span><span> </span><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406876"><span class="hs-identifier hs-var">found</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><a href="#local-6989586621679406881"><span class="hs-identifier hs-var">found</span></a></span><span> </span><span class="hs-keyword">of</span><span>
 </span><span id="line-98"></span><span>    </span><span class="annot"><span class="annottext">TokenOrigin
 </span><a href="Aihc.Parser.Lex.Types.html#InsertedLayout"><span class="hs-identifier hs-var">InsertedLayout</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;end of input&quot;</span></span><span>
@@ -354,7 +354,7 @@ forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; String
 </span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FoundToken -&gt; Text
 </span><a href="Aihc.Parser.Types.html#foundTokenText"><span class="hs-identifier hs-var">foundTokenText</span></a></span><span> </span><span class="annot"><span class="annottext">FoundToken
-</span><a href="#local-6989586621679406876"><span class="hs-identifier hs-var">found</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
+</span><a href="#local-6989586621679406881"><span class="hs-identifier hs-var">found</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">String -&gt; String -&gt; String
 forall a. Semigroup a =&gt; a -&gt; a -&gt; a
 </span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
 </span><span class="hs-string">&quot;'&quot;</span></span><span>

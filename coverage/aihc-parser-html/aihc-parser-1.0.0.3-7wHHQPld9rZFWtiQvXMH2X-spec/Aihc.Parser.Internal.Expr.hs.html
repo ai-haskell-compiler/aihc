@@ -633,7 +633,7 @@ span.spaces    { background: white }
 <span class="lineno">  614 </span><span class="spaces">  </span><span class="istickedoff">ENegate &lt;$&gt; atomExprParserWith atomContext</span></span>
 <span class="lineno">  615 </span>
 <span class="lineno">  616 </span>negateExprParser :: TokParser Expr
-<span class="lineno">  617 </span><span class="decl"><span class="istickedoff">negateExprParser = withSpanAnn (EAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  617 </span><span class="decl"><span class="istickedoff">negateExprParser = withSpanAnn (EAnn . mkAnnotation) $ do</span>
 <span class="lineno">  618 </span><span class="spaces">  </span><span class="istickedoff">_ &lt;- minusTokenValueParser</span>
 <span class="lineno">  619 </span><span class="spaces">  </span><span class="istickedoff">ENegate &lt;$&gt; negateOperandParser</span></span>
 <span class="lineno">  620 </span>
@@ -678,12 +678,12 @@ span.spaces    { background: white }
 <span class="lineno">  659 </span><span class="spaces">      </span><span class="istickedoff">TkMinusOperator -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&quot;))</span></span>
 <span class="lineno">  660 </span><span class="spaces">      </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;))</span>
 <span class="lineno">  661 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleColon -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;::&quot;))</span></span>
-<span class="lineno">  662 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;))</span></span>
+<span class="lineno">  662 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;))</span></span>
 <span class="lineno">  663 </span><span class="spaces">      </span><span class="istickedoff">TkReservedPipe -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;|&quot;))</span></span>
-<span class="lineno">  664 </span><span class="spaces">      </span><span class="istickedoff">TkReservedLeftArrow -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;&lt;-&quot;))</span></span>
-<span class="lineno">  665 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;))</span></span>
+<span class="lineno">  664 </span><span class="spaces">      </span><span class="istickedoff">TkReservedLeftArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;&lt;-&quot;))</span></span>
+<span class="lineno">  665 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;))</span></span>
 <span class="lineno">  666 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&gt;&quot;))</span></span>
-<span class="lineno">  667 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDotDot -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;..&quot;))</span></span>
+<span class="lineno">  667 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDotDot -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;..&quot;))</span></span>
 <span class="lineno">  668 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
 <span class="lineno">  669 </span>
 <span class="lineno">  670 </span>rhsParser :: TokParser (Rhs Expr)
@@ -1151,7 +1151,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1132 </span>compTransformLambdaExprParser :: TokParser Expr
 <span class="lineno"> 1133 </span><span class="decl"><span class="istickedoff">compTransformLambdaExprParser = withSpanAnn (EAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
 <span class="lineno"> 1134 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedBackslash</span>
-<span class="lineno"> 1135 </span><span class="spaces">  </span><span class="istickedoff">lambdaCaseParser &lt;|&gt; lambdaCasesParser &lt;|&gt; <span class="nottickedoff">lambdaPatsParser</span></span>
+<span class="lineno"> 1135 </span><span class="spaces">  </span><span class="istickedoff">lambdaCaseParser &lt;|&gt; lambdaCasesParser &lt;|&gt; lambdaPatsParser</span>
 <span class="lineno"> 1136 </span><span class="spaces">  </span><span class="istickedoff">where</span>
 <span class="lineno"> 1137 </span><span class="spaces">    </span><span class="istickedoff">lambdaCaseParser = do</span>
 <span class="lineno"> 1138 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkKeywordCase</span>
@@ -1163,11 +1163,11 @@ span.spaces    { background: white }
 <span class="lineno"> 1144 </span><span class="spaces">      </span><span class="istickedoff">varIdTok &quot;cases&quot;</span>
 <span class="lineno"> 1145 </span><span class="spaces">      </span><span class="istickedoff">ELambdaCases &lt;$&gt; bracedSemiSep compTransformLambdaCaseAltParser</span>
 <span class="lineno"> 1146 </span><span class="spaces"></span><span class="istickedoff"></span>
-<span class="lineno"> 1147 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">lambdaPatsParser = do</span></span>
-<span class="lineno"> 1148 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">pats &lt;- MP.some apatParser</span></span>
-<span class="lineno"> 1149 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkReservedRightArrow</span></span>
-<span class="lineno"> 1150 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">body &lt;- region &quot;while parsing lambda body&quot; compTransformExprParser</span></span>
-<span class="lineno"> 1151 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">pure (ELambdaPats pats body)</span></span></span>
+<span class="lineno"> 1147 </span><span class="spaces">    </span><span class="istickedoff">lambdaPatsParser = do</span>
+<span class="lineno"> 1148 </span><span class="spaces">      </span><span class="istickedoff">pats &lt;- MP.some apatParser</span>
+<span class="lineno"> 1149 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno"> 1150 </span><span class="spaces">      </span><span class="istickedoff">body &lt;- region <span class="nottickedoff">&quot;while parsing lambda body&quot;</span> compTransformExprParser</span>
+<span class="lineno"> 1151 </span><span class="spaces">      </span><span class="istickedoff">pure (ELambdaPats pats body)</span></span>
 <span class="lineno"> 1152 </span>
 <span class="lineno"> 1153 </span>compTransformCaseAltParser :: TokParser (CaseAlt Expr)
 <span class="lineno"> 1154 </span><span class="decl"><span class="istickedoff">compTransformCaseAltParser = withSpan $ do</span>
@@ -1183,13 +1183,13 @@ span.spaces    { background: white }
 <span class="lineno"> 1164 </span>compTransformLambdaCaseAltParser :: TokParser LambdaCaseAlt
 <span class="lineno"> 1165 </span><span class="decl"><span class="istickedoff">compTransformLambdaCaseAltParser = withSpan $ do</span>
 <span class="lineno"> 1166 </span><span class="spaces">  </span><span class="istickedoff">pats &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (MP.many apatParser)</span>
-<span class="lineno"> 1167 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (caseRhsParserWithBodyParser compTransformExprParser)</span>
-<span class="lineno"> 1168 </span><span class="spaces">  </span><span class="istickedoff">pure $ \span' -&gt;</span>
-<span class="lineno"> 1169 </span><span class="spaces">    </span><span class="istickedoff">LambdaCaseAlt</span>
-<span class="lineno"> 1170 </span><span class="spaces">      </span><span class="istickedoff">{ lambdaCaseAltAnns = <span class="nottickedoff">[mkAnnotation span']</span>,</span>
-<span class="lineno"> 1171 </span><span class="spaces">        </span><span class="istickedoff">lambdaCaseAltPats = pats,</span>
-<span class="lineno"> 1172 </span><span class="spaces">        </span><span class="istickedoff">lambdaCaseAltRhs = rhs</span>
-<span class="lineno"> 1173 </span><span class="spaces">      </span><span class="istickedoff">}</span></span>
+<span class="lineno"> 1167 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (caseRhsParserWithBodyParser <span class="nottickedoff">compTransformExprParser</span>)</span>
+<span class="lineno"> 1168 </span><span class="spaces">  </span><span class="istickedoff"><span class="nottickedoff">pure $ \span' -&gt;</span></span>
+<span class="lineno"> 1169 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">LambdaCaseAlt</span></span>
+<span class="lineno"> 1170 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">{ lambdaCaseAltAnns = [mkAnnotation span'],</span></span>
+<span class="lineno"> 1171 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">lambdaCaseAltPats = pats,</span></span>
+<span class="lineno"> 1172 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">lambdaCaseAltRhs = rhs</span></span>
+<span class="lineno"> 1173 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">}</span></span></span>
 <span class="lineno"> 1174 </span>
 <span class="lineno"> 1175 </span>compTransformAppExprParser :: TokParser Expr
 <span class="lineno"> 1176 </span><span class="decl"><span class="istickedoff">compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser</span></span>
@@ -1406,7 +1406,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1387 </span><span class="spaces">    </span><span class="istickedoff">TkQualifiedMdo {} -&gt; <span class="nottickedoff">MP.empty</span></span>
 <span class="lineno"> 1388 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; <span class="nottickedoff">MP.empty</span></span>
 <span class="lineno"> 1389 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; MP.empty</span>
-<span class="lineno"> 1390 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordProc -&gt; MP.empty</span>
+<span class="lineno"> 1390 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordProc -&gt; <span class="nottickedoff">MP.empty</span></span>
 <span class="lineno"> 1391 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordType -&gt; MP.empty</span>
 <span class="lineno"> 1392 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; atomExprParser</span></span>
 <span class="lineno"> 1393 </span>

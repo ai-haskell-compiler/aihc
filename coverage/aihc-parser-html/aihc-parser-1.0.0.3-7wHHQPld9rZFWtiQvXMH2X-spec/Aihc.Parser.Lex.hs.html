@@ -528,7 +528,7 @@ span.spaces    { background: white }
 <span class="lineno">  509 </span><span class="spaces">    </span><span class="istickedoff">TkVarId name -&gt; T.isSuffixOf &quot;#&quot; name</span>
 <span class="lineno">  510 </span><span class="spaces">    </span><span class="istickedoff">TkConId name -&gt; T.isSuffixOf &quot;#&quot; name</span>
 <span class="lineno">  511 </span><span class="spaces">    </span><span class="istickedoff">TkQVarId _ name -&gt; T.isSuffixOf &quot;#&quot; name</span>
-<span class="lineno">  512 </span><span class="spaces">    </span><span class="istickedoff">TkQConId _ name -&gt; <span class="nottickedoff">T.isSuffixOf &quot;#&quot; name</span></span>
+<span class="lineno">  512 </span><span class="spaces">    </span><span class="istickedoff">TkQConId _ name -&gt; T.isSuffixOf &quot;#&quot; name</span>
 <span class="lineno">  513 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
 <span class="lineno">  514 </span>
 <span class="lineno">  515 </span>canStartNegatedAtom :: Text -&gt; Bool
@@ -583,7 +583,7 @@ span.spaces    { background: white }
 <span class="lineno">  564 </span><span class="spaces">    </span><span class="istickedoff">canStartSpliceAtomT t =</span>
 <span class="lineno">  565 </span><span class="spaces">      </span><span class="istickedoff">case t of</span>
 <span class="lineno">  566 </span><span class="spaces">        </span><span class="istickedoff">c :&lt; _ -&gt; isIdentStart c || c == '('</span>
-<span class="lineno">  567 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  567 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">False</span></span></span>
 <span class="lineno">  568 </span>
 <span class="lineno">  569 </span>lexOverloadedLabel :: LexerEnv -&gt; LexerState -&gt; Maybe (LexToken, LexerState)
 <span class="lineno">  570 </span><span class="decl"><span class="istickedoff">lexOverloadedLabel env st</span>
@@ -1080,7 +1080,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1061 </span><span class="spaces">    </span><span class="istickedoff">&quot;_&quot; -&gt; Just TkKeywordUnderscore</span>
 <span class="lineno"> 1062 </span><span class="spaces">    </span><span class="istickedoff">&quot;proc&quot; | <span class="tickonlytrue">memberExtension Arrows exts</span> -&gt; Just TkKeywordProc</span>
 <span class="lineno"> 1063 </span><span class="spaces">    </span><span class="istickedoff">&quot;rec&quot; | <span class="tickonlytrue">memberExtension Arrows exts || memberExtension RecursiveDo exts</span> -&gt; Just TkKeywordRec</span>
-<span class="lineno"> 1064 </span><span class="spaces">    </span><span class="istickedoff">&quot;mdo&quot; | memberExtension RecursiveDo exts -&gt; Just TkKeywordMdo</span>
+<span class="lineno"> 1064 </span><span class="spaces">    </span><span class="istickedoff">&quot;mdo&quot; | <span class="tickonlytrue">memberExtension RecursiveDo exts</span> -&gt; Just TkKeywordMdo</span>
 <span class="lineno"> 1065 </span><span class="spaces">    </span><span class="istickedoff">&quot;pattern&quot; | memberExtension PatternSynonyms exts -&gt; Just TkKeywordPattern</span>
 <span class="lineno"> 1066 </span><span class="spaces">    </span><span class="istickedoff">&quot;by&quot; | memberExtension TransformListComp exts -&gt; Just TkKeywordBy</span>
 <span class="lineno"> 1067 </span><span class="spaces">    </span><span class="istickedoff">&quot;using&quot; | memberExtension TransformListComp exts -&gt; Just TkKeywordUsing</span>
