@@ -3,7 +3,7 @@ module Test.Fuzz
   )
 where
 
-import Aihc.Dev.Fuzz (batchSize, selectProperties)
+import Aihc.Dev.Fuzz (batchSize, dashboardRefreshMicroseconds, selectProperties)
 import Aihc.Dev.Fuzz.CLI (Command (..), Selection (..), commandParser, parseDuration)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
@@ -19,6 +19,8 @@ fuzzTests =
     "fuzz"
     [ testCase "uses 10,000-case scheduling batches" $
         assertEqual "batch size" 10000 batchSize,
+      testCase "refreshes the dashboard at most every five seconds" $
+        assertEqual "refresh interval" (5 * 1000000) dashboardRefreshMicroseconds,
       testCase "parses supported time-limit units" $ do
         assertEqual "milliseconds" (Right 0.25) (parseDuration "250ms")
         assertEqual "seconds" (Right 30) (parseDuration "30s")

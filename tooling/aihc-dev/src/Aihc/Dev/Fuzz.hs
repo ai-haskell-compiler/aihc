@@ -3,6 +3,7 @@
 -- | Parallel, round-robin QuickCheck fuzz runner with a terminal dashboard.
 module Aihc.Dev.Fuzz
   ( batchSize,
+    dashboardRefreshMicroseconds,
     runCommand,
     selectProperties,
   )
@@ -32,6 +33,10 @@ import Test.QuickCheck.Property qualified as QCP
 -- | Number of successful cases a worker runs before rotating the property.
 batchSize :: Int
 batchSize = 10000
+
+-- | Keep dashboard redraws deliberately infrequent to avoid terminal flicker.
+dashboardRefreshMicroseconds :: Int
+dashboardRefreshMicroseconds = 5 * 1000000
 
 data ActiveProperty = ActiveProperty
   { activePropertyId :: String,
@@ -226,7 +231,7 @@ renderLoop startedAt propertyCount jobs stats = go []
                 }
           update = renderFrameUpdate rows previousFrame currentFrame
       unless (null update) $ hPutStr stderr update >> hFlush stderr
-      threadDelay 125000
+      threadDelay dashboardRefreshMicroseconds
       go currentFrame
 
 formatInteger :: Int -> String
