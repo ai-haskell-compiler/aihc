@@ -987,6 +987,73 @@ uint64_t aihc_byte_array_copy_from_addr(void *source, void *opaque_array,
   return 0;
 }
 
+static size_t aihc_byte_array_word_offset(AihcByteArray *array,
+                                          int64_t requested_index) {
+  if (array == NULL || requested_index < 0 ||
+      (uint64_t)requested_index > SIZE_MAX / sizeof(uint64_t)) {
+    aihc_fail("invalid byte array word index");
+  }
+  size_t offset = (size_t)requested_index * sizeof(uint64_t);
+  if (offset > array->size || sizeof(uint64_t) > array->size - offset) {
+    aihc_fail("byte array word index out of bounds");
+  }
+  return offset;
+}
+
+uint64_t aihc_byte_array_index_word(void *opaque_array, int64_t index) {
+  AihcByteArray *array = opaque_array;
+  size_t offset = aihc_byte_array_word_offset(array, index);
+  uint64_t value;
+  memcpy(&value, array->contents + offset, sizeof(value));
+  return value;
+}
+
+uint64_t aihc_byte_array_read_word(void *opaque_array, int64_t index) {
+  return aihc_byte_array_index_word(opaque_array, index);
+}
+
+uint64_t aihc_byte_array_write_word(void *opaque_array, int64_t index,
+                                    uint64_t value) {
+  AihcByteArray *array = opaque_array;
+  size_t offset = aihc_byte_array_word_offset(array, index);
+  memcpy(array->contents + offset, &value, sizeof(value));
+  return 0;
+}
+
+uint64_t aihc_byte_array_copy(void *opaque_source,
+                              int64_t requested_source_offset,
+                              void *opaque_destination,
+                              int64_t requested_destination_offset,
+                              int64_t requested_length) {
+  AihcByteArray *source = opaque_source;
+  AihcByteArray *destination = opaque_destination;
+  size_t source_offset = aihc_byte_array_size(requested_source_offset);
+  size_t destination_offset =
+      aihc_byte_array_size(requested_destination_offset);
+  size_t length = aihc_byte_array_size(requested_length);
+  if (source == NULL || destination == NULL || source_offset > source->size ||
+      length > source->size - source_offset ||
+      destination_offset > destination->size ||
+      length > destination->size - destination_offset) {
+    aihc_fail("invalid byte array copy");
+  }
+  memmove(destination->contents + destination_offset,
+          source->contents + source_offset, length);
+  return 0;
+}
+
+uint64_t aihc_word_clz(uint64_t value) {
+  return value == 0 ? 64 : (uint64_t)__builtin_clzll(value);
+}
+
+uint64_t aihc_word_ctz(uint64_t value) {
+  return value == 0 ? 64 : (uint64_t)__builtin_ctzll(value);
+}
+
+uint64_t aihc_word_popcount(uint64_t value) {
+  return (uint64_t)__builtin_popcountll(value);
+}
+
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
                           int32_t offset, int32_t length) {
   return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,

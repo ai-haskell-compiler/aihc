@@ -19,7 +19,7 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
-import Data.Bits ((.&.))
+import Data.Bits (countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -34,6 +34,7 @@ import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
+import Foreign.Storable (peekElemOff, pokeElemOff)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -239,6 +240,8 @@ evalPrimitive "-#" [left, right] =
   evalIntPrim "-#" (-) left right
 evalPrimitive "*#" [left, right] =
   evalIntPrim "*#" (*) left right
+evalPrimitive "addIntC#" [left, right] = evalIntCarryPrimitive "addIntC#" (+) left right
+evalPrimitive "subIntC#" [left, right] = evalIntCarryPrimitive "subIntC#" (-) left right
 evalPrimitive "compareInt#" [left, right] =
   evalIntPrim "compareInt#" compareInts left right
 evalPrimitive "<#" [left, right] =
@@ -253,6 +256,48 @@ evalPrimitive "intToChar#" [value] = do
   if intValue >= 0 && intValue <= 0x10ffff
     then pure (VLit (LitChar WordRep (Char.chr (fromIntegral intValue))))
     else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt IntRep intValue)))
+evalPrimitive "plusWord#" [left, right] = evalWordPrimitive "plusWord#" (+) left right
+evalPrimitive "minusWord#" [left, right] = evalWordPrimitive "minusWord#" (-) left right
+evalPrimitive "timesWord#" [left, right] = evalWordPrimitive "timesWord#" (*) left right
+evalPrimitive "addWordC#" [left, right] = evalWordCarryPrimitive "addWordC#" (+) left right
+evalPrimitive "subWordC#" [left, right] = evalWordBorrowPrimitive left right
+evalPrimitive "timesWord2#" [left, right] = do
+  leftWord <- forceWordPrimitiveArg "timesWord2#" left
+  rightWord <- forceWordPrimitiveArg "timesWord2#" right
+  let productValue = leftWord * rightWord
+  pure (wordPairValue (productValue `quot` wordModulus) (productValue `rem` wordModulus))
+evalPrimitive "quotWord#" [left, right] = evalWordPrimitive "quotWord#" quot left right
+evalPrimitive "remWord#" [left, right] = evalWordPrimitive "remWord#" rem left right
+evalPrimitive "quotRemWord#" [left, right] = do
+  leftWord <- forceWordPrimitiveArg "quotRemWord#" left
+  rightWord <- forceWordPrimitiveArg "quotRemWord#" right
+  let (quotient, remainder) = leftWord `quotRem` rightWord
+  pure (wordPairValue quotient remainder)
+evalPrimitive "quotRemWord2#" [high, low, divisor] = do
+  highWord <- forceWordPrimitiveArg "quotRemWord2#" high
+  lowWord <- forceWordPrimitiveArg "quotRemWord2#" low
+  divisorWord <- forceWordPrimitiveArg "quotRemWord2#" divisor
+  let (quotient, remainder) = (highWord * wordModulus + lowWord) `quotRem` divisorWord
+  pure (wordPairValue quotient remainder)
+evalPrimitive "and#" [left, right] = evalWordPrimitive "and#" (.&.) left right
+evalPrimitive "or#" [left, right] = evalWordPrimitive "or#" (.|.) left right
+evalPrimitive "xor#" [left, right] = evalWordPrimitive "xor#" xor left right
+evalPrimitive "not#" [value] = do
+  word <- forceWordPrimitiveArg "not#" value
+  pure (wordValue (wordMask - word))
+evalPrimitive "uncheckedShiftL#" [value, count] = evalWordShift "uncheckedShiftL#" shiftL value count
+evalPrimitive "uncheckedShiftRL#" [value, count] = evalWordShift "uncheckedShiftRL#" shiftR value count
+evalPrimitive "int2Word#" [value] = wordValue . normalizeWord <$> forceIntPrimitiveArg "int2Word#" value
+evalPrimitive "word2Int#" [value] = intPrimitiveValue . normalizeInt <$> forceWordPrimitiveArg "word2Int#" value
+evalPrimitive "eqWord#" [left, right] = evalWordComparison "eqWord#" (==) left right
+evalPrimitive "neWord#" [left, right] = evalWordComparison "neWord#" (/=) left right
+evalPrimitive "ltWord#" [left, right] = evalWordComparison "ltWord#" (<) left right
+evalPrimitive "leWord#" [left, right] = evalWordComparison "leWord#" (<=) left right
+evalPrimitive "gtWord#" [left, right] = evalWordComparison "gtWord#" (>) left right
+evalPrimitive "geWord#" [left, right] = evalWordComparison "geWord#" (>=) left right
+evalPrimitive "clz#" [value] = evalWordCount "clz#" countLeadingZeros value
+evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
+evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
 evalPrimitive "realWorld#" [] =
@@ -333,12 +378,112 @@ evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount, state] =
   sourceBytes <- readAddressBytes "copyAddrToByteArray#" destinationLength source
   lift (pokeArray (castPtr (evalByteArrayContents byteArray `plusPtr` destinationOffset)) (BS.unpack sourceBytes))
   pure state
+evalPrimitive "indexWordArray#" [value, index] = do
+  byteArray <- forceByteArrayPrimitiveArg "indexWordArray#" value
+  checkedIndex <- checkedWordArrayIndex "indexWordArray#" byteArray =<< forceIntPrimitiveArg "indexWordArray#" index
+  word <- lift (peekElemOff (castPtr (evalByteArrayContents byteArray) :: Ptr Word64) checkedIndex)
+  pure (wordValue (toInteger word))
+evalPrimitive "readWordArray#" [value, index, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "readWordArray#" value
+  checkedIndex <- checkedWordArrayIndex "readWordArray#" byteArray =<< forceIntPrimitiveArg "readWordArray#" index
+  word <- lift (peekElemOff (castPtr (evalByteArrayContents byteArray) :: Ptr Word64) checkedIndex)
+  pure (VConstructor "(#,#)" [state, wordValue (toInteger word)])
+evalPrimitive "writeWordArray#" [value, index, word, state] = do
+  byteArray <- forceByteArrayPrimitiveArg "writeWordArray#" value
+  checkedIndex <- checkedWordArrayIndex "writeWordArray#" byteArray =<< forceIntPrimitiveArg "writeWordArray#" index
+  wordValue' <- forceWordPrimitiveArg "writeWordArray#" word
+  lift (pokeElemOff (castPtr (evalByteArrayContents byteArray) :: Ptr Word64) checkedIndex (fromInteger wordValue'))
+  pure state
+evalPrimitive "copyByteArray#" [sourceValue, sourceOffset, destinationValue, destinationOffset, byteCount, state] = do
+  source <- forceByteArrayPrimitiveArg "copyByteArray#" sourceValue
+  destination <- forceByteArrayPrimitiveArg "copyByteArray#" destinationValue
+  checkedSourceOffset <- forceIntPrimitiveArg "copyByteArray#" sourceOffset
+  checkedDestinationOffset <- forceIntPrimitiveArg "copyByteArray#" destinationOffset
+  checkedLength <- forceIntPrimitiveArg "copyByteArray#" byteCount
+  (sourceStart, sourceLength) <- checkedByteArrayRange "copyByteArray#" source checkedSourceOffset checkedLength
+  (destinationStart, destinationLength) <- checkedByteArrayRange "copyByteArray#" destination checkedDestinationOffset checkedLength
+  lift (copyBytes (evalByteArrayContents destination `plusPtr` destinationStart) (evalByteArrayContents source `plusPtr` sourceStart) (min sourceLength destinationLength))
+  pure state
 evalPrimitive "awaitIO#" [request, state] = do
   ioRequest <- forceIORequestPrimitiveArg "awaitIO#" request
   completeIORequest ioRequest
   pure state
 evalPrimitive name args =
   throwE (EvalPrimitiveArity name (length args))
+
+wordBits :: Int
+wordBits = 64
+
+wordModulus :: Integer
+wordModulus = 2 ^ wordBits
+
+wordMask :: Integer
+wordMask = wordModulus - 1
+
+intMinimum, intMaximum :: Integer
+intMinimum = negate (2 ^ (wordBits - 1))
+intMaximum = 2 ^ (wordBits - 1) - 1
+
+normalizeWord :: Integer -> Integer
+normalizeWord value = value `mod` wordModulus
+
+normalizeInt :: Integer -> Integer
+normalizeInt value =
+  let word = normalizeWord value
+   in if word > intMaximum then word - wordModulus else word
+
+wordValue :: Integer -> Value
+wordValue = VLit . LitInt WordRep . normalizeWord
+
+intPrimitiveValue :: Integer -> Value
+intPrimitiveValue = VLit . LitInt IntRep . normalizeInt
+
+wordPairValue :: Integer -> Integer -> Value
+wordPairValue high low = VConstructor "(#,#)" [wordValue high, wordValue low]
+
+evalIntCarryPrimitive :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> EvalM Value
+evalIntCarryPrimitive name operation left right = do
+  leftInt <- forceIntPrimitiveArg name left
+  rightInt <- forceIntPrimitiveArg name right
+  let result = operation leftInt rightInt
+      overflow = if result < intMinimum || result > intMaximum then 1 else 0
+  pure (VConstructor "(#,#)" [intPrimitiveValue result, intPrimitiveValue overflow])
+
+evalWordPrimitive :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> EvalM Value
+evalWordPrimitive name operation left right = do
+  leftWord <- forceWordPrimitiveArg name left
+  rightWord <- forceWordPrimitiveArg name right
+  pure (wordValue (operation leftWord rightWord))
+
+evalWordCarryPrimitive :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> EvalM Value
+evalWordCarryPrimitive name operation left right = do
+  leftWord <- forceWordPrimitiveArg name left
+  rightWord <- forceWordPrimitiveArg name right
+  let result = operation leftWord rightWord
+  pure (VConstructor "(#,#)" [wordValue result, intPrimitiveValue (if result >= wordModulus then 1 else 0)])
+
+evalWordBorrowPrimitive :: Value -> Value -> EvalM Value
+evalWordBorrowPrimitive left right = do
+  leftWord <- forceWordPrimitiveArg "subWordC#" left
+  rightWord <- forceWordPrimitiveArg "subWordC#" right
+  pure (VConstructor "(#,#)" [wordValue (leftWord - rightWord), intPrimitiveValue (if leftWord < rightWord then 1 else 0)])
+
+evalWordComparison :: Text -> (Integer -> Integer -> Bool) -> Value -> Value -> EvalM Value
+evalWordComparison name predicate left right = do
+  leftWord <- forceWordPrimitiveArg name left
+  rightWord <- forceWordPrimitiveArg name right
+  pure (intPrimitiveValue (if predicate leftWord rightWord then 1 else 0))
+
+evalWordShift :: Text -> (Word64 -> Int -> Word64) -> Value -> Value -> EvalM Value
+evalWordShift name operation value count = do
+  word <- forceWordPrimitiveArg name value
+  shiftCount <- forceIntPrimitiveArg name count
+  pure (wordValue (toInteger (operation (fromInteger word) (fromInteger shiftCount))))
+
+evalWordCount :: Text -> (Word64 -> Int) -> Value -> EvalM Value
+evalWordCount name operation value = do
+  word <- forceWordPrimitiveArg name value
+  pure (wordValue (toInteger (operation (fromInteger word))))
 
 allocateByteArray :: Text -> Bool -> Int -> Integer -> EvalM EvalByteArray
 allocateByteArray symbol pinned alignment requestedSize = do
@@ -389,6 +534,14 @@ checkedByteArrayRange symbol byteArray offset byteCount = do
     then throwE (EvalInvalidByteArrayRange symbol offset byteCount size)
     else pure (fromInteger offset, fromInteger byteCount)
 
+checkedWordArrayIndex :: Text -> EvalByteArray -> Integer -> EvalM Int
+checkedWordArrayIndex symbol byteArray index = do
+  size <- lift (readIORef (evalByteArraySize byteArray))
+  let byteOffset = index * 8
+  if index < 0 || byteOffset > toInteger size - 8
+    then throwE (EvalInvalidByteArrayRange symbol byteOffset 8 size)
+    else pure (fromInteger index)
+
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =
   case compare left right of
@@ -408,6 +561,9 @@ forceIntPrimitiveArg name value = do
   case forced of
     VLit (LitInt _ intValue) -> pure intValue
     other -> throwE (EvalPrimitiveTypeError name other)
+
+forceWordPrimitiveArg :: Text -> Value -> EvalM Integer
+forceWordPrimitiveArg name value = normalizeWord <$> forceIntPrimitiveArg name value
 
 forceMutVarPrimitiveArg :: Text -> Value -> EvalM EvalMutVar
 forceMutVarPrimitiveArg name value = do

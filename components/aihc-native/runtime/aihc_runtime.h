@@ -186,6 +186,15 @@ void *aihc_byte_array_resize(void *array, int64_t size);
 uint64_t aihc_byte_array_get_size(void *array);
 uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
                                         int64_t offset, int64_t length);
+uint64_t aihc_byte_array_index_word(void *array, int64_t index);
+uint64_t aihc_byte_array_read_word(void *array, int64_t index);
+uint64_t aihc_byte_array_write_word(void *array, int64_t index, uint64_t value);
+uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
+                              void *destination, int64_t destination_offset,
+                              int64_t length);
+uint64_t aihc_word_clz(uint64_t value);
+uint64_t aihc_word_ctz(uint64_t value);
+uint64_t aihc_word_popcount(uint64_t value);
 void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
                           int32_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,
