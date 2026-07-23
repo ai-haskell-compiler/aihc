@@ -451,6 +451,20 @@ primitiveImportSpecs =
       ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
       ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
       ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType),
+      ("newByteArray#", PrimitiveSpec 2 (isNewByteArrayPrimType 1)),
+      ("newPinnedByteArray#", PrimitiveSpec 2 (isNewByteArrayPrimType 1)),
+      ("newAlignedPinnedByteArray#", PrimitiveSpec 3 (isNewByteArrayPrimType 2)),
+      ("isMutableByteArrayPinned#", PrimitiveSpec 1 isMutableByteArrayQueryPrimType),
+      ("isByteArrayPinned#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy intHashTy))),
+      ("byteArrayContents#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy addrHashTy))),
+      ("mutableByteArrayContents#", PrimitiveSpec 1 isMutableByteArrayContentsPrimType),
+      ("shrinkMutableByteArray#", PrimitiveSpec 3 isShrinkMutableByteArrayPrimType),
+      ("resizeMutableByteArray#", PrimitiveSpec 3 isResizeMutableByteArrayPrimType),
+      ("unsafeFreezeByteArray#", PrimitiveSpec 2 isUnsafeFreezeByteArrayPrimType),
+      ("unsafeThawByteArray#", PrimitiveSpec 2 isUnsafeThawByteArrayPrimType),
+      ("sizeofByteArray#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy intHashTy))),
+      ("getSizeofMutableByteArray#", PrimitiveSpec 2 isGetSizeofMutableByteArrayPrimType),
+      ("copyAddrToByteArray#", PrimitiveSpec 5 isCopyAddrToByteArrayPrimType),
       ("yield#", PrimitiveSpec 1 (typesEqual yieldPrimTy))
     ]
 
@@ -580,6 +594,131 @@ mutVarArgs _ = Nothing
 mutVarPrimTy :: TyVarId -> TcType -> TcType
 mutVarPrimTy domainVar valueTy =
   TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]
+
+isNewByteArrayPrimType :: Int -> TcType -> Bool
+isNewByteArrayPrimType sizeArgumentCount ty =
+  case collectForAlls ty of
+    (quantified, body) ->
+      case splitFunctionTys body of
+        (arguments, resultTy)
+          | (sizeArguments, [stateTy]) <- splitAt sizeArgumentCount arguments,
+            all (typesEqual intHashTy) sizeArguments,
+            Just domainVar <- stateDomain stateTy ->
+              hasExactlyTyVars quantified [domainVar]
+                && typesEqual
+                  (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
+                  resultTy
+        _ -> False
+
+isMutableByteArrayQueryPrimType :: TcType -> Bool
+isMutableByteArrayQueryPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy resultTy)
+      | Just domainVar <- mutableByteArrayDomain mutableTy ->
+          hasExactlyTyVars quantified [domainVar]
+            && typesEqual intHashTy resultTy
+    _ -> False
+
+isMutableByteArrayContentsPrimType :: TcType -> Bool
+isMutableByteArrayContentsPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy resultTy)
+      | Just domainVar <- mutableByteArrayDomain mutableTy ->
+          hasExactlyTyVars quantified [domainVar]
+            && typesEqual addrHashTy resultTy
+    _ -> False
+
+isShrinkMutableByteArrayPrimType :: TcType -> Bool
+isShrinkMutableByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy (TcFunTy sizeTy (TcFunTy stateTy resultTy)))
+      | Just domainVar <- mutableByteArrayDomain mutableTy,
+        Just stateDomainVar <- stateDomain stateTy ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar]
+            && typesEqual intHashTy sizeTy
+            && typesEqual stateTy resultTy
+    _ -> False
+
+isResizeMutableByteArrayPrimType :: TcType -> Bool
+isResizeMutableByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy (TcFunTy sizeTy (TcFunTy stateTy resultTy)))
+      | Just domainVar <- mutableByteArrayDomain mutableTy,
+        Just stateDomainVar <- stateDomain stateTy ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar]
+            && typesEqual intHashTy sizeTy
+            && typesEqual
+              (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
+              resultTy
+    _ -> False
+
+isUnsafeFreezeByteArrayPrimType :: TcType -> Bool
+isUnsafeFreezeByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy (TcFunTy stateTy resultTy))
+      | Just domainVar <- mutableByteArrayDomain mutableTy,
+        Just stateDomainVar <- stateDomain stateTy ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar]
+            && typesEqual (unboxedTupleTy [stateTy, byteArrayPrimTy]) resultTy
+    _ -> False
+
+isUnsafeThawByteArrayPrimType :: TcType -> Bool
+isUnsafeThawByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy byteArrayTy (TcFunTy stateTy resultTy))
+      | Just domainVar <- stateDomain stateTy ->
+          hasExactlyTyVars quantified [domainVar]
+            && typesEqual byteArrayPrimTy byteArrayTy
+            && typesEqual
+              (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
+              resultTy
+    _ -> False
+
+isGetSizeofMutableByteArrayPrimType :: TcType -> Bool
+isGetSizeofMutableByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy mutableTy (TcFunTy stateTy resultTy))
+      | Just domainVar <- mutableByteArrayDomain mutableTy,
+        Just stateDomainVar <- stateDomain stateTy ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar]
+            && typesEqual (unboxedTupleTy [stateTy, intHashTy]) resultTy
+    _ -> False
+
+isCopyAddrToByteArrayPrimType :: TcType -> Bool
+isCopyAddrToByteArrayPrimType ty =
+  case collectForAlls ty of
+    (quantified, TcFunTy sourceTy (TcFunTy mutableTy (TcFunTy offsetTy (TcFunTy lengthTy (TcFunTy stateTy resultTy)))))
+      | Just domainVar <- mutableByteArrayDomain mutableTy,
+        Just stateDomainVar <- stateDomain stateTy ->
+          domainVar == stateDomainVar
+            && hasExactlyTyVars quantified [domainVar]
+            && typesEqual addrHashTy sourceTy
+            && typesEqual intHashTy offsetTy
+            && typesEqual intHashTy lengthTy
+            && typesEqual stateTy resultTy
+    _ -> False
+
+splitFunctionTys :: TcType -> ([TcType], TcType)
+splitFunctionTys (TcFunTy argument result) =
+  let (arguments, finalResult) = splitFunctionTys result
+   in (argument : arguments, finalResult)
+splitFunctionTys ty = ([], ty)
+
+mutableByteArrayDomain :: TcType -> Maybe TyVarId
+mutableByteArrayDomain (TcTyCon (TyCon "MutableByteArray#" 1) [TcTyVar domainVar]) =
+  Just domainVar
+mutableByteArrayDomain _ = Nothing
+
+mutableByteArrayPrimTy :: TyVarId -> TcType
+mutableByteArrayPrimTy domainVar =
+  TcTyCon (TyCon "MutableByteArray#" 1) [TcTyVar domainVar]
+
+byteArrayPrimTy :: TcType
+byteArrayPrimTy = TcTyCon (TyCon "ByteArray#" 0) []
 
 hasExactlyTyVars :: [TyVarId] -> [TyVarId] -> Bool
 hasExactlyTyVars actual expected =

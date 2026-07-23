@@ -39,6 +39,7 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Test.Native.BlockLayout
+    Test.Native.Primitive
     Test.Native.RegisterAllocate
 
   build-depends:

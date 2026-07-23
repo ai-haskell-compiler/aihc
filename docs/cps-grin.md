@@ -69,7 +69,8 @@ single tagged info-table pointer before their payload fields.
 
 `fork#`, `yield#`, and the operation-independent `awaitIO#` are CPS primitive
 calls. Concrete IO operations are ordinary foreign calls which submit opaque
-runtime requests over stable `IOBuffer` slices and later consume their results.
+runtime requests over stable pinned `MutableByteArray#` slices and later consume
+their results.
 Consequently, adding a file, socket, timer, or process operation does not
 require a new compiler primitive.
 

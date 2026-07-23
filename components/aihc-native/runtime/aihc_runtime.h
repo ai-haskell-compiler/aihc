@@ -34,7 +34,6 @@ typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoHandle AihcIoHandle;
-typedef struct AihcIoBuffer AihcIoBuffer;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
 typedef uint64_t AihcSlot;
@@ -174,13 +173,19 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
 const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
-/* Proof-of-concept buffers are stable auxiliary allocations and are not
-   released. A submitted request retains its buffer through completion. */
-void *aihc_io_buffer_new(int32_t capacity);
-int32_t aihc_io_buffer_get(void *buffer, int32_t index);
-int32_t aihc_io_buffer_set(void *buffer, int32_t index, int32_t byte);
-int32_t aihc_io_buffer_copy_from_addr(void *source, void *buffer,
-                                      int32_t offset, int32_t length);
+/* Proof-of-concept byte arrays use stable auxiliary allocations and are not
+   released. Freeze and thaw are representation-preserving compiler
+   primitives. */
+void *aihc_byte_array_new(int64_t size);
+void *aihc_byte_array_new_pinned(int64_t size);
+void *aihc_byte_array_new_aligned_pinned(int64_t size, int64_t alignment);
+uint64_t aihc_byte_array_is_pinned(void *array);
+void *aihc_byte_array_contents(void *array);
+uint64_t aihc_byte_array_shrink(void *array, int64_t size);
+void *aihc_byte_array_resize(void *array, int64_t size);
+uint64_t aihc_byte_array_get_size(void *array);
+uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
+                                        int64_t offset, int64_t length);
 void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
                           int32_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,

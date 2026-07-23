@@ -15,7 +15,7 @@ where
 
 import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout)
+import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM, replicateM)
 import Control.Monad.Trans.Class (lift)
@@ -203,7 +203,7 @@ validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . g
 
 validatePrimitiveNames :: [Text] -> Either CError ()
 validatePrimitiveNames = mapM_ $ \name ->
-  if name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"]
+  if name `elem` supportedNativePrimitiveNames
     then Right ()
     else Left (CUnsupportedPrimitive name)
 
@@ -456,6 +456,16 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall IntRep "+#" [left, right] -> binaryIntPrimitive "+" left right
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+          liftEither (materializeValue env value) >>= storeOne . pure
+    GrinPrimitiveCall _ name arguments
+      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
+          lines' <- compileForeignCall env foreignCall arguments
+          case vars of
+            [] -> pure lines'
+            [_] -> storeOne lines'
+            _ -> lift (Left (CUnsupportedExpression ("byte array primitive result arity " <> name)))
     GrinPrimitiveCall {}
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) -> do
           zeroResults <- forM vars $ \var -> do

@@ -14,10 +14,12 @@ module Aihc.Native
     extractLinkInterface,
     hostNativeTarget,
     nativeTargetTriple,
+    nativeRuntimePrimitiveCall,
     parseNativeTarget,
     renderNativeTarget,
     runtimeSourcePath,
     snapshotSourcePath,
+    supportedNativePrimitiveNames,
   )
 where
 
@@ -136,6 +138,63 @@ runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
 
 snapshotSourcePath :: IO FilePath
 snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
+
+-- | Primitive operations implemented directly by every native backend or by
+-- the shared runtime ABI.
+supportedNativePrimitiveNames :: [Text]
+supportedNativePrimitiveNames =
+  [ "+#",
+    "awaitIO#",
+    "fork#",
+    "realWorld#",
+    "yield#",
+    "newByteArray#",
+    "newPinnedByteArray#",
+    "newAlignedPinnedByteArray#",
+    "isMutableByteArrayPinned#",
+    "isByteArrayPinned#",
+    "byteArrayContents#",
+    "mutableByteArrayContents#",
+    "shrinkMutableByteArray#",
+    "resizeMutableByteArray#",
+    "unsafeFreezeByteArray#",
+    "unsafeThawByteArray#",
+    "sizeofByteArray#",
+    "getSizeofMutableByteArray#",
+    "copyAddrToByteArray#"
+  ]
+
+-- | Runtime call used to implement a byte-array primitive. Freeze and thaw are
+-- representation-preserving and therefore deliberately have no runtime call.
+nativeRuntimePrimitiveCall :: Text -> Maybe GrinForeignCall
+nativeRuntimePrimitiveCall name =
+  case name of
+    "newByteArray#" -> call "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr
+    "newPinnedByteArray#" -> call "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr
+    "newAlignedPinnedByteArray#" -> call "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr
+    "isMutableByteArrayPinned#" -> call "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64
+    "isByteArrayPinned#" -> call "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64
+    "byteArrayContents#" -> call "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr
+    "mutableByteArrayContents#" -> call "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr
+    "shrinkMutableByteArray#" -> call "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
+    "resizeMutableByteArray#" -> call "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr
+    "sizeofByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
+    "getSizeofMutableByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
+    "copyAddrToByteArray#" -> call "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    _ -> Nothing
+  where
+    call symbol arguments result =
+      Just
+        GrinForeignCall
+          { grinForeignCallName = "$runtime$" <> symbol,
+            grinForeignCallSymbol = symbol,
+            grinForeignCallSignature =
+              GrinForeignSignature
+                { grinForeignArgumentTypes = arguments,
+                  grinForeignResultType = result,
+                  grinForeignEffect = GrinForeignPure
+                }
+          }
 
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =

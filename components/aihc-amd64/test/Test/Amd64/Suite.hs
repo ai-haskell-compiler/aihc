@@ -661,9 +661,8 @@ testNativeStdioScheduler = do
       Right value -> pure value
       Left err -> assertFailure ("AMD64 stdio scheduler lowering failed: " <> show err)
   assertBool "emits generic IO suspension transfer" ("call aihc_await_io" `T.isInfixOf` assembly)
-  assertBool "allocates a stable IO buffer" ("call aihc_io_buffer_new" `T.isInfixOf` assembly)
-  assertBool "reads an IO buffer byte" ("call aihc_io_buffer_get" `T.isInfixOf` assembly)
-  assertBool "writes an IO buffer byte" ("call aihc_io_buffer_set" `T.isInfixOf` assembly)
+  assertBool "allocates a pinned byte array" ("call aihc_byte_array_new_pinned" `T.isInfixOf` assembly)
+  assertBool "obtains the byte-array payload" ("call aihc_byte_array_contents" `T.isInfixOf` assembly)
   assertBool "obtains stdin through the runtime ABI" ("call aihc_io_stdin" `T.isInfixOf` assembly)
   assertBool "obtains stdout through the runtime ABI" ("call aihc_io_stdout" `T.isInfixOf` assembly)
   assertBool "submits a generic read through the runtime ABI" ("call aihc_io_submit_read" `T.isInfixOf` assembly)

@@ -260,6 +260,8 @@ fixedTyConKind :: Text -> Maybe Kind
 fixedTyConKind name =
   case name of
     "State#" -> Just (KFun liftedTypeKind (KTYPE (TupleRep [])))
+    "ByteArray#" -> Just (KTYPE (BoxedRep Unlifted))
+    "MutableByteArray#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
     "MutVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
     "ThreadId#" -> Just (KTYPE (BoxedRep Unlifted))
     _
