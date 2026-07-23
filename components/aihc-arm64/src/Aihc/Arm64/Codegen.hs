@@ -789,6 +789,23 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                ]
         )
         (BlockLayout.Jump ".Laihc_resume")
+    ("awaitIO#", [request]) -> do
+      requestSlot <- freshSlot
+      requestLines <- liftEither (materializeValue env request)
+      addBlock
+        label
+        ( prefix
+            <> requestLines
+            <> [storeAt "x0" "x19" requestSlot]
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 loadAt "x1" "x19" requestSlot,
+                 loadAt "x2" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_await_io"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
     _ -> lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
@@ -1554,7 +1571,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["+#", "fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"] = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 

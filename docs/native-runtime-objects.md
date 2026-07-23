@@ -57,10 +57,59 @@ Exceptions have no native heap tag or object representation. They are removed
 before native runtime lowering. The final physical tag is the semispace
 collector's temporary forwarding marker.
 
-The cooperative scheduler keeps thread records, blackhole records, and wait
-queues in auxiliary C allocations. Suspended threads retain ordinary action or
-continuation closures, which are expanded into one machine-owned argument area
-only when the scheduler selects them. The machine likewise reuses one locals
-area because CPS transfers discard the preceding function frame. The current
-argument area's static info table and trailing-pointer count let the semispace
-collector relocate its roots precisely.
+The cooperative scheduler keeps thread records, blackhole records, wait queues,
+and pending IO requests in auxiliary C allocations. Suspended threads retain
+ordinary action or continuation closures, which portable C expands into its
+reusable argument buffer only when selected. Native backends resume the same
+records through their register convention. The machine reuses one locals area
+because CPS transfers discard the preceding function frame; all retained
+closure values and pending-request continuations are precise collector roots.
+
+## IO manager
+
+The runtime ABI separates operation submission, scheduler suspension, and
+result consumption:
+
+1. An ordinary foreign call allocates an opaque request in the `submitted`
+   state without blocking.
+2. `awaitIO#` asks the configured backend to make progress. Immediate
+   completions continue directly; otherwise the request becomes `pending` and
+   retains the current green thread and continuation.
+3. Backend polling changes a ready request to `completed` and enqueues its
+   thread. A final ordinary foreign call takes the result, changes the request
+   to `consumed`, and releases it.
+
+Backend workers or readiness mechanisms produce only native completion data;
+Haskell continuations are always reconstructed and enqueued on the scheduler
+thread. This prevents moving-heap pointers from escaping to an asynchronous
+backend. Pending requests are collector roots only for their saved continuation
+and thread resume record. The opaque request pointer itself has `Addr#`
+representation and is not traced as a Haskell heap pointer.
+
+IO operations target opaque runtime-owned handles rather than OS descriptor
+numbers. Standard input and output are the first preopened handles, while each
+backend owns their platform representation. The POSIX backend stores a file
+descriptor in each handle, sets it nonblocking, and uses `poll` when buffer
+reads or writes report that they would block. Windows can instead store `HANDLE` or
+`SOCKET` resources without exposing either representation to generated code.
+
+Reads and writes operate on an offset and length within an opaque `IOBuffer`.
+The proof-of-concept runtime allocates each buffer outside the Haskell heap and
+does not release it. A request retains that stable allocation through
+completion. Callers must not access the submitted slice while the request is
+pending. A later pinned `MutableByteArray#` implementation can replace this
+allocation without changing `awaitIO#` or the backend request model.
+
+`copyAddrToIOBuffer` copies an explicit number of bytes from an `Addr#` into a
+bounds-checked destination slice. It does not scan for a terminating zero. The
+source address must remain valid until the synchronous copy returns; only the
+stable `IOBuffer` is retained by later asynchronous requests.
+
+A non-negative request result is the number of transferred bytes. A non-empty
+read returns zero at end-of-file. Either operation can return fewer bytes than
+requested, so the future `Handle` layer must resubmit the remaining slice when
+it requires a complete transfer. Errors use `-(errno + 1)` in the POSIX proof
+of concept. `GHC.Event` owns only generic suspension. `GHC.IO.StdHandles`
+exposes buffer allocation, address and indexed byte access, handle operations,
+and the standard handles. Text encoding, locking, transfer loops, and full
+`Handle` semantics remain above this boundary.

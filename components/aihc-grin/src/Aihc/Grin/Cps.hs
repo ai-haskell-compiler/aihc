@@ -418,7 +418,8 @@ exprUniques expression =
     GrinForeignCallExpr _ arguments -> concatMap valueUniques arguments
 
 isControlPrimitive :: T.Text -> Bool
-isControlPrimitive name = name == "fork#" || name == "yield#"
+isControlPrimitive name =
+  name `elem` ["awaitIO#", "fork#", "yield#"]
 
 alternativeUniques :: GrinAlt -> [Int]
 alternativeUniques alternative =

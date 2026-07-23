@@ -168,8 +168,8 @@ grinUnitTests =
           "primitive calls stay direct"
           Set.empty
           (cpsContinuationFunctions primitiveCps `Set.difference` Set.singleton (cpsUpdateFunction primitiveCps)),
-      testCase "CPS-GRIN reifies scheduler primitive continuations" $ do
-        forM_ ["fork#", "yield#"] $ \name -> do
+      testCase "CPS-GRIN reifies scheduler and generic IO continuations" $ do
+        forM_ ["awaitIO#", "fork#", "yield#"] $ \name -> do
           cps <- expectCpsGrin (controlPrimitiveBindProgram name)
           let program = cpsGrinProgram cps
           assertEqual "transformed lint" [] (lintProgram program)
@@ -1594,6 +1594,14 @@ controlPrimitiveBindProgram name =
           ( 2,
             [GrinVar "thread_id" 2 (BoxedRep Unlifted)],
             GrinPrimitiveCall (TupleRep [TupleRep [], BoxedRep Unlifted]) name [GrinLitValue (GrinLitString "action")]
+          )
+        "awaitIO#" ->
+          ( 2,
+            [],
+            GrinPrimitiveCall
+              (TupleRep [])
+              name
+              [GrinLitValue (GrinLitAddr "request")]
           )
         _ -> (1, [], GrinPrimitiveCall (TupleRep []) name [])
 

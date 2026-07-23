@@ -33,6 +33,10 @@ typedef struct AihcMachine AihcMachine;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
+typedef struct AihcIoHandle AihcIoHandle;
+typedef struct AihcIoBuffer AihcIoBuffer;
+typedef struct AihcIoRequest AihcIoRequest;
+typedef struct AihcIoBackend AihcIoBackend;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
 
@@ -91,6 +95,10 @@ struct AihcMachine {
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
+  AihcIoRequest *io_requests_head;
+  AihcIoRequest *io_requests_tail;
+  uint64_t io_request_count;
+  const AihcIoBackend *io_backend;
   uint64_t allocation_count;
   AihcSlot *locals;
   uint64_t locals_capacity;
@@ -161,7 +169,23 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
 const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation);
+const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
+                                AihcValue *continuation);
 const AihcResume *aihc_thread_done(AihcMachine *machine);
+void *aihc_io_stdin(void);
+void *aihc_io_stdout(void);
+/* Proof-of-concept buffers are stable auxiliary allocations and are not
+   released. A submitted request retains its buffer through completion. */
+void *aihc_io_buffer_new(int32_t capacity);
+int32_t aihc_io_buffer_get(void *buffer, int32_t index);
+int32_t aihc_io_buffer_set(void *buffer, int32_t index, int32_t byte);
+int32_t aihc_io_buffer_copy_from_addr(void *source, void *buffer,
+                                      int32_t offset, int32_t length);
+void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
+                          int32_t length);
+void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,
+                           int32_t length);
+int32_t aihc_io_take_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
@@ -188,6 +212,9 @@ AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
 AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
                                              AihcSlot *buffer,
                                              AihcValue *continuation);
+AihcPortableTransfer aihc_portable_await_io_cps(AihcMachine *machine,
+                                                AihcSlot *buffer, void *request,
+                                                AihcValue *continuation);
 AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine,
                                                AihcSlot *buffer);
 AihcPortableTransfer

@@ -67,13 +67,26 @@ single tagged info-table pointer before their payload fields.
 
 ## Cooperative scheduling
 
-`fork#` and `yield#` are CPS primitive calls whose suspended computations are
-ordinary continuation closures. When the runtime prepares one for entry, its
-expanded arguments live briefly in the machine's reusable argument area. The
-continuation resumes through the same apply/entry mechanism as any other
-continuation. Runnable and blackhole-blocked threads retain the closure values
-needed to resume, so those ordinary heap pointers are collector roots without
-introducing a native stack-scanning convention.
+`fork#`, `yield#`, and the operation-independent `awaitIO#` are CPS primitive
+calls. Concrete IO operations are ordinary foreign calls which submit opaque
+runtime requests over stable `IOBuffer` slices and later consume their results.
+Consequently, adding a file, socket, timer, or process operation does not
+require a new compiler primitive.
+
+Suspended computations remain ordinary continuation closures. Runnable and
+blackhole-blocked threads retain those closure values in runtime resume
+records; pending IO requests retain the blocked thread and continuation until
+the backend reports completion. These ordinary heap pointers are collector
+roots, so scheduling does not introduce a native stack-scanning convention.
+Each request also retains its unmanaged buffer allocation and slice. That
+allocation cannot move while a backend owns its address and is not a collector
+root.
+
+The central scheduler drains ready requests before selecting a runnable thread
+and blocks in the configured IO backend only when requests are pending and no
+green thread can run. The first native backend uses POSIX `poll`; the request
+boundary is intended to admit io-uring, IOCP, kqueue, and WASI implementations
+without changing Haskell code, System FC, or CPS-GRIN.
 
 Native saturated applications bypass that area: the closure's application-stage
 info table selects generated code which loads captured fields and supplied

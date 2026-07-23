@@ -3,7 +3,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
-  ( catch#,
+  ( awaitIO#,
+    catch#,
     compareInt#,
     fork#,
     MutVar#,
@@ -49,6 +50,10 @@ foreign import prim
     (# State# RealWorld, ThreadId# #)
 
 foreign import prim yield# :: State# RealWorld -> State# RealWorld
+
+-- | Suspend the current green thread until an opaque runtime IO request has
+-- completed. Concrete IO operations are ordinary runtime foreign calls.
+foreign import prim awaitIO# :: Addr# -> State# RealWorld -> State# RealWorld
 
 foreign import prim
   catch# ::

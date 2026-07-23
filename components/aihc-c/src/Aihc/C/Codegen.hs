@@ -203,7 +203,7 @@ validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . g
 
 validatePrimitiveNames :: [Text] -> Either CError ()
 validatePrimitiveNames = mapM_ $ \name ->
-  if name `elem` ["+#", "fork#", "realWorld#", "yield#"]
+  if name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"]
     then Right ()
     else Left (CUnsupportedPrimitive name)
 
@@ -272,7 +272,7 @@ compileEnvironment unitKind layout program =
     third (_, _, value) = value
 
 portableArgumentCapacity :: LinkLayout -> Int
-portableArgumentCapacity layout = max 3 (linkMaximumArgumentSlots layout)
+portableArgumentCapacity layout = max 3 (linkMaximumArgumentSlots layout + 1)
 
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
 requiredNodeConstructorInfos node =
@@ -419,6 +419,7 @@ compileExpr env prefix label expression =
 compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
 compileCpsPrimitive env prefix label name arguments continuation =
   case (name, arguments) of
+    ("awaitIO#", [request]) -> transfer "aihc_portable_await_io_cps" [request, continuation]
     ("fork#", [action]) -> transfer "aihc_portable_fork_cps" [action, continuation]
     ("yield#", []) -> transfer "aihc_portable_yield_cps" [continuation]
     _
